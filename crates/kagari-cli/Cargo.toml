@@ -1,0 +1,13 @@
+[package]
+name = "kagari-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-common.workspace = true
+kagari-ir.workspace = true
+kagari-runtime.workspace = true
+kagari-sema.workspace = true
+kagari-syntax.workspace = true
+kagari-vm.workspace = true

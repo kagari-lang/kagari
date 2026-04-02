@@ -1,0 +1,24 @@
+[workspace]
+members = [
+    "crates/kagari-cli",
+    "crates/kagari-common",
+    "crates/kagari-ir",
+    "crates/kagari-runtime",
+    "crates/kagari-sema",
+    "crates/kagari-syntax",
+    "crates/kagari-vm",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+kagari-common = { path = "crates/kagari-common" }
+kagari-ir = { path = "crates/kagari-ir" }
+kagari-runtime = { path = "crates/kagari-runtime" }
+kagari-sema = { path = "crates/kagari-sema" }
+kagari-syntax = { path = "crates/kagari-syntax" }
+kagari-vm = { path = "crates/kagari-vm" }

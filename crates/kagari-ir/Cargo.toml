@@ -1,0 +1,8 @@
+[package]
+name = "kagari-ir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-sema.workspace = true
