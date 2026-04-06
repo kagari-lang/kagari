@@ -14,6 +14,7 @@ The main goal is to define a practical execution pipeline that fits Kagari's cur
 
 Backend abstraction direction is drafted separately in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
 Bytecode design direction is drafted separately in [bytecode.md](/Users/mikai/CLionProjects/kagari/docs/spec/bytecode.md).
+Module execution direction is drafted separately in [modules.md](/Users/mikai/CLionProjects/kagari/docs/spec/modules.md).
 
 ## Design Goals
 

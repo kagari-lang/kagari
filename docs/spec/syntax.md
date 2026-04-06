@@ -30,6 +30,7 @@ This document does not yet finalize:
 - async or coroutine syntax
 - full generic constraints
 - module resolution semantics
+- the final const and static evaluation rules
 
 Trait-system direction is drafted separately in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
 Reflection direction is drafted separately in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
@@ -37,6 +38,7 @@ Security direction is drafted separately in [security.md](/Users/mikai/CLionProj
 Host interop direction is drafted separately in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
 Runtime model direction is drafted separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
 Execution model direction is drafted separately in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
+Module execution direction is drafted separately in [modules.md](/Users/mikai/CLionProjects/kagari/docs/spec/modules.md).
 
 ## Grammar Notation
 
@@ -88,6 +90,7 @@ The following keywords are reserved in this draft:
 
 - `as`
 - `break`
+- `const`
 - `continue`
 - `crate`
 - `else`
@@ -109,6 +112,7 @@ The following keywords are reserved in this draft:
 - `ref`
 - `return`
 - `self`
+- `static`
 - `struct`
 - `super`
 - `true`
@@ -498,6 +502,7 @@ index_suffix    ::= "[" expr "]" ;
 
 primary_expr    ::= literal
                   | path
+                  | readonly_expr
                   | parenthesized_expr
                   | tuple_expr
                   | array_expr
@@ -505,6 +510,8 @@ primary_expr    ::= literal
                   | closure_expr
                   | match_expr
                   | block ;
+
+readonly_expr   ::= "readonly" "(" expr ")" ;
 
 parenthesized_expr
                 ::= "(" expr ")" ;

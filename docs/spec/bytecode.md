@@ -171,11 +171,16 @@ The current `ConstantOperand` model is small and inline.
 
 That is acceptable for the current stage.
 
-Later revisions may move string-heavy or aggregate-heavy constants into a constant pool if:
+For the current language model, `LoadConst` is primarily aimed at small scalar operands.
+
+Later revisions may move string-heavy or other large inline operands into a constant pool if:
 
 - serialized artifact size matters
 - deduplication becomes worthwhile
 - VM loading cost needs to be reduced
+
+This should not be read as a commitment that `const` items produce heap-backed frozen objects.
+Aggregate runtime values are still expected to be built through explicit construction instructions unless the runtime model is later extended.
 
 ## Worked Examples
 

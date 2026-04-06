@@ -112,22 +112,55 @@ The important point is that reflection should be a registered capability, not an
 
 ## Baseline Runtime API
 
-The smallest useful reflection API should include:
+The smallest useful reflection API should include a very small entry surface.
+
+Recommended user-facing direction:
 
 - `type_of(value) -> TypeInfo`
-- `TypeInfo.id`
-- `TypeInfo.name`
-- `TypeInfo.kind`
-- `TypeInfo.fields`
-- `TypeInfo.methods`
-- `TypeInfo.variants`
+- `TypeInfo.id()`
+- `TypeInfo.name()`
+- `TypeInfo.kind()`
+- `TypeInfo.fields()`
+- `TypeInfo.methods()`
+- `TypeInfo.variants()`
 
 Example:
 
 ```kagari
 let ty = type_of(player);
-print(ty.name);
+print(ty.name());
 ```
+
+The intent is to keep built-in reflection entrypoints minimal.
+Once a script has a `TypeInfo`, most further reflection should look like ordinary method calls on ordinary runtime objects, not a large family of special forms or special keywords.
+
+## User-Facing API Shape
+
+The recommended surface shape is:
+
+- keep the number of reflection builtins very small
+- prefer returning reflection objects such as `TypeInfo` and `FieldInfo`
+- expose operations through methods on those objects
+
+Recommended direction:
+
+```kagari
+let ty = type_of(player);
+let field = ty.field("hp");
+
+print(ty.name());
+print(field.name());
+print(field.get(player));
+field.set(player, 100);
+```
+
+This keeps reflection aligned with the rest of the language:
+
+- one small entry builtin such as `type_of`
+- ordinary method calls after that
+- no need for many special reflection keywords
+
+The internal runtime may still use helper operations such as `ReflectGetField` or `ReflectSetField`, but those should be treated as implementation detail, not the preferred user-facing surface.
 
 ## Type Kinds
 
@@ -146,19 +179,14 @@ This does not need to imply a user-visible exhaustive enum in v1, but the metada
 
 Field reflection is one of the highest-value features and should be supported in a controlled way.
 
-Suggested API shape:
-
-```kagari
-value.get_field("hp")
-value.set_field("hp", 100)
-```
-
-Or, if reflection is centralized:
+Recommended user-facing API shape:
 
 ```kagari
 let ty = type_of(value);
-ty.get_field(value, "hp")
-ty.set_field(value, "hp", 100)
+let field = ty.field("hp");
+
+field.get(value)
+field.set(value, 100)
 ```
 
 Recommended behavior:
@@ -181,8 +209,11 @@ Suggested capabilities:
 Possible API direction:
 
 ```kagari
-value.variant_name()
-value.variant_fields()
+let ty = type_of(value);
+let variant = ty.active_variant(value);
+
+print(variant.name());
+print(variant.fields());
 ```
 
 This is especially useful for debuggers, inspectors, and serialization helpers.
@@ -300,12 +331,11 @@ If the language later grows stronger visibility boundaries, reflection should co
 The first usable reflection version should include:
 
 - `type_of`
-- `TypeInfo` with `id`, `name`, and `kind`
-- field metadata
-- enum variant metadata
+- `TypeInfo` with `id()`, `name()`, and `kind()`
+- `FieldInfo`
+- enum variant metadata objects
 - optional trait implementation metadata
-- controlled `get_field`
-- controlled `set_field`
+- controlled field read and write through reflection objects
 - shared type identity with `dyn Trait`, `is<T>`, and `downcast<T>`
 
 ## Recommended v1 Exclusions
@@ -354,6 +384,16 @@ VariantInfo {
 ```
 
 This is only a conceptual model, but it is a useful target for runtime and tooling design.
+
+The recommended script-facing mapping is:
+
+- `type_of(value) -> TypeInfo`
+- `TypeInfo.field(name) -> FieldInfo?`
+- `FieldInfo.get(value) -> Value`
+- `FieldInfo.set(value, next) -> Value`
+- `TypeInfo.active_variant(value) -> VariantInfo?`
+
+This keeps the reflection surface object-oriented and avoids expanding the core language with many reflection-specific forms.
 
 ## Recommended Implementation Order
 

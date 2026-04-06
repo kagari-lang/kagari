@@ -82,6 +82,9 @@ These include:
 - script-owned aggregate values
 - dynamic trait objects, if represented as storable heap values
 
+This category describes runtime values in general, not `const` item eligibility.
+In the current module model, `const` items are compile-time by-value scalars only and do not materialize frozen GC-backed objects.
+
 ### Ephemeral Values
 
 Ephemeral values are runtime values that must not escape a frame boundary.
@@ -123,6 +126,9 @@ The exact enum does not matter as much as preserving:
 - clear separation between GC-managed and non-GC-managed values
 - a representation for dynamic interface objects
 - a representation for frame-scoped host borrows
+
+One important consequence is that Kagari does not currently require a runtime notion of "read-only heap object" just to support `const`.
+If a future design needs shared frozen objects, that should be modeled explicitly rather than folded into ordinary `const` items.
 
 ## GC Heap
 
