@@ -1,0 +1,420 @@
+(* Kagari draft grammar *)
+(* This file is a compact single-file EBNF view of the current syntax draft. *)
+(* `mut` controls whether a variable binding may be rebound; it is not a Rust-style borrow marker. *)
+
+module              ::= item* EOF ;
+
+item                ::= attribute* item_decl ;
+
+item_decl           ::= use_decl
+                      | module_decl
+                      | function_item
+                      | struct_item
+                      | enum_item
+                      | trait_item
+                      | impl_block ;
+
+function_item       ::= visibility? function_decl ;
+
+struct_item         ::= visibility? struct_decl ;
+
+enum_item           ::= visibility? enum_decl ;
+
+visibility          ::= "pub" ;
+
+attribute           ::= reflect_attribute
+                      | security_attribute
+                      | "@" path attribute_args? ;
+
+reflect_attribute   ::= "@reflect" attribute_args? ;
+
+security_attribute  ::= "@requires" attribute_args?
+                      | "@profile" attribute_args? ;
+
+attribute_args      ::= "(" attribute_arg_list? ")" ;
+
+attribute_arg_list  ::= attribute_arg ("," attribute_arg)* (",")? ;
+
+attribute_arg       ::= IDENT "=" attribute_value
+                      | attribute_value ;
+
+attribute_value     ::= literal
+                      | path
+                      | "[" attribute_arg_list? "]" ;
+
+function_decl       ::= "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
+
+generic_param_clause ::= "<" generic_param ("," generic_param)* (",")? ">" ;
+
+generic_param       ::= IDENT (":" type_bound_list)? ;
+
+type_bound_list     ::= type_bound ("+" type_bound)* ;
+
+type_bound          ::= trait_ref ;
+
+param_list          ::= param ("," param)* (",")? ;
+
+param               ::= param_mode? IDENT ":" type ;
+
+param_mode          ::= "ref" ;
+
+return_type         ::= "->" type ;
+
+module_decl         ::= visibility? "mod" IDENT (";" | module_block) ;
+
+module_block        ::= "{" item* "}" ;
+
+use_decl            ::= visibility? "use" use_tree ";" ;
+
+use_tree            ::= use_path use_tail?
+                      | "{" use_tree_list? "}" ;
+
+use_tail            ::= "as" IDENT
+                      | "::" "*"
+                      | "::" "{" use_tree_list? "}" ;
+
+use_tree_list       ::= use_tree ("," use_tree)* (",")? ;
+
+use_path            ::= path ;
+
+struct_decl         ::= "struct" IDENT generic_param_clause? "{" field_list? "}" ;
+
+field_list          ::= field ("," field)* (",")? ;
+
+field               ::= attribute* visibility? IDENT ":" type ;
+
+enum_decl           ::= "enum" IDENT generic_param_clause? "{" variant_list? "}" ;
+
+variant_list        ::= variant ("," variant)* (",")? ;
+
+variant             ::= IDENT
+                      | IDENT "(" type_list? ")" ;
+
+trait_item          ::= visibility? trait_decl ;
+
+trait_decl          ::= "trait" IDENT generic_param_clause? "{" trait_member* "}" ;
+
+trait_member        ::= attribute* method_sig ";" ;
+
+method_sig          ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
+
+type_list           ::= type ("," type)* (",")? ;
+
+type                ::= path generic_args?
+                      | dyn_type
+                      | array_type
+                      | tuple_type ;
+
+dyn_type            ::= "dyn" trait_ref ;
+
+array_type          ::= "[" type "]"
+                      | "[" type ";" INTEGER "]" ;
+
+tuple_type          ::= "(" type_list? ")" ;
+
+generic_args        ::= "<" type ("," type)* (",")? ">" ;
+
+path                ::= path_segment ("::" path_segment)* ;
+
+path_segment        ::= IDENT
+                      | "self"
+                      | "super"
+                      | "crate"
+                      | "Self" ;
+
+where_clause        ::= "where" where_predicate ("," where_predicate)* (",")? ;
+
+where_predicate     ::= path_segment ":" type_bound_list ;
+
+trait_ref           ::= path generic_args? ;
+
+impl_block          ::= inherent_impl
+                      | trait_impl ;
+
+inherent_impl       ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
+
+trait_impl          ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" impl_item* "}" ;
+
+impl_item           ::= attribute* visibility? method_decl ;
+
+method_decl         ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+
+method_param_list   ::= receiver_param ("," param_list)? (",")?
+                      | param_list ;
+
+receiver_param      ::= "self"
+                      | "mut" "self"
+                      | "ref" "self" ;
+
+block               ::= "{" stmt* expr? "}" ;
+
+stmt                ::= let_stmt
+                      | assign_stmt
+                      | expr_stmt
+                      | return_stmt
+                      | if_stmt
+                      | while_stmt
+                      | loop_stmt
+                      | for_stmt
+                      | break_stmt
+                      | continue_stmt
+                      | block ;
+
+let_stmt            ::= "let" mutability? IDENT type_annotation? init_expr? ";" ;
+
+mutability          ::= "mut" ;
+
+type_annotation     ::= ":" type ;
+
+init_expr           ::= "=" expr ;
+
+assign_stmt         ::= place_expr assign_op expr ";" ;
+
+assign_op           ::= "="
+                      | "+="
+                      | "-="
+                      | "*="
+                      | "/=" ;
+
+expr_stmt           ::= expr ";" ;
+
+return_stmt         ::= "return" expr? ";" ;
+
+if_stmt             ::= "if" condition block ("else" (if_stmt | block))? ;
+
+while_stmt          ::= "while" condition block ;
+
+loop_stmt           ::= "loop" block ;
+
+for_stmt            ::= "for" pattern "in" expr block ;
+
+break_stmt          ::= "break" expr? ";" ;
+
+continue_stmt       ::= "continue" ";" ;
+
+condition           ::= let_condition
+                      | expr ;
+
+let_condition       ::= "let" pattern "=" expr ;
+
+expr                ::= range_expr ;
+
+range_expr          ::= logic_or_expr (range_op logic_or_expr)? ;
+
+range_op            ::= ".."
+                      | "..=" ;
+
+logic_or_expr       ::= logic_and_expr ("||" logic_and_expr)* ;
+
+logic_and_expr      ::= equality_expr ("&&" equality_expr)* ;
+
+equality_expr       ::= compare_expr (("==" | "!=") compare_expr)* ;
+
+compare_expr        ::= additive_expr (("<" | "<=" | ">" | ">=") additive_expr)* ;
+
+additive_expr       ::= multiplicative_expr (("+" | "-") multiplicative_expr)* ;
+
+multiplicative_expr ::= unary_expr (("*" | "/" | "%") unary_expr)* ;
+
+unary_expr          ::= ("!" | "-") unary_expr
+                      | postfix_expr ;
+
+postfix_expr        ::= primary_expr postfix_op* ;
+
+postfix_op          ::= call_suffix
+                      | field_suffix
+                      | index_suffix ;
+
+call_suffix         ::= "(" arg_list? ")" ;
+
+arg_list            ::= arg ("," arg)* (",")? ;
+
+arg                 ::= "ref" place_expr
+                      | expr ;
+
+field_suffix        ::= "." IDENT ;
+
+index_suffix        ::= "[" expr "]" ;
+
+primary_expr        ::= literal
+                      | path
+                      | parenthesized_expr
+                      | tuple_expr
+                      | array_expr
+                      | struct_expr
+                      | closure_expr
+                      | match_expr
+                      | block ;
+
+parenthesized_expr  ::= "(" expr ")" ;
+
+tuple_expr          ::= "(" expr "," expr_list? ")" ;
+
+expr_list           ::= expr ("," expr)* (",")? ;
+
+array_expr          ::= "[" expr_list? "]" ;
+
+struct_expr         ::= path generic_args? "{" field_init_list? "}" ;
+
+field_init_list     ::= field_init ("," field_init)* (",")? ;
+
+field_init          ::= IDENT
+                      | IDENT ":" expr ;
+
+closure_expr        ::= "|" closure_param_list? "|" closure_body ;
+
+closure_param_list  ::= closure_param ("," closure_param)* (",")? ;
+
+closure_param       ::= IDENT (":" type)? ;
+
+closure_body        ::= expr
+                      | block ;
+
+match_expr          ::= "match" expr "{" match_arm_list? "}" ;
+
+match_arm_list      ::= match_arm ("," match_arm)* (",")? ;
+
+match_arm           ::= pattern match_guard? "=>" match_body ;
+
+match_guard         ::= "if" expr ;
+
+match_body          ::= expr
+                      | block ;
+
+pattern             ::= "_"
+                      | literal
+                      | path
+                      | tuple_struct_pattern
+                      | struct_pattern
+                      | tuple_pattern ;
+
+tuple_pattern       ::= "(" pattern_list? ")" ;
+
+pattern_list        ::= pattern ("," pattern)* (",")? ;
+
+tuple_struct_pattern ::= path "(" pattern_list? ")" ;
+
+struct_pattern      ::= path "{" field_pattern_list? "}" ;
+
+field_pattern_list  ::= field_pattern ("," field_pattern)* (",")? ;
+
+field_pattern       ::= IDENT
+                      | IDENT ":" pattern ;
+
+place_expr          ::= path place_suffix*
+                      | parenthesized_place_expr ;
+
+parenthesized_place_expr
+                    ::= "(" place_expr ")" ;
+
+place_suffix        ::= "." IDENT
+                      | "[" expr "]" ;
+
+literal             ::= INTEGER
+                      | FLOAT
+                      | STRING
+                      | "true"
+                      | "false" ;
+
+(* Lexical structure *)
+
+WHITESPACE          ::= (" " | "\t" | "\n" | "\r")+ ;
+
+LINE_COMMENT        ::= "//" LINE_TEXT? LINE_END ;
+
+BLOCK_COMMENT       ::= "/*" BLOCK_COMMENT_TEXT? "*/" ;
+
+IDENT               ::= IDENT_START IDENT_CONTINUE* ;
+
+IDENT_START         ::= "_" | ASCII_LETTER ;
+
+IDENT_CONTINUE      ::= IDENT_START | DIGIT ;
+
+INTEGER             ::= DEC_INTEGER
+                      | BIN_INTEGER
+                      | OCT_INTEGER
+                      | HEX_INTEGER ;
+
+DEC_INTEGER         ::= DIGIT (DIGIT | "_")* ;
+
+BIN_INTEGER         ::= "0b" BIN_DIGIT (BIN_DIGIT | "_")* ;
+
+OCT_INTEGER         ::= "0o" OCT_DIGIT (OCT_DIGIT | "_")* ;
+
+HEX_INTEGER         ::= "0x" HEX_DIGIT (HEX_DIGIT | "_")* ;
+
+FLOAT               ::= DEC_INTEGER "." DIGIT (DIGIT | "_")* EXPONENT?
+                      | DEC_INTEGER EXPONENT ;
+
+EXPONENT            ::= ("e" | "E") ("+" | "-")? DIGIT (DIGIT | "_")* ;
+
+STRING              ::= "\"" STRING_CHAR* "\"" ;
+
+STRING_CHAR         ::= ESCAPE_SEQUENCE
+                      | STRING_TEXT_CHAR ;
+
+ESCAPE_SEQUENCE     ::= "\\" ("\"" | "\\" | "n" | "r" | "t" | "0")
+                      | UNICODE_ESCAPE ;
+
+UNICODE_ESCAPE      ::= "\\u{" HEX_DIGIT+ "}" ;
+
+OPERATOR_TOKEN      ::= "+"
+                      | "-"
+                      | "*"
+                      | "/"
+                      | "%"
+                      | "!"
+                      | "="
+                      | "=="
+                      | "!="
+                      | "<"
+                      | "<="
+                      | ">"
+                      | ">="
+                      | "&&"
+                      | "||"
+                      | ".."
+                      | "..="
+                      | "->"
+                      | "=>"
+                      | "::"
+                      | "."
+                      | "+="
+                      | "-="
+                      | "*="
+                      | "/=" ;
+
+DELIMITER_TOKEN     ::= "("
+                      | ")"
+                      | "{"
+                      | "}"
+                      | "["
+                      | "]"
+                      | ","
+                      | ":"
+                      | ";"
+                      | "|"
+                      | "@" ;
+
+ASCII_LETTER        ::= "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M"
+                      | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
+                      | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m"
+                      | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" ;
+
+DIGIT               ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+BIN_DIGIT           ::= "0" | "1" ;
+
+OCT_DIGIT           ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+
+HEX_DIGIT           ::= DIGIT | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | "C" | "D" | "E" | "F" ;
+
+LINE_TEXT           ::= ? any scalar value except line terminators ? ;
+
+BLOCK_COMMENT_TEXT  ::= ? any scalar sequence accepted by block comments ? ;
+
+STRING_TEXT_CHAR    ::= ? any scalar value except `"` `\` and line terminators ? ;
+
+LINE_END            ::= "\n"
+                      | "\r\n"
+                      | EOF ;
