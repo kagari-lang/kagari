@@ -1,5 +1,5 @@
 use crate::{
-    ast::{macros::ast_node, misc::Name, support, traits::AstNode},
+    ast::{macros::ast_node, misc::Name, stmt::Stmt, support, traits::AstNode},
     kind::SyntaxKind,
     syntax_node::SyntaxNode,
 };
@@ -104,7 +104,7 @@ impl AstNode for Expr {
 }
 
 impl BlockExpr {
-    pub fn statements(&self) -> impl Iterator<Item = crate::ast::stmt::Stmt> {
+    pub fn statements(&self) -> impl Iterator<Item = Stmt> {
         support::children(self.syntax())
     }
 

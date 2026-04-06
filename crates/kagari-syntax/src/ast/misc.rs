@@ -1,5 +1,5 @@
 use crate::{
-    ast::{macros::ast_node, support, traits::AstNode},
+    ast::{macros::ast_node, support, traits::AstNode, ty::TypeRef},
     kind::SyntaxKind,
 };
 
@@ -32,7 +32,7 @@ impl Param {
         self.name().and_then(|name| name.text())
     }
 
-    pub fn ty(&self) -> Option<crate::ast::ty::TypeRef> {
+    pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 }
@@ -52,7 +52,7 @@ impl Field {
         self.name().and_then(|name| name.text())
     }
 
-    pub fn ty(&self) -> Option<crate::ast::ty::TypeRef> {
+    pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 }

@@ -1,5 +1,12 @@
 use crate::{
-    ast::{expr::Expr, macros::ast_node, misc::Name, support, traits::AstNode},
+    ast::{
+        expr::{BlockExpr, Expr, PathExpr},
+        macros::ast_node,
+        misc::Name,
+        support,
+        traits::AstNode,
+        ty::TypeRef,
+    },
     kind::SyntaxKind,
     syntax_node::SyntaxNode,
 };
@@ -77,7 +84,7 @@ impl LetStmt {
         self.name().and_then(|name| name.text())
     }
 
-    pub fn ty(&self) -> Option<crate::ast::ty::TypeRef> {
+    pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 
@@ -93,7 +100,7 @@ impl ReturnStmt {
 }
 
 impl AssignStmt {
-    pub fn target(&self) -> Option<crate::ast::expr::PathExpr> {
+    pub fn target(&self) -> Option<PathExpr> {
         support::child(self.syntax())
     }
 
@@ -107,20 +114,14 @@ impl WhileStmt {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    pub fn body(&self) -> Option<crate::ast::expr::BlockExpr> {
-        self.syntax()
-            .children()
-            .filter_map(crate::ast::expr::BlockExpr::cast)
-            .next()
+    pub fn body(&self) -> Option<BlockExpr> {
+        self.syntax().children().filter_map(BlockExpr::cast).next()
     }
 }
 
 impl LoopStmt {
-    pub fn body(&self) -> Option<crate::ast::expr::BlockExpr> {
-        self.syntax()
-            .children()
-            .filter_map(crate::ast::expr::BlockExpr::cast)
-            .next()
+    pub fn body(&self) -> Option<BlockExpr> {
+        self.syntax().children().filter_map(BlockExpr::cast).next()
     }
 }
 

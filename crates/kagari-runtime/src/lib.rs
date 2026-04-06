@@ -3,7 +3,7 @@ pub mod host;
 pub mod reload;
 pub mod value;
 
-use kagari_ir::IrModule;
+use kagari_ir::module::IrModule;
 
 use crate::{
     gc::{GcHeap, GcHeapConfig},

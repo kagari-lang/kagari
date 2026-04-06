@@ -6,8 +6,8 @@ license.workspace = true
 
 [dependencies]
 kagari-common.workspace = true
+kagari-hir.workspace = true
 kagari-ir.workspace = true
 kagari-runtime.workspace = true
-kagari-sema.workspace = true
 kagari-syntax.workspace = true
 kagari-vm.workspace = true

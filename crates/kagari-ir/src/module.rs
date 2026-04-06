@@ -1,6 +1,6 @@
-use kagari_sema::{BuiltinType, TypeId};
+use kagari_hir::types::{BuiltinType, TypeId};
 
-use crate::Instruction;
+use crate::bytecode::Instruction;
 
 #[derive(Debug, Clone)]
 pub struct IrModule {

@@ -19,9 +19,9 @@ name = "kagari-cli"
 version = "0.1.0"
 dependencies = [
  "kagari-common",
+ "kagari-hir",
  "kagari-ir",
  "kagari-runtime",
- "kagari-sema",
  "kagari-syntax",
  "kagari-vm",
 ]
@@ -31,10 +31,19 @@ name = "kagari-common"
 version = "0.1.0"
 
 [[package]]
+name = "kagari-hir"
+version = "0.1.0"
+dependencies = [
+ "kagari-common",
+ "kagari-syntax",
+ "smallvec",
+]
+
+[[package]]
 name = "kagari-ir"
 version = "0.1.0"
 dependencies = [
- "kagari-sema",
+ "kagari-hir",
  "smallvec",
 ]
 
@@ -43,15 +52,6 @@ name = "kagari-runtime"
 version = "0.1.0"
 dependencies = [
  "kagari-ir",
-]
-
-[[package]]
-name = "kagari-sema"
-version = "0.1.0"
-dependencies = [
- "kagari-common",
- "kagari-syntax",
- "smallvec",
 ]
 
 [[package]]

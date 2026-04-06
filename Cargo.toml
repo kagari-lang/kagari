@@ -2,9 +2,9 @@
 members = [
     "crates/kagari-cli",
     "crates/kagari-common",
+    "crates/kagari-hir",
     "crates/kagari-ir",
     "crates/kagari-runtime",
-    "crates/kagari-sema",
     "crates/kagari-syntax",
     "crates/kagari-vm",
 ]
@@ -17,9 +17,9 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 kagari-common = { path = "crates/kagari-common" }
+kagari-hir = { path = "crates/kagari-hir" }
 kagari-ir = { path = "crates/kagari-ir" }
 kagari-runtime = { path = "crates/kagari-runtime" }
-kagari-sema = { path = "crates/kagari-sema" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }
 smallvec = "1.15.1"

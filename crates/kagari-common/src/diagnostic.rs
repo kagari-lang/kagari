@@ -57,6 +57,26 @@ pub enum DiagnosticKind {
         function_name: String,
         position: TypePosition,
     },
+    InvalidAssignmentTarget,
+    AssignmentTypeMismatch {
+        expected: String,
+        found: String,
+    },
+    IfBranchTypeMismatch {
+        expected: String,
+        found: String,
+    },
+    MatchArmTypeMismatch {
+        expected: String,
+        found: String,
+    },
+    ReturnTypeMismatch {
+        function_name: String,
+        expected: String,
+        found: String,
+    },
+    BreakOutsideLoop,
+    ContinueOutsideLoop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +178,29 @@ impl Display for DiagnosticKind {
                 f,
                 "unknown return type `{type_name}` in function `{function_name}`"
             ),
+            Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
+            Self::AssignmentTypeMismatch { expected, found } => write!(
+                f,
+                "assignment type mismatch: expected `{expected}`, found `{found}`"
+            ),
+            Self::IfBranchTypeMismatch { expected, found } => write!(
+                f,
+                "if branch type mismatch: expected `{expected}`, found `{found}`"
+            ),
+            Self::MatchArmTypeMismatch { expected, found } => write!(
+                f,
+                "match arm type mismatch: expected `{expected}`, found `{found}`"
+            ),
+            Self::ReturnTypeMismatch {
+                function_name,
+                expected,
+                found,
+            } => write!(
+                f,
+                "return type mismatch in function `{function_name}`: expected `{expected}`, found `{found}`"
+            ),
+            Self::BreakOutsideLoop => write!(f, "`break` used outside of a loop"),
+            Self::ContinueOutsideLoop => write!(f, "`continue` used outside of a loop"),
         }
     }
 }

@@ -1,7 +1,10 @@
-use kagari_common::SourceFile;
+use kagari_common::{Diagnostic, SourceFile};
+use kagari_hir::analyze;
 use kagari_ir::lower_to_ir;
-use kagari_runtime::Runtime;
-use kagari_sema::analyze;
+use kagari_runtime::{
+    Runtime,
+    host::{HostFunction, HostParameter, HostPassingStyle},
+};
 use kagari_syntax::parse_module;
 use kagari_vm::Vm;
 
@@ -38,17 +41,15 @@ fn main() -> i32 {
     let ir = lower_to_ir(&typed);
 
     let mut runtime = Runtime::default();
-    runtime
-        .host_mut()
-        .register(kagari_runtime::host::HostFunction {
-            symbol: "host.log",
-            params: vec![kagari_runtime::host::HostParameter {
-                name: "message",
-                type_name: "str",
-                passing: kagari_runtime::host::HostPassingStyle::SharedBorrow,
-            }],
-            return_type: "unit",
-        });
+    runtime.host_mut().register(HostFunction {
+        symbol: "host.log",
+        params: vec![HostParameter {
+            name: "message",
+            type_name: "str",
+            passing: HostPassingStyle::SharedBorrow,
+        }],
+        return_type: "unit",
+    });
 
     let loaded = runtime.load_module(source.name(), ir);
     let mut vm = Vm::new(runtime);
@@ -68,7 +69,7 @@ fn main() -> i32 {
     println!("next step: flesh out expressions, statements, and a real type checker.");
 }
 
-fn print_diagnostics(diagnostics: &[kagari_common::Diagnostic]) {
+fn print_diagnostics(diagnostics: &[Diagnostic]) {
     for diagnostic in diagnostics {
         eprintln!("{diagnostic}");
     }
