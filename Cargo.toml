@@ -22,3 +22,4 @@ kagari-runtime = { path = "crates/kagari-runtime" }
 kagari-sema = { path = "crates/kagari-sema" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }
+smallvec = "1.15.1"

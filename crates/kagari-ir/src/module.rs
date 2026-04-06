@@ -4,15 +4,15 @@ use crate::Instruction;
 
 #[derive(Debug, Clone)]
 pub struct IrModule {
-    pub functions: Vec<IrFunction>,
+    pub functions: FunctionBuffer,
 }
 
 #[derive(Debug, Clone)]
 pub struct IrFunction {
     pub name: String,
-    pub params: Vec<IrParameter>,
+    pub params: ParameterBuffer,
     pub return_type: ValueType,
-    pub code: Vec<Instruction>,
+    pub code: InstructionBuffer,
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +20,10 @@ pub struct IrParameter {
     pub name: String,
     pub ty: ValueType,
 }
+
+pub type FunctionBuffer = smallvec::SmallVec<[IrFunction; 8]>;
+pub type ParameterBuffer = smallvec::SmallVec<[IrParameter; 4]>;
+pub type InstructionBuffer = smallvec::SmallVec<[Instruction; 16]>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueType {

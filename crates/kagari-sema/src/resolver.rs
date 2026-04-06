@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
-use kagari_common::Diagnostic;
-use kagari_syntax::ast::{self, Item};
+use kagari_common::{Diagnostic, DiagnosticKind};
+use kagari_syntax::ast::{self, AstNode, Item};
+use smallvec::SmallVec;
+
+use crate::BoxedDiagnosticBuffer;
 
 #[derive(Debug, Clone, Default)]
 pub struct NameTable {
@@ -14,27 +17,34 @@ impl NameTable {
     }
 }
 
-pub fn resolve_names(module: &ast::Module) -> Result<NameTable, Vec<Diagnostic>> {
+pub fn resolve_names(module: &ast::SourceFile) -> Result<NameTable, BoxedDiagnosticBuffer> {
     let mut names = NameTable::default();
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
-    for (index, item) in module.items.iter().enumerate() {
-        let Item::Function(function) = item;
-        if names
-            .functions
-            .insert(function.name.clone(), index)
-            .is_some()
-        {
-            diagnostics.push(Diagnostic::error(format!(
-                "duplicate function `{}`",
-                function.name
-            )));
+    for (index, item) in module.items().enumerate() {
+        let Item::FnDef(function) = item else {
+            continue;
+        };
+        let Some(name) = function.name_text() else {
+            diagnostics.push(Diagnostic::error(DiagnosticKind::MissingFunctionName));
+            continue;
+        };
+        if names.functions.insert(name.clone(), index).is_some() {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::DuplicateFunction { name })
+                    .with_span(syntax_span(&function)),
+            );
         }
     }
 
     if diagnostics.is_empty() {
         Ok(names)
     } else {
-        Err(diagnostics)
+        Err(Box::new(diagnostics))
     }
+}
+
+fn syntax_span(node: &impl AstNode) -> kagari_common::Span {
+    let range = node.syntax().text_range();
+    kagari_common::Span::new(range.start().into(), range.end().into())
 }

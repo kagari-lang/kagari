@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 kagari-common.workspace = true
 kagari-syntax.workspace = true
+smallvec.workspace = true

@@ -1,17 +1,20 @@
-use kagari_common::Diagnostic;
-use kagari_syntax::ast::{self, Item};
+use kagari_common::{Diagnostic, DiagnosticKind, TypePosition};
+use kagari_syntax::ast::{self, AstNode, Item};
+use smallvec::SmallVec;
 
-use crate::{resolver::NameTable, types::TypeId};
+use crate::{
+    BoxedDiagnosticBuffer, FunctionBuffer, ParameterBuffer, resolver::NameTable, types::TypeId,
+};
 
 #[derive(Debug, Clone)]
 pub struct TypedModule {
-    pub functions: Vec<TypedFunction>,
+    pub functions: FunctionBuffer,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypedFunction {
     pub name: String,
-    pub params: Vec<TypedParameter>,
+    pub params: ParameterBuffer,
     pub return_type: TypeId,
 }
 
@@ -22,37 +25,64 @@ pub struct TypedParameter {
 }
 
 pub fn check_module(
-    module: &ast::Module,
+    module: &ast::SourceFile,
     _names: &NameTable,
-) -> Result<TypedModule, Vec<Diagnostic>> {
-    let mut diagnostics = Vec::new();
-    let mut functions = Vec::new();
+) -> Result<TypedModule, BoxedDiagnosticBuffer> {
+    let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
+    let mut functions = SmallVec::new();
 
-    for item in &module.items {
-        let Item::Function(function) = item;
+    for item in module.items() {
+        let Item::FnDef(function) = item else {
+            continue;
+        };
 
-        let mut params = Vec::new();
-        for param in &function.params {
-            match TypeId::from_name(&param.ty.name) {
-                Some(ty) => params.push(TypedParameter {
-                    name: param.name.clone(),
-                    ty,
-                }),
-                None => diagnostics.push(Diagnostic::error(format!(
-                    "unknown parameter type `{}` in function `{}`",
-                    param.ty.name, function.name
-                ))),
+        let mut params = SmallVec::new();
+        let function_name = function
+            .name_text()
+            .unwrap_or_else(|| "<missing>".to_string());
+
+        if let Some(param_list) = function.param_list() {
+            for param in param_list.params() {
+                let param_name = param.name_text().unwrap_or_else(|| "<missing>".to_string());
+                let param_ty_name = param
+                    .ty()
+                    .and_then(|ty| ty.name_text())
+                    .unwrap_or_else(|| "<missing>".to_string());
+
+                match TypeId::from_name(&param_ty_name) {
+                    Some(ty) => params.push(TypedParameter {
+                        name: param_name,
+                        ty,
+                    }),
+                    None => diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownType {
+                            type_name: param_ty_name,
+                            function_name: function_name.clone(),
+                            position: TypePosition::Parameter,
+                        })
+                        .with_span(syntax_span(&param)),
+                    ),
+                }
             }
         }
 
-        let return_type = match function.return_type.as_ref() {
-            Some(ty) => match TypeId::from_name(&ty.name) {
+        let return_type = match function.return_type().and_then(|ty| ty.name_text()) {
+            Some(ty_name) => match TypeId::from_name(&ty_name) {
                 Some(ty) => ty,
                 None => {
-                    diagnostics.push(Diagnostic::error(format!(
-                        "unknown return type `{}` in function `{}`",
-                        ty.name, function.name
-                    )));
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownType {
+                            type_name: ty_name,
+                            function_name: function_name.clone(),
+                            position: TypePosition::Return,
+                        })
+                        .with_span(
+                            function
+                                .return_type()
+                                .map(|ty| syntax_span(&ty))
+                                .unwrap_or_else(|| syntax_span(&function)),
+                        ),
+                    );
                     TypeId::Builtin(crate::types::BuiltinType::Unit)
                 }
             },
@@ -60,7 +90,7 @@ pub fn check_module(
         };
 
         functions.push(TypedFunction {
-            name: function.name.clone(),
+            name: function_name,
             params,
             return_type,
         });
@@ -69,6 +99,11 @@ pub fn check_module(
     if diagnostics.is_empty() {
         Ok(TypedModule { functions })
     } else {
-        Err(diagnostics)
+        Err(Box::new(diagnostics))
     }
+}
+
+fn syntax_span(node: &impl AstNode) -> kagari_common::Span {
+    let range = node.syntax().text_range();
+    kagari_common::Span::new(range.start().into(), range.end().into())
 }

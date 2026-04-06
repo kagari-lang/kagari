@@ -59,7 +59,7 @@ fn main() -> i32 {
     println!("Kagari workspace skeleton is ready.");
     println!("source: {}", source.name());
     println!("package manager: kg");
-    println!("parsed functions: {}", ast.items.len());
+    println!("parsed functions: {}", ast.items().count());
     println!("typed functions: {}", typed.functions.len());
     println!("bytecode extension: .kbc");
     println!("loaded epoch: {}", loaded.epoch.0);
