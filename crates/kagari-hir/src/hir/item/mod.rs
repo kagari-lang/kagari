@@ -4,32 +4,18 @@ mod function;
 pub use adt::{Enum, EnumBuffer, Field, FieldBuffer, Struct, StructBuffer, Variant, VariantBuffer};
 pub use function::{Function, FunctionBuffer, Param, ParamBuffer};
 
-use smallvec::SmallVec;
-
 use crate::hir::{
     BlockData, BlockId, Body, EnumId, ExprData, ExprId, FunctionId, PatternData, PatternId,
     PlaceData, PlaceId, StmtData, StmtId, StructId, TypeData, TypeRefId,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Module {
     pub items: ItemBuffer,
     pub functions: FunctionBuffer,
     pub structs: StructBuffer,
     pub enums: EnumBuffer,
     pub body: Body,
-}
-
-impl Default for Module {
-    fn default() -> Self {
-        Self {
-            items: SmallVec::new(),
-            functions: SmallVec::new(),
-            structs: SmallVec::new(),
-            enums: SmallVec::new(),
-            body: Body::default(),
-        }
-    }
 }
 
 impl Module {
@@ -65,4 +51,4 @@ pub enum Item {
     Enum(EnumId),
 }
 
-pub type ItemBuffer = SmallVec<[Item; 8]>;
+pub type ItemBuffer = Vec<Item>;

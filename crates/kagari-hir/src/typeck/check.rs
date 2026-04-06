@@ -74,6 +74,7 @@ pub fn check_module(
         };
 
         let typed_function = TypedFunction {
+            id: function.id,
             name: function_name,
             params,
             return_type,

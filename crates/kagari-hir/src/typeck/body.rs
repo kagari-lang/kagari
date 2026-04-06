@@ -3,7 +3,8 @@ use smallvec::SmallVec;
 
 use crate::{
     hir::{
-        BinaryOp, BlockId, ExprId, ExprKind, LiteralKind, PlaceId, PlaceKind, PrefixOp, StmtKind,
+        BinaryOp, BlockId, ExprId, ExprKind, LiteralKind, MatchArm, PatternKind, PlaceId,
+        PlaceKind, PrefixOp, StmtKind,
     },
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
@@ -72,6 +73,7 @@ impl<'a> BodyChecker<'a> {
                     .and_then(|ty| crate::typeck::ty::resolve_type(&self.lowered.module, ty))
                     .unwrap_or(initializer_ty);
                 env.locals.insert(*local, local_ty);
+                self.type_table.insert_local(*local, local_ty);
             }
             StmtKind::Assign { target, value } => {
                 let value_ty = self.infer_expr_type(*value, env);
@@ -241,13 +243,13 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Match { scrutinee, arms } => {
-                let _ = self.infer_expr_type(*scrutinee, env);
+                let scrutinee_ty = self.infer_expr_type(*scrutinee, env);
                 let mut arm_iter = arms.iter();
                 match arm_iter.next() {
                     Some(first_arm) => {
-                        let expected = self.infer_expr_type(first_arm.expr, env);
+                        let expected = self.infer_match_arm_type(first_arm, scrutinee_ty, env);
                         for arm in arm_iter {
-                            let found = self.infer_expr_type(arm.expr, env);
+                            let found = self.infer_match_arm_type(arm, scrutinee_ty, env);
                             if found != expected {
                                 self.diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
@@ -281,5 +283,19 @@ impl<'a> BodyChecker<'a> {
         env.exprs.insert(expr_id, ty);
         self.type_table.insert_expr(expr_id, ty);
         ty
+    }
+
+    fn infer_match_arm_type(
+        &mut self,
+        arm: &MatchArm,
+        scrutinee_ty: TypeId,
+        env: &mut BodyTypeEnv,
+    ) -> TypeId {
+        let mut arm_env = env.clone();
+        if let PatternKind::Name { local, .. } = self.lowered.module.pattern(arm.pattern).kind {
+            arm_env.locals.insert(local, scrutinee_ty);
+            self.type_table.insert_local(local, scrutinee_ty);
+        }
+        self.infer_expr_type(arm.expr, &mut arm_env)
     }
 }

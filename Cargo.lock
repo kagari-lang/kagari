@@ -43,7 +43,9 @@ dependencies = [
 name = "kagari-ir"
 version = "0.1.0"
 dependencies = [
+ "kagari-common",
  "kagari-hir",
+ "kagari-syntax",
  "smallvec",
 ]
 

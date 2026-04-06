@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 
 use crate::hir::{
-    BlockId, EnumId, ExprId, ExprKind, FunctionId, ParamId, PlaceId, PlaceKind, StmtId, StmtKind,
-    StructId,
+    BlockId, EnumId, ExprId, ExprKind, FunctionId, Module, ParamId, PatternKind, PlaceId,
+    PlaceKind, StmtId, StmtKind, StructId,
 };
 use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
 
 pub(crate) struct BodyResolver<'a> {
     names: &'a NameTable,
-    module: &'a crate::hir::Module,
+    module: &'a Module,
     resolved: ResolvedNames,
     scopes: Vec<HashMap<String, ResolvedName>>,
 }
 
 impl<'a> BodyResolver<'a> {
-    pub(crate) fn new(names: &'a NameTable, module: &'a crate::hir::Module) -> Self {
+    pub(crate) fn new(names: &'a NameTable, module: &'a Module) -> Self {
         Self {
             names,
             module,
@@ -124,7 +124,16 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 self.resolve_expr(*scrutinee);
                 for arm in arms {
+                    self.push_scope();
+                    if let PatternKind::Name { name, local } =
+                        &self.module.pattern(arm.pattern).kind
+                        && !name.is_empty()
+                        && name != "<missing>"
+                    {
+                        self.bind_name(name, ResolvedName::Local(*local));
+                    }
                     self.resolve_expr(arm.expr);
+                    self.pop_scope();
                 }
             }
             ExprKind::StructInit { fields, .. } => {

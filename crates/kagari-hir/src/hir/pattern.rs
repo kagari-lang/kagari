@@ -1,4 +1,4 @@
-use crate::hir::expr::Literal;
+use crate::hir::{LocalId, expr::Literal};
 
 #[derive(Debug, Clone)]
 pub struct PatternData {
@@ -8,6 +8,6 @@ pub struct PatternData {
 #[derive(Debug, Clone)]
 pub enum PatternKind {
     Wildcard,
-    Name(String),
+    Name { name: String, local: LocalId },
     Literal(Literal),
 }

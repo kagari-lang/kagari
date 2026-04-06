@@ -1,7 +1,7 @@
 use kagari_common::{DiagnosticKind, TypePosition};
 
 use crate::{
-    hir::StmtKind,
+    hir::{ExprKind, PatternKind, StmtKind},
     resolver::resolve_names,
     tests::common,
     typeck::check_module,
@@ -166,5 +166,28 @@ fn reports_match_arm_type_mismatch() {
             expected: "i32".to_string(),
             found: "bool".to_string(),
         }
+    );
+}
+
+#[test]
+fn records_named_match_pattern_binding_type() {
+    let lowered = common::lower_ok("fn foo(value: i32) -> i32 { match value { bound => bound } }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let function = &lowered.module.functions[0];
+    let block = lowered.module.block(function.body);
+    let tail_expr = block.tail_expr.expect("tail expr");
+
+    let pattern_local = match &lowered.module.expr(tail_expr).kind {
+        ExprKind::Match { arms, .. } => match lowered.module.pattern(arms[0].pattern).kind {
+            PatternKind::Name { local, .. } => local,
+            ref other => panic!("unexpected pattern kind: {other:?}"),
+        },
+        ref other => panic!("unexpected expr kind: {other:?}"),
+    };
+
+    assert_eq!(
+        typed.type_table.local_type(pattern_local),
+        Some(TypeId::Builtin(BuiltinType::I32))
     );
 }

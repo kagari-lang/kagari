@@ -1,5 +1,3 @@
-use smallvec::SmallVec;
-
 use crate::hir::{EnumId, StructId, TypeRefId};
 
 #[derive(Debug, Clone)]
@@ -27,7 +25,7 @@ pub struct Variant {
     pub name: String,
 }
 
-pub type StructBuffer = SmallVec<[Struct; 8]>;
-pub type FieldBuffer = SmallVec<[Field; 8]>;
-pub type EnumBuffer = SmallVec<[Enum; 8]>;
-pub type VariantBuffer = SmallVec<[Variant; 8]>;
+pub type StructBuffer = Vec<Struct>;
+pub type FieldBuffer = Vec<Field>;
+pub type EnumBuffer = Vec<Enum>;
+pub type VariantBuffer = Vec<Variant>;

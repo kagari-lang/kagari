@@ -1,5 +1,5 @@
 use kagari_common::{Diagnostic, SourceFile};
-use kagari_hir::analyze;
+use kagari_hir::analyze_module;
 use kagari_ir::lower_to_ir;
 use kagari_runtime::{
     Runtime,
@@ -30,15 +30,21 @@ fn main() -> i32 {
         }
     };
 
-    let typed = match analyze(&ast) {
-        Ok(typed) => typed,
+    let analyzed = match analyze_module(&ast) {
+        Ok(analyzed) => analyzed,
         Err(diagnostics) => {
             print_diagnostics(&diagnostics);
             return;
         }
     };
 
-    let ir = lower_to_ir(&typed);
+    let ir = match lower_to_ir(&analyzed) {
+        Ok(ir) => ir,
+        Err(error) => {
+            eprintln!("{error:?}");
+            return;
+        }
+    };
 
     let mut runtime = Runtime::default();
     runtime.host_mut().register(HostFunction {
@@ -61,7 +67,7 @@ fn main() -> i32 {
     println!("source: {}", source.name());
     println!("package manager: kg");
     println!("parsed functions: {}", ast.items().count());
-    println!("typed functions: {}", typed.functions.len());
+    println!("typed functions: {}", analyzed.typed.functions.len());
     println!("bytecode extension: .kbc");
     println!("loaded epoch: {}", loaded.epoch.0);
     println!("vm entry: {}", report.entry);

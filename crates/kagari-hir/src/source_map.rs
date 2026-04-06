@@ -1,42 +1,23 @@
 use kagari_common::Span;
-use smallvec::{SmallVec, smallvec};
 
 use crate::hir::{
     BlockId, EnumId, ExprId, FunctionId, LocalId, ParamId, PatternId, PlaceId, StmtId, StructId,
     TypeRefId,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SourceMap {
-    function_spans: SmallVec<[Span; 8]>,
-    param_spans: SmallVec<[Span; 16]>,
-    local_spans: SmallVec<[Span; 16]>,
-    struct_spans: SmallVec<[Span; 8]>,
-    enum_spans: SmallVec<[Span; 8]>,
-    block_spans: SmallVec<[Span; 32]>,
-    expr_spans: SmallVec<[Span; 32]>,
-    place_spans: SmallVec<[Span; 16]>,
-    stmt_spans: SmallVec<[Span; 32]>,
-    pattern_spans: SmallVec<[Span; 16]>,
-    type_spans: SmallVec<[Span; 16]>,
-}
-
-impl Default for SourceMap {
-    fn default() -> Self {
-        Self {
-            function_spans: smallvec![],
-            param_spans: smallvec![],
-            local_spans: smallvec![],
-            struct_spans: smallvec![],
-            enum_spans: smallvec![],
-            block_spans: smallvec![],
-            expr_spans: smallvec![],
-            place_spans: smallvec![],
-            stmt_spans: smallvec![],
-            pattern_spans: smallvec![],
-            type_spans: smallvec![],
-        }
-    }
+    function_spans: Vec<Span>,
+    param_spans: Vec<Span>,
+    local_spans: Vec<Span>,
+    struct_spans: Vec<Span>,
+    enum_spans: Vec<Span>,
+    block_spans: Vec<Span>,
+    expr_spans: Vec<Span>,
+    place_spans: Vec<Span>,
+    stmt_spans: Vec<Span>,
+    pattern_spans: Vec<Span>,
+    type_spans: Vec<Span>,
 }
 
 impl SourceMap {

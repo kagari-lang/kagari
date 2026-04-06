@@ -1,7 +1,7 @@
 use kagari_common::DiagnosticKind;
 
 use crate::{
-    hir::StmtKind,
+    hir::{ExprKind, PatternKind, StmtKind},
     resolver::{ResolvedName, resolve_names},
     tests::common,
 };
@@ -54,5 +54,31 @@ fn resolves_params_and_locals_in_function_body() {
     assert_eq!(
         resolved.expr_resolution(tail_expr),
         Some(ResolvedName::Local(let_local))
+    );
+}
+
+#[test]
+fn resolves_named_match_pattern_bindings_inside_arm() {
+    let lowered = common::lower_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
+    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let function = &lowered.module.functions[0];
+    let block = lowered.module.block(function.body);
+    let tail_expr = block.tail_expr.expect("tail expr");
+
+    let (pattern_local, arm_expr) = match &lowered.module.expr(tail_expr).kind {
+        ExprKind::Match { arms, .. } => {
+            let arm = &arms[0];
+            let pattern_local = match &lowered.module.pattern(arm.pattern).kind {
+                PatternKind::Name { local, .. } => *local,
+                other => panic!("unexpected pattern kind: {other:?}"),
+            };
+            (pattern_local, arm.expr)
+        }
+        other => panic!("unexpected expr kind: {other:?}"),
+    };
+
+    assert_eq!(
+        resolved.expr_resolution(arm_expr),
+        Some(ResolvedName::Local(pattern_local))
     );
 }

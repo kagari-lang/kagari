@@ -1,5 +1,3 @@
-use smallvec::SmallVec;
-
 use crate::hir::{BlockId, FunctionId, ParamId, TypeRefId};
 
 #[derive(Debug, Clone)]
@@ -18,5 +16,5 @@ pub struct Param {
     pub ty: TypeRefId,
 }
 
-pub type FunctionBuffer = SmallVec<[Function; 8]>;
-pub type ParamBuffer = SmallVec<[Param; 4]>;
+pub type FunctionBuffer = Vec<Function>;
+pub type ParamBuffer = Vec<Param>;

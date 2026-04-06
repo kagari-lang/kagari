@@ -1,11 +1,9 @@
-use smallvec::{SmallVec, smallvec};
-
 use crate::hir::{
     BlockData, BlockId, ExprData, ExprId, PatternData, PatternId, PlaceData, PlaceId, StmtData,
     StmtId, TypeData, TypeRefId,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Body {
     pub(crate) blocks: BlockDataBuffer,
     pub(crate) stmts: StmtDataBuffer,
@@ -13,19 +11,6 @@ pub struct Body {
     pub(crate) places: PlaceDataBuffer,
     pub(crate) patterns: PatternDataBuffer,
     pub(crate) types: TypeDataBuffer,
-}
-
-impl Default for Body {
-    fn default() -> Self {
-        Self {
-            blocks: smallvec![],
-            stmts: smallvec![],
-            exprs: smallvec![],
-            places: smallvec![],
-            patterns: smallvec![],
-            types: smallvec![],
-        }
-    }
 }
 
 impl Body {
@@ -54,9 +39,9 @@ impl Body {
     }
 }
 
-pub type BlockDataBuffer = SmallVec<[BlockData; 16]>;
-pub type StmtDataBuffer = SmallVec<[StmtData; 32]>;
-pub type ExprDataBuffer = SmallVec<[ExprData; 64]>;
-pub type PlaceDataBuffer = SmallVec<[PlaceData; 16]>;
-pub type PatternDataBuffer = SmallVec<[PatternData; 16]>;
-pub type TypeDataBuffer = SmallVec<[TypeData; 16]>;
+pub type BlockDataBuffer = Vec<BlockData>;
+pub type StmtDataBuffer = Vec<StmtData>;
+pub type ExprDataBuffer = Vec<ExprData>;
+pub type PlaceDataBuffer = Vec<PlaceData>;
+pub type PatternDataBuffer = Vec<PatternData>;
+pub type TypeDataBuffer = Vec<TypeData>;

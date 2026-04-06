@@ -3,8 +3,9 @@ use kagari_syntax::ast::AstNode;
 use kagari_syntax::kind::SyntaxKind;
 
 use crate::hir::{
-    BinaryOp, BlockData, BlockId, ExprData, ExprId, ExprKind, Module, PatternData, PatternId,
-    PatternKind, PlaceData, PlaceId, PlaceKind, StmtData, StmtId, TypeData, TypeKind, TypeRefId,
+    BinaryOp, BlockData, BlockId, ExprData, ExprId, ExprKind, LocalId, Module, PatternData,
+    PatternId, PatternKind, PlaceData, PlaceId, PlaceKind, StmtData, StmtId, TypeData, TypeKind,
+    TypeRefId,
 };
 use crate::source_map::SourceMap;
 
@@ -49,6 +50,10 @@ impl Lowerer {
         id
     }
 
+    pub(crate) fn alloc_local_id(&mut self, span: Span) -> LocalId {
+        self.source_map.push_local(span)
+    }
+
     pub(crate) fn alloc_place(&mut self, span: Span, place: PlaceData) -> PlaceId {
         let id = self.source_map.push_place(span);
         self.module.body.places.push(place);
@@ -71,10 +76,14 @@ impl Lowerer {
     }
 
     pub(crate) fn synthetic_name_pattern(&mut self, name: &str) -> PatternId {
+        let local = self.alloc_local_id(Span::default());
         self.alloc_pattern(
             Span::default(),
             PatternData {
-                kind: PatternKind::Name(name.to_string()),
+                kind: PatternKind::Name {
+                    name: name.to_string(),
+                    local,
+                },
             },
         )
     }

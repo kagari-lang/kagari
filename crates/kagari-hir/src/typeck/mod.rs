@@ -22,6 +22,7 @@ pub struct TypedModule {
 
 #[derive(Debug, Clone)]
 pub struct TypedFunction {
+    pub id: FunctionId,
     pub name: String,
     pub params: TypedParameterBuffer,
     pub return_type: TypeId,

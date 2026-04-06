@@ -11,10 +11,26 @@ use kagari_syntax::ast;
 pub type DiagnosticBuffer = smallvec::SmallVec<[Diagnostic; 4]>;
 pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
-pub fn analyze(module: &ast::SourceFile) -> Result<typeck::TypedModule, BoxedDiagnosticBuffer> {
+#[derive(Debug, Clone)]
+pub struct AnalyzedModule {
+    pub lowered: lower::LoweredModule,
+    pub names: resolver::ResolvedNames,
+    pub typed: typeck::TypedModule,
+}
+
+pub fn analyze_module(module: &ast::SourceFile) -> Result<AnalyzedModule, BoxedDiagnosticBuffer> {
     let lowered = lower::lower_module(module);
     let names = resolver::resolve_names(&lowered)?;
-    typeck::check_module(&lowered, &names)
+    let typed = typeck::check_module(&lowered, &names)?;
+    Ok(AnalyzedModule {
+        lowered,
+        names,
+        typed,
+    })
+}
+
+pub fn analyze(module: &ast::SourceFile) -> Result<typeck::TypedModule, BoxedDiagnosticBuffer> {
+    analyze_module(module).map(|module| module.typed)
 }
 
 #[cfg(test)]

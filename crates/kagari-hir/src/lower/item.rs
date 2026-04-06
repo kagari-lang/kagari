@@ -1,5 +1,4 @@
 use kagari_syntax::ast;
-use smallvec::{SmallVec, smallvec};
 
 use crate::hir::{BlockData, Enum, Field, Function, Item, Param, Struct, Variant};
 use crate::lower::context::{Lowerer, syntax_span};
@@ -47,7 +46,7 @@ impl Lowerer {
                             .map(|ty| self.lower_type(&ty))
                             .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
                     })
-                    .collect::<SmallVec<[_; 4]>>()
+                    .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
@@ -63,7 +62,7 @@ impl Lowerer {
                     self.alloc_block(
                         syntax_span(function),
                         BlockData {
-                            statements: smallvec![],
+                            statements: Default::default(),
                             tail_expr: None,
                         },
                     )
@@ -85,7 +84,7 @@ impl Lowerer {
                             .map(|ty| self.lower_type(&ty))
                             .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
                     })
-                    .collect::<SmallVec<[_; 8]>>()
+                    .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
@@ -106,7 +105,7 @@ impl Lowerer {
                     .map(|variant| Variant {
                         name: variant.name_text().unwrap_or_default(),
                     })
-                    .collect::<SmallVec<[_; 8]>>()
+                    .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
