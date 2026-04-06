@@ -9,9 +9,13 @@ pub enum BuiltinType {
     Str,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeId {
     Builtin(BuiltinType),
+    Tuple(Vec<TypeId>),
+    Array(Box<TypeId>),
+    Struct(String),
+    Enum(String),
 }
 
 impl TypeId {
@@ -29,15 +33,32 @@ impl TypeId {
         Some(Self::Builtin(builtin))
     }
 
-    pub fn display_name(self) -> &'static str {
+    pub fn display_name(&self) -> String {
         match self {
-            Self::Builtin(BuiltinType::Unit) => "unit",
-            Self::Builtin(BuiltinType::Bool) => "bool",
-            Self::Builtin(BuiltinType::I32) => "i32",
-            Self::Builtin(BuiltinType::I64) => "i64",
-            Self::Builtin(BuiltinType::F32) => "f32",
-            Self::Builtin(BuiltinType::F64) => "f64",
-            Self::Builtin(BuiltinType::Str) => "str",
+            Self::Builtin(BuiltinType::Unit) => "unit".to_owned(),
+            Self::Builtin(BuiltinType::Bool) => "bool".to_owned(),
+            Self::Builtin(BuiltinType::I32) => "i32".to_owned(),
+            Self::Builtin(BuiltinType::I64) => "i64".to_owned(),
+            Self::Builtin(BuiltinType::F32) => "f32".to_owned(),
+            Self::Builtin(BuiltinType::F64) => "f64".to_owned(),
+            Self::Builtin(BuiltinType::Str) => "str".to_owned(),
+            Self::Tuple(elements) => {
+                let inner = elements
+                    .iter()
+                    .map(TypeId::display_name)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({inner})")
+            }
+            Self::Array(element) => format!("[{}]", element.display_name()),
+            Self::Struct(name) | Self::Enum(name) => name.clone(),
+        }
+    }
+
+    pub fn is_heap_backed(&self) -> bool {
+        match self {
+            Self::Builtin(_) => false,
+            Self::Tuple(_) | Self::Array(_) | Self::Struct(_) | Self::Enum(_) => true,
         }
     }
 }

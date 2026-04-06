@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 
-use crate::hir::{EnumId, ExprId, FunctionId, LocalId, ParamId, PlaceId, StructId};
+use crate::hir::{
+    ConstId, EnumId, ExprId, FunctionId, LocalId, ParamId, PlaceId, StaticId, StructId,
+};
 use crate::resolver::table::NameTable;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolvedName {
     Function(FunctionId),
+    Const(ConstId),
     Param(ParamId),
     Local(LocalId),
+    Static(StaticId),
     Struct(StructId),
     Enum(EnumId),
 }

@@ -1,13 +1,15 @@
 use kagari_common::Span;
 
 use crate::hir::{
-    BlockId, EnumId, ExprId, FunctionId, LocalId, ParamId, PatternId, PlaceId, StmtId, StructId,
-    TypeRefId,
+    BlockId, ConstId, EnumId, ExprId, FunctionId, LocalId, ParamId, PatternId, PlaceId, StaticId,
+    StmtId, StructId, TypeRefId,
 };
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
     function_spans: Vec<Span>,
+    const_spans: Vec<Span>,
+    static_spans: Vec<Span>,
     param_spans: Vec<Span>,
     local_spans: Vec<Span>,
     struct_spans: Vec<Span>,
@@ -24,6 +26,18 @@ impl SourceMap {
     pub(crate) fn push_function(&mut self, span: Span) -> FunctionId {
         let id = FunctionId::new(self.function_spans.len());
         self.function_spans.push(span);
+        id
+    }
+
+    pub(crate) fn push_const(&mut self, span: Span) -> ConstId {
+        let id = ConstId::new(self.const_spans.len());
+        self.const_spans.push(span);
+        id
+    }
+
+    pub(crate) fn push_static(&mut self, span: Span) -> StaticId {
+        let id = StaticId::new(self.static_spans.len());
+        self.static_spans.push(span);
         id
     }
 
@@ -89,6 +103,14 @@ impl SourceMap {
 
     pub fn function_span(&self, id: FunctionId) -> Span {
         self.function_spans[id.index()]
+    }
+
+    pub fn const_span(&self, id: ConstId) -> Span {
+        self.const_spans[id.index()]
+    }
+
+    pub fn static_span(&self, id: StaticId) -> Span {
+        self.static_spans[id.index()]
     }
 
     pub fn param_span(&self, id: ParamId) -> Span {

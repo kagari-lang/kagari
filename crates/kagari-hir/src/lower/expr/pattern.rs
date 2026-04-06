@@ -1,10 +1,10 @@
 use kagari_syntax::ast;
 
-use crate::hir::{PatternData, PatternKind};
+use crate::hir::{PatternData, PatternId, PatternKind};
 use crate::lower::context::{Lowerer, syntax_span};
 
 impl Lowerer {
-    pub(crate) fn lower_pattern(&mut self, pattern: &ast::Pattern) -> crate::hir::PatternId {
+    pub(crate) fn lower_pattern(&mut self, pattern: &ast::Pattern) -> PatternId {
         let span = syntax_span(pattern);
         let kind = if pattern.is_wildcard() {
             PatternKind::Wildcard

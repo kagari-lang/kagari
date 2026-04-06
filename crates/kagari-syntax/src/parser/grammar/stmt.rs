@@ -1,4 +1,5 @@
-use kagari_common::DiagnosticKind;
+use kagari_common::{Diagnostic, DiagnosticKind};
+use rowan::Checkpoint;
 
 use crate::{kind::SyntaxKind, token::TokenKind};
 
@@ -46,7 +47,7 @@ impl<'a> Parser<'a> {
             self.bump();
         } else {
             self.push_diagnostic(
-                kagari_common::Diagnostic::error(DiagnosticKind::ExpectedBlockEnd)
+                Diagnostic::error(DiagnosticKind::ExpectedBlockEnd)
                     .with_span(self.peek().map(|token| token.span).unwrap_or_default()),
             );
         }
@@ -54,9 +55,13 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_let_stmt(&mut self) {
+    pub(crate) fn parse_let_stmt(&mut self) {
         self.start_node(SyntaxKind::LetStmt);
         self.expect(TokenKind::LetKw, DiagnosticKind::ExpectedLetKeyword);
+        self.bump_trivia();
+        if self.at(TokenKind::MutKw) {
+            self.bump();
+        }
         self.parse_let_binding_name();
         self.bump_trivia();
         if self.at(TokenKind::Colon) {
@@ -82,7 +87,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_assign_stmt(&mut self) {
+    pub(crate) fn parse_assign_stmt(&mut self) {
         self.start_node(SyntaxKind::AssignStmt);
         self.parse_place_expr();
         self.expect(TokenKind::Eq, DiagnosticKind::ExpectedLetInitializer);
@@ -92,7 +97,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_while_stmt(&mut self) {
+    pub(crate) fn parse_while_stmt(&mut self) {
         self.start_node(SyntaxKind::WhileStmt);
         self.expect(TokenKind::WhileKw, DiagnosticKind::ExpectedWhileKeyword);
         self.parse_condition_expr();
@@ -101,7 +106,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_loop_stmt(&mut self) {
+    pub(crate) fn parse_loop_stmt(&mut self) {
         self.start_node(SyntaxKind::LoopStmt);
         self.expect(TokenKind::LoopKw, DiagnosticKind::ExpectedLoopKeyword);
         self.bump_trivia();
@@ -134,9 +139,7 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
 
         if self.at(TokenKind::Semi) {
-            self.start_node_at(checkpoint, SyntaxKind::ExprStmt);
-            self.bump();
-            self.finish_node();
+            self.finish_expr_stmt(checkpoint);
             return false;
         }
 
@@ -146,5 +149,11 @@ impl<'a> Parser<'a> {
 
         self.error_here(DiagnosticKind::ExpectedStatementTerminator);
         false
+    }
+
+    pub(crate) fn finish_expr_stmt(&mut self, checkpoint: Checkpoint) {
+        self.start_node_at(checkpoint, SyntaxKind::ExprStmt);
+        self.bump();
+        self.finish_node();
     }
 }

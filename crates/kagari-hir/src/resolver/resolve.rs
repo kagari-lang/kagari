@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::hir::{
-    BlockId, EnumId, ExprId, ExprKind, FunctionId, Module, ParamId, PatternKind, PlaceId,
-    PlaceKind, StmtId, StmtKind, StructId,
+    BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ParamId, PatternKind, PlaceId,
+    PlaceKind, StaticId, StmtId, StmtKind, StructId,
 };
 use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
 
@@ -38,6 +38,10 @@ impl<'a> BodyResolver<'a> {
         }
         self.resolve_block(body);
         self.pop_scope();
+    }
+
+    pub(crate) fn resolve_top_level_expr(&mut self, expr: ExprId) {
+        self.resolve_expr(expr);
     }
 
     fn resolve_block(&mut self, block_id: BlockId) {
@@ -158,6 +162,11 @@ impl<'a> BodyResolver<'a> {
                     self.resolved.insert_place(place_id, resolved);
                 }
             }
+            PlaceKind::Field { base, .. } => self.resolve_place(*base),
+            PlaceKind::Index { base, index } => {
+                self.resolve_place(*base);
+                self.resolve_expr(*index);
+            }
         }
     }
 
@@ -170,6 +179,12 @@ impl<'a> BodyResolver<'a> {
 
         if let Some(id) = self.names.function(name) {
             return Some(ResolvedName::Function(id));
+        }
+        if let Some(id) = self.names.const_(name) {
+            return Some(ResolvedName::Const(id));
+        }
+        if let Some(id) = self.names.static_(name) {
+            return Some(ResolvedName::Static(id));
         }
         if let Some(id) = self.names.struct_(name) {
             return Some(ResolvedName::Struct(id));
@@ -194,6 +209,8 @@ impl<'a> BodyResolver<'a> {
 
 trait TopLevelLookup {
     fn function(&self, name: &str) -> Option<FunctionId>;
+    fn const_(&self, name: &str) -> Option<ConstId>;
+    fn static_(&self, name: &str) -> Option<StaticId>;
     fn struct_(&self, name: &str) -> Option<StructId>;
     fn enum_(&self, name: &str) -> Option<EnumId>;
 }
@@ -201,6 +218,14 @@ trait TopLevelLookup {
 impl TopLevelLookup for NameTable {
     fn function(&self, name: &str) -> Option<FunctionId> {
         self.functions.get(name).copied()
+    }
+
+    fn const_(&self, name: &str) -> Option<ConstId> {
+        self.consts.get(name).copied()
+    }
+
+    fn static_(&self, name: &str) -> Option<StaticId> {
+        self.statics.get(name).copied()
     }
 
     fn struct_(&self, name: &str) -> Option<StructId> {

@@ -5,6 +5,7 @@ mod expr;
 mod functions;
 mod items;
 mod match_expr;
+mod module_level;
 mod postfix;
 mod statements;
 mod struct_expr;

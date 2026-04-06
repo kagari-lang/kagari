@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        expr::{BlockExpr, Expr, PathExpr},
+        expr::{BlockExpr, Expr},
         macros::ast_node,
         misc::Name,
         support,
@@ -76,6 +76,10 @@ impl AstNode for Stmt {
 }
 
 impl LetStmt {
+    pub fn is_mut(&self) -> bool {
+        support::token(self.syntax(), SyntaxKind::MutKw).is_some()
+    }
+
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
@@ -100,8 +104,8 @@ impl ReturnStmt {
 }
 
 impl AssignStmt {
-    pub fn target(&self) -> Option<PathExpr> {
-        support::child(self.syntax())
+    pub fn target(&self) -> Option<Expr> {
+        self.syntax().children().filter_map(Expr::cast).next()
     }
 
     pub fn value(&self) -> Option<Expr> {

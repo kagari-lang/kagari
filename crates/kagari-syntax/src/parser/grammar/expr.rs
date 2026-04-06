@@ -26,7 +26,27 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn expr_followed_by_assignment(&self) -> bool {
-        matches!(self.nth_nontrivia_kind(1), Some(TokenKind::Eq))
+        let mut cursor = self.cursor();
+        if self.nth_nontrivia_kind_from(&mut cursor) != Some(TokenKind::Ident) {
+            return false;
+        }
+
+        loop {
+            match self.nth_nontrivia_kind_from(&mut cursor) {
+                Some(TokenKind::Eq) => return true,
+                Some(TokenKind::Dot) => {
+                    if self.nth_nontrivia_kind_from(&mut cursor) != Some(TokenKind::Ident) {
+                        return false;
+                    }
+                }
+                Some(TokenKind::LBracket) => {
+                    if !self.skip_balanced_delimiters(&mut cursor, TokenKind::LBracket) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
     }
 
     pub(crate) fn parse_expr(&mut self) {
@@ -39,7 +59,56 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn parse_place_expr(&mut self) {
+        let checkpoint = self.checkpoint();
         self.parse_path_expr();
+
+        loop {
+            self.bump_trivia();
+            match self.current_kind() {
+                Some(TokenKind::Dot) => {
+                    self.parse_field_suffix();
+                    self.start_node_at(checkpoint, SyntaxKind::FieldExpr);
+                    self.finish_node();
+                }
+                Some(TokenKind::LBracket) => {
+                    self.parse_index_suffix();
+                    self.start_node_at(checkpoint, SyntaxKind::IndexExpr);
+                    self.finish_node();
+                }
+                _ => break,
+            }
+        }
+    }
+
+    fn skip_balanced_delimiters(&self, cursor: &mut usize, opening: TokenKind) -> bool {
+        let mut stack = vec![opening];
+        while let Some(kind) = self.nth_nontrivia_kind_from(cursor) {
+            match kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => stack.push(kind),
+                TokenKind::RParen => {
+                    if !matches!(stack.pop(), Some(TokenKind::LParen)) {
+                        return false;
+                    }
+                }
+                TokenKind::RBracket => {
+                    if !matches!(stack.pop(), Some(TokenKind::LBracket)) {
+                        return false;
+                    }
+                    if stack.is_empty() {
+                        return true;
+                    }
+                }
+                TokenKind::RBrace => {
+                    if !matches!(stack.pop(), Some(TokenKind::LBrace)) {
+                        return false;
+                    }
+                }
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+        }
+
+        false
     }
 
     fn parse_logical_or_expr(&mut self) {

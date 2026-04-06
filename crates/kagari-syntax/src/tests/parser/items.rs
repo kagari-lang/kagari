@@ -40,3 +40,32 @@ fn parses_enum_definition_with_variants() {
     assert_eq!(variants[1].name_text().as_deref(), Some("Green"));
     assert_eq!(variants[2].name_text().as_deref(), Some("Blue"));
 }
+
+#[test]
+fn parses_public_const_item() {
+    let module = common::parse_ok("pub const VERSION: i32 = 1;");
+    let const_def = common::first_const(&module);
+
+    assert!(const_def.is_pub());
+    assert_eq!(const_def.name_text().as_deref(), Some("VERSION"));
+    assert_eq!(
+        const_def.ty().and_then(|ty| ty.name_text()).as_deref(),
+        Some("i32")
+    );
+    assert!(const_def.initializer().is_some());
+}
+
+#[test]
+fn parses_public_static_mut_item() {
+    let module = common::parse_ok("pub static mut COUNTER: i32 = 0;");
+    let static_def = common::first_static(&module);
+
+    assert!(static_def.is_pub());
+    assert!(static_def.is_mut());
+    assert_eq!(static_def.name_text().as_deref(), Some("COUNTER"));
+    assert_eq!(
+        static_def.ty().and_then(|ty| ty.name_text()).as_deref(),
+        Some("i32")
+    );
+    assert!(static_def.initializer().is_some());
+}

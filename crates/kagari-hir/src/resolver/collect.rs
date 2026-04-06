@@ -2,6 +2,7 @@ use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
 use crate::BoxedDiagnosticBuffer;
+use crate::hir::FunctionKind;
 use crate::lower::LoweredModule;
 use crate::resolver::ResolvedNames;
 use crate::resolver::resolve::BodyResolver;
@@ -12,6 +13,9 @@ pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiag
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
     for function in &lowered.module.functions {
+        if function.kind != FunctionKind::User {
+            continue;
+        }
         if function.name.is_empty() {
             diagnostics.push(Diagnostic::error(DiagnosticKind::MissingFunctionName));
             continue;
@@ -35,6 +39,18 @@ pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiag
         }
     }
 
+    for const_item in &lowered.module.consts {
+        if !const_item.name.is_empty() {
+            names.insert_const(const_item.name.clone(), const_item.id);
+        }
+    }
+
+    for static_item in &lowered.module.statics {
+        if !static_item.name.is_empty() {
+            names.insert_static(static_item.name.clone(), static_item.id);
+        }
+    }
+
     for enum_def in &lowered.module.enums {
         if !enum_def.name.is_empty() {
             names.insert_enum(enum_def.name.clone(), enum_def.id);
@@ -46,6 +62,12 @@ pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiag
     }
 
     let mut resolver = BodyResolver::new(&names, &lowered.module);
+    for const_item in &lowered.module.consts {
+        resolver.resolve_top_level_expr(const_item.initializer);
+    }
+    for static_item in &lowered.module.statics {
+        resolver.resolve_top_level_expr(static_item.initializer);
+    }
     for function in &lowered.module.functions {
         resolver.resolve_function(
             function

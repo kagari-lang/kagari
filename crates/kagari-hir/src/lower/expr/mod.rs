@@ -5,11 +5,11 @@ use kagari_syntax::ast;
 use kagari_syntax::kind::SyntaxKind;
 use smallvec::{SmallVec, smallvec};
 
-use crate::hir::{BlockData, ExprData, ExprKind, FieldInit, MatchArm, PrefixOp};
+use crate::hir::{BlockData, ExprData, ExprId, ExprKind, FieldInit, MatchArm, PrefixOp};
 use crate::lower::context::{Lowerer, lower_binary_op, syntax_span};
 
 impl Lowerer {
-    pub(crate) fn lower_expr(&mut self, expr: &ast::Expr) -> crate::hir::ExprId {
+    pub(crate) fn lower_expr(&mut self, expr: &ast::Expr) -> ExprId {
         let kind = match expr {
             ast::Expr::BlockExpr(block) => ExprKind::Block(self.lower_block(block)),
             ast::Expr::PathExpr(path) => ExprKind::Name(path.name_text().unwrap_or_default()),

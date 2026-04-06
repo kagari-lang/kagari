@@ -16,6 +16,8 @@ macro_rules! id_newtype {
 }
 
 id_newtype!(FunctionId);
+id_newtype!(ConstId);
+id_newtype!(StaticId);
 id_newtype!(ParamId);
 id_newtype!(LocalId);
 id_newtype!(StructId);

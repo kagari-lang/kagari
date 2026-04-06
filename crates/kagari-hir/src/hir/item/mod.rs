@@ -1,18 +1,26 @@
 mod adt;
 mod function;
+mod storage;
 
 pub use adt::{Enum, EnumBuffer, Field, FieldBuffer, Struct, StructBuffer, Variant, VariantBuffer};
-pub use function::{Function, FunctionBuffer, Param, ParamBuffer};
+pub use function::{Function, FunctionBuffer, FunctionKind, Param, ParamBuffer};
+pub use storage::{
+    ConstBuffer, ConstItem, Export, ExportBuffer, ExportItem, StaticBuffer, StaticItem, Visibility,
+};
 
 use crate::hir::{
-    BlockData, BlockId, Body, EnumId, ExprData, ExprId, FunctionId, PatternData, PatternId,
-    PlaceData, PlaceId, StmtData, StmtId, StructId, TypeData, TypeRefId,
+    BlockData, BlockId, Body, ConstId, EnumId, ExprData, ExprId, FunctionId, PatternData,
+    PatternId, PlaceData, PlaceId, StaticId, StmtData, StmtId, StructId, TypeData, TypeRefId,
 };
 
 #[derive(Debug, Clone, Default)]
 pub struct Module {
     pub items: ItemBuffer,
+    pub exports: ExportBuffer,
+    pub module_init: Option<FunctionId>,
     pub functions: FunctionBuffer,
+    pub consts: ConstBuffer,
+    pub statics: StaticBuffer,
     pub structs: StructBuffer,
     pub enums: EnumBuffer,
     pub body: Body,
@@ -47,6 +55,8 @@ impl Module {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
     Function(FunctionId),
+    Const(ConstId),
+    Static(StaticId),
     Struct(StructId),
     Enum(EnumId),
 }

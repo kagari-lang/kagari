@@ -17,6 +17,7 @@ pub struct StmtData {
 pub enum StmtKind {
     Let {
         local: LocalId,
+        mutable: bool,
         name: String,
         ty: Option<TypeRefId>,
         initializer: ExprId,

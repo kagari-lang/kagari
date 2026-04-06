@@ -1,11 +1,11 @@
 use kagari_syntax::ast;
 use smallvec::SmallVec;
 
-use crate::hir::{TypeData, TypeKind};
+use crate::hir::{TypeData, TypeKind, TypeRefId};
 use crate::lower::context::{Lowerer, syntax_span};
 
 impl Lowerer {
-    pub(crate) fn lower_type(&mut self, ty: &ast::TypeRef) -> crate::hir::TypeRefId {
+    pub(crate) fn lower_type(&mut self, ty: &ast::TypeRef) -> TypeRefId {
         let kind = if let Some(name) = ty.name_text() {
             TypeKind::Named(name)
         } else if let Some(tuple) = ty.tuple_type() {

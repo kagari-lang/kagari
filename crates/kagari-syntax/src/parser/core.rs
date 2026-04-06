@@ -136,6 +136,20 @@ impl<'a> Parser<'a> {
             .map(|token| token.kind.clone())
     }
 
+    pub(crate) fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    pub(crate) fn nth_nontrivia_kind_from(&self, cursor: &mut usize) -> Option<TokenKind> {
+        while let Some(token) = self.tokens.get(*cursor) {
+            *cursor += 1;
+            if !token.kind.is_trivia() {
+                return Some(token.kind.clone());
+            }
+        }
+        None
+    }
+
     pub(crate) fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.cursor)
     }

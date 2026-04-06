@@ -195,6 +195,10 @@ pub fn lex(input: &str) -> TokenBuffer {
 
                 let kind = match ident.as_str() {
                     "fn" => TokenKind::FnKw,
+                    "pub" => TokenKind::PubKw,
+                    "const" => TokenKind::ConstKw,
+                    "static" => TokenKind::StaticKw,
+                    "mut" => TokenKind::MutKw,
                     "struct" => TokenKind::StructKw,
                     "enum" => TokenKind::EnumKw,
                     "let" => TokenKind::LetKw,

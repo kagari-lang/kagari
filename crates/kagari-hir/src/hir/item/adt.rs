@@ -1,8 +1,11 @@
 use crate::hir::{EnumId, StructId, TypeRefId};
 
+use super::Visibility;
+
 #[derive(Debug, Clone)]
 pub struct Struct {
     pub id: StructId,
+    pub visibility: Visibility,
     pub name: String,
     pub fields: FieldBuffer,
 }
@@ -16,6 +19,7 @@ pub struct Field {
 #[derive(Debug, Clone)]
 pub struct Enum {
     pub id: EnumId,
+    pub visibility: Visibility,
     pub name: String,
     pub variants: VariantBuffer,
 }

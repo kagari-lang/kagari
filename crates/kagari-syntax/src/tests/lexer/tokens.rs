@@ -236,3 +236,40 @@ fn lexes_control_flow_keywords() {
         ]
     );
 }
+
+#[test]
+fn lexes_module_item_keywords() {
+    let source = common::source("pub const A = 1; pub static mut B = 2;");
+    let tokens = lex(source.text());
+    let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
+
+    assert_eq!(
+        kinds,
+        vec![
+            TokenKind::PubKw,
+            TokenKind::Whitespace,
+            TokenKind::ConstKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::Eq,
+            TokenKind::Whitespace,
+            TokenKind::Number,
+            TokenKind::Semi,
+            TokenKind::Whitespace,
+            TokenKind::PubKw,
+            TokenKind::Whitespace,
+            TokenKind::StaticKw,
+            TokenKind::Whitespace,
+            TokenKind::MutKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::Eq,
+            TokenKind::Whitespace,
+            TokenKind::Number,
+            TokenKind::Semi,
+            TokenKind::Eof,
+        ]
+    );
+}

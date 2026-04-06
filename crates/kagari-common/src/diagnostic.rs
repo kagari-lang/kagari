@@ -12,7 +12,10 @@ pub enum Severity {
 pub enum DiagnosticKind {
     UnexpectedToken,
     ExpectedTopLevelItem,
+    TopLevelControlFlowNotAllowed,
     ExpectedFunctionKeyword,
+    ExpectedConstKeyword,
+    ExpectedStaticKeyword,
     ExpectedStructKeyword,
     ExpectedEnumKeyword,
     ExpectedLetKeyword,
@@ -20,6 +23,8 @@ pub enum DiagnosticKind {
     ExpectedBreakKeyword,
     ExpectedContinueKeyword,
     ExpectedFunctionName,
+    ExpectedConstName,
+    ExpectedStaticName,
     ExpectedStructName,
     ExpectedEnumName,
     ExpectedFieldName,
@@ -43,6 +48,8 @@ pub enum DiagnosticKind {
     ExpectedType,
     ExpectedLetBindingName,
     ExpectedLetInitializer,
+    ExpectedConstInitializer,
+    ExpectedStaticInitializer,
     ExpectedFunctionBodyStart,
     ExpectedStructBodyStart,
     ExpectedBlockEnd,
@@ -56,6 +63,35 @@ pub enum DiagnosticKind {
         type_name: String,
         function_name: String,
         position: TypePosition,
+    },
+    UnknownConstType {
+        const_name: String,
+        type_name: String,
+    },
+    InvalidConstInitializer {
+        const_name: String,
+        reason: String,
+    },
+    ConstCycle {
+        const_name: String,
+    },
+    ConstWriteNotAllowed {
+        const_name: String,
+    },
+    UnknownStaticType {
+        static_name: String,
+        type_name: String,
+    },
+    CallArityMismatch {
+        function_name: String,
+        expected: usize,
+        found: usize,
+    },
+    ArgumentTypeMismatch {
+        function_name: String,
+        parameter_name: String,
+        expected: String,
+        found: String,
     },
     InvalidAssignmentTarget,
     AssignmentTypeMismatch {
@@ -112,7 +148,15 @@ impl Display for DiagnosticKind {
         match self {
             Self::UnexpectedToken => write!(f, "unexpected token"),
             Self::ExpectedTopLevelItem => write!(f, "expected a top-level item"),
+            Self::TopLevelControlFlowNotAllowed => {
+                write!(
+                    f,
+                    "top-level `return`, `break`, and `continue` are not allowed"
+                )
+            }
             Self::ExpectedFunctionKeyword => write!(f, "expected `fn`"),
+            Self::ExpectedConstKeyword => write!(f, "expected `const`"),
+            Self::ExpectedStaticKeyword => write!(f, "expected `static`"),
             Self::ExpectedStructKeyword => write!(f, "expected `struct`"),
             Self::ExpectedEnumKeyword => write!(f, "expected `enum`"),
             Self::ExpectedLetKeyword => write!(f, "expected `let`"),
@@ -120,6 +164,8 @@ impl Display for DiagnosticKind {
             Self::ExpectedBreakKeyword => write!(f, "expected `break`"),
             Self::ExpectedContinueKeyword => write!(f, "expected `continue`"),
             Self::ExpectedFunctionName => write!(f, "expected function name"),
+            Self::ExpectedConstName => write!(f, "expected const name"),
+            Self::ExpectedStaticName => write!(f, "expected static name"),
             Self::ExpectedStructName => write!(f, "expected struct name"),
             Self::ExpectedEnumName => write!(f, "expected enum name"),
             Self::ExpectedFieldName => write!(f, "expected field name"),
@@ -151,6 +197,8 @@ impl Display for DiagnosticKind {
             Self::ExpectedType => write!(f, "expected type"),
             Self::ExpectedLetBindingName => write!(f, "expected let binding name"),
             Self::ExpectedLetInitializer => write!(f, "expected `=` after let binding name"),
+            Self::ExpectedConstInitializer => write!(f, "expected `=` after const name"),
+            Self::ExpectedStaticInitializer => write!(f, "expected `=` after static name"),
             Self::ExpectedFunctionBodyStart => {
                 write!(f, "expected `{{` to start function body")
             }
@@ -177,6 +225,52 @@ impl Display for DiagnosticKind {
             } => write!(
                 f,
                 "unknown return type `{type_name}` in function `{function_name}`"
+            ),
+            Self::UnknownConstType {
+                const_name,
+                type_name,
+            } => write!(
+                f,
+                "unknown const type `{type_name}` in const `{const_name}`"
+            ),
+            Self::InvalidConstInitializer { const_name, reason } => {
+                write!(
+                    f,
+                    "invalid const initializer in const `{const_name}`: {reason}"
+                )
+            }
+            Self::ConstCycle { const_name } => {
+                write!(f, "cyclic const dependency involving `{const_name}`")
+            }
+            Self::ConstWriteNotAllowed { const_name } => {
+                write!(
+                    f,
+                    "cannot perform write-like operation on const `{const_name}`"
+                )
+            }
+            Self::UnknownStaticType {
+                static_name,
+                type_name,
+            } => write!(
+                f,
+                "unknown static type `{type_name}` in static `{static_name}`"
+            ),
+            Self::CallArityMismatch {
+                function_name,
+                expected,
+                found,
+            } => write!(
+                f,
+                "call arity mismatch in `{function_name}`: expected {expected} arguments, found {found}"
+            ),
+            Self::ArgumentTypeMismatch {
+                function_name,
+                parameter_name,
+                expected,
+                found,
+            } => write!(
+                f,
+                "argument type mismatch for parameter `{parameter_name}` in `{function_name}`: expected `{expected}`, found `{found}`"
             ),
             Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
             Self::AssignmentTypeMismatch { expected, found } => write!(

@@ -6,6 +6,10 @@ use crate::kind::SyntaxKind;
 pub enum TokenKind {
     Whitespace,
     FnKw,
+    PubKw,
+    ConstKw,
+    StaticKw,
+    MutKw,
     StructKw,
     EnumKw,
     LetKw,
@@ -68,6 +72,10 @@ impl TokenKind {
         match self {
             Self::Whitespace => SyntaxKind::Whitespace,
             Self::FnKw => SyntaxKind::FnKw,
+            Self::PubKw => SyntaxKind::PubKw,
+            Self::ConstKw => SyntaxKind::ConstKw,
+            Self::StaticKw => SyntaxKind::StaticKw,
+            Self::MutKw => SyntaxKind::MutKw,
             Self::StructKw => SyntaxKind::StructKw,
             Self::EnumKw => SyntaxKind::EnumKw,
             Self::LetKw => SyntaxKind::LetKw,
