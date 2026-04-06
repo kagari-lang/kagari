@@ -13,6 +13,7 @@ The main goal is to define a practical execution pipeline that fits Kagari's cur
 - a bytecode-first implementation strategy
 
 Backend abstraction direction is drafted separately in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
+Bytecode design direction is drafted separately in [bytecode.md](/Users/mikai/CLionProjects/kagari/docs/spec/bytecode.md).
 
 ## Design Goals
 
@@ -56,8 +57,8 @@ If native AOT or JIT is made primary too early, the project is forced to solve t
 
 The current repository already points toward a bytecode-first path:
 
-- [bytecode.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/bytecode.rs)
-- [module.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/module.rs)
+- [bytecode/mod.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/bytecode/mod.rs)
+- [module/mod.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/module/mod.rs)
 - [lib.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-vm/src/lib.rs)
 
 This draft recommends continuing in that direction.
