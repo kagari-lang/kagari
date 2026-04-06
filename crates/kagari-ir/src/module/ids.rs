@@ -17,4 +17,5 @@ macro_rules! id_newtype {
 
 id_newtype!(BlockId);
 id_newtype!(LocalId);
+id_newtype!(ModuleSlotId);
 id_newtype!(TempId);

@@ -1,5 +1,5 @@
 use crate::{
-    bytecode::{BinaryOp, BytecodeInstruction, CallTarget, FunctionRef, UnaryOp},
+    bytecode::{BinaryOp, BytecodeInstruction, CallTarget, FunctionRef, RuntimeHelper, UnaryOp},
     tests::common,
 };
 
@@ -10,6 +10,7 @@ fn lowers_function_metadata_into_bytecode() {
 
     assert_eq!(function.id, FunctionRef::new(0));
     assert_eq!(function.name, "add");
+    assert_eq!(function.parameter_count, 2);
     assert_eq!(function.local_count, 3);
     assert!(function.register_count >= 4);
 }
@@ -190,5 +191,149 @@ fn lowers_named_match_pattern_to_local_traffic() {
             .instructions
             .iter()
             .any(|instruction| matches!(instruction, BytecodeInstruction::LoadLocal { .. }))
+    );
+}
+
+#[test]
+fn lowers_type_of_builtin_to_runtime_helper_call() {
+    let bytecode = common::bytecode_ok("fn main() -> str { type_of(7) }");
+    let function = &bytecode.functions[0];
+
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
+            ..
+        }
+    )));
+}
+
+#[test]
+fn lowers_reflection_field_builtins_to_runtime_helper_calls() {
+    let bytecode = common::bytecode_ok(
+        r#"
+struct Point { x: i32 }
+
+fn main() -> Point {
+    let point = Point { x: 1 };
+    let next = set_field(point, "x", 9);
+    get_field(next, "x");
+    next
+}
+"#,
+    );
+    let function = &bytecode.functions[0];
+
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(field)),
+            ..
+        } if field == "x"
+    )));
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(field)),
+            ..
+        } if field == "x"
+    )));
+}
+
+#[test]
+fn lowers_set_index_builtin_to_runtime_helper_call() {
+    let bytecode = common::bytecode_ok(
+        r#"
+fn main(values: [i32]) -> [i32] {
+    set_index(values, 0, 9)
+}
+"#,
+    );
+    let function = &bytecode.functions[0];
+
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+            ..
+        }
+    )));
+}
+
+#[test]
+fn lowers_place_assignments_to_reflection_helpers() {
+    let bytecode = common::bytecode_ok(
+        r#"
+struct Point { x: i32 }
+struct Holder { inner: Point }
+
+fn main() -> i32 {
+    let mut holder = Holder { inner: Point { x: 1 } };
+    holder.inner.x = 7;
+    let mut values = [1, 2];
+    values[0] = 5;
+    holder.inner.x + values[0]
+}
+"#,
+    );
+    let function = &bytecode.functions[0];
+
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(field)),
+            ..
+        } if field == "x"
+    )));
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+            ..
+        }
+    )));
+}
+
+#[test]
+fn preserves_module_init_function_metadata_in_bytecode() {
+    let bytecode = common::bytecode_ok(
+        r#"
+let boot = 1;
+
+fn main() -> i32 { 1 }
+"#,
+    );
+
+    assert!(bytecode.module_init.is_some());
+}
+
+#[test]
+fn does_not_allocate_module_slots_for_const_items() {
+    let bytecode = common::bytecode_ok(
+        r#"
+const BASE: i32 = 1;
+const VALUE: i32 = BASE + 2;
+
+fn main() -> i32 { VALUE }
+"#,
+    );
+    let function = bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("expected main function");
+
+    assert!(bytecode.module_slots.is_empty());
+    assert!(
+        function
+            .instructions
+            .iter()
+            .any(|instruction| matches!(instruction, BytecodeInstruction::LoadConst { .. }))
+    );
+    assert!(
+        !function
+            .instructions
+            .iter()
+            .any(|instruction| matches!(instruction, BytecodeInstruction::LoadModule { .. }))
     );
 }

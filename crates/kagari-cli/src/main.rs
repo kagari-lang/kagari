@@ -1,9 +1,10 @@
 use kagari_common::{Diagnostic, SourceFile};
 use kagari_hir::analyze_module;
-use kagari_ir::lower_to_ir;
+use kagari_ir::{bytecode::lower_to_bytecode, lower_to_ir};
 use kagari_runtime::{
     Runtime,
-    host::{HostFunction, HostParameter, HostPassingStyle},
+    host::{HostError, HostFunction, HostParameter, HostPassingStyle},
+    value::Value,
 };
 use kagari_syntax::parse_module;
 use kagari_vm::Vm;
@@ -46,18 +47,33 @@ fn main() -> i32 {
         }
     };
 
+    let bytecode = match lower_to_bytecode(&ir) {
+        Ok(bytecode) => bytecode,
+        Err(error) => {
+            eprintln!("{error:?}");
+            return;
+        }
+    };
+
     let mut runtime = Runtime::default();
-    runtime.host_mut().register(HostFunction {
-        symbol: "host.log",
-        params: vec![HostParameter {
+    runtime.host_mut().register(HostFunction::new(
+        "host.log",
+        vec![HostParameter {
             name: "message",
             type_name: "str",
             passing: HostPassingStyle::SharedBorrow,
         }],
-        return_type: "unit",
-    });
+        "unit",
+        |args| {
+            let Some(Value::Str(message)) = args.first() else {
+                return Err(HostError::new("host.log expects one string argument"));
+            };
+            println!("{message}");
+            Ok(Value::Unit)
+        },
+    ));
 
-    let loaded = runtime.load_module(source.name(), ir);
+    let loaded = runtime.load_module(source.name(), bytecode);
     let mut vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, "main")

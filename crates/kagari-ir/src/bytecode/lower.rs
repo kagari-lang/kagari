@@ -4,14 +4,16 @@ use kagari_hir::hir::FunctionId;
 
 use crate::bytecode::instruction::{
     BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FunctionRef, JumpTarget, LocalSlot,
-    Register, StructFieldInit, UnaryOp,
+    ModuleSlot, Register, RuntimeHelper, StructFieldInit, UnaryOp,
 };
-use crate::bytecode::module::{BytecodeFunction, BytecodeModule};
-use crate::module::function::{BasicBlock, IrFunction, IrModule};
-use crate::module::ids::{BlockId, LocalId, TempId};
-use crate::module::instruction::{
-    BinaryOp as IrBinaryOp, CallTarget as IrCallTarget, Constant, Instruction, Terminator,
-    UnaryOp as IrUnaryOp,
+use crate::bytecode::module::{BytecodeFunction, BytecodeModule, BytecodeModuleSlot};
+use crate::module::{
+    function::{BasicBlock, IrFunction, IrModule},
+    ids::{BlockId, LocalId, ModuleSlotId, TempId},
+    instruction::{
+        BinaryOp as IrBinaryOp, CallTarget as IrCallTarget, Constant, Instruction,
+        RuntimeHelper as IrRuntimeHelper, Terminator, UnaryOp as IrUnaryOp,
+    },
 };
 
 #[derive(Debug)]
@@ -31,7 +33,20 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
         .iter()
         .map(|function| lower_function(function, &function_refs))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(BytecodeModule { functions })
+    Ok(BytecodeModule {
+        module_init: ir
+            .module_init
+            .and_then(|id| function_refs.get(&id).copied()),
+        module_slots: ir
+            .module_slots
+            .iter()
+            .map(|slot| BytecodeModuleSlot {
+                name: slot.name.clone(),
+                mutable: slot.mutable,
+            })
+            .collect(),
+        functions,
+    })
 }
 
 fn lower_function(
@@ -56,6 +71,7 @@ fn lower_function(
             .get(&function.hir_id)
             .expect("bytecode lowering should have a function ref for every IR function"),
         name: function.name.clone(),
+        parameter_count: function.params.len() as u16,
         register_count: function.temps.len() as u16,
         local_count: function.locals.len() as u16,
         instructions,
@@ -108,8 +124,16 @@ fn lower_instruction(
             dst: lower_temp(*dst),
             local: lower_local(*local),
         },
+        Instruction::LoadModule { dst, slot } => BytecodeInstruction::LoadModule {
+            dst: lower_temp(*dst),
+            slot: lower_module_slot(*slot),
+        },
         Instruction::StoreLocal { local, src } => BytecodeInstruction::StoreLocal {
             local: lower_local(*local),
+            src: lower_temp(*src),
+        },
+        Instruction::StoreModule { slot, src } => BytecodeInstruction::StoreModule {
+            slot: lower_module_slot(*slot),
             src: lower_temp(*src),
         },
         Instruction::Move { dst, src } => BytecodeInstruction::Move {
@@ -155,6 +179,9 @@ fn lower_instruction(
                         .expect("bytecode lowering should resolve direct call targets"),
                 ),
                 IrCallTarget::Temp(temp) => CallTarget::Register(lower_temp(*temp)),
+                IrCallTarget::RuntimeHelper(helper) => {
+                    CallTarget::RuntimeHelper(lower_runtime_helper(helper))
+                }
             },
             args: args.iter().map(|arg| lower_temp(*arg)).collect(),
         },
@@ -228,12 +255,27 @@ fn lower_constant(constant: &Constant) -> ConstantOperand {
     }
 }
 
+fn lower_runtime_helper(helper: &IrRuntimeHelper) -> RuntimeHelper {
+    match helper {
+        IrRuntimeHelper::HostFunction(symbol) => RuntimeHelper::HostFunction(symbol.clone()),
+        IrRuntimeHelper::ReflectTypeOf => RuntimeHelper::ReflectTypeOf,
+        IrRuntimeHelper::ReflectGetField(name) => RuntimeHelper::ReflectGetField(name.clone()),
+        IrRuntimeHelper::ReflectSetField(name) => RuntimeHelper::ReflectSetField(name.clone()),
+        IrRuntimeHelper::ReflectSetIndex => RuntimeHelper::ReflectSetIndex,
+        IrRuntimeHelper::DynamicCall => RuntimeHelper::DynamicCall,
+    }
+}
+
 fn lower_temp(temp: TempId) -> Register {
     Register::new(temp.index())
 }
 
 fn lower_local(local: LocalId) -> LocalSlot {
     LocalSlot::new(local.index())
+}
+
+fn lower_module_slot(slot: ModuleSlotId) -> ModuleSlot {
+    ModuleSlot::new(slot.index())
 }
 
 fn lower_jump(

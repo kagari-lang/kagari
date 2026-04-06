@@ -25,6 +25,19 @@ impl LocalSlot {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ModuleSlot(u16);
+
+impl ModuleSlot {
+    pub fn new(index: usize) -> Self {
+        Self(index as u16)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct JumpTarget(u32);
 
 impl JumpTarget {
@@ -66,12 +79,13 @@ pub enum CallTarget {
     RuntimeHelper(RuntimeHelper),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeHelper {
-    HostCall,
+    HostFunction(String),
     ReflectTypeOf,
-    ReflectGetField,
-    ReflectSetField,
+    ReflectGetField(String),
+    ReflectSetField(String),
+    ReflectSetIndex,
     DynamicCall,
 }
 
@@ -105,8 +119,16 @@ pub enum BytecodeInstruction {
         dst: Register,
         local: LocalSlot,
     },
+    LoadModule {
+        dst: Register,
+        slot: ModuleSlot,
+    },
     StoreLocal {
         local: LocalSlot,
+        src: Register,
+    },
+    StoreModule {
+        slot: ModuleSlot,
         src: Register,
     },
     Move {

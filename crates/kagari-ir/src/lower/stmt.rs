@@ -1,9 +1,10 @@
 use kagari_hir::hir;
+use kagari_hir::resolver::ResolvedName;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::{FunctionLowerer, LoopScope};
 use crate::module::ids::TempId;
-use crate::module::instruction::{Instruction, Terminator};
+use crate::module::instruction::{CallTarget, Instruction, RuntimeHelper, Terminator};
 
 impl FunctionLowerer<'_> {
     pub(crate) fn lower_block(
@@ -38,13 +39,7 @@ impl FunctionLowerer<'_> {
             }
             hir::StmtKind::Assign { target, value } => {
                 let src = self.lower_expr(value)?;
-                let resolved = self
-                    .analyzed
-                    .names
-                    .place_resolution(target)
-                    .ok_or(IrLoweringError::UnresolvedPlace(target))?;
-                let local = self.lookup_binding(resolved)?;
-                self.emit(Instruction::StoreLocal { local, src });
+                self.lower_place_assignment(target, src)?;
                 Ok(())
             }
             hir::StmtKind::Return { expr } => {
@@ -131,5 +126,122 @@ impl FunctionLowerer<'_> {
 
         self.switch_to_block(exit_block);
         Ok(())
+    }
+
+    fn lower_place_assignment(
+        &mut self,
+        place_id: hir::PlaceId,
+        src: TempId,
+    ) -> Result<(), IrLoweringError> {
+        let place = self.analyzed.lowered.module.place(place_id).clone();
+        match place.kind {
+            hir::PlaceKind::Name(_) => {
+                let resolved = self.place_root_resolution(place_id)?;
+                match resolved {
+                    ResolvedName::Param(_) | ResolvedName::Local(_) => {
+                        let local = self.lookup_binding(resolved)?;
+                        self.emit(Instruction::StoreLocal { local, src });
+                    }
+                    ResolvedName::Static(_) => {
+                        let slot = self.lookup_module_slot(resolved)?;
+                        self.emit(Instruction::StoreModule { slot, src });
+                    }
+                    ResolvedName::Const(_)
+                    | ResolvedName::Function(_)
+                    | ResolvedName::Struct(_)
+                    | ResolvedName::Enum(_) => {
+                        return Err(IrLoweringError::UnsupportedStatement(
+                            "invalid assignment target during lowering",
+                        ));
+                    }
+                }
+                Ok(())
+            }
+            hir::PlaceKind::Field { base, name } => {
+                let base_value = self.lower_place_value(base)?;
+                let updated_base = self.lower_reflect_set_field(base, base_value, name, src)?;
+                self.lower_place_assignment(base, updated_base)
+            }
+            hir::PlaceKind::Index { base, index } => {
+                let base_value = self.lower_place_value(base)?;
+                let index = self.lower_expr(index)?;
+                let updated_base = self.lower_reflect_set_index(base, base_value, index, src)?;
+                self.lower_place_assignment(base, updated_base)
+            }
+        }
+    }
+
+    fn lower_place_value(&mut self, place_id: hir::PlaceId) -> Result<TempId, IrLoweringError> {
+        let place = self.analyzed.lowered.module.place(place_id).clone();
+        match place.kind {
+            hir::PlaceKind::Name(_) => {
+                let resolved = self.place_root_resolution(place_id)?;
+                match resolved {
+                    ResolvedName::Param(_) | ResolvedName::Local(_) => {
+                        let local = self.lookup_binding(resolved)?;
+                        let dst = self.alloc_temp(self.place_type(place_id)?);
+                        self.emit(Instruction::LoadLocal { dst, local });
+                        Ok(dst)
+                    }
+                    ResolvedName::Static(_) => {
+                        let slot = self.lookup_module_slot(resolved)?;
+                        let dst = self.alloc_temp(self.place_type(place_id)?);
+                        self.emit(Instruction::LoadModule { dst, slot });
+                        Ok(dst)
+                    }
+                    ResolvedName::Const(_)
+                    | ResolvedName::Function(_)
+                    | ResolvedName::Struct(_)
+                    | ResolvedName::Enum(_) => Err(IrLoweringError::UnsupportedStatement(
+                        "invalid assignment target during lowering",
+                    )),
+                }
+            }
+            hir::PlaceKind::Field { base, name } => {
+                let base = self.lower_place_value(base)?;
+                let dst = self.alloc_temp(self.place_type(place_id)?);
+                self.emit(Instruction::ReadField { dst, base, name });
+                Ok(dst)
+            }
+            hir::PlaceKind::Index { base, index } => {
+                let base = self.lower_place_value(base)?;
+                let index = self.lower_expr(index)?;
+                let dst = self.alloc_temp(self.place_type(place_id)?);
+                self.emit(Instruction::ReadIndex { dst, base, index });
+                Ok(dst)
+            }
+        }
+    }
+
+    fn lower_reflect_set_field(
+        &mut self,
+        place_id: hir::PlaceId,
+        base: TempId,
+        name: String,
+        value: TempId,
+    ) -> Result<TempId, IrLoweringError> {
+        let dst = self.alloc_temp(self.place_type(place_id)?);
+        self.emit(Instruction::Call {
+            dst: Some(dst),
+            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(name)),
+            args: smallvec::smallvec![base, value],
+        });
+        Ok(dst)
+    }
+
+    fn lower_reflect_set_index(
+        &mut self,
+        place_id: hir::PlaceId,
+        base: TempId,
+        index: TempId,
+        value: TempId,
+    ) -> Result<TempId, IrLoweringError> {
+        let dst = self.alloc_temp(self.place_type(place_id)?);
+        self.emit(Instruction::Call {
+            dst: Some(dst),
+            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+            args: smallvec::smallvec![base, index, value],
+        });
+        Ok(dst)
     }
 }

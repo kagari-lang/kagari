@@ -1,11 +1,15 @@
 use kagari_hir::hir;
 
-use crate::module::ids::{BlockId, LocalId};
-use crate::module::instruction::{InstructionBuffer, Terminator};
-use crate::module::types::ValueType;
+use crate::module::{
+    ids::{BlockId, LocalId, ModuleSlotId},
+    instruction::{InstructionBuffer, Terminator},
+    types::ValueType,
+};
 
 #[derive(Debug, Clone)]
 pub struct IrModule {
+    pub module_init: Option<hir::FunctionId>,
+    pub module_slots: ModuleSlotBuffer,
     pub functions: FunctionBuffer,
 }
 
@@ -40,6 +44,14 @@ pub struct IrTemp {
 }
 
 #[derive(Debug, Clone)]
+pub struct IrModuleSlot {
+    pub id: ModuleSlotId,
+    pub name: String,
+    pub ty: ValueType,
+    pub mutable: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct BasicBlock {
     pub instructions: InstructionBuffer,
     pub terminator: Option<Terminator>,
@@ -48,5 +60,6 @@ pub struct BasicBlock {
 pub type FunctionBuffer = Vec<IrFunction>;
 pub type ParameterBuffer = Vec<IrParameter>;
 pub type LocalBuffer = Vec<IrLocal>;
+pub type ModuleSlotBuffer = Vec<IrModuleSlot>;
 pub type TempBuffer = Vec<IrTemp>;
 pub type BlockBuffer = Vec<BasicBlock>;

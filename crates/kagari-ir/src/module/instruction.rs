@@ -1,7 +1,7 @@
 use kagari_hir::hir;
 use smallvec::SmallVec;
 
-use crate::module::ids::{BlockId, LocalId, TempId};
+use crate::module::ids::{BlockId, LocalId, ModuleSlotId, TempId};
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
@@ -13,8 +13,16 @@ pub enum Instruction {
         dst: TempId,
         local: LocalId,
     },
+    LoadModule {
+        dst: TempId,
+        slot: ModuleSlotId,
+    },
     StoreLocal {
         local: LocalId,
+        src: TempId,
+    },
+    StoreModule {
+        slot: ModuleSlotId,
         src: TempId,
     },
     Move {
@@ -78,6 +86,17 @@ pub enum Terminator {
 pub enum CallTarget {
     Function(hir::FunctionId),
     Temp(TempId),
+    RuntimeHelper(RuntimeHelper),
+}
+
+#[derive(Debug, Clone)]
+pub enum RuntimeHelper {
+    HostFunction(String),
+    ReflectTypeOf,
+    ReflectGetField(String),
+    ReflectSetField(String),
+    ReflectSetIndex,
+    DynamicCall,
 }
 
 #[derive(Debug, Clone, PartialEq)]

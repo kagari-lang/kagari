@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
+use kagari_hir::typeck::TypedFunction;
 use kagari_hir::{AnalyzedModule, hir};
 
-use crate::module::function::{
-    BasicBlock, IrFunction, IrLocal, IrParameter, IrTemp, ParameterBuffer,
+use crate::lower::EvaluatedConst;
+use crate::module::{
+    function::{BasicBlock, IrFunction, IrLocal, IrParameter, IrTemp, ParameterBuffer},
+    ids::{BlockId, LocalId, ModuleSlotId, TempId},
+    instruction::{Instruction, Terminator},
+    types::ValueType,
 };
-use crate::module::ids::{BlockId, LocalId, TempId};
-use crate::module::instruction::{Instruction, Terminator};
-use crate::module::types::ValueType;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LoopScope {
@@ -19,6 +21,8 @@ pub(crate) struct FunctionLowerer<'a> {
     pub(crate) analyzed: &'a AnalyzedModule,
     pub(crate) function: IrFunction,
     pub(crate) current_block: BlockId,
+    pub(crate) const_values: &'a HashMap<hir::ConstId, EvaluatedConst>,
+    pub(crate) static_slots: &'a HashMap<hir::StaticId, ModuleSlotId>,
     pub(crate) params: HashMap<hir::ParamId, LocalId>,
     pub(crate) locals: HashMap<hir::LocalId, LocalId>,
     pub(crate) loops: Vec<LoopScope>,
@@ -28,14 +32,16 @@ impl<'a> FunctionLowerer<'a> {
     pub(crate) fn new(
         analyzed: &'a AnalyzedModule,
         hir_function: &'a hir::Function,
-        typed_function: &'a kagari_hir::typeck::TypedFunction,
+        typed_function: &'a TypedFunction,
+        const_values: &'a HashMap<hir::ConstId, EvaluatedConst>,
+        static_slots: &'a HashMap<hir::StaticId, ModuleSlotId>,
     ) -> Self {
         let entry = BlockId::new(0);
         let mut function = IrFunction {
             hir_id: hir_function.id,
             name: hir_function.name.clone(),
             params: ParameterBuffer::new(),
-            return_type: ValueType::from_type_id(typed_function.return_type),
+            return_type: ValueType::from_type_id(&typed_function.return_type),
             locals: Vec::new(),
             temps: Vec::new(),
             blocks: vec![BasicBlock {
@@ -50,11 +56,11 @@ impl<'a> FunctionLowerer<'a> {
             let local = LocalId::new(function.locals.len());
             function.locals.push(IrLocal {
                 name: param.name.clone(),
-                ty: ValueType::from_type_id(param.ty),
+                ty: ValueType::from_type_id(&param.ty),
             });
             function.params.push(IrParameter {
                 name: param.name.clone(),
-                ty: ValueType::from_type_id(param.ty),
+                ty: ValueType::from_type_id(&param.ty),
                 local,
             });
             params.insert(param.id, local);
@@ -64,6 +70,8 @@ impl<'a> FunctionLowerer<'a> {
             analyzed,
             function,
             current_block: entry,
+            const_values,
+            static_slots,
             params,
             locals: HashMap::new(),
             loops: Vec::new(),

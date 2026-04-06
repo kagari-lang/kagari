@@ -1,9 +1,12 @@
-use kagari_hir::hir;
+use kagari_hir::{builtin::BuiltinFunction, hir};
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
 use crate::module::ids::TempId;
-use crate::module::instruction::{CallTarget, Constant, Instruction, StructFieldInit, Terminator};
+use crate::module::instruction::{
+    BinaryOp, CallTarget, Constant, Instruction, RuntimeHelper, StructFieldInit, TempIdBuffer,
+    Terminator,
+};
 use crate::module::types::ValueType;
 
 impl FunctionLowerer<'_> {
@@ -54,13 +57,20 @@ impl FunctionLowerer<'_> {
                 Ok(dst)
             }
             hir::ExprKind::Call { callee, args } => {
-                let args = args
-                    .iter()
-                    .map(|arg| self.lower_expr(*arg))
-                    .collect::<Result<_, _>>()?;
-                let callee = match self.lower_direct_callee(callee)? {
-                    Some(callee) => callee,
-                    None => CallTarget::Temp(self.lower_expr(callee)?),
+                let (callee, args) = if let Some((helper, helper_args)) =
+                    self.lower_runtime_helper_call(callee, &args)?
+                {
+                    (CallTarget::RuntimeHelper(helper), helper_args)
+                } else {
+                    let args = args
+                        .iter()
+                        .map(|arg| self.lower_expr(*arg))
+                        .collect::<Result<_, _>>()?;
+                    let callee = match self.lower_direct_callee(callee)? {
+                        Some(callee) => callee,
+                        None => CallTarget::Temp(self.lower_expr(callee)?),
+                    };
+                    (callee, args)
                 };
                 let dst = self.alloc_temp(self.expr_type(expr_id)?);
                 self.emit(Instruction::Call {
@@ -225,10 +235,10 @@ impl FunctionLowerer<'_> {
                 }
                 hir::PatternKind::Literal(literal) => {
                     let literal_temp = self.lower_literal_value(literal);
-                    let cond = self.alloc_temp(crate::module::types::ValueType::Bool);
+                    let cond = self.alloc_temp(ValueType::Bool);
                     self.emit(Instruction::Binary {
                         dst: cond,
-                        op: crate::module::instruction::BinaryOp::Eq,
+                        op: BinaryOp::Eq,
                         lhs: scrutinee_temp,
                         rhs: literal_temp,
                     });
@@ -244,6 +254,7 @@ impl FunctionLowerer<'_> {
                         .typed
                         .type_table
                         .local_type(*local)
+                        .as_ref()
                         .map(ValueType::from_type_id)
                         .ok_or(IrLoweringError::MissingLocalType(*local))?;
                     let ir_local = self.alloc_local(name.clone(), local_ty);
@@ -387,5 +398,103 @@ impl FunctionLowerer<'_> {
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadIndex { dst, base, index });
         Ok(dst)
+    }
+
+    fn lower_runtime_helper_call(
+        &mut self,
+        callee: hir::ExprId,
+        args: &[hir::ExprId],
+    ) -> Result<Option<(RuntimeHelper, TempIdBuffer)>, IrLoweringError> {
+        let Some(helper) = self.runtime_helper_name(callee) else {
+            return Ok(None);
+        };
+
+        let lowered = match helper {
+            BuiltinFunction::TypeOf => Some((
+                RuntimeHelper::ReflectTypeOf,
+                args.iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<_, _>>()?,
+            )),
+            BuiltinFunction::GetField => {
+                let [base, field_name] = args else {
+                    return Ok(None);
+                };
+                let base = self.lower_expr(*base)?;
+                let Some(field_name) = self.string_literal_value(*field_name) else {
+                    return Ok(None);
+                };
+                Some((
+                    RuntimeHelper::ReflectGetField(field_name),
+                    smallvec::smallvec![base],
+                ))
+            }
+            BuiltinFunction::SetField => {
+                let [base, field_name, value] = args else {
+                    return Ok(None);
+                };
+                let base = self.lower_expr(*base)?;
+                let value = self.lower_expr(*value)?;
+                let Some(field_name) = self.string_literal_value(*field_name) else {
+                    return Ok(None);
+                };
+                Some((
+                    RuntimeHelper::ReflectSetField(field_name),
+                    smallvec::smallvec![base, value],
+                ))
+            }
+            BuiltinFunction::SetIndex => {
+                let [base, index, value] = args else {
+                    return Ok(None);
+                };
+                let base = self.lower_expr(*base)?;
+                let index = self.lower_expr(*index)?;
+                let value = self.lower_expr(*value)?;
+                Some((
+                    RuntimeHelper::ReflectSetIndex,
+                    smallvec::smallvec![base, index, value],
+                ))
+            }
+        };
+
+        Ok(lowered)
+    }
+
+    fn runtime_helper_name(&self, expr_id: hir::ExprId) -> Option<BuiltinFunction> {
+        match self.builtin_name(expr_id) {
+            Some(
+                BuiltinFunction::TypeOf
+                | BuiltinFunction::GetField
+                | BuiltinFunction::SetField
+                | BuiltinFunction::SetIndex,
+            ) => self.builtin_name(expr_id),
+            _ => None,
+        }
+    }
+
+    fn builtin_name(&self, expr_id: hir::ExprId) -> Option<BuiltinFunction> {
+        let expr = self.analyzed.lowered.module.expr(expr_id);
+        let hir::ExprKind::Name(name) = &expr.kind else {
+            return None;
+        };
+        BuiltinFunction::from_name(name)
+    }
+
+    fn string_literal_value(&self, expr_id: hir::ExprId) -> Option<String> {
+        let expr = self.analyzed.lowered.module.expr(expr_id);
+        let hir::ExprKind::Literal(literal) = &expr.kind else {
+            return None;
+        };
+        if literal.kind != hir::LiteralKind::String {
+            return None;
+        }
+        Some(
+            literal
+                .text
+                .strip_prefix('"')
+                .and_then(|text| text.strip_suffix('"'))
+                .unwrap_or(&literal.text)
+                .to_owned(),
+        )
     }
 }

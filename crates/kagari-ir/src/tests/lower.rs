@@ -1,6 +1,7 @@
 use crate::{
     lower_to_ir,
-    module::{Instruction, Terminator},
+    module::instruction::RuntimeHelper,
+    module::{BinaryOp, CallTarget, Instruction, Terminator},
     tests::common,
 };
 
@@ -61,8 +62,7 @@ fn lowers_short_circuit_boolean_operators_into_branches() {
                 matches!(
                     instruction,
                     Instruction::Binary {
-                        op: crate::module::instruction::BinaryOp::AndAnd
-                            | crate::module::instruction::BinaryOp::OrOr,
+                        op: BinaryOp::AndAnd | BinaryOp::OrOr,
                         ..
                     }
                 )
@@ -112,6 +112,87 @@ fn lowers_named_match_pattern_binding() {
             .iter()
             .flat_map(|block| block.instructions.iter())
             .any(|instruction| matches!(instruction, Instruction::LoadLocal { .. }))
+    );
+}
+
+#[test]
+fn lowers_const_references_as_plain_constants_without_module_slots() {
+    let analyzed = common::analyze_ok(
+        r#"
+const BASE: i32 = 1;
+const VALUE: i32 = BASE + 2;
+
+fn main() -> i32 { VALUE }
+"#,
+    );
+    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let function = ir
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("expected main function");
+
+    assert!(ir.module_slots.is_empty());
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .any(|instruction| matches!(instruction, Instruction::LoadConst { .. }))
+    );
+    assert!(
+        !function
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .any(|instruction| matches!(instruction, Instruction::LoadModule { .. }))
+    );
+}
+
+#[test]
+fn lowers_field_and_index_assignments_via_runtime_helpers() {
+    let analyzed = common::analyze_ok(
+        r#"
+struct Point { x: i32 }
+struct Holder { inner: Point }
+
+fn main() -> i32 {
+    let mut holder = Holder { inner: Point { x: 1 } };
+    holder.inner.x = 7;
+    let mut values = [1, 2];
+    values[0] = 5;
+    holder.inner.x + values[0]
+}
+"#,
+    );
+    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let function = &ir.functions[0];
+
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::Call {
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(field)),
+                    ..
+                } if field == "x"
+            ))
+    );
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::Call {
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+                    ..
+                }
+            ))
     );
 }
 

@@ -1,3 +1,7 @@
+use std::{fmt, sync::Arc};
+
+use crate::value::Value;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostObjectId(pub u64);
 
@@ -15,11 +19,61 @@ pub struct HostParameter {
     pub passing: HostPassingStyle,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostError {
+    message: String,
+}
+
+impl HostError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+pub type HostCallback = dyn Fn(&[Value]) -> Result<Value, HostError> + Send + Sync + 'static;
+
+#[derive(Clone)]
 pub struct HostFunction {
     pub symbol: &'static str,
     pub params: Vec<HostParameter>,
     pub return_type: &'static str,
+    handler: Arc<HostCallback>,
+}
+
+impl fmt::Debug for HostFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostFunction")
+            .field("symbol", &self.symbol)
+            .field("params", &self.params)
+            .field("return_type", &self.return_type)
+            .finish_non_exhaustive()
+    }
+}
+
+impl HostFunction {
+    pub fn new(
+        symbol: &'static str,
+        params: Vec<HostParameter>,
+        return_type: &'static str,
+        handler: impl Fn(&[Value]) -> Result<Value, HostError> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            symbol,
+            params,
+            return_type,
+            handler: Arc::new(handler),
+        }
+    }
+
+    pub fn invoke(&self, args: &[Value]) -> Result<Value, HostError> {
+        (self.handler)(args)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -34,6 +88,15 @@ impl HostRegistry {
 
     pub fn functions(&self) -> &[HostFunction] {
         &self.functions
+    }
+
+    pub fn invoke(&self, symbol: &str, args: &[Value]) -> Result<Value, HostError> {
+        let function = self
+            .functions
+            .iter()
+            .find(|function| function.symbol == symbol)
+            .ok_or_else(|| HostError::new(format!("unknown host function `{symbol}`")))?;
+        function.invoke(args)
     }
 }
 

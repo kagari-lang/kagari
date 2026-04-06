@@ -69,7 +69,11 @@ dependencies = [
 name = "kagari-vm"
 version = "0.1.0"
 dependencies = [
+ "kagari-common",
+ "kagari-hir",
+ "kagari-ir",
  "kagari-runtime",
+ "kagari-syntax",
 ]
 
 [[package]]
