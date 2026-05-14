@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use kagari_hir::builtin::BuiltinMethod;
 use kagari_hir::hir::FunctionId;
 
 use crate::bytecode::instruction::{
@@ -179,6 +180,9 @@ fn lower_instruction(
                         .expect("bytecode lowering should resolve direct call targets"),
                 ),
                 IrCallTarget::Temp(temp) => CallTarget::Register(lower_temp(*temp)),
+                IrCallTarget::BuiltinMethod(method) => {
+                    CallTarget::BuiltinMethod(lower_builtin_method(*method))
+                }
                 IrCallTarget::RuntimeHelper(helper) => {
                     CallTarget::RuntimeHelper(lower_runtime_helper(helper))
                 }
@@ -253,6 +257,10 @@ fn lower_constant(constant: &Constant) -> ConstantOperand {
         Constant::F32(value) => ConstantOperand::F32(*value),
         Constant::Str(value) => ConstantOperand::Str(value.clone()),
     }
+}
+
+fn lower_builtin_method(method: BuiltinMethod) -> BuiltinMethod {
+    method
 }
 
 fn lower_runtime_helper(helper: &IrRuntimeHelper) -> RuntimeHelper {

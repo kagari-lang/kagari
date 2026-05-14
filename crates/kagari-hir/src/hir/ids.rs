@@ -4,7 +4,7 @@ macro_rules! id_newtype {
         pub struct $name(u32);
 
         impl $name {
-            pub(crate) fn new(index: usize) -> Self {
+            pub fn new(index: usize) -> Self {
                 Self(index as u32)
             }
 
@@ -16,8 +16,12 @@ macro_rules! id_newtype {
 }
 
 id_newtype!(FunctionId);
+id_newtype!(MethodId);
 id_newtype!(ConstId);
 id_newtype!(StaticId);
+id_newtype!(TraitId);
+id_newtype!(TraitMethodId);
+id_newtype!(ImplId);
 id_newtype!(ParamId);
 id_newtype!(LocalId);
 id_newtype!(StructId);

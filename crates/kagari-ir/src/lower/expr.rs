@@ -1,7 +1,11 @@
-use kagari_hir::{builtin::BuiltinFunction, hir};
+use kagari_hir::{
+    builtin::{BuiltinFunction, BuiltinMethod, array},
+    hir,
+};
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
+use crate::module::BuiltinMethod as IrBuiltinMethod;
 use crate::module::ids::TempId;
 use crate::module::instruction::{
     BinaryOp, CallTarget, Constant, Instruction, RuntimeHelper, StructFieldInit, TempIdBuffer,
@@ -57,7 +61,11 @@ impl FunctionLowerer<'_> {
                 Ok(dst)
             }
             hir::ExprKind::Call { callee, args } => {
-                let (callee, args) = if let Some((helper, helper_args)) =
+                let (callee, args) = if let Some((builtin, builtin_args)) =
+                    self.lower_builtin_method_call(callee, &args)?
+                {
+                    (CallTarget::BuiltinMethod(builtin), builtin_args)
+                } else if let Some((helper, helper_args)) =
                     self.lower_runtime_helper_call(callee, &args)?
                 {
                     (CallTarget::RuntimeHelper(helper), helper_args)
@@ -460,6 +468,40 @@ impl FunctionLowerer<'_> {
         Ok(lowered)
     }
 
+    fn lower_builtin_method_call(
+        &mut self,
+        callee: hir::ExprId,
+        args: &[hir::ExprId],
+    ) -> Result<Option<(IrBuiltinMethod, TempIdBuffer)>, IrLoweringError> {
+        let Some((method, receiver)) = self.builtin_method(callee) else {
+            return Ok(None);
+        };
+
+        let lowered = match method {
+            BuiltinMethod::Array(method) => match method {
+                array::Method::Len => Some((
+                    IrBuiltinMethod::Array(method),
+                    smallvec::smallvec![self.lower_expr(receiver)?],
+                )),
+                array::Method::Push => {
+                    let [value] = args else {
+                        return Ok(None);
+                    };
+                    Some((
+                        IrBuiltinMethod::Array(method),
+                        smallvec::smallvec![self.lower_expr(receiver)?, self.lower_expr(*value)?],
+                    ))
+                }
+                array::Method::Pop => Some((
+                    IrBuiltinMethod::Array(method),
+                    smallvec::smallvec![self.lower_expr(receiver)?],
+                )),
+            },
+        };
+
+        Ok(lowered)
+    }
+
     fn runtime_helper_name(&self, expr_id: hir::ExprId) -> Option<BuiltinFunction> {
         match self.builtin_name(expr_id) {
             Some(
@@ -478,6 +520,15 @@ impl FunctionLowerer<'_> {
             return None;
         };
         BuiltinFunction::from_name(name)
+    }
+
+    fn builtin_method(&self, expr_id: hir::ExprId) -> Option<(BuiltinMethod, hir::ExprId)> {
+        let expr = self.analyzed.lowered.module.expr(expr_id);
+        let hir::ExprKind::Field { receiver, name } = &expr.kind else {
+            return None;
+        };
+        let receiver_ty = self.analyzed.typed.type_table.expr_type(*receiver)?;
+        BuiltinMethod::resolve(&receiver_ty, name).map(|method| (method, *receiver))
     }
 
     fn string_literal_value(&self, expr_id: hir::ExprId) -> Option<String> {

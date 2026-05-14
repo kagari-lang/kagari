@@ -1,7 +1,8 @@
 use crate::{
+    builtin::array,
     lower_to_ir,
     module::instruction::RuntimeHelper,
-    module::{BinaryOp, CallTarget, Instruction, Terminator},
+    module::{BinaryOp, BuiltinMethod, CallTarget, Instruction, Terminator},
     tests::common,
 };
 
@@ -190,6 +191,47 @@ fn main() -> i32 {
                 instruction,
                 Instruction::Call {
                     callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn lowers_array_methods_to_builtin_method_calls() {
+    let analyzed = common::analyze_ok(
+        r#"
+fn main() -> [i32] {
+    let values = [1, 2];
+    values.push(3).pop()
+}
+"#,
+    );
+    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let function = &ir.functions[0];
+
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::Call {
+                    callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Push)),
+                    ..
+                }
+            ))
+    );
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::Call {
+                    callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Pop)),
                     ..
                 }
             ))

@@ -1,4 +1,4 @@
-use kagari_hir::hir;
+use kagari_hir::{builtin::BuiltinMethod, hir};
 use smallvec::SmallVec;
 
 use crate::module::ids::{BlockId, LocalId, ModuleSlotId, TempId};
@@ -86,6 +86,7 @@ pub enum Terminator {
 pub enum CallTarget {
     Function(hir::FunctionId),
     Temp(TempId),
+    BuiltinMethod(BuiltinMethod),
     RuntimeHelper(RuntimeHelper),
 }
 

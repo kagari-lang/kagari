@@ -1,3 +1,5 @@
+use kagari_hir::builtin::BuiltinMethod;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Register(u16);
 
@@ -76,6 +78,7 @@ pub enum ConstantOperand {
 pub enum CallTarget {
     Function(FunctionRef),
     Register(Register),
+    BuiltinMethod(BuiltinMethod),
     RuntimeHelper(RuntimeHelper),
 }
 

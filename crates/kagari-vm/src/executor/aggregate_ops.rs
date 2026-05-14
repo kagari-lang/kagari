@@ -18,7 +18,7 @@ impl Executor<'_> {
             .iter()
             .map(|element| self.current_frame()?.read_register(*element))
             .collect::<Result<Vec<_>, _>>()
-            .map(Value::Array)
+            .map(|elements| Value::Array(self.runtime.gc().alloc_array(elements)))
     }
 
     pub(crate) fn make_struct(
@@ -36,15 +36,15 @@ impl Executor<'_> {
             })
             .collect::<Result<Vec<_>, VmError>>()?;
 
-        Ok(Value::Struct { name, fields })
+        Ok(Value::Struct(self.runtime.gc().alloc_struct(name, fields)))
     }
 
     pub(crate) fn read_field(&self, base: Register, name: &str) -> Result<Value, VmError> {
         match self.current_frame()?.read_register(base)? {
-            Value::Struct { fields, .. } => fields
-                .into_iter()
-                .find(|field| field.name == name)
-                .map(|field| field.value)
+            Value::Struct(handle) => self
+                .runtime
+                .gc()
+                .struct_get_field(handle, name)
                 .ok_or_else(|| VmError::MissingField(name.to_owned())),
             _ => Err(VmError::TypeMismatch("read_field expects struct value")),
         }
@@ -64,7 +64,12 @@ impl Executor<'_> {
         };
 
         match base {
-            Value::Array(elements) | Value::Tuple(elements) => elements
+            Value::Array(handle) => self
+                .runtime
+                .gc()
+                .array_get(handle, index)
+                .ok_or(VmError::InvalidIndex(index)),
+            Value::Tuple(elements) => elements
                 .get(index)
                 .cloned()
                 .ok_or(VmError::InvalidIndex(index)),

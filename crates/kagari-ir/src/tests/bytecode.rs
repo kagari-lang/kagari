@@ -1,5 +1,9 @@
 use crate::{
-    bytecode::{BinaryOp, BytecodeInstruction, CallTarget, FunctionRef, RuntimeHelper, UnaryOp},
+    builtin::array,
+    bytecode::{
+        BinaryOp, BuiltinMethod, BytecodeInstruction, CallTarget, FunctionRef, RuntimeHelper,
+        UnaryOp,
+    },
     tests::common,
 };
 
@@ -336,4 +340,43 @@ fn main() -> i32 { VALUE }
             .iter()
             .any(|instruction| matches!(instruction, BytecodeInstruction::LoadModule { .. }))
     );
+}
+
+#[test]
+fn lowers_array_methods_to_builtin_method_calls() {
+    let bytecode = common::bytecode_ok(
+        r#"
+fn main() -> i32 {
+    let values = [1, 2];
+    values.push(3).pop().len()
+}
+"#,
+    );
+    let function = bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("expected main function");
+
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Push)),
+            ..
+        }
+    )));
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Pop)),
+            ..
+        }
+    )));
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Call {
+            callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Len)),
+            ..
+        }
+    )));
 }

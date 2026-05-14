@@ -207,6 +207,8 @@ impl Lowerer {
             },
             name: struct_def.name_text().unwrap_or_default(),
             fields,
+            methods: Vec::new(),
+            impls: Vec::new(),
         }
     }
 
@@ -233,6 +235,8 @@ impl Lowerer {
             },
             name: enum_def.name_text().unwrap_or_default(),
             variants,
+            methods: Vec::new(),
+            impls: Vec::new(),
         }
     }
 }

@@ -259,6 +259,38 @@ fn records_expression_types_for_resolved_body_expressions() {
 }
 
 #[test]
+fn infers_array_method_call_types() {
+    let lowered = common::lower_ok(
+        r#"
+fn main() -> i32 {
+    let values = [1, 2];
+    let next = values.push(3);
+    next.pop().len()
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let function = &lowered.module.functions[0];
+    let block = lowered.module.block(function.body);
+
+    let push_expr = match &lowered.module.stmt(block.statements[1]).kind {
+        StmtKind::Let { initializer, .. } => *initializer,
+        other => panic!("unexpected stmt kind: {other:?}"),
+    };
+    let tail_expr = block.tail_expr.expect("tail expr");
+
+    assert_eq!(
+        typed.type_table.expr_type(push_expr),
+        Some(TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32))))
+    );
+    assert_eq!(
+        typed.type_table.expr_type(tail_expr),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+}
+
+#[test]
 fn reports_return_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> i32 { true }");
     let names = resolve_names(&lowered).expect("resolver should succeed");

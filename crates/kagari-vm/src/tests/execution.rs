@@ -97,11 +97,14 @@ fn main() -> Point {
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
+    let Value::Struct(handle) = report.return_value else {
+        panic!("expected struct return value");
+    };
     assert_eq!(
-        report.return_value,
-        Value::Struct {
-            name: "Point".to_owned(),
-            fields: vec![
+        vm.runtime().gc().struct_snapshot(handle),
+        Some((
+            "Point".to_owned(),
+            vec![
                 StructValueField {
                     name: "x".to_owned(),
                     value: Value::I32(1),
@@ -111,7 +114,7 @@ fn main() -> Point {
                     value: Value::I32(2),
                 },
             ],
-        }
+        ))
     );
 }
 

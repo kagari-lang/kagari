@@ -1,4 +1,6 @@
-use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, Register, RuntimeHelper};
+use kagari_ir::bytecode::{
+    BuiltinMethod, BytecodeInstruction, CallTarget, Register, RuntimeHelper,
+};
 use kagari_runtime::value::Value;
 
 use crate::error::VmError;
@@ -135,10 +137,29 @@ impl<'a> Executor<'a> {
                 Ok(())
             }
             CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(callee)),
+            CallTarget::BuiltinMethod(method) => {
+                self.dispatch_builtin_method(method, dst, arg_values)
+            }
             CallTarget::RuntimeHelper(helper) => {
                 self.dispatch_runtime_helper(helper, dst, arg_values)
             }
         }
+    }
+
+    fn dispatch_builtin_method(
+        &mut self,
+        method: BuiltinMethod,
+        dst: Option<Register>,
+        args: Vec<Value>,
+    ) -> Result<(), VmError> {
+        let value = self
+            .runtime
+            .invoke_builtin(method, &args)
+            .map_err(VmError::BuiltinError)?;
+        if let Some(dst) = dst {
+            self.current_frame_mut()?.write_register(dst, value)?;
+        }
+        Ok(())
     }
 
     fn dispatch_runtime_helper(

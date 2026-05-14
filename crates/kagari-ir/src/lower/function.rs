@@ -69,7 +69,8 @@ fn lower_module_slots(lowerer: &mut FunctionLowerer<'_>) -> Result<(), IrLowerin
             hir::Item::Const(_)
             | hir::Item::Function(_)
             | hir::Item::Struct(_)
-            | hir::Item::Enum(_) => {}
+            | hir::Item::Enum(_)
+            | hir::Item::Trait(_) => {}
         }
     }
 

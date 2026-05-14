@@ -1,12 +1,14 @@
+pub mod builtin;
 pub mod gc;
 pub mod host;
 pub mod reflection;
 pub mod reload;
 pub mod value;
 
-use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::bytecode::{BuiltinMethod, BytecodeModule};
 
 use crate::{
+    builtin::BuiltinError,
     gc::{GcHeap, GcHeapConfig},
     host::{HostError, HostRegistry},
     reflection::ReflectionError,
@@ -62,7 +64,7 @@ impl Runtime {
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> value::Value {
-        reflection::type_of(value)
+        reflection::type_of(&self.gc, value)
     }
 
     pub fn reflect_get_field(
@@ -70,7 +72,7 @@ impl Runtime {
         value: &value::Value,
         field_name: &str,
     ) -> Result<value::Value, ReflectionError> {
-        reflection::get_field(value, field_name)
+        reflection::get_field(&self.gc, value, field_name)
     }
 
     pub fn reflect_set_field(
@@ -79,7 +81,7 @@ impl Runtime {
         field_name: &str,
         next_value: value::Value,
     ) -> Result<value::Value, ReflectionError> {
-        reflection::set_field(value, field_name, next_value)
+        reflection::set_field(&self.gc, value, field_name, next_value)
     }
 
     pub fn reflect_set_index(
@@ -88,7 +90,15 @@ impl Runtime {
         index: &value::Value,
         next_value: value::Value,
     ) -> Result<value::Value, ReflectionError> {
-        reflection::set_index(value, index, next_value)
+        reflection::set_index(&self.gc, value, index, next_value)
+    }
+
+    pub fn invoke_builtin(
+        &self,
+        method: BuiltinMethod,
+        args: &[value::Value],
+    ) -> Result<value::Value, BuiltinError> {
+        builtin::invoke(&self.gc, method, args)
     }
 
     pub fn load_module(

@@ -1,4 +1,4 @@
-use crate::value::Value;
+use crate::{gc::GcHeap, value::Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectionError {
@@ -17,7 +17,7 @@ impl ReflectionError {
     }
 }
 
-pub fn type_of(value: &Value) -> Value {
+pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
     let type_name = match value {
         Value::Unit => "unit",
         Value::Bool(_) => "bool",
@@ -28,7 +28,12 @@ pub fn type_of(value: &Value) -> Value {
         Value::Str(_) => "str",
         Value::Tuple(_) => "tuple",
         Value::Array(_) => "array",
-        Value::Struct { name, .. } => return Value::Str(name.clone()),
+        Value::Struct(handle) => {
+            return Value::Str(
+                gc.struct_name(*handle)
+                    .unwrap_or_else(|| "struct".to_owned()),
+            );
+        }
         Value::GcHandle(_) => "gc_handle",
         Value::HostRef(_) => "host_ref",
         Value::HostMut(_) => "host_mut",
@@ -37,12 +42,10 @@ pub fn type_of(value: &Value) -> Value {
     Value::Str(type_name.to_owned())
 }
 
-pub fn get_field(value: &Value, field_name: &str) -> Result<Value, ReflectionError> {
+pub fn get_field(gc: &GcHeap, value: &Value, field_name: &str) -> Result<Value, ReflectionError> {
     match value {
-        Value::Struct { fields, .. } => fields
-            .iter()
-            .find(|field| field.name == field_name)
-            .map(|field| field.value.clone())
+        Value::Struct(handle) => gc
+            .struct_get_field(*handle, field_name)
             .ok_or_else(|| ReflectionError::new(format!("missing field `{field_name}`"))),
         _ => Err(ReflectionError::new(
             "reflect_get_field expects struct value",
@@ -51,22 +54,19 @@ pub fn get_field(value: &Value, field_name: &str) -> Result<Value, ReflectionErr
 }
 
 pub fn set_field(
+    gc: &GcHeap,
     value: &Value,
     field_name: &str,
     next_value: Value,
 ) -> Result<Value, ReflectionError> {
     match value {
-        Value::Struct { name, fields } => {
-            let mut updated = fields.clone();
-            let field = updated
-                .iter_mut()
-                .find(|field| field.name == field_name)
-                .ok_or_else(|| ReflectionError::new(format!("missing field `{field_name}`")))?;
-            field.value = next_value;
-            Ok(Value::Struct {
-                name: name.clone(),
-                fields: updated,
-            })
+        Value::Struct(handle) => {
+            let Some(()) = gc.struct_set_field(*handle, field_name, next_value) else {
+                return Err(ReflectionError::new(format!(
+                    "missing field `{field_name}`"
+                )));
+            };
+            Ok(Value::Struct(*handle))
         }
         _ => Err(ReflectionError::new(
             "reflect_set_field expects struct value",
@@ -75,6 +75,7 @@ pub fn set_field(
 }
 
 pub fn set_index(
+    gc: &GcHeap,
     value: &Value,
     index: &Value,
     next_value: Value,
@@ -90,13 +91,11 @@ pub fn set_index(
     };
 
     match value {
-        Value::Array(elements) => {
-            let mut updated = elements.clone();
-            let Some(slot) = updated.get_mut(index) else {
+        Value::Array(handle) => {
+            let Some(()) = gc.array_set(*handle, index, next_value) else {
                 return Err(ReflectionError::new(format!("invalid index `{index}`")));
             };
-            *slot = next_value;
-            Ok(Value::Array(updated))
+            Ok(Value::Array(*handle))
         }
         Value::Tuple(elements) => {
             let mut updated = elements.clone();

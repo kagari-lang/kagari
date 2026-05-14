@@ -1,3 +1,5 @@
+pub use kagari_hir::builtin::BuiltinMethod;
+
 pub mod function;
 pub mod ids;
 pub mod instruction;

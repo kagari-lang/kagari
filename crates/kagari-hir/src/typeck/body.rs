@@ -2,7 +2,7 @@ use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
 use crate::{
-    builtin::BuiltinFunction,
+    builtin::{BuiltinFunction, BuiltinMethod, array},
     hir::{
         BinaryOp, BlockId, ExprId, ExprKind, LiteralKind, MatchArm, PatternKind, PlaceId,
         PlaceKind, PrefixOp, StmtId, StmtKind,
@@ -369,6 +369,10 @@ impl<'a> BodyChecker<'a> {
         args: &[ExprId],
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
+        if let Some(method_ty) = self.infer_builtin_method_call_type(callee, args, env) {
+            return Some(method_ty);
+        }
+
         let builtin = self.builtin_function(callee)?;
         match builtin {
             BuiltinFunction::TypeOf => {
@@ -429,6 +433,73 @@ impl<'a> BodyChecker<'a> {
                     );
                 }
                 Some(base_ty)
+            }
+        }
+    }
+
+    fn infer_builtin_method_call_type(
+        &mut self,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let (method, _, receiver_ty) = self.builtin_method(callee, env)?;
+        match method {
+            BuiltinMethod::Array(method) => {
+                self.infer_array_method_call_type(method, callee, &receiver_ty, args, env)
+            }
+        }
+    }
+
+    fn infer_array_method_call_type(
+        &mut self,
+        method: array::Method,
+        callee: ExprId,
+        receiver_ty: &TypeId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let spec = array::method_spec(method);
+        match method {
+            array::Method::Len => {
+                let _ = self.infer_call_args(args, env);
+                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
+                Some(TypeId::Builtin(BuiltinType::I32))
+            }
+            array::Method::Push => {
+                let TypeId::Array(element_ty) = receiver_ty else {
+                    return Some(TypeId::Builtin(BuiltinType::Unit));
+                };
+                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
+                let value_ty = args
+                    .first()
+                    .map(|expr| self.infer_expr_type(*expr, env))
+                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
+                if value_ty != **element_ty {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
+                            function_name: spec.name.to_string(),
+                            parameter_name: "value".to_string(),
+                            expected: display_type_id(element_ty),
+                            found: display_type_id(&value_ty),
+                        })
+                        .with_span(
+                            args.first()
+                                .copied()
+                                .map(|expr| self.lowered.source_map.expr_span(expr))
+                                .unwrap_or_else(|| self.lowered.source_map.expr_span(callee)),
+                        ),
+                    );
+                }
+                for arg in args.iter().skip(1) {
+                    let _ = self.infer_expr_type(*arg, env);
+                }
+                Some(receiver_ty.clone())
+            }
+            array::Method::Pop => {
+                let _ = self.infer_call_args(args, env);
+                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
+                Some(receiver_ty.clone())
             }
         }
     }
@@ -556,6 +627,19 @@ impl<'a> BodyChecker<'a> {
         BuiltinFunction::from_name(name)
     }
 
+    fn builtin_method(
+        &mut self,
+        expr_id: ExprId,
+        env: &mut BodyTypeEnv,
+    ) -> Option<(BuiltinMethod, ExprId, TypeId)> {
+        let expr = self.lowered.module.expr(expr_id);
+        let ExprKind::Field { receiver, name } = &expr.kind else {
+            return None;
+        };
+        let receiver_ty = self.infer_expr_type(*receiver, env);
+        BuiltinMethod::resolve(&receiver_ty, name).map(|method| (method, *receiver, receiver_ty))
+    }
+
     fn string_literal_value(&self, expr_id: ExprId) -> Option<String> {
         let expr = self.lowered.module.expr(expr_id);
         let ExprKind::Literal(literal) = &expr.kind else {
@@ -578,6 +662,19 @@ impl<'a> BodyChecker<'a> {
         args.iter()
             .map(|arg| (*arg, self.infer_expr_type(*arg, env)))
             .collect()
+    }
+
+    fn check_builtin_arity(&mut self, name: &str, expected: usize, found: usize, callee: ExprId) {
+        if expected != found {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::CallArityMismatch {
+                    function_name: name.to_string(),
+                    expected,
+                    found,
+                })
+                .with_span(self.lowered.source_map.expr_span(callee)),
+            );
+        }
     }
 
     fn check_const_write(&mut self, expr_id: ExprId) {

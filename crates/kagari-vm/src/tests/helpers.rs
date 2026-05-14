@@ -198,9 +198,12 @@ fn executes_runtime_reflect_set_index_helper() {
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
+    let Value::Array(handle) = report.return_value else {
+        panic!("expected array return value");
+    };
     assert_eq!(
-        report.return_value,
-        Value::Array(vec![Value::I32(2), Value::I32(2)])
+        vm.runtime().gc().array_snapshot(handle),
+        Some(vec![Value::I32(2), Value::I32(2)])
     );
 }
 
@@ -245,9 +248,12 @@ fn main() -> [i32] {
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
+    let Value::Array(handle) = report.return_value else {
+        panic!("expected array return value");
+    };
     assert_eq!(
-        report.return_value,
-        Value::Array(vec![Value::I32(9), Value::I32(2)])
+        vm.runtime().gc().array_snapshot(handle),
+        Some(vec![Value::I32(9), Value::I32(2)])
     );
 }
 
@@ -271,4 +277,58 @@ fn main() -> i32 {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(12));
+}
+
+#[test]
+fn executes_source_lowered_array_methods() {
+    let (runtime, loaded) = load_test_module(
+        r#"
+fn main() -> i32 {
+    let values = [1, 2];
+    values.push(3).pop().len()
+}
+"#,
+    );
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(report.return_value, Value::I32(2));
+}
+
+#[test]
+fn array_methods_mutate_shared_array_handle_in_place() {
+    let (runtime, loaded) = load_test_module(
+        r#"
+fn main() -> i32 {
+    let values = [1, 2];
+    let alias = values;
+    values.push(3);
+    alias.len()
+}
+"#,
+    );
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(report.return_value, Value::I32(3));
+}
+
+#[test]
+fn struct_field_updates_mutate_shared_struct_handle_in_place() {
+    let (runtime, loaded) = load_test_module(
+        r#"
+struct Point { x: i32 }
+
+fn main() -> i32 {
+    let point = Point { x: 1 };
+    let alias = point;
+    set_field(point, "x", 9);
+    alias.x
+}
+"#,
+    );
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(report.return_value, Value::I32(9));
 }

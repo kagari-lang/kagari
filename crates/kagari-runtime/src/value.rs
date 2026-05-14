@@ -1,3 +1,4 @@
+use crate::gc::HeapObjectId;
 use crate::host::HostObjectId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -16,11 +17,8 @@ pub enum Value {
     F64(f64),
     Str(String),
     Tuple(Vec<Value>),
-    Array(Vec<Value>),
-    Struct {
-        name: String,
-        fields: Vec<StructValueField>,
-    },
+    Array(HeapObjectId),
+    Struct(HeapObjectId),
     GcHandle(u64),
     HostRef(HostObjectId),
     HostMut(HostObjectId),

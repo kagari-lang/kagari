@@ -1,3 +1,5 @@
+pub use kagari_hir::builtin::BuiltinMethod;
+
 mod instruction;
 mod lower;
 mod module;

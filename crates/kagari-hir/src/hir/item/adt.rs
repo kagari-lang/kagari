@@ -1,4 +1,4 @@
-use crate::hir::{EnumId, StructId, TypeRefId};
+use crate::hir::{EnumId, ImplId, MethodId, StructId, TypeRefId};
 
 use super::Visibility;
 
@@ -8,6 +8,8 @@ pub struct Struct {
     pub visibility: Visibility,
     pub name: String,
     pub fields: FieldBuffer,
+    pub methods: Vec<MethodId>,
+    pub impls: Vec<ImplId>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +24,8 @@ pub struct Enum {
     pub visibility: Visibility,
     pub name: String,
     pub variants: VariantBuffer,
+    pub methods: Vec<MethodId>,
+    pub impls: Vec<ImplId>,
 }
 
 #[derive(Debug, Clone)]
