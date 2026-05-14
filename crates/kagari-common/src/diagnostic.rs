@@ -98,6 +98,29 @@ pub enum DiagnosticKind {
         expected: String,
         found: String,
     },
+    ConditionTypeMismatch {
+        context: &'static str,
+        found: String,
+    },
+    BinaryOperandTypeMismatch {
+        operator: &'static str,
+        expected: String,
+        lhs: String,
+        rhs: String,
+    },
+    UnaryOperandTypeMismatch {
+        operator: &'static str,
+        expected: String,
+        found: String,
+    },
+    ArrayElementTypeMismatch {
+        expected: String,
+        found: String,
+    },
+    InvalidStructInitializer {
+        struct_name: String,
+        reason: String,
+    },
     IfBranchTypeMismatch {
         expected: String,
         found: String,
@@ -276,6 +299,38 @@ impl Display for DiagnosticKind {
             Self::AssignmentTypeMismatch { expected, found } => write!(
                 f,
                 "assignment type mismatch: expected `{expected}`, found `{found}`"
+            ),
+            Self::ConditionTypeMismatch { context, found } => write!(
+                f,
+                "{context} condition type mismatch: expected `bool`, found `{found}`"
+            ),
+            Self::BinaryOperandTypeMismatch {
+                operator,
+                expected,
+                lhs,
+                rhs,
+            } => write!(
+                f,
+                "binary operator `{operator}` expects {expected} operands, found `{lhs}` and `{rhs}`"
+            ),
+            Self::UnaryOperandTypeMismatch {
+                operator,
+                expected,
+                found,
+            } => write!(
+                f,
+                "unary operator `{operator}` expects {expected} operand, found `{found}`"
+            ),
+            Self::ArrayElementTypeMismatch { expected, found } => write!(
+                f,
+                "array element type mismatch: expected `{expected}`, found `{found}`"
+            ),
+            Self::InvalidStructInitializer {
+                struct_name,
+                reason,
+            } => write!(
+                f,
+                "invalid struct initializer for `{struct_name}`: {reason}"
             ),
             Self::IfBranchTypeMismatch { expected, found } => write!(
                 f,

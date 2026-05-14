@@ -1,3 +1,5 @@
+use std::{env, fs, process::ExitCode};
+
 use kagari_common::{Diagnostic, SourceFile};
 use kagari_hir::analyze_module;
 use kagari_ir::{bytecode::lower_to_bytecode, lower_to_ir};
@@ -9,25 +11,27 @@ use kagari_runtime::{
 use kagari_syntax::parse_module;
 use kagari_vm::Vm;
 
-fn main() {
-    let source = SourceFile::new(
-        "bootstrap.kgr",
-        r#"
-fn update(delta: f32) -> unit {
-    delta;
-}
+fn main() -> ExitCode {
+    let Some(path) = script_path() else {
+        eprintln!("usage: kagari <script.kgr>");
+        eprintln!("       kagari run <script.kgr>");
+        return ExitCode::from(2);
+    };
 
-fn main() -> i32 {
-    0;
-}
-"#,
-    );
+    let source_text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("failed to read `{path}`: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let source = SourceFile::new(path.clone(), source_text);
 
     let ast = match parse_module(&source) {
         Ok(ast) => ast,
         Err(diagnostics) => {
             print_diagnostics(&diagnostics);
-            return;
+            return ExitCode::from(1);
         }
     };
 
@@ -35,7 +39,7 @@ fn main() -> i32 {
         Ok(analyzed) => analyzed,
         Err(diagnostics) => {
             print_diagnostics(&diagnostics);
-            return;
+            return ExitCode::from(1);
         }
     };
 
@@ -43,7 +47,7 @@ fn main() -> i32 {
         Ok(ir) => ir,
         Err(error) => {
             eprintln!("{error:?}");
-            return;
+            return ExitCode::from(1);
         }
     };
 
@@ -51,11 +55,44 @@ fn main() -> i32 {
         Ok(bytecode) => bytecode,
         Err(error) => {
             eprintln!("{error:?}");
-            return;
+            return ExitCode::from(1);
         }
     };
 
+    let has_main = bytecode
+        .functions
+        .iter()
+        .any(|function| function.name == "main");
+
     let mut runtime = Runtime::default();
+    register_default_host_functions(&mut runtime);
+    let loaded = runtime.load_module(source.name(), bytecode);
+    let mut vm = Vm::new(runtime);
+
+    let result = if has_main {
+        vm.execute(&loaded, "main").map(|_| ())
+    } else {
+        vm.execute_module(&loaded).map(|_| ())
+    };
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error:?}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn script_path() -> Option<String> {
+    let mut args = env::args().skip(1);
+    match args.next()?.as_str() {
+        "run" => args.next(),
+        path => Some(path.to_owned()),
+    }
+}
+
+fn register_default_host_functions(runtime: &mut Runtime) {
     runtime.host_mut().register(HostFunction::new(
         "host.log",
         vec![HostParameter {
@@ -72,23 +109,6 @@ fn main() -> i32 {
             Ok(Value::Unit)
         },
     ));
-
-    let loaded = runtime.load_module(source.name(), bytecode);
-    let mut vm = Vm::new(runtime);
-    let report = vm
-        .execute(&loaded, "main")
-        .expect("entry function must exist");
-
-    println!("Kagari workspace skeleton is ready.");
-    println!("source: {}", source.name());
-    println!("package manager: kg");
-    println!("parsed functions: {}", ast.items().count());
-    println!("typed functions: {}", analyzed.typed.functions.len());
-    println!("bytecode extension: .kbc");
-    println!("loaded epoch: {}", loaded.epoch.0);
-    println!("vm entry: {}", report.entry);
-    println!("host functions: {}", vm.runtime().host().functions().len());
-    println!("next step: flesh out expressions, statements, and a real type checker.");
 }
 
 fn print_diagnostics(diagnostics: &[Diagnostic]) {

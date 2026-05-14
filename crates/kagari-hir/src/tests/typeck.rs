@@ -291,6 +291,28 @@ fn main() -> i32 {
 }
 
 #[test]
+fn checks_print_builtin_signature() {
+    let lowered = common::lower_ok(r#"fn main() { print("hello"); }"#);
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    check_module(&lowered, &names).expect("print should accept str");
+
+    let lowered = common::lower_ok("fn main() { print(1); }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("type checker should reject print argument");
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::ArgumentTypeMismatch {
+                function_name: "print".to_string(),
+                parameter_name: "message".to_string(),
+                expected: "str".to_string(),
+                found: "i32".to_string(),
+            }
+    }));
+}
+
+#[test]
 fn reports_return_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> i32 { true }");
     let names = resolve_names(&lowered).expect("resolver should succeed");
@@ -347,6 +369,105 @@ fn reports_assignment_type_mismatch() {
             found: "bool".to_string(),
         }
     );
+}
+
+#[test]
+fn reports_condition_type_mismatch() {
+    let lowered = common::lower_ok("fn foo() -> i32 { if 1 { 1 } else { 2 } }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("type checker should reject condition type");
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::ConditionTypeMismatch {
+                context: "if",
+                found: "i32".to_string(),
+            }
+    }));
+}
+
+#[test]
+fn reports_binary_operand_type_mismatch() {
+    let lowered = common::lower_ok("fn foo() -> i32 { 1 + true }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("type checker should reject operands");
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::BinaryOperandTypeMismatch {
+                operator: "+",
+                expected: "matching numeric".to_string(),
+                lhs: "i32".to_string(),
+                rhs: "bool".to_string(),
+            }
+    }));
+}
+
+#[test]
+fn reports_array_element_type_mismatch() {
+    let lowered = common::lower_ok("fn foo() -> [i32] { [1, true] }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("type checker should reject array elements");
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::ArrayElementTypeMismatch {
+                expected: "i32".to_string(),
+                found: "bool".to_string(),
+            }
+    }));
+}
+
+#[test]
+fn reports_invalid_struct_initializers() {
+    let lowered = common::lower_ok(
+        r#"
+struct Point { x: i32, y: bool }
+
+fn foo() -> Point {
+    Point { x: true, z: 1, x: 2 }
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("type checker should reject struct init");
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::AssignmentTypeMismatch {
+                expected: "i32".to_string(),
+                found: "bool".to_string(),
+            }
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::InvalidStructInitializer {
+                struct_name: "Point".to_string(),
+                reason: "unknown field `z`".to_string(),
+            }
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::InvalidStructInitializer {
+                struct_name: "Point".to_string(),
+                reason: "duplicate field `x`".to_string(),
+            }
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::InvalidStructInitializer {
+                struct_name: "Point".to_string(),
+                reason: "missing field `y`".to_string(),
+            }
+    }));
 }
 
 #[test]

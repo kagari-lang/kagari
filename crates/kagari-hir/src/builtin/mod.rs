@@ -8,6 +8,7 @@ pub enum BuiltinFunction {
     GetField,
     SetField,
     SetIndex,
+    Print,
 }
 
 impl BuiltinFunction {
@@ -17,6 +18,7 @@ impl BuiltinFunction {
             "get_field" => Some(Self::GetField),
             "set_field" => Some(Self::SetField),
             "set_index" => Some(Self::SetIndex),
+            "print" => Some(Self::Print),
             _ => None,
         }
     }

@@ -128,9 +128,9 @@ fn lower_const_values(
                 LiteralKind::Float => Ok(EvaluatedConst::Scalar(Constant::F32(
                     literal.text.parse::<f32>().unwrap_or_default(),
                 ))),
-                LiteralKind::String => {
-                    Ok(EvaluatedConst::Scalar(Constant::Str(literal.text.clone())))
-                }
+                LiteralKind::String => Ok(EvaluatedConst::Scalar(Constant::Str(unquote_string(
+                    &literal.text,
+                )))),
                 LiteralKind::Bool => Ok(EvaluatedConst::Scalar(Constant::Bool(
                     literal.text == "true",
                 ))),
@@ -313,4 +313,11 @@ fn lower_const_values(
         cache.insert(const_item.id, value);
     }
     Ok(cache)
+}
+
+fn unquote_string(text: &str) -> String {
+    text.strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        .unwrap_or(text)
+        .to_owned()
 }

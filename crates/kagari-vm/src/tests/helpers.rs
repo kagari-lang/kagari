@@ -2,6 +2,8 @@ use kagari_ir::bytecode::{
     BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
     FunctionRef, Register, RuntimeHelper, StructFieldInit,
 };
+use std::sync::{Arc, Mutex};
+
 use kagari_runtime::{
     Runtime,
     host::{HostError, HostFunction},
@@ -9,7 +11,7 @@ use kagari_runtime::{
 };
 
 use crate::Vm;
-use crate::tests::common::{load_bytecode_module, load_test_module};
+use crate::tests::common::{compile_test_bytecode, load_bytecode_module, load_test_module};
 
 #[test]
 fn executes_runtime_host_helper_call() {
@@ -214,6 +216,36 @@ fn executes_source_lowered_type_of_helper() {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::Str("i32".to_owned()));
+}
+
+#[test]
+fn executes_source_lowered_print_builtin() {
+    let messages = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&messages);
+
+    let mut runtime = Runtime::default();
+    runtime
+        .host_mut()
+        .register(HostFunction::new("host.log", vec![], "unit", move |args| {
+            let Some(Value::Str(message)) = args.first() else {
+                return Err(HostError::new("host.log expects one string argument"));
+            };
+            sink.lock()
+                .expect("message sink should lock")
+                .push(message.clone());
+            Ok(Value::Unit)
+        }));
+    let bytecode = compile_test_bytecode(r#"fn main() { print("hello"); }"#);
+    let loaded = runtime.load_module("print.kgr", bytecode);
+
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(report.return_value, Value::Unit);
+    assert_eq!(
+        *messages.lock().expect("message sink should lock"),
+        vec!["hello".to_string()]
+    );
 }
 
 #[test]

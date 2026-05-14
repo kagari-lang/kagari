@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
@@ -113,7 +115,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             StmtKind::While { condition, body } => {
-                let _ = self.infer_expr_type(*condition, env);
+                self.check_condition_type(*condition, "while", env);
                 self.loop_depth += 1;
                 let _ = self.infer_block_types(*body, env);
                 self.loop_depth -= 1;
@@ -233,24 +235,38 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Prefix { op, expr } => {
                 let inner = self.infer_expr_type(*expr, env);
                 match op {
-                    PrefixOp::Neg => inner,
-                    PrefixOp::Not => TypeId::Builtin(BuiltinType::Bool),
+                    PrefixOp::Neg => {
+                        if !matches!(inner, TypeId::Builtin(BuiltinType::I32 | BuiltinType::F32)) {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
+                                    operator: "-",
+                                    expected: "numeric".to_owned(),
+                                    found: display_type_id(&inner),
+                                })
+                                .with_span(self.lowered.source_map.expr_span(*expr)),
+                            );
+                        }
+                        inner
+                    }
+                    PrefixOp::Not => {
+                        if inner != TypeId::Builtin(BuiltinType::Bool) {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
+                                    operator: "!",
+                                    expected: "bool".to_owned(),
+                                    found: display_type_id(&inner),
+                                })
+                                .with_span(self.lowered.source_map.expr_span(*expr)),
+                            );
+                        }
+                        TypeId::Builtin(BuiltinType::Bool)
+                    }
                 }
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 let lhs_ty = self.infer_expr_type(*lhs, env);
-                let _ = self.infer_expr_type(*rhs, env);
-                match op {
-                    BinaryOp::Eq
-                    | BinaryOp::NotEq
-                    | BinaryOp::Lt
-                    | BinaryOp::Gt
-                    | BinaryOp::Le
-                    | BinaryOp::Ge
-                    | BinaryOp::AndAnd
-                    | BinaryOp::OrOr => TypeId::Builtin(BuiltinType::Bool),
-                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => lhs_ty,
-                }
+                let rhs_ty = self.infer_expr_type(*rhs, env);
+                self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty)
             }
             ExprKind::Call { callee, args } => {
                 if let Some(helper_ty) = self.infer_runtime_helper_call_type(*callee, args, env) {
@@ -275,7 +291,7 @@ impl<'a> BodyChecker<'a> {
                 then_branch,
                 else_branch,
             } => {
-                self.infer_expr_type(*condition, env);
+                self.check_condition_type(*condition, "if", env);
                 let then_ty = self.infer_block_types(*then_branch, env);
                 match else_branch {
                     Some(else_expr) => {
@@ -318,11 +334,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::StructInit { path, fields } => {
-                for field in fields {
-                    self.infer_expr_type(field.value, env);
-                }
-                self.resolve_named_type(path)
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                self.infer_struct_init_type(path, fields, expr_id, env)
             }
             ExprKind::Tuple(elements) => TypeId::Tuple(
                 elements
@@ -333,12 +345,23 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Array(elements) => {
                 let element_types = elements
                     .iter()
-                    .map(|expr| self.infer_expr_type(*expr, env))
+                    .map(|expr| (*expr, self.infer_expr_type(*expr, env)))
                     .collect::<Vec<_>>();
                 let element_ty = element_types
                     .first()
-                    .cloned()
+                    .map(|(_, ty)| ty.clone())
                     .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
+                for (expr, ty) in element_types.iter().skip(1) {
+                    if *ty != element_ty {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::ArrayElementTypeMismatch {
+                                expected: display_type_id(&element_ty),
+                                found: display_type_id(ty),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(*expr)),
+                        );
+                    }
+                }
                 TypeId::Array(Box::new(element_ty))
             }
             ExprKind::Block(block) => self.infer_block_types(*block, env),
@@ -433,6 +456,24 @@ impl<'a> BodyChecker<'a> {
                     );
                 }
                 Some(base_ty)
+            }
+            BuiltinFunction::Print => {
+                self.check_builtin_arity("print", 1, args.len(), callee);
+                let arg_tys = self.infer_call_args(args, env);
+                if let Some((arg, ty)) = arg_tys.first()
+                    && *ty != TypeId::Builtin(BuiltinType::Str)
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
+                            function_name: "print".to_owned(),
+                            parameter_name: "message".to_owned(),
+                            expected: "str".to_owned(),
+                            found: display_type_id(ty),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*arg)),
+                    );
+                }
+                Some(TypeId::Builtin(BuiltinType::Unit))
             }
         }
     }
@@ -564,26 +605,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn resolve_named_type(&self, name: &str) -> Option<TypeId> {
-        TypeId::from_name(name)
-            .or_else(|| {
-                self.lowered
-                    .module
-                    .structs
-                    .iter()
-                    .find(|item| item.name == name)
-                    .map(|_| TypeId::Struct(name.to_owned()))
-            })
-            .or_else(|| {
-                self.lowered
-                    .module
-                    .enums
-                    .iter()
-                    .find(|item| item.name == name)
-                    .map(|_| TypeId::Enum(name.to_owned()))
-            })
-    }
-
     fn resolve_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
         match receiver {
             TypeId::Struct(name) => self
@@ -596,6 +617,203 @@ impl<'a> BodyChecker<'a> {
                 .and_then(|field| resolve_type(&self.lowered.module, field.ty)),
             _ => None,
         }
+    }
+
+    fn infer_binary_type(
+        &mut self,
+        op: BinaryOp,
+        rhs_expr: ExprId,
+        lhs_ty: TypeId,
+        rhs_ty: TypeId,
+    ) -> TypeId {
+        match op {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty) {
+                    self.emit_binary_operand_type_mismatch(
+                        op,
+                        "matching numeric",
+                        &lhs_ty,
+                        &rhs_ty,
+                        rhs_expr,
+                    );
+                }
+                lhs_ty
+            }
+            BinaryOp::Eq | BinaryOp::NotEq => {
+                if lhs_ty != rhs_ty {
+                    self.emit_binary_operand_type_mismatch(
+                        op, "matching", &lhs_ty, &rhs_ty, rhs_expr,
+                    );
+                }
+                TypeId::Builtin(BuiltinType::Bool)
+            }
+            BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => {
+                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty) {
+                    self.emit_binary_operand_type_mismatch(
+                        op,
+                        "matching numeric",
+                        &lhs_ty,
+                        &rhs_ty,
+                        rhs_expr,
+                    );
+                }
+                TypeId::Builtin(BuiltinType::Bool)
+            }
+            BinaryOp::AndAnd | BinaryOp::OrOr => {
+                if lhs_ty != TypeId::Builtin(BuiltinType::Bool)
+                    || rhs_ty != TypeId::Builtin(BuiltinType::Bool)
+                {
+                    self.emit_binary_operand_type_mismatch(op, "bool", &lhs_ty, &rhs_ty, rhs_expr);
+                }
+                TypeId::Builtin(BuiltinType::Bool)
+            }
+        }
+    }
+
+    fn matching_numeric_operands(&self, lhs: &TypeId, rhs: &TypeId) -> bool {
+        lhs == rhs && matches!(lhs, TypeId::Builtin(BuiltinType::I32 | BuiltinType::F32))
+    }
+
+    fn emit_binary_operand_type_mismatch(
+        &mut self,
+        op: BinaryOp,
+        expected: &'static str,
+        lhs: &TypeId,
+        rhs: &TypeId,
+        span_expr: ExprId,
+    ) {
+        self.diagnostics.push(
+            Diagnostic::error(DiagnosticKind::BinaryOperandTypeMismatch {
+                operator: self.binary_operator_name(op),
+                expected: expected.to_owned(),
+                lhs: display_type_id(lhs),
+                rhs: display_type_id(rhs),
+            })
+            .with_span(self.lowered.source_map.expr_span(span_expr)),
+        );
+    }
+
+    fn binary_operator_name(&self, op: BinaryOp) -> &'static str {
+        match op {
+            BinaryOp::Add => "+",
+            BinaryOp::Sub => "-",
+            BinaryOp::Mul => "*",
+            BinaryOp::Div => "/",
+            BinaryOp::Eq => "==",
+            BinaryOp::NotEq => "!=",
+            BinaryOp::Lt => "<",
+            BinaryOp::Gt => ">",
+            BinaryOp::Le => "<=",
+            BinaryOp::Ge => ">=",
+            BinaryOp::AndAnd => "&&",
+            BinaryOp::OrOr => "||",
+        }
+    }
+
+    fn check_condition_type(
+        &mut self,
+        expr_id: ExprId,
+        context: &'static str,
+        env: &mut BodyTypeEnv,
+    ) {
+        let ty = self.infer_expr_type(expr_id, env);
+        if ty != TypeId::Builtin(BuiltinType::Bool) {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {
+                    context,
+                    found: display_type_id(&ty),
+                })
+                .with_span(self.lowered.source_map.expr_span(expr_id)),
+            );
+        }
+    }
+
+    fn infer_struct_init_type(
+        &mut self,
+        path: &str,
+        fields: &[crate::hir::FieldInit],
+        expr_id: ExprId,
+        env: &mut BodyTypeEnv,
+    ) -> TypeId {
+        let field_tys = fields
+            .iter()
+            .map(|field| {
+                (
+                    field.name.as_str(),
+                    field.value,
+                    self.infer_expr_type(field.value, env),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let Some(struct_def) = self
+            .lowered
+            .module
+            .structs
+            .iter()
+            .find(|item| item.name == path)
+        else {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                    struct_name: path.to_owned(),
+                    reason: "unknown struct".to_owned(),
+                })
+                .with_span(self.lowered.source_map.expr_span(expr_id)),
+            );
+            return TypeId::Builtin(BuiltinType::Unit);
+        };
+
+        let mut seen = HashSet::new();
+        for (name, value_expr, value_ty) in &field_tys {
+            if !seen.insert((*name).to_owned()) {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                        struct_name: path.to_owned(),
+                        reason: format!("duplicate field `{name}`"),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
+                );
+                continue;
+            }
+
+            let Some(field) = struct_def.fields.iter().find(|field| field.name == *name) else {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                        struct_name: path.to_owned(),
+                        reason: format!("unknown field `{name}`"),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
+                );
+                continue;
+            };
+
+            let Some(expected) = resolve_type(&self.lowered.module, field.ty) else {
+                continue;
+            };
+            if expected != *value_ty {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
+                        expected: display_type_id(&expected),
+                        found: display_type_id(value_ty),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
+                );
+            }
+        }
+
+        for field in &struct_def.fields {
+            if !seen.contains(&field.name) {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                        struct_name: path.to_owned(),
+                        reason: format!("missing field `{}`", field.name),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                );
+            }
+        }
+
+        TypeId::Struct(path.to_owned())
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {

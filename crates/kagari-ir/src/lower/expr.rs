@@ -27,9 +27,8 @@ impl FunctionLowerer<'_> {
                     let value = literal.text.parse::<f32>().unwrap_or_default();
                     Ok(self.lower_constant(Constant::F32(value), ValueType::F32))
                 }
-                hir::LiteralKind::String => {
-                    Ok(self.lower_constant(Constant::Str(literal.text), ValueType::Str))
-                }
+                hir::LiteralKind::String => Ok(self
+                    .lower_constant(Constant::Str(unquote_string(&literal.text)), ValueType::Str)),
                 hir::LiteralKind::Bool => {
                     let value = literal.text == "true";
                     Ok(self.lower_constant(Constant::Bool(value), ValueType::Bool))
@@ -322,7 +321,7 @@ impl FunctionLowerer<'_> {
                 self.lower_constant(Constant::F32(value), ValueType::F32)
             }
             hir::LiteralKind::String => {
-                self.lower_constant(Constant::Str(literal.text.clone()), ValueType::Str)
+                self.lower_constant(Constant::Str(unquote_string(&literal.text)), ValueType::Str)
             }
             hir::LiteralKind::Bool => {
                 let value = literal.text == "true";
@@ -463,6 +462,16 @@ impl FunctionLowerer<'_> {
                     smallvec::smallvec![base, index, value],
                 ))
             }
+            BuiltinFunction::Print => {
+                let [message] = args else {
+                    return Ok(None);
+                };
+                let message = self.lower_expr(*message)?;
+                Some((
+                    RuntimeHelper::HostFunction("host.log".to_owned()),
+                    smallvec::smallvec![message],
+                ))
+            }
         };
 
         Ok(lowered)
@@ -508,7 +517,8 @@ impl FunctionLowerer<'_> {
                 BuiltinFunction::TypeOf
                 | BuiltinFunction::GetField
                 | BuiltinFunction::SetField
-                | BuiltinFunction::SetIndex,
+                | BuiltinFunction::SetIndex
+                | BuiltinFunction::Print,
             ) => self.builtin_name(expr_id),
             _ => None,
         }
@@ -539,13 +549,17 @@ impl FunctionLowerer<'_> {
         if literal.kind != hir::LiteralKind::String {
             return None;
         }
-        Some(
-            literal
-                .text
-                .strip_prefix('"')
-                .and_then(|text| text.strip_suffix('"'))
-                .unwrap_or(&literal.text)
-                .to_owned(),
-        )
+        Some(literal_string_value(&literal.text))
     }
+}
+
+fn literal_string_value(text: &str) -> String {
+    text.strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        .unwrap_or(text)
+        .to_owned()
+}
+
+fn unquote_string(text: &str) -> String {
+    literal_string_value(text)
 }
