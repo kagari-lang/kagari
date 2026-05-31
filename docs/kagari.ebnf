@@ -1,6 +1,11 @@
-(* Kagari draft grammar *)
-(* This file is a compact single-file EBNF view of the current syntax draft. *)
-(* `mut` controls whether a variable binding may be rebound; it is not a Rust-style borrow marker. *)
+(* Kagari source grammar *)
+(* This file is a compact single-file EBNF view of the source syntax. *)
+(* Kagari is a Kotlin-style business scripting language with Rust-inspired syntax. *)
+(* Trait names are interface types directly. There is no script-level `dyn Trait`. *)
+(* `pub` is the only explicit visibility marker; unmarked items are private. *)
+(* Fields and referenced objects may be mutated according to their type and host policy. *)
+(* `val` declares a read-only binding or field slot; `var` declares a writable one. *)
+(* `const` is the immutable compile-time value form. *)
 
 module              ::= item* EOF ;
 
@@ -9,27 +14,28 @@ item                ::= attribute* item_decl ;
 item_decl           ::= use_decl
                       | module_decl
                       | function_item
+                      | const_item
                       | struct_item
                       | enum_item
                       | trait_item
                       | impl_block ;
 
+visibility          ::= "pub" ;
+
 function_item       ::= visibility? function_decl ;
+
+const_item          ::= visibility? "const" IDENT type_annotation? "=" expr ";" ;
 
 struct_item         ::= visibility? struct_decl ;
 
 enum_item           ::= visibility? enum_decl ;
 
-visibility          ::= "pub" ;
+trait_item          ::= visibility? trait_decl ;
 
-attribute           ::= reflect_attribute
-                      | security_attribute
-                      | "@" path attribute_args? ;
-
-reflect_attribute   ::= "@reflect" attribute_args? ;
-
-security_attribute  ::= "@requires" attribute_args?
-                      | "@profile" attribute_args? ;
+(* Attributes are compile-time metadata for compiler passes, generated code,
+   host registration, tooling, and validation. They are not a promise of
+   script-visible runtime reflection. *)
+attribute           ::= "@" path attribute_args? ;
 
 attribute_args      ::= "(" attribute_arg_list? ")" ;
 
@@ -42,46 +48,36 @@ attribute_value     ::= literal
                       | path
                       | "[" attribute_arg_list? "]" ;
 
+module_decl         ::= visibility? "mod" IDENT module_block ;
+
+module_block        ::= "{" item* "}" ;
+
+use_decl            ::= visibility? "use" path use_alias? ";" ;
+
+use_alias           ::= "as" IDENT ;
+
 function_decl       ::= "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
 
 generic_param_clause ::= "<" generic_param ("," generic_param)* (",")? ">" ;
 
 generic_param       ::= IDENT (":" type_bound_list)? ;
 
-type_bound_list     ::= type_bound ("+" type_bound)* ;
-
-type_bound          ::= trait_ref ;
+type_bound_list     ::= trait_ref ("+" trait_ref)* ;
 
 param_list          ::= param ("," param)* (",")? ;
 
-param               ::= param_mode? IDENT ":" type ;
-
-param_mode          ::= "ref" ;
+param               ::= IDENT ":" type ;
 
 return_type         ::= "->" type ;
-
-module_decl         ::= visibility? "mod" IDENT (";" | module_block) ;
-
-module_block        ::= "{" item* "}" ;
-
-use_decl            ::= visibility? "use" use_tree ";" ;
-
-use_tree            ::= use_path use_tail?
-                      | "{" use_tree_list? "}" ;
-
-use_tail            ::= "as" IDENT
-                      | "::" "*"
-                      | "::" "{" use_tree_list? "}" ;
-
-use_tree_list       ::= use_tree ("," use_tree)* (",")? ;
-
-use_path            ::= path ;
 
 struct_decl         ::= "struct" IDENT generic_param_clause? "{" field_list? "}" ;
 
 field_list          ::= field ("," field)* (",")? ;
 
-field               ::= attribute* visibility? IDENT ":" type ;
+field               ::= attribute* visibility? field_binding IDENT ":" type ;
+
+field_binding       ::= "val"
+                      | "var" ;
 
 enum_decl           ::= "enum" IDENT generic_param_clause? "{" variant_list? "}" ;
 
@@ -90,25 +86,23 @@ variant_list        ::= variant ("," variant)* (",")? ;
 variant             ::= IDENT
                       | IDENT "(" type_list? ")" ;
 
-trait_item          ::= visibility? trait_decl ;
+trait_decl          ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" trait_member* "}" ;
 
-trait_decl          ::= "trait" IDENT generic_param_clause? "{" trait_member* "}" ;
+supertrait_clause   ::= ":" type_bound_list ;
 
-trait_member        ::= attribute* method_sig ";" ;
+trait_member        ::= attribute* trait_method ;
+
+trait_method        ::= method_sig (";" | block) ;
 
 method_sig          ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 
 type_list           ::= type ("," type)* (",")? ;
 
 type                ::= path generic_args?
-                      | dyn_type
                       | array_type
                       | tuple_type ;
 
-dyn_type            ::= "dyn" trait_ref ;
-
-array_type          ::= "[" type "]"
-                      | "[" type ";" INTEGER "]" ;
+array_type          ::= "[" type "]" ;
 
 tuple_type          ::= "(" type_list? ")" ;
 
@@ -118,37 +112,36 @@ path                ::= path_segment ("::" path_segment)* ;
 
 path_segment        ::= IDENT
                       | "self"
-                      | "super"
-                      | "crate"
                       | "Self" ;
 
 where_clause        ::= "where" where_predicate ("," where_predicate)* (",")? ;
 
-where_predicate     ::= path_segment ":" type_bound_list ;
+where_predicate     ::= IDENT ":" type_bound_list ;
 
 trait_ref           ::= path generic_args? ;
 
 impl_block          ::= inherent_impl
                       | trait_impl ;
 
-inherent_impl       ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
+(* User-written impls are deliberately simple. More complex generic or
+   conditional impls are outside this grammar and require a separate language
+   extension. *)
+inherent_impl       ::= "impl" type "{" impl_item* "}" ;
 
-trait_impl          ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" impl_item* "}" ;
+trait_impl          ::= "impl" trait_ref "for" type "{" impl_item* "}" ;
 
-impl_item           ::= attribute* visibility? method_decl ;
+impl_item           ::= attribute* method_decl ;
 
 method_decl         ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
 
 method_param_list   ::= receiver_param ("," param_list)? (",")?
                       | param_list ;
 
-receiver_param      ::= "self"
-                      | "mut" "self"
-                      | "ref" "self" ;
+receiver_param      ::= "self" ;
 
 block               ::= "{" stmt* expr? "}" ;
 
-stmt                ::= let_stmt
+stmt                ::= binding_stmt
                       | assign_stmt
                       | expr_stmt
                       | return_stmt
@@ -160,9 +153,10 @@ stmt                ::= let_stmt
                       | continue_stmt
                       | block ;
 
-let_stmt            ::= "let" mutability? IDENT type_annotation? init_expr? ";" ;
+binding_stmt        ::= binding_kind IDENT type_annotation? init_expr? ";" ;
 
-mutability          ::= "mut" ;
+binding_kind        ::= "val"
+                      | "var" ;
 
 type_annotation     ::= ":" type ;
 
@@ -192,10 +186,10 @@ break_stmt          ::= "break" expr? ";" ;
 
 continue_stmt       ::= "continue" ";" ;
 
-condition           ::= let_condition
+condition           ::= binding_condition
                       | expr ;
 
-let_condition       ::= "let" pattern "=" expr ;
+binding_condition   ::= "val" pattern "=" expr ;
 
 expr                ::= range_expr ;
 
@@ -227,10 +221,7 @@ postfix_op          ::= call_suffix
 
 call_suffix         ::= "(" arg_list? ")" ;
 
-arg_list            ::= arg ("," arg)* (",")? ;
-
-arg                 ::= "ref" place_expr
-                      | expr ;
+arg_list            ::= expr ("," expr)* (",")? ;
 
 field_suffix        ::= "." IDENT ;
 
@@ -261,6 +252,8 @@ field_init_list     ::= field_init ("," field_init)* (",")? ;
 field_init          ::= IDENT
                       | IDENT ":" expr ;
 
+(* Closures are part of the source grammar. Hot reload and persistence specs
+   define how long-lived closures may be stored. *)
 closure_expr        ::= "|" closure_param_list? "|" closure_body ;
 
 closure_param_list  ::= closure_param ("," closure_param)* (",")? ;
@@ -281,12 +274,27 @@ match_guard         ::= "if" expr ;
 match_body          ::= expr
                       | block ;
 
-pattern             ::= "_"
+pattern             ::= or_pattern ;
+
+or_pattern          ::= range_pattern ("|" range_pattern)* ;
+
+range_pattern       ::= primary_pattern range_pattern_tail? ;
+
+range_pattern_tail  ::= ".." range_bound
+                      | "..=" range_bound ;
+
+range_bound         ::= literal
+                      | path ;
+
+primary_pattern     ::= "_"
                       | literal
                       | path
                       | tuple_struct_pattern
                       | struct_pattern
-                      | tuple_pattern ;
+                      | tuple_pattern
+                      | parenthesized_pattern ;
+
+parenthesized_pattern ::= "(" pattern ")" ;
 
 tuple_pattern       ::= "(" pattern_list? ")" ;
 

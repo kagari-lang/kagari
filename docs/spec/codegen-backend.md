@@ -1,9 +1,8 @@
-# Kagari Codegen Backend Draft
+# Kagari Codegen Backend
 
-This document describes a proposed backend abstraction model for Kagari.
-It is a design draft, not a finalized implementation contract.
+This document specifies the backend abstraction model for Kagari.
 
-The goal is to let Kagari adopt a first machine-code backend such as Cranelift without coupling the language, runtime, or typed IR directly to one backend implementation.
+The goal is to let Kagari adopt machine-code backends such as Cranelift without coupling the language, runtime, or typed IR directly to one backend implementation.
 
 ## Design Goals
 
@@ -15,9 +14,9 @@ The goal is to let Kagari adopt a first machine-code backend such as Cranelift w
 
 ## Core Principle
 
-Kagari should treat code generation as a backend behind a stable internal interface.
+Kagari treats code generation as a backend behind a stable internal interface.
 
-The stack should look roughly like:
+The stack is:
 
 ```text
 source
@@ -34,11 +33,11 @@ The important rule is:
 - Kagari IR belongs to Kagari
 - backend IR belongs to the backend
 
-This boundary should stay sharp.
+This boundary is mandatory.
 
-## Recommended Layers
+## Architecture Layers
 
-The architecture should be split into four layers:
+The architecture is split into four layers:
 
 1. language frontend
 2. Kagari IR and metadata
@@ -55,11 +54,11 @@ This includes:
 - trait analysis
 - reflection and security validation
 
-This layer should know nothing about Cranelift, LLVM, or any other backend library.
+This layer must not know about Cranelift, LLVM, or any other backend library.
 
 ## Layer 2: Kagari IR
 
-Kagari IR should capture:
+Kagari IR captures:
 
 - typed operations
 - function structure
@@ -68,20 +67,20 @@ Kagari IR should capture:
 - type metadata references
 - helper-call boundaries
 
-It should not contain:
+It must not contain:
 
 - backend-specific SSA nodes
 - backend-specific register abstractions
 - backend-specific block builders
 - backend-specific calling-convention objects
 
-If those leak in, changing backends later becomes expensive.
+Backend-specific concepts are confined to backend implementations.
 
 ## Layer 3: Runtime ABI
 
 The runtime ABI is the contract between generated code and the Kagari runtime.
 
-It should define:
+It defines:
 
 - how parameters are passed
 - how return values are represented
@@ -91,7 +90,7 @@ It should define:
 - how safepoints are represented
 - how errors or traps are surfaced
 
-This ABI should be backend-independent.
+This ABI is backend-independent.
 
 That means:
 
@@ -100,19 +99,19 @@ That means:
 
 ## Layer 4: Concrete Backend
 
-This is the only place that should know about a specific codegen framework.
+This is the only layer allowed to know about a specific codegen framework.
 
 Examples:
 
 - `CraneliftBackend`
 - `LlvmBackend`
-- future experimental backend
+- experimental backend
 
 Each backend is responsible for lowering Kagari IR plus runtime ABI calls into its own internal representation.
 
-## What Should Be Stable Before Choosing a Backend
+## Stable Kagari Concepts
 
-The following should be treated as stable Kagari-owned concepts:
+The following are Kagari-owned concepts:
 
 - `KagariIrModule`
 - `KagariIrFunction`
@@ -126,9 +125,9 @@ The following should be treated as stable Kagari-owned concepts:
 
 These are Kagari concepts, not Cranelift concepts.
 
-## Suggested Backend Interface
+## Backend Interface
 
-A useful starting abstraction is something like:
+The backend interface has this shape:
 
 ```text
 CodegenBackend {
@@ -137,7 +136,7 @@ CodegenBackend {
 }
 ```
 
-Possible supporting concepts:
+Supporting concepts:
 
 ```text
 BackendTarget
@@ -149,12 +148,12 @@ TrapTable
 SafepointTable
 ```
 
-The exact names do not matter.
-What matters is that the interface is framed in Kagari terms rather than in a backend library's native API.
+Names are implementation details.
+The interface is framed in Kagari terms rather than in a backend library's native API.
 
-## Suggested Runtime ABI Surface
+## Runtime ABI Surface
 
-The runtime ABI should expose helpers for operations that are:
+The runtime ABI exposes helpers for operations that are:
 
 - effectful
 - security-sensitive
@@ -172,28 +171,28 @@ Typical helpers include:
 - dynamic dispatch support
 - error and trap construction
 
-This allows the codegen backend to stay focused on lowering, not on reimplementing runtime semantics.
+This keeps codegen backends focused on lowering, not on reimplementing runtime semantics.
 
 ## Value Representation Boundary
 
-Value representation should be defined once by Kagari, then lowered by each backend.
+Value representation is defined once by Kagari, then lowered by each backend.
 
 Examples of representation questions:
 
 - how small integers are represented
 - whether aggregates are boxed or unboxed
-- how dynamic trait objects are represented
+- how interface values are represented
 - how host borrow handles are passed
 
-The backend should consume these decisions, not own them.
+The backend consumes these decisions; it does not own them.
 
 Otherwise backend choice starts to dictate language semantics.
 
 ## Safepoint and Stack Map Boundary
 
-Safepoint strategy should also be a Kagari-level concern.
+Safepoint strategy is a Kagari-level concern.
 
-The backend should receive:
+The backend receives:
 
 - where safepoints must exist
 - what values are live across them
@@ -208,9 +207,9 @@ This is especially important for:
 
 ## Effect Metadata
 
-Kagari IR should eventually classify operations by effect.
+Kagari IR classifies operations by effect.
 
-Useful categories include:
+Effect categories include:
 
 - may allocate
 - may trap
@@ -219,24 +218,24 @@ Useful categories include:
 - may suspend
 - may require safepoint metadata
 
-Backends should consume these flags during lowering.
+Backends consume these flags during lowering.
 
 This keeps backend implementations simpler and keeps semantic effect knowledge in the Kagari-owned layer.
 
-## Why This Helps with Cranelift
+## Cranelift Boundary
 
-If Cranelift is the first backend, this separation means:
+When Cranelift is used as a backend, this separation means:
 
 - only the Cranelift backend crate or module knows about Cranelift IR builders and contexts
 - Kagari IR does not become Cranelift-shaped
 - runtime helper conventions stay reusable
 - a later backend does not require frontend or runtime redesign
 
-This is the right way to use Cranelift: as an implementation detail of one backend, not as the definition of Kagari execution.
+Cranelift is an implementation detail of one backend, not the definition of Kagari execution.
 
 ## What Not to Do
 
-Avoid these mistakes:
+The following are invalid architecture choices:
 
 - storing Cranelift value or block ids in Kagari IR nodes
 - exposing Cranelift type objects in runtime ABI definitions
@@ -244,11 +243,11 @@ Avoid these mistakes:
 - designing Kagari IR solely around one backend's conveniences
 - baking backend register or SSA assumptions into language semantics
 
-These decisions make backend replacement far more expensive later.
+These decisions violate the backend boundary.
 
-## What Can Safely Be Backend-Specific
+## Backend-Specific Responsibilities
 
-The following can remain inside a specific backend implementation:
+The following remain inside a specific backend implementation:
 
 - backend IR construction
 - target ISA selection
@@ -260,28 +259,28 @@ The following can remain inside a specific backend implementation:
 
 These are expected to differ across backends.
 
-## Cranelift as a First Backend
+## Cranelift Backend
 
-Cranelift is a good candidate for a first machine-code backend because:
+Cranelift satisfies the requirements for a first machine-code backend:
 
 - it is practical for baseline JIT work
 - it avoids hand-writing multi-platform machine-code emitters
 - it is reasonably aligned with Rust-based implementation work
 
-But it should still be treated as:
+It is treated as:
 
-- the first backend
+- a concrete backend
 - not the backend abstraction itself
 
 ## Adding Another Backend Later
 
-If the architecture is clean, adding another backend should mostly require:
+Adding another backend requires:
 
 - writing a new lowering from Kagari IR to the new backend IR
 - implementing the same runtime ABI surface
 - producing the same metadata outputs needed by the runtime
 
-It should not require:
+It must not require:
 
 - rewriting parsing
 - rewriting semantic analysis
@@ -293,24 +292,24 @@ It should not require:
 
 Even with good abstraction, switching or adding a backend is not free.
 
-The cost should be concentrated in:
+The cost is concentrated in:
 
 - codegen lowering
 - backend-specific metadata emission
 - backend-specific target support
 
-If the cost instead spreads into:
+If the cost spreads into:
 
 - frontend data structures
 - runtime value semantics
 - security model
 - host interop semantics
 
-then the abstraction boundary was probably drawn too low.
+then the abstraction boundary has been drawn too low.
 
-## Recommended Implementation Order
+## Implementation Order
 
-If implemented incrementally, the recommended order is:
+The incremental implementation order is:
 
 1. stabilize Kagari-owned IR and function metadata
 2. define runtime helper ABI
@@ -321,7 +320,7 @@ If implemented incrementally, the recommended order is:
 
 This order keeps backend experimentation from destabilizing the rest of the language implementation.
 
-## Relationship to Other Drafts
+## Relationship to Other Specifications
 
 This document complements:
 
@@ -330,4 +329,4 @@ This document complements:
 - [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md)
 
 Those documents define the execution model, runtime model, and host boundary.
-This document focuses specifically on how code generation backends should plug into that larger architecture.
+This document defines how code generation backends plug into that larger architecture.

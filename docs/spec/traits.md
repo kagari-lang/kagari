@@ -1,54 +1,50 @@
-# Kagari Trait System Draft
+# Kagari Trait and Interface System
 
-This document defines the intended direction for the Kagari trait system.
-It is a design draft, not a finalized implementation contract.
+This document defines Kagari traits and their use as interface value types.
 
-The main goal is to preserve useful abstraction mechanisms from Rust-like languages without importing Rust's lifetime-driven complexity.
+The main goal is to preserve useful abstraction mechanisms from Rust-like languages while keeping the script-facing model closer to Kotlin interfaces than Rust trait objects.
 
-Reflection direction is drafted separately in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
-Security direction is drafted separately in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
-Host interop direction is drafted separately in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
-Runtime model direction is drafted separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
+Reflection rules are defined separately in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
+Security rules are defined separately in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
+Host interop rules are defined separately in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
+Runtime model rules are defined separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
 
 ## Design Goals
 
 - support static polymorphism through generic trait bounds
-- support dynamic polymorphism through `dyn Trait`
+- allow trait names to be used directly as interface value types
+- support runtime interface dispatch without script-visible Rust borrowing concepts
 - support runtime downcast through concrete type identity
 - avoid lifetime parameters and borrow-driven object-safety complexity
 - keep the implementation model compatible with a GC-backed runtime
 
-## Non-Goals
+## Scope Exclusions
 
-The first trait version should not attempt to reproduce all of Rust's trait features.
+Kagari traits do not reproduce all of Rust's trait features.
+The initial trait scope excludes:
 
-In particular, this draft does not aim to support:
-
+- script-level `dyn Trait` syntax
+- Rust-style trait object syntax such as `&dyn Trait` or `Box<dyn Trait>`
 - lifetime-parameterized traits
 - generalized associated types
+- associated types
+- associated consts
 - specialization
 - negative impls
 - auto traits
 - full Rust-style coherence and orphan behavior
-- trait-object support for every possible method shape
+- higher-rank bounds
+- projection-heavy associated type constraints
 
 ## Core Model
 
-Kagari should treat traits as two related but distinct mechanisms:
+Kagari traits serve two script-facing purposes:
 
-1. static trait constraints
-2. dynamic interface objects
+1. static trait constraints for generic code
+2. ordinary interface value types for dynamic dispatch
 
-This split is the key simplification.
-
-Static trait constraints are used by generic functions and generic types during type checking.
-Dynamic interface objects are used for runtime dispatch and downcast.
-
-These two layers should share trait declarations, but they should not be forced into the same implementation model.
-
-## Static Traits
-
-Static trait use is the default and should be the first implementation target.
+There is no script-visible split between `Trait` and `dyn Trait`.
+A trait name can be used directly as a type when a value is handled through that interface.
 
 Example:
 
@@ -57,7 +53,22 @@ trait Display {
     fn to_string(self) -> String;
 }
 
-fn show<T>(value: T) -> String
+fn show(value: Display) -> String {
+    value.to_string()
+}
+```
+
+This is an interface call.
+The runtime may represent it internally with a value handle, concrete type id, and vtable, but script authors do not write or reason about Rust trait objects.
+
+## Static Trait Bounds
+
+Static trait bounds are used by generic functions and generic types during type checking.
+
+Example:
+
+```kagari
+fn show_static<T>(value: T) -> String
 where T: Display
 {
     value.to_string()
@@ -68,12 +79,56 @@ The important properties are:
 
 - trait bounds participate in name resolution and type checking
 - method lookup may be resolved statically for generic code
-- no runtime trait object is needed in the common generic case
+- no runtime interface object is required in the common static generic case
 - no downcast is involved
+
+## Interface Value Types
+
+A trait name used as a value type denotes an interface value.
+
+Example:
+
+```kagari
+val effect: SkillEffect = BurnEffect { rounds: 3 }
+effect.apply(ctx, caster, target)
+```
+
+Conceptually, an interface value carries:
+
+- a handle to the underlying value
+- the concrete runtime type id
+- the interface trait id
+- a dispatch table for interface methods
+
+This is closer to Kotlin interface values than to Rust's borrow-dependent trait object model.
+The value may refer to a GC-managed script object, a boxed script value, or a host-backed value depending on the runtime representation.
+
+## Runtime Representation
+
+A useful internal representation is:
+
+```text
+InterfaceObject {
+  data: ValueHandle,
+  concrete_type_id: TypeId,
+  trait_id: TraitId,
+  vtable_id: TraitVTableId
+}
+```
+
+The runtime layout is implementation-defined, but the semantic model preserves:
+
+- dynamic method dispatch
+- concrete runtime type identity
+- safe `is<T>` checks
+- safe `downcast<T>` checks
+
+This representation is internal.
+This representation does not introduce script-visible `dyn` syntax, lifetime parameters, `Sized` rules, or Rust object-safety terminology.
 
 ## Trait Declarations
 
-A reasonable initial surface syntax is:
+Trait declarations use this surface syntax:
 
 ```kagari
 trait TraitName<T1, T2> {
@@ -81,7 +136,7 @@ trait TraitName<T1, T2> {
 }
 ```
 
-Possible future grammar shape:
+Grammar shape:
 
 ```ebnf
 trait_item       ::= visibility? trait_decl ;
@@ -93,22 +148,22 @@ trait_member     ::= method_sig ";" ;
 method_sig       ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
 
-The initial version should keep trait members small:
+Trait members are limited to:
 
 - methods only
 - no associated consts
-- no associated types in v1 unless there is a concrete need
+- no associated types
 
 ## Trait Implementation
 
-Trait implementation should be distinct from inherent `impl`.
+Trait implementation is distinct from inherent `impl`.
 
-Proposed surface syntax:
+Example:
 
 ```kagari
-impl Display for Int {
+impl Display for Player {
     fn to_string(self) -> String {
-        ...
+        self.name
     }
 }
 ```
@@ -125,7 +180,7 @@ where T: Display
 }
 ```
 
-Proposed grammar shape:
+Grammar shape:
 
 ```ebnf
 impl_block        ::= inherent_impl
@@ -145,7 +200,7 @@ This keeps the language model clear:
 
 ## Generic Bounds
 
-Trait bounds should initially support:
+Trait bounds support:
 
 - direct type parameter bounds in parameter lists
 - trailing `where`
@@ -160,63 +215,66 @@ where T: Ord
 }
 ```
 
-The first version should limit bounds to simple trait references:
+Bounds are simple trait references:
 
 ```kagari
 where T: Display + Clone
 ```
 
-Avoid more advanced forms at first:
+The initial trait-bound scope excludes:
 
 - higher-rank bounds
 - equality constraints
-- projection-heavy associated type constraints
+- associated type projections
+- implicit type-level computation
 
-## Dynamic Trait Objects
+## Interface Compatibility Rules
 
-`dyn Trait` should be treated as a runtime interface object, not as a borrow-dependent type form.
+Not every trait method shape is suitable for interface dispatch.
+The language describes this as interface compatibility rather than Rust object safety.
 
-Example:
+Interface-callable methods must:
 
-```kagari
-let d: dyn Display = button;
-d.to_string();
-```
+- not return `Self`
+- not require method-level generic instantiation at the call site
+- not mention unconstrained generic method parameters
+- have parameter and return types representable in the runtime value model
 
-A `dyn Trait` value should conceptually carry:
+Traits may still contain methods that are useful for static generic bounds but are not callable through an interface value.
+The compiler rejects use of a trait as an interface type when the trait contains methods that cannot be dispatched dynamically.
 
-- a handle to the underlying object
-- the concrete runtime type id
-- a dispatch table for the trait's methods
+## Generic Methods
 
-This is intentionally closer to a GC-friendly interface object than to Rust's exact trait-object model.
+Trait methods and inherent methods may have generic parameters in the syntax.
 
-## Runtime Representation
+Generic methods are primarily a static dispatch feature.
+They are not callable through an interface value unless the runtime provides an explicit specialization or adapter mechanism.
 
-A useful conceptual representation is:
+This keeps interface dispatch simple and avoids hidden runtime monomorphization.
 
-```text
-DynObject {
-  data_handle: ValueHandle,
-  concrete_type_id: TypeId,
-  vtable: TraitVTableId
-}
-```
+## Receiver Model
 
-The actual runtime layout may differ, but the semantic model should preserve these three capabilities:
+Kagari has a non-Rust reference model, so method receivers are simple and do not imply Rust-style borrowing.
 
-- dynamic dispatch
-- runtime type identity
-- safe downcast checks
+Receiver form:
+
+- `self`
+
+Receiver semantics:
+
+- `self` receives the ordinary value
+- receiver passing uses the ordinary parameter value model
+
+This is intentionally not Rust borrowing.
 
 ## Downcast
 
-Downcast should be defined in terms of concrete runtime type identity, not generic trait reasoning.
+Downcast is defined in terms of concrete runtime type identity, not generic trait reasoning.
 
 Example:
 
 ```kagari
-if let p = x.downcast<Player>() {
+if val p = x.downcast<Player>() {
     ...
 }
 
@@ -225,55 +283,23 @@ if x.is<Player>() {
 }
 ```
 
-The recommended model is:
+Downcast model:
 
-- every runtime heap object has a concrete type id
-- `dyn Trait` preserves that concrete type id
+- every runtime heap object or host-registered value has a concrete type id
+- interface values preserve the concrete type id
 - `downcast<T>` succeeds when the stored concrete type id matches `T`
 - `is<T>` is a non-consuming boolean check over the same rule
 
 This is much simpler than attempting to infer downcast through trait structure.
 
-## Object Safety
-
-The first version of `dyn Trait` should impose a deliberately small object-safety rule set.
-
-Initially allow only methods that:
-
-- do not return `Self`
-- do not mention unconstrained generic method parameters
-- do not require monomorphization at the call site
-
-The first version should probably reject `dyn Trait` for traits whose methods require static knowledge of the concrete type.
-
-This means some traits can exist purely for static generic use and still not be dyn-compatible.
-
-## Receiver Model
-
-Kagari already has a non-Rust reference model, so receiver forms should stay aligned with the rest of the language.
-
-Recommended receiver forms:
-
-- `self`
-- `mut self`
-- `ref self`
-
-Suggested interpretation:
-
-- `self` receives the ordinary value
-- `mut self` allows the local receiver binding to be rebound
-- `ref self` aliases the caller-visible receiver slot, following Kagari's `ref` rules
-
-This is intentionally not Rust borrowing.
-
 ## Relationship Between Traits and Downcast
 
-Traits should not be the mechanism that determines whether downcast is possible.
+Traits are not the mechanism that determines downcast validity.
 
 Instead:
 
 - traits describe callable capability sets
-- dynamic objects carry runtime concrete type identity
+- interface values carry runtime concrete type identity
 - downcast works because concrete type identity is preserved
 
 This avoids conflating:
@@ -281,75 +307,79 @@ This avoids conflating:
 - compile-time capability reasoning
 - runtime type tests
 
-## Recommended v1 Feature Set
+## Type-Checking Guidance
 
-The first usable trait version should include:
+Trait resolution is intentionally simple.
+
+Trait resolution uses:
+
+- explicit impl lookup by concrete type
+- explicit bound lookup by generic parameter
+- no overlapping impls
+- clear ambiguity errors rather than aggressive inference
+
+If there are multiple plausible impl candidates, the compiler rejects the program instead of selecting one implicitly.
+
+## Coherence Guidance
+
+Kagari does not use Rust's full coherence model.
+
+Coherence rule:
+
+- within one compilation world, there must be at most one visible impl of a given trait for a given concrete type
+
+This rule is simple enough to understand and enforce.
+Looser host integration behavior requires a separate language or host-ABI extension.
+
+## Host Interoperability
+
+Traits and host object integration are separate concerns.
+
+A host object may:
+
+- implement script-visible traits
+- be viewed through a trait/interface value
+- participate in `is<T>` and `downcast<T>` if the runtime assigns it a stable concrete type identity
+
+Host borrowing rules do not leak into the script trait model.
+If a host-backed value is exposed through an interface, method calls must still respect host registration, capability, path mutation, and call-boundary rules.
+
+## Initial Feature Set
+
+The initial trait system includes:
 
 - trait declarations with methods
 - trait impls for concrete types
 - generic trait bounds through `where`
 - static method lookup through bounds
-- `dyn Trait`
+- trait names usable directly as interface value types
+- interface dispatch through runtime vtables
 - `is<T>`
 - `downcast<T>`
 
-## Recommended v1 Exclusions
+## Initial Scope Exclusions
 
-The first usable trait version should exclude:
+The initial trait system excludes:
 
-- associated types unless they become clearly necessary
+- script-level `dyn Trait`
+- associated types
+- associated consts
 - trait inheritance with complex conflict rules
 - trait upcasting
 - specialization
-- default trait methods if implementation bandwidth is limited
-- trait objects for non-object-safe traits
+- default trait methods
+- interface dispatch for non-interface-compatible methods
 
-## Type-Checking Guidance
+## Implementation Phases
 
-Type checking can stay manageable if trait resolution is kept intentionally simple.
-
-Early trait resolution rules should prefer:
-
-- explicit impl lookup by concrete type
-- explicit bound lookup by generic parameter
-- no overlapping impls in v1
-- clear ambiguity errors rather than aggressive inference
-
-If there are multiple plausible impl candidates, the compiler should reject the program instead of attempting overly clever selection.
-
-## Coherence Guidance
-
-Kagari does not need Rust's full coherence model in the first version.
-
-A practical first rule is:
-
-- within one compilation world, there must be at most one visible impl of a given trait for a given concrete type
-
-This rule is simple enough to understand and simple enough to enforce.
-
-If host integration later requires looser behavior, that can be designed separately.
-
-## Host Interoperability
-
-Traits and host object integration should remain separate concerns.
-
-A host object may:
-
-- implement script-visible traits
-- be wrapped as a `dyn Trait`
-- participate in `is<T>` and `downcast<T>` if the runtime assigns it a stable concrete type identity
-
-But host borrowing rules should not leak into the script trait model.
-
-## Recommended Implementation Order
-
-If implemented incrementally, the recommended order is:
+The implementation can be staged in this order:
 
 1. trait declarations
 2. trait impls for concrete script types
 3. generic bounds and static resolution
 4. inherent impl and trait impl disambiguation
-5. `dyn Trait`
-6. `is<T>` and `downcast<T>`
+5. runtime interface value representation
+6. interface dispatch through vtables
+7. `is<T>` and `downcast<T>`
 
-This order keeps the system useful early without forcing runtime object machinery before static trait checking is stable.
+This order keeps static trait checking independent from runtime interface machinery until interface value representation is implemented.

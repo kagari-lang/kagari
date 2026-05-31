@@ -1,11 +1,10 @@
-# Kagari Module Execution Draft
+# Kagari Module Execution Specification
 
-This document describes a proposed module execution model for Kagari.
-It is a design draft, not a finalized implementation contract.
+This document defines the module execution model for Kagari.
 
-Syntax direction is drafted separately in [syntax.md](/Users/mikai/CLionProjects/kagari/docs/spec/syntax.md).
-Execution pipeline direction is drafted separately in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Runtime model direction is drafted separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
+Syntax is defined in [syntax.md](/Users/mikai/CLionProjects/kagari/docs/spec/syntax.md).
+Execution pipeline behavior is defined in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
+Runtime behavior is defined in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
 
 ## Design Goals
 
@@ -15,15 +14,15 @@ Runtime model direction is drafted separately in [runtime.md](/Users/mikai/CLion
 - support embeddable scripting, configuration scripts, and hotfix scripts
 - keep module execution semantics compatible with hot reload and caching
 
-## Recommended Model
+## Module Model
 
-Each source file should be compiled as a module.
+Each source file is compiled as a module.
 
-Each module should have:
+Each module has:
 
 - declarations such as functions, structs, and enums
-- module items such as `const` and `static`
-- exports
+- module items such as `const`
+- public module interface
 - an implicit module initialization function
 - an optional module initialization result
 
@@ -40,20 +39,21 @@ Top-level executable statements are lowered into that implicit initialization fu
 
 ## Module Initialization Result
 
-The implicit module initialization function should be allowed to produce a result value.
+The implicit module initialization function may produce a result value.
 
-Recommended rule:
+Rule:
 
 - if top-level code ends in a tail expression, that expression becomes the module initialization result
-- if there is no tail expression, the result is `unit`
+- if there is no tail expression, the result is `()`
+- source code does not need to spell a trailing `()` expression
 
 This is especially useful for single-file script execution.
 
 For example:
 
 ```kagari
-let x = 1;
-let y = 2;
+val x = 1;
+val y = 2;
 x + y
 ```
 
@@ -68,64 +68,64 @@ implicit fn __module_init__() -> i32:
 
 ## Relationship Between Imports and Module Results
 
-The recommended rule is:
+Rule:
 
 - direct script execution may expose the module initialization result as the script result
-- `import` should still produce a module instance or module namespace view
+- `import` produces a module instance or module namespace view
 - the module initialization result may be stored as part of the module instance
-- the initialization result should not replace the export model
+- the initialization result does not replace the module's public interface
 
 This keeps the system consistent:
 
 - single-file scripts can naturally return a value
 - imported modules still behave like modules
-- exports remain accessible through the module instance
+- public items remain accessible through the module instance
 
 In other words:
 
 - module result is an execution result
-- exports are the module interface
+- public items are the module interface
 
-These should coexist rather than compete.
+These coexist rather than compete.
 
 ## Module Scope Kinds
 
-Kagari should distinguish three different top-level concepts:
+Kagari distinguishes three different top-level concepts:
 
 1. top-level executable statements
 2. private module bindings created during module initialization
-3. exportable module items
+3. public module items
 
-These should not be conflated.
+These are separate semantic categories.
 
-### Top-Level `let`
+### Top-Level `val` and `var`
 
-Top-level `let` and `let mut` should be treated as part of module initialization code.
+Top-level `val` and `var` are part of module initialization code.
 
 They are:
 
 - runtime bindings
 - private to the defining module
-- not directly exportable
+- not part of the module's public interface
 - not the same thing as closure capture
 
 They are intended for module startup logic such as:
 
 ```kagari
-let config = load_config();
+val config = load_config();
 host.log(config);
 ```
 
-The recommended direction is that these bindings belong to module initialization semantics, not to the exported item model.
+These bindings belong to module initialization semantics, not to the module public-interface model.
 
 ### `const`
 
-`const` should represent a compile-time constant item.
+`const` represents a compile-time constant item.
 
-Recommended properties:
+Properties:
 
 - compile-time evaluable
-- may be exported with `pub`
+- may be made public with `pub`
 - no runtime initialization step
 - suitable for inlining and constant propagation
 - must produce a `const-safe` value
@@ -139,17 +139,17 @@ pub const VERSION: i32 = 1;
 The key rule is not "borrow-checked immutability".
 Kagari does not rely on a Rust-style borrow system for this.
 
-Instead, the rule should be:
+Instead, the rule is:
 
 - a `const` initializer must be evaluable at compile time
 - the resulting value must belong to a `const-safe` value type family
 - the resulting value must not require heap-backed runtime identity
 
-Recommended v1 `const-safe` types:
+V1 `const-safe` types:
 
-- builtin scalar types such as `unit`, `bool`, `i32`, `i64`, `f32`, `f64`, and `str`
+- builtin scalar types such as `()`, `bool`, `i32`, `i64`, `f32`, `f64`, and `String`
 
-Recommended v1 exclusions:
+V1 exclusions:
 
 - tuples
 - arrays
@@ -164,9 +164,9 @@ In other words, `const` in v1 is a compile-time by-value constant, not a shared 
 
 ### `const` Write Restrictions
 
-The language should define `const` restrictions at the item boundary, not by object-graph freezing.
+The language defines `const` restrictions at the item boundary, not by object-graph freezing.
 
-For a `const` item itself, the following operations should be rejected:
+For a `const` item itself, the following operations are rejected:
 
 - reassignment
 - reflection-based write
@@ -176,29 +176,20 @@ Copies of a `const` value are ordinary runtime values.
 If a `const` scalar is copied into another binding or container, later writes affect the destination storage, not the original `const` item.
 This keeps `const` semantics simple without introducing provenance tracking or deep-freeze rules.
 
-### `static` and `static mut`
+### Module Storage
 
-`static` and `static mut` should represent module-level storage items.
+The v1 module model does not include a script-visible `static` item.
 
-Recommended properties:
+Mutable module-level storage has non-trivial hot reload semantics around epochs, old closures, module namespace values, persistence, and migration.
+Until those rules are specified, v1 keeps module-level mutable storage out of the surface language.
 
-- stable module-level storage slot
-- runtime initialization allowed
-- may be exported with `pub`
-- `mut` controls whether rebinding is allowed, matching the language's ordinary mutability model
+Scripts that need durable or cross-reload mutable state use:
 
-Examples:
+- host-owned state exposed through typed handles or typed path mutation
+- persisted script-owned state with explicit migration rules
+- future versioned module state, if a later spec adds it
 
-```kagari
-pub static CONFIG = load_config();
-pub static mut COUNTER: i32 = 0;
-```
-
-This means Kagari can distinguish cleanly between:
-
-- `const`: compile-time value
-- `static`: module storage
-- top-level `let`: private module initialization binding
+Top-level `val` and `var` remain private module initialization logic, not durable module storage.
 
 ## Why Kagari Should Allow Top-Level Code
 
@@ -214,11 +205,11 @@ Top-level code is useful for:
 
 Requiring an explicit `main` for every file would make those use cases more awkward without solving the real import problem.
 
-The import problem should be solved by module loading rules, not by forbidding top-level execution.
+The import problem is solved by module loading rules, not by forbidding top-level execution.
 
 ## Implicit Module Initialization
 
-The recommended rule is:
+Rule:
 
 - top-level statements are legal
 - they execute through an implicit module initialization function
@@ -227,10 +218,10 @@ The recommended rule is:
 For example:
 
 ```kagari
-let version = 1;
+val version = 1;
 host.log("loading script");
 
-fn greet() -> str {
+fn greet() -> String {
     "hello"
 }
 ```
@@ -238,7 +229,7 @@ fn greet() -> str {
 Conceptually becomes:
 
 ```text
-module exports:
+module public interface:
   greet
 
 implicit fn __module_init__():
@@ -246,12 +237,12 @@ implicit fn __module_init__():
   host.log("loading script")
 ```
 
-The exact lowering strategy may vary, but the semantic model should match this behavior.
-The important point is that `version` in this example is a private top-level initialization binding, not an exported item.
+The exact lowering strategy may vary, but the semantic model matches this behavior.
+The important point is that `version` in this example is a private top-level initialization binding, not a public item.
 
 ## Import Execution Rule
 
-The recommended import rule is:
+Import rule:
 
 - the first successful import of a module executes its initialization function
 - later imports of the same loaded module return the cached module instance
@@ -261,12 +252,12 @@ This gives the expected behavior for script modules:
 
 - initialization side effects happen once
 - initialization result is computed once
-- exported bindings remain available
+- public bindings remain available
 - repeated imports are cheap and predictable
 
 ## Module Lifecycle
 
-The runtime should track module state explicitly.
+The runtime tracks module state explicitly.
 
 A practical model is:
 
@@ -277,7 +268,7 @@ Initialized
 Failed
 ```
 
-Recommended behavior:
+Lifecycle behavior:
 
 1. module is loaded in `Uninitialized`
 2. first import moves it to `Initializing`
@@ -289,24 +280,24 @@ If a module is already `Initialized`, imports return the cached instance without
 
 ## Circular Imports
 
-Circular imports should be handled through module state, not by banning module execution.
+Circular imports are handled through module state, not by banning module execution.
 
 If module `A` imports `B` while `B` imports `A`:
 
 - the second access sees that `A` is already `Initializing`
 - the runtime returns the in-progress module instance
-- reads of bindings that are not yet initialized may trap or observe an explicitly uninitialized state
+- reads of bindings that are not yet initialized trap or observe an explicitly uninitialized state according to the runtime's partial-initialization policy
 
-The exact behavior for partially initialized bindings can be finalized later, but the runtime model should be prepared for it.
+The runtime model reserves an explicit partial-initialization state for this case.
 
 ## Relationship to `main`
 
-Kagari should not require a language-level `main` function in every file.
+Kagari does not require a language-level `main` function in every file.
 
 Instead:
 
 - a file may act as a module with top-level initialization
-- a host or CLI may optionally choose to call an exported `main`
+- a host or CLI may optionally choose to call a public `main`
 
 This means:
 
@@ -317,47 +308,46 @@ For example, a CLI could define:
 
 1. load entry module
 2. run its implicit initialization function
-3. if exported `main` exists, call it
+3. if public `main` exists, call it
 
 This keeps the language flexible while still supporting executable entrypoints.
 
 ## Top-Level Restrictions
 
-Allowing top-level code does not mean every statement form should be accepted at module scope.
+Allowing top-level code does not mean every statement form is accepted at module scope.
 
-Recommended restrictions:
+Restrictions:
 
-- allow `let`
-- allow `let mut`
+- allow `val`
+- allow `var`
 - allow expression statements
 - allow top-level initialization expressions
 - disallow `return`
 - disallow `break`
 - disallow `continue`
 
-Whether top-level `if` or `match` is allowed can be decided by normal statement rules.
-They do not need special treatment if they simply lower into module initialization code.
+Top-level `if` and `match` follow the normal statement rules.
+They require no special treatment when they lower into module initialization code.
 
-## Export Model
+## Public Module Interface
 
-The recommended export rule is:
+Public-interface rule:
 
-- `pub fn` exports a function item
-- `pub const` exports a compile-time constant item
-- `pub static` and `pub static mut` export module storage items
-- top-level `let` and `let mut` are not exportable
+- `pub fn` makes a function item public
+- `pub const` makes a compile-time constant item public
+- top-level `val` and `var` cannot be public module items
 
-This avoids introducing forms such as `pub let x = 1;` and keeps exportability tied to item declarations rather than statement syntax.
+This avoids introducing forms such as `pub val x = 1;` and keeps module visibility tied to item declarations rather than statement syntax.
 
-## Recommended Runtime Contract
+## Runtime Contract
 
-The runtime should expose module loading in terms of module instances rather than raw source files.
+The runtime exposes module loading in terms of module instances rather than raw source files.
 
-A loaded module instance should conceptually include:
+A loaded module instance conceptually includes:
 
 - module identity
 - epoch or reload generation
-- exported bindings
+- public bindings
 - initialization state
 - optional module initialization result
 - bytecode for the implicit module init function
@@ -367,9 +357,9 @@ This fits naturally with Kagari's bytecode-first execution model.
 
 ## Hot Reload Interaction
 
-Hot reload should create a new module instance or a new module epoch.
+Hot reload creates a new module instance or a new module epoch.
 
-Recommended rule:
+Rule:
 
 - imports are cached per module instance or per epoch
 - reloading a module invalidates the prior initialized instance
@@ -377,15 +367,16 @@ Recommended rule:
 
 This keeps module execution predictable across reloads.
 
-## Recommended Direction
+## Summary
 
-The recommended Kagari module model is:
+The Kagari module model is:
 
 - allow top-level executable code
 - compile that code into an implicit module initialization function
 - allow that implicit initialization function to return a module result
-- treat top-level `let` as private module initialization binding, not as an exportable item
-- use `const`, `static`, and `static mut` for exportable module-level data
+- treat top-level `val` and `var` as private module initialization bindings, not as public items
+- use `const` for compile-time constants
+- defer script-visible mutable module storage to a later design
 - cache initialized module instances
 - do not re-execute a module on repeated import
 - treat `main` as an optional host-side convention

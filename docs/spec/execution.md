@@ -1,9 +1,8 @@
-# Kagari Execution Model Draft
+# Kagari Execution Model
 
-This document describes a proposed execution strategy for Kagari.
-It is a design draft, not a finalized implementation contract.
+This document specifies the execution strategy for Kagari.
 
-The main goal is to define a practical execution pipeline that fits Kagari's current direction:
+The execution pipeline supports:
 
 - strongly typed scripting
 - GC-backed runtime
@@ -12,9 +11,9 @@ The main goal is to define a practical execution pipeline that fits Kagari's cur
 - hot reload
 - a bytecode-first implementation strategy
 
-Backend abstraction direction is drafted separately in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
-Bytecode design direction is drafted separately in [bytecode.md](/Users/mikai/CLionProjects/kagari/docs/spec/bytecode.md).
-Module execution direction is drafted separately in [modules.md](/Users/mikai/CLionProjects/kagari/docs/spec/modules.md).
+Backend abstraction rules are defined in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
+Bytecode rules are defined in [bytecode.md](/Users/mikai/CLionProjects/kagari/docs/spec/bytecode.md).
+Module execution rules are defined in [modules.md](/Users/mikai/CLionProjects/kagari/docs/spec/modules.md).
 
 ## Design Goals
 
@@ -24,9 +23,9 @@ Module execution direction is drafted separately in [modules.md](/Users/mikai/CL
 - avoid coupling the execution strategy directly to AST structures
 - keep runtime services shared across interpreter and future JIT backends
 
-## Recommended Execution Strategy
+## Execution Strategy
 
-The recommended strategy is:
+The execution strategy is:
 
 1. parse source
 2. perform semantic analysis and typing
@@ -37,12 +36,12 @@ The recommended strategy is:
 This makes the bytecode VM the main semantic backend.
 
 The important point is that bytecode is not just a cache format.
-It is the first real execution target and the place where language behavior should be made concrete.
+It is the first real execution target and the place where language behavior is made concrete.
 
 ## Why Bytecode-First Fits Kagari
 
-Kagari is not currently being shaped as a minimal native-only systems language.
-Its design already emphasizes:
+Kagari is not a minimal native-only systems language.
+The language model emphasizes:
 
 - embeddability
 - host interop
@@ -52,25 +51,25 @@ Its design already emphasizes:
 
 These features all benefit from a stable runtime and VM layer.
 
-If native AOT or JIT is made primary too early, the project is forced to solve too many backend-specific problems before the core language model is stable.
+Native AOT and JIT are backend layers; they do not define language semantics.
 
-## Current Project Direction
+## Implementation Status
 
-The current repository already points toward a bytecode-first path:
+The repository contains bytecode-first implementation components:
 
 - [bytecode/mod.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/bytecode/mod.rs)
 - [module/mod.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/module/mod.rs)
 - [lib.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-vm/src/lib.rs)
 
-This draft recommends continuing in that direction.
+These components are part of the bytecode-first execution model.
 
 ## Execution Tiers
 
-Kagari should be designed with multiple execution tiers in mind:
+Kagari has multiple execution tiers:
 
 ### Tier 0: Interpreter
 
-The interpreter is the primary execution engine in the early versions.
+The interpreter is the primary execution engine.
 
 Responsibilities:
 
@@ -85,7 +84,7 @@ This is the most important tier for correctness.
 
 ### Tier 1: Baseline JIT
 
-If JIT is added later, the first JIT tier should be a baseline function compiler.
+The first JIT tier is a baseline function compiler.
 
 Responsibilities:
 
@@ -94,13 +93,13 @@ Responsibilities:
 - reduce interpreter dispatch overhead
 - continue using shared runtime helpers for complex operations
 
-This tier should avoid speculative optimization at first.
+This tier avoids speculative optimization.
 
 ### Tier 2: Optimizing JIT
 
-An optimizing JIT may be added later if real workloads justify it.
+An optimizing JIT is an optional backend tier for workloads that justify it.
 
-Potential responsibilities:
+Responsibilities:
 
 - inlining
 - specialization
@@ -108,25 +107,25 @@ Potential responsibilities:
 - reduced helper calls
 - guarded fast paths
 
-This tier should be considered optional and future-facing.
+This tier is optional.
 
 ## Bytecode as the Main Semantic Contract
 
-Bytecode should be treated as the primary execution contract between the frontend and runtime.
+Bytecode is the primary execution contract between the frontend and runtime.
 
 This means:
 
-- interpreter behavior should be defined against bytecode semantics
-- future JIT compilation should preserve bytecode-visible behavior
-- runtime metadata should attach naturally to modules, functions, and instructions
+- interpreter behavior is defined against bytecode semantics
+- JIT compilation preserves bytecode-visible behavior
+- runtime metadata attaches to modules, functions, and instructions
 
-This is preferable to treating bytecode as a disposable intermediate artifact.
+Bytecode is not a disposable intermediate artifact.
 
 ## Bytecode Artifact Format
 
-Kagari's `.kbc` format should be treated as a precompiled bytecode artifact, not as native code.
+Kagari's `.kbc` format is a precompiled bytecode artifact, not native code.
 
-Recommended use cases:
+Use cases:
 
 - faster startup than source recompilation
 - module caching
@@ -138,7 +137,7 @@ This matches the naming already documented in [README.md](/Users/mikai/CLionProj
 
 ## AOT in the Near Term
 
-The first practical form of AOT for Kagari should be:
+The first form of AOT for Kagari is:
 
 - ahead-of-time compilation from source to bytecode artifact
 
@@ -147,13 +146,13 @@ That means:
 - source AOT to `.kbc`
 - not native-code AOT as the primary path
 
-This gives the project many of the practical benefits of AOT without prematurely committing to a native backend architecture.
+This provides AOT loading and distribution benefits without making native code the semantic foundation.
 
 ## Native AOT
 
-Native-code AOT may still make sense later for selected deployment targets.
+Native-code AOT is a backend option for selected deployment targets.
 
-However, it should not currently be the primary execution strategy.
+It is not the primary execution strategy.
 
 Reasons:
 
@@ -162,14 +161,14 @@ Reasons:
 - reflection and dynamic metadata become more backend-sensitive
 - development iteration slows down
 
-Native AOT should be treated as a later backend experiment, not as the initial execution foundation.
+Native AOT is a backend, not the initial execution foundation.
 
-## Why JIT Should Not Be Front-Loaded
+## JIT Preconditions
 
 JIT is not primarily blocked by code generation.
 It is blocked by semantic stabilization.
 
-Before JIT becomes worthwhile, Kagari needs:
+JIT depends on:
 
 - a stable calling convention
 - a stable value model
@@ -178,13 +177,11 @@ Before JIT becomes worthwhile, Kagari needs:
 - a stable host interop boundary
 - a stable module epoch and invalidation story
 
-Until those pieces exist, JIT adds complexity faster than it adds value.
+Until those pieces exist, JIT is implementation work without semantic authority.
 
-## Design Hooks for Future JIT
+## JIT Integration Hooks
 
-Even though JIT should not be front-loaded, the current architecture should leave room for it.
-
-The most important hooks are:
+JIT backends reuse the same runtime model through these hooks:
 
 - typed IR that is independent from AST shape
 - bytecode or IR with stable function and module identifiers
@@ -193,27 +190,28 @@ The most important hooks are:
 - explicit safepoint-aware call boundaries
 - epoch-aware module and function invalidation
 
-These hooks let a later JIT reuse the same runtime model rather than forcing a redesign.
+These hooks keep JIT backends from changing language semantics.
 
 ## Runtime Helper ABI
 
-Operations that are difficult, effectful, or security-sensitive should go through runtime helpers rather than being special-cased in only one backend.
+Operations that are difficult, effectful, or security-sensitive go through runtime helpers rather than being special-cased in only one backend.
 
 Examples:
 
 - allocation
 - GC write barriers
 - host calls
+- typed host path access and mutation
 - capability checks
 - reflection access
 - downcast checks
-- dynamic trait dispatch helpers when needed
+- interface dispatch helpers when needed
 
-This is important because both the interpreter and a future JIT should share the same semantic authority.
+The interpreter and JIT backends share the same semantic authority.
 
-## Function Metadata Needed for JIT
+## Function Metadata for JIT
 
-The runtime and IR layers should be prepared to record function metadata such as:
+The runtime and IR layers record function metadata such as:
 
 - function id
 - module id
@@ -224,13 +222,13 @@ The runtime and IR layers should be prepared to record function metadata such as
 - effect flags
 - safepoint metadata
 
-This metadata is useful even before JIT exists.
+This metadata also supports interpreter diagnostics, verification, and runtime bookkeeping.
 
 ## Instruction Effect Classification
 
-Instructions or IR operations should eventually be classifiable by effect.
+Instructions and IR operations are classifiable by effect.
 
-Examples of useful flags:
+Effect flags:
 
 - may allocate
 - may trap
@@ -243,16 +241,16 @@ This classification is valuable for:
 
 - interpreter bookkeeping
 - verifier logic
-- future JIT lowering
+- JIT lowering
 - later optimization passes
 
 ## Baseline JIT Strategy
 
-If JIT is later added, the recommended first step is:
+The first JIT step is:
 
 - function-level baseline JIT
 
-Recommended workflow:
+Workflow:
 
 1. interpret bytecode normally
 2. count function executions or hotness
@@ -262,47 +260,45 @@ Recommended workflow:
 
 This keeps the design understandable and avoids tracing complexity.
 
-## Recommended JIT Backend Style
+## JIT Backend Style
 
-For Kagari's likely needs, a baseline JIT should look like:
+A baseline JIT has these properties:
 
 - direct lowering from typed IR or bytecode IR
 - minimal speculation
-- no mandatory deoptimization support in the first version
+- no mandatory deoptimization support in the baseline tier
 - heavy reuse of runtime helpers
 
-This is not the most aggressive design, but it is the most practical one.
+This keeps the baseline JIT tier aligned with interpreter semantics.
 
-## Cranelift-Like Backend Direction
+## Cranelift-Like Backends
 
-If Kagari later adopts a Rust-friendly JIT backend library, a Cranelift-like approach is a practical fit.
+A Rust-friendly function compiler such as Cranelift fits Kagari's baseline JIT backend requirements.
 
-Why this style is suitable:
+This backend style provides:
 
 - faster implementation than hand-written machine code emission
 - cross-platform realism
 - good fit for function-level code generation
 - enough control to integrate runtime helper calls
 
-This is a strategic direction, not a tool commitment.
+Cranelift-style code generation is a backend choice, not a language-semantic commitment.
 
 ## GC and Safepoints
 
-JIT design must reserve space for GC integration even if GC is simple at first.
+JIT design reserves space for GC integration even when GC is simple.
 
-That means planning for:
+That means the backend model includes:
 
 - safepoints
 - root maps or stack maps
 - call boundary metadata
 
-Otherwise, a later JIT will become tightly coupled to a too-simple early GC design.
-
-Even if the first interpreter does not fully exploit this metadata, the architecture should allow it to exist.
+The architecture includes this metadata even when the interpreter does not fully exploit it.
 
 ## Host Interop and JIT
 
-Future machine code must not bypass the host interop safety model.
+Machine code must not bypass the host interop safety model.
 
 In particular, JIT code must still respect:
 
@@ -312,25 +308,25 @@ In particular, JIT code must still respect:
 - capability checks
 - no-escape invariants
 
-This means JIT code should usually call shared runtime helpers at these boundaries unless a future proof allows safe specialization.
+JIT code calls shared runtime helpers at these boundaries unless a specialization is proven to preserve the same safety checks.
 
-Host interop direction is drafted in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
+Host interop rules are defined in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
 
 ## Hot Reload and JIT
 
 Hot reload means compiled code cannot be treated as permanently valid.
 
-A practical model is:
+The model is:
 
 - code cache entries are keyed by module id, epoch, and function id
 - function entry points are indirected through a table
 - reloading a module invalidates or replaces affected entries
 
-This is much easier than trying to patch every call site directly in the first version.
+This avoids direct patching of every call site.
 
 ## Deoptimization
 
-The first JIT tier should avoid requiring deoptimization.
+The first JIT tier avoids requiring deoptimization.
 
 This means:
 
@@ -338,11 +334,11 @@ This means:
 - no aggressive type specialization that requires rollback
 - no dependence on tracing-JIT behavior
 
-Deoptimization can be introduced later if and when an optimizing JIT exists.
+Deoptimization belongs to an optimizing JIT tier.
 
-## Recommended v1 Execution Stack
+## v1 Execution Stack
 
-The recommended first practical execution stack is:
+The first execution stack is:
 
 - source frontend
 - typed IR
@@ -350,26 +346,26 @@ The recommended first practical execution stack is:
 - interpreter
 - `.kbc` bytecode artifacts for caching and distribution
 
-This is enough to validate the language and runtime design without prematurely paying JIT complexity costs.
+This validates the language and runtime design without making JIT part of the semantic foundation.
 
-## Recommended v2 Execution Extensions
+## Future Work
 
-When the runtime and IR have stabilized, likely next steps are:
+Future execution extensions include:
 
 - richer bytecode metadata
 - interpreter profiling counters
 - function-level code cache
 - baseline JIT backend
 
-Only after that should the project consider:
+Later backend experiments include:
 
 - speculative specialization
 - inlining-heavy optimizing JIT
 - native AOT experiments
 
-## Recommended Implementation Order
+## Implementation Order
 
-If implemented incrementally, the recommended order is:
+The incremental implementation order is:
 
 1. strengthen typed IR and bytecode structure
 2. define VM call frames and helper ABI clearly
@@ -379,4 +375,4 @@ If implemented incrementally, the recommended order is:
 6. add profiling counters
 7. add baseline JIT as an optional backend
 
-This order keeps the interpreter as the semantic foundation while leaving a credible path toward JIT later.
+This order keeps the interpreter as the semantic foundation while preserving JIT as an optional backend path.

@@ -1,13 +1,13 @@
-# Kagari Host Interop Draft
+# Kagari Host Interop Specification
 
-This document describes a proposed host interop model for Kagari, with a focus on Rust embedding.
-It is a design draft, not a finalized implementation contract.
+This document defines the host interop model for Kagari, with a focus on Rust embedding.
 
 The main goal is to let Rust applications expose types and functions to Kagari while preserving Rust-side safety constraints and avoiding unnecessary data copies.
 
-Runtime model direction is drafted separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
-Execution model direction is drafted separately in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Backend abstraction direction is drafted separately in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
+Runtime behavior is defined in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
+Execution behavior is defined in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
+Backend abstraction is defined in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
+Typed path mutation is defined in [typed-path-mutation.md](/Users/mikai/CLionProjects/kagari/docs/spec/typed-path-mutation.md).
 
 ## Design Goals
 
@@ -15,11 +15,12 @@ Backend abstraction direction is drafted separately in [codegen-backend.md](/Use
 - support efficient access to Rust-owned data without copying large objects into script memory
 - preserve Rust aliasing rules at the host boundary
 - keep borrowed host references scoped to a single call frame
-- support a practical first version for generic Rust APIs
+- keep script-visible nested host field access separate from raw Rust borrowing
+- support concrete registration of generic Rust APIs
 
 ## Non-Goals
 
-The first interop version should not attempt to provide:
+The interop scope excludes:
 
 - transparent automatic binding for arbitrary Rust APIs
 - unconstrained registration of open-ended Rust generics
@@ -28,19 +29,19 @@ The first interop version should not attempt to provide:
 
 ## Core Split
 
-Host interop should be split into two concerns:
+Host interop is split into two concerns:
 
 1. registration of types and functions
 2. borrow-boundary management
 
-These concerns are related, but they should not be collapsed into one mechanism.
+These concerns are related, but they are not collapsed into one mechanism.
 
 Registration decides what the script can name and call.
 Borrow-boundary management decides how Rust-owned data may be accessed safely during execution.
 
 ## Type Registration
 
-Rust types should be registered explicitly.
+Rust types are registered explicitly.
 
 Conceptually:
 
@@ -49,7 +50,7 @@ registry.register_type::<Player>("game.Player");
 registry.register_type::<Vec2>("math.Vec2");
 ```
 
-Registration should attach at least:
+Registration attaches at least:
 
 - script-visible type name
 - runtime `TypeId`
@@ -59,7 +60,7 @@ Registration should attach at least:
 
 ## Function Registration
 
-Rust functions should also be registered explicitly.
+Rust functions are also registered explicitly.
 
 Conceptually:
 
@@ -69,19 +70,19 @@ registry.register_fn("game.heal", |player: &mut Player, hp: i32| {
 });
 ```
 
-Function registration should record:
+Function registration records:
 
-- exported symbol name
+- exposed symbol name
 - parameter list
 - passing style for each parameter
 - return type
 - capability requirements if any
 
-This aligns with the direction already present in [host.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/host.rs).
+This aligns with the existing host runtime surface in [host.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/host.rs).
 
 ## Passing Styles
 
-Host parameters should distinguish between:
+Host parameters distinguish between:
 
 - owned values
 - shared borrows
@@ -97,7 +98,7 @@ SharedBorrow
 UniqueBorrow
 ```
 
-These should remain host-boundary concepts even if Kagari itself does not implement Rust-style borrowing internally.
+These remain host-boundary concepts even though Kagari itself does not implement Rust-style borrowing internally.
 
 ## Ordinary Owned Values
 
@@ -120,7 +121,7 @@ Owned passing is simpler but may be too expensive for large host-owned structure
 
 Borrowed host values are the important case for low-copy interop.
 
-Recommended model:
+Model:
 
 - `&T` becomes a frame-scoped shared borrow handle
 - `&mut T` becomes a frame-scoped unique borrow handle
@@ -138,7 +139,7 @@ This is the intended use case for:
 
 ## Frame-Scoped Borrow Rule
 
-All Rust borrows passed into Kagari should be scoped to the dynamic extent of a single host-to-script call.
+All Rust borrows passed into Kagari are scoped to the dynamic extent of a single host-to-script call.
 
 This is the core safety rule.
 
@@ -151,7 +152,7 @@ HostCallGuard<'host> {
 }
 ```
 
-Borrowed handles should carry enough metadata to validate:
+Borrowed handles carry enough metadata to validate:
 
 - which frame created them
 - whether the borrow is shared or unique
@@ -169,13 +170,13 @@ That means they cannot be:
 - captured by closures
 - carried across `yield`, `await`, coroutine suspension, or hot-reload boundaries
 
-This rule should be enforced by the host interop layer and the semantic/runtime validation passes.
+This rule is enforced by the host interop layer and the semantic/runtime validation passes.
 
 ## Enforcement Model
 
-The no-escape rule should not rely on a single mechanism.
+The no-escape rule does not rely on a single mechanism.
 
-The recommended design is a three-layer model:
+The enforcement model has three layers:
 
 1. representation restrictions
 2. static validation
@@ -185,28 +186,28 @@ This keeps the common case fast and makes failures easier to classify.
 
 ### Representation Restrictions
 
-Borrowed host values should not be modeled as ordinary freely storable script values.
+Borrowed host values are not modeled as ordinary freely storable script values.
 
-Instead, they should be represented as a special frame-scoped kind of runtime handle.
+Instead, they are represented as a special frame-scoped kind of runtime handle.
 
 Conceptually:
 
 - ordinary script values may be stored in locals, fields, globals, closures, and GC objects
 - borrowed host handles are frame-scoped and non-storable by default
 
-This should make the following illegal at the representation level:
+The following are illegal at the representation level:
 
 - storing a borrowed host handle into a GC object field
 - storing a borrowed host handle into a global slot
 - placing a borrowed host handle into a closure environment
 
-This is preferable to allowing such states and then trying to recover from them later.
+The representation excludes invalid states before runtime recovery would be required.
 
 ### Static Validation
 
-The front end should reject obvious escape paths before execution.
+The front end rejects obvious escape paths before execution.
 
-Examples that should become diagnostics:
+Examples that produce diagnostics:
 
 - returning a borrowed host value
 - assigning a borrowed host value into a location that may outlive the current frame
@@ -220,16 +221,16 @@ It only requires tracking which values are frame-scoped host borrows and which o
 
 Runtime checks are still necessary as a final line of defense.
 
-Each borrowed host handle should carry enough metadata to validate:
+Each frame-scoped host borrow token carries enough metadata to validate:
 
 - which call frame created it
 - whether the handle is still valid
 - whether the current operation is compatible with the borrow kind
 
-Recommended metadata:
+Metadata:
 
 ```text
-HostBorrowHandle {
+FrameHostBorrowToken {
   frame_id: FrameId,
   object_id: HostObjectId,
   borrow_kind: Shared | Unique,
@@ -238,7 +239,7 @@ HostBorrowHandle {
 }
 ```
 
-Whenever a host borrow is dereferenced, the runtime should verify:
+Whenever a host borrow is dereferenced, the runtime verifies:
 
 - the current frame matches `frame_id`
 - the handle has not expired
@@ -248,9 +249,9 @@ These checks prevent front-end omissions from turning into Rust undefined behavi
 
 ## Failure Classification
 
-Violations of host-borrow rules should not normally be handled with `panic!`.
+Violations of host-borrow rules are not normally handled with `panic!`.
 
-Recommended failure model:
+Failure model:
 
 - compile-time detectable escape: diagnostic error
 - runtime misuse caused by script execution state: script trap or runtime error
@@ -258,17 +259,17 @@ Recommended failure model:
 
 Examples:
 
-- `return borrowed_player` should be a compile-time error
-- using a host borrow after its frame expired should be a runtime error
+- `return borrowed_player` is a compile-time error
+- using a host borrow after its frame expired is a runtime error
 - dereferencing an already-invalid internal borrow handle without checking is an engine bug
 
-This distinction matters because script mistakes are user-facing errors, while panics should be reserved for Kagari implementation bugs.
+This distinction matters because script mistakes are user-facing errors, while panics are reserved for Kagari implementation bugs.
 
 ## Suspension Boundaries
 
-If Kagari later supports `yield`, `await`, coroutines, or other suspension points, borrowed host values should be explicitly non-suspendable.
+If Kagari later supports `yield`, `await`, coroutines, or other suspension points, borrowed host values are explicitly non-suspendable.
 
-Recommended rule:
+Rule:
 
 - a suspension point is illegal if any live local is a borrowed host handle
 
@@ -276,9 +277,9 @@ This can be enforced through a targeted liveness check rather than a full genera
 
 ## GC Interaction
 
-Borrowed host values should not be representable as ordinary GC-managed field values.
+Borrowed host values are not representable as ordinary GC-managed field values.
 
-Recommended rule:
+Rule:
 
 - GC object layouts accept only storable script values
 - frame-scoped borrowed host handles are excluded from that set
@@ -294,21 +295,25 @@ In particular:
 - the same Rust object must not be exposed as two simultaneous unique borrows
 - the same Rust object must not be exposed as both a shared borrow and a unique borrow at the same time
 
-These conflicts should be checked when arguments are marshaled into a host-call frame.
+These conflicts are checked when arguments are marshaled into a host-call frame.
 
-## Suggested Runtime Representation
+This rule applies to actual frame-scoped host borrows.
+It does not forbid multiple script-visible host path views that share the same root, because path views are root-plus-path handles rather than live Rust borrows.
+Conflicts for path operations are handled when each checked path read or mutation is executed.
 
-The current direction suggested by [value.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/value.rs) is reasonable:
+## Runtime Representation
+
+The runtime representation uses the host value categories present in [value.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/value.rs):
 
 - `HostRef`
 - `HostMut`
 
-The next step is to make them explicitly frame-scoped handles rather than unconstrained runtime values.
+They are frame-scoped handles rather than unconstrained runtime values.
 
 Conceptually:
 
 ```text
-HostBorrowHandle {
+FrameHostBorrowToken {
   frame_id: FrameId,
   object_id: HostObjectId,
   borrow_kind: Shared | Unique,
@@ -319,12 +324,14 @@ HostBorrowHandle {
 ## Kagari-Side Semantics
 
 Kagari script code does not need to spell Rust borrow syntax directly.
+Normal member syntax may be backed either by ordinary script-owned values or by host-backed typed paths.
 
-Recommended direction:
+Rules:
 
 - host metadata determines the host passing style
 - script code uses normal calls and member access
-- the runtime knows whether the underlying value is a host borrow handle
+- host-backed field and index chains lower to typed path operations where appropriate
+- frame-scoped host borrow handles are not the script-visible model for nested field access
 
 Example:
 
@@ -333,15 +340,19 @@ player.heal(10)
 player.hp = 100
 ```
 
-If `player` is backed by a unique host borrow, those operations may directly affect the Rust object.
+For host-owned state, assignment such as `player.hp = 100` lowers to a checked path mutation operation rooted at `player`.
+It does not require the script runtime to store a Rust `&mut Player` or `&mut player.hp`.
 
 This keeps Kagari syntax clean while still allowing efficient Rust-backed mutation.
 
+Typed path mutation is the normal model for ergonomic field-style access to Rust-owned game state.
+Frame-scoped host borrows remain useful for host function calls that require temporary `&T` or `&mut T` access, but they are not used to represent long-lived script field views.
+
 ## Registration of Generic Rust Functions
 
-The first version should not attempt to register open Rust generics directly.
+Kagari does not register open Rust generics directly.
 
-Recommended v1 strategy:
+Generic registration rule:
 
 - register concrete instantiations separately
 
@@ -371,9 +382,9 @@ registry.register_type::<Vec2>("math.Vec2");
 registry.register_type::<InventorySlot<PlayerId>>("game.InventorySlot_PlayerId");
 ```
 
-If needed later, the host may expose script-facing aliases that hide the Rust naming detail.
+The host may expose script-facing aliases that hide the Rust naming detail.
 
-## Possible v2 Generic Factory Model
+## Deferred Generic Factory Model
 
 A later version may support a generic registration factory.
 
@@ -386,7 +397,7 @@ registry.register_generic_fn("util.sort", resolver);
 
 The resolver would receive a concrete Kagari instantiation request and decide whether it can map it to a supported Rust specialization.
 
-This should be treated as a later extension, not a v1 requirement.
+This is a later extension, not a v1 requirement.
 
 ## Binder Traits
 
@@ -414,7 +425,7 @@ These conversions can then be implemented for:
 
 ## Guarded Call Boundary
 
-The recommended call sequence is:
+Call sequence:
 
 1. host creates a call frame guard
 2. arguments are marshaled into frame-scoped values
@@ -426,43 +437,45 @@ This structure provides a clean lifetime boundary without requiring Rust's borro
 
 ## Interaction with Reflection
 
-Host interop and reflection should remain distinct but composable.
+Host interop and reflection remain distinct but composable.
 
-Recommended behavior:
+Behavior:
 
 - host types may opt into reflection
-- borrowed host objects may expose read-only or read-write reflection depending on registration and security policy
-- reflective write access to borrowed host data should still respect borrow kind and capability gates
+- host objects may expose metadata for tooling, diagnostics, or reload validation
+- reflective reads over host objects are optional and capability-gated
+- reflective writes over host objects are privileged tooling operations, not the ordinary mutation model
+- ordinary script mutation of host-owned structured state uses typed path mutation
 
-Reflection direction is drafted in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
+Reflection is defined in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
 
 ## Interaction with Traits
 
 Host types may implement script-visible traits.
 
-Recommended behavior:
+Behavior:
 
 - trait metadata may be attached during type registration
-- host values may be wrapped as `dyn Trait`
-- `is<T>` and `downcast<T>` should still rely on concrete type identity
+- host values may be viewed through trait/interface value types
+- `is<T>` and `downcast<T>` rely on concrete type identity
 
-Trait-system direction is drafted in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
+Trait-system behavior is defined in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
 
 ## Interaction with Security
 
 Host interop is part of the security boundary.
 
-Recommended behavior:
+Behavior:
 
-- host APIs are opt-in exports
+- host APIs are opt-in exposures
 - host reflection is separately gated
 - dynamic loading and powerful host services are controlled through capabilities and profile checks
 
-Security direction is drafted in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
+Security behavior is defined in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
 
-## Recommended v1 Feature Set
+## V1 Feature Set
 
-The first usable host interop version should include:
+The first usable host interop version includes:
 
 - explicit type registration
 - explicit function registration
@@ -472,9 +485,9 @@ The first usable host interop version should include:
 - no-escape enforcement for borrowed values
 - concrete registration of Rust generic instantiations
 
-## Recommended v1 Exclusions
+## V1 Exclusions
 
-The first usable host interop version should exclude:
+The first usable host interop version excludes:
 
 - arbitrary open generic registration
 - escaping borrowed host values into script-owned storage
@@ -482,9 +495,9 @@ The first usable host interop version should exclude:
 - automatic reflection for all host types
 - unrestricted host mutation without registration and policy checks
 
-## Recommended Implementation Order
+## Implementation Order
 
-If implemented incrementally, the recommended order is:
+Incremental implementation order:
 
 1. explicit host type and function registration
 2. owned-value marshaling

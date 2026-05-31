@@ -1,39 +1,140 @@
-# Kagari Reflection Draft
+# Kagari Runtime Metadata and Reflection
 
-This document describes a proposed reflection model for Kagari.
-It is intended as a design draft, not a finalized implementation contract.
+This document defines Kagari's runtime metadata and optional reflection model.
 
-The main goal is to support runtime inspection, tooling, host integration, and hot-reload-friendly metadata without forcing the language into a fully dynamic object model.
+The main goal is to provide the metadata needed by the compiler, VM, GC, host integration, tooling, and hot reload without turning ordinary Kagari code into a dynamic reflection-driven language.
 
-Security direction is drafted separately in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
-Host interop direction is drafted separately in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
-Runtime model direction is drafted separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
+Security rules are defined separately in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
+Host interop rules are defined separately in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
+Runtime model rules are defined separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
+Typed path mutation rules are defined separately in [typed-path-mutation.md](/Users/mikai/CLionProjects/kagari/docs/spec/typed-path-mutation.md).
+
+## Core Position
+
+Kagari needs runtime metadata.
+Kagari does not require general script-visible runtime reflection as part of the core game-logic programming model.
+
+Ordinary Kagari code uses:
+
+- static types
+- ordinary field and method access
+- traits or interfaces
+- generated registration tables
+- typed path mutation for host-owned state
+- explicit host APIs
+
+Ordinary game logic does not depend on:
+
+- string-based field lookup
+- reflection-based field writes
+- dynamic method invocation through reflection
+- reflection as the trait dispatch mechanism
+
+Reflection may exist as an optional, profile-gated capability for debugging, editor tools, diagnostics, inspection, migration tools, and privileged host-controlled workflows.
 
 ## Design Goals
 
-- support runtime type inspection
-- support controlled field and variant introspection
-- share type identity with `dyn Trait`, `is<T>`, and `downcast<T>`
-- keep reflection compatible with a GC-backed runtime
-- make reflection opt-in where appropriate
+- provide stable runtime type identity
+- support GC tracing and value layout metadata
+- support host type and function registration
+- support typed path validation and hot reload compatibility checks
+- support debugger, editor, and GM tooling inspection
+- share type identity with trait/interface dispatch and downcast
+- keep ordinary script execution statically typed and predictable
+- keep host reflection opt-in and capability-gated
 
 ## Non-Goals
 
-The first reflection version should not attempt to reproduce the full reflection model of languages such as C# or Java.
+The core reflection model does not provide:
 
-In particular, v1 should avoid:
-
-- unrestricted dynamic method invocation
+- unrestricted script-visible runtime reflection
+- reflection-based mutation as the ordinary field write model
 - automatic reflection for every host type
-- full generic instantiation reflection
-- unrestricted private-state exposure
-- compile-time metaprogramming through reflection
+- unrestricted dynamic method invocation
+- full generic-instantiation reflection
+- compile-time metaprogramming through runtime reflection
+- access to private or non-registered host state
 
-## Core Model
+## Metadata Layers
 
-Reflection should be built around runtime metadata objects.
+Kagari distinguishes four related but separate layers.
 
-The central concept is `TypeInfo`.
+### Internal Runtime Metadata
+
+Internal runtime metadata is required.
+It is used by Kagari implementation components rather than ordinary scripts.
+
+Examples:
+
+- `TypeId`
+- object layout metadata
+- field and variant metadata
+- method and trait/interface metadata
+- GC trace descriptors
+- host type registration metadata
+- typed path descriptors
+- ABI fingerprints
+- module epoch metadata
+
+This layer is part of the runtime contract even when script-visible reflection is disabled.
+
+### Compile-Time Metadata
+
+Compile-time metadata comes from declarations, attributes, and host binding descriptions.
+
+Examples:
+
+```kagari
+@handler(LoginRequest)
+pub fn on_login(ctx: GameCtx, req: LoginRequest) -> Result<()> {
+    ...
+}
+
+@persist("player")
+pub struct PlayerState {
+    id: PlayerId
+    level: i32
+}
+```
+
+This metadata may generate:
+
+- handler registration tables
+- persistence schemas
+- validation tables
+- typed path tables
+- editor schemas
+- hot reload ABI fingerprints
+
+Compile-time metadata is not the same as script-visible runtime reflection.
+
+### Host and Tooling Introspection
+
+Host and tooling introspection may inspect registered metadata.
+
+Examples:
+
+- debugger object inspectors
+- editor property panels
+- schema generation tools
+- hot reload compatibility reports
+- migration tools
+- GM tools with host-granted permissions
+
+This layer may expose richer metadata than ordinary scripts can access.
+It is controlled by host policy and capabilities.
+
+### Script-Visible Reflection
+
+Script-visible reflection is optional.
+It is disabled or restricted in the default game-logic profile unless an embedding explicitly enables it.
+
+When enabled, it starts with read-oriented metadata inspection.
+Mutation and dynamic invocation are separate privileged capabilities, not implied by basic reflection.
+
+## Core Metadata Model
+
+The central metadata object is `TypeInfo`.
 
 Conceptually:
 
@@ -43,369 +144,377 @@ TypeInfo {
   name: String,
   kind: TypeKind,
   fields: [FieldInfo],
-  methods: [MethodInfo],
   variants: [VariantInfo],
-  traits: [TraitInfo]
+  methods: [MethodInfo],
+  traits: [TraitInfo],
+  abi_fingerprint: AbiFingerprint
 }
 ```
 
-The exact layout does not matter as much as preserving these capabilities:
+The layout is implementation-defined.
+The important capabilities are:
 
-- stable runtime type identity
-- inspectable structural metadata
-- integration with dynamic dispatch and downcast
+- stable type identity within a module epoch
+- structural metadata for registered fields and variants
+- method and trait/interface metadata
+- layout information for GC and VM use
+- comparison data for hot reload validation
+- host registration and path validation support
 
 ## Type Identity
 
-Reflection should share the same runtime type identity used by:
+Runtime type identity is unified.
 
-- `dyn Trait`
+The same concrete type identity is used by:
+
+- runtime metadata lookup
+- trait/interface dispatch metadata
 - `is<T>`
 - `downcast<T>`
+- host type registration
+- typed path root and result validation
+- hot reload compatibility checks
 
-This is the recommended unifying rule:
+Type identity rules:
 
-- every runtime object has a concrete `TypeId`
-- reflection looks up metadata through that `TypeId`
-- dynamic trait objects preserve the concrete `TypeId`
-- downcast succeeds by comparing concrete `TypeId`
+- every runtime object or host-registered value has a concrete `TypeId`
+- `TypeId` values are stable within a module epoch
+- cross-epoch compatibility is determined through fingerprints or explicit compatibility rules
+- downcast succeeds by comparing concrete runtime type identity
 
 This prevents the runtime from growing multiple incompatible type identity systems.
 
-## Reflection Scope
+## Type Kinds
 
-Reflection should be explicitly scoped.
+The metadata system distinguishes at least:
 
-The recommended default is:
+- primitive
+- tuple
+- array or list
+- map
+- struct
+- enum
+- function
+- trait or interface
+- dynamic interface object, if represented separately
+- host object
+- host path view
 
-- script-defined types may expose baseline metadata
-- structural field access should be opt-in
-- host-defined types should be reflectable only when explicitly registered
+This does not require exposing an exhaustive user-facing enum.
+The runtime and tooling layers need a clear internal classification.
 
-This prevents accidental overexposure and keeps host integration under control.
+## Field Metadata
 
-## Opt-In Model
+Field metadata is useful for validation, tooling, hot reload, and typed path mutation.
 
-A reasonable design is to make reflective capabilities configurable per type.
+Conceptually:
 
-Possible script-facing direction:
-
-```kagari
-@reflect
-struct Player {
-    hp: int,
-    name: String,
+```text
+FieldInfo {
+  id: FieldId,
+  name: String,
+  ty: TypeId,
+  readable: bool,
+  writable: bool,
+  visibility: Visibility,
+  path_access: None | ReadOnly | ReadWrite,
+  abi_fingerprint: AbiFingerprint
 }
 ```
 
-Possible host-facing direction:
+Field metadata supports:
 
-```rust
-register_type::<Player>()
-    .reflect_name()
-    .reflect_fields()
-    .reflect_methods();
+- static field existence checks
+- type checking
+- field visibility diagnostics
+- GC layout and tracing
+- serialization and persistence schemas
+- typed path descriptor construction
+- hot reload layout comparison
+
+For host-owned state, field metadata does not imply that scripts receive Rust field references.
+Host-backed field access uses typed path mutation when it is exposed to ordinary Kagari code.
+
+## Variant Metadata
+
+Enum metadata exposes enough information for tooling, pattern validation, serialization, and hot reload.
+
+Conceptually:
+
+```text
+VariantInfo {
+  id: VariantId,
+  name: String,
+  fields: [FieldInfo],
+  tag: VariantTag,
+  abi_fingerprint: AbiFingerprint
+}
 ```
 
-The final surface syntax does not need to be decided yet.
-The important point is that reflection should be a registered capability, not an automatic global default.
+The runtime may use variant metadata for:
 
-## Baseline Runtime API
+- active variant inspection in tooling
+- serialization helpers
+- migration checks
+- debugger displays
+- pattern-match validation support
 
-The smallest useful reflection API should include a very small entry surface.
+## Method Metadata
 
-Recommended user-facing direction:
+Method metadata is descriptive.
+
+Conceptually:
+
+```text
+MethodInfo {
+  id: MethodId,
+  name: String,
+  params: [ParameterInfo],
+  return_type: TypeId,
+  origin: MethodOrigin,
+  capability_requirements: CapabilitySet,
+  abi_fingerprint: AbiFingerprint
+}
+```
+
+Method metadata is useful for:
+
+- editor completion
+- documentation tooling
+- host registration
+- ABI validation
+- trait/interface dispatch table construction
+
+Metadata about a method does not imply unrestricted dynamic invocation of that method.
+
+## Relationship to Typed Path Mutation
+
+Typed path mutation is not runtime reflection.
+
+For ordinary game logic, this source:
+
+```kagari
+player.info.level = 12
+```
+
+lowers to a checked typed path operation, not to:
+
+```text
+type_of(player).field("info").field("level").set(player, 12)
+```
+
+Reflection metadata may help build or validate path descriptors, but execution uses resolved `PathId` values and host adapters rather than string field lookup.
+
+This distinction is important for:
+
+- static type checking
+- performance
+- dirty tracking
+- host validation
+- hot reload compatibility
+- clear security boundaries
+
+## Optional Script Reflection
+
+If an embedding enables script-visible reflection, the smallest useful surface is read-oriented.
+
+Restricted API:
+
+```kagari
+val ty = type_of(value)
+val name = ty.name()
+val kind = ty.kind()
+val fields = ty.fields()
+```
+
+The baseline script-visible API includes:
 
 - `type_of(value) -> TypeInfo`
 - `TypeInfo.id()`
 - `TypeInfo.name()`
 - `TypeInfo.kind()`
-- `TypeInfo.fields()`
-- `TypeInfo.methods()`
-- `TypeInfo.variants()`
+- metadata iteration over registered fields, variants, methods, and traits
 
-Example:
+This API returns metadata objects.
+It does not imply ordinary dynamic field access or mutation.
 
-```kagari
-let ty = type_of(player);
-print(ty.name());
-```
+## Reflective Reads
 
-The intent is to keep built-in reflection entrypoints minimal.
-Once a script has a `TypeInfo`, most further reflection should look like ordinary method calls on ordinary runtime objects, not a large family of special forms or special keywords.
+Reflective reads are optional and profile-gated.
 
-## User-Facing API Shape
+When provided, reflective reads:
 
-The recommended surface shape is:
+- only access members registered for reflection
+- check runtime capabilities
+- perform runtime type checks
+- respect host visibility and exposure policy
+- return result-like errors rather than panicking on normal misuse
 
-- keep the number of reflection builtins very small
-- prefer returning reflection objects such as `TypeInfo` and `FieldInfo`
-- expose operations through methods on those objects
+Reflective reads are useful for:
 
-Recommended direction:
-
-```kagari
-let ty = type_of(player);
-let field = ty.field("hp");
-
-print(ty.name());
-print(field.name());
-print(field.get(player));
-field.set(player, 100);
-```
-
-This keeps reflection aligned with the rest of the language:
-
-- one small entry builtin such as `type_of`
-- ordinary method calls after that
-- no need for many special reflection keywords
-
-The internal runtime may still use helper operations such as `ReflectGetField` or `ReflectSetField`, but those should be treated as implementation detail, not the preferred user-facing surface.
-
-## Type Kinds
-
-The runtime should at least distinguish:
-
-- primitive
-- struct
-- enum
-- trait object
-- function
-- host object
-
-This does not need to imply a user-visible exhaustive enum in v1, but the metadata system needs an internal notion of type kind.
-
-## Field Reflection
-
-Field reflection is one of the highest-value features and should be supported in a controlled way.
-
-Recommended user-facing API shape:
-
-```kagari
-let ty = type_of(value);
-let field = ty.field("hp");
-
-field.get(value)
-field.set(value, 100)
-```
-
-Recommended behavior:
-
-- field lookup is by declared field name
-- `get_field` returns an optional or result-like value on failure
-- `set_field` performs runtime type checking
-- field writes are rejected when reflection write access is not enabled
-
-## Enum Reflection
-
-Enums should expose enough reflection to support tools and data-driven code.
-
-Suggested capabilities:
-
-- list enum variants from `TypeInfo`
-- inspect the active variant of a value
-- read payload fields for the active variant
-
-Possible API direction:
-
-```kagari
-let ty = type_of(value);
-let variant = ty.active_variant(value);
-
-print(variant.name());
-print(variant.fields());
-```
-
-This is especially useful for debuggers, inspectors, and serialization helpers.
-
-## Method Reflection
-
-Method reflection should initially expose metadata only.
-
-Suggested baseline:
-
-- method name
-- parameter metadata
-- return type metadata
-- trait or inherent origin
-
-This is enough for:
-
+- debuggers
 - inspectors
-- editor integration
-- documentation tooling
-- host integration layers
+- editor previews
+- diagnostic logging
+- privileged tools
 
-It is not necessary to support unrestricted runtime invocation in v1.
+Reflective reads do not replace ordinary typed field access in game logic.
+
+## Reflective Writes
+
+Reflective writes are not part of the default script reflection surface.
+
+If an embedding provides reflective writes for privileged tooling, they must be separately gated from metadata reads.
+
+Reflective writes require:
+
+- an enabled language profile feature
+- a runtime capability such as `reflection_write`
+- host type opt-in
+- field-level write exposure
+- runtime type checking
+- host validation hooks
+- audit or diagnostics support when appropriate
+
+Reflective writes must not bypass typed path mutation policy for ordinary game state.
+For host-owned state, ordinary script mutation continues to use typed path operations.
 
 ## Dynamic Invocation
 
-Dynamic invocation is possible, but it should not be part of the first reflection milestone unless there is a strong concrete need.
+Dynamic method invocation is excluded from the initial reflection scope.
 
-Examples of complexity it introduces:
+It introduces complexity around:
 
 - overload or candidate selection
 - generic method instantiation
 - runtime argument conversion
-- `ref` argument handling
-- error reporting quality
+- path-view arguments
+- capability checks
+- error reporting
+- hot reload ABI compatibility
 
-If added later, it should likely be a separate capability from basic reflection.
+Dynamic invocation requires a separate privileged capability, not a consequence of basic metadata reflection.
 
-## Relationship to Traits
+## Relationship to Traits and Interfaces
 
-Reflection and traits should be related but not conflated.
+Reflection and traits/interfaces are related but not conflated.
 
-Recommended split:
+Layer split:
 
-- traits define callable capability sets
-- reflection exposes metadata about those capabilities
-- downcast is driven by concrete runtime type identity
+- traits or interfaces define callable capability sets
+- dispatch uses static resolution or runtime vtables
+- reflection exposes metadata about those capability sets
+- downcast uses concrete runtime type identity
 
-This means reflection may answer questions such as:
+Reflection is not the mechanism that resolves normal method calls or trait/interface dispatch.
 
-- what traits does this type implement?
-- what methods are exposed through a given trait?
+For dynamic interface values, metadata may expose:
 
-But reflection should not become the mechanism that resolves trait semantics.
-
-## Relationship to `dyn Trait`
-
-`dyn Trait` values should remain reflectable.
-
-For a dynamic trait object:
-
-- `type_of(value)` should report the concrete underlying type, or expose both concrete and interface type information
-- trait metadata should remain accessible
-- `is<T>` and `downcast<T>` should work through the same underlying type identity
-
-The most practical model is to expose both views when useful:
-
-- concrete type view
-- interface view
+- the interface type
+- the concrete underlying type, when policy permits
+- the methods available through the interface
 
 ## Relationship to Hot Reload
 
-Reflection metadata is especially valuable for hot reload.
+Runtime metadata is especially important for hot reload.
 
-It can support:
+It supports:
 
-- structural compatibility checks
-- field migration tooling
-- editor/debugger updates across reload epochs
-- runtime validation of changed object layouts
+- public function ABI comparison
+- type layout comparison
+- field and variant compatibility checks
+- typed path ABI validation
+- state migration tooling
+- debugger and editor updates across epochs
 
-This means type metadata should be designed with versioning in mind.
+Metadata supports:
 
-At minimum, the runtime should be prepared for:
+- type ids stable within an epoch
+- ABI fingerprints across epochs
+- field-name and field-id matching for migration tools
+- path descriptor compatibility checks
 
-- type ids that remain stable within a reload epoch
-- metadata comparisons across epochs
-- field-name-based matching when migrating state
+Reflection metadata from old epochs may remain reachable while old module code or values are still reachable.
+Normal GC and module epoch lifetime rules determine when old metadata can be reclaimed.
 
 ## Host Interoperability
 
-Host objects should not automatically expose full reflection.
+Host objects do not automatically expose reflection.
 
-Recommended model:
+Host behavior:
 
-- a host type may expose only its name
-- or name plus selected fields
-- or selected methods
-- or a richer fully registered metadata view
+- host types are opaque by default
+- host type names may be exposed independently from fields
+- selected fields may be exposed for metadata inspection
+- selected fields may be exposed for typed path access
+- reflective read access is a separate opt-in
+- reflective write access is a separate privileged opt-in
 
-This keeps the host application in control of what scripts can observe and modify.
+This keeps the host application in control of what scripts and tools can observe or modify.
 
 ## Access Control
 
-Reflection should not silently bypass visibility rules unless the type explicitly allows it.
+Reflection must not silently bypass visibility or host exposure rules.
 
-Recommended v1 rule:
+Access controls:
 
-- reflection only exposes members that are registered as reflectable
+- language profile gates script-visible reflection syntax or APIs
+- runtime capabilities gate metadata read, reflective read, reflective write, and dynamic invocation separately
+- host registrations decide which types and members are exposed
+- field and method metadata carry read/write/invoke policy
 
-If the language later grows stronger visibility boundaries, reflection should continue to respect the registered exposure policy.
+If a member is not registered for reflection, reflective APIs behave as if it is unavailable.
 
-## Recommended v1 Feature Set
+## Runtime Helpers
 
-The first usable reflection version should include:
+The runtime may still contain helper operations such as:
 
-- `type_of`
-- `TypeInfo` with `id()`, `name()`, and `kind()`
-- `FieldInfo`
-- enum variant metadata objects
-- optional trait implementation metadata
-- controlled field read and write through reflection objects
-- shared type identity with `dyn Trait`, `is<T>`, and `downcast<T>`
+- `ReflectTypeOf`
+- `ReflectGetField`
+- `ReflectSetField`
+- `ReflectInvoke`
 
-## Recommended v1 Exclusions
+These helpers are implementation details for optional reflection profiles and tooling integration.
+They are not the preferred lowering target for ordinary typed field access, host-backed path mutation, or trait/interface dispatch.
 
-The first usable reflection version should exclude:
+## Initial Feature Set
 
-- unrestricted `invoke`
-- generic reflection over every possible instantiation
+The initial metadata and reflection scope includes:
+
+- runtime `TypeId`
+- `TypeInfo` registry
+- field, variant, method, and trait/interface metadata
+- host type metadata registration
+- metadata needed for GC tracing
+- metadata needed for typed path descriptor validation
+- metadata needed for hot reload ABI fingerprints
+- optional `type_of` in profiles that enable script-visible reflection
+- optional read-only metadata objects for tooling and diagnostics
+
+## Initial Scope Exclusions
+
+The initial metadata and reflection scope excludes:
+
+- default script-visible runtime reflection
+- reflection-based field mutation in ordinary game logic
+- unrestricted reflective writes
+- unrestricted dynamic invocation
 - automatic reflection for all host types
-- unrestricted access to non-reflectable fields
-- compile-time reflection features
+- generic reflection over every instantiation
+- reflection as the mechanism for ordinary trait/interface dispatch
+- reflection as the mechanism for ordinary host-backed field mutation
 
-## Suggested Metadata Types
+## Implementation Phases
 
-One reasonable internal model is:
-
-```text
-TypeInfo {
-  id: TypeId,
-  name: String,
-  kind: TypeKind,
-  fields: [FieldInfo],
-  methods: [MethodInfo],
-  variants: [VariantInfo],
-  implemented_traits: [TraitInfo]
-}
-
-FieldInfo {
-  name: String,
-  ty: TypeId,
-  readable: bool,
-  writable: bool
-}
-
-MethodInfo {
-  name: String,
-  params: [ParameterInfo],
-  return_type: TypeId,
-  origin: MethodOrigin
-}
-
-VariantInfo {
-  name: String,
-  fields: [FieldInfo]
-}
-```
-
-This is only a conceptual model, but it is a useful target for runtime and tooling design.
-
-The recommended script-facing mapping is:
-
-- `type_of(value) -> TypeInfo`
-- `TypeInfo.field(name) -> FieldInfo?`
-- `FieldInfo.get(value) -> Value`
-- `FieldInfo.set(value, next) -> Value`
-- `TypeInfo.active_variant(value) -> VariantInfo?`
-
-This keeps the reflection surface object-oriented and avoids expanding the core language with many reflection-specific forms.
-
-## Recommended Implementation Order
-
-If implemented incrementally, the recommended order is:
+The implementation can be staged in this order:
 
 1. runtime `TypeId`
-2. `TypeInfo` registry
-3. `type_of`
-4. field metadata and `get_field`
-5. controlled `set_field`
-6. enum reflection
-7. trait metadata exposure
-8. optional dynamic invocation
-
-This keeps the early system useful for debugging and tooling without forcing the hardest pieces first.
+2. internal `TypeInfo` registry
+3. GC layout and trace metadata
+4. host type metadata registration
+5. field and variant metadata
+6. typed path descriptor metadata
+7. ABI fingerprints for hot reload validation
+8. optional read-only `type_of` and metadata APIs
+9. optional reflective reads for tooling profiles
+10. privileged reflective writes only if a concrete embedding needs them

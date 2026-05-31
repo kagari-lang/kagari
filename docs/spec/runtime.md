@@ -1,24 +1,24 @@
-# Kagari Runtime Model Draft
+# Kagari Runtime Model
 
-This document describes a proposed runtime model for Kagari.
-It is a design draft, not a finalized implementation contract.
+This document specifies the runtime model for Kagari.
 
 The goal is to unify the runtime-facing concepts that appear across the syntax, trait, reflection, security, and host-interop documents.
 
-Execution model direction is drafted separately in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Backend abstraction direction is drafted separately in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
+Execution-model rules are defined in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
+Backend abstraction rules are defined in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
+Typed path mutation rules are defined in [typed-path-mutation.md](/Users/mikai/CLionProjects/kagari/docs/spec/typed-path-mutation.md).
 
 ## Design Goals
 
 - define a coherent runtime object model for script-owned and host-owned values
 - support GC-managed script values and frame-scoped host borrows in one runtime
-- share runtime type identity across reflection, `dyn Trait`, and downcast
+- share runtime type identity across reflection, interface values, and downcast
 - support host capability enforcement and resource accounting
 - support hot reload without binding the runtime directly to AST details
 
-## Existing Direction
+## Implementation Status
 
-The current runtime crate already sketches the main system boundaries:
+The current runtime crate defines the main system boundaries:
 
 - [lib.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/lib.rs)
 - [value.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/value.rs)
@@ -26,11 +26,11 @@ The current runtime crate already sketches the main system boundaries:
 - [host.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/host.rs)
 - [reload.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/reload.rs)
 
-This draft builds on those boundaries rather than replacing them.
+This specification uses those boundaries.
 
 ## Top-Level Runtime Structure
 
-A useful conceptual runtime structure is:
+The runtime structure is:
 
 ```text
 Runtime {
@@ -43,22 +43,22 @@ Runtime {
 }
 ```
 
-The exact field layout may differ, but these responsibilities should stay distinct.
+The exact field layout is implementation-defined, but these responsibilities remain distinct.
 
 ## Core Runtime Subsystems
 
-The runtime should be organized around these subsystems:
+The runtime is organized around these subsystems:
 
 - GC heap for script-owned objects
 - type registry for runtime type identity and metadata
-- host registry for exported functions and types
+- host registry for exposed functions and types
 - security context for capabilities and resource policy
 - reload coordinator for module epochs
 - module store for loaded code units and runtime module state
 
 ## Value Model
 
-Kagari values should be split into two broad categories:
+Kagari values are split into two broad categories:
 
 1. storable script values
 2. frame-scoped ephemeral values
@@ -67,7 +67,7 @@ This distinction is important for host interop and safety.
 
 ### Storable Script Values
 
-Storable values may be placed in:
+Storable values are valid in:
 
 - locals
 - GC object fields
@@ -80,7 +80,8 @@ These include:
 - primitive scalars
 - GC handles
 - script-owned aggregate values
-- dynamic trait objects, if represented as storable heap values
+- host roots or host path views, if the embedding permits them as handle values
+- interface values, if represented as storable heap values
 
 This category describes runtime values in general, not `const` item eligibility.
 In the current module model, `const` items are compile-time by-value scalars only and do not materialize frozen GC-backed objects.
@@ -99,11 +100,11 @@ The key property is:
 
 - ephemeral values are not legal heap payloads
 
-## Recommended Value Shape
+## Value Shape
 
 The current [value.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/value.rs) file already separates script-owned handles from host-backed handles.
 
-A future conceptual shape could be:
+The value shape is:
 
 ```text
 Value {
@@ -115,20 +116,22 @@ Value {
   F64(f64),
   Str(StringHandle),
   GcHandle(GcObjectId),
-  DynHandle(DynObjectId),
+  InterfaceHandle(InterfaceObjectId),
   HostOwned(HostObjectId),
+  HostPathView(HostPathViewId),
   Ephemeral(EphemeralValueId)
 }
 ```
 
-The exact enum does not matter as much as preserving:
+The representation must preserve:
 
 - clear separation between GC-managed and non-GC-managed values
-- a representation for dynamic interface objects
+- a representation for interface values
+- a representation for host roots and host path views that are handles, not Rust references
 - a representation for frame-scoped host borrows
 
-One important consequence is that Kagari does not currently require a runtime notion of "read-only heap object" just to support `const`.
-If a future design needs shared frozen objects, that should be modeled explicitly rather than folded into ordinary `const` items.
+Kagari does not require a runtime notion of "read-only heap object" just to support `const`.
+Future shared frozen objects must be modeled explicitly rather than folded into ordinary `const` items.
 
 ## GC Heap
 
@@ -141,23 +144,23 @@ Its responsibilities include:
 - heap accounting
 - integration with runtime resource limits
 
-The GC should not own Rust host borrows.
+The GC must not own Rust host borrows.
 
-This aligns with the existing design direction in [gc.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/gc.rs).
+This aligns with [gc.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/gc.rs).
 
 ## Type Registry
 
-The runtime should contain a unified type registry.
+The runtime contains a unified type registry.
 
-This registry should back:
+This registry backs:
 
 - reflection
 - runtime type checks
-- `dyn Trait`
+- interface values
 - downcast
 - host type registration
 
-Conceptually:
+The model is:
 
 ```text
 TypeRegistry {
@@ -166,7 +169,7 @@ TypeRegistry {
 }
 ```
 
-Each `TypeInfo` should carry at least:
+Each `TypeInfo` carries:
 
 - `TypeId`
 - name
@@ -176,16 +179,17 @@ Each `TypeInfo` should carry at least:
 - method metadata
 - implemented trait metadata
 
-Reflection direction is drafted in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
+Reflection rules are defined in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
 
-## Dynamic Trait Objects
+## Interface Values
 
-`dyn Trait` values should be modeled as runtime interface objects.
+Trait/interface values are modeled as runtime interface objects.
+Kagari does not expose Rust-style `dyn Trait` syntax to scripts.
 
-Conceptually:
+The model is:
 
 ```text
-DynObject {
+InterfaceObject {
   data: ValueHandle,
   concrete_type_id: TypeId,
   trait_id: TraitId,
@@ -200,20 +204,20 @@ This model supports:
 - `is<T>`
 - `downcast<T>`
 
-Trait-system direction is drafted in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
+Trait-system rules are defined in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
 
 ## Host Registry
 
-The host registry should manage:
+The host registry manages:
 
-- exported host functions
-- exported host types
+- exposed host functions
+- exposed host types
 - parameter passing metadata
 - capability requirements for host entry points
 
 This extends the current shape in [host.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/host.rs).
 
-Conceptually:
+The model is:
 
 ```text
 HostRegistry {
@@ -224,9 +228,9 @@ HostRegistry {
 
 ## Host Call Frames
 
-Host-to-script and script-to-host calls that involve borrowed host data should create explicit call frames.
+Host-to-script and script-to-host calls that involve borrowed host data create explicit call frames.
 
-Conceptually:
+The model is:
 
 ```text
 HostCallGuard {
@@ -241,13 +245,13 @@ This frame owns the validity of all borrowed host handles created during the cal
 
 The borrow table is responsible for preserving Rust aliasing rules at the interop boundary.
 
-It should track:
+It tracks:
 
 - which host object ids are currently borrowed
 - whether the borrow is shared or unique
 - which frame owns the borrow
 
-Conceptually:
+The model is:
 
 ```text
 BorrowTable {
@@ -261,20 +265,20 @@ BorrowState {
 }
 ```
 
-This table should reject:
+This table rejects:
 
 - multiple simultaneous unique borrows of the same object
 - a unique borrow while any shared borrow is active
 - a shared borrow while a unique borrow is active
 
-## Host Borrow Handles
+## Frame-Scoped Host Borrow Tokens
 
-Borrowed host values should be represented explicitly.
+Borrowed host values used during host calls are represented explicitly.
 
-Conceptually:
+The model is:
 
 ```text
-HostBorrowHandle {
+FrameHostBorrowToken {
   frame_id: FrameId,
   object_id: HostObjectId,
   type_id: TypeId,
@@ -283,19 +287,19 @@ HostBorrowHandle {
 }
 ```
 
-These handles are:
+These tokens are:
 
 - valid only during their owning frame
 - non-storable in GC-managed objects
 - rejected at suspension boundaries
 
-Host interop direction is drafted in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
+Host interop rules are defined in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
 
 ## Security Context
 
-The runtime should carry security-relevant execution state.
+The runtime carries security-relevant execution state.
 
-Conceptually:
+The model is:
 
 ```text
 SecurityContext {
@@ -311,11 +315,11 @@ This context is the runtime-side anchor for:
 - resource limits
 - feature-gated runtime behavior
 
-Security direction is drafted in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
+Security rules are defined in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
 
 ## Resource Accounting
 
-The runtime should maintain counters or budgets for:
+The runtime maintains counters or budgets for:
 
 - instruction steps
 - wall-clock or host-supplied time budget
@@ -323,13 +327,13 @@ The runtime should maintain counters or budgets for:
 - module count
 - call depth
 
-These counters should be updated in runtime execution paths, not inferred after the fact.
+These counters are updated in runtime execution paths, not inferred after the fact.
 
 ## Module Store
 
-The runtime should distinguish loaded module code from the compilation pipeline.
+The runtime distinguishes loaded module code from the compilation pipeline.
 
-Conceptually:
+The model is:
 
 ```text
 ModuleStore {
@@ -344,15 +348,15 @@ LoadedModule {
 }
 ```
 
-The exact execution format may later diverge from raw IR, but the runtime should keep the concept of a loaded module with versioned identity.
+The execution format is allowed to diverge from raw IR, but the runtime keeps the concept of a loaded module with versioned identity.
 
 ## Hot Reload
 
-Hot reload should be coordinated through explicit module epochs.
+Hot reload is coordinated through explicit module epochs.
 
-The existing direction in [reload.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/reload.rs) is already compatible with this.
+The implementation in [reload.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/reload.rs) is compatible with this.
 
-The runtime should be prepared to use epochs for:
+The runtime uses epochs for:
 
 - module version tracking
 - stale handle detection
@@ -361,21 +365,21 @@ The runtime should be prepared to use epochs for:
 
 ## Suspension and Ephemerality
 
-If Kagari later adds suspension points such as `yield` or `await`, the runtime should distinguish:
+If Kagari adds suspension points such as `yield` or `await`, the runtime distinguishes:
 
 - suspendable values
 - non-suspendable ephemeral values
 
-Borrowed host handles should be explicitly non-suspendable.
+Borrowed host handles are explicitly non-suspendable.
 
 This means:
 
-- a frame with live borrowed host handles may not be suspended
+- a frame with live borrowed host handles must not be suspended
 - runtime stack snapshots must reject non-suspendable values
 
 ## Runtime Errors vs Engine Bugs
 
-The runtime should classify failures clearly.
+The runtime classifies failures clearly.
 
 Script/runtime errors include:
 
@@ -390,11 +394,11 @@ Engine bugs include:
 - invalid unchecked access to stale handles
 - corrupted runtime bookkeeping
 
-This distinction should guide whether the runtime reports a script trap or panics internally.
+This distinction determines whether the runtime reports a script trap or panics internally.
 
-## Recommended v1 Runtime Slice
+## v1 Runtime Slice
 
-The first practical runtime version should include:
+The first runtime version includes:
 
 - primitive values
 - GC handle values
@@ -405,11 +409,11 @@ The first practical runtime version should include:
 - capability context
 - module epochs
 
-This is enough to support the current language-design direction without prematurely locking in a highly complex VM object model.
+This supports the current language model without locking in a highly complex VM object model.
 
-## Recommended Implementation Order
+## Implementation Order
 
-If implemented incrementally, the recommended order is:
+The incremental implementation order is:
 
 1. strengthen the `Value` model around script values versus host values
 2. add a runtime `TypeRegistry`
@@ -417,6 +421,6 @@ If implemented incrementally, the recommended order is:
 4. add `HostCallGuard` and `BorrowTable`
 5. integrate capability checks into host entry points
 6. connect module epochs and stale-handle checks
-7. grow reflection and `dyn Trait` on top of the shared type registry
+7. grow reflection and interface values on top of the shared type registry
 
 This order lets the runtime stay coherent while each subsystem is added with a clear responsibility boundary.
