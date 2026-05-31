@@ -10,8 +10,8 @@ use kagari_ir::module::ValueType;
 use kagari_runtime::host::{HostFunction, HostFunctionMetadata};
 use kagari_runtime::value::{StructValueField, Value};
 use kagari_runtime::{
-    CapabilitySet, ModuleInitializationState, ResourcePolicy, Runtime, RuntimeConfig,
-    RuntimeErrorKind,
+    CapabilitySet, ModuleEpochRetention, ModuleInitializationState, ResourcePolicy, Runtime,
+    RuntimeConfig, RuntimeErrorKind,
 };
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
@@ -131,6 +131,25 @@ fn module_with_private_init_slot(value: i32) -> BytecodeModule {
         mutable: false,
     }];
     module
+}
+
+fn reloadable_value_module(value: i32) -> BytecodeModule {
+    verified_module(
+        None,
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(value),
+                },
+                BytecodeInstruction::Return(Some(Register::new(0))),
+            ],
+            ValueType::I32,
+            vec![ValueType::I32],
+        )],
+    )
 }
 
 #[test]
@@ -919,6 +938,58 @@ fn module_epochs_keep_independent_init_results_and_private_slots() {
             .expect("second epoch instance should exist")
             .init_result,
         Some(Value::I32(2))
+    );
+}
+
+#[test]
+fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
+    let mut runtime = Runtime::default();
+    let first_loaded = runtime
+        .load_module("hot_reload.kgr", reloadable_value_module(1))
+        .expect("first module epoch should load");
+    assert!(
+        runtime
+            .modules()
+            .retain_epoch(first_loaded.key(), ModuleEpochRetention::ActiveCall)
+    );
+
+    let second_loaded = runtime
+        .reload_module(&first_loaded, "hot_reload.kgr", reloadable_value_module(2))
+        .expect("compatible reload should publish a new epoch");
+
+    assert_eq!(
+        runtime.modules().collect_unreachable_epochs(),
+        Vec::new(),
+        "old active-call epoch must remain reachable after reload"
+    );
+
+    let mut vm = Vm::new(runtime);
+    let old_report = vm
+        .execute(&first_loaded, "main")
+        .expect("old active epoch should remain executable");
+    let latest = vm
+        .runtime()
+        .modules()
+        .latest("hot_reload.kgr")
+        .expect("latest module epoch should be visible");
+    let latest_report = vm
+        .execute(&latest, "main")
+        .expect("new call should use latest epoch");
+
+    assert_eq!(second_loaded.epoch, latest.epoch);
+    assert_eq!(old_report.epoch, first_loaded.epoch.0);
+    assert_eq!(old_report.return_value, Value::I32(1));
+    assert_eq!(latest_report.epoch, second_loaded.epoch.0);
+    assert_eq!(latest_report.return_value, Value::I32(2));
+
+    assert!(
+        vm.runtime()
+            .modules()
+            .release_epoch(first_loaded.key(), ModuleEpochRetention::ActiveCall)
+    );
+    assert_eq!(
+        vm.runtime().modules().collect_unreachable_epochs(),
+        vec![first_loaded.key()]
     );
 }
 
