@@ -10,7 +10,9 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         match self.current_kind() {
             Some(TokenKind::Ident) if self.current_text_is("dyn") => self.parse_legacy_dyn_type(),
-            Some(TokenKind::Ident) => self.parse_name(),
+            Some(
+                TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
+            ) => self.parse_path(),
             Some(TokenKind::LParen) => self.parse_tuple_type(),
             Some(TokenKind::LBracket) => self.parse_array_type(),
             _ => self.error_here(DiagnosticKind::ExpectedType),

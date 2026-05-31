@@ -188,6 +188,50 @@ fn lexes_val_and_var_keywords() {
 }
 
 #[test]
+fn lexes_module_loading_tokens() {
+    let source =
+        common::source("pub use crate::foo::{bar as baz}; mod gameplay; self::value super::x");
+    let tokens = lex(source.text());
+    let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
+
+    assert_eq!(
+        kinds,
+        vec![
+            TokenKind::PubKw,
+            TokenKind::Whitespace,
+            TokenKind::UseKw,
+            TokenKind::Whitespace,
+            TokenKind::CrateKw,
+            TokenKind::ColonColon,
+            TokenKind::Ident,
+            TokenKind::ColonColon,
+            TokenKind::LBrace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::AsKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::RBrace,
+            TokenKind::Semi,
+            TokenKind::Whitespace,
+            TokenKind::ModKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Semi,
+            TokenKind::Whitespace,
+            TokenKind::SelfKw,
+            TokenKind::ColonColon,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::SuperKw,
+            TokenKind::ColonColon,
+            TokenKind::Ident,
+            TokenKind::Eof,
+        ]
+    );
+}
+
+#[test]
 fn lexes_expression_literals_and_operators() {
     let source = common::source("true && false || 1.5 + \"ok\" != 0");
     let tokens = lex(source.text());

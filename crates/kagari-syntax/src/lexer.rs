@@ -53,7 +53,12 @@ pub fn lex(input: &str) -> TokenBuffer {
             }
             ':' => {
                 chars.next();
-                tokens.push(token(TokenKind::Colon, index, index + 1));
+                if let Some((end, ':')) = chars.peek().copied() {
+                    chars.next();
+                    tokens.push(token(TokenKind::ColonColon, index, end + 1));
+                } else {
+                    tokens.push(token(TokenKind::Colon, index, index + 1));
+                }
             }
             ';' => {
                 chars.next();
@@ -194,8 +199,14 @@ pub fn lex(input: &str) -> TokenBuffer {
                 }
 
                 let kind = match ident.as_str() {
+                    "as" => TokenKind::AsKw,
+                    "crate" => TokenKind::CrateKw,
                     "fn" => TokenKind::FnKw,
+                    "mod" => TokenKind::ModKw,
                     "pub" => TokenKind::PubKw,
+                    "self" => TokenKind::SelfKw,
+                    "super" => TokenKind::SuperKw,
+                    "use" => TokenKind::UseKw,
                     "const" => TokenKind::ConstKw,
                     "val" => TokenKind::ValKw,
                     "var" => TokenKind::VarKw,

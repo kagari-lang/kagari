@@ -8,8 +8,13 @@ pub mod traits;
 mod ty;
 
 pub use expr::{BlockExpr, Expr, Literal, MatchArm, MatchArmList, PathExpr, Pattern};
-pub use item::{ConstDef, EnumDef, FnDef, Item, SourceFile, StructDef};
-pub use misc::{Field, FieldList, Name, Param, ParamList, Variant, VariantList, Writeability};
+pub use item::{
+    ConstDef, EnumDef, FnDef, Item, ModuleBlock, ModuleDef, SourceFile, StructDef, UseDecl,
+    UseTree, UseTreeList,
+};
+pub use misc::{
+    Field, FieldList, Name, Param, ParamList, Path, Variant, VariantList, Writeability,
+};
 pub use stmt::{AssignStmt, BindingStmt, ExprStmt, ReturnStmt, Stmt};
 pub use traits::AstNode;
 pub use ty::{ArrayType, TupleType, TypeRef};

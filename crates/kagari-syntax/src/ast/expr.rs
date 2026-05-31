@@ -1,5 +1,11 @@
 use crate::{
-    ast::{macros::ast_node, misc::Name, stmt::Stmt, support, traits::AstNode},
+    ast::{
+        macros::ast_node,
+        misc::{Name, Path},
+        stmt::Stmt,
+        support,
+        traits::AstNode,
+    },
     kind::SyntaxKind,
     syntax_node::SyntaxNode,
 };
@@ -119,7 +125,13 @@ impl PathExpr {
     }
 
     pub fn name_text(&self) -> Option<String> {
-        self.name().and_then(|name| name.text())
+        self.path()
+            .and_then(|path| path.text())
+            .or_else(|| self.name().and_then(|name| name.text()))
+    }
+
+    pub fn path(&self) -> Option<Path> {
+        support::child(self.syntax())
     }
 }
 

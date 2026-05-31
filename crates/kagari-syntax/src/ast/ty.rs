@@ -1,4 +1,9 @@
-use crate::ast::{macros::ast_node, misc::Name, support, traits::AstNode};
+use crate::ast::{
+    macros::ast_node,
+    misc::{Name, Path},
+    support,
+    traits::AstNode,
+};
 
 ast_node!(TypeRef, TypeRef);
 ast_node!(TupleType, TupleType);
@@ -10,7 +15,13 @@ impl TypeRef {
     }
 
     pub fn name_text(&self) -> Option<String> {
-        self.name().and_then(|name| name.text())
+        self.path()
+            .and_then(|path| path.text())
+            .or_else(|| self.name().and_then(|name| name.text()))
+    }
+
+    pub fn path(&self) -> Option<Path> {
+        support::child(self.syntax())
     }
 
     pub fn tuple_type(&self) -> Option<TupleType> {

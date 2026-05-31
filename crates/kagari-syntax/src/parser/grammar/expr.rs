@@ -10,6 +10,9 @@ impl<'a> Parser<'a> {
             self.current_kind(),
             Some(
                 TokenKind::Ident
+                    | TokenKind::CrateKw
+                    | TokenKind::SelfKw
+                    | TokenKind::SuperKw
                     | TokenKind::Number
                     | TokenKind::Float
                     | TokenKind::String
@@ -27,15 +30,34 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn expr_followed_by_assignment(&self) -> bool {
         let mut cursor = self.cursor();
-        if self.nth_nontrivia_kind_from(&mut cursor) != Some(TokenKind::Ident) {
+        if !matches!(
+            self.nth_nontrivia_kind_from(&mut cursor),
+            Some(TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw)
+        ) {
             return false;
         }
 
         loop {
             match self.nth_nontrivia_kind_from(&mut cursor) {
                 Some(TokenKind::Eq) => return true,
+                Some(TokenKind::ColonColon) => {
+                    if !matches!(
+                        self.nth_nontrivia_kind_from(&mut cursor),
+                        Some(
+                            TokenKind::Ident
+                                | TokenKind::CrateKw
+                                | TokenKind::SelfKw
+                                | TokenKind::SuperKw
+                        )
+                    ) {
+                        return false;
+                    }
+                }
                 Some(TokenKind::Dot) => {
-                    if self.nth_nontrivia_kind_from(&mut cursor) != Some(TokenKind::Ident) {
+                    if !matches!(
+                        self.nth_nontrivia_kind_from(&mut cursor),
+                        Some(TokenKind::Ident | TokenKind::SelfKw)
+                    ) {
                         return false;
                     }
                 }
@@ -251,7 +273,9 @@ impl<'a> Parser<'a> {
     fn parse_atom(&mut self) {
         self.bump_trivia();
         match self.current_kind() {
-            Some(TokenKind::Ident) => self.parse_path_or_struct_expr(),
+            Some(
+                TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
+            ) => self.parse_path_or_struct_expr(),
             Some(
                 TokenKind::Number
                 | TokenKind::Float
@@ -281,7 +305,7 @@ impl<'a> Parser<'a> {
 
     fn parse_path_expr(&mut self) {
         self.start_node(SyntaxKind::PathExpr);
-        self.parse_name();
+        self.parse_path();
         self.finish_node();
     }
 
@@ -446,7 +470,9 @@ impl<'a> Parser<'a> {
     fn parse_match_pattern(&mut self) {
         self.start_node(SyntaxKind::Pattern);
         match self.current_kind() {
-            Some(TokenKind::Ident) => self.parse_path_expr(),
+            Some(
+                TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
+            ) => self.parse_path_expr(),
             Some(
                 TokenKind::Number
                 | TokenKind::Float

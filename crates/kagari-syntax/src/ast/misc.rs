@@ -10,6 +10,7 @@ pub enum Writeability {
 }
 
 ast_node!(Name, Name);
+ast_node!(Path, Path);
 ast_node!(ParamList, ParamList);
 ast_node!(Param, Param);
 ast_node!(FieldList, FieldList);
@@ -19,7 +20,36 @@ ast_node!(Variant, Variant);
 
 impl Name {
     pub fn text(&self) -> Option<String> {
-        support::token(self.syntax(), SyntaxKind::Ident).map(|token| token.text().to_string())
+        self.syntax()
+            .children_with_tokens()
+            .find_map(|element| match element {
+                rowan::NodeOrToken::Token(token)
+                    if matches!(
+                        token.kind(),
+                        SyntaxKind::Ident
+                            | SyntaxKind::CrateKw
+                            | SyntaxKind::SelfKw
+                            | SyntaxKind::SuperKw
+                    ) =>
+                {
+                    Some(token.text().to_string())
+                }
+                _ => None,
+            })
+    }
+}
+
+impl Path {
+    pub fn segments(&self) -> impl Iterator<Item = Name> {
+        support::children(self.syntax())
+    }
+
+    pub fn text(&self) -> Option<String> {
+        let segments = self
+            .segments()
+            .filter_map(|segment| segment.text())
+            .collect::<Vec<_>>();
+        (!segments.is_empty()).then(|| segments.join("::"))
     }
 }
 

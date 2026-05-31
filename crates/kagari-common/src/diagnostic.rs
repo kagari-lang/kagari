@@ -13,6 +13,12 @@ pub enum DiagnosticKind {
     UnexpectedToken,
     ExpectedTopLevelItem,
     TopLevelControlFlowNotAllowed,
+    ExpectedModuleKeyword,
+    ExpectedModuleName,
+    ExpectedUseKeyword,
+    ExpectedUseTree,
+    ExpectedUseAlias,
+    ExpectedPath,
     ExpectedFunctionKeyword,
     ExpectedConstKeyword,
     ExpectedStructKeyword,
@@ -180,6 +186,12 @@ impl Display for DiagnosticKind {
                     "top-level `return`, `break`, and `continue` are not allowed"
                 )
             }
+            Self::ExpectedModuleKeyword => write!(f, "expected `mod`"),
+            Self::ExpectedModuleName => write!(f, "expected module name"),
+            Self::ExpectedUseKeyword => write!(f, "expected `use`"),
+            Self::ExpectedUseTree => write!(f, "expected import path or import group"),
+            Self::ExpectedUseAlias => write!(f, "expected import alias"),
+            Self::ExpectedPath => write!(f, "expected path"),
             Self::ExpectedFunctionKeyword => write!(f, "expected `fn`"),
             Self::ExpectedConstKeyword => write!(f, "expected `const`"),
             Self::ExpectedStructKeyword => write!(f, "expected `struct`"),
