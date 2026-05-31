@@ -1,9 +1,10 @@
 use crate::{
     bytecode::instruction::{
-        BytecodeInstruction, ConstantOperand, FieldId, FunctionRef, JumpTarget, PathId,
+        BytecodeInstruction, ConstantOperand, FieldId, FunctionRef, JumpTarget, LocalSlot, PathId,
     },
     module::{EffectSet, ValueType},
 };
+use kagari_common::Span;
 
 #[derive(Debug, Clone, Default)]
 pub struct BytecodeModule {
@@ -61,6 +62,7 @@ pub struct FunctionMetadata {
     pub registers: TypeLayoutBuffer,
     pub control_flow_targets: ControlFlowTargetBuffer,
     pub effects: EffectSet,
+    pub debug: BytecodeDebugMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +79,87 @@ pub enum PublicItemRecord {
     Function { name: String, function: FunctionRef },
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BytecodeDebugMetadata {
+    pub function_span: Span,
+    pub source_spans: InstructionSourceSpanBuffer,
+    pub line_table: LineTableBuffer,
+    pub safe_debug_points: SafeDebugPointBuffer,
+    pub local_live_ranges: LocalLiveRangeBuffer,
+    pub captured_bindings: CapturedBindingDebugBuffer,
+    pub frame_layout: FrameLayout,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstructionSourceSpan {
+    pub instruction_offset: usize,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineTableEntry {
+    pub instruction_offset: usize,
+    pub source_offset: usize,
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SafeDebugPoint {
+    pub id: DebugPointId,
+    pub instruction_offset: usize,
+    pub span: Span,
+    pub kind: SafeDebugPointKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DebugPointId(u32);
+
+impl DebugPointId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SafeDebugPointKind {
+    FunctionEntry,
+    Statement,
+    BranchTarget,
+    CallBoundary,
+    FunctionReturn,
+    Trap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalLiveRange {
+    pub local: LocalSlot,
+    pub name: String,
+    pub span: Span,
+    pub start: usize,
+    pub end: usize,
+    pub ty: ValueType,
+    pub is_parameter: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapturedBindingDebugInfo {
+    pub name: String,
+    pub span: Span,
+    pub ty: ValueType,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FrameLayout {
+    pub params: TypeLayoutBuffer,
+    pub locals: TypeLayoutBuffer,
+    pub registers: TypeLayoutBuffer,
+}
+
 pub type BytecodeFunctionBuffer = Vec<BytecodeFunction>;
 pub type BytecodeInstructionBuffer = Vec<BytecodeInstruction>;
 pub type BytecodeModuleSlotBuffer = Vec<BytecodeModuleSlot>;
@@ -88,3 +171,8 @@ pub type FunctionTable = Vec<FunctionRecord>;
 pub type PublicItemTable = Vec<PublicItemRecord>;
 pub type TypeLayoutBuffer = Vec<ValueType>;
 pub type ControlFlowTargetBuffer = Vec<JumpTarget>;
+pub type InstructionSourceSpanBuffer = Vec<InstructionSourceSpan>;
+pub type LineTableBuffer = Vec<LineTableEntry>;
+pub type SafeDebugPointBuffer = Vec<SafeDebugPoint>;
+pub type LocalLiveRangeBuffer = Vec<LocalLiveRange>;
+pub type CapturedBindingDebugBuffer = Vec<CapturedBindingDebugInfo>;

@@ -1,5 +1,5 @@
 use crate::{
-    bytecode::{BytecodeModule, FunctionRef, PathId, verify_module},
+    bytecode::{BytecodeDebugMetadata, BytecodeModule, FunctionRef, PathId, verify_module},
     module::ValueType,
 };
 
@@ -547,6 +547,26 @@ pub struct DebugMetadata {
     pub stripped: bool,
     pub source_files: SourceFileTable,
     pub debug_names: DebugNameTable,
+    pub functions: Vec<BytecodeDebugMetadata>,
+}
+
+impl DebugMetadata {
+    pub fn from_module(module: &BytecodeModule) -> Self {
+        Self {
+            stripped: false,
+            source_files: Vec::new(),
+            debug_names: module
+                .functions
+                .iter()
+                .map(|function| function.name.clone())
+                .collect(),
+            functions: module
+                .functions
+                .iter()
+                .map(|function| function.metadata.debug.clone())
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

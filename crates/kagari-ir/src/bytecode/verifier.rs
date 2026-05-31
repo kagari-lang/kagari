@@ -119,6 +119,7 @@ fn verify_function(
 ) -> Result<(), BytecodeVerificationError> {
     verify_metadata_counts(function)?;
     verify_metadata_types(module, function)?;
+    verify_debug_metadata(function)?;
     for target in &function.metadata.control_flow_targets {
         verify_jump(function, *target)?;
     }
@@ -195,6 +196,42 @@ fn verify_metadata_counts(function: &BytecodeFunction) -> Result<(), BytecodeVer
         }
     }
     Ok(())
+}
+
+fn verify_debug_metadata(function: &BytecodeFunction) -> Result<(), BytecodeVerificationError> {
+    for source_span in &function.metadata.debug.source_spans {
+        verify_instruction_offset(function, source_span.instruction_offset)?;
+    }
+    for line in &function.metadata.debug.line_table {
+        verify_instruction_offset(function, line.instruction_offset)?;
+    }
+    for point in &function.metadata.debug.safe_debug_points {
+        verify_instruction_offset(function, point.instruction_offset)?;
+    }
+    for range in &function.metadata.debug.local_live_ranges {
+        let _ = local_ty(function, range.local)?;
+        if range.start > range.end || range.end > function.instructions.len() {
+            return Err(BytecodeVerificationError::InvalidJumpTarget {
+                function: function.id,
+                target: JumpTarget::new(range.end),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn verify_instruction_offset(
+    function: &BytecodeFunction,
+    instruction_offset: usize,
+) -> Result<(), BytecodeVerificationError> {
+    if instruction_offset < function.instructions.len() {
+        Ok(())
+    } else {
+        Err(BytecodeVerificationError::InvalidJumpTarget {
+            function: function.id,
+            target: JumpTarget::new(instruction_offset),
+        })
+    }
 }
 
 fn verify_instruction(

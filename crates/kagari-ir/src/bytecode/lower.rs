@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use kagari_common::Span;
 use kagari_hir::builtin::BuiltinMethod;
 use kagari_hir::hir::FunctionId;
 
@@ -8,8 +9,10 @@ use crate::bytecode::instruction::{
     LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructFieldInit, UnaryOp,
 };
 use crate::bytecode::module::{
-    BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FieldRecord, FunctionMetadata,
-    FunctionRecord, PathRecord,
+    BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, BytecodeModuleSlot,
+    CapturedBindingDebugInfo, DebugPointId, FieldRecord, FrameLayout, FunctionMetadata,
+    FunctionRecord, InstructionSourceSpan, LineTableEntry, LocalLiveRange, PathRecord,
+    SafeDebugPoint, SafeDebugPointKind,
 };
 use crate::bytecode::verify_module;
 use crate::module::{
@@ -127,6 +130,7 @@ fn lower_function(
             .map(|block| block.instructions.len() + usize::from(block.terminator.is_some()))
             .sum(),
     );
+    let mut instruction_spans = Vec::with_capacity(instructions.capacity());
 
     for block in &function.blocks {
         lower_block(
@@ -135,6 +139,7 @@ fn lower_function(
             function_refs,
             context,
             &mut instructions,
+            &mut instruction_spans,
         )?;
     }
 
@@ -145,6 +150,7 @@ fn lower_function(
         registers: function.temps.iter().map(|temp| temp.ty).collect(),
         control_flow_targets: collect_control_flow_targets(&instructions),
         effects: function.effects,
+        debug: collect_debug_metadata(function, &instructions, &instruction_spans),
     };
 
     Ok(BytecodeFunction {
@@ -239,6 +245,144 @@ fn collect_control_flow_targets(instructions: &[BytecodeInstruction]) -> Vec<Jum
     targets
 }
 
+fn collect_debug_metadata(
+    function: &IrFunction,
+    instructions: &[BytecodeInstruction],
+    instruction_spans: &[Span],
+) -> BytecodeDebugMetadata {
+    let source_spans = instruction_spans
+        .iter()
+        .enumerate()
+        .map(|(instruction_offset, span)| InstructionSourceSpan {
+            instruction_offset,
+            span: *span,
+        })
+        .collect::<Vec<_>>();
+
+    let line_table = instruction_spans
+        .iter()
+        .enumerate()
+        .map(|(instruction_offset, span)| LineTableEntry {
+            instruction_offset,
+            source_offset: span.start,
+            line: None,
+            column: None,
+        })
+        .collect::<Vec<_>>();
+
+    let mut safe_debug_points = Vec::new();
+    if !instructions.is_empty() {
+        push_debug_point(
+            &mut safe_debug_points,
+            0,
+            instruction_spans.first().copied().unwrap_or_default(),
+            SafeDebugPointKind::FunctionEntry,
+        );
+    }
+    for (instruction_offset, instruction) in instructions.iter().enumerate() {
+        let span = instruction_spans
+            .get(instruction_offset)
+            .copied()
+            .unwrap_or_default();
+        match instruction {
+            BytecodeInstruction::Call { .. } => push_debug_point(
+                &mut safe_debug_points,
+                instruction_offset,
+                span,
+                SafeDebugPointKind::CallBoundary,
+            ),
+            BytecodeInstruction::Jump { .. } | BytecodeInstruction::Branch { .. } => {
+                push_debug_point(
+                    &mut safe_debug_points,
+                    instruction_offset,
+                    span,
+                    SafeDebugPointKind::BranchTarget,
+                );
+            }
+            BytecodeInstruction::Return(_) => push_debug_point(
+                &mut safe_debug_points,
+                instruction_offset,
+                span,
+                SafeDebugPointKind::FunctionReturn,
+            ),
+            BytecodeInstruction::Unreachable => push_debug_point(
+                &mut safe_debug_points,
+                instruction_offset,
+                span,
+                SafeDebugPointKind::Trap,
+            ),
+            _ if span != Span::default() => push_debug_point(
+                &mut safe_debug_points,
+                instruction_offset,
+                span,
+                SafeDebugPointKind::Statement,
+            ),
+            _ => {}
+        }
+    }
+
+    let end = instructions.len();
+    let local_live_ranges = function
+        .debug
+        .locals
+        .iter()
+        .map(|local| LocalLiveRange {
+            local: lower_local(local.local),
+            name: local.name.clone(),
+            span: local.span,
+            start: 0,
+            end,
+            ty: local.ty,
+            is_parameter: local.is_parameter,
+        })
+        .collect();
+    let captured_bindings = function
+        .debug
+        .captured_bindings
+        .iter()
+        .map(|captured| CapturedBindingDebugInfo {
+            name: captured.name.clone(),
+            span: captured.span,
+            ty: captured.ty,
+        })
+        .collect();
+
+    BytecodeDebugMetadata {
+        function_span: function.debug.source_span,
+        source_spans,
+        line_table,
+        safe_debug_points,
+        local_live_ranges,
+        captured_bindings,
+        frame_layout: FrameLayout {
+            params: function.params.iter().map(|param| param.ty).collect(),
+            locals: function.locals.iter().map(|local| local.ty).collect(),
+            registers: function.temps.iter().map(|temp| temp.ty).collect(),
+        },
+    }
+}
+
+fn push_debug_point(
+    points: &mut Vec<SafeDebugPoint>,
+    instruction_offset: usize,
+    span: Span,
+    kind: SafeDebugPointKind,
+) {
+    if points
+        .iter()
+        .any(|point| point.instruction_offset == instruction_offset && point.kind == kind)
+    {
+        return;
+    }
+    let id = DebugPointId::new(points.len());
+    points.push(SafeDebugPoint {
+        id,
+        instruction_offset,
+        span,
+        kind,
+    });
+}
+
 fn push_target(targets: &mut Vec<JumpTarget>, target: JumpTarget) {
     if !targets.contains(&target) {
         targets.push(target);
@@ -267,13 +411,22 @@ fn lower_block(
     function_refs: &HashMap<FunctionId, FunctionRef>,
     context: &mut BytecodeLoweringContext,
     out: &mut Vec<BytecodeInstruction>,
+    spans: &mut Vec<Span>,
 ) -> Result<(), BytecodeLoweringError> {
-    for instruction in &block.instructions {
+    for (index, instruction) in block.instructions.iter().enumerate() {
         out.push(lower_instruction(instruction, function_refs, context));
+        spans.push(
+            block
+                .instruction_spans
+                .get(index)
+                .copied()
+                .unwrap_or_default(),
+        );
     }
 
     if let Some(terminator) = &block.terminator {
         out.push(lower_terminator(terminator, block_offsets)?);
+        spans.push(block.terminator_span.unwrap_or_default());
     }
 
     Ok(())

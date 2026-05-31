@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 
+use kagari_common::Span;
 use kagari_hir::typeck::TypedFunction;
 use kagari_hir::{AnalyzedModule, hir};
 
 use crate::lower::EvaluatedConst;
 use crate::module::{
-    function::{BasicBlock, IrFunction, IrLocal, IrParameter, IrTemp, ParameterBuffer},
+    function::{
+        BasicBlock, IrFunction, IrFunctionDebugMetadata, IrLocal, IrLocalDebugInfo, IrParameter,
+        IrTemp, ParameterBuffer,
+    },
     ids::{BlockId, LocalId, TempId},
     instruction::{EffectSet, Instruction, IrValue, Terminator},
     types::ValueType,
@@ -26,6 +30,7 @@ pub(crate) struct FunctionLowerer<'a> {
     pub(crate) locals: HashMap<hir::LocalId, LocalId>,
     pub(crate) loops: Vec<LoopScope>,
     pub(crate) effects: EffectSet,
+    current_debug_span: Option<Span>,
 }
 
 impl<'a> FunctionLowerer<'a> {
@@ -45,10 +50,17 @@ impl<'a> FunctionLowerer<'a> {
             temps: Vec::new(),
             blocks: vec![BasicBlock {
                 instructions: Vec::new(),
+                instruction_spans: Vec::new(),
                 terminator: None,
+                terminator_span: None,
             }],
             entry,
             effects: EffectSet::default(),
+            debug: IrFunctionDebugMetadata {
+                source_span: analyzed.lowered.source_map.function_span(hir_function.id),
+                locals: Vec::new(),
+                captured_bindings: Vec::new(),
+            },
         };
 
         let mut params = HashMap::new();
@@ -57,6 +69,13 @@ impl<'a> FunctionLowerer<'a> {
             function.locals.push(IrLocal {
                 name: param.name.clone(),
                 ty: ValueType::from_type_id(&param.ty),
+            });
+            function.debug.locals.push(IrLocalDebugInfo {
+                local,
+                name: param.name.clone(),
+                span: analyzed.lowered.source_map.param_span(param.id),
+                ty: ValueType::from_type_id(&param.ty),
+                is_parameter: true,
             });
             function.params.push(IrParameter {
                 name: param.name.clone(),
@@ -75,6 +94,7 @@ impl<'a> FunctionLowerer<'a> {
             locals: HashMap::new(),
             loops: Vec::new(),
             effects: EffectSet::default(),
+            current_debug_span: None,
         }
     }
 
@@ -87,7 +107,9 @@ impl<'a> FunctionLowerer<'a> {
         let id = BlockId::new(self.function.blocks.len());
         self.function.blocks.push(BasicBlock {
             instructions: Vec::new(),
+            instruction_spans: Vec::new(),
             terminator: None,
+            terminator_span: None,
         });
         id
     }
@@ -104,14 +126,18 @@ impl<'a> FunctionLowerer<'a> {
 
     pub(crate) fn emit(&mut self, instruction: Instruction) {
         self.effects = self.effects.union(instruction.effects());
-        self.function.blocks[self.current_block.index()]
-            .instructions
-            .push(instruction);
+        let block = &mut self.function.blocks[self.current_block.index()];
+        block
+            .instruction_spans
+            .push(self.current_debug_span.unwrap_or_default());
+        block.instructions.push(instruction);
     }
 
     pub(crate) fn set_terminator(&mut self, terminator: Terminator) {
         self.effects = self.effects.union(terminator.effects());
-        self.function.blocks[self.current_block.index()].terminator = Some(terminator);
+        let block = &mut self.function.blocks[self.current_block.index()];
+        block.terminator = Some(terminator);
+        block.terminator_span = self.current_debug_span;
     }
 
     pub(crate) fn ensure_jump(&mut self, target: BlockId) {
@@ -126,9 +152,26 @@ impl<'a> FunctionLowerer<'a> {
         IrValue { temp: id, ty }
     }
 
-    pub(crate) fn alloc_local(&mut self, name: String, ty: ValueType) -> LocalId {
+    pub(crate) fn alloc_local(&mut self, name: String, ty: ValueType, span: Span) -> LocalId {
         let id = LocalId::new(self.function.locals.len());
-        self.function.locals.push(IrLocal { name, ty });
+        self.function.locals.push(IrLocal {
+            name: name.clone(),
+            ty,
+        });
+        self.function.debug.locals.push(IrLocalDebugInfo {
+            local: id,
+            name,
+            span,
+            ty,
+            is_parameter: false,
+        });
         id
+    }
+
+    pub(crate) fn with_debug_span<R>(&mut self, span: Span, f: impl FnOnce(&mut Self) -> R) -> R {
+        let previous = self.current_debug_span.replace(span);
+        let result = f(self);
+        self.current_debug_span = previous;
+        result
     }
 }

@@ -3,9 +3,10 @@ use crate::{
     bytecode::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
         ArtifactSectionId, ArtifactValidationError, BinaryOp, BuiltinMethod, BytecodeFunction,
-        BytecodeInstruction, BytecodeModule, BytecodeVerificationError, CallTarget,
+        BytecodeInstruction, BytecodeModule, BytecodeVerificationError, CallTarget, DebugMetadata,
         DependencyFingerprint, FunctionMetadata, FunctionRef, JumpTarget, KBC_MAGIC, KbcArtifact,
-        LocalSlot, PathId, PathRecord, Register, RuntimeHelper, UnaryOp, verify_module,
+        LocalSlot, PathId, PathRecord, Register, RuntimeHelper, SafeDebugPointKind, UnaryOp,
+        verify_module,
     },
     module::ValueType,
     tests::common,
@@ -34,6 +35,61 @@ fn lowers_function_metadata_into_bytecode() {
         function.metadata.registers.len(),
         usize::from(function.register_count)
     );
+}
+
+#[test]
+fn lowers_debugger_metadata_into_bytecode() {
+    let bytecode = common::bytecode_ok(
+        r#"
+fn main(value: i32) -> i32 {
+    val next = value + 1;
+    print("debug");
+    next
+}
+"#,
+    );
+    let function = &bytecode.functions[0];
+    let debug = &function.metadata.debug;
+
+    assert_eq!(debug.source_spans.len(), function.instructions.len());
+    assert_eq!(debug.line_table.len(), function.instructions.len());
+    assert_eq!(debug.frame_layout.locals, function.metadata.locals);
+    assert_eq!(debug.frame_layout.registers, function.metadata.registers);
+    assert!(
+        debug
+            .safe_debug_points
+            .iter()
+            .any(|point| point.kind == SafeDebugPointKind::FunctionEntry)
+    );
+    assert!(
+        debug
+            .safe_debug_points
+            .iter()
+            .any(|point| point.kind == SafeDebugPointKind::CallBoundary)
+    );
+    assert!(
+        debug
+            .safe_debug_points
+            .iter()
+            .any(|point| point.kind == SafeDebugPointKind::FunctionReturn)
+    );
+    assert!(
+        debug
+            .local_live_ranges
+            .iter()
+            .any(|range| range.name == "value" && range.is_parameter)
+    );
+    assert!(
+        debug
+            .local_live_ranges
+            .iter()
+            .any(|range| range.name == "next" && !range.is_parameter)
+    );
+
+    let artifact_debug = DebugMetadata::from_module(&bytecode);
+    assert!(!artifact_debug.stripped);
+    assert_eq!(artifact_debug.functions.len(), bytecode.functions.len());
+    assert!(artifact_debug.debug_names.iter().any(|name| name == "main"));
 }
 
 #[test]

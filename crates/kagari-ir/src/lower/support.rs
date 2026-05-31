@@ -24,7 +24,11 @@ impl FunctionLowerer<'_> {
             .as_ref()
             .map(ValueType::from_type_id)
             .ok_or(IrLoweringError::MissingLocalType(hir_local))?;
-        let local = self.alloc_local(name, ty);
+        let local = self.alloc_local(
+            name,
+            ty,
+            self.analyzed.lowered.source_map.local_span(hir_local),
+        );
         self.locals.insert(hir_local, local);
         Ok(local)
     }

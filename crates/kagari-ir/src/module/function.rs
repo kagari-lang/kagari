@@ -1,3 +1,4 @@
+use kagari_common::Span;
 use kagari_hir::hir;
 
 use crate::module::{
@@ -24,6 +25,7 @@ pub struct IrFunction {
     pub blocks: BlockBuffer,
     pub entry: BlockId,
     pub effects: EffectSet,
+    pub debug: IrFunctionDebugMetadata,
 }
 
 #[derive(Debug, Clone)]
@@ -55,7 +57,32 @@ pub struct IrModuleSlot {
 #[derive(Debug, Clone)]
 pub struct BasicBlock {
     pub instructions: InstructionBuffer,
+    pub instruction_spans: SourceSpanBuffer,
     pub terminator: Option<Terminator>,
+    pub terminator_span: Option<Span>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct IrFunctionDebugMetadata {
+    pub source_span: Span,
+    pub locals: IrLocalDebugBuffer,
+    pub captured_bindings: CapturedBindingDebugBuffer,
+}
+
+#[derive(Debug, Clone)]
+pub struct IrLocalDebugInfo {
+    pub local: LocalId,
+    pub name: String,
+    pub span: Span,
+    pub ty: ValueType,
+    pub is_parameter: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct IrCapturedBindingDebugInfo {
+    pub name: String,
+    pub span: Span,
+    pub ty: ValueType,
 }
 
 pub type FunctionBuffer = Vec<IrFunction>;
@@ -64,3 +91,6 @@ pub type LocalBuffer = Vec<IrLocal>;
 pub type ModuleSlotBuffer = Vec<IrModuleSlot>;
 pub type TempBuffer = Vec<IrTemp>;
 pub type BlockBuffer = Vec<BasicBlock>;
+pub type SourceSpanBuffer = Vec<Span>;
+pub type IrLocalDebugBuffer = Vec<IrLocalDebugInfo>;
+pub type CapturedBindingDebugBuffer = Vec<IrCapturedBindingDebugInfo>;

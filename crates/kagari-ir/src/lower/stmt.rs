@@ -16,13 +16,19 @@ impl FunctionLowerer<'_> {
         }
 
         if let Some(expr) = block.tail_expr {
-            self.lower_expr(expr).map(Some)
+            let span = self.analyzed.lowered.source_map.expr_span(expr);
+            self.with_debug_span(span, |this| this.lower_expr(expr).map(Some))
         } else {
             Ok(None)
         }
     }
 
     fn lower_stmt(&mut self, stmt_id: hir::StmtId) -> Result<(), IrLoweringError> {
+        let span = self.analyzed.lowered.source_map.stmt_span(stmt_id);
+        self.with_debug_span(span, |this| this.lower_stmt_inner(stmt_id))
+    }
+
+    fn lower_stmt_inner(&mut self, stmt_id: hir::StmtId) -> Result<(), IrLoweringError> {
         let stmt = self.analyzed.lowered.module.stmt(stmt_id).clone();
         match stmt.kind {
             hir::StmtKind::Binding {

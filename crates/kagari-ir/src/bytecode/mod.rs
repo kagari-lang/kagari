@@ -25,9 +25,12 @@ pub use instruction::{
 };
 pub use lower::{BytecodeLoweringError, lower_to_bytecode};
 pub use module::{
-    BytecodeFunction, BytecodeFunctionBuffer, BytecodeInstructionBuffer, BytecodeModule,
-    BytecodeModuleSlot, BytecodeModuleSlotBuffer, BytecodeTypeTable, ConstantPool,
-    ControlFlowTargetBuffer, FieldRecord, FieldTable, FunctionMetadata, FunctionRecord,
-    FunctionTable, PathRecord, PathTable, PublicItemRecord, PublicItemTable, TypeLayoutBuffer,
+    BytecodeDebugMetadata, BytecodeFunction, BytecodeFunctionBuffer, BytecodeInstructionBuffer,
+    BytecodeModule, BytecodeModuleSlot, BytecodeModuleSlotBuffer, BytecodeTypeTable,
+    CapturedBindingDebugBuffer, CapturedBindingDebugInfo, ConstantPool, ControlFlowTargetBuffer,
+    DebugPointId, FieldRecord, FieldTable, FrameLayout, FunctionMetadata, FunctionRecord,
+    FunctionTable, InstructionSourceSpan, InstructionSourceSpanBuffer, LineTableBuffer,
+    LineTableEntry, LocalLiveRange, LocalLiveRangeBuffer, PathRecord, PathTable, PublicItemRecord,
+    PublicItemTable, SafeDebugPoint, SafeDebugPointBuffer, SafeDebugPointKind, TypeLayoutBuffer,
 };
 pub use verifier::{BytecodeVerificationError, verify_module};

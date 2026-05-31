@@ -6,8 +6,10 @@ pub mod instruction;
 pub mod types;
 
 pub use function::{
-    BasicBlock, BlockBuffer, FunctionBuffer, IrFunction, IrLocal, IrModule, IrModuleSlot,
-    IrParameter, IrTemp, LocalBuffer, ModuleSlotBuffer, ParameterBuffer, TempBuffer,
+    BasicBlock, BlockBuffer, CapturedBindingDebugBuffer, FunctionBuffer,
+    IrCapturedBindingDebugInfo, IrFunction, IrFunctionDebugMetadata, IrLocal, IrLocalDebugBuffer,
+    IrLocalDebugInfo, IrModule, IrModuleSlot, IrParameter, IrTemp, LocalBuffer, ModuleSlotBuffer,
+    ParameterBuffer, SourceSpanBuffer, TempBuffer,
 };
 pub use ids::{BlockId, LocalId, ModuleSlotId, TempId};
 pub use instruction::{
