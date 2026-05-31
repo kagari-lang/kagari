@@ -174,6 +174,7 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
                         },
                         BytecodeInstruction::Return(None),
                     ],
+                    ..Default::default()
                 },
                 BytecodeFunction {
                     id: FunctionRef::new(1),
@@ -188,8 +189,10 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
                         },
                         BytecodeInstruction::Return(Some(Register::new(0))),
                     ],
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         },
     );
 
@@ -242,7 +245,9 @@ fn reruns_module_init_for_new_module_epoch() {
                 },
                 BytecodeInstruction::Return(None),
             ],
+            ..Default::default()
         }],
+        ..Default::default()
     };
     let first_loaded = runtime.load_module("reloadable.kgr", bytecode.clone());
     let second_loaded = runtime.load_module("reloadable.kgr", bytecode);
@@ -294,7 +299,9 @@ fn caches_failed_module_init_without_retrying() {
                     },
                     BytecodeInstruction::Return(None),
                 ],
+                ..Default::default()
             }],
+            ..Default::default()
         },
     );
 

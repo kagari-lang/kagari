@@ -55,7 +55,9 @@ fn executes_runtime_host_helper_call() {
                     },
                     BytecodeInstruction::Return(Some(Register::new(2))),
                 ],
+                ..Default::default()
             }],
+            ..Default::default()
         },
     );
 
@@ -90,7 +92,9 @@ fn executes_runtime_reflect_type_of_helper() {
                     },
                     BytecodeInstruction::Return(Some(Register::new(1))),
                 ],
+                ..Default::default()
             }],
+            ..Default::default()
         },
     );
 
@@ -146,7 +150,9 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
                     },
                     BytecodeInstruction::Return(Some(Register::new(4))),
                 ],
+                ..Default::default()
             }],
+            ..Default::default()
         },
     );
 
@@ -193,7 +199,9 @@ fn executes_runtime_reflect_set_index_helper() {
                     },
                     BytecodeInstruction::Return(Some(Register::new(4))),
                 ],
+                ..Default::default()
             }],
+            ..Default::default()
         },
     );
 

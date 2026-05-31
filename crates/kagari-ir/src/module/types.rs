@@ -43,3 +43,9 @@ impl ValueType {
         }
     }
 }
+
+impl Default for ValueType {
+    fn default() -> Self {
+        Self::Unit
+    }
+}

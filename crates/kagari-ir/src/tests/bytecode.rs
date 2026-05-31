@@ -1,9 +1,10 @@
 use crate::{
     builtin::array,
     bytecode::{
-        BinaryOp, BuiltinMethod, BytecodeInstruction, CallTarget, FunctionRef, RuntimeHelper,
-        UnaryOp,
+        BinaryOp, BuiltinMethod, BytecodeInstruction, BytecodeVerificationError, CallTarget,
+        FunctionRef, JumpTarget, LocalSlot, Register, RuntimeHelper, UnaryOp, verify_module,
     },
+    module::ValueType,
     tests::common,
 };
 
@@ -17,6 +18,106 @@ fn lowers_function_metadata_into_bytecode() {
     assert_eq!(function.parameter_count, 2);
     assert_eq!(function.local_count, 3);
     assert!(function.register_count >= 4);
+    assert_eq!(
+        function.metadata.params,
+        vec![ValueType::I32, ValueType::I32]
+    );
+    assert_eq!(function.metadata.return_type, ValueType::I32);
+    assert_eq!(
+        function.metadata.locals[..3],
+        [ValueType::I32, ValueType::I32, ValueType::I32]
+    );
+    assert_eq!(
+        function.metadata.registers.len(),
+        usize::from(function.register_count)
+    );
+}
+
+#[test]
+fn populates_bytecode_tables_and_effect_metadata() {
+    let bytecode = common::bytecode_ok(
+        r#"
+fn add(a: i32, b: i32) -> i32 { a + b }
+
+fn main() -> i32 {
+    print("ok");
+    add(1, 2)
+}
+"#,
+    );
+    let main = bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("expected main function");
+
+    assert!(bytecode.constants.iter().any(|constant| matches!(
+        constant,
+        crate::bytecode::ConstantOperand::Str(text) if text == "ok"
+    )));
+    assert!(bytecode.types.contains(&ValueType::I32));
+    assert!(bytecode.types.contains(&ValueType::Str));
+    assert_eq!(bytecode.function_table.len(), bytecode.functions.len());
+    assert_eq!(bytecode.function_table[0].name, "add");
+    assert_eq!(
+        bytecode.function_table[0].params,
+        vec![ValueType::I32, ValueType::I32]
+    );
+    assert_eq!(bytecode.function_table[0].return_type, ValueType::I32);
+    assert!(main.metadata.effects.calls);
+    assert!(main.metadata.effects.touches_runtime);
+    assert!(verify_module(&bytecode).is_ok());
+}
+
+#[test]
+fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
+    let mut invalid_register = common::bytecode_ok("fn main() -> i32 { 1 }");
+    invalid_register.functions[0].instructions[0] = BytecodeInstruction::LoadConst {
+        dst: Register::new(999),
+        constant: crate::bytecode::ConstantOperand::I32(1),
+    };
+    assert!(matches!(
+        verify_module(&invalid_register),
+        Err(BytecodeVerificationError::InvalidRegister { .. })
+    ));
+
+    let mut invalid_local = common::bytecode_ok("fn main() -> i32 { val value = 1; value }");
+    invalid_local.functions[0].instructions[1] = BytecodeInstruction::StoreLocal {
+        local: LocalSlot::new(999),
+        src: Register::new(0),
+    };
+    assert!(matches!(
+        verify_module(&invalid_local),
+        Err(BytecodeVerificationError::InvalidLocal { .. })
+    ));
+
+    let mut invalid_jump = common::bytecode_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
+    invalid_jump.functions[0]
+        .metadata
+        .control_flow_targets
+        .push(JumpTarget::new(usize::MAX));
+    assert!(matches!(
+        verify_module(&invalid_jump),
+        Err(BytecodeVerificationError::InvalidJumpTarget { .. })
+    ));
+}
+
+#[test]
+fn verifier_rejects_type_inconsistent_bytecode() {
+    let mut bytecode = common::bytecode_ok("fn main() -> i32 { 1 }");
+    bytecode.functions[0].metadata.return_type = ValueType::Bool;
+    bytecode.function_table[0].return_type = ValueType::Bool;
+    bytecode.types.push(ValueType::Bool);
+
+    assert!(matches!(
+        verify_module(&bytecode),
+        Err(BytecodeVerificationError::TypeMismatch {
+            context: "return value",
+            expected: ValueType::Bool,
+            found: ValueType::I32,
+            ..
+        })
+    ));
 }
 
 #[test]

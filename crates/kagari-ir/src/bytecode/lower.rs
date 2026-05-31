@@ -7,8 +7,12 @@ use crate::bytecode::instruction::{
     BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FunctionRef, JumpTarget, LocalSlot,
     ModuleSlot, Register, RuntimeHelper, StructFieldInit, UnaryOp,
 };
-use crate::bytecode::module::{BytecodeFunction, BytecodeModule, BytecodeModuleSlot};
+use crate::bytecode::module::{
+    BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
+};
+use crate::bytecode::verify_module;
 use crate::module::{
+    ValueType,
     function::{BasicBlock, IrFunction, IrModule},
     ids::{BlockId, LocalId, ModuleSlotId, TempId},
     instruction::{
@@ -20,6 +24,7 @@ use crate::module::{
 #[derive(Debug)]
 pub enum BytecodeLoweringError {
     InvalidBranchTarget(BlockId),
+    Verification(crate::bytecode::BytecodeVerificationError),
 }
 
 pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweringError> {
@@ -34,7 +39,7 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
         .iter()
         .map(|function| lower_function(function, &function_refs))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(BytecodeModule {
+    let mut module = BytecodeModule {
         module_init: ir
             .module_init
             .and_then(|id| function_refs.get(&id).copied()),
@@ -43,11 +48,21 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
             .iter()
             .map(|slot| BytecodeModuleSlot {
                 name: slot.name.clone(),
+                ty: slot.ty,
                 mutable: slot.mutable,
             })
             .collect(),
+        constants: Vec::new(),
+        types: Vec::new(),
+        function_table: Vec::new(),
+        public_items: Vec::new(),
         functions,
-    })
+    };
+    module.constants = collect_constant_pool(&module.functions);
+    module.types = collect_type_table(&module);
+    module.function_table = collect_function_table(&module.functions);
+    verify_module(&module).map_err(BytecodeLoweringError::Verification)?;
+    Ok(module)
 }
 
 fn lower_function(
@@ -67,6 +82,15 @@ fn lower_function(
         lower_block(block, &block_offsets, function_refs, &mut instructions)?;
     }
 
+    let metadata = FunctionMetadata {
+        params: function.params.iter().map(|param| param.ty).collect(),
+        return_type: function.return_type,
+        locals: function.locals.iter().map(|local| local.ty).collect(),
+        registers: function.temps.iter().map(|temp| temp.ty).collect(),
+        control_flow_targets: collect_control_flow_targets(&instructions),
+        effects: function.effects,
+    };
+
     Ok(BytecodeFunction {
         id: *function_refs
             .get(&function.hir_id)
@@ -75,8 +99,87 @@ fn lower_function(
         parameter_count: function.params.len() as u16,
         register_count: function.temps.len() as u16,
         local_count: function.locals.len() as u16,
+        metadata,
         instructions,
     })
+}
+
+fn collect_function_table(functions: &[BytecodeFunction]) -> Vec<FunctionRecord> {
+    functions
+        .iter()
+        .map(|function| FunctionRecord {
+            id: function.id,
+            name: function.name.clone(),
+            params: function.metadata.params.clone(),
+            return_type: function.metadata.return_type,
+            effects: function.metadata.effects,
+        })
+        .collect()
+}
+
+fn collect_constant_pool(functions: &[BytecodeFunction]) -> Vec<ConstantOperand> {
+    let mut constants = Vec::new();
+    for function in functions {
+        for instruction in &function.instructions {
+            if let BytecodeInstruction::LoadConst { constant, .. } = instruction
+                && !constants.contains(constant)
+            {
+                constants.push(constant.clone());
+            }
+        }
+    }
+    constants
+}
+
+fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
+    let mut types = Vec::new();
+    for slot in &module.module_slots {
+        push_type(&mut types, slot.ty);
+    }
+    for function in &module.functions {
+        push_type(&mut types, function.metadata.return_type);
+        for ty in function
+            .metadata
+            .params
+            .iter()
+            .chain(&function.metadata.locals)
+            .chain(&function.metadata.registers)
+        {
+            push_type(&mut types, *ty);
+        }
+    }
+    types
+}
+
+fn push_type(types: &mut Vec<ValueType>, ty: ValueType) {
+    if !types.contains(&ty) {
+        types.push(ty);
+    }
+}
+
+fn collect_control_flow_targets(instructions: &[BytecodeInstruction]) -> Vec<JumpTarget> {
+    let mut targets = Vec::new();
+    for instruction in instructions {
+        match instruction {
+            BytecodeInstruction::Jump { target } => push_target(&mut targets, *target),
+            BytecodeInstruction::Branch {
+                then_target,
+                else_target,
+                ..
+            } => {
+                push_target(&mut targets, *then_target);
+                push_target(&mut targets, *else_target);
+            }
+            _ => {}
+        }
+    }
+    targets
+}
+
+fn push_target(targets: &mut Vec<JumpTarget>, target: JumpTarget) {
+    if !targets.contains(&target) {
+        targets.push(target);
+    }
 }
 
 fn compute_block_offsets(function: &IrFunction) -> HashMap<BlockId, JumpTarget> {

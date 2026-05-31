@@ -65,6 +65,12 @@ impl FunctionRef {
     }
 }
 
+impl Default for FunctionRef {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstantOperand {
     Unit,
