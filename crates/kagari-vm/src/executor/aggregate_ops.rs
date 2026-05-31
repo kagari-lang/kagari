@@ -1,5 +1,8 @@
 use kagari_ir::bytecode::{Register, StructFieldInit};
-use kagari_runtime::value::{StructValueField, Value};
+use kagari_runtime::{
+    RuntimeError,
+    value::{StructValueField, Value},
+};
 
 use crate::error::VmError;
 use crate::executor::Executor;
@@ -18,13 +21,18 @@ impl Executor<'_> {
             .iter()
             .map(|element| self.current_frame()?.read_register(*element))
             .collect::<Result<Vec<_>, _>>()?;
+        let elements_are_payload = elements.iter().all(Value::is_default_heap_payload);
+        let handle = self.runtime.gc().alloc_array(elements).ok_or_else(|| {
+            if elements_are_payload {
+                VmError::RuntimeError(RuntimeError::resource_limit("heap units"))
+            } else {
+                VmError::TypeMismatch("make_array expects default-storable elements")
+            }
+        })?;
         self.runtime
-            .gc()
-            .alloc_array(elements)
-            .map(Value::Array)
-            .ok_or(VmError::TypeMismatch(
-                "make_array expects default-storable elements",
-            ))
+            .sync_heap_accounting()
+            .map_err(VmError::RuntimeError)?;
+        Ok(Value::Array(handle))
     }
 
     pub(crate) fn make_struct(
@@ -41,14 +49,25 @@ impl Executor<'_> {
                 })
             })
             .collect::<Result<Vec<_>, VmError>>()?;
+        let fields_are_payload = fields
+            .iter()
+            .all(|field| field.value.is_default_heap_payload());
 
-        self.runtime
+        let handle = self
+            .runtime
             .gc()
             .alloc_struct(name, fields)
-            .map(Value::Struct)
-            .ok_or(VmError::TypeMismatch(
-                "make_struct expects default-storable fields",
-            ))
+            .ok_or_else(|| {
+                if fields_are_payload {
+                    VmError::RuntimeError(RuntimeError::resource_limit("heap units"))
+                } else {
+                    VmError::TypeMismatch("make_struct expects default-storable fields")
+                }
+            })?;
+        self.runtime
+            .sync_heap_accounting()
+            .map_err(VmError::RuntimeError)?;
+        Ok(Value::Struct(handle))
     }
 
     pub(crate) fn read_field(&self, base: Register, name: &str) -> Result<Value, VmError> {

@@ -1,5 +1,7 @@
 use kagari_ir::bytecode::{CallTarget, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, Register};
-use kagari_runtime::{builtin::BuiltinError, host::HostError, reflection::ReflectionError};
+use kagari_runtime::{
+    RuntimeError, builtin::BuiltinError, host::HostError, reflection::ReflectionError,
+};
 
 #[derive(Debug, Clone)]
 pub enum VmError {
@@ -16,6 +18,7 @@ pub enum VmError {
     HostError(HostError),
     BuiltinError(BuiltinError),
     ReflectionError(ReflectionError),
+    RuntimeError(RuntimeError),
     TypeMismatch(&'static str),
     UnsupportedCallTarget(CallTarget),
     UnsupportedInstruction(&'static str),

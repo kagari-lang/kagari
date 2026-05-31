@@ -6,6 +6,7 @@ use crate::value::{StructValueField, Value};
 pub struct GcHeapConfig {
     pub nursery_bytes: usize,
     pub large_object_threshold: usize,
+    pub max_heap_units: Option<usize>,
 }
 
 impl Default for GcHeapConfig {
@@ -13,8 +14,16 @@ impl Default for GcHeapConfig {
         Self {
             nursery_bytes: 1024 * 1024,
             large_object_threshold: 8 * 1024,
+            max_heap_units: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GcHeapStats {
+    pub current_heap_units: usize,
+    pub peak_heap_units: usize,
+    pub allocated_objects: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,6 +72,7 @@ pub struct GcHeap {
     config: GcHeapConfig,
     objects: RefCell<Vec<HeapObject>>,
     roots: RefCell<Vec<Option<Value>>>,
+    stats: RefCell<GcHeapStats>,
 }
 
 impl GcHeap {
@@ -71,6 +81,7 @@ impl GcHeap {
             config,
             objects: RefCell::new(Vec::new()),
             roots: RefCell::new(Vec::new()),
+            stats: RefCell::new(GcHeapStats::default()),
         }
     }
 
@@ -82,6 +93,12 @@ impl GcHeap {
         self.objects.borrow().len()
     }
 
+    pub fn stats(&self) -> GcHeapStats {
+        let mut stats = *self.stats.borrow();
+        stats.allocated_objects = self.allocated_objects();
+        stats
+    }
+
     pub fn active_roots(&self) -> usize {
         self.roots.borrow().iter().flatten().count()
     }
@@ -90,6 +107,7 @@ impl GcHeap {
         if !elements.iter().all(Value::is_default_heap_payload) {
             return None;
         }
+        self.reserve_heap_units(1 + elements.len())?;
         Some(self.alloc_object(HeapObject::Array(elements)))
     }
 
@@ -104,6 +122,7 @@ impl GcHeap {
         {
             return None;
         }
+        self.reserve_heap_units(1 + fields.len())?;
         Some(self.alloc_object(HeapObject::Struct { name, fields }))
     }
 
@@ -124,13 +143,18 @@ impl GcHeap {
         if !value.is_default_heap_payload() {
             return None;
         }
+        self.reserve_heap_units(1)?;
         self.with_array_mut(id, |elements| {
             elements.push(value);
         })
     }
 
     pub fn array_pop(&self, id: HeapObjectId) -> Option<Value> {
-        self.with_array_mut(id, |elements| elements.pop()).flatten()
+        let value = self.with_array_mut(id, |elements| elements.pop()).flatten();
+        if value.is_some() {
+            self.release_heap_units(1);
+        }
+        value
     }
 
     pub fn array_set(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
@@ -239,6 +263,24 @@ impl GcHeap {
         let id = HeapObjectId::new(objects.len());
         objects.push(object);
         id
+    }
+
+    fn reserve_heap_units(&self, units: usize) -> Option<()> {
+        let mut stats = self.stats.borrow_mut();
+        let next = stats.current_heap_units.checked_add(units)?;
+        if let Some(max) = self.config.max_heap_units {
+            if next > max {
+                return None;
+            }
+        }
+        stats.current_heap_units = next;
+        stats.peak_heap_units = stats.peak_heap_units.max(next);
+        Some(())
+    }
+
+    fn release_heap_units(&self, units: usize) {
+        let mut stats = self.stats.borrow_mut();
+        stats.current_heap_units = stats.current_heap_units.saturating_sub(units);
     }
 
     fn trace_values(&self, values: &[Value]) -> Vec<HeapObjectId> {

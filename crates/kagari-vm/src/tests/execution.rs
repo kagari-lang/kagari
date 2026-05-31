@@ -4,11 +4,11 @@ use kagari_ir::bytecode::{
     BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
     FunctionRef, Register, RuntimeHelper,
 };
-use kagari_runtime::Runtime;
 use kagari_runtime::host::HostFunction;
 use kagari_runtime::value::{StructValueField, Value};
+use kagari_runtime::{ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind};
 
-use crate::tests::common::load_test_module;
+use crate::tests::common::{compile_test_bytecode, load_test_module};
 use crate::{Vm, VmError};
 
 #[test]
@@ -18,6 +18,32 @@ fn executes_simple_arithmetic_function() {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(3));
+}
+
+#[test]
+fn reports_runtime_instruction_step_limit() {
+    let bytecode = compile_test_bytecode("fn main() -> i32 { 1 }");
+    let mut runtime = Runtime::new(RuntimeConfig {
+        resources: ResourcePolicy {
+            max_instruction_steps: Some(1),
+            ..ResourcePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = runtime
+        .load_module("limited.kgr", bytecode)
+        .expect("limited module should load");
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("execution should hit instruction step limit");
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref err)
+            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
+    ));
 }
 
 #[test]
@@ -152,49 +178,51 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
         },
     ));
 
-    let loaded = runtime.load_module(
-        "module_init_once.kgr",
-        BytecodeModule {
-            module_init: Some(FunctionRef::new(0)),
-            module_slots: vec![],
-            functions: vec![
-                BytecodeFunction {
-                    id: FunctionRef::new(0),
-                    name: "__module_init__".to_owned(),
-                    parameter_count: 0,
-                    register_count: 0,
-                    local_count: 0,
-                    instructions: vec![
-                        BytecodeInstruction::Call {
-                            dst: None,
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.bump_init".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(None),
-                    ],
-                    ..Default::default()
-                },
-                BytecodeFunction {
-                    id: FunctionRef::new(1),
-                    name: "main".to_owned(),
-                    parameter_count: 0,
-                    register_count: 1,
-                    local_count: 0,
-                    instructions: vec![
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(0),
-                            constant: ConstantOperand::I32(7),
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(0))),
-                    ],
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        },
-    );
+    let loaded = runtime
+        .load_module(
+            "module_init_once.kgr",
+            BytecodeModule {
+                module_init: Some(FunctionRef::new(0)),
+                module_slots: vec![],
+                functions: vec![
+                    BytecodeFunction {
+                        id: FunctionRef::new(0),
+                        name: "__module_init__".to_owned(),
+                        parameter_count: 0,
+                        register_count: 0,
+                        local_count: 0,
+                        instructions: vec![
+                            BytecodeInstruction::Call {
+                                dst: None,
+                                callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                                    "host.bump_init".to_owned(),
+                                )),
+                                args: vec![],
+                            },
+                            BytecodeInstruction::Return(None),
+                        ],
+                        ..Default::default()
+                    },
+                    BytecodeFunction {
+                        id: FunctionRef::new(1),
+                        name: "main".to_owned(),
+                        parameter_count: 0,
+                        register_count: 1,
+                        local_count: 0,
+                        instructions: vec![
+                            BytecodeInstruction::LoadConst {
+                                dst: Register::new(0),
+                                constant: ConstantOperand::I32(7),
+                            },
+                            BytecodeInstruction::Return(Some(Register::new(0))),
+                        ],
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        )
+        .expect("module should load");
 
     let mut vm = Vm::new(runtime);
     let first = vm
@@ -249,8 +277,12 @@ fn reruns_module_init_for_new_module_epoch() {
         }],
         ..Default::default()
     };
-    let first_loaded = runtime.load_module("reloadable.kgr", bytecode.clone());
-    let second_loaded = runtime.load_module("reloadable.kgr", bytecode);
+    let first_loaded = runtime
+        .load_module("reloadable.kgr", bytecode.clone())
+        .expect("first module epoch should load");
+    let second_loaded = runtime
+        .load_module("reloadable.kgr", bytecode)
+        .expect("second module epoch should load");
 
     let mut vm = Vm::new(runtime);
     vm.execute_module(&first_loaded)
@@ -278,32 +310,34 @@ fn caches_failed_module_init_without_retrying() {
         },
     ));
 
-    let loaded = runtime.load_module(
-        "module_init_failed.kgr",
-        BytecodeModule {
-            module_init: Some(FunctionRef::new(0)),
-            module_slots: vec![],
-            functions: vec![BytecodeFunction {
-                id: FunctionRef::new(0),
-                name: "__module_init__".to_owned(),
-                parameter_count: 0,
-                register_count: 0,
-                local_count: 0,
-                instructions: vec![
-                    BytecodeInstruction::Call {
-                        dst: None,
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                            "host.fail_init".to_owned(),
-                        )),
-                        args: vec![],
-                    },
-                    BytecodeInstruction::Return(None),
-                ],
+    let loaded = runtime
+        .load_module(
+            "module_init_failed.kgr",
+            BytecodeModule {
+                module_init: Some(FunctionRef::new(0)),
+                module_slots: vec![],
+                functions: vec![BytecodeFunction {
+                    id: FunctionRef::new(0),
+                    name: "__module_init__".to_owned(),
+                    parameter_count: 0,
+                    register_count: 0,
+                    local_count: 0,
+                    instructions: vec![
+                        BytecodeInstruction::Call {
+                            dst: None,
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                                "host.fail_init".to_owned(),
+                            )),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::Return(None),
+                    ],
+                    ..Default::default()
+                }],
                 ..Default::default()
-            }],
-            ..Default::default()
-        },
-    );
+            },
+        )
+        .expect("failed-init module should load");
 
     let mut vm = Vm::new(runtime);
     let first = vm

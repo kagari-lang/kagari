@@ -66,7 +66,13 @@ fn main() -> ExitCode {
 
     let mut runtime = Runtime::default();
     register_default_host_functions(&mut runtime);
-    let loaded = runtime.load_module(source.name(), bytecode);
+    let loaded = match runtime.load_module(source.name(), bytecode) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!("{error:?}");
+            return ExitCode::from(1);
+        }
+    };
     let mut vm = Vm::new(runtime);
 
     let result = if has_main {

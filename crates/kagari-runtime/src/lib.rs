@@ -1,16 +1,28 @@
 pub mod builtin;
+pub mod error;
 pub mod gc;
 pub mod host;
+pub mod metadata;
 pub mod module;
 pub mod reflection;
 pub mod reload;
+pub mod resource;
+pub mod security;
 pub mod value;
 
 use kagari_ir::bytecode::{BuiltinMethod, BytecodeModule};
 
+pub use error::{RuntimeError, RuntimeErrorKind};
+pub use metadata::{
+    AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
+    ParameterInfo, PathAccess, TraitInfo, TypeId, TypeInfo, TypeKind, TypeRegistration,
+    TypeRegistry, VariantInfo, VariantMetadataId, Visibility,
+};
 pub use module::{
     LoadedModule, ModuleId, ModuleInitializationState, ModuleInstance, ModuleKey, ModuleStore,
 };
+pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
+pub use security::{CapabilitySet, LanguageProfile, SecurityContext};
 
 use crate::{
     builtin::BuiltinError,
@@ -23,21 +35,31 @@ use crate::{
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RuntimeConfig {
     pub gc: GcHeapConfig,
+    pub security: SecurityContext,
+    pub resources: ResourcePolicy,
 }
 
 #[derive(Debug)]
 pub struct Runtime {
     gc: GcHeap,
+    types: TypeRegistry,
     host: HostRegistry,
+    security: SecurityContext,
+    resources: ResourceState,
     reloads: HotReloadCoordinator,
     modules: ModuleStore,
 }
 
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
+        let mut gc_config = config.gc;
+        gc_config.max_heap_units = gc_config.max_heap_units.or(config.resources.max_heap_units);
         Self {
-            gc: GcHeap::new(config.gc),
+            gc: GcHeap::new(gc_config),
+            types: TypeRegistry::default(),
             host: HostRegistry::default(),
+            security: config.security,
+            resources: ResourceState::new(config.resources),
             reloads: HotReloadCoordinator::default(),
             modules: ModuleStore::default(),
         }
@@ -53,6 +75,18 @@ impl Runtime {
 
     pub fn host_mut(&mut self) -> &mut HostRegistry {
         &mut self.host
+    }
+
+    pub fn types(&self) -> &TypeRegistry {
+        &self.types
+    }
+
+    pub fn security(&self) -> SecurityContext {
+        self.security
+    }
+
+    pub fn resources(&self) -> &ResourceState {
+        &self.resources
     }
 
     pub fn modules(&self) -> &ModuleStore {
@@ -88,6 +122,24 @@ impl Runtime {
 
     pub fn trace_roots(&self) -> Vec<HeapObjectId> {
         self.gc.trace_roots()
+    }
+
+    pub fn consume_instruction_step(&self) -> Result<(), RuntimeError> {
+        self.resources.consume_instruction_step()
+    }
+
+    pub fn enter_call(&self) -> Result<(), RuntimeError> {
+        self.resources.enter_call()
+    }
+
+    pub fn leave_call(&self) {
+        self.resources.leave_call();
+    }
+
+    pub fn sync_heap_accounting(&self) -> Result<(), RuntimeError> {
+        let stats = self.gc.stats();
+        self.resources
+            .record_heap_units(stats.current_heap_units, stats.peak_heap_units)
     }
 
     pub fn invoke_host(
@@ -133,22 +185,102 @@ impl Runtime {
         method: BuiltinMethod,
         args: &[value::Value],
     ) -> Result<value::Value, BuiltinError> {
-        builtin::invoke(&self.gc, method, args)
+        let value = builtin::invoke(&self.gc, method, args)?;
+        let _ = self.sync_heap_accounting();
+        Ok(value)
     }
 
     pub fn load_module(
         &mut self,
         name: impl Into<String>,
         bytecode: BytecodeModule,
-    ) -> LoadedModule {
+    ) -> Result<LoadedModule, RuntimeError> {
         let name = name.into();
+        self.resources
+            .record_loaded_modules(self.modules.loaded_count() + 1)?;
         let epoch = self.reloads.publish(&name);
-        self.modules.load(name, epoch, bytecode)
+        let module = self.modules.load(name, epoch, bytecode);
+        self.resources
+            .record_loaded_modules(self.modules.loaded_count())?;
+        Ok(module)
     }
 }
 
 impl Default for Runtime {
     fn default() -> Self {
         Self::new(RuntimeConfig::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_ir::bytecode::BytecodeModule;
+
+    #[test]
+    fn load_module_reports_module_resource_limit() {
+        let mut runtime = Runtime::new(RuntimeConfig {
+            resources: ResourcePolicy {
+                max_modules: Some(1),
+                ..ResourcePolicy::default()
+            },
+            ..RuntimeConfig::default()
+        });
+
+        runtime
+            .load_module("first", BytecodeModule::default())
+            .unwrap();
+        let error = runtime
+            .load_module("second", BytecodeModule::default())
+            .unwrap_err();
+
+        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+        assert_eq!(runtime.resources().counters().loaded_modules, 1);
+    }
+
+    #[test]
+    fn syncs_heap_accounting_into_runtime_resource_counters() {
+        let runtime = Runtime::default();
+        let array = runtime
+            .gc()
+            .alloc_array(vec![value::Value::I32(1)])
+            .unwrap();
+        runtime
+            .gc()
+            .array_push(array, value::Value::I32(2))
+            .unwrap();
+
+        runtime.sync_heap_accounting().unwrap();
+        let counters = runtime.resources().counters();
+
+        assert_eq!(counters.current_heap_units, 3);
+        assert_eq!(counters.peak_heap_units, 3);
+    }
+
+    #[test]
+    fn exposes_runtime_type_registry_and_security_context() {
+        let runtime = Runtime::new(RuntimeConfig {
+            security: SecurityContext {
+                capabilities: CapabilitySet {
+                    reflection_read: true,
+                    ..CapabilitySet::default()
+                },
+                profile: LanguageProfile {
+                    allow_reflection: true,
+                    ..LanguageProfile::default()
+                },
+            },
+            ..RuntimeConfig::default()
+        });
+        let type_id = runtime
+            .types()
+            .register(TypeRegistration {
+                abi_fingerprint: AbiFingerprint(99),
+                ..TypeRegistration::new("Player", TypeKind::Struct)
+            })
+            .unwrap();
+
+        assert_eq!(runtime.types().id_by_name("Player"), Some(type_id));
+        assert!(runtime.security().allows_reflection_read());
     }
 }

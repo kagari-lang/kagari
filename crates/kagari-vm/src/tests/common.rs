@@ -9,7 +9,9 @@ use kagari_syntax::parse_module;
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
     let mut runtime = Runtime::default();
-    let loaded = runtime.load_module(name, bytecode);
+    let loaded = runtime
+        .load_module(name, bytecode)
+        .expect("test module should load");
     (runtime, loaded)
 }
 

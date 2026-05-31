@@ -52,6 +52,10 @@ impl<'a> Executor<'a> {
                 return Ok(Value::Unit);
             };
 
+            self.runtime
+                .consume_instruction_step()
+                .map_err(VmError::RuntimeError)?;
+
             match instruction {
                 BytecodeInstruction::Return(value) => {
                     let value = match value {

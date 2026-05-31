@@ -26,40 +26,42 @@ fn executes_runtime_host_helper_call() {
         },
     ));
 
-    let loaded = runtime.load_module(
-        "helper.kbc",
-        BytecodeModule {
-            module_init: None,
-            module_slots: vec![],
-            functions: vec![BytecodeFunction {
-                id: FunctionRef::new(0),
-                name: "main".to_owned(),
-                parameter_count: 0,
-                register_count: 3,
-                local_count: 0,
-                instructions: vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(40),
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(1),
-                        constant: ConstantOperand::I32(2),
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(2)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                            "host.add_i32".to_owned(),
-                        )),
-                        args: vec![Register::new(0), Register::new(1)],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(2))),
-                ],
+    let loaded = runtime
+        .load_module(
+            "helper.kbc",
+            BytecodeModule {
+                module_init: None,
+                module_slots: vec![],
+                functions: vec![BytecodeFunction {
+                    id: FunctionRef::new(0),
+                    name: "main".to_owned(),
+                    parameter_count: 0,
+                    register_count: 3,
+                    local_count: 0,
+                    instructions: vec![
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(0),
+                            constant: ConstantOperand::I32(40),
+                        },
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(1),
+                            constant: ConstantOperand::I32(2),
+                        },
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(2)),
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                                "host.add_i32".to_owned(),
+                            )),
+                            args: vec![Register::new(0), Register::new(1)],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(2))),
+                    ],
+                    ..Default::default()
+                }],
                 ..Default::default()
-            }],
-            ..Default::default()
-        },
-    );
+            },
+        )
+        .expect("helper module should load");
 
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
@@ -244,7 +246,9 @@ fn executes_source_lowered_print_builtin() {
             Ok(Value::Unit)
         }));
     let bytecode = compile_test_bytecode(r#"fn main() { print("hello"); }"#);
-    let loaded = runtime.load_module("print.kgr", bytecode);
+    let loaded = runtime
+        .load_module("print.kgr", bytecode)
+        .expect("print module should load");
 
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
