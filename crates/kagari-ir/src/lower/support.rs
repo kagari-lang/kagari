@@ -1,11 +1,12 @@
-use kagari_hir::{hir, resolver::ResolvedName};
+use kagari_hir::{hir, resolver::ResolvedName, types::TypeId};
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
 use crate::lower::{EvaluatedConst, EvaluatedConstField};
 use crate::module::ids::LocalId;
 use crate::module::instruction::{
-    BinaryOp, CallTarget, Constant, Instruction, IrValue, StructFieldInit, UnaryOp,
+    AggregateFieldRef, BinaryOp, CallTarget, Constant, Instruction, IrValue, StructFieldInit,
+    UnaryOp,
 };
 use crate::module::types::ValueType;
 
@@ -72,6 +73,38 @@ impl FunctionLowerer<'_> {
             .as_ref()
             .map(ValueType::from_type_id)
             .ok_or(IrLoweringError::UnresolvedPlace(place_id))
+    }
+
+    pub(crate) fn aggregate_field_ref_for_expr(
+        &self,
+        receiver: hir::ExprId,
+        name: String,
+    ) -> Result<AggregateFieldRef, IrLoweringError> {
+        let owner = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_type(receiver)
+            .as_ref()
+            .map(type_owner_name)
+            .ok_or(IrLoweringError::MissingExprType(receiver))?;
+        Ok(AggregateFieldRef { owner, name })
+    }
+
+    pub(crate) fn aggregate_field_ref_for_place(
+        &self,
+        base: hir::PlaceId,
+        name: String,
+    ) -> Result<AggregateFieldRef, IrLoweringError> {
+        let owner = self
+            .analyzed
+            .typed
+            .type_table
+            .place_type(base)
+            .as_ref()
+            .map(type_owner_name)
+            .ok_or(IrLoweringError::UnresolvedPlace(base))?;
+        Ok(AggregateFieldRef { owner, name })
     }
 
     pub(crate) fn place_root(&self, place_id: hir::PlaceId) -> hir::PlaceId {
@@ -235,4 +268,8 @@ impl FunctionLowerer<'_> {
             hir::BinaryOp::OrOr => BinaryOp::OrOr,
         }
     }
+}
+
+fn type_owner_name(type_id: &TypeId) -> String {
+    type_id.display_name()
 }

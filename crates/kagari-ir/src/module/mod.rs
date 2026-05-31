@@ -11,7 +11,7 @@ pub use function::{
 };
 pub use ids::{BlockId, LocalId, ModuleSlotId, TempId};
 pub use instruction::{
-    BinaryOp, CallTarget, Constant, EffectSet, Instruction, InstructionBuffer, IrValue,
-    StructFieldInit, StructFieldInitBuffer, Terminator, UnaryOp, ValueBuffer,
+    AggregateFieldRef, BinaryOp, CallTarget, Constant, EffectSet, Instruction, InstructionBuffer,
+    IrValue, PathRef, StructFieldInit, StructFieldInitBuffer, Terminator, UnaryOp, ValueBuffer,
 };
 pub use types::ValueType;

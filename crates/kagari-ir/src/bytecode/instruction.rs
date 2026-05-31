@@ -71,6 +71,32 @@ impl Default for FunctionRef {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FieldId(u32);
+
+impl FieldId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PathId(u32);
+
+impl PathId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstantOperand {
     Unit,
@@ -173,15 +199,41 @@ pub enum BytecodeInstruction {
         name: String,
         fields: Vec<StructFieldInit>,
     },
-    ReadField {
+    ReadAggregateField {
         dst: Register,
         base: Register,
-        name: String,
+        field: FieldId,
     },
-    ReadIndex {
+    ReadAggregateIndex {
         dst: Register,
         base: Register,
         index: Register,
+    },
+    ReadPath {
+        dst: Register,
+        root_or_view: Register,
+        path: PathId,
+        dynamic_args: Vec<Register>,
+    },
+    SetPath {
+        root_or_view: Register,
+        path: PathId,
+        dynamic_args: Vec<Register>,
+        value: Register,
+    },
+    ModifyPath {
+        dst: Option<Register>,
+        root_or_view: Register,
+        path: PathId,
+        dynamic_args: Vec<Register>,
+        op: BinaryOp,
+        value: Register,
+    },
+    MakePathView {
+        dst: Register,
+        root_or_view: Register,
+        path: PathId,
+        dynamic_args: Vec<Register>,
     },
     Jump {
         target: JumpTarget,

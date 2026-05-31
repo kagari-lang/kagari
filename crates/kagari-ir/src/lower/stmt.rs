@@ -191,16 +191,17 @@ impl FunctionLowerer<'_> {
                 }
             }
             hir::PlaceKind::Field { base, name } => {
+                let field = self.aggregate_field_ref_for_place(base, name)?;
                 let base = self.lower_place_value(base)?;
                 let dst = self.alloc_temp(self.place_type(place_id)?);
-                self.emit(Instruction::ReadField { dst, base, name });
+                self.emit(Instruction::ReadAggregateField { dst, base, field });
                 Ok(dst)
             }
             hir::PlaceKind::Index { base, index } => {
                 let base = self.lower_place_value(base)?;
                 let index = self.lower_expr(index)?;
                 let dst = self.alloc_temp(self.place_type(place_id)?);
-                self.emit(Instruction::ReadIndex { dst, base, index });
+                self.emit(Instruction::ReadAggregateIndex { dst, base, index });
                 Ok(dst)
             }
         }

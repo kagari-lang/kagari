@@ -101,13 +101,30 @@ impl<'a> Executor<'a> {
                 let value = self.make_struct(name, &fields)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
-            BytecodeInstruction::ReadField { dst, base, name } => {
-                let value = self.read_field(base, &name)?;
+            BytecodeInstruction::ReadAggregateField { dst, base, field } => {
+                let field = self
+                    .module
+                    .fields
+                    .get(field.index())
+                    .ok_or(VmError::UnsupportedInstruction("invalid_aggregate_field"))?;
+                let value = self.read_field(base, &field.name)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
-            BytecodeInstruction::ReadIndex { dst, base, index } => {
+            BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
                 let value = self.read_index(base, index)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
+            }
+            BytecodeInstruction::ReadPath { .. } => {
+                return Err(VmError::UnsupportedInstruction("read_path"));
+            }
+            BytecodeInstruction::SetPath { .. } => {
+                return Err(VmError::UnsupportedInstruction("set_path"));
+            }
+            BytecodeInstruction::ModifyPath { .. } => {
+                return Err(VmError::UnsupportedInstruction("modify_path"));
+            }
+            BytecodeInstruction::MakePathView { .. } => {
+                return Err(VmError::UnsupportedInstruction("make_path_view"));
             }
             BytecodeInstruction::Return(_) => unreachable!("return handled in run loop"),
         }

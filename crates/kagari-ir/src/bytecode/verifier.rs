@@ -1,7 +1,8 @@
 use crate::{
     bytecode::{
         BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
-        ConstantOperand, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, Register, UnaryOp,
+        ConstantOperand, FieldId, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, PathId, Register,
+        UnaryOp,
     },
     module::ValueType,
 };
@@ -33,6 +34,18 @@ pub enum BytecodeVerificationError {
     InvalidModuleSlot {
         function: FunctionRef,
         slot: ModuleSlot,
+    },
+    InvalidFieldId {
+        function: FunctionRef,
+        field: FieldId,
+    },
+    InvalidPathId {
+        function: FunctionRef,
+        path: PathId,
+    },
+    ReadOnlyPath {
+        function: FunctionRef,
+        path: PathId,
     },
     InvalidFunctionRef {
         function: FunctionRef,
@@ -264,14 +277,76 @@ fn verify_instruction(
                 let _ = register_ty(function, field.value)?;
             }
         }
-        BytecodeInstruction::ReadField { dst, base, .. } => {
-            let _ = register_ty(function, *dst)?;
+        BytecodeInstruction::ReadAggregateField { dst, base, field } => {
+            let field = field_record(module, function, *field)?;
+            expect_register_ty(function, *dst, field.ty, "aggregate field dst")?;
             expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
         }
-        BytecodeInstruction::ReadIndex { dst, base, index } => {
+        BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
             let _ = register_ty(function, *dst)?;
             expect_register_ty(function, *base, ValueType::HeapObject, "index base")?;
             let _ = register_ty(function, *index)?;
+        }
+        BytecodeInstruction::ReadPath {
+            dst,
+            root_or_view,
+            path,
+            dynamic_args,
+        } => {
+            let path = path_record(module, function, *path)?;
+            expect_register_ty(function, *dst, path.result_ty, "path read dst")?;
+            expect_register_ty(function, *root_or_view, path.root_ty, "path root")?;
+            verify_dynamic_path_args(function, dynamic_args)?;
+        }
+        BytecodeInstruction::SetPath {
+            root_or_view,
+            path,
+            dynamic_args,
+            value,
+        } => {
+            let path = path_record(module, function, *path)?;
+            if path.read_only {
+                return Err(BytecodeVerificationError::ReadOnlyPath {
+                    function: function.id,
+                    path: path.id,
+                });
+            }
+            expect_register_ty(function, *root_or_view, path.root_ty, "path root")?;
+            expect_register_ty(function, *value, path.result_ty, "path set value")?;
+            verify_dynamic_path_args(function, dynamic_args)?;
+        }
+        BytecodeInstruction::ModifyPath {
+            dst,
+            root_or_view,
+            path,
+            dynamic_args,
+            value,
+            ..
+        } => {
+            let path = path_record(module, function, *path)?;
+            if path.read_only {
+                return Err(BytecodeVerificationError::ReadOnlyPath {
+                    function: function.id,
+                    path: path.id,
+                });
+            }
+            expect_register_ty(function, *root_or_view, path.root_ty, "path root")?;
+            expect_register_ty(function, *value, path.result_ty, "path modify value")?;
+            if let Some(dst) = dst {
+                expect_register_ty(function, *dst, path.result_ty, "path modify dst")?;
+            }
+            verify_dynamic_path_args(function, dynamic_args)?;
+        }
+        BytecodeInstruction::MakePathView {
+            dst,
+            root_or_view,
+            path,
+            dynamic_args,
+        } => {
+            let path = path_record(module, function, *path)?;
+            expect_register_ty(function, *dst, ValueType::HeapObject, "path view dst")?;
+            expect_register_ty(function, *root_or_view, path.root_ty, "path root")?;
+            verify_dynamic_path_args(function, dynamic_args)?;
         }
         BytecodeInstruction::Jump { target } => verify_jump(function, *target)?,
         BytecodeInstruction::Branch {
@@ -368,6 +443,58 @@ fn verify_call_dst(
 
 fn function_ref_exists(module: &BytecodeModule, target: FunctionRef) -> bool {
     target.index() < module.functions.len() && target.index() < module.function_table.len()
+}
+
+fn field_record<'a>(
+    module: &'a BytecodeModule,
+    function: &BytecodeFunction,
+    field: FieldId,
+) -> Result<&'a crate::bytecode::FieldRecord, BytecodeVerificationError> {
+    let Some(record) = module.fields.get(field.index()) else {
+        return Err(BytecodeVerificationError::InvalidFieldId {
+            function: function.id,
+            field,
+        });
+    };
+    if record.id == field {
+        Ok(record)
+    } else {
+        Err(BytecodeVerificationError::InvalidFieldId {
+            function: function.id,
+            field,
+        })
+    }
+}
+
+fn path_record<'a>(
+    module: &'a BytecodeModule,
+    function: &BytecodeFunction,
+    path: PathId,
+) -> Result<&'a crate::bytecode::PathRecord, BytecodeVerificationError> {
+    let Some(record) = module.paths.get(path.index()) else {
+        return Err(BytecodeVerificationError::InvalidPathId {
+            function: function.id,
+            path,
+        });
+    };
+    if record.id == path {
+        Ok(record)
+    } else {
+        Err(BytecodeVerificationError::InvalidPathId {
+            function: function.id,
+            path,
+        })
+    }
+}
+
+fn verify_dynamic_path_args(
+    function: &BytecodeFunction,
+    dynamic_args: &[Register],
+) -> Result<(), BytecodeVerificationError> {
+    for arg in dynamic_args {
+        let _ = register_ty(function, *arg)?;
+    }
+    Ok(())
 }
 
 fn verify_jump(

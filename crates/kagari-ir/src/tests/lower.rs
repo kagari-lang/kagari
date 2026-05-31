@@ -332,14 +332,14 @@ fn main() -> () {
             .blocks
             .iter()
             .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(instruction, Instruction::ReadIndex { .. }))
+            .any(|instruction| matches!(instruction, Instruction::ReadAggregateIndex { .. }))
     );
     assert!(
         function
             .blocks
             .iter()
             .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(instruction, Instruction::ReadField { .. }))
+            .any(|instruction| matches!(instruction, Instruction::ReadAggregateField { .. }))
     );
 }
 
@@ -377,8 +377,48 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             values.extend(fields.iter().map(|field| field.value));
             values
         }
-        Instruction::ReadField { dst, base, .. } => vec![*dst, *base],
-        Instruction::ReadIndex { dst, base, index } => vec![*dst, *base, *index],
+        Instruction::ReadAggregateField { dst, base, .. } => vec![*dst, *base],
+        Instruction::ReadAggregateIndex { dst, base, index } => vec![*dst, *base, *index],
+        Instruction::ReadPath {
+            dst,
+            root_or_view,
+            dynamic_args,
+            ..
+        }
+        | Instruction::MakePathView {
+            dst,
+            root_or_view,
+            dynamic_args,
+            ..
+        } => {
+            let mut values = vec![*dst, *root_or_view];
+            values.extend(dynamic_args.iter().copied());
+            values
+        }
+        Instruction::SetPath {
+            root_or_view,
+            dynamic_args,
+            value,
+            ..
+        } => {
+            let mut values = vec![*root_or_view, *value];
+            values.extend(dynamic_args.iter().copied());
+            values
+        }
+        Instruction::ModifyPath {
+            dst,
+            root_or_view,
+            dynamic_args,
+            value,
+            ..
+        } => {
+            let mut values = vec![*root_or_view, *value];
+            if let Some(dst) = dst {
+                values.push(*dst);
+            }
+            values.extend(dynamic_args.iter().copied());
+            values
+        }
     }
 }
 

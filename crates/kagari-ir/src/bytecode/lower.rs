@@ -4,11 +4,12 @@ use kagari_hir::builtin::BuiltinMethod;
 use kagari_hir::hir::FunctionId;
 
 use crate::bytecode::instruction::{
-    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FunctionRef, JumpTarget, LocalSlot,
-    ModuleSlot, Register, RuntimeHelper, StructFieldInit, UnaryOp,
+    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldId, FunctionRef, JumpTarget,
+    LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructFieldInit, UnaryOp,
 };
 use crate::bytecode::module::{
-    BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
+    BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FieldRecord, FunctionMetadata,
+    FunctionRecord, PathRecord,
 };
 use crate::bytecode::verify_module;
 use crate::module::{
@@ -16,8 +17,9 @@ use crate::module::{
     function::{BasicBlock, IrFunction, IrModule},
     ids::{BlockId, LocalId, ModuleSlotId, TempId},
     instruction::{
-        BinaryOp as IrBinaryOp, CallTarget as IrCallTarget, Constant, Instruction, IrValue,
-        RuntimeHelper as IrRuntimeHelper, Terminator, UnaryOp as IrUnaryOp,
+        AggregateFieldRef, BinaryOp as IrBinaryOp, CallTarget as IrCallTarget, Constant,
+        Instruction, IrValue, PathRef, RuntimeHelper as IrRuntimeHelper, Terminator,
+        UnaryOp as IrUnaryOp,
     },
 };
 
@@ -28,6 +30,7 @@ pub enum BytecodeLoweringError {
 }
 
 pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweringError> {
+    let mut context = BytecodeLoweringContext::default();
     let function_refs = ir
         .functions
         .iter()
@@ -37,7 +40,7 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
     let functions = ir
         .functions
         .iter()
-        .map(|function| lower_function(function, &function_refs))
+        .map(|function| lower_function(function, &function_refs, &mut context))
         .collect::<Result<Vec<_>, _>>()?;
     let mut module = BytecodeModule {
         module_init: ir
@@ -54,6 +57,8 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
             .collect(),
         constants: Vec::new(),
         types: Vec::new(),
+        fields: context.fields,
+        paths: context.paths,
         function_table: Vec::new(),
         public_items: Vec::new(),
         functions,
@@ -65,9 +70,54 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
     Ok(module)
 }
 
+#[derive(Debug, Default)]
+struct BytecodeLoweringContext {
+    fields: Vec<FieldRecord>,
+    paths: Vec<PathRecord>,
+}
+
+impl BytecodeLoweringContext {
+    fn field_id(&mut self, field: &AggregateFieldRef, ty: ValueType) -> FieldId {
+        if let Some(record) = self.fields.iter().find(|record| {
+            record.owner == field.owner && record.name == field.name && record.ty == ty
+        }) {
+            return record.id;
+        }
+        let id = FieldId::new(self.fields.len());
+        self.fields.push(FieldRecord {
+            id,
+            owner: field.owner.clone(),
+            name: field.name.clone(),
+            ty,
+        });
+        id
+    }
+
+    fn path_id(&mut self, path: &PathRef) -> PathId {
+        if let Some(record) = self.paths.iter().find(|record| {
+            record.root_ty == path.root_ty
+                && record.result_ty == path.result_ty
+                && record.read_only == path.read_only
+                && record.debug_name == path.debug_name
+        }) {
+            return record.id;
+        }
+        let id = PathId::new(self.paths.len());
+        self.paths.push(PathRecord {
+            id,
+            root_ty: path.root_ty,
+            result_ty: path.result_ty,
+            read_only: path.read_only,
+            debug_name: path.debug_name.clone(),
+        });
+        id
+    }
+}
+
 fn lower_function(
     function: &IrFunction,
     function_refs: &HashMap<FunctionId, FunctionRef>,
+    context: &mut BytecodeLoweringContext,
 ) -> Result<BytecodeFunction, BytecodeLoweringError> {
     let block_offsets = compute_block_offsets(function);
     let mut instructions = Vec::with_capacity(
@@ -79,7 +129,13 @@ fn lower_function(
     );
 
     for block in &function.blocks {
-        lower_block(block, &block_offsets, function_refs, &mut instructions)?;
+        lower_block(
+            block,
+            &block_offsets,
+            function_refs,
+            context,
+            &mut instructions,
+        )?;
     }
 
     let metadata = FunctionMetadata {
@@ -135,6 +191,13 @@ fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
     let mut types = Vec::new();
     for slot in &module.module_slots {
         push_type(&mut types, slot.ty);
+    }
+    for field in &module.fields {
+        push_type(&mut types, field.ty);
+    }
+    for path in &module.paths {
+        push_type(&mut types, path.root_ty);
+        push_type(&mut types, path.result_ty);
     }
     for function in &module.functions {
         push_type(&mut types, function.metadata.return_type);
@@ -202,10 +265,11 @@ fn lower_block(
     block: &BasicBlock,
     block_offsets: &HashMap<BlockId, JumpTarget>,
     function_refs: &HashMap<FunctionId, FunctionRef>,
+    context: &mut BytecodeLoweringContext,
     out: &mut Vec<BytecodeInstruction>,
 ) -> Result<(), BytecodeLoweringError> {
     for instruction in &block.instructions {
-        out.push(lower_instruction(instruction, function_refs));
+        out.push(lower_instruction(instruction, function_refs, context));
     }
 
     if let Some(terminator) = &block.terminator {
@@ -218,6 +282,7 @@ fn lower_block(
 fn lower_instruction(
     instruction: &Instruction,
     function_refs: &HashMap<FunctionId, FunctionRef>,
+    context: &mut BytecodeLoweringContext,
 ) -> BytecodeInstruction {
     match instruction {
         Instruction::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
@@ -254,23 +319,7 @@ fn lower_instruction(
         },
         Instruction::Binary { dst, op, lhs, rhs } => BytecodeInstruction::Binary {
             dst: lower_value(*dst),
-            op: match op {
-                IrBinaryOp::Add => BinaryOp::Add,
-                IrBinaryOp::Sub => BinaryOp::Sub,
-                IrBinaryOp::Mul => BinaryOp::Mul,
-                IrBinaryOp::Div => BinaryOp::Div,
-                IrBinaryOp::Eq => BinaryOp::Eq,
-                IrBinaryOp::NotEq => BinaryOp::NotEq,
-                IrBinaryOp::Lt => BinaryOp::Lt,
-                IrBinaryOp::Gt => BinaryOp::Gt,
-                IrBinaryOp::Le => BinaryOp::Le,
-                IrBinaryOp::Ge => BinaryOp::Ge,
-                IrBinaryOp::AndAnd | IrBinaryOp::OrOr => {
-                    unreachable!(
-                        "short-circuit ops should be lowered into branches before bytecode"
-                    )
-                }
-            },
+            op: lower_binary_op(*op),
             lhs: lower_value(*lhs),
             rhs: lower_value(*rhs),
         },
@@ -317,15 +366,67 @@ fn lower_instruction(
                 })
                 .collect(),
         },
-        Instruction::ReadField { dst, base, name } => BytecodeInstruction::ReadField {
+        Instruction::ReadAggregateField { dst, base, field } => {
+            BytecodeInstruction::ReadAggregateField {
+                dst: lower_value(*dst),
+                base: lower_value(*base),
+                field: context.field_id(field, dst.ty),
+            }
+        }
+        Instruction::ReadAggregateIndex { dst, base, index } => {
+            BytecodeInstruction::ReadAggregateIndex {
+                dst: lower_value(*dst),
+                base: lower_value(*base),
+                index: lower_value(*index),
+            }
+        }
+        Instruction::ReadPath {
+            dst,
+            root_or_view,
+            path,
+            dynamic_args,
+        } => BytecodeInstruction::ReadPath {
             dst: lower_value(*dst),
-            base: lower_value(*base),
-            name: name.clone(),
+            root_or_view: lower_value(*root_or_view),
+            path: context.path_id(path),
+            dynamic_args: dynamic_args.iter().map(|arg| lower_value(*arg)).collect(),
         },
-        Instruction::ReadIndex { dst, base, index } => BytecodeInstruction::ReadIndex {
+        Instruction::SetPath {
+            root_or_view,
+            path,
+            dynamic_args,
+            value,
+        } => BytecodeInstruction::SetPath {
+            root_or_view: lower_value(*root_or_view),
+            path: context.path_id(path),
+            dynamic_args: dynamic_args.iter().map(|arg| lower_value(*arg)).collect(),
+            value: lower_value(*value),
+        },
+        Instruction::ModifyPath {
+            dst,
+            root_or_view,
+            path,
+            dynamic_args,
+            op,
+            value,
+        } => BytecodeInstruction::ModifyPath {
+            dst: dst.map(lower_value),
+            root_or_view: lower_value(*root_or_view),
+            path: context.path_id(path),
+            dynamic_args: dynamic_args.iter().map(|arg| lower_value(*arg)).collect(),
+            op: lower_binary_op(*op),
+            value: lower_value(*value),
+        },
+        Instruction::MakePathView {
+            dst,
+            root_or_view,
+            path,
+            dynamic_args,
+        } => BytecodeInstruction::MakePathView {
             dst: lower_value(*dst),
-            base: lower_value(*base),
-            index: lower_value(*index),
+            root_or_view: lower_value(*root_or_view),
+            path: context.path_id(path),
+            dynamic_args: dynamic_args.iter().map(|arg| lower_value(*arg)).collect(),
         },
     }
 }
@@ -364,6 +465,24 @@ fn lower_constant(constant: &Constant) -> ConstantOperand {
 
 fn lower_builtin_method(method: BuiltinMethod) -> BuiltinMethod {
     method
+}
+
+fn lower_binary_op(op: IrBinaryOp) -> BinaryOp {
+    match op {
+        IrBinaryOp::Add => BinaryOp::Add,
+        IrBinaryOp::Sub => BinaryOp::Sub,
+        IrBinaryOp::Mul => BinaryOp::Mul,
+        IrBinaryOp::Div => BinaryOp::Div,
+        IrBinaryOp::Eq => BinaryOp::Eq,
+        IrBinaryOp::NotEq => BinaryOp::NotEq,
+        IrBinaryOp::Lt => BinaryOp::Lt,
+        IrBinaryOp::Gt => BinaryOp::Gt,
+        IrBinaryOp::Le => BinaryOp::Le,
+        IrBinaryOp::Ge => BinaryOp::Ge,
+        IrBinaryOp::AndAnd | IrBinaryOp::OrOr => {
+            unreachable!("short-circuit ops should be lowered into branches before bytecode")
+        }
+    }
 }
 
 fn lower_runtime_helper(helper: &IrRuntimeHelper) -> RuntimeHelper {

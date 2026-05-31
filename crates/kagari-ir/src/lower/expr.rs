@@ -387,9 +387,10 @@ impl FunctionLowerer<'_> {
         receiver: hir::ExprId,
         name: String,
     ) -> Result<IrValue, IrLoweringError> {
+        let field = self.aggregate_field_ref_for_expr(receiver, name)?;
         let base = self.lower_expr(receiver)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
-        self.emit(Instruction::ReadField { dst, base, name });
+        self.emit(Instruction::ReadAggregateField { dst, base, field });
         Ok(dst)
     }
 
@@ -402,7 +403,7 @@ impl FunctionLowerer<'_> {
         let base = self.lower_expr(receiver)?;
         let index = self.lower_expr(index)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
-        self.emit(Instruction::ReadIndex { dst, base, index });
+        self.emit(Instruction::ReadAggregateIndex { dst, base, index });
         Ok(dst)
     }
 

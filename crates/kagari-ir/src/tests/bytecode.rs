@@ -1,8 +1,9 @@
 use crate::{
     builtin::array,
     bytecode::{
-        BinaryOp, BuiltinMethod, BytecodeInstruction, BytecodeVerificationError, CallTarget,
-        FunctionRef, JumpTarget, LocalSlot, Register, RuntimeHelper, UnaryOp, verify_module,
+        BinaryOp, BuiltinMethod, BytecodeFunction, BytecodeInstruction, BytecodeModule,
+        BytecodeVerificationError, CallTarget, FunctionMetadata, FunctionRef, JumpTarget,
+        LocalSlot, PathId, PathRecord, Register, RuntimeHelper, UnaryOp, verify_module,
     },
     module::ValueType,
     tests::common,
@@ -266,17 +267,71 @@ fn main() -> () {
             .any(|instruction| matches!(instruction, BytecodeInstruction::MakeStruct { .. }))
     );
     assert!(
-        function
-            .instructions
-            .iter()
-            .any(|instruction| matches!(instruction, BytecodeInstruction::ReadIndex { .. }))
+        function.instructions.iter().any(|instruction| matches!(
+            instruction,
+            BytecodeInstruction::ReadAggregateIndex { .. }
+        ))
     );
     assert!(
-        function
-            .instructions
-            .iter()
-            .any(|instruction| matches!(instruction, BytecodeInstruction::ReadField { .. }))
+        function.instructions.iter().any(|instruction| matches!(
+            instruction,
+            BytecodeInstruction::ReadAggregateField { .. }
+        ))
     );
+    assert!(bytecode.fields.iter().any(|field| field.name == "x"));
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::ReadAggregateField { field, .. }
+            if bytecode.fields.get(field.index()).is_some_and(|record| record.name == "x")
+    )));
+}
+
+#[test]
+fn verifier_accepts_resolved_typed_path_instructions() {
+    let module = BytecodeModule {
+        types: vec![ValueType::HeapObject, ValueType::I32],
+        paths: vec![PathRecord {
+            id: PathId::new(0),
+            root_ty: ValueType::HeapObject,
+            result_ty: ValueType::I32,
+            read_only: false,
+            debug_name: "Actor.health".to_owned(),
+        }],
+        function_table: vec![crate::bytecode::FunctionRecord {
+            id: FunctionRef::new(0),
+            name: "read_health".to_owned(),
+            params: vec![ValueType::HeapObject],
+            return_type: ValueType::I32,
+            effects: crate::module::EffectSet::path_read(),
+        }],
+        functions: vec![BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: "read_health".to_owned(),
+            parameter_count: 1,
+            local_count: 1,
+            register_count: 2,
+            metadata: FunctionMetadata {
+                params: vec![ValueType::HeapObject],
+                return_type: ValueType::I32,
+                locals: vec![ValueType::HeapObject],
+                registers: vec![ValueType::HeapObject, ValueType::I32],
+                effects: crate::module::EffectSet::path_read(),
+                ..Default::default()
+            },
+            instructions: vec![
+                BytecodeInstruction::ReadPath {
+                    dst: Register::new(1),
+                    root_or_view: Register::new(0),
+                    path: PathId::new(0),
+                    dynamic_args: Vec::new(),
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
+            ],
+        }],
+        ..Default::default()
+    };
+
+    assert!(verify_module(&module).is_ok());
 }
 
 #[test]

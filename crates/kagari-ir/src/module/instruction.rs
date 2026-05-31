@@ -10,6 +10,20 @@ pub struct IrValue {
     pub ty: ValueType,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AggregateFieldRef {
+    pub owner: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathRef {
+    pub root_ty: ValueType,
+    pub result_ty: ValueType,
+    pub read_only: bool,
+    pub debug_name: String,
+}
+
 #[derive(Debug, Clone)]
 pub enum Instruction {
     LoadConst {
@@ -65,15 +79,41 @@ pub enum Instruction {
         name: String,
         fields: StructFieldInitBuffer,
     },
-    ReadField {
+    ReadAggregateField {
         dst: IrValue,
         base: IrValue,
-        name: String,
+        field: AggregateFieldRef,
     },
-    ReadIndex {
+    ReadAggregateIndex {
         dst: IrValue,
         base: IrValue,
         index: IrValue,
+    },
+    ReadPath {
+        dst: IrValue,
+        root_or_view: IrValue,
+        path: PathRef,
+        dynamic_args: ValueBuffer,
+    },
+    SetPath {
+        root_or_view: IrValue,
+        path: PathRef,
+        dynamic_args: ValueBuffer,
+        value: IrValue,
+    },
+    ModifyPath {
+        dst: Option<IrValue>,
+        root_or_view: IrValue,
+        path: PathRef,
+        dynamic_args: ValueBuffer,
+        op: BinaryOp,
+        value: IrValue,
+    },
+    MakePathView {
+        dst: IrValue,
+        root_or_view: IrValue,
+        path: PathRef,
+        dynamic_args: ValueBuffer,
     },
 }
 
@@ -105,6 +145,8 @@ pub struct EffectSet {
     pub writes_module: bool,
     pub reads_aggregate: bool,
     pub writes_aggregate: bool,
+    pub reads_path: bool,
+    pub writes_path: bool,
     pub allocates: bool,
     pub calls: bool,
     pub touches_runtime: bool,
@@ -120,6 +162,8 @@ impl EffectSet {
             writes_module: self.writes_module || other.writes_module,
             reads_aggregate: self.reads_aggregate || other.reads_aggregate,
             writes_aggregate: self.writes_aggregate || other.writes_aggregate,
+            reads_path: self.reads_path || other.reads_path,
+            writes_path: self.writes_path || other.writes_path,
             allocates: self.allocates || other.allocates,
             calls: self.calls || other.calls,
             touches_runtime: self.touches_runtime || other.touches_runtime,
@@ -175,6 +219,24 @@ impl EffectSet {
         }
     }
 
+    pub fn path_read() -> Self {
+        Self {
+            reads_path: true,
+            touches_runtime: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn path_write() -> Self {
+        Self {
+            writes_path: true,
+            touches_runtime: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+
     pub fn allocation() -> Self {
         Self {
             allocates: true,
@@ -217,7 +279,12 @@ impl Instruction {
             Self::MakeTuple { .. } | Self::MakeArray { .. } | Self::MakeStruct { .. } => {
                 EffectSet::allocation()
             }
-            Self::ReadField { .. } | Self::ReadIndex { .. } => EffectSet::aggregate_read(),
+            Self::ReadAggregateField { .. } | Self::ReadAggregateIndex { .. } => {
+                EffectSet::aggregate_read()
+            }
+            Self::ReadPath { .. } | Self::MakePathView { .. } => EffectSet::path_read(),
+            Self::SetPath { .. } => EffectSet::path_write(),
+            Self::ModifyPath { .. } => EffectSet::path_read().union(EffectSet::path_write()),
         }
     }
 }
