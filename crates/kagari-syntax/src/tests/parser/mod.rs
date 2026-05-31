@@ -5,6 +5,7 @@ mod errors;
 mod expr;
 mod functions;
 mod items;
+mod language_conformance;
 mod match_expr;
 mod module_level;
 mod module_loading;

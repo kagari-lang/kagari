@@ -480,9 +480,28 @@ impl<'a> Parser<'a> {
                 | TokenKind::TrueKw
                 | TokenKind::FalseKw,
             ) => self.parse_literal(),
+            Some(TokenKind::LParen) => self.parse_tuple_pattern(),
             _ => self.error_here(DiagnosticKind::ExpectedMatchPattern),
         }
         self.finish_node();
+    }
+
+    fn parse_tuple_pattern(&mut self) {
+        self.expect(TokenKind::LParen, DiagnosticKind::ExpectedClosingParen);
+        self.bump_trivia();
+
+        while !self.at_any(&[TokenKind::RParen, TokenKind::Eof]) {
+            self.parse_match_pattern();
+            self.bump_trivia();
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                self.bump_trivia();
+            } else {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
     }
 
     fn parse_struct_literal_body(&mut self) {
