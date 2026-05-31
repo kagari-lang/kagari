@@ -1,8 +1,10 @@
 use crate::{
     builtin::array,
     bytecode::{
-        BinaryOp, BuiltinMethod, BytecodeFunction, BytecodeInstruction, BytecodeModule,
-        BytecodeVerificationError, CallTarget, FunctionMetadata, FunctionRef, JumpTarget,
+        ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
+        ArtifactSectionId, ArtifactValidationError, BinaryOp, BuiltinMethod, BytecodeFunction,
+        BytecodeInstruction, BytecodeModule, BytecodeVerificationError, CallTarget,
+        DependencyFingerprint, FunctionMetadata, FunctionRef, JumpTarget, KBC_MAGIC, KbcArtifact,
         LocalSlot, PathId, PathRecord, Register, RuntimeHelper, UnaryOp, verify_module,
     },
     module::ValueType,
@@ -68,6 +70,90 @@ fn main() -> i32 {
     assert!(main.metadata.effects.calls);
     assert!(main.metadata.effects.touches_runtime);
     assert!(verify_module(&bytecode).is_ok());
+}
+
+#[test]
+fn builds_versioned_kbc_artifact_metadata() {
+    let module = common::bytecode_ok(
+        r#"
+fn add(a: i32, b: i32) -> i32 { a + b }
+fn main() -> i32 { add(1, 2) }
+"#,
+    );
+    let identity = ArtifactModuleIdentity {
+        package_id: "pkg".to_owned(),
+        module_path: "main".to_owned(),
+        source_uri: "pkg://main.kg".to_owned(),
+        module_id: "pkg/main".to_owned(),
+    };
+    let dependency = DependencyFingerprint {
+        module_id: "pkg/math".to_owned(),
+        fingerprint: ArtifactFingerprint::of_str("math-v1"),
+    };
+    let options = ArtifactBuildOptions {
+        module_identity: identity.clone(),
+        dependency_fingerprints: vec![dependency.clone()],
+        host_registry_fingerprint: ArtifactFingerprint::of_str("host-v1"),
+        security_profile: Some("dev".to_owned()),
+        ..Default::default()
+    };
+    let artifact = KbcArtifact::from_module(module, options);
+
+    assert_eq!(artifact.header.magic, KBC_MAGIC);
+    assert_eq!(artifact.header.module_identity, identity);
+    assert!(artifact.header.content_hash != ArtifactFingerprint::empty());
+    assert!(
+        artifact.tables.sections.iter().any(|section| {
+            section.id == ArtifactSectionId::Constants && section.record_count > 0
+        })
+    );
+    assert!(artifact.tables.sections.iter().any(|section| {
+        section.id == ArtifactSectionId::Functions && section.record_count == 2
+    }));
+    assert!(artifact.tables.sections.iter().any(|section| {
+        section.id == ArtifactSectionId::Verification && section.record_count == 2
+    }));
+    assert!(artifact.verification.bytecode_verified);
+    assert_eq!(artifact.verification.function_layouts.len(), 2);
+    assert_eq!(
+        artifact.verification.loader.dependency_fingerprints,
+        vec![dependency]
+    );
+    assert_eq!(
+        artifact.verification.loader.security_profile.as_deref(),
+        Some("dev")
+    );
+
+    let requirements = ArtifactCompatibility {
+        module_identity: Some(identity),
+        dependency_fingerprints: artifact.verification.loader.dependency_fingerprints.clone(),
+        host_registry_fingerprint: artifact.verification.loader.host_registry_fingerprint,
+        security_profile: Some("dev".to_owned()),
+        ..Default::default()
+    };
+    assert!(artifact.validate_for_loader(&requirements).is_ok());
+}
+
+#[test]
+fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
+    let module = common::bytecode_ok("fn main() -> i32 { 1 }");
+    let mut artifact = KbcArtifact::from_module(module, ArtifactBuildOptions::default());
+    let requirements = ArtifactCompatibility {
+        runtime_abi_version: "other-runtime".to_owned(),
+        ..Default::default()
+    };
+
+    assert!(matches!(
+        artifact.validate_for_loader(&requirements),
+        Err(ArtifactValidationError::RuntimeAbiMismatch { .. })
+    ));
+
+    let requirements = ArtifactCompatibility::default();
+    artifact.module.constants.clear();
+    assert!(matches!(
+        artifact.validate_for_loader(&requirements),
+        Err(ArtifactValidationError::ContentHashMismatch)
+    ));
 }
 
 #[test]
