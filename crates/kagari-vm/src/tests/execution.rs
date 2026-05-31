@@ -290,9 +290,15 @@ fn rejects_unsupported_bytecode_before_execution() {
         )],
     );
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
-            max_instruction_steps: Some(0),
-            ..ResourcePolicy::default()
+        security: kagari_runtime::SecurityContext {
+            profile: kagari_runtime::LanguageProfile {
+                allow_reflection: true,
+                ..kagari_runtime::LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                dynamic_invocation: true,
+                ..CapabilitySet::default()
+            },
         },
         ..RuntimeConfig::default()
     });
@@ -310,7 +316,41 @@ fn rejects_unsupported_bytecode_before_execution() {
     ));
     assert!(matches!(
         vm.execute(&dynamic_loaded, "main").unwrap_err(),
-        VmError::UnsupportedInstruction("dynamic_call")
+        VmError::UnsupportedInstruction("runtime_helper_dynamic_call")
+    ));
+}
+
+#[test]
+fn dynamic_invocation_requires_separate_runtime_capability() {
+    let dynamic_call = verified_module(
+        None,
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::Call {
+                    dst: None,
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
+                    args: vec![],
+                },
+                BytecodeInstruction::Return(None),
+            ],
+            ValueType::Unit,
+            vec![],
+        )],
+    );
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_module("dynamic_call_denied.kbc", dynamic_call)
+        .expect("runtime can store bytecode before VM support validation");
+    let mut vm = Vm::new(runtime);
+    let error = vm.execute(&loaded, "main").unwrap_err();
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("dynamic_invocation")
     ));
 }
 

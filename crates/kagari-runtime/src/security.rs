@@ -36,8 +36,11 @@ pub struct CapabilitySet {
     pub random: bool,
     pub host_calls: bool,
     pub path_mutation: bool,
+    pub reflection_metadata: bool,
     pub reflection_read: bool,
     pub reflection_write: bool,
+    pub dynamic_invocation: bool,
+    pub downcast: bool,
     pub module_loading: bool,
     pub jit: bool,
 }
@@ -97,6 +100,10 @@ pub struct SecurityContext {
 }
 
 impl SecurityContext {
+    pub fn allows_reflection_metadata(&self) -> bool {
+        self.profile.allow_reflection && self.capabilities.reflection_metadata
+    }
+
     pub fn allows_reflection_read(&self) -> bool {
         self.profile.allow_reflection && self.capabilities.reflection_read
     }
@@ -105,6 +112,14 @@ impl SecurityContext {
         self.profile.allow_reflection
             && self.profile.allow_reflection_write
             && self.capabilities.reflection_write
+    }
+
+    pub fn allows_dynamic_invocation(&self) -> bool {
+        self.profile.allow_reflection && self.capabilities.dynamic_invocation
+    }
+
+    pub fn allows_downcast(&self) -> bool {
+        self.profile.allow_interface_values && self.capabilities.downcast
     }
 
     pub fn allows_host_calls(&self) -> bool {

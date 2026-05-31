@@ -360,12 +360,16 @@ impl ExecutionContext {
                                 ),
                             ));
                         }
-                        RuntimeHelper::ReflectTypeOf | RuntimeHelper::ReflectGetField(_)
-                            if !security.allows_reflection_read() =>
-                        {
+                        RuntimeHelper::ReflectTypeOf if !security.allows_reflection_metadata() => {
                             return Err(EmbeddingError::runtime(
                                 RuntimeFailureKind::CapabilityDenied,
-                                "reflection read is denied by execution context",
+                                "reflection metadata is denied by execution context",
+                            ));
+                        }
+                        RuntimeHelper::ReflectGetField(_) if !security.allows_reflection_read() => {
+                            return Err(EmbeddingError::runtime(
+                                RuntimeFailureKind::CapabilityDenied,
+                                "reflective read is denied by execution context",
                             ));
                         }
                         RuntimeHelper::ReflectSetField(_) | RuntimeHelper::ReflectSetIndex
@@ -374,6 +378,12 @@ impl ExecutionContext {
                             return Err(EmbeddingError::runtime(
                                 RuntimeFailureKind::CapabilityDenied,
                                 "reflection write is denied by execution context",
+                            ));
+                        }
+                        RuntimeHelper::DynamicCall if !security.allows_dynamic_invocation() => {
+                            return Err(EmbeddingError::runtime(
+                                RuntimeFailureKind::CapabilityDenied,
+                                "dynamic invocation is denied by execution context",
                             ));
                         }
                         _ => {}
@@ -570,9 +580,9 @@ impl EmbeddingError {
                 | RuntimeErrorKind::TypedPathValidation => RuntimeFailureKind::TypedPathValidation,
                 RuntimeErrorKind::HostCallFailure => RuntimeFailureKind::HostCallFailure,
                 RuntimeErrorKind::ModuleValidation => RuntimeFailureKind::BytecodeVerification,
-                RuntimeErrorKind::InvalidReflectiveWrite | RuntimeErrorKind::MetadataConflict => {
-                    RuntimeFailureKind::ScriptTrap
-                }
+                RuntimeErrorKind::InvalidReflectiveRead
+                | RuntimeErrorKind::InvalidReflectiveWrite
+                | RuntimeErrorKind::MetadataConflict => RuntimeFailureKind::ScriptTrap,
             },
             VmError::BytecodeVerification(_) => RuntimeFailureKind::BytecodeVerification,
             VmError::InvalidFunctionRef(_)

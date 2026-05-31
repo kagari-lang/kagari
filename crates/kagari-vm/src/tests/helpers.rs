@@ -59,6 +59,7 @@ fn reflection_runtime() -> Runtime {
                 ..LanguageProfile::default()
             },
             capabilities: CapabilitySet {
+                reflection_metadata: true,
                 reflection_read: true,
                 reflection_write: true,
                 ..CapabilitySet::default()
@@ -472,7 +473,134 @@ fn runtime_reflection_helpers_require_runtime_capability() {
         error,
         crate::VmError::RuntimeError(ref error)
             if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("reflection_metadata")
+    ));
+}
+
+#[test]
+fn reflection_metadata_and_read_gates_are_separate() {
+    let mut metadata_only = Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_reflection: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                reflection_metadata: true,
+                ..CapabilitySet::default()
+            },
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = metadata_only
+        .load_module(
+            "reflect_read_denied.kbc",
+            test_function_module(
+                "main",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantOperand::I32(1),
+                    },
+                    BytecodeInstruction::MakeStruct {
+                        dst: Register::new(1),
+                        name: "Point".to_owned(),
+                        fields: vec![StructFieldInit {
+                            name: "x".to_owned(),
+                            value: Register::new(0),
+                        }],
+                    },
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(2)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
+                            "x".to_owned(),
+                        )),
+                        args: vec![Register::new(1)],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(2))),
+                ],
+                ValueType::I32,
+                vec![ValueType::I32, ValueType::HeapObject, ValueType::I32],
+            ),
+        )
+        .unwrap();
+    let mut vm = Vm::new(metadata_only);
+    let error = vm.execute(&loaded, "main").unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
                 && error.message().contains("reflection_read")
+    ));
+}
+
+#[test]
+fn reflection_read_and_write_gates_are_separate() {
+    let mut read_only = Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                reflection_metadata: true,
+                reflection_read: true,
+                ..CapabilitySet::default()
+            },
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = read_only
+        .load_module(
+            "reflect_write_denied.kbc",
+            test_function_module(
+                "main",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantOperand::I32(1),
+                    },
+                    BytecodeInstruction::MakeStruct {
+                        dst: Register::new(1),
+                        name: "Point".to_owned(),
+                        fields: vec![StructFieldInit {
+                            name: "x".to_owned(),
+                            value: Register::new(0),
+                        }],
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(2),
+                        constant: ConstantOperand::I32(2),
+                    },
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(3)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
+                            "x".to_owned(),
+                        )),
+                        args: vec![Register::new(1), Register::new(2)],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(3))),
+                ],
+                ValueType::HeapObject,
+                vec![
+                    ValueType::I32,
+                    ValueType::HeapObject,
+                    ValueType::I32,
+                    ValueType::HeapObject,
+                ],
+            ),
+        )
+        .unwrap();
+    let mut vm = Vm::new(read_only);
+    let error = vm.execute(&loaded, "main").unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("reflection_write")
     ));
 }
 

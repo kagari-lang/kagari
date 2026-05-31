@@ -270,10 +270,10 @@ impl<'a> Executor<'a> {
                         "reflect_type_of expects one argument",
                     ));
                 };
-                self.runtime
-                    .validate_reflection_read_boundary()
+                let reflected = self
+                    .runtime
+                    .reflect_type_of(value)
                     .map_err(VmError::RuntimeError)?;
-                let reflected = self.runtime.reflect_type_of(value);
                 if let Some(dst) = dst {
                     self.current_frame_mut()?.write_register(dst, reflected)?;
                 }
@@ -285,13 +285,10 @@ impl<'a> Executor<'a> {
                         "reflect_get_field expects struct argument",
                     ));
                 };
-                self.runtime
-                    .validate_reflection_read_boundary()
-                    .map_err(VmError::RuntimeError)?;
                 let reflected = self
                     .runtime
                     .reflect_get_field(base, &field_name)
-                    .map_err(VmError::ReflectionError)?;
+                    .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?.write_register(dst, reflected)?;
                 }
@@ -303,13 +300,10 @@ impl<'a> Executor<'a> {
                         "reflect_set_field expects struct and value arguments",
                     ));
                 };
-                self.runtime
-                    .validate_reflection_write_boundary()
-                    .map_err(VmError::RuntimeError)?;
                 let reflected = self
                     .runtime
                     .reflect_set_field(base, &field_name, next_value.clone())
-                    .map_err(VmError::ReflectionError)?;
+                    .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?.write_register(dst, reflected)?;
                 }
@@ -321,21 +315,23 @@ impl<'a> Executor<'a> {
                         "reflect_set_index expects value, index and next value arguments",
                     ));
                 };
-                self.runtime
-                    .validate_reflection_write_boundary()
-                    .map_err(VmError::RuntimeError)?;
                 let reflected = self
                     .runtime
                     .reflect_set_index(base, index, next_value.clone())
-                    .map_err(VmError::ReflectionError)?;
+                    .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?.write_register(dst, reflected)?;
                 }
                 Ok(())
             }
-            RuntimeHelper::DynamicCall => Err(VmError::UnsupportedInstruction(
-                "runtime_helper_dynamic_call",
-            )),
+            RuntimeHelper::DynamicCall => {
+                self.runtime
+                    .validate_dynamic_invocation_boundary()
+                    .map_err(VmError::RuntimeError)?;
+                Err(VmError::UnsupportedInstruction(
+                    "runtime_helper_dynamic_call",
+                ))
+            }
         }
     }
 }

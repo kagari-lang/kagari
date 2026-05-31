@@ -44,7 +44,6 @@ use crate::{
     builtin::BuiltinError,
     gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
     host::{HostFunction, HostRegistry},
-    reflection::ReflectionError,
     reload::{
         HotReloadCoordinator, validate_load_candidate, validate_reload_artifact_candidate,
         validate_reload_candidate,
@@ -292,11 +291,20 @@ impl Runtime {
         if required.path_mutation && !self.security.allows_path_mutation() {
             return Err(RuntimeError::capability_denied("path_mutation"));
         }
+        if required.reflection_metadata && !self.security.allows_reflection_metadata() {
+            return Err(RuntimeError::capability_denied("reflection_metadata"));
+        }
         if required.reflection_read && !self.security.allows_reflection_read() {
             return Err(RuntimeError::capability_denied("reflection_read"));
         }
         if required.reflection_write && !self.security.allows_reflection_write() {
             return Err(RuntimeError::capability_denied("reflection_write"));
+        }
+        if required.dynamic_invocation && !self.security.allows_dynamic_invocation() {
+            return Err(RuntimeError::capability_denied("dynamic_invocation"));
+        }
+        if required.downcast && !self.security.allows_downcast() {
+            return Err(RuntimeError::capability_denied("downcast"));
         }
         if required.module_loading && !self.security.allows_module_loading() {
             return Err(RuntimeError::capability_denied("module_loading"));
@@ -327,6 +335,14 @@ impl Runtime {
         Ok(())
     }
 
+    pub fn validate_reflection_metadata_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_reflection_metadata() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("reflection_metadata"))
+        }
+    }
+
     pub fn validate_reflection_read_boundary(&self) -> Result<(), RuntimeError> {
         if self.security.allows_reflection_read() {
             Ok(())
@@ -340,6 +356,22 @@ impl Runtime {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("reflection_write"))
+        }
+    }
+
+    pub fn validate_dynamic_invocation_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_dynamic_invocation() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("dynamic_invocation"))
+        }
+    }
+
+    pub fn validate_downcast_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_downcast() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("downcast"))
         }
     }
 
@@ -481,16 +513,19 @@ impl Runtime {
             .map_err(|error| RuntimeError::host_call_failure(error.message()))
     }
 
-    pub fn reflect_type_of(&self, value: &value::Value) -> value::Value {
-        reflection::type_of(&self.gc, value)
+    pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {
+        self.validate_reflection_metadata_boundary()?;
+        Ok(reflection::type_of(&self.gc, value))
     }
 
     pub fn reflect_get_field(
         &self,
         value: &value::Value,
         field_name: &str,
-    ) -> Result<value::Value, ReflectionError> {
+    ) -> Result<value::Value, RuntimeError> {
+        self.validate_reflection_read_boundary()?;
         reflection::get_field(&self.gc, value, field_name)
+            .map_err(|error| RuntimeError::invalid_reflective_read(error.message()))
     }
 
     pub fn reflect_set_field(
@@ -498,8 +533,10 @@ impl Runtime {
         value: &value::Value,
         field_name: &str,
         next_value: value::Value,
-    ) -> Result<value::Value, ReflectionError> {
+    ) -> Result<value::Value, RuntimeError> {
+        self.validate_reflection_write_boundary()?;
         reflection::set_field(&self.gc, value, field_name, next_value)
+            .map_err(|error| RuntimeError::invalid_reflective_write(error.message()))
     }
 
     pub fn reflect_set_index(
@@ -507,8 +544,10 @@ impl Runtime {
         value: &value::Value,
         index: &value::Value,
         next_value: value::Value,
-    ) -> Result<value::Value, ReflectionError> {
+    ) -> Result<value::Value, RuntimeError> {
+        self.validate_reflection_write_boundary()?;
         reflection::set_index(&self.gc, value, index, next_value)
+            .map_err(|error| RuntimeError::invalid_reflective_write(error.message()))
     }
 
     pub fn invoke_builtin(
@@ -1009,6 +1048,7 @@ mod tests {
         let runtime = Runtime::new(RuntimeConfig {
             security: SecurityContext {
                 capabilities: CapabilitySet {
+                    reflection_metadata: true,
                     reflection_read: true,
                     ..CapabilitySet::default()
                 },
@@ -1034,6 +1074,41 @@ mod tests {
     #[test]
     fn security_context_requires_profile_and_capability_for_runtime_boundaries() {
         let default_runtime = Runtime::default();
+        assert_eq!(
+            default_runtime
+                .validate_reflection_metadata_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+        assert_eq!(
+            default_runtime
+                .validate_reflection_read_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+        assert_eq!(
+            default_runtime
+                .validate_reflection_write_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+        assert_eq!(
+            default_runtime
+                .validate_dynamic_invocation_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+        assert_eq!(
+            default_runtime
+                .validate_downcast_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
         assert_eq!(
             default_runtime
                 .validate_host_function_boundary("host.missing")
@@ -1067,6 +1142,8 @@ mod tests {
                     allow_path_mutation: true,
                     allow_module_loading: true,
                     allow_jit: true,
+                    allow_reflection: true,
+                    allow_reflection_write: true,
                     ..LanguageProfile::default()
                 },
                 capabilities: CapabilitySet {
@@ -1074,6 +1151,11 @@ mod tests {
                     path_mutation: true,
                     module_loading: true,
                     jit: true,
+                    reflection_metadata: true,
+                    reflection_read: true,
+                    reflection_write: true,
+                    dynamic_invocation: true,
+                    downcast: true,
                     ..CapabilitySet::default()
                 },
             },
@@ -1089,8 +1171,63 @@ mod tests {
                 .validate_host_function_boundary("host.missing")
                 .is_ok()
         );
+        assert!(enabled.validate_reflection_metadata_boundary().is_ok());
+        assert!(enabled.validate_reflection_read_boundary().is_ok());
+        assert!(enabled.validate_reflection_write_boundary().is_ok());
+        assert!(enabled.validate_dynamic_invocation_boundary().is_ok());
+        assert!(enabled.validate_downcast_boundary().is_ok());
         assert!(enabled.validate_path_mutation_boundary().is_ok());
         assert!(enabled.validate_module_loading_boundary().is_ok());
         assert!(enabled.validate_jit_boundary().is_ok());
+    }
+
+    #[test]
+    fn downcast_gate_is_independent_from_reflection_gates() {
+        let downcast_only = Runtime::new(RuntimeConfig {
+            security: SecurityContext {
+                capabilities: CapabilitySet {
+                    downcast: true,
+                    ..CapabilitySet::default()
+                },
+                ..SecurityContext::default()
+            },
+            ..RuntimeConfig::default()
+        });
+
+        assert!(downcast_only.validate_downcast_boundary().is_ok());
+        assert_eq!(
+            downcast_only
+                .validate_reflection_metadata_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+
+        let metadata_only = Runtime::new(RuntimeConfig {
+            security: SecurityContext {
+                profile: LanguageProfile {
+                    allow_reflection: true,
+                    ..LanguageProfile::default()
+                },
+                capabilities: CapabilitySet {
+                    reflection_metadata: true,
+                    ..CapabilitySet::default()
+                },
+            },
+            ..RuntimeConfig::default()
+        });
+
+        assert!(
+            metadata_only
+                .validate_reflection_metadata_boundary()
+                .is_ok()
+        );
+        assert_eq!(
+            metadata_only
+                .validate_downcast_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
     }
 }

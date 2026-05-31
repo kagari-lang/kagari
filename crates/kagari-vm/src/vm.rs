@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use kagari_ir::bytecode::{
-    BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef, RuntimeHelper, verify_module,
+    BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef, verify_module,
 };
 use kagari_runtime::{
     LoadedModule, ModuleEpochRetention, ModuleInitializationState, ModuleKey, ModuleStore, Runtime,
@@ -221,9 +221,6 @@ fn validate_executable_bytecode(module: &BytecodeModule) -> Result<(), VmError> 
             match callee {
                 CallTarget::Register(_) => {
                     return Err(VmError::UnsupportedCallTarget(callee.clone()));
-                }
-                CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
-                    return Err(VmError::UnsupportedInstruction("dynamic_call"));
                 }
                 CallTarget::Function(_)
                 | CallTarget::BuiltinMethod(_)

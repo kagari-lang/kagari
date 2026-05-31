@@ -620,13 +620,13 @@ fn execution_context_denies_host_and_reflection_helpers() {
             ..LanguageProfile::default()
         },
         capabilities: CapabilitySet {
-            reflection_read: true,
+            reflection_metadata: true,
             ..CapabilitySet::default()
         },
         ..ExecutionContext::default()
     };
     let report = runtime
         .execute(&type_of_module, "main", &[], &reflection_allowed)
-        .expect("reflection read should execute when profile and capability allow it");
+        .expect("reflection metadata should execute when profile and capability allow it");
     assert_eq!(report.return_value, Value::Str("i32".to_owned()));
 }

@@ -3,6 +3,7 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeErrorKind {
     CapabilityDenied,
+    InvalidReflectiveRead,
     InvalidReflectiveWrite,
     ExpiredHostBorrow,
     HostBorrowConflict,
@@ -68,6 +69,20 @@ impl RuntimeError {
         Self::new(
             RuntimeErrorKind::HostBorrowEscape,
             format!("host borrow escape: {}", detail.into()),
+        )
+    }
+
+    pub fn invalid_reflective_read(detail: impl Into<String>) -> Self {
+        Self::new(
+            RuntimeErrorKind::InvalidReflectiveRead,
+            format!("invalid reflective read: {}", detail.into()),
+        )
+    }
+
+    pub fn invalid_reflective_write(detail: impl Into<String>) -> Self {
+        Self::new(
+            RuntimeErrorKind::InvalidReflectiveWrite,
+            format!("invalid reflective write: {}", detail.into()),
         )
     }
 
