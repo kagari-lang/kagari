@@ -48,6 +48,14 @@ impl<'a> Frame<'a> {
         instruction
     }
 
+    pub(crate) fn function(&self) -> &'a BytecodeFunction {
+        self.function
+    }
+
+    pub(crate) fn instruction_offset(&self) -> usize {
+        self.ip
+    }
+
     pub(crate) fn jump_to(&mut self, offset: usize) -> Result<(), VmError> {
         if offset >= self.function.instructions.len() {
             return Err(VmError::InvalidJumpTarget(JumpTarget::new(offset)));

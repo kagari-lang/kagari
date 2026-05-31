@@ -7,6 +7,7 @@ use std::cell::RefMut;
 use kagari_ir::bytecode::{BytecodeInstruction, BytecodeModule, FunctionRef};
 use kagari_runtime::{ModuleInstance, Runtime, value::Value};
 
+use crate::debug::DebugSession;
 use crate::error::VmError;
 use crate::frame::Frame;
 
@@ -16,6 +17,7 @@ pub(crate) struct Executor<'a> {
     module: &'a BytecodeModule,
     module_instance: RefMut<'a, ModuleInstance>,
     frames: Vec<Frame<'a>>,
+    debug_session: Option<&'a mut DebugSession>,
 }
 
 impl<'a> Executor<'a> {
@@ -24,6 +26,7 @@ impl<'a> Executor<'a> {
         module: &'a BytecodeModule,
         module_instance: RefMut<'a, ModuleInstance>,
         entry: FunctionRef,
+        debug_session: Option<&'a mut DebugSession>,
     ) -> Result<Self, VmError> {
         let function = module
             .functions
@@ -35,6 +38,7 @@ impl<'a> Executor<'a> {
             module,
             module_instance,
             frames: Vec::new(),
+            debug_session,
         };
         executor.push_frame(function, &[], None)?;
         Ok(executor)
@@ -42,6 +46,14 @@ impl<'a> Executor<'a> {
 
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
         loop {
+            if let Some(debug_session) = self.debug_session.as_deref_mut() {
+                debug_session.before_instruction(
+                    self.module_instance.id,
+                    self.module_instance.epoch.0,
+                    &self.frames,
+                )?;
+            }
+
             let instruction = {
                 let frame = self.current_frame_mut()?;
                 frame.next_instruction().cloned()
@@ -71,7 +83,18 @@ impl<'a> Executor<'a> {
                         return Ok(value);
                     }
                 }
-                instruction => self.dispatch_instruction(instruction)?,
+                instruction => {
+                    if let Err(error) = self.dispatch_instruction(instruction) {
+                        if let Some(debug_session) = self.debug_session.as_deref_mut() {
+                            debug_session.record_trap(
+                                self.module_instance.id,
+                                self.module_instance.epoch.0,
+                                &self.frames,
+                            )?;
+                        }
+                        return Err(error);
+                    }
+                }
             }
         }
     }

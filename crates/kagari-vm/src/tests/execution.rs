@@ -1,9 +1,10 @@
 use std::sync::{Arc, Mutex};
 
+use kagari_common::Span;
 use kagari_ir::bytecode::{
     BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot, CallTarget,
-    ConstantOperand, FunctionMetadata, FunctionRecord, FunctionRef, ModuleSlot, Register,
-    RuntimeHelper,
+    ConstantOperand, DebugPointId, FunctionMetadata, FunctionRecord, FunctionRef,
+    InstructionSourceSpan, ModuleSlot, Register, RuntimeHelper, SafeDebugPoint, SafeDebugPointKind,
 };
 use kagari_ir::module::ValueType;
 use kagari_runtime::host::{HostFunction, HostFunctionMetadata};
@@ -14,7 +15,7 @@ use kagari_runtime::{
 };
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
-use crate::{Vm, VmError};
+use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
 
 fn test_function(
     id: usize,
@@ -423,6 +424,126 @@ fn executes_tuple_literal_return() {
     assert_eq!(
         report.return_value,
         Value::Tuple(vec![Value::Bool(true), Value::Bool(false)])
+    );
+}
+
+#[test]
+fn debug_session_resolves_breakpoints_and_inspects_live_locals() {
+    let source = r#"
+fn main() -> i32 {
+    val value = 3;
+    value + 4
+}
+"#;
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_module("debug.kgr", compile_test_bytecode(source))
+        .expect("debug module should load");
+    let mut session = DebugSession::new();
+    let breakpoint_id = session.add_breakpoint(SourceBreakpoint::at_source_offset(
+        "debug.kgr",
+        source
+            .find("value +")
+            .expect("source should contain tail expr"),
+    ));
+
+    let mut vm = Vm::new(runtime);
+    vm.attach_debug_session(session);
+    let report = vm
+        .execute(&loaded, "main")
+        .expect("debugged function should execute");
+
+    assert_eq!(report.return_value, Value::I32(7));
+    let debug = vm
+        .debug_session()
+        .expect("debug session should be attached");
+    assert!(
+        debug
+            .resolved_breakpoints()
+            .iter()
+            .any(|breakpoint| breakpoint.breakpoint_id == breakpoint_id)
+    );
+    let pause = debug
+        .pauses()
+        .iter()
+        .find(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint_id))
+        .expect("breakpoint should pause execution");
+    let frame = pause.top_frame().expect("pause should expose a frame");
+    assert_eq!(frame.function_name, "main");
+    assert_eq!(
+        pause
+            .evaluate_watch(frame.id, &DebugWatch::Binding("value".to_owned()))
+            .expect("watch should read live local"),
+        Value::I32(3)
+    );
+}
+
+#[test]
+fn debug_session_supports_step_into_and_trap_pause_events() {
+    let mut runtime = Runtime::default();
+    let mut main = test_function(
+        0,
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantOperand::I32(1),
+            },
+            BytecodeInstruction::Unreachable,
+        ],
+        ValueType::I32,
+        vec![ValueType::I32],
+    );
+    main.metadata.debug.source_spans = vec![
+        InstructionSourceSpan {
+            instruction_offset: 0,
+            span: Span::new(1, 2),
+        },
+        InstructionSourceSpan {
+            instruction_offset: 1,
+            span: Span::new(3, 4),
+        },
+    ];
+    main.metadata.debug.safe_debug_points = vec![
+        SafeDebugPoint {
+            id: DebugPointId::new(0),
+            instruction_offset: 0,
+            span: Span::new(1, 2),
+            kind: SafeDebugPointKind::FunctionEntry,
+        },
+        SafeDebugPoint {
+            id: DebugPointId::new(1),
+            instruction_offset: 1,
+            span: Span::new(3, 4),
+            kind: SafeDebugPointKind::Trap,
+        },
+    ];
+    let loaded = runtime
+        .load_module("debug_trap.kbc", verified_module(None, vec![main]))
+        .expect("trap module should load");
+    let mut session = DebugSession::new();
+    session.step_into();
+
+    let mut vm = Vm::new(runtime);
+    vm.attach_debug_session(session);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("unreachable should trap");
+
+    assert!(matches!(error, VmError::Trap("unreachable")));
+    let pauses = vm
+        .debug_session()
+        .expect("debug session should be attached")
+        .pauses();
+    assert!(
+        pauses
+            .iter()
+            .any(|pause| pause.reason == DebugPauseReason::Step)
+    );
+    assert!(
+        pauses
+            .iter()
+            .any(|pause| pause.reason == DebugPauseReason::Trap)
     );
 }
 

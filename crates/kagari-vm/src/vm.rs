@@ -5,6 +5,7 @@ use kagari_ir::bytecode::{
 };
 use kagari_runtime::{LoadedModule, ModuleInitializationState, ModuleKey, Runtime, value::Value};
 
+use crate::debug::DebugSession;
 use crate::error::VmError;
 use crate::executor::Executor;
 
@@ -12,6 +13,7 @@ use crate::executor::Executor;
 pub struct Vm {
     runtime: Runtime,
     module_failures: HashMap<ModuleKey, VmError>,
+    debug_session: Option<DebugSession>,
 }
 
 #[derive(Debug)]
@@ -27,6 +29,7 @@ impl Vm {
         Self {
             runtime,
             module_failures: HashMap::new(),
+            debug_session: None,
         }
     }
 
@@ -38,6 +41,18 @@ impl Vm {
         &mut self.runtime
     }
 
+    pub fn attach_debug_session(&mut self, session: DebugSession) {
+        self.debug_session = Some(session);
+    }
+
+    pub fn debug_session(&self) -> Option<&DebugSession> {
+        self.debug_session.as_ref()
+    }
+
+    pub fn debug_session_mut(&mut self) -> Option<&mut DebugSession> {
+        self.debug_session.as_mut()
+    }
+
     pub fn execute(
         &mut self,
         module: &LoadedModule,
@@ -45,6 +60,9 @@ impl Vm {
     ) -> Result<ExecutionReport, VmError> {
         validate_executable_bytecode(&module.bytecode)?;
         self.execute_module(module)?;
+        if let Some(debug_session) = self.debug_session.as_mut() {
+            debug_session.resolve_module(module.id, &module.name, module.epoch.0, &module.bytecode);
+        }
         let module_instance = self
             .runtime
             .module_instance_mut(module)
@@ -52,7 +70,13 @@ impl Vm {
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
-        let mut executor = Executor::new(&self.runtime, &module.bytecode, module_instance, entry)?;
+        let mut executor = Executor::new(
+            &self.runtime,
+            &module.bytecode,
+            module_instance,
+            entry,
+            self.debug_session.as_mut(),
+        )?;
         let return_value = executor.run()?;
 
         Ok(ExecutionReport {
@@ -65,6 +89,9 @@ impl Vm {
 
     pub fn execute_module(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
         validate_executable_bytecode(&module.bytecode)?;
+        if let Some(debug_session) = self.debug_session.as_mut() {
+            debug_session.resolve_module(module.id, &module.name, module.epoch.0, &module.bytecode);
+        }
         let key = module.key();
         if let Some(instance) = self.runtime.module_instance_snapshot(module) {
             match instance.state {
@@ -104,6 +131,7 @@ impl Vm {
                     &module.bytecode,
                     module_instance,
                     module_init,
+                    self.debug_session.as_mut(),
                 );
                 match executor {
                     Ok(ref mut executor) => executor.run(),
