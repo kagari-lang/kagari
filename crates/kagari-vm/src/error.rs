@@ -2,7 +2,7 @@ use kagari_ir::bytecode::{
     BytecodeVerificationError, CallTarget, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, Register,
 };
 use kagari_runtime::{
-    RuntimeError, builtin::BuiltinError, host::HostError, reflection::ReflectionError,
+    ModuleKey, RuntimeError, builtin::BuiltinError, host::HostError, reflection::ReflectionError,
 };
 
 #[derive(Debug, Clone)]
@@ -20,6 +20,7 @@ pub enum VmError {
     InvalidLocal(LocalSlot),
     InvalidModuleSlot(ModuleSlot),
     ImmutableModuleSlot(ModuleSlot),
+    ModuleInitializing(ModuleKey),
     InvalidIndex(usize),
     InvalidBranchCondition,
     HostError(HostError),

@@ -1,13 +1,17 @@
 use std::sync::{Arc, Mutex};
 
 use kagari_ir::bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
-    FunctionMetadata, FunctionRecord, FunctionRef, Register, RuntimeHelper,
+    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot, CallTarget,
+    ConstantOperand, FunctionMetadata, FunctionRecord, FunctionRef, ModuleSlot, Register,
+    RuntimeHelper,
 };
 use kagari_ir::module::ValueType;
 use kagari_runtime::host::{HostFunction, HostFunctionMetadata};
 use kagari_runtime::value::{StructValueField, Value};
-use kagari_runtime::{CapabilitySet, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind};
+use kagari_runtime::{
+    CapabilitySet, ModuleInitializationState, ResourcePolicy, Runtime, RuntimeConfig,
+    RuntimeErrorKind,
+};
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
 use crate::{Vm, VmError};
@@ -82,6 +86,50 @@ fn verified_module(
         functions,
         ..BytecodeModule::default()
     }
+}
+
+fn module_with_private_init_slot(value: i32) -> BytecodeModule {
+    let mut module = verified_module(
+        Some(FunctionRef::new(0)),
+        vec![
+            test_function(
+                0,
+                "__module_init__",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantOperand::I32(value),
+                    },
+                    BytecodeInstruction::StoreModule {
+                        slot: ModuleSlot::new(0),
+                        src: Register::new(0),
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(0))),
+                ],
+                ValueType::I32,
+                vec![ValueType::I32],
+            ),
+            test_function(
+                1,
+                "main",
+                vec![
+                    BytecodeInstruction::LoadModule {
+                        dst: Register::new(0),
+                        slot: ModuleSlot::new(0),
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(0))),
+                ],
+                ValueType::I32,
+                vec![ValueType::I32],
+            ),
+        ],
+    );
+    module.module_slots = vec![BytecodeModuleSlot {
+        name: "private".to_owned(),
+        ty: ValueType::I32,
+        mutable: false,
+    }];
+    module
 }
 
 #[test]
@@ -431,6 +479,34 @@ value + 2
 }
 
 #[test]
+fn rejects_reentrant_module_result_access_while_initializing() {
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_module("initializing.kgr", module_with_private_init_slot(1))
+        .expect("module should load");
+    {
+        let mut instance = runtime
+            .module_instance_mut(&loaded)
+            .expect("module instance should exist");
+        instance.begin_initialization();
+    }
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute_module(&loaded)
+        .expect_err("in-progress module result should not be synthesized");
+
+    assert!(matches!(error, VmError::ModuleInitializing(key) if key == loaded.key()));
+    assert_eq!(
+        vm.runtime()
+            .module_instance_snapshot(&loaded)
+            .expect("module instance should exist")
+            .state,
+        ModuleInitializationState::Initializing
+    );
+}
+
+#[test]
 fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
@@ -672,6 +748,61 @@ fn reruns_module_init_for_new_module_epoch() {
         .expect("second module epoch should initialize");
 
     assert_eq!(*init_count.lock().expect("counter lock should succeed"), 2);
+}
+
+#[test]
+fn module_epochs_keep_independent_init_results_and_private_slots() {
+    let mut runtime = Runtime::default();
+    let first_loaded = runtime
+        .load_module("epoch_visible.kgr", module_with_private_init_slot(1))
+        .expect("first module epoch should load");
+    let second_loaded = runtime
+        .load_module("epoch_visible.kgr", module_with_private_init_slot(2))
+        .expect("second module epoch should load");
+
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute_module(&first_loaded)
+            .expect("first epoch should initialize"),
+        Value::I32(1)
+    );
+    assert_eq!(
+        vm.execute_module(&second_loaded)
+            .expect("second epoch should initialize"),
+        Value::I32(2)
+    );
+
+    let first_report = vm
+        .execute(&first_loaded, "main")
+        .expect("old epoch should remain executable");
+    let latest = vm
+        .runtime()
+        .modules()
+        .latest("epoch_visible.kgr")
+        .expect("latest module epoch should be visible");
+    let latest_report = vm
+        .execute(&latest, "main")
+        .expect("latest epoch should execute");
+
+    assert_eq!(first_report.epoch, first_loaded.epoch.0);
+    assert_eq!(first_report.return_value, Value::I32(1));
+    assert_eq!(latest.epoch, second_loaded.epoch);
+    assert_eq!(latest_report.epoch, second_loaded.epoch.0);
+    assert_eq!(latest_report.return_value, Value::I32(2));
+    assert_eq!(
+        vm.runtime()
+            .module_instance_snapshot(&first_loaded)
+            .expect("first epoch instance should exist")
+            .init_result,
+        Some(Value::I32(1))
+    );
+    assert_eq!(
+        vm.runtime()
+            .module_instance_snapshot(&second_loaded)
+            .expect("second epoch instance should exist")
+            .init_result,
+        Some(Value::I32(2))
+    );
 }
 
 #[test]

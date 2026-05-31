@@ -560,6 +560,7 @@ impl EmbeddingError {
             VmError::MissingFunction(_)
             | VmError::MissingField(_)
             | VmError::ImmutableModuleSlot(_)
+            | VmError::ModuleInitializing(_)
             | VmError::InvalidIndex(_)
             | VmError::InvalidBranchCondition
             | VmError::BuiltinError(_)

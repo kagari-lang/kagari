@@ -72,7 +72,7 @@ impl Vm {
                     return Ok(instance.init_result.unwrap_or(Value::Unit));
                 }
                 ModuleInitializationState::Initializing => {
-                    return Ok(instance.init_result.unwrap_or(Value::Unit));
+                    return Err(VmError::ModuleInitializing(key));
                 }
                 ModuleInitializationState::Failed => {
                     return Err(self
