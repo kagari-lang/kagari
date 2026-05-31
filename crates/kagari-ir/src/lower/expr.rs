@@ -1,5 +1,5 @@
 use kagari_hir::{
-    builtin::{BuiltinFunction, BuiltinMethod, array},
+    builtin::{BuiltinFunction, BuiltinMethod, StringMethod, array},
     hir,
 };
 
@@ -506,6 +506,10 @@ impl FunctionLowerer<'_> {
                     smallvec::smallvec![self.lower_expr(receiver)?],
                 )),
             },
+            BuiltinMethod::String(StringMethod::Len) => Some((
+                IrBuiltinMethod::String(StringMethod::Len),
+                smallvec::smallvec![self.lower_expr(receiver)?],
+            )),
         };
 
         Ok(lowered)

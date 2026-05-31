@@ -1,6 +1,7 @@
 use kagari_common::{DiagnosticKind, TypePosition};
 
 use crate::{
+    builtin::surface::{self, IterableProtocol},
     hir::{ExprKind, PatternKind, StmtKind},
     resolver::resolve_names,
     tests::common,
@@ -262,7 +263,7 @@ fn records_expression_types_for_resolved_body_expressions() {
 fn infers_array_method_call_types() {
     let lowered = common::lower_ok(
         r#"
-fn main() -> i32 {
+fn main() -> usize {
     val values = [1, 2];
     val next = values.push(3);
     next.pop().len()
@@ -286,8 +287,119 @@ fn main() -> i32 {
     );
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
-        Some(TypeId::Builtin(BuiltinType::I32))
+        Some(TypeId::Builtin(BuiltinType::USize))
     );
+}
+
+#[test]
+fn infers_string_method_call_types() {
+    let lowered = common::lower_ok(
+        r#"
+fn main(value: String) -> usize {
+    value.len()
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let function = &lowered.module.functions[0];
+    let block = lowered.module.block(function.body);
+    let tail_expr = block.tail_expr.expect("tail expr");
+
+    assert_eq!(
+        typed.type_table.expr_type(tail_expr),
+        Some(TypeId::Builtin(BuiltinType::USize))
+    );
+}
+
+#[test]
+fn exposes_standard_builtin_surface_metadata() {
+    assert!(surface::builtin_type("String").is_some());
+    assert!(surface::builtin_type("usize").is_some());
+    assert!(surface::builtin_type("str").is_none());
+
+    let option = surface::standard_enum("Option").expect("Option should be standard");
+    assert_eq!(option.arity, 1);
+    assert_eq!(option.variants[0].name, "Some");
+    assert_eq!(option.variants[1].name, "None");
+
+    let result = surface::standard_enum("Result").expect("Result should be standard");
+    assert_eq!(result.arity, 2);
+    assert_eq!(result.variants[0].name, "Ok");
+    assert_eq!(result.variants[1].name, "Err");
+
+    assert!(surface::supports_const_type(&TypeId::Builtin(
+        BuiltinType::U64
+    )));
+    assert!(!surface::supports_const_type(&TypeId::Builtin(
+        BuiltinType::String
+    )));
+    assert!(matches!(
+        surface::iterable_protocol(&TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))),
+        Some(IterableProtocol::Array {
+            item: TypeId::Builtin(BuiltinType::I32)
+        })
+    ));
+}
+
+#[test]
+fn resolves_standard_builtin_type_annotations() {
+    let lowered = common::lower_ok(
+        r#"
+fn choose(value: Option<i32>) -> Option<i32> { value }
+fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
+fn sized(value: usize) -> usize { value }
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+
+    assert_eq!(
+        typed.functions[0].return_type,
+        TypeId::StandardEnum {
+            name: "Option".to_string(),
+            args: vec![TypeId::Builtin(BuiltinType::I32)],
+        }
+    );
+    assert_eq!(
+        typed.functions[1].return_type,
+        TypeId::StandardEnum {
+            name: "Result".to_string(),
+            args: vec![
+                TypeId::Builtin(BuiltinType::I32),
+                TypeId::Builtin(BuiltinType::String),
+            ],
+        }
+    );
+    assert_eq!(
+        typed.functions[2].return_type,
+        TypeId::Builtin(BuiltinType::USize)
+    );
+}
+
+#[test]
+fn checks_standard_numeric_surface() {
+    let lowered = common::lower_ok(
+        r#"
+fn signed(value: i16) -> i16 { -value }
+fn unsigned(lhs: u64, rhs: u64) -> u64 { lhs + rhs }
+fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    check_module(&lowered, &names).expect("standard numeric types should check");
+
+    let lowered = common::lower_ok("fn bad(value: u32) -> u32 { -value }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names).expect_err("unsigned negation should reject");
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::UnaryOperandTypeMismatch {
+                operator: "-",
+                expected: "numeric".to_string(),
+                found: "u32".to_string(),
+            }
+    }));
 }
 
 #[test]
@@ -306,7 +418,7 @@ fn checks_print_builtin_signature() {
             == DiagnosticKind::ArgumentTypeMismatch {
                 function_name: "print".to_string(),
                 parameter_name: "message".to_string(),
-                expected: "str".to_string(),
+                expected: "String".to_string(),
                 found: "i32".to_string(),
             }
     }));

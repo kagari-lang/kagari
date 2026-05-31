@@ -12,6 +12,7 @@ pub fn invoke_method(
         BuiltinMethod::Array(array::Method::Len) => len(gc, args),
         BuiltinMethod::Array(array::Method::Push) => push(gc, args),
         BuiltinMethod::Array(array::Method::Pop) => pop(gc, args),
+        _ => Err(BuiltinError::new("array builtin received non-array method")),
     }
 }
 
@@ -23,7 +24,7 @@ fn len(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     match value {
         Value::Array(handle) => gc
             .array_len(*handle)
-            .map(|len| Value::I32(len as i32))
+            .map(|len| Value::I64(len as i64))
             .ok_or_else(|| BuiltinError::new("array.len expects valid array handle")),
         _ => Err(BuiltinError::new("array.len expects array value")),
     }

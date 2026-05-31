@@ -105,7 +105,7 @@ fn lowers_unary_and_short_circuit_expressions() {
 fn lowers_loops_and_loop_control_to_jumps() {
     let bytecode = common::bytecode_ok(
         r#"
-fn main() -> unit {
+fn main() -> () {
     while true { break; }
     loop { continue; }
 }
@@ -134,7 +134,7 @@ fn lowers_aggregate_and_access_instructions() {
         r#"
 struct Point { var x: i32 }
 
-fn main() -> unit {
+fn main() -> () {
     val tuple = (1, 2);
     val array = [1, 2];
     val point = Point { x: 1 };
@@ -200,7 +200,7 @@ fn lowers_named_match_pattern_to_local_traffic() {
 
 #[test]
 fn lowers_type_of_builtin_to_runtime_helper_call() {
-    let bytecode = common::bytecode_ok("fn main() -> str { type_of(7) }");
+    let bytecode = common::bytecode_ok("fn main() -> String { type_of(7) }");
     let function = &bytecode.functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
@@ -346,7 +346,7 @@ fn main() -> i32 { VALUE }
 fn lowers_array_methods_to_builtin_method_calls() {
     let bytecode = common::bytecode_ok(
         r#"
-fn main() -> i32 {
+fn main() -> usize {
     val values = [1, 2];
     values.push(3).pop().len()
 }

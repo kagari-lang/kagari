@@ -1,4 +1,5 @@
 pub mod array;
+pub mod string;
 
 use kagari_ir::builtin::BuiltinMethod;
 
@@ -26,6 +27,14 @@ pub fn invoke(gc: &GcHeap, method: BuiltinMethod, args: &[Value]) -> Result<Valu
 
     match method {
         BuiltinMethod::Array(_) => array::invoke_method(gc, method, args).map_err(|err| {
+            BuiltinError::new(format!(
+                "{}.{}: {}",
+                method.owner_name(),
+                spec.name,
+                err.message()
+            ))
+        }),
+        BuiltinMethod::String(_) => string::invoke_method(gc, method, args).map_err(|err| {
             BuiltinError::new(format!(
                 "{}.{}: {}",
                 method.owner_name(),

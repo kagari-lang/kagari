@@ -7,7 +7,19 @@ use crate::lower::context::{Lowerer, syntax_span};
 impl Lowerer {
     pub(crate) fn lower_type(&mut self, ty: &ast::TypeRef) -> TypeRefId {
         let kind = if let Some(name) = ty.name_text() {
-            TypeKind::Named(name)
+            let args = ty
+                .generic_args()
+                .map(|args| {
+                    args.args()
+                        .map(|arg| self.lower_type(&arg))
+                        .collect::<SmallVec<[_; 4]>>()
+                })
+                .unwrap_or_default();
+            if args.is_empty() {
+                TypeKind::Named(name)
+            } else {
+                TypeKind::Generic { name, args }
+            }
         } else if let Some(tuple) = ty.tuple_type() {
             TypeKind::Tuple(
                 tuple

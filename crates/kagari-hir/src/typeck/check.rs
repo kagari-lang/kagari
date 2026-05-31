@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::{
     BoxedDiagnosticBuffer,
+    builtin::surface,
     hir::FunctionKind,
     hir::{BinaryOp, ConstId, ConstItem, ExprId, ExprKind, PrefixOp},
     lower::LoweredModule,
@@ -351,13 +352,10 @@ fn validate_const_initializers(
                         return;
                     };
 
-                    let supported = matches!(
-                        (op, expr_ty),
-                        (
-                            PrefixOp::Neg,
-                            TypeId::Builtin(BuiltinType::I32 | BuiltinType::F32)
-                        ) | (PrefixOp::Not, TypeId::Builtin(BuiltinType::Bool))
-                    );
+                    let supported = match op {
+                        PrefixOp::Neg => surface::supports_unary_negation(&expr_ty),
+                        PrefixOp::Not => expr_ty == TypeId::Builtin(BuiltinType::Bool),
+                    };
                     if !supported {
                         self.emit_invalid_const(
                             owner,
@@ -434,25 +432,13 @@ fn validate_const_initializers(
         match (op, lhs, rhs) {
             (
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div,
-                Some(TypeId::Builtin(BuiltinType::I32)),
-                Some(TypeId::Builtin(BuiltinType::I32)),
-            ) => true,
-            (
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div,
-                Some(TypeId::Builtin(BuiltinType::F32)),
-                Some(TypeId::Builtin(BuiltinType::F32)),
-            ) => true,
+                Some(lhs),
+                Some(rhs),
+            ) => surface::supports_arithmetic(lhs, rhs),
             (BinaryOp::Eq | BinaryOp::NotEq, Some(lhs), Some(rhs)) => lhs == rhs,
-            (
-                BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge,
-                Some(TypeId::Builtin(BuiltinType::I32)),
-                Some(TypeId::Builtin(BuiltinType::I32)),
-            ) => true,
-            (
-                BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge,
-                Some(TypeId::Builtin(BuiltinType::F32)),
-                Some(TypeId::Builtin(BuiltinType::F32)),
-            ) => true,
+            (BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge, Some(lhs), Some(rhs)) => {
+                surface::supports_ordering(lhs, rhs)
+            }
             (
                 BinaryOp::AndAnd | BinaryOp::OrOr,
                 Some(TypeId::Builtin(BuiltinType::Bool)),
@@ -463,7 +449,7 @@ fn validate_const_initializers(
     }
 
     fn supports_const_type(ty: &TypeId) -> bool {
-        matches!(ty, TypeId::Builtin(_))
+        surface::supports_const_type(ty)
     }
 
     let mut validator = ConstValidator {

@@ -19,13 +19,13 @@ impl ReflectionError {
 
 pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
     let type_name = match value {
-        Value::Unit => "unit",
+        Value::Unit => "()",
         Value::Bool(_) => "bool",
         Value::I32(_) => "i32",
         Value::I64(_) => "i64",
         Value::F32(_) => "f32",
         Value::F64(_) => "f64",
-        Value::Str(_) => "str",
+        Value::Str(_) => "String",
         Value::Tuple(_) => "tuple",
         Value::Array(_) => "array",
         Value::Struct(handle) => {

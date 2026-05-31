@@ -244,7 +244,7 @@ fn lowers_tuple_array_struct_and_access_expressions() {
         r#"
 struct Point { var x: i32 }
 
-fn main() -> unit {
+fn main() -> () {
     val tuple = (1, 2);
     tuple;
     val array = [1, 2];

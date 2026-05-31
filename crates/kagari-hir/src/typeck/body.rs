@@ -4,7 +4,7 @@ use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
 use crate::{
-    builtin::{BuiltinFunction, BuiltinMethod, array},
+    builtin::{BuiltinFunction, BuiltinMethod, StringMethod, array, surface},
     hir::{
         BinaryOp, BlockId, ExprId, ExprKind, LiteralKind, MatchArm, PatternKind, PlaceId,
         PlaceKind, PrefixOp, StmtId, StmtKind,
@@ -286,14 +286,14 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Literal(literal) => match literal.kind {
                 LiteralKind::Number => TypeId::Builtin(BuiltinType::I32),
                 LiteralKind::Float => TypeId::Builtin(BuiltinType::F32),
-                LiteralKind::String => TypeId::Builtin(BuiltinType::Str),
+                LiteralKind::String => TypeId::Builtin(BuiltinType::String),
                 LiteralKind::Bool => TypeId::Builtin(BuiltinType::Bool),
             },
             ExprKind::Prefix { op, expr } => {
                 let inner = self.infer_expr_type(*expr, env);
                 match op {
                     PrefixOp::Neg => {
-                        if !matches!(inner, TypeId::Builtin(BuiltinType::I32 | BuiltinType::F32)) {
+                        if !surface::supports_unary_negation(&inner) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                                     operator: "-",
@@ -457,7 +457,7 @@ impl<'a> BodyChecker<'a> {
         match builtin {
             BuiltinFunction::TypeOf => {
                 let _ = self.infer_call_args(args, env);
-                Some(TypeId::Builtin(BuiltinType::Str))
+                Some(TypeId::Builtin(BuiltinType::String))
             }
             BuiltinFunction::GetField => {
                 let [base, field_name_expr] = args else {
@@ -518,13 +518,13 @@ impl<'a> BodyChecker<'a> {
                 self.check_builtin_arity("print", 1, args.len(), callee);
                 let arg_tys = self.infer_call_args(args, env);
                 if let Some((arg, ty)) = arg_tys.first()
-                    && *ty != TypeId::Builtin(BuiltinType::Str)
+                    && *ty != TypeId::Builtin(BuiltinType::String)
                 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                             function_name: "print".to_owned(),
                             parameter_name: "message".to_owned(),
-                            expected: "str".to_owned(),
+                            expected: "String".to_owned(),
                             found: display_type_id(ty),
                         })
                         .with_span(self.lowered.source_map.expr_span(*arg)),
@@ -546,6 +546,9 @@ impl<'a> BodyChecker<'a> {
             BuiltinMethod::Array(method) => {
                 self.infer_array_method_call_type(method, callee, &receiver_ty, args, env)
             }
+            BuiltinMethod::String(method) => {
+                self.infer_string_method_call_type(method, callee, args, env)
+            }
         }
     }
 
@@ -562,7 +565,7 @@ impl<'a> BodyChecker<'a> {
             array::Method::Len => {
                 let _ = self.infer_call_args(args, env);
                 self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                Some(TypeId::Builtin(BuiltinType::I32))
+                Some(TypeId::Builtin(BuiltinType::USize))
             }
             array::Method::Push => {
                 let TypeId::Array(element_ty) = receiver_ty else {
@@ -598,6 +601,23 @@ impl<'a> BodyChecker<'a> {
                 let _ = self.infer_call_args(args, env);
                 self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
                 Some(receiver_ty.clone())
+            }
+        }
+    }
+
+    fn infer_string_method_call_type(
+        &mut self,
+        method: StringMethod,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let spec = BuiltinMethod::String(method).spec();
+        match method {
+            StringMethod::Len => {
+                let _ = self.infer_call_args(args, env);
+                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
+                Some(TypeId::Builtin(BuiltinType::USize))
             }
         }
     }
@@ -738,7 +758,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn matching_numeric_operands(&self, lhs: &TypeId, rhs: &TypeId) -> bool {
-        lhs == rhs && matches!(lhs, TypeId::Builtin(BuiltinType::I32 | BuiltinType::F32))
+        surface::supports_arithmetic(lhs, rhs)
     }
 
     fn emit_binary_operand_type_mismatch(

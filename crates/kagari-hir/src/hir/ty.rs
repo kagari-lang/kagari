@@ -10,6 +10,7 @@ pub struct TypeData {
 #[derive(Debug, Clone)]
 pub enum TypeKind {
     Named(String),
+    Generic { name: String, args: TypeBuffer },
     Tuple(TypeBuffer),
     Array(TypeRefId),
 }

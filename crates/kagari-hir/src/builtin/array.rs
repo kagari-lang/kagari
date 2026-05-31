@@ -1,4 +1,5 @@
-use super::{BuiltinMethod, BuiltinMethodSpec};
+use super::{BuiltinMethod, BuiltinMethodResult, BuiltinMethodSpec};
+use crate::types::BuiltinType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Method {
@@ -10,16 +11,22 @@ pub enum Method {
 const LEN_SPEC: BuiltinMethodSpec = BuiltinMethodSpec {
     name: "len",
     arity: 0,
+    result: BuiltinMethodResult::Builtin(BuiltinType::USize),
+    mutates_receiver: false,
 };
 
 const PUSH_SPEC: BuiltinMethodSpec = BuiltinMethodSpec {
     name: "push",
     arity: 1,
+    result: BuiltinMethodResult::Receiver,
+    mutates_receiver: true,
 };
 
 const POP_SPEC: BuiltinMethodSpec = BuiltinMethodSpec {
     name: "pop",
     arity: 0,
+    result: BuiltinMethodResult::Receiver,
+    mutates_receiver: true,
 };
 
 pub fn lookup_method(name: &str) -> Option<BuiltinMethod> {

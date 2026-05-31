@@ -20,14 +20,24 @@ impl ValueType {
         match type_id {
             TypeId::Builtin(BuiltinType::Unit) => Self::Unit,
             TypeId::Builtin(BuiltinType::Bool) => Self::Bool,
-            TypeId::Builtin(BuiltinType::I32) => Self::I32,
-            TypeId::Builtin(BuiltinType::I64) => Self::I64,
+            TypeId::Builtin(BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32) => Self::I32,
+            TypeId::Builtin(
+                BuiltinType::I64
+                | BuiltinType::ISize
+                | BuiltinType::U8
+                | BuiltinType::U16
+                | BuiltinType::U32
+                | BuiltinType::U64
+                | BuiltinType::USize,
+            ) => Self::I64,
             TypeId::Builtin(BuiltinType::F32) => Self::F32,
             TypeId::Builtin(BuiltinType::F64) => Self::F64,
-            TypeId::Builtin(BuiltinType::Str) => Self::Str,
-            TypeId::Tuple(_) | TypeId::Array(_) | TypeId::Struct(_) | TypeId::Enum(_) => {
-                Self::HeapObject
-            }
+            TypeId::Builtin(BuiltinType::String) => Self::Str,
+            TypeId::Tuple(_)
+            | TypeId::Array(_)
+            | TypeId::Struct(_)
+            | TypeId::Enum(_)
+            | TypeId::StandardEnum { .. } => Self::HeapObject,
         }
     }
 }

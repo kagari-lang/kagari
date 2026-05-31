@@ -211,7 +211,7 @@ fn executes_runtime_reflect_set_index_helper() {
 
 #[test]
 fn executes_source_lowered_type_of_helper() {
-    let (runtime, loaded) = load_test_module("fn main() -> str { type_of(7) }");
+    let (runtime, loaded) = load_test_module("fn main() -> String { type_of(7) }");
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
@@ -226,7 +226,7 @@ fn executes_source_lowered_print_builtin() {
     let mut runtime = Runtime::default();
     runtime
         .host_mut()
-        .register(HostFunction::new("host.log", vec![], "unit", move |args| {
+        .register(HostFunction::new("host.log", vec![], "()", move |args| {
             let Some(Value::Str(message)) = args.first() else {
                 return Err(HostError::new("host.log expects one string argument"));
             };
@@ -315,7 +315,7 @@ fn main() -> i32 {
 fn executes_source_lowered_array_methods() {
     let (runtime, loaded) = load_test_module(
         r#"
-fn main() -> i32 {
+fn main() -> usize {
     val values = [1, 2];
     values.push(3).pop().len()
 }
@@ -324,14 +324,29 @@ fn main() -> i32 {
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(2));
+    assert_eq!(report.return_value, Value::I64(2));
+}
+
+#[test]
+fn executes_source_lowered_string_len_method() {
+    let (runtime, loaded) = load_test_module(
+        r#"
+fn main() -> usize {
+    "kagari".len()
+}
+"#,
+    );
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(report.return_value, Value::I64(6));
 }
 
 #[test]
 fn array_methods_mutate_shared_array_handle_in_place() {
     let (runtime, loaded) = load_test_module(
         r#"
-fn main() -> i32 {
+fn main() -> usize {
     val values = [1, 2];
     val alias = values;
     values.push(3);
@@ -342,7 +357,7 @@ fn main() -> i32 {
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(3));
+    assert_eq!(report.return_value, Value::I64(3));
 }
 
 #[test]

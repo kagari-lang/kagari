@@ -97,10 +97,10 @@ fn register_default_host_functions(runtime: &mut Runtime) {
         "host.log",
         vec![HostParameter {
             name: "message",
-            type_name: "str",
+            type_name: "String",
             passing: HostPassingStyle::SharedBorrow,
         }],
-        "unit",
+        "()",
         |args| {
             let Some(Value::Str(message)) = args.first() else {
                 return Err(HostError::new("host.log expects one string argument"));

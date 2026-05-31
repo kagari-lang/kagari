@@ -144,7 +144,7 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
     runtime.host_mut().register(HostFunction::new(
         "host.bump_init",
         vec![],
-        "unit",
+        "()",
         move |_| {
             let mut count = counter.lock().expect("counter lock should succeed");
             *count += 1;
@@ -215,7 +215,7 @@ fn reruns_module_init_for_new_module_epoch() {
     runtime.host_mut().register(HostFunction::new(
         "host.bump_init",
         vec![],
-        "unit",
+        "()",
         move |_| {
             let mut count = counter.lock().expect("counter lock should succeed");
             *count += 1;
@@ -265,7 +265,7 @@ fn caches_failed_module_init_without_retrying() {
     runtime.host_mut().register(HostFunction::new(
         "host.fail_init",
         vec![],
-        "unit",
+        "()",
         move |_| {
             let mut count = counter.lock().expect("counter lock should succeed");
             *count += 1;
