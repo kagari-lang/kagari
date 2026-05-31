@@ -199,6 +199,8 @@ pub fn lex(input: &str) -> TokenBuffer {
                     "const" => TokenKind::ConstKw,
                     "static" => TokenKind::StaticKw,
                     "mut" => TokenKind::MutKw,
+                    "val" => TokenKind::ValKw,
+                    "var" => TokenKind::VarKw,
                     "struct" => TokenKind::StructKw,
                     "enum" => TokenKind::EnumKw,
                     "let" => TokenKind::LetKw,

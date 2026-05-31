@@ -13,6 +13,8 @@ pub enum SyntaxKind {
     ConstKw,
     StaticKw,
     MutKw,
+    ValKw,
+    VarKw,
     StructKw,
     EnumKw,
     LetKw,

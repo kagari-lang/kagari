@@ -159,6 +159,37 @@ fn lexes_let_and_return_keywords() {
 }
 
 #[test]
+fn lexes_val_and_var_keywords() {
+    let source = common::source("val answer = 42; var score = answer;");
+    let tokens = lex(source.text());
+    let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
+
+    assert_eq!(
+        kinds,
+        vec![
+            TokenKind::ValKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::Eq,
+            TokenKind::Whitespace,
+            TokenKind::Number,
+            TokenKind::Semi,
+            TokenKind::Whitespace,
+            TokenKind::VarKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::Eq,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Semi,
+            TokenKind::Eof,
+        ]
+    );
+}
+
+#[test]
 fn lexes_expression_literals_and_operators() {
     let source = common::source("true && false || 1.5 + \"ok\" != 0");
     let tokens = lex(source.text());
