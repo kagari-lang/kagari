@@ -26,7 +26,7 @@ fn executes_runtime_host_helper_call() {
         },
     ));
 
-    let (_, loaded) = load_bytecode_module(
+    let loaded = runtime.load_module(
         "helper.kbc",
         BytecodeModule {
             module_init: None,

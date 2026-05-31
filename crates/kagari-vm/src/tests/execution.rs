@@ -8,7 +8,7 @@ use kagari_runtime::Runtime;
 use kagari_runtime::host::HostFunction;
 use kagari_runtime::value::{StructValueField, Value};
 
-use crate::tests::common::{load_bytecode_module, load_test_module};
+use crate::tests::common::load_test_module;
 use crate::{Vm, VmError};
 
 #[test]
@@ -152,7 +152,7 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
         },
     ));
 
-    let (_, loaded) = load_bytecode_module(
+    let loaded = runtime.load_module(
         "module_init_once.kgr",
         BytecodeModule {
             module_init: Some(FunctionRef::new(0)),
@@ -278,7 +278,7 @@ fn caches_failed_module_init_without_retrying() {
         },
     ));
 
-    let (_, loaded) = load_bytecode_module(
+    let loaded = runtime.load_module(
         "module_init_failed.kgr",
         BytecodeModule {
             module_init: Some(FunctionRef::new(0)),

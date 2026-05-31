@@ -1,18 +1,23 @@
 pub mod builtin;
 pub mod gc;
 pub mod host;
+pub mod module;
 pub mod reflection;
 pub mod reload;
 pub mod value;
 
 use kagari_ir::bytecode::{BuiltinMethod, BytecodeModule};
 
+pub use module::{
+    LoadedModule, ModuleId, ModuleInitializationState, ModuleInstance, ModuleKey, ModuleStore,
+};
+
 use crate::{
     builtin::BuiltinError,
     gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
     host::{HostError, HostRegistry},
     reflection::ReflectionError,
-    reload::{HotReloadCoordinator, ModuleEpoch},
+    reload::HotReloadCoordinator,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -25,13 +30,7 @@ pub struct Runtime {
     gc: GcHeap,
     host: HostRegistry,
     reloads: HotReloadCoordinator,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoadedModule {
-    pub name: String,
-    pub epoch: ModuleEpoch,
-    pub bytecode: BytecodeModule,
+    modules: ModuleStore,
 }
 
 impl Runtime {
@@ -40,6 +39,7 @@ impl Runtime {
             gc: GcHeap::new(config.gc),
             host: HostRegistry::default(),
             reloads: HotReloadCoordinator::default(),
+            modules: ModuleStore::default(),
         }
     }
 
@@ -53,6 +53,21 @@ impl Runtime {
 
     pub fn host_mut(&mut self) -> &mut HostRegistry {
         &mut self.host
+    }
+
+    pub fn modules(&self) -> &ModuleStore {
+        &self.modules
+    }
+
+    pub fn module_instance_snapshot(&self, module: &LoadedModule) -> Option<ModuleInstance> {
+        self.modules.instance_snapshot(module.key())
+    }
+
+    pub fn module_instance_mut(
+        &self,
+        module: &LoadedModule,
+    ) -> Option<std::cell::RefMut<'_, ModuleInstance>> {
+        self.modules.instance_mut(module.key())
     }
 
     pub fn root_value(&self, value: value::Value) -> Option<GcRootId> {
@@ -128,11 +143,7 @@ impl Runtime {
     ) -> LoadedModule {
         let name = name.into();
         let epoch = self.reloads.publish(&name);
-        LoadedModule {
-            name,
-            epoch,
-            bytecode,
-        }
+        self.modules.load(name, epoch, bytecode)
     }
 }
 
