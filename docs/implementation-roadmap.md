@@ -197,6 +197,7 @@ Spec references:
 
 - `docs/spec/bytecode.md`
 - `docs/spec/artifacts.md`
+- `docs/spec/debugger.md`
 - `docs/spec/typed-path-mutation.md`
 - `docs/spec/codegen-backend.md`
 - `docs/spec/jit.md`
@@ -210,7 +211,7 @@ Implementation tasks:
 - Add typed path instructions or strongly typed helper calls for path read, set, modify, and view.
 - Remove ordinary assignment lowering through reflection helpers.
 - Add verification for local/field writeability, type consistency, path descriptors, helper calls, and control-flow targets.
-- Preserve debug spans and source mapping.
+- Preserve debug spans, source mapping, safe debug points, frame layouts, and local live ranges.
 
 Execution steps:
 
@@ -229,9 +230,12 @@ Execution steps:
 - M3.5 Remove ordinary assignment lowering through reflection helpers.
   Commit: `fix(ir): remove reflection assignment lowering`
   Trailer: `Roadmap-Step: M3.5`
-- M3.6 Add verifier, lowering, source-span, artifact, and effect metadata tests.
-  Commit: `test(ir): cover bytecode verifier contracts`
+- M3.6 Add debugger metadata for source spans, line tables, safe debug points, local live ranges, captured bindings, and frame layouts.
+  Commit: `feat(bytecode): add debugger metadata`
   Trailer: `Roadmap-Step: M3.6`
+- M3.7 Add verifier, lowering, source-span, artifact, debugger, and effect metadata tests.
+  Commit: `test(ir): cover bytecode verifier contracts`
+  Trailer: `Roadmap-Step: M3.7`
 
 Forbidden shortcuts:
 
@@ -429,6 +433,7 @@ Spec references:
 
 - `docs/spec/execution.md`
 - `docs/spec/bytecode.md`
+- `docs/spec/debugger.md`
 - `docs/spec/runtime.md`
 - `docs/spec/modules.md`
 
@@ -439,6 +444,7 @@ Implementation tasks:
 - Enforce resource accounting and security context at runtime boundaries.
 - Execute module initialization once per epoch and cache success or failure according to spec.
 - Preserve stack/root metadata for GC.
+- Add interpreter debugger hooks for safe debug points, breakpoints, stepping, stack inspection, and value inspection.
 - Add interpreter tests for functions, modules, loops, match, arrays, structs, interface calls, path mutation, errors, and reload boundaries.
 
 Execution steps:
@@ -458,9 +464,12 @@ Execution steps:
 - M6.5 Implement module initialization and epoch-visible execution behavior.
   Commit: `feat(vm): execute module epochs`
   Trailer: `Roadmap-Step: M6.5`
-- M6.6 Add interpreter integration tests for successful execution and classified failure paths.
-  Commit: `test(vm): cover interpreter conformance`
+- M6.6 Implement interpreter debugger hooks, debug sessions, breakpoint resolution, stepping, frame inspection, and read-only watch evaluation.
+  Commit: `feat(debugger): add interpreter debug hooks`
   Trailer: `Roadmap-Step: M6.6`
+- M6.7 Add interpreter integration tests for successful execution, classified failure paths, breakpoints, stepping, stack inspection, value inspection, and watch expressions.
+  Commit: `test(vm): cover interpreter conformance`
+  Trailer: `Roadmap-Step: M6.7`
 
 Forbidden shortcuts:
 
@@ -585,6 +594,7 @@ Spec references:
 
 - `docs/spec/security.md`
 - `docs/spec/reflection.md`
+- `docs/spec/debugger.md`
 - `docs/spec/host-interop.md`
 - `docs/spec/traits.md`
 
@@ -594,6 +604,7 @@ Implementation tasks:
 - Implement runtime capabilities for reflection, host calls, path mutation, module loading, and JIT.
 - Enforce host API exposure policy.
 - Gate reflection metadata reads, reflective reads, reflective writes, dynamic invocation, and downcasts separately.
+- Gate debugger attachment, breakpoints, pause/resume, stack inspection, value inspection, watch evaluation, and side-effecting evaluation separately.
 - Add resource limits for instruction count, call depth, allocation, host calls, and reflection operations.
 - Ensure runtime checks remain active even when frontend checks reject obvious violations.
 
@@ -611,9 +622,12 @@ Execution steps:
 - M8.4 Enforce runtime resource limits for instruction count, call depth, allocation, host calls, and reflection operations.
   Commit: `feat(security): enforce runtime resource limits`
   Trailer: `Roadmap-Step: M8.4`
-- M8.5 Add tests for restricted profiles, denied operations, reflection gates, and resource limit failures.
-  Commit: `test(security): cover denied operations`
+- M8.5 Enforce debugger capabilities and host/debug visibility policy.
+  Commit: `feat(security): gate debugger operations`
   Trailer: `Roadmap-Step: M8.5`
+- M8.6 Add tests for restricted profiles, denied operations, reflection gates, debugger gates, and resource limit failures.
+  Commit: `test(security): cover denied operations`
+  Trailer: `Roadmap-Step: M8.6`
 
 Forbidden shortcuts:
 
@@ -659,6 +673,7 @@ Required code areas:
 Spec references:
 
 - `docs/spec/jit.md`
+- `docs/spec/debugger.md`
 - `docs/spec/codegen-backend.md`
 - `docs/spec/execution.md`
 - `docs/spec/bytecode.md`
@@ -671,6 +686,7 @@ Implementation tasks:
 - Call shared runtime helpers for allocation, host interop, path mutation, reflection, traps, security, and safepoints.
 - Emit or derive stack maps and safepoint metadata.
 - Fall back to interpreter for unsupported functions.
+- Fall back to interpreter for debugged functions when JIT debug metadata or safe debug points are insufficient.
 - Invalidate compiled artifacts on module epoch, ABI fingerprint, path descriptor, type layout, helper ABI, or policy changes.
 - Add equivalence tests comparing interpreter and JIT results.
 
@@ -688,9 +704,12 @@ Execution steps:
 - M9.4 Add safepoint metadata, stack-map handling, interpreter fallback, and unsupported-function diagnostics.
   Commit: `feat(jit): add safepoints and fallback`
   Trailer: `Roadmap-Step: M9.4`
-- M9.5 Add JIT equivalence, policy disablement, fallback, and reload invalidation tests.
-  Commit: `test(jit): cover equivalence and invalidation`
+- M9.5 Enforce debugger/JIT policy: safe debug points, debug metadata checks, and interpreter fallback for debugged functions.
+  Commit: `feat(jit): enforce debugger execution policy`
   Trailer: `Roadmap-Step: M9.5`
+- M9.6 Add JIT equivalence, policy disablement, debugger fallback, and reload invalidation tests.
+  Commit: `test(jit): cover equivalence and invalidation`
+  Trailer: `Roadmap-Step: M9.6`
 
 Forbidden shortcuts:
 
@@ -743,6 +762,7 @@ Implementation tasks:
 - Add conformance tests organized by language feature and spec section.
 - Add negative tests for removed legacy behavior.
 - Add integration tests for host interop, reload, security, reflection, and JIT policy.
+- Add debugger conformance tests and IDE adapter boundary tests.
 - Add fuzz or property tests for lexer/parser and bytecode verifier where practical.
 - Improve diagnostics for parse, resolution, type, bytecode verification, runtime, host, reload, and security errors.
 - Update CLI commands for parse/check/run and optional JIT execution.
@@ -763,12 +783,15 @@ Execution steps:
 - M10.4 Update CLI commands for parse, check, emit `.kbc`, run source, run artifacts, profile selection, and optional JIT execution.
   Commit: `feat(cli): polish language pipeline commands`
   Trailer: `Roadmap-Step: M10.4`
-- M10.5 Update README, architecture, roadmap, goal guide, and specs to match implemented behavior.
-  Commit: `docs: align documentation with implementation`
+- M10.5 Add debugger protocol or DAP adapter boundary, session smoke tests, and user-facing debugger documentation.
+  Commit: `feat(debugger): add adapter protocol boundary`
   Trailer: `Roadmap-Step: M10.5`
-- M10.6 Remove dead compatibility code, obsolete tests, and non-spec examples.
-  Commit: `chore: remove legacy compatibility code`
+- M10.6 Update README, architecture, roadmap, goal guide, and specs to match implemented behavior.
+  Commit: `docs: align documentation with implementation`
   Trailer: `Roadmap-Step: M10.6`
+- M10.7 Remove dead compatibility code, obsolete tests, and non-spec examples.
+  Commit: `chore: remove legacy compatibility code`
+  Trailer: `Roadmap-Step: M10.7`
 
 Forbidden shortcuts:
 

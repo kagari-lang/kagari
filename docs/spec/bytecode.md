@@ -439,7 +439,12 @@ Bytecode supports source mapping.
 Debug metadata includes:
 
 - instruction-to-source spans
+- line table entries
+- safe debug point markers
 - local variable names and live ranges
+- parameter names and live ranges
+- captured binding names and locations
+- frame layout metadata
 - function names and module names
 - path names for diagnostics
 - type names for diagnostics

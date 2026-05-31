@@ -23,6 +23,9 @@ KagariEngine
 KagariRuntime
   owns loaded modules, heaps, host registries, security state, and execution policy
 
+DebugController
+  owns debugger sessions, breakpoint registries, pause state, and debugger events
+
 HostRegistry
   owns registered host types, functions, interfaces, paths, and metadata
 
@@ -188,6 +191,28 @@ Allowed policies include:
 
 JIT policy must not change script-visible behavior.
 When JIT is disabled or unavailable, the interpreter remains the execution path.
+
+## Debugger API
+
+The embedding API exposes debugger control through host-created debug sessions.
+
+Debugger operations include:
+
+- attach session
+- detach session
+- set and clear breakpoints
+- pause and continue
+- step into, step over, and step out
+- inspect call stack
+- inspect frame variables
+- inspect values according to host policy
+- evaluate read-only watch expressions
+- receive debugger events
+
+The debugger API is not script-visible.
+Debugger attachment and inspection require runtime capabilities and host policy.
+
+Debug sessions use the model defined in [debugger.md](/Users/mikai/CLionProjects/kagari/docs/spec/debugger.md).
 
 ## Threading and Isolates
 

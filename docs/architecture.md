@@ -211,6 +211,25 @@ The interpreter must:
 - respect module initialization and hot reload epochs
 - reject unsupported or unverified bytecode instead of guessing behavior
 
+## Debugger and Tooling
+
+Debugger support is defined in `docs/spec/debugger.md`.
+
+The debugger is a host/tooling capability, not an ordinary script API.
+It is built on:
+
+- bytecode source maps
+- safe debug points
+- runtime frame inspection
+- value inspection
+- profile-gated reflection metadata
+- host exposure policy
+- typed path read policy
+- module epoch identity
+
+The baseline debugger is interpreter-first and supports source breakpoints, conditional breakpoints, hit counts, stepping, call stacks, variable inspection, watch expressions, trap breakpoints, and hot-reload-aware breakpoint remapping.
+JIT execution may participate only when it provides equivalent debug metadata and safe debug points; otherwise debugged functions fall back to the interpreter.
+
 ## Baseline Cranelift JIT
 
 The baseline JIT is optional and function-level.
@@ -267,6 +286,7 @@ Kagari is production-ready when:
 - interpreter behavior is deterministic and verified through integration tests
 - host interop enforces no-escape and aliasing rules
 - typed path mutation is validated, efficient, and reload-aware
+- debugger sessions support IDEA-like source debugging through safe runtime hooks
 - hot reload cannot corrupt the active runtime on failure
 - security profiles and reflection gates are enforced at runtime boundaries
 - baseline Cranelift JIT can be enabled without changing language behavior

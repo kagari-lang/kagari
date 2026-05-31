@@ -26,6 +26,7 @@ This currently means:
 - [Module loading specification](docs/spec/module-loading.md)
 - [Builtins and standard library specification](docs/spec/builtins.md)
 - [Bytecode artifact specification](docs/spec/artifacts.md)
+- [Debugger specification](docs/spec/debugger.md)
 - [Baseline JIT specification](docs/spec/jit.md)
 
 ## Design Direction

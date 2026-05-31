@@ -38,6 +38,7 @@ Codex must read these before starting or resuming execution:
 - `docs/spec/typed-path-mutation.md`
 - `docs/spec/bytecode.md`
 - `docs/spec/artifacts.md`
+- `docs/spec/debugger.md`
 - `docs/spec/runtime.md`
 - `docs/spec/host-interop.md`
 - `docs/spec/embedding-api.md`

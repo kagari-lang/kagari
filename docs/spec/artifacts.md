@@ -105,8 +105,13 @@ It may include:
 
 - source spans
 - source file names or source uris
+- safe debug point tables
 - function names
 - local names
+- parameter names
+- captured binding names
+- local and captured value live ranges
+- frame layout metadata
 - type names
 - path names
 - line tables
