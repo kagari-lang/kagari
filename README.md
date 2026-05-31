@@ -27,6 +27,7 @@ This currently means:
 - [Builtins and standard library specification](docs/spec/builtins.md)
 - [Bytecode artifact specification](docs/spec/artifacts.md)
 - [Debugger specification](docs/spec/debugger.md)
+- [Debugger adapter boundary](docs/debugger-adapter.md)
 - [Baseline JIT specification](docs/spec/jit.md)
 
 ## Design Direction
