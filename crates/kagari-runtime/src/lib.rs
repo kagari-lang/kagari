@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod cache;
 pub mod error;
 pub mod gc;
 pub mod host;
@@ -12,6 +13,10 @@ pub mod value;
 
 use kagari_ir::bytecode::{ArtifactCompatibility, BuiltinMethod, BytecodeModule, KbcArtifact};
 
+pub use cache::{
+    ExecutionArtifactId, ExecutionArtifactKind, ExecutionArtifactRecord, ExecutionArtifactRegistry,
+    ReloadDependencySnapshot, ReloadInvalidation,
+};
 pub use error::{RuntimeError, RuntimeErrorKind};
 pub use host::{
     BorrowEpoch, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
@@ -63,6 +68,7 @@ pub struct Runtime {
     resources: ResourceState,
     reloads: HotReloadCoordinator,
     modules: ModuleStore,
+    execution_artifacts: ExecutionArtifactRegistry,
 }
 
 impl Runtime {
@@ -78,6 +84,7 @@ impl Runtime {
             resources: ResourceState::new(config.resources),
             reloads: HotReloadCoordinator::default(),
             modules: ModuleStore::default(),
+            execution_artifacts: ExecutionArtifactRegistry::default(),
         }
     }
 
@@ -295,6 +302,32 @@ impl Runtime {
         &self.modules
     }
 
+    pub fn register_execution_artifact(
+        &self,
+        kind: ExecutionArtifactKind,
+        module: ModuleKey,
+        function: Option<kagari_ir::bytecode::FunctionRef>,
+        dependencies: ReloadDependencySnapshot,
+    ) -> Option<ExecutionArtifactId> {
+        self.modules.loaded(module)?;
+        if kind == ExecutionArtifactKind::Jit {
+            self.modules
+                .retain_epoch(module, ModuleEpochRetention::CompiledArtifact);
+        }
+        Some(
+            self.execution_artifacts
+                .register(kind, module, function, dependencies),
+        )
+    }
+
+    pub fn execution_artifact(&self, id: ExecutionArtifactId) -> Option<ExecutionArtifactRecord> {
+        let artifact = self.execution_artifacts.get(id)?;
+        if !artifact.valid || !self.modules.is_reachable(artifact.module) {
+            return None;
+        }
+        Some(artifact)
+    }
+
     pub fn module_instance_snapshot(&self, module: &LoadedModule) -> Option<ModuleInstance> {
         self.modules.instance_snapshot(module.key())
     }
@@ -398,6 +431,7 @@ impl Runtime {
         bytecode: BytecodeModule,
     ) -> Result<LoadedModule, RuntimeError> {
         let name = name.into();
+        let dependencies = ReloadDependencySnapshot::from_bytecode(&bytecode);
         validate_load_candidate(&bytecode).map_err(|error| match error {
             ReloadValidationError::Bytecode(error) => {
                 RuntimeError::module_validation(format!("bytecode validation failed: {error:?}"))
@@ -408,6 +442,7 @@ impl Runtime {
             .record_loaded_modules(self.modules.loaded_count() + 1)?;
         let epoch = self.reloads.publish(&name);
         let module = self.modules.load(name, epoch, bytecode);
+        self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         self.resources
             .record_loaded_modules(self.modules.loaded_count())?;
         Ok(module)
@@ -422,7 +457,8 @@ impl Runtime {
         let name = name.into();
         let latest = self.modules.latest(&active.name);
         validate_reload_candidate(active, &name, &bytecode, latest.as_ref())?;
-        self.publish_validated_reload(name, bytecode)
+        let dependencies = ReloadDependencySnapshot::from_bytecode(&bytecode);
+        self.publish_validated_reload(name, bytecode, dependencies)
     }
 
     pub fn reload_artifact(
@@ -441,23 +477,51 @@ impl Runtime {
             compatibility,
             latest.as_ref(),
         )?;
-        self.publish_validated_reload(name, artifact.module)
+        let dependencies = ReloadDependencySnapshot::from_artifact(&artifact);
+        self.publish_validated_reload(name, artifact.module, dependencies)
     }
 
     fn publish_validated_reload(
         &mut self,
         name: String,
         bytecode: BytecodeModule,
+        dependencies: ReloadDependencySnapshot,
     ) -> Result<LoadedModule, ReloadValidationError> {
         self.resources
             .record_loaded_modules(self.modules.loaded_count() + 1)
             .map_err(ReloadValidationError::Runtime)?;
         let epoch = self.reloads.publish(&name);
         let module = self.modules.load(name, epoch, bytecode);
+        self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         self.resources
             .record_loaded_modules(self.modules.loaded_count())
             .map_err(ReloadValidationError::Runtime)?;
         Ok(module)
+    }
+
+    fn invalidate_execution_artifacts_for_reload(
+        &self,
+        module: &LoadedModule,
+        dependencies: ReloadDependencySnapshot,
+    ) -> Vec<ExecutionArtifactId> {
+        let invalidated = self
+            .execution_artifacts
+            .invalidate_for_reload(&ReloadInvalidation {
+                module_name: module.name.clone(),
+                module_id: module.id,
+                published: module.key(),
+                dependencies,
+            });
+        for artifact in &invalidated {
+            if artifact.kind == ExecutionArtifactKind::Jit {
+                self.modules
+                    .release_epoch(artifact.module, ModuleEpochRetention::CompiledArtifact);
+            }
+        }
+        invalidated
+            .into_iter()
+            .map(|artifact| artifact.id)
+            .collect()
     }
 }
 
@@ -473,7 +537,7 @@ mod tests {
     use kagari_ir::{
         bytecode::{
             ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, BytecodeModule,
-            DependencyFingerprint, KbcArtifact,
+            ConstantOperand, DependencyFingerprint, KbcArtifact,
         },
         module::{FunctionAbi, PublicAbiItem},
     };
@@ -489,6 +553,12 @@ mod tests {
             })],
             ..BytecodeModule::default()
         }
+    }
+
+    fn module_with_public_function_and_constant(return_type: &str, value: i32) -> BytecodeModule {
+        let mut module = module_with_public_function(return_type);
+        module.constants.push(ConstantOperand::I32(value));
+        module
     }
 
     fn artifact_with_loader_fingerprints() -> KbcArtifact {
@@ -687,6 +757,135 @@ mod tests {
         assert_eq!(
             runtime.modules().latest("reloadable").unwrap().epoch,
             reloaded.epoch
+        );
+    }
+
+    #[test]
+    fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
+        let dependency_v1 = KbcArtifact::from_module(
+            module_with_public_function_and_constant("i32", 1),
+            ArtifactBuildOptions::default(),
+        );
+        let dependency_v2 = KbcArtifact::from_module(
+            module_with_public_function_and_constant("i32", 2),
+            ArtifactBuildOptions::default(),
+        );
+        let dependency_v1_snapshot = ReloadDependencySnapshot::from_artifact(&dependency_v1);
+        let dependency_v2_compatibility = compatibility_for_artifact(&dependency_v2);
+        let mut runtime = Runtime::default();
+        let dependency = runtime
+            .load_module("dependency", dependency_v1.module.clone())
+            .expect("dependency should load");
+        let consumer = runtime
+            .load_module("consumer", module_with_public_function("i32"))
+            .expect("consumer should load");
+        let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(&consumer.bytecode);
+        consumer_snapshot
+            .dependency_fingerprints
+            .push(DependencyFingerprint {
+                module_id: "dependency".to_owned(),
+                fingerprint: dependency_v1_snapshot.module_fingerprint,
+            });
+
+        let interpreter_cache = runtime
+            .register_execution_artifact(
+                ExecutionArtifactKind::InterpreterCache,
+                consumer.key(),
+                None,
+                consumer_snapshot.clone(),
+            )
+            .expect("interpreter cache should register");
+        let jit_artifact = runtime
+            .register_execution_artifact(
+                ExecutionArtifactKind::Jit,
+                consumer.key(),
+                None,
+                consumer_snapshot,
+            )
+            .expect("jit artifact should register");
+
+        assert!(runtime.execution_artifact(interpreter_cache).is_some());
+        assert!(runtime.execution_artifact(jit_artifact).is_some());
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(consumer.key())
+                .compiled_artifacts,
+            1
+        );
+
+        runtime
+            .reload_artifact(
+                &dependency,
+                "dependency",
+                dependency_v2,
+                &dependency_v2_compatibility,
+            )
+            .expect("compatible dependency implementation should reload");
+
+        assert!(runtime.execution_artifact(interpreter_cache).is_none());
+        assert!(runtime.execution_artifact(jit_artifact).is_none());
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(consumer.key())
+                .compiled_artifacts,
+            0
+        );
+    }
+
+    #[test]
+    fn failed_reload_does_not_invalidate_registered_artifacts() {
+        let dependency_v1 = artifact_with_loader_fingerprints();
+        let dependency_v1_snapshot = ReloadDependencySnapshot::from_artifact(&dependency_v1);
+        let mut dependency_v2 = dependency_v1.clone();
+        dependency_v2.module.constants.push(ConstantOperand::I32(2));
+        let mut runtime = Runtime::default();
+        let dependency = runtime
+            .load_module("dependency", dependency_v1.module.clone())
+            .expect("dependency should load");
+        let consumer = runtime
+            .load_module("consumer", module_with_public_function("i32"))
+            .expect("consumer should load");
+        let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(&consumer.bytecode);
+        consumer_snapshot
+            .dependency_fingerprints
+            .push(DependencyFingerprint {
+                module_id: "dependency".to_owned(),
+                fingerprint: dependency_v1_snapshot.module_fingerprint,
+            });
+
+        let artifact = runtime
+            .register_execution_artifact(
+                ExecutionArtifactKind::Jit,
+                consumer.key(),
+                None,
+                consumer_snapshot,
+            )
+            .expect("jit artifact should register");
+
+        let error = runtime
+            .reload_artifact(
+                &dependency,
+                "dependency",
+                dependency_v2,
+                &ArtifactCompatibility::default(),
+            )
+            .expect_err("loader compatibility mismatch should reject reload");
+
+        assert!(matches!(
+            error,
+            ReloadValidationError::Artifact(
+                kagari_ir::bytecode::ArtifactValidationError::ContentHashMismatch
+            )
+        ));
+        assert!(runtime.execution_artifact(artifact).is_some());
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(consumer.key())
+                .compiled_artifacts,
+            1
         );
     }
 
