@@ -2,7 +2,9 @@ use kagari_common::Span;
 use kagari_ir::bytecode::{
     BytecodeFunction, BytecodeModule, DebugPointId, FunctionRef, LocalSlot, SafeDebugPoint,
 };
-use kagari_runtime::{ModuleId, value::Value};
+use kagari_runtime::{
+    DebugVisibilityPolicy, ModuleId, Runtime, RuntimeError, SecurityContext, value::Value,
+};
 
 use crate::{VmError, frame::Frame};
 
@@ -77,9 +79,13 @@ impl DebugPause {
 
     pub fn evaluate_watch(
         &self,
+        runtime: &Runtime,
         frame_id: DebugFrameId,
         watch: &DebugWatch,
     ) -> Result<Value, VmError> {
+        runtime
+            .validate_debug_watch_evaluation_boundary()
+            .map_err(VmError::RuntimeError)?;
         let frame = self
             .frames
             .iter()
@@ -90,7 +96,13 @@ impl DebugPause {
                 .bindings
                 .iter()
                 .find(|binding| binding.name == *name)
-                .map(|binding| binding.value.clone())
+                .map(|binding| {
+                    runtime
+                        .validate_debug_value_visible(&binding.value)
+                        .map_err(VmError::RuntimeError)?;
+                    Ok(binding.value.clone())
+                })
+                .transpose()?
                 .ok_or(VmError::MissingField(name.clone())),
         }
     }
@@ -137,6 +149,8 @@ struct RegisteredBreakpoint {
 
 #[derive(Debug, Clone)]
 pub struct DebugSession {
+    security: SecurityContext,
+    visibility: DebugVisibilityPolicy,
     breakpoints: Vec<RegisteredBreakpoint>,
     resolved: Vec<ResolvedBreakpoint>,
     pauses: Vec<DebugPause>,
@@ -145,30 +159,34 @@ pub struct DebugSession {
     mode: StepMode,
 }
 
-impl Default for DebugSession {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DebugSession {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(runtime: &Runtime) -> Result<Self, VmError> {
+        runtime
+            .validate_debug_attach_boundary()
+            .map_err(VmError::RuntimeError)?;
+        Ok(Self {
+            security: runtime.security(),
+            visibility: runtime.debug_visibility().clone(),
             breakpoints: Vec::new(),
             resolved: Vec::new(),
             pauses: Vec::new(),
             next_breakpoint_id: 0,
             next_frame_id: 0,
             mode: StepMode::Continue,
-        }
+        })
     }
 
-    pub fn add_breakpoint(&mut self, breakpoint: SourceBreakpoint) -> BreakpointId {
+    pub fn add_breakpoint(
+        &mut self,
+        breakpoint: SourceBreakpoint,
+    ) -> Result<BreakpointId, VmError> {
+        self.validate_breakpoints()?;
+        self.validate_visible_module(&breakpoint.source_uri)?;
         let id = BreakpointId(self.next_breakpoint_id);
         self.next_breakpoint_id += 1;
         self.breakpoints
             .push(RegisteredBreakpoint { breakpoint, id });
-        id
+        Ok(id)
     }
 
     pub fn resolved_breakpoints(&self) -> &[ResolvedBreakpoint] {
@@ -179,38 +197,48 @@ impl DebugSession {
         &self.pauses
     }
 
-    pub fn pause(&mut self) {
+    pub fn pause(&mut self) -> Result<(), VmError> {
+        self.validate_pause()?;
         self.mode = StepMode::PauseNext;
+        Ok(())
     }
 
-    pub fn continue_execution(&mut self) {
+    pub fn continue_execution(&mut self) -> Result<(), VmError> {
+        self.validate_pause()?;
         self.mode = StepMode::Continue;
+        Ok(())
     }
 
-    pub fn step_into(&mut self) {
+    pub fn step_into(&mut self) -> Result<(), VmError> {
+        self.validate_pause()?;
         self.mode = StepMode::PauseNext;
+        Ok(())
     }
 
-    pub fn step_over(&mut self, current_depth: usize) {
+    pub fn step_over(&mut self, current_depth: usize) -> Result<(), VmError> {
+        self.validate_pause()?;
         self.mode = StepMode::StepOver {
             depth: current_depth,
         };
+        Ok(())
     }
 
-    pub fn step_out(&mut self, current_depth: usize) {
+    pub fn step_out(&mut self, current_depth: usize) -> Result<(), VmError> {
+        self.validate_pause()?;
         self.mode = StepMode::StepOut {
             depth: current_depth,
         };
+        Ok(())
     }
 
     pub fn run_to_cursor(
         &mut self,
         source_uri: impl Into<String>,
         source_offset: usize,
-    ) -> BreakpointId {
+    ) -> Result<BreakpointId, VmError> {
         let mut breakpoint = SourceBreakpoint::at_source_offset(source_uri, source_offset);
         breakpoint.temporary = true;
-        self.continue_execution();
+        self.continue_execution()?;
         self.add_breakpoint(breakpoint)
     }
 
@@ -220,9 +248,19 @@ impl DebugSession {
         module_name: &str,
         epoch: u64,
         module: &BytecodeModule,
-    ) {
+        runtime: &Runtime,
+    ) -> Result<(), VmError> {
         self.resolved
             .retain(|resolved| resolved.module_id != module_id || resolved.epoch != epoch);
+        if self.breakpoints.is_empty() {
+            return Ok(());
+        }
+        if runtime.validate_debug_module_visible(module_name).is_err() {
+            return Ok(());
+        }
+        runtime
+            .validate_debug_breakpoint_boundary()
+            .map_err(VmError::RuntimeError)?;
         for function in &module.functions {
             for point in &function.metadata.debug.safe_debug_points {
                 for breakpoint in &self.breakpoints {
@@ -242,10 +280,13 @@ impl DebugSession {
                 }
             }
         }
+        Ok(())
     }
 
     pub(crate) fn before_instruction(
         &mut self,
+        runtime: &Runtime,
+        module_name: &str,
         module_id: ModuleId,
         epoch: u64,
         frames: &[Frame<'_>],
@@ -269,12 +310,20 @@ impl DebugSession {
             })
             .map(|resolved| resolved.breakpoint_id);
         let reason = match breakpoint {
-            Some(id) => Some(DebugPauseReason::Breakpoint(id)),
+            Some(id) => {
+                runtime
+                    .validate_debug_breakpoint_boundary()
+                    .map_err(VmError::RuntimeError)?;
+                Some(DebugPauseReason::Breakpoint(id))
+            }
             None => self.step_reason(frames.len()),
         };
 
         if let Some(reason) = reason {
-            self.record_pause(reason, module_id, epoch, frames)?;
+            runtime
+                .validate_debug_module_visible(module_name)
+                .map_err(VmError::RuntimeError)?;
+            self.record_pause(runtime, reason, module_id, epoch, frames)?;
         }
         if let Some(id) = breakpoint {
             let temporary = self
@@ -293,11 +342,15 @@ impl DebugSession {
 
     pub(crate) fn record_trap(
         &mut self,
+        runtime: &Runtime,
         module_id: ModuleId,
         epoch: u64,
         frames: &[Frame<'_>],
     ) -> Result<(), VmError> {
-        self.record_pause(DebugPauseReason::Trap, module_id, epoch, frames)
+        runtime
+            .validate_debug_pause_boundary()
+            .map_err(VmError::RuntimeError)?;
+        self.record_pause(runtime, DebugPauseReason::Trap, module_id, epoch, frames)
     }
 
     fn step_reason(&mut self, depth: usize) -> Option<DebugPauseReason> {
@@ -321,16 +374,20 @@ impl DebugSession {
 
     fn record_pause(
         &mut self,
+        runtime: &Runtime,
         reason: DebugPauseReason,
         module_id: ModuleId,
         epoch: u64,
         frames: &[Frame<'_>],
     ) -> Result<(), VmError> {
+        runtime
+            .validate_debug_stack_inspection_boundary()
+            .map_err(VmError::RuntimeError)?;
         let pause = DebugPause {
             reason,
             frames: frames
                 .iter()
-                .map(|frame| self.inspect_frame(module_id, epoch, frame))
+                .map(|frame| self.inspect_frame(runtime, module_id, epoch, frame))
                 .collect::<Result<Vec<_>, _>>()?,
         };
         self.pauses.push(pause);
@@ -339,6 +396,7 @@ impl DebugSession {
 
     fn inspect_frame(
         &mut self,
+        runtime: &Runtime,
         module_id: ModuleId,
         epoch: u64,
         frame: &Frame<'_>,
@@ -355,10 +413,14 @@ impl DebugSession {
             .iter()
             .filter(|range| range.start <= instruction_offset && instruction_offset <= range.end)
             .map(|range| {
+                let value = frame.read_local(range.local)?;
+                runtime
+                    .validate_debug_value_visible(&value)
+                    .map_err(VmError::RuntimeError)?;
                 Ok(DebugBinding {
                     name: range.name.clone(),
                     local: range.local,
-                    value: frame.read_local(range.local)?,
+                    value,
                     is_parameter: range.is_parameter,
                 })
             })
@@ -374,6 +436,36 @@ impl DebugSession {
             source_span,
             bindings,
         })
+    }
+
+    fn validate_breakpoints(&self) -> Result<(), VmError> {
+        if self.security.allows_debug_breakpoints() {
+            Ok(())
+        } else {
+            Err(VmError::RuntimeError(RuntimeError::capability_denied(
+                "debug_breakpoints",
+            )))
+        }
+    }
+
+    fn validate_pause(&self) -> Result<(), VmError> {
+        if self.security.allows_debug_pause() {
+            Ok(())
+        } else {
+            Err(VmError::RuntimeError(RuntimeError::capability_denied(
+                "debug_pause",
+            )))
+        }
+    }
+
+    fn validate_visible_module(&self, module_name: &str) -> Result<(), VmError> {
+        if self.visibility.exposes_module(module_name) {
+            Ok(())
+        } else {
+            Err(VmError::RuntimeError(RuntimeError::capability_denied(
+                format!("debug module `{module_name}`"),
+            )))
+        }
     }
 }
 

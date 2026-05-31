@@ -48,6 +48,8 @@ impl<'a> Executor<'a> {
         loop {
             if let Some(debug_session) = self.debug_session.as_deref_mut() {
                 debug_session.before_instruction(
+                    self.runtime,
+                    &self.module_instance.name,
                     self.module_instance.id,
                     self.module_instance.epoch.0,
                     &self.frames,
@@ -87,6 +89,7 @@ impl<'a> Executor<'a> {
                     if let Err(error) = self.dispatch_instruction(instruction) {
                         if let Some(debug_session) = self.debug_session.as_deref_mut() {
                             debug_session.record_trap(
+                                self.runtime,
                                 self.module_instance.id,
                                 self.module_instance.epoch.0,
                                 &self.frames,

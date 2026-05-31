@@ -7,6 +7,7 @@ pub struct LanguageProfile {
     pub allow_path_mutation: bool,
     pub allow_module_loading: bool,
     pub allow_jit: bool,
+    pub allow_debugger: bool,
     pub allow_eval: bool,
     pub allow_async: bool,
 }
@@ -21,6 +22,7 @@ impl Default for LanguageProfile {
             allow_path_mutation: false,
             allow_module_loading: false,
             allow_jit: false,
+            allow_debugger: false,
             allow_eval: false,
             allow_async: false,
         }
@@ -43,6 +45,14 @@ pub struct CapabilitySet {
     pub downcast: bool,
     pub module_loading: bool,
     pub jit: bool,
+    pub debug_attach: bool,
+    pub debug_breakpoints: bool,
+    pub debug_pause: bool,
+    pub debug_stack_inspection: bool,
+    pub debug_value_inspection: bool,
+    pub debug_host_value_inspection: bool,
+    pub debug_watch_evaluation: bool,
+    pub debug_side_effecting_evaluation: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -93,6 +103,27 @@ impl HostExposurePolicy {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DebugVisibilityPolicy {
+    pub allow_all_modules: bool,
+    pub visible_modules: Vec<String>,
+    pub allow_host_value_inspection: bool,
+}
+
+impl DebugVisibilityPolicy {
+    pub fn exposes_module(&self, module_name: &str) -> bool {
+        self.allow_all_modules
+            || self
+                .visible_modules
+                .iter()
+                .any(|visible| visible == module_name)
+    }
+
+    pub fn exposes_host_values(&self) -> bool {
+        self.allow_host_value_inspection
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SecurityContext {
     pub profile: LanguageProfile,
@@ -136,5 +167,37 @@ impl SecurityContext {
 
     pub fn allows_jit(&self) -> bool {
         self.profile.allow_jit && self.capabilities.jit
+    }
+
+    pub fn allows_debug_attach(&self) -> bool {
+        self.profile.allow_debugger && self.capabilities.debug_attach
+    }
+
+    pub fn allows_debug_breakpoints(&self) -> bool {
+        self.profile.allow_debugger && self.capabilities.debug_breakpoints
+    }
+
+    pub fn allows_debug_pause(&self) -> bool {
+        self.profile.allow_debugger && self.capabilities.debug_pause
+    }
+
+    pub fn allows_debug_stack_inspection(&self) -> bool {
+        self.profile.allow_debugger && self.capabilities.debug_stack_inspection
+    }
+
+    pub fn allows_debug_value_inspection(&self) -> bool {
+        self.profile.allow_debugger && self.capabilities.debug_value_inspection
+    }
+
+    pub fn allows_debug_host_value_inspection(&self) -> bool {
+        self.profile.allow_debugger && self.capabilities.debug_host_value_inspection
+    }
+
+    pub fn allows_debug_watch_evaluation(&self) -> bool {
+        self.profile.allow_debugger && self.capabilities.debug_watch_evaluation
+    }
+
+    pub fn allows_debug_side_effecting_evaluation(&self) -> bool {
+        self.profile.allow_debugger && self.capabilities.debug_side_effecting_evaluation
     }
 }

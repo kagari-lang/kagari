@@ -10,8 +10,9 @@ use kagari_ir::module::ValueType;
 use kagari_runtime::host::{HostFunction, HostFunctionMetadata};
 use kagari_runtime::value::{StructValueField, Value};
 use kagari_runtime::{
-    CapabilitySet, ModuleEpochRetention, ModuleInitializationState, ResourcePolicy, Runtime,
-    RuntimeConfig, RuntimeErrorKind,
+    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention,
+    ModuleInitializationState, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
+    SecurityContext,
 };
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
@@ -170,6 +171,35 @@ fn host_call_runtime() -> Runtime {
         },
         ..RuntimeConfig::default()
     })
+}
+
+fn debug_runtime(module_name: &str) -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_debugger: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: debug_capabilities(),
+        },
+        debug_visibility: DebugVisibilityPolicy {
+            visible_modules: vec![module_name.to_owned()],
+            ..DebugVisibilityPolicy::default()
+        },
+        ..RuntimeConfig::default()
+    })
+}
+
+fn debug_capabilities() -> CapabilitySet {
+    CapabilitySet {
+        debug_attach: true,
+        debug_breakpoints: true,
+        debug_pause: true,
+        debug_stack_inspection: true,
+        debug_value_inspection: true,
+        debug_watch_evaluation: true,
+        ..CapabilitySet::default()
+    }
 }
 
 #[test]
@@ -538,20 +568,23 @@ fn main() -> i32 {
     value + 4
 }
 "#;
-    let mut runtime = host_call_runtime();
+    let mut runtime = debug_runtime("debug.kgr");
     let loaded = runtime
         .load_module("debug.kgr", compile_test_bytecode(source))
         .expect("debug module should load");
-    let mut session = DebugSession::new();
-    let breakpoint_id = session.add_breakpoint(SourceBreakpoint::at_source_offset(
-        "debug.kgr",
-        source
-            .find("value +")
-            .expect("source should contain tail expr"),
-    ));
+    let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
+    let breakpoint_id = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset(
+            "debug.kgr",
+            source
+                .find("value +")
+                .expect("source should contain tail expr"),
+        ))
+        .expect("breakpoint should be allowed");
 
     let mut vm = Vm::new(runtime);
-    vm.attach_debug_session(session);
+    vm.attach_debug_session(session)
+        .expect("debug attach should be allowed");
     let report = vm
         .execute(&loaded, "main")
         .expect("debugged function should execute");
@@ -575,7 +608,11 @@ fn main() -> i32 {
     assert_eq!(frame.function_name, "main");
     assert_eq!(
         pause
-            .evaluate_watch(frame.id, &DebugWatch::Binding("value".to_owned()))
+            .evaluate_watch(
+                vm.runtime(),
+                frame.id,
+                &DebugWatch::Binding("value".to_owned()),
+            )
             .expect("watch should read live local"),
         Value::I32(3)
     );
@@ -583,7 +620,7 @@ fn main() -> i32 {
 
 #[test]
 fn debug_session_supports_step_into_and_trap_pause_events() {
-    let mut runtime = host_call_runtime();
+    let mut runtime = debug_runtime("debug_trap.kbc");
     let mut main = test_function(
         0,
         "main",
@@ -624,11 +661,12 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
     let loaded = runtime
         .load_module("debug_trap.kbc", verified_module(None, vec![main]))
         .expect("trap module should load");
-    let mut session = DebugSession::new();
-    session.step_into();
+    let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
+    session.step_into().expect("step should be allowed");
 
     let mut vm = Vm::new(runtime);
-    vm.attach_debug_session(session);
+    vm.attach_debug_session(session)
+        .expect("debug attach should be allowed");
     let error = vm
         .execute(&loaded, "main")
         .expect_err("unreachable should trap");
@@ -648,6 +686,176 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
             .iter()
             .any(|pause| pause.reason == DebugPauseReason::Trap)
     );
+}
+
+#[test]
+fn debugger_attachment_requires_runtime_capability() {
+    let runtime = Runtime::default();
+    let error = DebugSession::new(&runtime).expect_err("default profile denies debugger attach");
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("debug_attach")
+    ));
+}
+
+#[test]
+fn debugger_breakpoints_require_capability_and_visible_module() {
+    let mut capabilities = debug_capabilities();
+    capabilities.debug_breakpoints = false;
+    let runtime_without_breakpoints = Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_debugger: true,
+                ..LanguageProfile::default()
+            },
+            capabilities,
+        },
+        debug_visibility: DebugVisibilityPolicy {
+            visible_modules: vec!["debug.kgr".to_owned()],
+            ..DebugVisibilityPolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let mut session =
+        DebugSession::new(&runtime_without_breakpoints).expect("attach should be allowed");
+    let error = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset("debug.kgr", 0))
+        .expect_err("breakpoints should require debugger capability");
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("debug_breakpoints")
+    ));
+
+    let runtime_with_hidden_module = debug_runtime("visible.kgr");
+    let mut session =
+        DebugSession::new(&runtime_with_hidden_module).expect("attach should be allowed");
+    let error = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset("hidden.kgr", 0))
+        .expect_err("hidden modules should not accept breakpoints");
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("debug module `hidden.kgr`")
+    ));
+}
+
+#[test]
+fn debugger_pause_control_is_separate_from_breakpoint_capability() {
+    let mut capabilities = debug_capabilities();
+    capabilities.debug_breakpoints = false;
+    let mut runtime = Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_debugger: true,
+                ..LanguageProfile::default()
+            },
+            capabilities,
+        },
+        debug_visibility: DebugVisibilityPolicy {
+            visible_modules: vec!["debug_step_only.kgr".to_owned()],
+            ..DebugVisibilityPolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = runtime
+        .load_module(
+            "debug_step_only.kgr",
+            compile_test_bytecode("fn main() -> i32 { val value = 1; value }"),
+        )
+        .expect("debug module should load");
+    let mut session = DebugSession::new(&runtime).expect("attach should be allowed");
+    session
+        .step_into()
+        .expect("pause control should be allowed");
+
+    let mut vm = Vm::new(runtime);
+    vm.attach_debug_session(session)
+        .expect("debug attach should be allowed");
+    let report = vm
+        .execute(&loaded, "main")
+        .expect("step-only debugger should execute without breakpoint capability");
+
+    assert_eq!(report.return_value, Value::I32(1));
+    assert!(
+        vm.debug_session()
+            .expect("debug session should be attached")
+            .pauses()
+            .iter()
+            .any(|pause| pause.reason == DebugPauseReason::Step)
+    );
+}
+
+#[test]
+fn debugger_watch_evaluation_requires_separate_capability() {
+    let source = r#"
+fn main() -> i32 {
+    val value = 3;
+    value + 4
+}
+"#;
+    let mut capabilities = debug_capabilities();
+    capabilities.debug_watch_evaluation = false;
+    let mut runtime = Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_debugger: true,
+                ..LanguageProfile::default()
+            },
+            capabilities,
+        },
+        debug_visibility: DebugVisibilityPolicy {
+            visible_modules: vec!["debug_watch.kgr".to_owned()],
+            ..DebugVisibilityPolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = runtime
+        .load_module("debug_watch.kgr", compile_test_bytecode(source))
+        .expect("debug module should load");
+    let mut session = DebugSession::new(&runtime).expect("debug attach should be allowed");
+    let breakpoint = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset(
+            "debug_watch.kgr",
+            source
+                .find("value +")
+                .expect("source should contain tail expr"),
+        ))
+        .expect("breakpoints should be allowed");
+    let mut vm = Vm::new(runtime);
+    vm.attach_debug_session(session)
+        .expect("debug attach should be allowed");
+    vm.execute(&loaded, "main")
+        .expect("debugged function should execute");
+
+    let pause = vm
+        .debug_session()
+        .expect("debug session should be attached")
+        .pauses()
+        .iter()
+        .find(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint))
+        .expect("breakpoint should pause")
+        .clone();
+    let frame = pause.top_frame().expect("pause should expose a frame");
+    let error = pause
+        .evaluate_watch(
+            vm.runtime(),
+            frame.id,
+            &DebugWatch::Binding("value".to_owned()),
+        )
+        .expect_err("watch evaluation should require its own capability");
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("debug_watch_evaluation")
+    ));
 }
 
 #[test]

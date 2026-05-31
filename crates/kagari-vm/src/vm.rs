@@ -44,8 +44,12 @@ impl Vm {
         &mut self.runtime
     }
 
-    pub fn attach_debug_session(&mut self, session: DebugSession) {
+    pub fn attach_debug_session(&mut self, session: DebugSession) -> Result<(), VmError> {
+        self.runtime
+            .validate_debug_attach_boundary()
+            .map_err(VmError::RuntimeError)?;
         self.debug_session = Some(session);
+        Ok(())
     }
 
     pub fn debug_session(&self) -> Option<&DebugSession> {
@@ -64,7 +68,13 @@ impl Vm {
         validate_executable_bytecode(&module.bytecode)?;
         self.execute_module(module)?;
         if let Some(debug_session) = self.debug_session.as_mut() {
-            debug_session.resolve_module(module.id, &module.name, module.epoch.0, &module.bytecode);
+            debug_session.resolve_module(
+                module.id,
+                &module.name,
+                module.epoch.0,
+                &module.bytecode,
+                &self.runtime,
+            )?;
         }
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)
@@ -98,7 +108,13 @@ impl Vm {
     pub fn execute_module(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
         validate_executable_bytecode(&module.bytecode)?;
         if let Some(debug_session) = self.debug_session.as_mut() {
-            debug_session.resolve_module(module.id, &module.name, module.epoch.0, &module.bytecode);
+            debug_session.resolve_module(
+                module.id,
+                &module.name,
+                module.epoch.0,
+                &module.bytecode,
+                &self.runtime,
+            )?;
         }
         let key = module.key();
         if let Some(instance) = self.runtime.module_instance_snapshot(module) {

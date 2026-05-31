@@ -38,7 +38,9 @@ pub use module::{
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
-pub use security::{CapabilitySet, HostExposurePolicy, LanguageProfile, SecurityContext};
+pub use security::{
+    CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext,
+};
 
 use crate::{
     builtin::BuiltinError,
@@ -56,6 +58,7 @@ pub struct RuntimeConfig {
     pub gc: GcHeapConfig,
     pub security: SecurityContext,
     pub host_exposure: HostExposurePolicy,
+    pub debug_visibility: DebugVisibilityPolicy,
     pub resources: ResourcePolicy,
 }
 
@@ -67,6 +70,7 @@ pub struct Runtime {
     host_borrows: HostBorrowTable,
     security: SecurityContext,
     host_exposure: HostExposurePolicy,
+    debug_visibility: DebugVisibilityPolicy,
     resources: ResourceState,
     reloads: HotReloadCoordinator,
     modules: ModuleStore,
@@ -84,6 +88,7 @@ impl Runtime {
             host_borrows: HostBorrowTable::default(),
             security: config.security,
             host_exposure: config.host_exposure,
+            debug_visibility: config.debug_visibility,
             resources: ResourceState::new(config.resources),
             reloads: HotReloadCoordinator::default(),
             modules: ModuleStore::default(),
@@ -339,6 +344,38 @@ impl Runtime {
         if required.jit && !self.security.allows_jit() {
             return Err(RuntimeError::capability_denied("jit"));
         }
+        if required.debug_attach && !self.security.allows_debug_attach() {
+            return Err(RuntimeError::capability_denied("debug_attach"));
+        }
+        if required.debug_breakpoints && !self.security.allows_debug_breakpoints() {
+            return Err(RuntimeError::capability_denied("debug_breakpoints"));
+        }
+        if required.debug_pause && !self.security.allows_debug_pause() {
+            return Err(RuntimeError::capability_denied("debug_pause"));
+        }
+        if required.debug_stack_inspection && !self.security.allows_debug_stack_inspection() {
+            return Err(RuntimeError::capability_denied("debug_stack_inspection"));
+        }
+        if required.debug_value_inspection && !self.security.allows_debug_value_inspection() {
+            return Err(RuntimeError::capability_denied("debug_value_inspection"));
+        }
+        if required.debug_host_value_inspection
+            && !self.security.allows_debug_host_value_inspection()
+        {
+            return Err(RuntimeError::capability_denied(
+                "debug_host_value_inspection",
+            ));
+        }
+        if required.debug_watch_evaluation && !self.security.allows_debug_watch_evaluation() {
+            return Err(RuntimeError::capability_denied("debug_watch_evaluation"));
+        }
+        if required.debug_side_effecting_evaluation
+            && !self.security.allows_debug_side_effecting_evaluation()
+        {
+            return Err(RuntimeError::capability_denied(
+                "debug_side_effecting_evaluation",
+            ));
+        }
         Ok(())
     }
 
@@ -427,6 +464,94 @@ impl Runtime {
         }
     }
 
+    pub fn validate_debug_attach_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_debug_attach() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("debug_attach"))
+        }
+    }
+
+    pub fn validate_debug_breakpoint_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_debug_breakpoints() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("debug_breakpoints"))
+        }
+    }
+
+    pub fn validate_debug_pause_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_debug_pause() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("debug_pause"))
+        }
+    }
+
+    pub fn validate_debug_stack_inspection_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_debug_stack_inspection() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("debug_stack_inspection"))
+        }
+    }
+
+    pub fn validate_debug_value_inspection_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_debug_value_inspection() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("debug_value_inspection"))
+        }
+    }
+
+    pub fn validate_debug_host_value_inspection_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_debug_host_value_inspection()
+            && self.debug_visibility.exposes_host_values()
+        {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied(
+                "debug_host_value_inspection",
+            ))
+        }
+    }
+
+    pub fn validate_debug_watch_evaluation_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_debug_watch_evaluation() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("debug_watch_evaluation"))
+        }
+    }
+
+    pub fn validate_debug_side_effecting_evaluation_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_debug_side_effecting_evaluation() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied(
+                "debug_side_effecting_evaluation",
+            ))
+        }
+    }
+
+    pub fn validate_debug_module_visible(&self, module_name: &str) -> Result<(), RuntimeError> {
+        if self.debug_visibility.exposes_module(module_name) {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied(format!(
+                "debug module `{module_name}`"
+            )))
+        }
+    }
+
+    pub fn validate_debug_value_visible(&self, value: &value::Value) -> Result<(), RuntimeError> {
+        self.validate_debug_value_inspection_boundary()?;
+        if value_contains_host_owned_data(value) {
+            self.validate_debug_host_value_inspection_boundary()?;
+        }
+        Ok(())
+    }
+
     pub fn types(&self) -> &TypeRegistry {
         &self.types
     }
@@ -445,6 +570,14 @@ impl Runtime {
 
     pub fn set_host_exposure_policy(&mut self, policy: HostExposurePolicy) {
         self.host_exposure = policy;
+    }
+
+    pub fn debug_visibility(&self) -> &DebugVisibilityPolicy {
+        &self.debug_visibility
+    }
+
+    pub fn set_debug_visibility_policy(&mut self, policy: DebugVisibilityPolicy) {
+        self.debug_visibility = policy;
     }
 
     pub fn resources(&self) -> &ResourceState {
@@ -692,6 +825,17 @@ impl Runtime {
     }
 }
 
+fn value_contains_host_owned_data(value: &value::Value) -> bool {
+    match value {
+        value::Value::Tuple(elements) => elements.iter().any(value_contains_host_owned_data),
+        value::Value::HostRoot(_) | value::Value::HostPathView(_) => true,
+        value::Value::Ephemeral(
+            value::EphemeralValue::HostRef(_) | value::EphemeralValue::HostMut(_),
+        ) => true,
+        _ => false,
+    }
+}
+
 impl Default for Runtime {
     fn default() -> Self {
         Self::new(RuntimeConfig::default())
@@ -750,6 +894,16 @@ mod tests {
             host_registry_fingerprint: artifact.verification.loader.host_registry_fingerprint,
             security_profile: artifact.verification.loader.security_profile.clone(),
             ..ArtifactCompatibility::default()
+        }
+    }
+
+    fn debug_security(capabilities: CapabilitySet) -> SecurityContext {
+        SecurityContext {
+            profile: LanguageProfile {
+                allow_debugger: true,
+                ..LanguageProfile::default()
+            },
+            capabilities,
         }
     }
 
@@ -1260,6 +1414,50 @@ mod tests {
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::CapabilityDenied
+        );
+    }
+
+    #[test]
+    fn debug_visibility_respects_host_value_policy() {
+        let host_value = value::Value::HostRoot(HostRootHandle::new(
+            HostObjectId(1),
+            TypeId::new(0),
+            HostSchemaEpoch::new(0),
+            AbiFingerprint(1),
+        ));
+        let runtime_without_host_debug = Runtime::new(RuntimeConfig {
+            security: debug_security(CapabilitySet {
+                debug_value_inspection: true,
+                ..CapabilitySet::default()
+            }),
+            ..RuntimeConfig::default()
+        });
+
+        assert_eq!(
+            runtime_without_host_debug
+                .validate_debug_value_visible(&host_value)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+
+        let runtime_with_host_debug = Runtime::new(RuntimeConfig {
+            security: debug_security(CapabilitySet {
+                debug_value_inspection: true,
+                debug_host_value_inspection: true,
+                ..CapabilitySet::default()
+            }),
+            debug_visibility: DebugVisibilityPolicy {
+                allow_host_value_inspection: true,
+                ..DebugVisibilityPolicy::default()
+            },
+            ..RuntimeConfig::default()
+        });
+
+        assert!(
+            runtime_with_host_debug
+                .validate_debug_value_visible(&host_value)
+                .is_ok()
         );
     }
 }

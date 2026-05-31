@@ -1,9 +1,35 @@
 use kagari_runtime::{
-    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, value::StructValueField, value::Value,
+    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
+    RuntimeErrorKind, SecurityContext, value::StructValueField, value::Value,
 };
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
 use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
+
+fn debug_runtime(module_name: &str) -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_debugger: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                debug_attach: true,
+                debug_breakpoints: true,
+                debug_pause: true,
+                debug_stack_inspection: true,
+                debug_value_inspection: true,
+                debug_watch_evaluation: true,
+                ..CapabilitySet::default()
+            },
+        },
+        debug_visibility: DebugVisibilityPolicy {
+            visible_modules: vec![module_name.to_owned()],
+            ..DebugVisibilityPolicy::default()
+        },
+        ..RuntimeConfig::default()
+    })
+}
 
 #[test]
 fn interpreter_conformance_executes_control_flow_match_arrays_and_structs() {
@@ -84,20 +110,23 @@ fn main() -> i32 {
     callee(seed)
 }
 "#;
-    let mut runtime = Runtime::default();
+    let mut runtime = debug_runtime("debug_conformance.kgr");
     let loaded = runtime
         .load_module("debug_conformance.kgr", compile_test_bytecode(source))
         .expect("module should load");
-    let mut session = DebugSession::new();
-    let breakpoint = session.add_breakpoint(SourceBreakpoint::at_source_offset(
-        "debug_conformance.kgr",
-        source
-            .find("point.x")
-            .expect("source should contain tail expr"),
-    ));
+    let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
+    let breakpoint = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset(
+            "debug_conformance.kgr",
+            source
+                .find("point.x")
+                .expect("source should contain tail expr"),
+        ))
+        .expect("breakpoint should be allowed");
 
     let mut vm = Vm::new(runtime);
-    vm.attach_debug_session(session);
+    vm.attach_debug_session(session)
+        .expect("debug attach should be allowed");
     let report = vm.execute(&loaded, "main").expect("vm should execute");
     assert_eq!(report.return_value, Value::I32(12));
 
@@ -115,13 +144,21 @@ fn main() -> i32 {
     assert_eq!(callee.function_name, "callee");
     assert_eq!(
         pause
-            .evaluate_watch(callee.id, &DebugWatch::Binding("doubled".to_owned()))
+            .evaluate_watch(
+                vm.runtime(),
+                callee.id,
+                &DebugWatch::Binding("doubled".to_owned()),
+            )
             .expect("watch should read live local"),
         Value::I32(8)
     );
     assert!(matches!(
         pause
-            .evaluate_watch(callee.id, &DebugWatch::Binding("missing".to_owned()))
+            .evaluate_watch(
+                vm.runtime(),
+                callee.id,
+                &DebugWatch::Binding("missing".to_owned())
+            )
             .expect_err("missing watch binding should be classified"),
         VmError::MissingField(ref name) if name == "missing"
     ));
@@ -181,21 +218,24 @@ fn main() -> i32 {
     helper(seed)
 }
 "#;
-    let mut runtime = Runtime::default();
+    let mut runtime = debug_runtime("debug_steps.kgr");
     let loaded = runtime
         .load_module("debug_steps.kgr", compile_test_bytecode(source))
         .expect("module should load");
-    let mut session = DebugSession::new();
-    let cursor = session.run_to_cursor(
-        "debug_steps.kgr",
-        source
-            .find("helper(seed)")
-            .expect("source should contain cursor target"),
-    );
-    session.step_into();
+    let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
+    let cursor = session
+        .run_to_cursor(
+            "debug_steps.kgr",
+            source
+                .find("helper(seed)")
+                .expect("source should contain cursor target"),
+        )
+        .expect("run to cursor should be allowed");
+    session.step_into().expect("step should be allowed");
 
     let mut vm = Vm::new(runtime);
-    vm.attach_debug_session(session);
+    vm.attach_debug_session(session)
+        .expect("debug attach should be allowed");
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(3));
