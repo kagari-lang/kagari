@@ -2,6 +2,7 @@ use kagari_common::Span;
 use kagari_hir::hir;
 
 use crate::module::{
+    ModuleAbi,
     ids::{BlockId, LocalId, ModuleSlotId},
     instruction::{EffectSet, InstructionBuffer, Terminator},
     types::ValueType,
@@ -11,6 +12,7 @@ use crate::module::{
 pub struct IrModule {
     pub module_init: Option<hir::FunctionId>,
     pub module_slots: ModuleSlotBuffer,
+    pub abi: ModuleAbi,
     pub functions: FunctionBuffer,
 }
 

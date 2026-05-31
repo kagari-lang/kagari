@@ -1,3 +1,4 @@
+mod abi;
 mod expr;
 mod function;
 mod state;
@@ -62,6 +63,7 @@ pub fn lower_to_ir(module: &AnalyzedModule) -> Result<IrModule, IrLoweringError>
     Ok(IrModule {
         module_init: module.lowered.module.module_init,
         module_slots: Vec::new(),
+        abi: abi::collect_module_abi(module, &const_values),
         functions,
     })
 }

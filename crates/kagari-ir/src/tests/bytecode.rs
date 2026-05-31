@@ -8,7 +8,7 @@ use crate::{
         KBC_MAGIC, KbcArtifact, LocalSlot, PathId, PathRecord, Register, RuntimeHelper,
         SafeDebugPointKind, UnaryOp, verify_module,
     },
-    module::ValueType,
+    module::{PublicAbiItem, TypeAbiKind, ValueType},
     tests::common,
 };
 
@@ -188,6 +188,147 @@ fn main() -> i32 { add(1, 2) }
         ..Default::default()
     };
     assert!(artifact.validate_for_loader(&requirements).is_ok());
+}
+
+#[test]
+fn fingerprints_public_module_abi_records() {
+    let module = common::bytecode_ok(
+        r#"
+pub const VERSION: i32 = 1;
+
+pub struct Player {
+    val name: String,
+    var score: i32,
+}
+
+pub enum Status {
+    Ready,
+    Waiting,
+}
+
+pub trait Display {
+    fn show(self) -> String;
+}
+
+impl Display for Player {
+    fn show(self) -> String {
+        self.name
+    }
+}
+
+pub fn greet(player: Player) -> String {
+    player.name
+}
+"#,
+    );
+
+    assert!(module.public_items.iter().any(|item| matches!(
+        item,
+        PublicAbiItem::Const(item)
+            if item.name == "VERSION" && item.ty == "i32" && item.value == "I32(1)"
+    )));
+    assert!(module.public_items.iter().any(|item| matches!(
+        item,
+        PublicAbiItem::Type(item)
+            if item.name == "Player"
+                && item.kind == TypeAbiKind::Struct
+                && item.fields.iter().any(|field| {
+                    field.name == "score" && field.ty == "i32" && field.mutable
+                })
+    )));
+    assert!(module.public_items.iter().any(|item| matches!(
+        item,
+        PublicAbiItem::Type(item)
+            if item.name == "Status"
+                && item.kind == TypeAbiKind::Enum
+                && item.variants.iter().any(|variant| variant.name == "Ready")
+    )));
+    assert!(module.public_items.iter().any(|item| matches!(
+        item,
+        PublicAbiItem::Trait(item)
+            if item.name == "Display"
+                && item.methods.iter().any(|method| {
+                    method.name == "show" && method.return_type == "String"
+                })
+    )));
+    assert!(module.public_items.iter().any(|item| matches!(
+        item,
+        PublicAbiItem::InterfaceTable(item)
+            if item.trait_name == "Display"
+                && item.for_type == "Player"
+                && item.methods.iter().any(|method| method.name == "show")
+    )));
+    assert!(module.public_items.iter().any(|item| matches!(
+        item,
+        PublicAbiItem::Function(item)
+            if item.name == "greet"
+                && item.params.len() == 1
+                && item.params[0].ty == "Player"
+                && item.return_type == "String"
+    )));
+
+    let artifact = KbcArtifact::from_module(module, ArtifactBuildOptions::default());
+    let names = artifact
+        .verification
+        .public_abi_fingerprints
+        .iter()
+        .map(|fingerprint| fingerprint.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"const:VERSION"));
+    assert!(names.contains(&"type:Player"));
+    assert!(names.contains(&"type:Status"));
+    assert!(names.contains(&"trait:Display"));
+    assert!(names.contains(&"interface_table:Player as Display"));
+    assert!(names.contains(&"function:greet"));
+}
+
+#[test]
+fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
+    let first = KbcArtifact::from_module(
+        common::bytecode_ok("pub fn main() -> i32 { 1 }"),
+        ArtifactBuildOptions::default(),
+    );
+    let second = KbcArtifact::from_module(
+        common::bytecode_ok("pub fn main(value: i32) -> i32 { value }"),
+        ArtifactBuildOptions::default(),
+    );
+    let first_main = first
+        .verification
+        .public_abi_fingerprints
+        .iter()
+        .find(|fingerprint| fingerprint.name == "function:main")
+        .expect("public main ABI should be fingerprinted");
+    let second_main = second
+        .verification
+        .public_abi_fingerprints
+        .iter()
+        .find(|fingerprint| fingerprint.name == "function:main")
+        .expect("public main ABI should be fingerprinted");
+    assert_ne!(first_main.fingerprint, second_main.fingerprint);
+
+    let path_artifact = KbcArtifact::from_module(
+        BytecodeModule {
+            types: vec![ValueType::HeapObject, ValueType::I32],
+            paths: vec![PathRecord {
+                id: PathId::new(0),
+                root_ty: ValueType::HeapObject,
+                result_ty: ValueType::I32,
+                read_only: false,
+                debug_name: "Actor.health".to_owned(),
+            }],
+            ..Default::default()
+        },
+        ArtifactBuildOptions::default(),
+    );
+    assert_eq!(path_artifact.verification.typed_path_fingerprints.len(), 1);
+    assert_ne!(
+        path_artifact.verification.typed_path_fingerprints[0].fingerprint,
+        ArtifactFingerprint::empty()
+    );
+    assert_eq!(
+        path_artifact.verification.typed_path_fingerprints,
+        path_artifact.verification.loader.typed_path_fingerprints
+    );
 }
 
 #[test]

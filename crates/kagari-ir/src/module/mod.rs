@@ -1,10 +1,15 @@
 pub use kagari_hir::builtin::BuiltinMethod;
 
+pub mod abi;
 pub mod function;
 pub mod ids;
 pub mod instruction;
 pub mod types;
 
+pub use abi::{
+    ConstAbi, FieldAbi, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem,
+    PublicAbiItemBuffer, TraitAbi, TypeAbi, TypeAbiKind, VariantAbi,
+};
 pub use function::{
     BasicBlock, BlockBuffer, CapturedBindingDebugBuffer, FunctionBuffer,
     IrCapturedBindingDebugInfo, IrFunction, IrFunctionDebugMetadata, IrLocal, IrLocalDebugBuffer,

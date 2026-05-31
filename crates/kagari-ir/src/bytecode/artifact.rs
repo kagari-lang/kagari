@@ -376,7 +376,7 @@ impl VerificationMetadata {
             .public_items
             .iter()
             .map(|item| PublicAbiFingerprint {
-                name: format!("{item:?}"),
+                name: item.fingerprint_name(),
                 fingerprint: ArtifactFingerprint::of_debug(item),
             })
             .collect::<Vec<_>>();

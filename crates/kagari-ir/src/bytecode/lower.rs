@@ -63,7 +63,7 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
         fields: context.fields,
         paths: context.paths,
         function_table: Vec::new(),
-        public_items: Vec::new(),
+        public_items: ir.abi.public_items.clone(),
         functions,
     };
     module.constants = collect_constant_pool(&module.functions);

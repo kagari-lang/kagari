@@ -2,7 +2,7 @@ use crate::{
     bytecode::instruction::{
         BytecodeInstruction, ConstantOperand, FieldId, FunctionRef, JumpTarget, LocalSlot, PathId,
     },
-    module::{EffectSet, ValueType},
+    module::{EffectSet, PublicAbiItem, ValueType},
 };
 use kagari_common::Span;
 
@@ -72,11 +72,6 @@ pub struct FunctionRecord {
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
     pub effects: EffectSet,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PublicItemRecord {
-    Function { name: String, function: FunctionRef },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -168,7 +163,8 @@ pub type BytecodeTypeTable = Vec<ValueType>;
 pub type FieldTable = Vec<FieldRecord>;
 pub type PathTable = Vec<PathRecord>;
 pub type FunctionTable = Vec<FunctionRecord>;
-pub type PublicItemTable = Vec<PublicItemRecord>;
+pub type PublicItemRecord = PublicAbiItem;
+pub type PublicItemTable = Vec<PublicAbiItem>;
 pub type TypeLayoutBuffer = Vec<ValueType>;
 pub type ControlFlowTargetBuffer = Vec<JumpTarget>;
 pub type InstructionSourceSpanBuffer = Vec<InstructionSourceSpan>;
