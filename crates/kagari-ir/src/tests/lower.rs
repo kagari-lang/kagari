@@ -71,6 +71,46 @@ fn main() -> usize {
 }
 
 #[test]
+fn records_ir_source_span_and_local_debug_metadata() {
+    let analyzed = common::analyze_ok(
+        r#"
+fn main(value: i32) -> i32 {
+    val next = value + 1;
+    next
+}
+"#,
+    );
+    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let function = &ir.functions[0];
+
+    assert!(function.debug.source_span.end > function.debug.source_span.start);
+    assert!(
+        function
+            .debug
+            .locals
+            .iter()
+            .any(|local| local.name == "value" && local.is_parameter)
+    );
+    assert!(
+        function
+            .debug
+            .locals
+            .iter()
+            .any(|local| local.name == "next" && !local.is_parameter)
+    );
+    for block in &function.blocks {
+        assert_eq!(block.instructions.len(), block.instruction_spans.len());
+    }
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.instruction_spans.iter())
+            .any(|span| span.end > span.start)
+    );
+}
+
+#[test]
 fn lowers_if_expression_into_branching_blocks() {
     let analyzed = common::analyze_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
     let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");

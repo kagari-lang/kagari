@@ -4,9 +4,9 @@ use crate::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
         ArtifactSectionId, ArtifactValidationError, BinaryOp, BuiltinMethod, BytecodeFunction,
         BytecodeInstruction, BytecodeModule, BytecodeVerificationError, CallTarget, DebugMetadata,
-        DependencyFingerprint, FunctionMetadata, FunctionRef, JumpTarget, KBC_MAGIC, KbcArtifact,
-        LocalSlot, PathId, PathRecord, Register, RuntimeHelper, SafeDebugPointKind, UnaryOp,
-        verify_module,
+        DependencyFingerprint, FieldId, FieldRecord, FunctionMetadata, FunctionRef, JumpTarget,
+        KBC_MAGIC, KbcArtifact, LocalSlot, PathId, PathRecord, Register, RuntimeHelper,
+        SafeDebugPointKind, UnaryOp, verify_module,
     },
     module::ValueType,
     tests::common,
@@ -210,6 +210,21 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
         artifact.validate_for_loader(&requirements),
         Err(ArtifactValidationError::ContentHashMismatch)
     ));
+
+    let artifact = KbcArtifact::from_module(
+        common::bytecode_ok("fn main() -> i32 { 1 }"),
+        ArtifactBuildOptions {
+            dependency_fingerprints: vec![DependencyFingerprint {
+                module_id: "pkg/dependency".to_owned(),
+                fingerprint: ArtifactFingerprint::of_str("dependency-v1"),
+            }],
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        artifact.validate_for_loader(&ArtifactCompatibility::default()),
+        Err(ArtifactValidationError::DependencyFingerprintMismatch)
+    ));
 }
 
 #[test]
@@ -260,6 +275,174 @@ fn verifier_rejects_type_inconsistent_bytecode() {
             found: ValueType::I32,
             ..
         })
+    ));
+}
+
+#[test]
+fn verifier_rejects_invalid_aggregate_writes() {
+    let module = BytecodeModule {
+        types: vec![
+            ValueType::Unit,
+            ValueType::Bool,
+            ValueType::I32,
+            ValueType::HeapObject,
+        ],
+        fields: vec![FieldRecord {
+            id: FieldId::new(0),
+            owner: "Point".to_owned(),
+            name: "x".to_owned(),
+            ty: ValueType::I32,
+        }],
+        function_table: vec![crate::bytecode::FunctionRecord {
+            id: FunctionRef::new(0),
+            name: "write_bad_field".to_owned(),
+            params: Vec::new(),
+            return_type: ValueType::Unit,
+            effects: crate::module::EffectSet::aggregate_write(),
+        }],
+        functions: vec![BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: "write_bad_field".to_owned(),
+            parameter_count: 0,
+            local_count: 0,
+            register_count: 2,
+            metadata: FunctionMetadata {
+                return_type: ValueType::Unit,
+                registers: vec![ValueType::HeapObject, ValueType::Bool],
+                effects: crate::module::EffectSet::aggregate_write(),
+                ..Default::default()
+            },
+            instructions: vec![
+                BytecodeInstruction::WriteAggregateField {
+                    base: Register::new(0),
+                    field: FieldId::new(0),
+                    value: Register::new(1),
+                },
+                BytecodeInstruction::Return(None),
+            ],
+        }],
+        ..Default::default()
+    };
+
+    assert!(matches!(
+        verify_module(&module),
+        Err(BytecodeVerificationError::TypeMismatch {
+            context: "aggregate field value",
+            expected: ValueType::I32,
+            found: ValueType::Bool,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn verifier_rejects_unresolved_and_read_only_typed_paths() {
+    let unresolved_path = BytecodeModule {
+        types: vec![ValueType::HeapObject, ValueType::I32],
+        paths: vec![PathRecord {
+            id: PathId::new(0),
+            root_ty: ValueType::HeapObject,
+            result_ty: ValueType::I32,
+            read_only: false,
+            debug_name: "Actor.health".to_owned(),
+        }],
+        function_table: vec![crate::bytecode::FunctionRecord {
+            id: FunctionRef::new(0),
+            name: "read_missing_path".to_owned(),
+            params: vec![ValueType::HeapObject],
+            return_type: ValueType::I32,
+            effects: crate::module::EffectSet::path_read(),
+        }],
+        functions: vec![BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: "read_missing_path".to_owned(),
+            parameter_count: 1,
+            local_count: 1,
+            register_count: 2,
+            metadata: FunctionMetadata {
+                params: vec![ValueType::HeapObject],
+                return_type: ValueType::I32,
+                locals: vec![ValueType::HeapObject],
+                registers: vec![ValueType::HeapObject, ValueType::I32],
+                effects: crate::module::EffectSet::path_read(),
+                ..Default::default()
+            },
+            instructions: vec![
+                BytecodeInstruction::ReadPath {
+                    dst: Register::new(1),
+                    root_or_view: Register::new(0),
+                    path: PathId::new(99),
+                    dynamic_args: Vec::new(),
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
+            ],
+        }],
+        ..Default::default()
+    };
+    assert!(matches!(
+        verify_module(&unresolved_path),
+        Err(BytecodeVerificationError::InvalidPathId { .. })
+    ));
+
+    let read_only_path = BytecodeModule {
+        types: vec![ValueType::Unit, ValueType::HeapObject, ValueType::I32],
+        paths: vec![PathRecord {
+            id: PathId::new(0),
+            root_ty: ValueType::HeapObject,
+            result_ty: ValueType::I32,
+            read_only: true,
+            debug_name: "Actor.id".to_owned(),
+        }],
+        function_table: vec![crate::bytecode::FunctionRecord {
+            id: FunctionRef::new(0),
+            name: "write_readonly_path".to_owned(),
+            params: vec![ValueType::HeapObject, ValueType::I32],
+            return_type: ValueType::Unit,
+            effects: crate::module::EffectSet::path_write(),
+        }],
+        functions: vec![BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: "write_readonly_path".to_owned(),
+            parameter_count: 2,
+            local_count: 2,
+            register_count: 2,
+            metadata: FunctionMetadata {
+                params: vec![ValueType::HeapObject, ValueType::I32],
+                return_type: ValueType::Unit,
+                locals: vec![ValueType::HeapObject, ValueType::I32],
+                registers: vec![ValueType::HeapObject, ValueType::I32],
+                effects: crate::module::EffectSet::path_write(),
+                ..Default::default()
+            },
+            instructions: vec![
+                BytecodeInstruction::SetPath {
+                    root_or_view: Register::new(0),
+                    path: PathId::new(0),
+                    dynamic_args: Vec::new(),
+                    value: Register::new(1),
+                },
+                BytecodeInstruction::Return(None),
+            ],
+        }],
+        ..Default::default()
+    };
+    assert!(matches!(
+        verify_module(&read_only_path),
+        Err(BytecodeVerificationError::ReadOnlyPath { .. })
+    ));
+}
+
+#[test]
+fn verifier_rejects_malformed_debug_metadata() {
+    let mut bytecode = common::bytecode_ok("fn main() -> i32 { 1 }");
+    let function = &mut bytecode.functions[0];
+    let mut point = function.metadata.debug.safe_debug_points[0].clone();
+    point.instruction_offset = function.instructions.len();
+    function.metadata.debug.safe_debug_points.push(point);
+
+    assert!(matches!(
+        verify_module(&bytecode),
+        Err(BytecodeVerificationError::InvalidJumpTarget { .. })
     ));
 }
 
@@ -600,6 +783,8 @@ fn main() -> i32 {
             ..
         }
     )));
+    assert!(function.metadata.effects.writes_aggregate);
+    assert!(!function.metadata.effects.calls);
 }
 
 #[test]
