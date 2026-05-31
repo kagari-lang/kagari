@@ -35,6 +35,20 @@ fn compile_artifact(
         .expect("source should compile")
 }
 
+fn host_call_context() -> ExecutionContext {
+    ExecutionContext {
+        language_profile: LanguageProfile {
+            allow_host_calls: true,
+            ..LanguageProfile::default()
+        },
+        capabilities: CapabilitySet {
+            host_calls: true,
+            ..CapabilitySet::default()
+        },
+        ..ExecutionContext::default()
+    }
+}
+
 fn register_embedding_host_path_runtime(
     runtime: &mut KagariRuntime,
     path_access: PathAccess,
@@ -414,7 +428,7 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
 #[test]
 fn execution_context_denies_host_path_mutation_with_structured_error() {
     let engine = KagariEngine::default();
-    let context = ExecutionContext::default();
+    let context = host_call_context();
     let artifact = host_path_artifact(
         "set_path.kgr",
         "game.Player.hp",
@@ -473,7 +487,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
 #[test]
 fn host_path_capability_denials_surface_as_structured_runtime_errors() {
     let engine = KagariEngine::default();
-    let context = ExecutionContext::default();
+    let context = host_call_context();
     let artifact = host_path_artifact(
         "read_secure_path.kgr",
         "game.Player.secure_hp",
@@ -532,11 +546,19 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
 fn execution_context_denies_host_and_reflection_helpers() {
     let engine = KagariEngine::default();
     let print_artifact = compile_artifact(&engine, "print.kgr", r#"fn main() { print("x"); }"#);
-    let type_of_artifact = compile_artifact(
-        &engine,
-        "type_of.kgr",
-        r#"fn main() -> String { type_of(7) }"#,
-    );
+    let type_of_artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("type_of.kgr", r#"fn main() -> String { type_of(7) }"#),
+            CompileOptions {
+                language_profile: LanguageProfile {
+                    allow_reflection: true,
+                    ..LanguageProfile::default()
+                },
+                ..CompileOptions::default()
+            },
+            ArtifactOptions::default(),
+        )
+        .expect("reflection source should compile with reflection profile");
     let mut runtime = engine.runtime(ExecutionContext::default());
     let print_module = runtime
         .load_module(

@@ -1,5 +1,5 @@
 use kagari_common::{Diagnostic, Severity, SourceFile, Span};
-use kagari_hir::{AnalyzedModule, analyze_module};
+use kagari_hir::{AnalyzedModule, LanguageFeatureProfile, analyze_module_with_profile};
 use kagari_ir::{
     IrLoweringError,
     bytecode::{
@@ -59,7 +59,11 @@ impl KagariEngine {
             .module_identity
             .unwrap_or_else(|| ArtifactModuleIdentity::single_file(source.name()));
         let ast = parse_module(&source).map_err(EmbeddingError::diagnostics)?;
-        let analyzed = analyze_module(&ast).map_err(EmbeddingError::diagnostics)?;
+        let analyzed = analyze_module_with_profile(
+            &ast,
+            language_feature_profile_from_runtime(options.language_profile),
+        )
+        .map_err(EmbeddingError::diagnostics)?;
         Ok(CheckedModule {
             source_name: source.name().to_owned(),
             module_identity,
@@ -216,6 +220,21 @@ impl CheckedModule {
 #[derive(Debug, Clone, Default)]
 pub struct CompileOptions {
     pub module_identity: Option<ArtifactModuleIdentity>,
+    pub language_profile: LanguageProfile,
+}
+
+fn language_feature_profile_from_runtime(profile: LanguageProfile) -> LanguageFeatureProfile {
+    LanguageFeatureProfile {
+        allow_reflection: profile.allow_reflection,
+        allow_reflection_write: profile.allow_reflection_write,
+        allow_interface_values: profile.allow_interface_values,
+        allow_host_calls: profile.allow_host_calls,
+        allow_path_mutation: profile.allow_path_mutation,
+        allow_module_loading: profile.allow_module_loading,
+        allow_jit: profile.allow_jit,
+        allow_eval: profile.allow_eval,
+        allow_async: profile.allow_async,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -299,6 +318,12 @@ impl ExecutionContext {
 
     fn validate_for_execute(&self, entry: &str, module: &BytecodeModule) -> RunResult<()> {
         if self.jit_policy != JitPolicy::Disabled {
+            if !self.security_context().allows_jit() {
+                return Err(EmbeddingError::runtime(
+                    RuntimeFailureKind::CapabilityDenied,
+                    "JIT execution is denied by execution context",
+                ));
+            }
             return Err(EmbeddingError::runtime(
                 RuntimeFailureKind::UnsupportedExecution,
                 format!("JIT policy for `{entry}` is not implemented by the baseline runtime"),
@@ -322,6 +347,14 @@ impl ExecutionContext {
                             return Err(EmbeddingError::runtime(
                                 RuntimeFailureKind::CapabilityDenied,
                                 format!("host function `{symbol}` is denied by execution context"),
+                            ));
+                        }
+                        RuntimeHelper::HostFunction(symbol) if !security.allows_host_calls() => {
+                            return Err(EmbeddingError::runtime(
+                                RuntimeFailureKind::CapabilityDenied,
+                                format!(
+                                    "host function `{symbol}` is denied by runtime capabilities"
+                                ),
                             ));
                         }
                         RuntimeHelper::ReflectTypeOf | RuntimeHelper::ReflectGetField(_)
@@ -349,6 +382,15 @@ impl ExecutionContext {
                         return Err(EmbeddingError::runtime(
                             RuntimeFailureKind::CapabilityDenied,
                             "host path mutation is denied by execution context",
+                        ));
+                    }
+                    BytecodeInstruction::SetPath { .. }
+                    | BytecodeInstruction::ModifyPath { .. }
+                        if !security.allows_path_mutation() =>
+                    {
+                        return Err(EmbeddingError::runtime(
+                            RuntimeFailureKind::CapabilityDenied,
+                            "host path mutation is denied by runtime capabilities",
                         ));
                     }
                     _ => {}

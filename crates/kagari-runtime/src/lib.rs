@@ -187,6 +187,7 @@ impl Runtime {
         dynamic_args: Vec<value::Value>,
         value: value::Value,
     ) -> Result<(), RuntimeError> {
+        self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
         self.host
             .set_path(root_or_view, descriptor_id, dynamic_args, value)
@@ -200,6 +201,7 @@ impl Runtime {
         op: kagari_ir::bytecode::BinaryOp,
         value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
+        self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
         self.host
             .modify_path(root_or_view, descriptor_id, dynamic_args, op, value)
@@ -242,19 +244,31 @@ impl Runtime {
         if required.random && !granted.random {
             return Err(RuntimeError::capability_denied("random"));
         }
-        if required.reflection_read && !granted.reflection_read {
+        if required.host_calls && !self.security.allows_host_calls() {
+            return Err(RuntimeError::capability_denied("host_calls"));
+        }
+        if required.path_mutation && !self.security.allows_path_mutation() {
+            return Err(RuntimeError::capability_denied("path_mutation"));
+        }
+        if required.reflection_read && !self.security.allows_reflection_read() {
             return Err(RuntimeError::capability_denied("reflection_read"));
         }
-        if required.reflection_write && !granted.reflection_write {
+        if required.reflection_write && !self.security.allows_reflection_write() {
             return Err(RuntimeError::capability_denied("reflection_write"));
         }
-        if required.dynamic_load && !granted.dynamic_load {
-            return Err(RuntimeError::capability_denied("dynamic_load"));
+        if required.module_loading && !self.security.allows_module_loading() {
+            return Err(RuntimeError::capability_denied("module_loading"));
+        }
+        if required.jit && !self.security.allows_jit() {
+            return Err(RuntimeError::capability_denied("jit"));
         }
         Ok(())
     }
 
     pub fn validate_host_function_boundary(&self, symbol: &str) -> Result<(), RuntimeError> {
+        if !self.security.allows_host_calls() {
+            return Err(RuntimeError::capability_denied("host_calls"));
+        }
         let Some(function) = self.host.function(symbol) else {
             return Ok(());
         };
@@ -279,6 +293,30 @@ impl Runtime {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("reflection_write"))
+        }
+    }
+
+    pub fn validate_path_mutation_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_path_mutation() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("path_mutation"))
+        }
+    }
+
+    pub fn validate_module_loading_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_module_loading() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("module_loading"))
+        }
+    }
+
+    pub fn validate_jit_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_jit() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("jit"))
         }
     }
 
@@ -933,5 +971,64 @@ mod tests {
 
         assert_eq!(runtime.types().id_by_name("Player"), Some(type_id));
         assert!(runtime.security().allows_reflection_read());
+    }
+
+    #[test]
+    fn security_context_requires_profile_and_capability_for_runtime_boundaries() {
+        let default_runtime = Runtime::default();
+        assert_eq!(
+            default_runtime
+                .validate_host_function_boundary("host.missing")
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+        assert_eq!(
+            default_runtime
+                .validate_path_mutation_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+        assert_eq!(
+            default_runtime
+                .validate_module_loading_boundary()
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+        assert_eq!(
+            default_runtime.validate_jit_boundary().unwrap_err().kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+
+        let enabled = Runtime::new(RuntimeConfig {
+            security: SecurityContext {
+                profile: LanguageProfile {
+                    allow_host_calls: true,
+                    allow_path_mutation: true,
+                    allow_module_loading: true,
+                    allow_jit: true,
+                    ..LanguageProfile::default()
+                },
+                capabilities: CapabilitySet {
+                    host_calls: true,
+                    path_mutation: true,
+                    module_loading: true,
+                    jit: true,
+                    ..CapabilitySet::default()
+                },
+            },
+            ..RuntimeConfig::default()
+        });
+
+        assert!(
+            enabled
+                .validate_host_function_boundary("host.missing")
+                .is_ok()
+        );
+        assert!(enabled.validate_path_mutation_boundary().is_ok());
+        assert!(enabled.validate_module_loading_boundary().is_ok());
+        assert!(enabled.validate_jit_boundary().is_ok());
     }
 }

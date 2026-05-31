@@ -6,6 +6,7 @@ use kagari_embed::{
     KagariEngine, LoadOptions,
 };
 use kagari_runtime::{
+    CapabilitySet, LanguageProfile,
     host::{HostError, HostFunction, HostParameter, HostPassingStyle},
     value::Value,
 };
@@ -45,7 +46,17 @@ fn main() -> ExitCode {
         .iter()
         .any(|function| function.name == "main");
 
-    let context = ExecutionContext::default();
+    let context = ExecutionContext {
+        language_profile: LanguageProfile {
+            allow_host_calls: true,
+            ..LanguageProfile::default()
+        },
+        capabilities: CapabilitySet {
+            host_calls: true,
+            ..CapabilitySet::default()
+        },
+        ..ExecutionContext::default()
+    };
     let mut runtime = engine.runtime(context);
     if let Err(error) = register_default_host_functions(&mut runtime) {
         eprintln!("{error:?}");

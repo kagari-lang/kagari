@@ -169,6 +169,9 @@ pub enum DiagnosticKind {
     LegacyRefParameter,
     LegacyReceiverModifier,
     LegacyDynTrait,
+    ProfileFeatureDisabled {
+        feature: &'static str,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -429,6 +432,9 @@ impl Display for DiagnosticKind {
             }
             Self::LegacyDynTrait => {
                 write!(f, "`dyn Trait` is not valid; use the trait name directly")
+            }
+            Self::ProfileFeatureDisabled { feature } => {
+                write!(f, "language profile disables {feature}")
             }
         }
     }

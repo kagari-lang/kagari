@@ -1,6 +1,7 @@
 pub mod builtin;
 pub mod hir;
 pub mod lower;
+pub mod profile;
 pub mod resolver;
 pub mod source_map;
 pub mod typeck;
@@ -8,6 +9,8 @@ pub mod types;
 
 use kagari_common::Diagnostic;
 use kagari_syntax::ast;
+
+pub use profile::LanguageFeatureProfile;
 
 pub type DiagnosticBuffer = smallvec::SmallVec<[Diagnostic; 4]>;
 pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
@@ -28,6 +31,15 @@ pub fn analyze_module(module: &ast::SourceFile) -> Result<AnalyzedModule, BoxedD
         names,
         typed,
     })
+}
+
+pub fn analyze_module_with_profile(
+    module: &ast::SourceFile,
+    profile: LanguageFeatureProfile,
+) -> Result<AnalyzedModule, BoxedDiagnosticBuffer> {
+    let analyzed = analyze_module(module)?;
+    profile::validate_profile(&analyzed, profile)?;
+    Ok(analyzed)
 }
 
 pub fn analyze(module: &ast::SourceFile) -> Result<typeck::TypedModule, BoxedDiagnosticBuffer> {

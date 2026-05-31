@@ -5,9 +5,26 @@ use kagari_runtime::{
     AbiFingerprint, CapabilitySet, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
     FieldMetadataId, HostBorrowTable, HostObjectId, HostPathAdapter, HostPathDescriptorId,
     HostPathDescriptorRegistration, HostPathOperation, HostPathSegment, HostReflectionPolicy,
-    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, PathAccess, Runtime,
-    RuntimeErrorKind, TypeId, TypeKind, TypeRegistration, host::HostError, value::Value,
+    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime,
+    RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId, TypeKind, TypeRegistration,
+    host::HostError, value::Value,
 };
+
+fn path_mutation_runtime() -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_path_mutation: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                path_mutation: true,
+                ..CapabilitySet::default()
+            },
+        },
+        ..RuntimeConfig::default()
+    })
+}
 
 fn register_i32(runtime: &Runtime) -> TypeId {
     runtime
@@ -56,7 +73,7 @@ fn register_hp_descriptor(
 
 #[test]
 fn registers_typed_host_roots_and_simple_path_views() {
-    let mut runtime = Runtime::default();
+    let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let root = runtime
@@ -99,7 +116,7 @@ fn registers_typed_host_roots_and_simple_path_views() {
 
 #[test]
 fn validates_dynamic_index_argument_shape_for_path_views() {
-    let mut runtime = Runtime::default();
+    let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let item_id = runtime
         .types()
@@ -340,7 +357,7 @@ fn rejects_stale_root_metadata_when_creating_views() {
 
 #[test]
 fn executes_path_read_set_modify_and_dirty_hooks_in_order() {
-    let mut runtime = Runtime::default();
+    let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let root = runtime
@@ -427,7 +444,7 @@ fn executes_path_read_set_modify_and_dirty_hooks_in_order() {
 
 #[test]
 fn path_execution_classifies_validation_failures() {
-    let mut runtime = Runtime::default();
+    let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let root = runtime

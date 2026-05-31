@@ -152,6 +152,22 @@ fn reloadable_value_module(value: i32) -> BytecodeModule {
     )
 }
 
+fn host_call_runtime() -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: kagari_runtime::SecurityContext {
+            profile: kagari_runtime::LanguageProfile {
+                allow_host_calls: true,
+                ..kagari_runtime::LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                host_calls: true,
+                ..CapabilitySet::default()
+            },
+        },
+        ..RuntimeConfig::default()
+    })
+}
+
 #[test]
 fn executes_simple_arithmetic_function() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val value = 1 + 2; value }");
@@ -376,7 +392,7 @@ fn main() -> i32 { middle() }
 
 #[test]
 fn unreachable_instruction_is_a_script_trap() {
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     let loaded = runtime
         .load_module(
             "trap.kbc",
@@ -450,7 +466,7 @@ fn main() -> i32 {
     value + 4
 }
 "#;
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     let loaded = runtime
         .load_module("debug.kgr", compile_test_bytecode(source))
         .expect("debug module should load");
@@ -495,7 +511,7 @@ fn main() -> i32 {
 
 #[test]
 fn debug_session_supports_step_into_and_trap_pause_events() {
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     let mut main = test_function(
         0,
         "main",
@@ -616,7 +632,7 @@ value + 2
 
 #[test]
 fn rejects_reentrant_module_result_access_while_initializing() {
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     let loaded = runtime
         .load_module("initializing.kgr", module_with_private_init_slot(1))
         .expect("module should load");
@@ -652,7 +668,7 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
         ..CapabilitySet::default()
     };
 
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     runtime
         .register_host_function(HostFunction::with_metadata(metadata, move |_| {
             *calls_for_host
@@ -708,6 +724,16 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
     metadata.resource_cost_hint = Some(2);
 
     let mut runtime = Runtime::new(RuntimeConfig {
+        security: kagari_runtime::SecurityContext {
+            profile: kagari_runtime::LanguageProfile {
+                allow_host_calls: true,
+                ..kagari_runtime::LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                host_calls: true,
+                ..CapabilitySet::default()
+            },
+        },
         resources: ResourcePolicy {
             max_instruction_steps: Some(2),
             ..ResourcePolicy::default()
@@ -765,7 +791,7 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
     let init_count = Arc::new(Mutex::new(0usize));
     let counter = Arc::clone(&init_count);
 
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     runtime
         .register_host_function(HostFunction::new(
             "host.bump_init",
@@ -837,7 +863,7 @@ fn reruns_module_init_for_new_module_epoch() {
     let init_count = Arc::new(Mutex::new(0usize));
     let counter = Arc::clone(&init_count);
 
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     runtime
         .register_host_function(HostFunction::new(
             "host.bump_init",
@@ -888,7 +914,7 @@ fn reruns_module_init_for_new_module_epoch() {
 
 #[test]
 fn module_epochs_keep_independent_init_results_and_private_slots() {
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     let first_loaded = runtime
         .load_module("epoch_visible.kgr", module_with_private_init_slot(1))
         .expect("first module epoch should load");
@@ -998,7 +1024,7 @@ fn caches_failed_module_init_without_retrying() {
     let init_count = Arc::new(Mutex::new(0usize));
     let counter = Arc::clone(&init_count);
 
-    let mut runtime = Runtime::default();
+    let mut runtime = host_call_runtime();
     runtime
         .register_host_function(HostFunction::new(
             "host.fail_init",

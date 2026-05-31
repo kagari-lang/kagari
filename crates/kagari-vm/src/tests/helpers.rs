@@ -21,6 +21,24 @@ use crate::tests::common::{
     load_test_module, test_function_module,
 };
 
+fn host_runtime() -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_host_calls: true,
+                allow_path_mutation: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                host_calls: true,
+                path_mutation: true,
+                ..CapabilitySet::default()
+            },
+        },
+        ..RuntimeConfig::default()
+    })
+}
+
 fn reflection_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
         security: SecurityContext {
@@ -58,7 +76,7 @@ fn register_vm_host_path_runtime_with_capabilities(
     access: PathAccess,
     capability_requirements: CapabilitySet,
 ) -> (Runtime, Arc<Mutex<i32>>) {
-    let mut runtime = Runtime::default();
+    let mut runtime = host_runtime();
     let i32_id = runtime
         .types()
         .register(TypeRegistration {
@@ -182,7 +200,7 @@ fn path_module(
 
 #[test]
 fn executes_runtime_host_helper_call() {
-    let mut runtime = Runtime::default();
+    let mut runtime = host_runtime();
     runtime
         .register_host_function(HostFunction::new(
             "host.add_i32",
@@ -570,7 +588,7 @@ fn executes_source_lowered_print_builtin() {
     let messages = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = Arc::clone(&messages);
 
-    let mut runtime = Runtime::default();
+    let mut runtime = host_runtime();
     runtime
         .register_host_function(HostFunction::new("host.log", vec![], "()", move |args| {
             let Some(Value::Str(message)) = args.first() else {
