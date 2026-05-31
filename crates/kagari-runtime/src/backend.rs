@@ -59,6 +59,7 @@ impl<'a> BackendFunctionInput<'a> {
 pub enum ExecutableEntryPoint {
     Unresolved,
     Symbol(String),
+    Native { symbol: String, address: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

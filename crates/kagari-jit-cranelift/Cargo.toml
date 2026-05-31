@@ -10,8 +10,9 @@ jit = []
 
 [dependencies]
 cranelift-codegen.workspace = true
+cranelift-frontend.workspace = true
+cranelift-jit.workspace = true
+cranelift-module.workspace = true
 cranelift-native.workspace = true
-kagari-runtime.workspace = true
-
-[dev-dependencies]
 kagari-ir.workspace = true
+kagari-runtime.workspace = true

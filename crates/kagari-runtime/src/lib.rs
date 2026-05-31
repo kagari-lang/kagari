@@ -4,6 +4,7 @@ pub mod cache;
 pub mod error;
 pub mod gc;
 pub mod host;
+pub mod jit_abi;
 pub mod metadata;
 pub mod module;
 pub mod reflection;
