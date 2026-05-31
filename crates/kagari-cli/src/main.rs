@@ -1,15 +1,14 @@
 use std::{env, fs, process::ExitCode};
 
-use kagari_common::{Diagnostic, SourceFile};
-use kagari_hir::analyze_module;
-use kagari_ir::{bytecode::lower_to_bytecode, lower_to_ir};
+use kagari_common::SourceFile;
+use kagari_embed::{
+    ArtifactOptions, CompileOptions, EmbeddingDiagnostic, EmbeddingError, ExecutionContext,
+    KagariEngine, LoadOptions,
+};
 use kagari_runtime::{
-    Runtime,
     host::{HostError, HostFunction, HostParameter, HostPassingStyle},
     value::Value,
 };
-use kagari_syntax::parse_module;
-use kagari_vm::Vm;
 
 fn main() -> ExitCode {
     let Some(path) = script_path() else {
@@ -27,67 +26,55 @@ fn main() -> ExitCode {
     };
     let source = SourceFile::new(path.clone(), source_text);
 
-    let ast = match parse_module(&source) {
-        Ok(ast) => ast,
-        Err(diagnostics) => {
-            print_diagnostics(&diagnostics);
-            return ExitCode::from(1);
-        }
-    };
-
-    let analyzed = match analyze_module(&ast) {
-        Ok(analyzed) => analyzed,
-        Err(diagnostics) => {
-            print_diagnostics(&diagnostics);
-            return ExitCode::from(1);
-        }
-    };
-
-    let ir = match lower_to_ir(&analyzed) {
-        Ok(ir) => ir,
+    let engine = KagariEngine::default();
+    let artifact = match engine.compile_to_artifact(
+        source,
+        CompileOptions::default(),
+        ArtifactOptions::default(),
+    ) {
+        Ok(artifact) => artifact,
         Err(error) => {
-            eprintln!("{error:?}");
+            print_embedding_error(error);
             return ExitCode::from(1);
         }
     };
 
-    let bytecode = match lower_to_bytecode(&ir) {
-        Ok(bytecode) => bytecode,
-        Err(error) => {
-            eprintln!("{error:?}");
-            return ExitCode::from(1);
-        }
-    };
-
-    let has_main = bytecode
+    let has_main = artifact
+        .module
         .functions
         .iter()
         .any(|function| function.name == "main");
 
-    let mut runtime = Runtime::default();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context);
     if let Err(error) = register_default_host_functions(&mut runtime) {
         eprintln!("{error:?}");
         return ExitCode::from(1);
     }
-    let loaded = match runtime.load_module(source.name(), bytecode) {
+    let loaded = match runtime.load_module(
+        artifact,
+        LoadOptions {
+            module_name: Some(path),
+            ..LoadOptions::default()
+        },
+    ) {
         Ok(loaded) => loaded,
         Err(error) => {
-            eprintln!("{error:?}");
+            print_embedding_error(error);
             return ExitCode::from(1);
         }
     };
-    let mut vm = Vm::new(runtime);
 
     let result = if has_main {
-        vm.execute(&loaded, "main").map(|_| ())
+        runtime.execute(&loaded, "main", &[], &context).map(|_| ())
     } else {
-        vm.execute_module(&loaded).map(|_| ())
+        runtime.execute_module(&loaded, &context).map(|_| ())
     };
 
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error:?}");
+            print_embedding_error(error);
             ExitCode::from(1)
         }
     }
@@ -102,7 +89,7 @@ fn script_path() -> Option<String> {
 }
 
 fn register_default_host_functions(
-    runtime: &mut Runtime,
+    runtime: &mut kagari_embed::KagariRuntime,
 ) -> Result<(), kagari_runtime::RuntimeError> {
     runtime.register_host_function(HostFunction::new(
         "host.log",
@@ -123,8 +110,15 @@ fn register_default_host_functions(
     Ok(())
 }
 
-fn print_diagnostics(diagnostics: &[Diagnostic]) {
+fn print_diagnostics(diagnostics: &[EmbeddingDiagnostic]) {
     for diagnostic in diagnostics {
-        eprintln!("{diagnostic}");
+        eprintln!("{}", diagnostic.message);
+    }
+}
+
+fn print_embedding_error(error: EmbeddingError) {
+    match error {
+        EmbeddingError::Diagnostics { diagnostics } => print_diagnostics(&diagnostics),
+        other => eprintln!("{other:?}"),
     }
 }

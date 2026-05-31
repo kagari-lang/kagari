@@ -19,16 +19,26 @@ name = "kagari-cli"
 version = "0.1.0"
 dependencies = [
  "kagari-common",
- "kagari-hir",
- "kagari-ir",
+ "kagari-embed",
  "kagari-runtime",
- "kagari-syntax",
- "kagari-vm",
 ]
 
 [[package]]
 name = "kagari-common"
 version = "0.1.0"
+
+[[package]]
+name = "kagari-embed"
+version = "0.1.0"
+dependencies = [
+ "kagari-common",
+ "kagari-hir",
+ "kagari-ir",
+ "kagari-runtime",
+ "kagari-syntax",
+ "kagari-vm",
+ "smallvec",
+]
 
 [[package]]
 name = "kagari-hir"
