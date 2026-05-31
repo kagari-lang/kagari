@@ -2,7 +2,7 @@
 
 Kagari is an early-stage strongly typed scripting language. It adopts a Rust-inspired syntax style, while deliberately avoiding Rust's native lifetime and borrow-checking model as a language feature that script authors must work with directly.
 
-The current goal of the project is to build a language system suitable for embedding into host applications: one with clear type-system boundaries, stable runtime abstractions, strong hot-reload potential, and low-friction interoperability with Rust.
+The current goal of the project is to build a language system suitable for embedding into host applications: one with clear type-system boundaries, stable runtime abstractions, first-class hot reload, and low-friction interoperability with Rust.
 
 ## Project Status
 
@@ -13,7 +13,16 @@ This currently means:
 - The syntax and standard library are not finalized
 - The type system is still expected to evolve
 - The runtime, GC, hot reload, and host ABI are still represented mostly by early abstractions and extension points
-- AOT and JIT are future directions rather than near-term delivery targets
+- interpreter execution is the semantic foundation, with an optional baseline Cranelift JIT planned as a backend
+
+## Documentation
+
+- [Project goal](docs/project_goal.md)
+- [Architecture](docs/architecture.md)
+- [Implementation roadmap](docs/implementation-roadmap.md)
+- [Codex goal guide](docs/codex-goal-guide.md)
+- [Syntax grammar](docs/kagari.ebnf)
+- [Baseline JIT specification](docs/spec/jit.md)
 
 ## Design Direction
 
@@ -24,7 +33,7 @@ Kagari is currently being shaped around the following principles:
 - No direct reproduction of Rust's lifetime and borrow system at the script language level
 - A GC-backed runtime responsible for script-owned memory
 - Hot reload as a first-class concern, with module loading and version evolution treated as core capabilities
-- Natural interoperability with Rust hosts, especially around controlled access to borrowed and mutably borrowed host data
+- Natural interoperability with Rust hosts through controlled host APIs, frame-scoped host borrow tokens, and typed path mutation
 - A clean separation between frontend, intermediate representation, and execution backends so the project can grow toward interpretation, AOT, and JIT without rewriting the whole stack
 
 ## Runtime and Host Interoperability Principles
@@ -35,7 +44,7 @@ One of Kagari's intended roles is to serve as an embeddable scripting layer for 
 - GC is responsible for script-owned data, not for the borrowed lifetime of host-side references
 - Host references and mutable references passed into scripts should be governed through call-frame-scoped handles or equivalent boundary rules
 - The language frontend should not depend directly on runtime implementation details
-- Interpreter, AOT, and JIT backends should share the same semantic-analysis and IR boundary
+- Interpreter and JIT backends should share the same semantic-analysis, typed IR, bytecode, runtime-helper, and metadata boundaries
 
 The aim is to keep the scripting model ergonomic without giving up the host application's control over data validity and call-time constraints.
 
@@ -45,7 +54,7 @@ The repository is organized as a Rust workspace so that major responsibilities a
 
 - `kagari-common`: shared foundational types such as source files, spans, and diagnostics
 - `kagari-syntax`: lexer, parser, and AST
-- `kagari-sema`: name resolution, builtin types, semantic analysis, and type-checking scaffolding
+- `kagari-hir`: HIR lowering, name resolution, builtin types, semantic analysis, and type-checking scaffolding
 - `kagari-ir`: lowering from typed semantics into IR and bytecode-oriented forms
 - `kagari-runtime`: runtime abstractions, GC placeholders, host ABI boundaries, and hot-reload metadata
 - `kagari-vm`: the initial interpreter layer
@@ -97,7 +106,7 @@ In later stages, the project will likely continue to focus on:
 - A clearer bytecode format and module loading protocol
 - A maintainable GC object model
 - Module version management and state migration strategies for hot reload
-- AOT and JIT backend experiments aimed at performance-oriented use cases
+- an optional baseline Cranelift JIT backend aimed at performance-oriented use cases
 
 ## Note
 
