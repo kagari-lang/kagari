@@ -16,15 +16,17 @@ use crate::tests::common::{compile_test_bytecode, load_bytecode_module, load_tes
 #[test]
 fn executes_runtime_host_helper_call() {
     let mut runtime = Runtime::default();
-    runtime.host_mut().register(HostFunction::new(
-        "host.add_i32",
-        vec![],
-        "i32",
-        |args| match args {
-            [Value::I32(lhs), Value::I32(rhs)] => Ok(Value::I32(lhs + rhs)),
-            _ => Err(HostError::new("host.add_i32 expects two i32 arguments")),
-        },
-    ));
+    runtime
+        .register_host_function(HostFunction::new(
+            "host.add_i32",
+            vec![],
+            "i32",
+            |args| match args {
+                [Value::I32(lhs), Value::I32(rhs)] => Ok(Value::I32(lhs + rhs)),
+                _ => Err(HostError::new("host.add_i32 expects two i32 arguments")),
+            },
+        ))
+        .expect("host function should register");
 
     let loaded = runtime
         .load_module(
@@ -235,8 +237,7 @@ fn executes_source_lowered_print_builtin() {
 
     let mut runtime = Runtime::default();
     runtime
-        .host_mut()
-        .register(HostFunction::new("host.log", vec![], "()", move |args| {
+        .register_host_function(HostFunction::new("host.log", vec![], "()", move |args| {
             let Some(Value::Str(message)) = args.first() else {
                 return Err(HostError::new("host.log expects one string argument"));
             };
@@ -244,7 +245,8 @@ fn executes_source_lowered_print_builtin() {
                 .expect("message sink should lock")
                 .push(message.clone());
             Ok(Value::Unit)
-        }));
+        }))
+        .expect("host function should register");
     let bytecode = compile_test_bytecode(r#"fn main() { print("hello"); }"#);
     let loaded = runtime
         .load_module("print.kgr", bytecode)

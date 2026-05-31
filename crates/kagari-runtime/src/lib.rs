@@ -13,6 +13,10 @@ pub mod value;
 use kagari_ir::bytecode::{BuiltinMethod, BytecodeModule};
 
 pub use error::{RuntimeError, RuntimeErrorKind};
+pub use host::{
+    HostFunctionEffects, HostFunctionId, HostFunctionMetadata, HostReflectionPolicy, HostTypeInfo,
+    HostTypeOwnership, HostTypeRegistration,
+};
 pub use metadata::{
     AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
     ParameterInfo, PathAccess, TraitInfo, TypeId, TypeInfo, TypeKind, TypeRegistration,
@@ -27,7 +31,7 @@ pub use security::{CapabilitySet, LanguageProfile, SecurityContext};
 use crate::{
     builtin::BuiltinError,
     gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
-    host::{HostError, HostRegistry},
+    host::{HostError, HostFunction, HostRegistry},
     reflection::ReflectionError,
     reload::HotReloadCoordinator,
 };
@@ -75,6 +79,23 @@ impl Runtime {
 
     pub fn host_mut(&mut self) -> &mut HostRegistry {
         &mut self.host
+    }
+
+    pub fn register_host_function(
+        &mut self,
+        function: HostFunction,
+    ) -> Result<HostFunctionId, RuntimeError> {
+        self.host.register(function)
+    }
+
+    pub fn register_host_type(
+        &mut self,
+        registration: HostTypeRegistration,
+    ) -> Result<TypeId, RuntimeError> {
+        let type_id = self.types.register(registration.to_type_registration())?;
+        self.host
+            .register_type(HostTypeInfo::from_registration(type_id, registration))?;
+        Ok(type_id)
     }
 
     pub fn types(&self) -> &TypeRegistry {

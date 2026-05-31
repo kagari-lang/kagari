@@ -167,16 +167,18 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
     let counter = Arc::clone(&init_count);
 
     let mut runtime = Runtime::default();
-    runtime.host_mut().register(HostFunction::new(
-        "host.bump_init",
-        vec![],
-        "()",
-        move |_| {
-            let mut count = counter.lock().expect("counter lock should succeed");
-            *count += 1;
-            Ok(Value::Unit)
-        },
-    ));
+    runtime
+        .register_host_function(HostFunction::new(
+            "host.bump_init",
+            vec![],
+            "()",
+            move |_| {
+                let mut count = counter.lock().expect("counter lock should succeed");
+                *count += 1;
+                Ok(Value::Unit)
+            },
+        ))
+        .expect("host function should register");
 
     let loaded = runtime
         .load_module(
@@ -243,16 +245,18 @@ fn reruns_module_init_for_new_module_epoch() {
     let counter = Arc::clone(&init_count);
 
     let mut runtime = Runtime::default();
-    runtime.host_mut().register(HostFunction::new(
-        "host.bump_init",
-        vec![],
-        "()",
-        move |_| {
-            let mut count = counter.lock().expect("counter lock should succeed");
-            *count += 1;
-            Ok(Value::Unit)
-        },
-    ));
+    runtime
+        .register_host_function(HostFunction::new(
+            "host.bump_init",
+            vec![],
+            "()",
+            move |_| {
+                let mut count = counter.lock().expect("counter lock should succeed");
+                *count += 1;
+                Ok(Value::Unit)
+            },
+        ))
+        .expect("host function should register");
 
     let bytecode = BytecodeModule {
         module_init: Some(FunctionRef::new(0)),
@@ -299,16 +303,18 @@ fn caches_failed_module_init_without_retrying() {
     let counter = Arc::clone(&init_count);
 
     let mut runtime = Runtime::default();
-    runtime.host_mut().register(HostFunction::new(
-        "host.fail_init",
-        vec![],
-        "()",
-        move |_| {
-            let mut count = counter.lock().expect("counter lock should succeed");
-            *count += 1;
-            Err(kagari_runtime::host::HostError::new("boom"))
-        },
-    ));
+    runtime
+        .register_host_function(HostFunction::new(
+            "host.fail_init",
+            vec![],
+            "()",
+            move |_| {
+                let mut count = counter.lock().expect("counter lock should succeed");
+                *count += 1;
+                Err(kagari_runtime::host::HostError::new("boom"))
+            },
+        ))
+        .expect("host function should register");
 
     let loaded = runtime
         .load_module(

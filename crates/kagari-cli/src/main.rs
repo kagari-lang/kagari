@@ -65,7 +65,10 @@ fn main() -> ExitCode {
         .any(|function| function.name == "main");
 
     let mut runtime = Runtime::default();
-    register_default_host_functions(&mut runtime);
+    if let Err(error) = register_default_host_functions(&mut runtime) {
+        eprintln!("{error:?}");
+        return ExitCode::from(1);
+    }
     let loaded = match runtime.load_module(source.name(), bytecode) {
         Ok(loaded) => loaded,
         Err(error) => {
@@ -98,8 +101,10 @@ fn script_path() -> Option<String> {
     }
 }
 
-fn register_default_host_functions(runtime: &mut Runtime) {
-    runtime.host_mut().register(HostFunction::new(
+fn register_default_host_functions(
+    runtime: &mut Runtime,
+) -> Result<(), kagari_runtime::RuntimeError> {
+    runtime.register_host_function(HostFunction::new(
         "host.log",
         vec![HostParameter {
             name: "message",
@@ -114,7 +119,8 @@ fn register_default_host_functions(runtime: &mut Runtime) {
             println!("{message}");
             Ok(Value::Unit)
         },
-    ));
+    ))?;
+    Ok(())
 }
 
 fn print_diagnostics(diagnostics: &[Diagnostic]) {
