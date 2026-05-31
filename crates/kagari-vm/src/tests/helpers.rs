@@ -7,10 +7,10 @@ use kagari_ir::module::ValueType;
 use std::sync::{Arc, Mutex};
 
 use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, FieldMetadataId, HostObjectId, HostPathAdapter,
-    HostPathDescriptorRegistration, HostPathSegment, HostReflectionPolicy, HostSchemaEpoch,
-    HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig,
-    RuntimeErrorKind, SecurityContext, TypeKind, TypeRegistration,
+    AbiFingerprint, CapabilitySet, FieldMetadataId, HostExposurePolicy, HostObjectId,
+    HostPathAdapter, HostPathDescriptorRegistration, HostPathSegment, HostReflectionPolicy,
+    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime,
+    RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind, TypeRegistration,
     host::{HostError, HostFunction},
     value::Value,
 };
@@ -34,6 +34,17 @@ fn host_runtime() -> Runtime {
                 path_mutation: true,
                 ..CapabilitySet::default()
             },
+        },
+        host_exposure: HostExposurePolicy {
+            allowed_host_functions: vec![
+                "host.player".to_owned(),
+                "host.add_i32".to_owned(),
+                "host.log".to_owned(),
+            ],
+            allowed_host_types: vec!["game.Player".to_owned()],
+            allow_host_path_reads: true,
+            allow_host_path_mutation: true,
+            ..HostExposurePolicy::default()
         },
         ..RuntimeConfig::default()
     })

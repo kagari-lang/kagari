@@ -45,6 +45,12 @@ fn host_call_context() -> ExecutionContext {
             host_calls: true,
             ..CapabilitySet::default()
         },
+        host_policy: HostExposurePolicy {
+            allowed_host_functions: vec!["host.player".to_owned()],
+            allowed_host_types: vec!["game.Player".to_owned()],
+            allow_host_path_reads: true,
+            ..HostExposurePolicy::default()
+        },
         ..ExecutionContext::default()
     }
 }
@@ -184,7 +190,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let first = compile_artifact(&engine, "game/main.kgr", "fn main() -> i32 { 1 }");
     let second = compile_artifact(&engine, "game/main.kgr", "fn main() -> i32 { 2 }");
 
-    let mut runtime = engine.runtime(context);
+    let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_module(
             first,
@@ -275,7 +281,7 @@ fn execution_context_resource_limits_surface_as_runtime_failures() {
         ..ExecutionContext::default()
     };
     let artifact = compile_artifact(&engine, "limited.kgr", "fn main() -> i32 { 1 }");
-    let mut runtime = engine.runtime(context);
+    let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_module(
             artifact,
@@ -307,7 +313,7 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
     let mut candidate = compile_artifact(&engine, "reload.kgr", "fn main() -> i32 { 2 }");
     candidate.header.runtime_abi_version = "wrong-runtime-abi".to_owned();
 
-    let mut runtime = engine.runtime(context);
+    let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_module(
             first,
@@ -357,7 +363,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
         ValueType::Unit,
     );
 
-    let mut runtime = engine.runtime(context);
+    let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_module(
             first,
@@ -401,7 +407,7 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
     let artifact = compile_artifact(&engine, "args.kgr", "fn main() -> i32 { 1 }");
-    let mut runtime = engine.runtime(context);
+    let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_module(
             artifact,
@@ -455,7 +461,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         vec![ValueType::HeapObject, ValueType::I32],
         ValueType::Unit,
     );
-    let mut runtime = engine.runtime(context);
+    let mut runtime = engine.runtime(context.clone());
     register_embedding_host_path_runtime(
         &mut runtime,
         PathAccess::ReadWrite,
@@ -510,7 +516,7 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         vec![ValueType::HeapObject, ValueType::I32],
         ValueType::I32,
     );
-    let mut runtime = engine.runtime(context);
+    let mut runtime = engine.runtime(context.clone());
     register_embedding_host_path_runtime(
         &mut runtime,
         PathAccess::ReadOnly,

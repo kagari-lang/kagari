@@ -255,13 +255,10 @@ impl<'a> Executor<'a> {
     ) -> Result<(), VmError> {
         match helper {
             RuntimeHelper::HostFunction(symbol) => {
-                self.runtime
-                    .validate_host_function_boundary(&symbol)
-                    .map_err(VmError::RuntimeError)?;
                 let value = self
                     .runtime
                     .invoke_host(&symbol, &args)
-                    .map_err(VmError::HostError)?;
+                    .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?.write_register(dst, value)?;
                 }

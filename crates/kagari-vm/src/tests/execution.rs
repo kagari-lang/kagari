@@ -164,6 +164,10 @@ fn host_call_runtime() -> Runtime {
                 ..CapabilitySet::default()
             },
         },
+        host_exposure: kagari_runtime::HostExposurePolicy {
+            allow_host_functions: true,
+            ..kagari_runtime::HostExposurePolicy::default()
+        },
         ..RuntimeConfig::default()
     })
 }
@@ -738,6 +742,10 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
             max_instruction_steps: Some(2),
             ..ResourcePolicy::default()
         },
+        host_exposure: kagari_runtime::HostExposurePolicy {
+            allowed_host_functions: vec!["host.costly".to_owned()],
+            ..kagari_runtime::HostExposurePolicy::default()
+        },
         ..RuntimeConfig::default()
     });
     runtime
@@ -1071,7 +1079,15 @@ fn caches_failed_module_init_without_retrying() {
         .execute_module(&loaded)
         .expect_err("failed module should stay failed");
 
-    assert!(matches!(first, VmError::HostError(ref err) if err.message() == "boom"));
-    assert!(matches!(second, VmError::HostError(ref err) if err.message() == "boom"));
+    assert!(matches!(
+        first,
+        VmError::RuntimeError(ref err)
+            if err.kind() == RuntimeErrorKind::HostCallFailure && err.message().contains("boom")
+    ));
+    assert!(matches!(
+        second,
+        VmError::RuntimeError(ref err)
+            if err.kind() == RuntimeErrorKind::HostCallFailure && err.message().contains("boom")
+    ));
     assert_eq!(*init_count.lock().expect("counter lock should succeed"), 1);
 }

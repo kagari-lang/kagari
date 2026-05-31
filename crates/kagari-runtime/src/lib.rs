@@ -38,12 +38,12 @@ pub use module::{
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
-pub use security::{CapabilitySet, LanguageProfile, SecurityContext};
+pub use security::{CapabilitySet, HostExposurePolicy, LanguageProfile, SecurityContext};
 
 use crate::{
     builtin::BuiltinError,
     gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
-    host::{HostError, HostFunction, HostRegistry},
+    host::{HostFunction, HostRegistry},
     reflection::ReflectionError,
     reload::{
         HotReloadCoordinator, validate_load_candidate, validate_reload_artifact_candidate,
@@ -51,10 +51,11 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RuntimeConfig {
     pub gc: GcHeapConfig,
     pub security: SecurityContext,
+    pub host_exposure: HostExposurePolicy,
     pub resources: ResourcePolicy,
 }
 
@@ -65,6 +66,7 @@ pub struct Runtime {
     host: HostRegistry,
     host_borrows: HostBorrowTable,
     security: SecurityContext,
+    host_exposure: HostExposurePolicy,
     resources: ResourceState,
     reloads: HotReloadCoordinator,
     modules: ModuleStore,
@@ -81,6 +83,7 @@ impl Runtime {
             host: HostRegistry::default(),
             host_borrows: HostBorrowTable::default(),
             security: config.security,
+            host_exposure: config.host_exposure,
             resources: ResourceState::new(config.resources),
             reloads: HotReloadCoordinator::default(),
             modules: ModuleStore::default(),
@@ -155,6 +158,7 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: host::DynamicPathArguments,
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
+        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::MakeView)?;
         self.host.make_path_view(root, descriptor_id, dynamic_args)
     }
 
@@ -164,6 +168,7 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
+        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::MakeView)?;
         self.validate_host_path_capabilities(descriptor_id)?;
         self.host
             .make_path_view_from_value(root_or_view, descriptor_id, dynamic_args)
@@ -175,6 +180,7 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
     ) -> Result<value::Value, RuntimeError> {
+        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Read)?;
         self.validate_host_path_capabilities(descriptor_id)?;
         self.host
             .read_path(root_or_view, descriptor_id, dynamic_args)
@@ -187,6 +193,7 @@ impl Runtime {
         dynamic_args: Vec<value::Value>,
         value: value::Value,
     ) -> Result<(), RuntimeError> {
+        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Set)?;
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
         self.host
@@ -201,6 +208,7 @@ impl Runtime {
         op: kagari_ir::bytecode::BinaryOp,
         value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
+        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Modify(op))?;
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
         self.host
@@ -213,6 +221,40 @@ impl Runtime {
 
     pub fn clear_host_dirty_paths(&self) {
         self.host.clear_dirty_paths();
+    }
+
+    fn validate_host_path_exposure(
+        &self,
+        descriptor_id: host::HostPathDescriptorId,
+        operation: host::HostPathOperation,
+    ) -> Result<(), RuntimeError> {
+        let Some(descriptor) = self.host.path_descriptor(descriptor_id) else {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor is not registered",
+            ));
+        };
+        let Some(root_type) = self.host.host_type(descriptor.root_type) else {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor root type is not registered",
+            ));
+        };
+        if !self.host_exposure.exposes_host_type(&root_type.script_name) {
+            return Err(RuntimeError::capability_denied(format!(
+                "host type `{}`",
+                root_type.script_name
+            )));
+        }
+        if operation.writes() {
+            if self.host_exposure.exposes_host_path_mutation() {
+                Ok(())
+            } else {
+                Err(RuntimeError::capability_denied("host path mutation"))
+            }
+        } else if self.host_exposure.exposes_host_path_read() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("host path read"))
+        }
     }
 
     fn validate_host_path_capabilities(
@@ -266,6 +308,11 @@ impl Runtime {
     }
 
     pub fn validate_host_function_boundary(&self, symbol: &str) -> Result<(), RuntimeError> {
+        if !self.host_exposure.exposes_host_function(symbol) {
+            return Err(RuntimeError::capability_denied(format!(
+                "host function `{symbol}`"
+            )));
+        }
         if !self.security.allows_host_calls() {
             return Err(RuntimeError::capability_denied("host_calls"));
         }
@@ -330,6 +377,14 @@ impl Runtime {
 
     pub fn set_security_context(&mut self, security: SecurityContext) {
         self.security = security;
+    }
+
+    pub fn host_exposure(&self) -> &HostExposurePolicy {
+        &self.host_exposure
+    }
+
+    pub fn set_host_exposure_policy(&mut self, policy: HostExposurePolicy) {
+        self.host_exposure = policy;
     }
 
     pub fn resources(&self) -> &ResourceState {
@@ -419,8 +474,11 @@ impl Runtime {
         &self,
         symbol: &str,
         args: &[value::Value],
-    ) -> Result<value::Value, HostError> {
-        self.host.invoke(symbol, args)
+    ) -> Result<value::Value, RuntimeError> {
+        self.validate_host_function_boundary(symbol)?;
+        self.host
+            .invoke(symbol, args)
+            .map_err(|error| RuntimeError::host_call_failure(error.message()))
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> value::Value {
@@ -1018,6 +1076,10 @@ mod tests {
                     jit: true,
                     ..CapabilitySet::default()
                 },
+            },
+            host_exposure: HostExposurePolicy {
+                allow_host_functions: true,
+                ..HostExposurePolicy::default()
             },
             ..RuntimeConfig::default()
         });

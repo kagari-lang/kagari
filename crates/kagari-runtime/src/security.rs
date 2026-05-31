@@ -42,6 +42,54 @@ pub struct CapabilitySet {
     pub jit: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HostExposurePolicy {
+    pub allow_host_functions: bool,
+    pub allowed_host_modules: Vec<String>,
+    pub allowed_host_functions: Vec<String>,
+    pub allow_host_types: bool,
+    pub allowed_host_types: Vec<String>,
+    pub allow_host_path_reads: bool,
+    pub allow_host_path_mutation: bool,
+}
+
+impl HostExposurePolicy {
+    pub fn exposes_host_function(&self, symbol: &str) -> bool {
+        self.allow_host_functions
+            || self
+                .allowed_host_functions
+                .iter()
+                .any(|allowed| allowed == symbol)
+            || self.exposes_host_module(symbol)
+    }
+
+    pub fn exposes_host_type(&self, script_name: &str) -> bool {
+        self.allow_host_types
+            || self
+                .allowed_host_types
+                .iter()
+                .any(|allowed| allowed == script_name)
+            || self.exposes_host_module(script_name)
+    }
+
+    pub fn exposes_host_path_read(&self) -> bool {
+        self.allow_host_path_reads
+    }
+
+    pub fn exposes_host_path_mutation(&self) -> bool {
+        self.allow_host_path_mutation
+    }
+
+    fn exposes_host_module(&self, symbol: &str) -> bool {
+        let Some((root, _)) = symbol.split_once('.') else {
+            return false;
+        };
+        self.allowed_host_modules
+            .iter()
+            .any(|allowed| allowed == root)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SecurityContext {
     pub profile: LanguageProfile,

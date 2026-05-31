@@ -3,11 +3,11 @@ use std::sync::{Arc, Mutex};
 use kagari_ir::bytecode::BinaryOp;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
-    FieldMetadataId, HostBorrowTable, HostObjectId, HostPathAdapter, HostPathDescriptorId,
-    HostPathDescriptorRegistration, HostPathOperation, HostPathSegment, HostReflectionPolicy,
-    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime,
-    RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId, TypeKind, TypeRegistration,
-    host::HostError, value::Value,
+    FieldMetadataId, HostBorrowTable, HostExposurePolicy, HostObjectId, HostPathAdapter,
+    HostPathDescriptorId, HostPathDescriptorRegistration, HostPathOperation, HostPathSegment,
+    HostReflectionPolicy, HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration,
+    LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
+    TypeKind, TypeRegistration, host::HostError, value::Value,
 };
 
 fn path_mutation_runtime() -> Runtime {
@@ -21,6 +21,17 @@ fn path_mutation_runtime() -> Runtime {
                 path_mutation: true,
                 ..CapabilitySet::default()
             },
+        },
+        host_exposure: HostExposurePolicy {
+            allowed_host_types: vec![
+                "game.Player".to_owned(),
+                "game.Item".to_owned(),
+                "game.ReadOnly".to_owned(),
+                "game.Opaque".to_owned(),
+            ],
+            allow_host_path_reads: true,
+            allow_host_path_mutation: true,
+            ..HostExposurePolicy::default()
         },
         ..RuntimeConfig::default()
     })
@@ -207,8 +218,51 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
 }
 
 #[test]
-fn path_execution_validates_stale_roots_and_dynamic_indexes() {
+fn host_paths_are_unavailable_until_exposed() {
+    let calls = Arc::new(Mutex::new(0usize));
+    let calls_for_read = Arc::clone(&calls);
     let mut runtime = Runtime::default();
+    let i32_id = register_i32(&runtime);
+    let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor_id =
+        register_hp_descriptor(&mut runtime, player_id, i32_id, PathAccess::ReadOnly);
+    runtime
+        .register_host_path_adapter(
+            descriptor_id,
+            HostPathAdapter::new().with_read(move |_| {
+                *calls_for_read.lock().expect("read counter should lock") += 1;
+                Ok(Value::I32(7))
+            }),
+        )
+        .unwrap();
+
+    let error = runtime
+        .read_host_path(&Value::HostRoot(root), descriptor_id, Vec::new())
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::CapabilityDenied);
+    assert_eq!(*calls.lock().expect("read counter should lock"), 0);
+
+    runtime.set_host_exposure_policy(HostExposurePolicy {
+        allowed_host_types: vec!["game.Player".to_owned()],
+        allow_host_path_reads: true,
+        ..HostExposurePolicy::default()
+    });
+
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::HostRoot(root), descriptor_id, Vec::new())
+            .unwrap(),
+        Value::I32(7)
+    );
+    assert_eq!(*calls.lock().expect("read counter should lock"), 1);
+}
+
+#[test]
+fn path_execution_validates_stale_roots_and_dynamic_indexes() {
+    let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let root = runtime
@@ -314,7 +368,7 @@ fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
 
 #[test]
 fn rejects_stale_root_metadata_when_creating_views() {
-    let mut runtime = Runtime::default();
+    let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let root = runtime
@@ -477,7 +531,7 @@ fn path_execution_classifies_validation_failures() {
 
 #[test]
 fn path_execution_enforces_descriptor_capabilities() {
-    let mut runtime = Runtime::default();
+    let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let root = runtime

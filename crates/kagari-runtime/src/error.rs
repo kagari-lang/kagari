@@ -7,6 +7,7 @@ pub enum RuntimeErrorKind {
     ExpiredHostBorrow,
     HostBorrowConflict,
     HostBorrowEscape,
+    HostCallFailure,
     TypedPathValidation,
     ModuleValidation,
     ResourceLimitExceeded,
@@ -67,6 +68,13 @@ impl RuntimeError {
         Self::new(
             RuntimeErrorKind::HostBorrowEscape,
             format!("host borrow escape: {}", detail.into()),
+        )
+    }
+
+    pub fn host_call_failure(detail: impl Into<String>) -> Self {
+        Self::new(
+            RuntimeErrorKind::HostCallFailure,
+            format!("host call failed: {}", detail.into()),
         )
     }
 

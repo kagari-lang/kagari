@@ -17,6 +17,8 @@ use kagari_runtime::{
 use kagari_syntax::parse_module;
 use kagari_vm::{ExecutionReport, Vm, VmError};
 
+pub use kagari_runtime::HostExposurePolicy;
+
 pub type CompileResult<T> = Result<T, EmbeddingError>;
 pub type LoadResult<T> = Result<T, EmbeddingError>;
 pub type RunResult<T> = Result<T, EmbeddingError>;
@@ -44,8 +46,9 @@ impl KagariEngine {
     }
 
     pub fn runtime(&self, context: ExecutionContext) -> KagariRuntime {
-        let mut config = self.config.default_runtime;
+        let mut config = self.config.default_runtime.clone();
         config.security = context.security_context();
+        config.host_exposure = context.host_policy.clone();
         config.resources = context.resources;
         KagariRuntime::new(Runtime::new(config), context)
     }
@@ -188,6 +191,9 @@ impl KagariRuntime {
         self.vm
             .runtime_mut()
             .set_security_context(context.security_context());
+        self.vm
+            .runtime_mut()
+            .set_host_exposure_policy(context.host_policy.clone());
         self.vm.execute(module, entry).map_err(EmbeddingError::vm)
     }
 
@@ -200,6 +206,9 @@ impl KagariRuntime {
         self.vm
             .runtime_mut()
             .set_security_context(context.security_context());
+        self.vm
+            .runtime_mut()
+            .set_host_exposure_policy(context.host_policy.clone());
         self.vm.execute_module(module).map_err(EmbeddingError::vm)
     }
 }
@@ -291,13 +300,7 @@ impl Default for PanicPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct HostExposurePolicy {
-    pub allow_host_functions: bool,
-    pub allow_host_path_mutation: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionContext {
     pub language_profile: LanguageProfile,
     pub capabilities: CapabilitySet,
@@ -309,7 +312,7 @@ pub struct ExecutionContext {
 }
 
 impl ExecutionContext {
-    pub fn security_context(self) -> SecurityContext {
+    pub fn security_context(&self) -> SecurityContext {
         SecurityContext {
             profile: self.language_profile,
             capabilities: self.capabilities,
@@ -342,7 +345,7 @@ impl ExecutionContext {
                         ..
                     } => match helper {
                         RuntimeHelper::HostFunction(symbol)
-                            if !self.host_policy.allow_host_functions =>
+                            if !self.host_policy.exposes_host_function(symbol) =>
                         {
                             return Err(EmbeddingError::runtime(
                                 RuntimeFailureKind::CapabilityDenied,
@@ -377,11 +380,20 @@ impl ExecutionContext {
                     },
                     BytecodeInstruction::SetPath { .. }
                     | BytecodeInstruction::ModifyPath { .. }
-                        if !self.host_policy.allow_host_path_mutation =>
+                        if !self.host_policy.exposes_host_path_mutation() =>
                     {
                         return Err(EmbeddingError::runtime(
                             RuntimeFailureKind::CapabilityDenied,
                             "host path mutation is denied by execution context",
+                        ));
+                    }
+                    BytecodeInstruction::ReadPath { .. }
+                    | BytecodeInstruction::MakePathView { .. }
+                        if !self.host_policy.exposes_host_path_read() =>
+                    {
+                        return Err(EmbeddingError::runtime(
+                            RuntimeFailureKind::CapabilityDenied,
+                            "host path read is denied by execution context",
                         ));
                     }
                     BytecodeInstruction::SetPath { .. }
@@ -407,10 +419,7 @@ impl Default for ExecutionContext {
             language_profile: LanguageProfile::default(),
             capabilities: CapabilitySet::default(),
             resources: ResourcePolicy::default(),
-            host_policy: HostExposurePolicy {
-                allow_host_functions: true,
-                allow_host_path_mutation: false,
-            },
+            host_policy: HostExposurePolicy::default(),
             jit_policy: JitPolicy::default(),
             tracing_enabled: false,
             panic_policy: PanicPolicy::default(),
@@ -559,6 +568,7 @@ impl EmbeddingError {
                 | RuntimeErrorKind::HostBorrowEscape
                 | RuntimeErrorKind::ExpiredHostBorrow
                 | RuntimeErrorKind::TypedPathValidation => RuntimeFailureKind::TypedPathValidation,
+                RuntimeErrorKind::HostCallFailure => RuntimeFailureKind::HostCallFailure,
                 RuntimeErrorKind::ModuleValidation => RuntimeFailureKind::BytecodeVerification,
                 RuntimeErrorKind::InvalidReflectiveWrite | RuntimeErrorKind::MetadataConflict => {
                     RuntimeFailureKind::ScriptTrap
