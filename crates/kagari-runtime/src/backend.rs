@@ -1,6 +1,6 @@
 use std::fmt;
 
-use kagari_ir::bytecode::{BytecodeFunction, BytecodeModule, FunctionRef};
+use kagari_ir::bytecode::{BytecodeFunction, BytecodeModule, DebugPointId, FunctionRef};
 
 use crate::{ModuleKey, ReloadDependencySnapshot, Runtime, value::Value};
 
@@ -122,6 +122,7 @@ pub struct ExecutableFunctionArtifact {
     pub function: FunctionRef,
     pub entry: ExecutableEntryPoint,
     pub safepoints: Vec<ExecutableSafepoint>,
+    pub debug: ExecutableDebugInfo,
     pub traps: Vec<ExecutableTrap>,
 }
 
@@ -133,9 +134,56 @@ impl ExecutableFunctionArtifact {
             function,
             entry: ExecutableEntryPoint::Unresolved,
             safepoints: Vec::new(),
+            debug: ExecutableDebugInfo::default(),
             traps: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecutableDebugInfo {
+    pub has_line_tables: bool,
+    pub has_source_spans: bool,
+    pub has_live_value_locations: bool,
+    pub has_safe_debug_callbacks: bool,
+    pub safe_debug_points: Vec<ExecutableDebugPoint>,
+}
+
+impl ExecutableDebugInfo {
+    pub fn missing_requirements_for_function(&self, function: &BytecodeFunction) -> Vec<String> {
+        let mut missing = Vec::new();
+        if !self.has_line_tables {
+            missing.push("line tables".to_owned());
+        }
+        if !self.has_source_spans {
+            missing.push("source span mapping".to_owned());
+        }
+        if !self.has_live_value_locations {
+            missing.push("live value locations".to_owned());
+        }
+        if !self.has_safe_debug_callbacks {
+            missing.push("safe debug point callbacks".to_owned());
+        }
+        for point in &function.metadata.debug.safe_debug_points {
+            if !self.safe_debug_points.iter().any(|candidate| {
+                candidate.instruction_offset == point.instruction_offset
+                    && candidate.debug_point == point.id
+            }) {
+                missing.push(format!(
+                    "safe debug point {} at instruction {}",
+                    point.id.index(),
+                    point.instruction_offset
+                ));
+            }
+        }
+        missing
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutableDebugPoint {
+    pub instruction_offset: usize,
+    pub debug_point: DebugPointId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

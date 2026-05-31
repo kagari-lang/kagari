@@ -283,6 +283,9 @@ impl Vm {
             }
             Err(error) => return Err(VmError::JitBackend(error.diagnostics)),
         };
+        if let Some(report) = self.debug_fallback_report(&artifact, function, &backend_id) {
+            return Ok(JitEntryResult::Fallback(report));
+        }
         let artifact_id = self
             .runtime
             .register_executable_function_artifact(module.key(), dependencies, artifact.clone())
@@ -323,6 +326,30 @@ impl Vm {
             }
             Err(error) => Err(VmError::JitInvocation(error)),
         }
+    }
+
+    fn debug_fallback_report(
+        &self,
+        artifact: &kagari_runtime::ExecutableFunctionArtifact,
+        function: &kagari_ir::bytecode::BytecodeFunction,
+        backend_id: &BackendId,
+    ) -> Option<JitExecutionReport> {
+        self.debug_session.as_ref()?;
+        let missing = artifact.debug.missing_requirements_for_function(function);
+        if missing.is_empty() {
+            return None;
+        }
+        Some(JitExecutionReport {
+            backend: backend_id.clone(),
+            function: function.id,
+            status: JitExecutionStatus::InterpreterFallback,
+            artifact: None,
+            diagnostics: vec![BackendDiagnostic::unsupported(format!(
+                "JIT fallback while debugging `{}`: missing {}",
+                function.name,
+                missing.join(", ")
+            ))],
+        })
     }
 
     fn execute_interpreter_entry(

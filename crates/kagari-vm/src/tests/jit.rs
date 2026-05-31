@@ -1,14 +1,20 @@
+use kagari_common::Span;
 use kagari_ir::{
-    bytecode::{BytecodeInstruction, ConstantOperand, FunctionRef, Register},
+    bytecode::{
+        BytecodeInstruction, ConstantOperand, DebugPointId, FunctionRef, InstructionSourceSpan,
+        LineTableEntry, Register, SafeDebugPoint, SafeDebugPointKind,
+    },
     module::ValueType,
 };
 use kagari_runtime::{
     BackendCompileError, BackendFunctionInput, BackendId, BackendInvocationError, BackendTarget,
-    CodegenBackend, ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint,
-    ExecutableSafepointKind, ExecutableStackMap, Runtime, value::Value,
+    CapabilitySet, CodegenBackend, DebugVisibilityPolicy, ExecutableDebugInfo,
+    ExecutableDebugPoint, ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint,
+    ExecutableSafepointKind, ExecutableStackMap, LanguageProfile, Runtime, RuntimeConfig,
+    SecurityContext, value::Value,
 };
 
-use crate::{JitExecutionStatus, Vm, tests::common};
+use crate::{DebugSession, JitExecutionStatus, Vm, tests::common};
 
 #[derive(Debug)]
 struct UnsupportedBackend {
@@ -49,6 +55,7 @@ impl CodegenBackend for UnsupportedBackend {
 struct NativeBackend {
     backend: BackendId,
     target: BackendTarget,
+    supports_debugging: bool,
 }
 
 impl NativeBackend {
@@ -56,6 +63,15 @@ impl NativeBackend {
         Self {
             backend: BackendId::new("test-native-jit"),
             target: BackendTarget::new("test-target", 64),
+            supports_debugging: false,
+        }
+    }
+
+    fn with_debug_metadata() -> Self {
+        Self {
+            backend: BackendId::new("test-native-jit"),
+            target: BackendTarget::new("test-target", 64),
+            supports_debugging: true,
         }
     }
 }
@@ -84,6 +100,25 @@ impl CodegenBackend for NativeBackend {
             },
             stack_map: ExecutableStackMap::empty(),
         });
+        if self.supports_debugging {
+            artifact.debug = ExecutableDebugInfo {
+                has_line_tables: true,
+                has_source_spans: true,
+                has_live_value_locations: true,
+                has_safe_debug_callbacks: true,
+                safe_debug_points: input
+                    .function
+                    .metadata
+                    .debug
+                    .safe_debug_points
+                    .iter()
+                    .map(|point| ExecutableDebugPoint {
+                        instruction_offset: point.instruction_offset,
+                        debug_point: point.id,
+                    })
+                    .collect(),
+            };
+        }
         Ok(artifact)
     }
 
@@ -180,4 +215,115 @@ fn jit_native_execution_reports_registered_artifact() {
     assert!(jit.artifact.is_some());
     assert!(jit.diagnostics.is_empty());
     assert_eq!(vm.runtime().resources().counters().instruction_steps, 1);
+}
+
+#[test]
+fn jit_debug_session_falls_back_without_safe_debug_metadata() {
+    let module = debug_test_module(7);
+    let runtime = debug_runtime("jit_debug_fallback");
+    let session = DebugSession::new(&runtime).expect("debug session should attach");
+    let (runtime, loaded) =
+        common::load_bytecode_module_with_runtime(runtime, "jit_debug_fallback", module);
+    let mut vm = Vm::new(runtime);
+    vm.attach_debug_session(session)
+        .expect("debug session should attach to VM");
+    let mut backend = NativeBackend::new();
+
+    let report = vm
+        .execute_with_backend(&loaded, "main", &mut backend)
+        .expect("debugger should force interpreter fallback when JIT metadata is missing");
+
+    assert_eq!(report.return_value, Value::I32(7));
+    let jit = report.jit.expect("JIT attempt should be reported");
+    assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
+    assert!(jit.artifact.is_none());
+    assert_eq!(jit.diagnostics.len(), 1);
+    assert!(jit.diagnostics[0].message.contains("while debugging"));
+    assert!(
+        jit.diagnostics[0]
+            .message
+            .contains("safe debug point callbacks")
+    );
+}
+
+#[test]
+fn jit_debug_session_allows_native_when_safe_debug_metadata_is_complete() {
+    let module = debug_test_module(7);
+    let runtime = debug_runtime("jit_debug_native");
+    let session = DebugSession::new(&runtime).expect("debug session should attach");
+    let (runtime, loaded) =
+        common::load_bytecode_module_with_runtime(runtime, "jit_debug_native", module);
+    let mut vm = Vm::new(runtime);
+    vm.attach_debug_session(session)
+        .expect("debug session should attach to VM");
+    let mut backend = NativeBackend::with_debug_metadata();
+
+    let report = vm
+        .execute_with_backend(&loaded, "main", &mut backend)
+        .expect("complete debug metadata should allow native JIT execution");
+
+    assert_eq!(report.return_value, Value::I32(11));
+    let jit = report.jit.expect("JIT execution should be reported");
+    assert_eq!(jit.status, JitExecutionStatus::Native);
+    assert!(jit.artifact.is_some());
+    assert!(jit.diagnostics.is_empty());
+}
+
+fn debug_runtime(module_name: &str) -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_debugger: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                debug_attach: true,
+                debug_breakpoints: true,
+                debug_pause: true,
+                debug_stack_inspection: true,
+                debug_value_inspection: true,
+                debug_watch_evaluation: true,
+                ..CapabilitySet::default()
+            },
+        },
+        debug_visibility: DebugVisibilityPolicy {
+            visible_modules: vec![module_name.to_owned()],
+            ..DebugVisibilityPolicy::default()
+        },
+        ..RuntimeConfig::default()
+    })
+}
+
+fn debug_test_module(value: i32) -> kagari_ir::bytecode::BytecodeModule {
+    let mut module = common::test_function_module(
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantOperand::I32(value),
+            },
+            BytecodeInstruction::Return(Some(Register::new(0))),
+        ],
+        ValueType::I32,
+        vec![ValueType::I32],
+    );
+    let span = Span::new(0, 4);
+    let function = &mut module.functions[0];
+    function.metadata.debug.source_spans = vec![InstructionSourceSpan {
+        instruction_offset: 0,
+        span,
+    }];
+    function.metadata.debug.line_table = vec![LineTableEntry {
+        instruction_offset: 0,
+        source_offset: 0,
+        line: Some(1),
+        column: Some(1),
+    }];
+    function.metadata.debug.safe_debug_points = vec![SafeDebugPoint {
+        id: DebugPointId::new(0),
+        instruction_offset: 0,
+        span,
+        kind: SafeDebugPointKind::FunctionEntry,
+    }];
+    module
 }

@@ -18,9 +18,9 @@ use kagari_ir::bytecode::{ArtifactCompatibility, BuiltinMethod, BytecodeModule, 
 pub use backend::{
     BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,
     BackendInvocationError, BackendInvocationErrorKind, BackendTarget, CodegenBackend,
-    ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind,
-    ExecutableStackMap, ExecutableStackMapLocation, ExecutableStackMapSlot,
-    ExecutableStackValueKind, ExecutableTrap,
+    ExecutableDebugInfo, ExecutableDebugPoint, ExecutableEntryPoint, ExecutableFunctionArtifact,
+    ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap, ExecutableStackMapLocation,
+    ExecutableStackMapSlot, ExecutableStackValueKind, ExecutableTrap,
 };
 pub use cache::{
     ExecutionArtifactId, ExecutionArtifactKind, ExecutionArtifactRecord, ExecutionArtifactRegistry,
