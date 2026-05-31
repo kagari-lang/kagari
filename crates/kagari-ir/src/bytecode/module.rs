@@ -5,8 +5,9 @@ use crate::{
     module::{EffectSet, PublicAbiItem, ValueType},
 };
 use kagari_common::Span;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BytecodeModule {
     pub module_init: Option<FunctionRef>,
     pub module_slots: BytecodeModuleSlotBuffer,
@@ -19,14 +20,14 @@ pub struct BytecodeModule {
     pub functions: BytecodeFunctionBuffer,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BytecodeModuleSlot {
     pub name: String,
     pub ty: ValueType,
     pub mutable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldRecord {
     pub id: FieldId,
     pub owner: String,
@@ -34,7 +35,7 @@ pub struct FieldRecord {
     pub ty: ValueType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathRecord {
     pub id: PathId,
     pub root_ty: ValueType,
@@ -43,7 +44,7 @@ pub struct PathRecord {
     pub debug_name: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BytecodeFunction {
     pub id: FunctionRef,
     pub name: String,
@@ -54,7 +55,7 @@ pub struct BytecodeFunction {
     pub instructions: BytecodeInstructionBuffer,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FunctionMetadata {
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
@@ -65,7 +66,7 @@ pub struct FunctionMetadata {
     pub debug: BytecodeDebugMetadata,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionRecord {
     pub id: FunctionRef,
     pub name: String,
@@ -74,7 +75,7 @@ pub struct FunctionRecord {
     pub effects: EffectSet,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BytecodeDebugMetadata {
     pub function_span: Span,
     pub source_spans: InstructionSourceSpanBuffer,
@@ -85,13 +86,13 @@ pub struct BytecodeDebugMetadata {
     pub frame_layout: FrameLayout,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstructionSourceSpan {
     pub instruction_offset: usize,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineTableEntry {
     pub instruction_offset: usize,
     pub source_offset: usize,
@@ -99,7 +100,7 @@ pub struct LineTableEntry {
     pub column: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SafeDebugPoint {
     pub id: DebugPointId,
     pub instruction_offset: usize,
@@ -107,7 +108,7 @@ pub struct SafeDebugPoint {
     pub kind: SafeDebugPointKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DebugPointId(u32);
 
 impl DebugPointId {
@@ -120,7 +121,7 @@ impl DebugPointId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SafeDebugPointKind {
     FunctionEntry,
     Statement,
@@ -130,7 +131,7 @@ pub enum SafeDebugPointKind {
     Trap,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalLiveRange {
     pub local: LocalSlot,
     pub name: String,
@@ -141,14 +142,14 @@ pub struct LocalLiveRange {
     pub is_parameter: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapturedBindingDebugInfo {
     pub name: String,
     pub span: Span,
     pub ty: ValueType,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FrameLayout {
     pub params: TypeLayoutBuffer,
     pub locals: TypeLayoutBuffer,

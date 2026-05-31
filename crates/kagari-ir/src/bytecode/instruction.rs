@@ -1,6 +1,7 @@
 use kagari_hir::builtin::BuiltinMethod;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Register(u16);
 
 impl Register {
@@ -13,7 +14,7 @@ impl Register {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LocalSlot(u16);
 
 impl LocalSlot {
@@ -26,7 +27,7 @@ impl LocalSlot {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModuleSlot(u16);
 
 impl ModuleSlot {
@@ -39,7 +40,7 @@ impl ModuleSlot {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct JumpTarget(u32);
 
 impl JumpTarget {
@@ -52,7 +53,7 @@ impl JumpTarget {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FunctionRef(u32);
 
 impl FunctionRef {
@@ -71,7 +72,7 @@ impl Default for FunctionRef {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FieldId(u32);
 
 impl FieldId {
@@ -84,7 +85,7 @@ impl FieldId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PathId(u32);
 
 impl PathId {
@@ -97,7 +98,7 @@ impl PathId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConstantOperand {
     Unit,
     Bool(bool),
@@ -106,7 +107,7 @@ pub enum ConstantOperand {
     Str(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallTarget {
     Function(FunctionRef),
     Register(Register),
@@ -114,7 +115,7 @@ pub enum CallTarget {
     RuntimeHelper(RuntimeHelper),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RuntimeHelper {
     HostFunction(String),
     ReflectTypeOf,
@@ -124,13 +125,13 @@ pub enum RuntimeHelper {
     DynamicCall,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnaryOp {
     Neg,
     Not,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -144,7 +145,7 @@ pub enum BinaryOp {
     Ge,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BytecodeInstruction {
     LoadConst {
         dst: Register,
@@ -257,7 +258,7 @@ pub enum BytecodeInstruction {
     Unreachable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructFieldInit {
     pub name: String,
     pub value: Register,

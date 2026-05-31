@@ -7,4 +7,11 @@ license.workspace = true
 [dependencies]
 kagari-common.workspace = true
 kagari-embed.workspace = true
+kagari-jit-cranelift = { workspace = true, optional = true }
+kagari-syntax.workspace = true
 kagari-runtime.workspace = true
+kagari-vm.workspace = true
+
+[features]
+default = []
+jit = ["dep:kagari-jit-cranelift", "kagari-jit-cranelift/jit"]

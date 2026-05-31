@@ -1,6 +1,7 @@
 use kagari_hir::types::{BuiltinType, TypeId};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValueType {
     Unit,
     Bool,

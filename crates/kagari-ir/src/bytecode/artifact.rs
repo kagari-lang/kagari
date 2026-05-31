@@ -4,6 +4,7 @@ use crate::{
     bytecode::{BytecodeDebugMetadata, BytecodeModule, FunctionRef, PathId, verify_module},
     module::ValueType,
 };
+use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 1;
@@ -12,7 +13,7 @@ pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_
 pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v1";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v1";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KbcArtifact {
     pub header: ArtifactHeader,
     pub module: BytecodeModule,
@@ -138,6 +139,14 @@ impl KbcArtifact {
         Ok(())
     }
 
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ArtifactCodecError> {
+        bincode::serialize(self).map_err(ArtifactCodecError::from)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ArtifactCodecError> {
+        bincode::deserialize(bytes).map_err(ArtifactCodecError::from)
+    }
+
     fn validate_header(
         &self,
         requirements: &ArtifactCompatibility,
@@ -183,7 +192,7 @@ impl KbcArtifact {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactHeader {
     pub magic: [u8; 4],
     pub format_version: u16,
@@ -197,12 +206,12 @@ pub struct ArtifactHeader {
     pub content_hash: ArtifactFingerprint,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArtifactEncoding {
     CanonicalLittleEndian,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ArtifactModuleIdentity {
     pub package_id: String,
     pub module_path: String,
@@ -222,10 +231,10 @@ impl ArtifactModuleIdentity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModuleEpoch(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ArtifactFingerprint(pub u64);
 
 impl ArtifactFingerprint {
@@ -251,7 +260,7 @@ impl ArtifactFingerprint {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactTables {
     pub sections: ArtifactSectionBuffer,
     pub host_dependencies: HostDependencyTable,
@@ -322,7 +331,7 @@ fn push_section(sections: &mut Vec<ArtifactSection>, id: ArtifactSectionId, reco
     });
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ArtifactSectionId {
     Header,
     Module,
@@ -342,14 +351,14 @@ pub enum ArtifactSectionId {
     Signatures,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactSection {
     pub id: ArtifactSectionId,
     pub record_count: usize,
     pub fingerprint: ArtifactFingerprint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerificationMetadata {
     pub bytecode_verified: bool,
     pub function_layouts: FunctionLayoutBuffer,
@@ -431,7 +440,7 @@ impl VerificationMetadata {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionLayoutMetadata {
     pub function: FunctionRef,
     pub params: Vec<ValueType>,
@@ -440,37 +449,37 @@ pub struct FunctionLayoutMetadata {
     pub registers: Vec<ValueType>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionEffectMetadata {
     pub function: FunctionRef,
     pub effects: crate::module::EffectSet,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlFlowTargetMetadata {
     pub function: FunctionRef,
     pub targets: Vec<crate::bytecode::JumpTarget>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathDescriptorFingerprint {
     pub path: PathId,
     pub fingerprint: ArtifactFingerprint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicAbiFingerprint {
     pub name: String,
     pub fingerprint: ArtifactFingerprint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DependencyFingerprint {
     pub module_id: String,
     pub fingerprint: ArtifactFingerprint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoaderValidationMetadata {
     pub module_identity: ArtifactModuleIdentity,
     pub runtime_abi_version: String,
@@ -482,7 +491,7 @@ pub struct LoaderValidationMetadata {
     pub security_profile: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactBuildOptions {
     pub module_identity: ArtifactModuleIdentity,
     pub module_epoch: Option<ModuleEpoch>,
@@ -517,7 +526,7 @@ impl Default for ArtifactBuildOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactCompatibility {
     pub format_version: u16,
     pub language_version: String,
@@ -544,7 +553,7 @@ impl Default for ArtifactCompatibility {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DebugMetadata {
     pub stripped: bool,
     pub source_files: SourceFileTable,
@@ -571,12 +580,12 @@ impl DebugMetadata {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactSignatures {
     pub signatures: Vec<ArtifactSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactSignature {
     pub key_id: String,
     pub signature: Vec<u8>,
@@ -620,6 +629,33 @@ pub enum ArtifactValidationError {
     PublicAbiFingerprintMismatch,
     Bytecode(crate::bytecode::BytecodeVerificationError),
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactCodecError {
+    message: String,
+}
+
+impl ArtifactCodecError {
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl From<Box<bincode::ErrorKind>> for ArtifactCodecError {
+    fn from(error: Box<bincode::ErrorKind>) -> Self {
+        Self {
+            message: error.to_string(),
+        }
+    }
+}
+
+impl Display for ArtifactCodecError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "artifact codec error: {}", self.message)
+    }
+}
+
+impl std::error::Error for ArtifactCodecError {}
 
 impl ArtifactValidationError {
     pub fn code(&self) -> &'static str {

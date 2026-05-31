@@ -3,6 +3,7 @@ pub mod iterable;
 pub mod surface;
 
 use crate::types::{BuiltinType, TypeId};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinFunction {
@@ -26,7 +27,7 @@ impl BuiltinFunction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BuiltinMethod {
     Array(array::Method),
     Iterable(iterable::Method),
@@ -50,7 +51,7 @@ pub enum BuiltinMethodResult {
     Builtin(BuiltinType),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StringMethod {
     Len,
 }

@@ -10,9 +10,10 @@ use kagari_ir::{
     lower_to_ir,
 };
 use kagari_runtime::{
-    CapabilitySet, HostFunctionId, HostTypeRegistration, LanguageProfile, LoadedModule,
-    ReloadValidationError as RuntimeReloadValidationError, ResourcePolicy, Runtime, RuntimeConfig,
-    RuntimeError, RuntimeErrorKind, SecurityContext, TypeId, host::HostFunction, value::Value,
+    CapabilitySet, CodegenBackend, HostFunctionId, HostTypeRegistration, LanguageProfile,
+    LoadedModule, ReloadValidationError as RuntimeReloadValidationError, ResourcePolicy, Runtime,
+    RuntimeConfig, RuntimeError, RuntimeErrorKind, SecurityContext, TypeId, host::HostFunction,
+    value::Value,
 };
 use kagari_syntax::parse_module;
 use kagari_vm::{ExecutionReport, Vm, VmError};
@@ -197,6 +198,35 @@ impl KagariRuntime {
         self.vm.execute(module, entry).map_err(EmbeddingError::vm)
     }
 
+    pub fn execute_with_backend<B: CodegenBackend>(
+        &mut self,
+        module: &LoadedModule,
+        entry: &str,
+        args: &[Value],
+        context: &ExecutionContext,
+        backend: &mut B,
+    ) -> RunResult<ExecutionReport> {
+        if !args.is_empty() {
+            return Err(EmbeddingError::runtime(
+                RuntimeFailureKind::UnsupportedExecution,
+                format!(
+                    "entry `{entry}` received {} arguments, but argument passing is not implemented",
+                    args.len()
+                ),
+            ));
+        }
+        context.validate_for_backend_execute(entry, &module.bytecode)?;
+        self.vm
+            .runtime_mut()
+            .set_security_context(context.security_context());
+        self.vm
+            .runtime_mut()
+            .set_host_exposure_policy(context.host_policy.clone());
+        self.vm
+            .execute_with_backend(module, entry, backend)
+            .map_err(EmbeddingError::vm)
+    }
+
     pub fn execute_module(
         &mut self,
         module: &LoadedModule,
@@ -330,6 +360,16 @@ impl ExecutionContext {
             return Err(EmbeddingError::runtime(
                 RuntimeFailureKind::UnsupportedExecution,
                 format!("JIT policy for `{entry}` is not implemented by the baseline runtime"),
+            ));
+        }
+        self.validate_bytecode_policy(module)
+    }
+
+    fn validate_for_backend_execute(&self, _entry: &str, module: &BytecodeModule) -> RunResult<()> {
+        if !self.security_context().allows_jit() {
+            return Err(EmbeddingError::runtime(
+                RuntimeFailureKind::CapabilityDenied,
+                "JIT execution is denied by execution context",
             ));
         }
         self.validate_bytecode_policy(module)

@@ -32,3 +32,5 @@ cranelift-jit = "0.132.0"
 cranelift-module = "0.132.0"
 cranelift-native = "0.132.0"
 smallvec = "1.15.1"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"

@@ -1,4 +1,5 @@
 use kagari_hir::{builtin::BuiltinMethod, hir};
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::module::ids::{BlockId, LocalId, ModuleSlotId, TempId};
@@ -147,7 +148,7 @@ pub enum CallTarget {
     RuntimeHelper(RuntimeHelper),
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectSet {
     pub reads_local: bool,
     pub writes_local: bool,

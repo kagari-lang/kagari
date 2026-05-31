@@ -191,6 +191,24 @@ fn main() -> i32 { add(1, 2) }
 }
 
 #[test]
+fn serializes_kbc_artifact_bytes_for_loader_execution() {
+    let module = common::bytecode_ok("fn main() -> i32 { 1 }");
+    let artifact = KbcArtifact::from_module(module, ArtifactBuildOptions::default());
+
+    let bytes = artifact.to_bytes().expect("artifact should encode");
+    let decoded = KbcArtifact::from_bytes(&bytes).expect("artifact should decode");
+
+    assert_eq!(decoded.header, artifact.header);
+    assert_eq!(
+        decoded.module.functions.len(),
+        artifact.module.functions.len()
+    );
+    decoded
+        .validate_for_loader(&ArtifactCompatibility::default())
+        .expect("decoded artifact should validate");
+}
+
+#[test]
 fn fingerprints_public_module_abi_records() {
     let module = common::bytecode_ok(
         r#"
