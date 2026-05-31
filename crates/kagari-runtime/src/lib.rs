@@ -17,8 +17,10 @@ use kagari_ir::bytecode::{ArtifactCompatibility, BuiltinMethod, BytecodeModule, 
 
 pub use backend::{
     BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,
-    BackendTarget, CodegenBackend, ExecutableEntryPoint, ExecutableFunctionArtifact,
-    ExecutableSafepoint, ExecutableTrap,
+    BackendInvocationError, BackendInvocationErrorKind, BackendTarget, CodegenBackend,
+    ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind,
+    ExecutableStackMap, ExecutableStackMapLocation, ExecutableStackMapSlot,
+    ExecutableStackValueKind, ExecutableTrap,
 };
 pub use cache::{
     ExecutionArtifactId, ExecutionArtifactKind, ExecutionArtifactRecord, ExecutionArtifactRegistry,
@@ -1005,7 +1007,10 @@ mod tests {
             ));
             artifact.safepoints.push(ExecutableSafepoint {
                 instruction_offset: 0,
-                live_value_slots: Vec::new(),
+                kind: ExecutableSafepointKind::RuntimeHelperCall {
+                    helper: "test.helper".to_owned(),
+                },
+                stack_map: ExecutableStackMap::empty(),
             });
             Ok(artifact)
         }

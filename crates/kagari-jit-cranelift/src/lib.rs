@@ -13,9 +13,12 @@ use kagari_ir::bytecode::{
     BinaryOp, BytecodeFunction, BytecodeInstruction, ConstantOperand, Register, UnaryOp,
     verify_module,
 };
+use kagari_ir::module::ValueType;
 use kagari_runtime::{
     BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,
-    BackendTarget, CodegenBackend, ExecutableEntryPoint, ExecutableFunctionArtifact, Runtime,
+    BackendInvocationError, BackendTarget, CodegenBackend, ExecutableEntryPoint,
+    ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap,
+    Runtime,
     jit_abi::{
         JIT_CONSUME_INSTRUCTION_STEP_SYMBOL, JIT_STATUS_OK, JIT_STATUS_RUNTIME_ERROR,
         JIT_VALUE_TAG_BOOL, JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitCompiledFunction, JitValue,
@@ -120,6 +123,8 @@ impl CraneliftBackend {
                 input.function.name, input.function.parameter_count
             )));
         }
+        ensure_stack_maps_supported(input.function)?;
+        let safepoints = derive_safepoints(input.function);
         let symbol = self.next_function_symbol(input.module_name, input.function);
         let address = self.emit_scalar_function(&symbol, input.function)?;
         let mut artifact = ExecutableFunctionArtifact::new(
@@ -128,6 +133,7 @@ impl CraneliftBackend {
             input.function_ref(),
         );
         artifact.entry = ExecutableEntryPoint::Native { symbol, address };
+        artifact.safepoints = safepoints;
         Ok(artifact)
     }
 
@@ -264,6 +270,15 @@ impl CodegenBackend for CraneliftBackend {
     ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
         self.compile_eligible_function(&input)
     }
+
+    fn invoke_function(
+        &self,
+        artifact: &ExecutableFunctionArtifact,
+        runtime: &Runtime,
+    ) -> Result<RuntimeValue, BackendInvocationError> {
+        self.invoke_compiled_scalar(artifact, runtime)
+            .map_err(|error| BackendInvocationError::runtime_failure(error.message()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,6 +367,68 @@ fn backend_internal_error(message: impl Into<String>) -> BackendCompileError {
             message: message.into(),
         }],
     }
+}
+
+fn ensure_stack_maps_supported(function: &BytecodeFunction) -> Result<(), BackendCompileError> {
+    for (layout, index, ty) in function
+        .metadata
+        .params
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, ty)| ("param", index, ty))
+        .chain(
+            function
+                .metadata
+                .locals
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, ty)| ("local", index, ty)),
+        )
+        .chain(
+            function
+                .metadata
+                .registers
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, ty)| ("register", index, ty)),
+        )
+    {
+        if !is_stack_map_scalar(ty) {
+            return Err(BackendCompileError::unsupported(format!(
+                "Cranelift baseline cannot emit precise stack maps for {layout} {index} with type `{ty:?}` in `{}`",
+                function.name
+            )));
+        }
+    }
+    if !is_stack_map_scalar(function.metadata.return_type) {
+        return Err(BackendCompileError::unsupported(format!(
+            "Cranelift baseline cannot emit precise stack maps for return type `{:?}` in `{}`",
+            function.metadata.return_type, function.name
+        )));
+    }
+    Ok(())
+}
+
+fn is_stack_map_scalar(ty: ValueType) -> bool {
+    matches!(ty, ValueType::Unit | ValueType::Bool | ValueType::I32)
+}
+
+fn derive_safepoints(function: &BytecodeFunction) -> Vec<ExecutableSafepoint> {
+    function
+        .instructions
+        .iter()
+        .enumerate()
+        .map(|(instruction_offset, _)| ExecutableSafepoint {
+            instruction_offset,
+            kind: ExecutableSafepointKind::RuntimeHelperCall {
+                helper: JIT_CONSUME_INSTRUCTION_STEP_SYMBOL.to_owned(),
+            },
+            stack_map: ExecutableStackMap::empty(),
+        })
+        .collect()
 }
 
 fn emit_resource_check(
@@ -557,7 +634,7 @@ mod tests {
     use kagari_ir::{
         bytecode::{
             BytecodeFunction, BytecodeInstruction, BytecodeModule, ConstantOperand,
-            FunctionMetadata, FunctionRecord, FunctionRef, Register,
+            FunctionMetadata, FunctionRecord, FunctionRef, JumpTarget, Register,
         },
         module::ValueType,
     };
@@ -613,6 +690,15 @@ mod tests {
             artifact.entry,
             ExecutableEntryPoint::Native { address, .. } if address != 0
         ));
+        assert_eq!(artifact.safepoints.len(), 4);
+        assert_eq!(artifact.safepoints[0].instruction_offset, 0);
+        assert_eq!(
+            artifact.safepoints[0].kind,
+            ExecutableSafepointKind::RuntimeHelperCall {
+                helper: JIT_CONSUME_INSTRUCTION_STEP_SYMBOL.to_owned()
+            }
+        );
+        assert!(artifact.safepoints[0].stack_map.live_slots.is_empty());
         let runtime = Runtime::new(RuntimeConfig::default());
         let value = backend
             .invoke_compiled_scalar(&artifact, &runtime)
@@ -670,13 +756,10 @@ mod tests {
         let mut unsupported = loaded.clone();
         unsupported.bytecode.functions[0].instructions.insert(
             0,
-            BytecodeInstruction::MakeArray {
-                dst: Register::new(0),
-                elements: Vec::new(),
+            BytecodeInstruction::Jump {
+                target: JumpTarget::new(1),
             },
         );
-        unsupported.bytecode.functions[0].register_count = 1;
-        unsupported.bytecode.functions[0].metadata.registers = vec![ValueType::HeapObject];
         let dependencies = ReloadDependencySnapshot::from_bytecode(&unsupported.bytecode);
 
         let error = backend
@@ -687,6 +770,34 @@ mod tests {
             error.diagnostics[0].kind,
             BackendDiagnosticKind::UnsupportedFunction
         );
+        assert!(
+            error.diagnostics[0]
+                .message
+                .contains("does not support instruction")
+        );
+    }
+
+    #[test]
+    fn cranelift_backend_requires_precise_stack_maps_for_gc_values() {
+        let mut backend =
+            CraneliftBackend::for_host().expect("host Cranelift target should initialize");
+        let loaded = loaded_module(function(
+            "main",
+            vec![BytecodeInstruction::Return(None)],
+            ValueType::Unit,
+            vec![ValueType::HeapObject],
+        ));
+        let dependencies = ReloadDependencySnapshot::from_bytecode(&loaded.bytecode);
+
+        let error = backend
+            .compile_function(input_for(&loaded, dependencies))
+            .expect_err("GC-managed frame slots require stack-map support before JIT");
+
+        assert_eq!(
+            error.diagnostics[0].kind,
+            BackendDiagnosticKind::UnsupportedFunction
+        );
+        assert!(error.diagnostics[0].message.contains("stack maps"));
     }
 
     fn input_for(

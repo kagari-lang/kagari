@@ -9,7 +9,7 @@ pub use debug::{
     DebugSession, DebugWatch, ResolvedBreakpoint, SourceBreakpoint,
 };
 pub use error::VmError;
-pub use vm::{ExecutionReport, Vm};
+pub use vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, Vm};
 
 #[cfg(test)]
 mod tests;

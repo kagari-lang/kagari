@@ -2,7 +2,7 @@ use std::fmt;
 
 use kagari_ir::bytecode::{BytecodeFunction, BytecodeModule, FunctionRef};
 
-use crate::{ModuleKey, ReloadDependencySnapshot};
+use crate::{ModuleKey, ReloadDependencySnapshot, Runtime, value::Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BackendId(String);
@@ -65,7 +65,48 @@ pub enum ExecutableEntryPoint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableSafepoint {
     pub instruction_offset: usize,
-    pub live_value_slots: Vec<u32>,
+    pub kind: ExecutableSafepointKind,
+    pub stack_map: ExecutableStackMap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecutableSafepointKind {
+    RuntimeHelperCall { helper: String },
+    CallBoundary,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecutableStackMap {
+    pub live_slots: Vec<ExecutableStackMapSlot>,
+}
+
+impl ExecutableStackMap {
+    pub fn empty() -> Self {
+        Self {
+            live_slots: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutableStackMapSlot {
+    pub location: ExecutableStackMapLocation,
+    pub value_kind: ExecutableStackValueKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecutableStackMapLocation {
+    Register(u32),
+    Local(u32),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecutableStackValueKind {
+    GcManaged,
+    Interface,
+    HostHandle,
+    HostPathView,
+    Ephemeral,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +171,43 @@ impl BackendCompileError {
             diagnostics: vec![BackendDiagnostic::unsupported(message)],
         }
     }
+
+    pub fn is_unsupported(&self) -> bool {
+        !self.diagnostics.is_empty()
+            && self
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.kind == BackendDiagnosticKind::UnsupportedFunction)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackendInvocationErrorKind {
+    UnsupportedArtifact,
+    RuntimeFailure,
+    InternalError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendInvocationError {
+    pub kind: BackendInvocationErrorKind,
+    pub message: String,
+}
+
+impl BackendInvocationError {
+    pub fn unsupported_artifact(message: impl Into<String>) -> Self {
+        Self {
+            kind: BackendInvocationErrorKind::UnsupportedArtifact,
+            message: message.into(),
+        }
+    }
+
+    pub fn runtime_failure(message: impl Into<String>) -> Self {
+        Self {
+            kind: BackendInvocationErrorKind::RuntimeFailure,
+            message: message.into(),
+        }
+    }
 }
 
 pub trait CodegenBackend {
@@ -141,4 +219,16 @@ pub trait CodegenBackend {
         &mut self,
         input: BackendFunctionInput<'_>,
     ) -> Result<ExecutableFunctionArtifact, BackendCompileError>;
+
+    fn invoke_function(
+        &self,
+        artifact: &ExecutableFunctionArtifact,
+        runtime: &Runtime,
+    ) -> Result<Value, BackendInvocationError> {
+        let _ = (artifact, runtime);
+        Err(BackendInvocationError::unsupported_artifact(format!(
+            "backend `{}` cannot invoke executable artifacts directly",
+            self.backend_id()
+        )))
+    }
 }

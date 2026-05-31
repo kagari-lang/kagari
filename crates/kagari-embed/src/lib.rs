@@ -593,6 +593,8 @@ impl EmbeddingError {
             | VmError::InvalidModuleSlot(_)
             | VmError::UnsupportedCallTarget(_)
             | VmError::UnsupportedInstruction(_) => RuntimeFailureKind::BytecodeVerification,
+            VmError::JitBackend(_) => RuntimeFailureKind::UnsupportedExecution,
+            VmError::JitInvocation(_) => RuntimeFailureKind::EngineInvariant,
             VmError::MissingFunction(_)
             | VmError::MissingField(_)
             | VmError::ImmutableModuleSlot(_)

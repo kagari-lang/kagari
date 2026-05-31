@@ -2,7 +2,8 @@ use kagari_ir::bytecode::{
     BytecodeVerificationError, CallTarget, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, Register,
 };
 use kagari_runtime::{
-    ModuleKey, RuntimeError, builtin::BuiltinError, host::HostError, reflection::ReflectionError,
+    BackendDiagnostic, BackendInvocationError, ModuleKey, RuntimeError, builtin::BuiltinError,
+    host::HostError, reflection::ReflectionError,
 };
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,8 @@ pub enum VmError {
     ReflectionError(ReflectionError),
     RuntimeError(RuntimeError),
     BytecodeVerification(BytecodeVerificationError),
+    JitBackend(Vec<BackendDiagnostic>),
+    JitInvocation(BackendInvocationError),
     Trap(&'static str),
     TypeMismatch(&'static str),
     UnsupportedCallTarget(CallTarget),
