@@ -1,4 +1,6 @@
-use crate::hir::{BlockId, FunctionId, ParamId, TypeRefId, Writeability};
+use crate::hir::{
+    BlockId, FunctionId, GenericParamBuffer, ParamId, TraitBoundBuffer, TypeRefId, Writeability,
+};
 
 use super::Visibility;
 
@@ -8,6 +10,8 @@ pub struct Function {
     pub kind: FunctionKind,
     pub visibility: Visibility,
     pub name: String,
+    pub generic_params: GenericParamBuffer,
+    pub bounds: TraitBoundBuffer,
     pub params: ParamBuffer,
     pub return_type: Option<TypeRefId>,
     pub body: BlockId,
@@ -17,6 +21,8 @@ pub struct Function {
 pub enum FunctionKind {
     User,
     ModuleInit,
+    TraitMethod,
+    ImplMethod,
 }
 
 #[derive(Debug, Clone)]

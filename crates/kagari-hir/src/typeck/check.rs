@@ -1,6 +1,6 @@
 use kagari_common::{Diagnostic, DiagnosticKind, TypePosition};
 use smallvec::SmallVec;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     BoxedDiagnosticBuffer,
@@ -10,7 +10,7 @@ use crate::{
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
     typeck::body::BodyChecker,
-    typeck::ty::{display_type, display_type_id, resolve_type},
+    typeck::ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     typeck::{
         BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable, TypedFunction,
         TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer, TypedStatic,
@@ -29,6 +29,10 @@ pub fn check_module(
 
     for function in &lowered.module.functions {
         let mut params: TypedParameterBuffer = SmallVec::new();
+        let generic_names = function_generic_names(function);
+        let context = TypeContext {
+            generics: &generic_names,
+        };
         let function_name = if function.name.is_empty() {
             "<missing>".to_string()
         } else {
@@ -43,7 +47,7 @@ pub fn check_module(
             };
             let param_ty_name = display_type(&lowered.module, param.ty);
 
-            match resolve_type(&lowered.module, param.ty) {
+            match resolve_type_in(&lowered.module, param.ty, context) {
                 Some(ty) => {
                     params.push(TypedParameter {
                         id: param.id,
@@ -64,7 +68,7 @@ pub fn check_module(
         }
 
         let return_type = match &function.return_type {
-            Some(ty_ref) => match resolve_type(&lowered.module, *ty_ref) {
+            Some(ty_ref) => match resolve_type_in(&lowered.module, *ty_ref, context) {
                 Some(ty) => ty,
                 None => {
                     let ty_name = display_type(&lowered.module, *ty_ref);
@@ -156,6 +160,7 @@ pub fn check_module(
             &type_table,
             &mut diagnostics,
         );
+        validate_trait_surface(lowered, &function_index, &mut diagnostics);
 
         for static_item in &lowered.module.statics {
             let ty = match static_item.ty {
@@ -199,8 +204,13 @@ pub fn check_module(
         }
 
         for function in &lowered.module.functions {
+            if matches!(function.kind, FunctionKind::TraitMethod) {
+                continue;
+            }
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
+                env.generics = function_generic_names(function);
+                env.generic_bounds = function_bounds(function);
                 for param in &typed_function.params {
                     env.params.insert(param.id, param.ty.clone());
                 }
@@ -252,6 +262,410 @@ pub fn check_module(
         } else {
             Err(Box::new(diagnostics))
         }
+    }
+}
+
+fn function_generic_names(function: &crate::hir::Function) -> Vec<String> {
+    let mut names = function
+        .generic_params
+        .iter()
+        .map(|param| param.name.clone())
+        .collect::<Vec<_>>();
+    if matches!(function.kind, FunctionKind::TraitMethod) {
+        names.push("Self".to_string());
+    }
+    names
+}
+
+fn function_bounds(function: &crate::hir::Function) -> HashMap<String, Vec<String>> {
+    let mut bounds = HashMap::<String, Vec<String>>::new();
+    for param in &function.generic_params {
+        let entry = bounds.entry(param.name.clone()).or_default();
+        entry.extend(param.bounds.iter().map(|bound| bound.name.clone()));
+    }
+    for bound in &function.bounds {
+        let entry = bounds.entry(bound.target.clone()).or_default();
+        entry.extend(bound.traits.iter().map(|trait_ref| trait_ref.name.clone()));
+    }
+    bounds
+}
+
+fn validate_trait_surface(
+    lowered: &LoweredModule,
+    function_index: &FunctionTypeIndex,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    let trait_names = lowered
+        .module
+        .traits
+        .iter()
+        .map(|trait_def| trait_def.name.as_str())
+        .collect::<HashSet<_>>();
+
+    for function in &lowered.module.functions {
+        validate_trait_refs(
+            lowered,
+            &trait_names,
+            &function.generic_params,
+            &function.bounds,
+            lowered.source_map.function_span(function.id),
+            diagnostics,
+        );
+    }
+    for trait_def in &lowered.module.traits {
+        validate_trait_refs(
+            lowered,
+            &trait_names,
+            &trait_def.generic_params,
+            &[],
+            lowered.source_map.trait_span(trait_def.id),
+            diagnostics,
+        );
+    }
+
+    for function in &lowered.module.functions {
+        let Some(typed_function) = function_index.by_id.get(&function.id) else {
+            continue;
+        };
+        for ty in typed_function
+            .params
+            .iter()
+            .map(|param| &param.ty)
+            .chain(std::iter::once(&typed_function.return_type))
+        {
+            validate_interface_type(
+                lowered,
+                function_index,
+                ty,
+                lowered.source_map.function_span(function.id),
+                diagnostics,
+            );
+        }
+    }
+
+    let mut seen_impls = HashSet::<(String, String)>::new();
+    for impl_block in &lowered.module.impls {
+        validate_trait_refs(
+            lowered,
+            &trait_names,
+            &impl_block.generic_params,
+            &impl_block.bounds,
+            lowered.source_map.impl_span(impl_block.id),
+            diagnostics,
+        );
+
+        let Some(trait_name) = impl_block.trait_ref.as_deref() else {
+            continue;
+        };
+        let Some(trait_def) = lowered
+            .module
+            .traits
+            .iter()
+            .find(|trait_def| trait_def.name == trait_name)
+        else {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnknownTrait {
+                    trait_name: trait_name.to_string(),
+                })
+                .with_span(lowered.source_map.impl_span(impl_block.id)),
+            );
+            continue;
+        };
+
+        let generic_names = impl_block
+            .generic_params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect::<Vec<_>>();
+        let Some(for_ty) = impl_block.for_type.and_then(|ty| {
+            resolve_type_in(
+                &lowered.module,
+                ty,
+                TypeContext {
+                    generics: &generic_names,
+                },
+            )
+        }) else {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
+                    trait_name: trait_name.to_string(),
+                    type_name: "<missing>".to_string(),
+                    reason: "impl target type is unknown".to_string(),
+                })
+                .with_span(lowered.source_map.impl_span(impl_block.id)),
+            );
+            continue;
+        };
+        let type_name = display_type_id(&for_ty);
+        if matches!(for_ty, TypeId::Trait(_) | TypeId::Generic(_)) {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
+                    trait_name: trait_name.to_string(),
+                    type_name,
+                    reason: "impl target must be a concrete type".to_string(),
+                })
+                .with_span(lowered.source_map.impl_span(impl_block.id)),
+            );
+            continue;
+        }
+
+        if !seen_impls.insert((trait_name.to_string(), type_name.clone())) {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
+                    trait_name: trait_name.to_string(),
+                    type_name: type_name.clone(),
+                    reason: "duplicate impl".to_string(),
+                })
+                .with_span(lowered.source_map.impl_span(impl_block.id)),
+            );
+        }
+
+        validate_impl_methods(
+            lowered,
+            function_index,
+            trait_def,
+            impl_block,
+            &for_ty,
+            diagnostics,
+        );
+    }
+}
+
+fn validate_trait_refs(
+    _lowered: &LoweredModule,
+    trait_names: &HashSet<&str>,
+    generic_params: &[crate::hir::GenericParam],
+    bounds: &[crate::hir::TraitBound],
+    span: kagari_common::Span,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    for param in generic_params {
+        for trait_ref in &param.bounds {
+            if !trait_names.contains(trait_ref.name.as_str()) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownTrait {
+                        trait_name: trait_ref.name.clone(),
+                    })
+                    .with_span(span),
+                );
+            }
+        }
+    }
+    for bound in bounds {
+        for trait_ref in &bound.traits {
+            if !trait_names.contains(trait_ref.name.as_str()) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownTrait {
+                        trait_name: trait_ref.name.clone(),
+                    })
+                    .with_span(span),
+                );
+            }
+        }
+    }
+}
+
+fn trait_method_interface_compatible(
+    lowered: &LoweredModule,
+    function_index: &FunctionTypeIndex,
+    function_id: crate::hir::FunctionId,
+) -> bool {
+    let Some(hir_function) = lowered
+        .module
+        .functions
+        .iter()
+        .find(|function| function.id == function_id)
+    else {
+        return false;
+    };
+    let Some(function) = function_index.by_id.get(&function_id) else {
+        return false;
+    };
+    hir_function.generic_params.is_empty()
+        && function.params.iter().any(|param| param.name == "self")
+        && !matches!(function.return_type, TypeId::Generic(ref name) if name == "Self")
+}
+
+fn validate_interface_type(
+    lowered: &LoweredModule,
+    function_index: &FunctionTypeIndex,
+    ty: &TypeId,
+    span: kagari_common::Span,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    match ty {
+        TypeId::Trait(trait_name) => {
+            if let Some(trait_def) = lowered
+                .module
+                .traits
+                .iter()
+                .find(|trait_def| trait_def.name == *trait_name)
+            {
+                for method in &trait_def.methods {
+                    if !trait_method_interface_compatible(lowered, function_index, method.function)
+                    {
+                        diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                                trait_name: trait_def.name.clone(),
+                                reason: format!(
+                                    "method `{}` is not interface-compatible",
+                                    method.name
+                                ),
+                            })
+                            .with_span(span),
+                        );
+                    }
+                }
+            }
+        }
+        TypeId::Tuple(elements) => {
+            for element in elements {
+                validate_interface_type(lowered, function_index, element, span, diagnostics);
+            }
+        }
+        TypeId::Array(element) => {
+            validate_interface_type(lowered, function_index, element, span, diagnostics);
+        }
+        TypeId::StandardEnum { args, .. } => {
+            for arg in args {
+                validate_interface_type(lowered, function_index, arg, span, diagnostics);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_impl_methods(
+    lowered: &LoweredModule,
+    function_index: &FunctionTypeIndex,
+    trait_def: &crate::hir::TraitDef,
+    impl_block: &crate::hir::Impl,
+    for_ty: &TypeId,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    for trait_method in &trait_def.methods {
+        let Some(impl_method) = impl_block
+            .methods
+            .iter()
+            .find(|method| method.name == trait_method.name)
+        else {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                    trait_name: trait_def.name.clone(),
+                    method_name: trait_method.name.clone(),
+                    reason: "missing impl method".to_string(),
+                })
+                .with_span(lowered.source_map.impl_span(impl_block.id)),
+            );
+            continue;
+        };
+        compare_impl_method_signature(
+            function_index,
+            trait_def,
+            trait_method,
+            impl_method,
+            for_ty,
+            lowered.source_map.impl_span(impl_block.id),
+            diagnostics,
+        );
+    }
+    for impl_method in &impl_block.methods {
+        if !trait_def
+            .methods
+            .iter()
+            .any(|trait_method| trait_method.name == impl_method.name)
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                    trait_name: trait_def.name.clone(),
+                    method_name: impl_method.name.clone(),
+                    reason: "method is not declared by trait".to_string(),
+                })
+                .with_span(lowered.source_map.impl_span(impl_block.id)),
+            );
+        }
+    }
+}
+
+fn compare_impl_method_signature(
+    function_index: &FunctionTypeIndex,
+    trait_def: &crate::hir::TraitDef,
+    trait_method: &crate::hir::TraitMethod,
+    impl_method: &crate::hir::ImplMethod,
+    for_ty: &TypeId,
+    span: kagari_common::Span,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    let Some(trait_function) = function_index.by_id.get(&trait_method.function) else {
+        return;
+    };
+    let Some(impl_function) = function_index.by_id.get(&impl_method.function) else {
+        return;
+    };
+    if trait_function.params.len() != impl_function.params.len() {
+        diagnostics.push(
+            Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                trait_name: trait_def.name.clone(),
+                method_name: trait_method.name.clone(),
+                reason: "parameter count differs".to_string(),
+            })
+            .with_span(span),
+        );
+        return;
+    }
+    for (trait_param, impl_param) in trait_function.params.iter().zip(&impl_function.params) {
+        let expected = substitute_self_type(&trait_param.ty, for_ty);
+        if expected != impl_param.ty {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                    trait_name: trait_def.name.clone(),
+                    method_name: trait_method.name.clone(),
+                    reason: format!(
+                        "parameter `{}` expected `{}`, found `{}`",
+                        trait_param.name,
+                        display_type_id(&expected),
+                        display_type_id(&impl_param.ty)
+                    ),
+                })
+                .with_span(span),
+            );
+        }
+    }
+    let expected_return = substitute_self_type(&trait_function.return_type, for_ty);
+    if expected_return != impl_function.return_type {
+        diagnostics.push(
+            Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                trait_name: trait_def.name.clone(),
+                method_name: trait_method.name.clone(),
+                reason: format!(
+                    "return type expected `{}`, found `{}`",
+                    display_type_id(&expected_return),
+                    display_type_id(&impl_function.return_type)
+                ),
+            })
+            .with_span(span),
+        );
+    }
+}
+
+fn substitute_self_type(ty: &TypeId, self_ty: &TypeId) -> TypeId {
+    match ty {
+        TypeId::Generic(name) if name == "Self" => self_ty.clone(),
+        TypeId::Tuple(elements) => TypeId::Tuple(
+            elements
+                .iter()
+                .map(|element| substitute_self_type(element, self_ty))
+                .collect::<Vec<_>>(),
+        ),
+        TypeId::Array(element) => TypeId::Array(Box::new(substitute_self_type(element, self_ty))),
+        TypeId::StandardEnum { name, args } => TypeId::StandardEnum {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|arg| substitute_self_type(arg, self_ty))
+                .collect::<Vec<_>>(),
+        },
+        _ => ty.clone(),
     }
 }
 

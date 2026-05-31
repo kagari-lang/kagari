@@ -24,6 +24,8 @@ pub enum TypeId {
     Array(Box<TypeId>),
     Struct(String),
     Enum(String),
+    Trait(String),
+    Generic(String),
     StandardEnum { name: String, args: Vec<TypeId> },
 }
 
@@ -46,7 +48,9 @@ impl TypeId {
                 format!("({inner})")
             }
             Self::Array(element) => format!("[{}]", element.display_name()),
-            Self::Struct(name) | Self::Enum(name) => name.clone(),
+            Self::Struct(name) | Self::Enum(name) | Self::Trait(name) | Self::Generic(name) => {
+                name.clone()
+            }
             Self::StandardEnum { name, args } => {
                 let inner = args
                     .iter()
@@ -67,6 +71,8 @@ impl TypeId {
             | Self::Array(_)
             | Self::Struct(_)
             | Self::Enum(_)
+            | Self::Trait(_)
+            | Self::Generic(_)
             | Self::StandardEnum { .. } => true,
         }
     }

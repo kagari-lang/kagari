@@ -11,7 +11,7 @@ use crate::{
     },
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
-    typeck::ty::{display_type_id, resolve_type},
+    typeck::ty::{TypeContext, display_type_id, resolve_type, resolve_type_in},
     typeck::{BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable},
     types::{BuiltinType, TypeId},
 };
@@ -76,7 +76,15 @@ impl<'a> BodyChecker<'a> {
             } => {
                 let initializer_ty = self.infer_expr_type(*initializer, env);
                 let local_ty = ty
-                    .and_then(|ty| resolve_type(&self.lowered.module, ty))
+                    .and_then(|ty| {
+                        resolve_type_in(
+                            &self.lowered.module,
+                            ty,
+                            TypeContext {
+                                generics: &env.generics,
+                            },
+                        )
+                    })
                     .unwrap_or(initializer_ty);
                 env.locals.insert(*local, local_ty.clone());
                 env.local_writeability.insert(*local, *writeability);
@@ -328,6 +336,10 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Call { callee, args } => {
                 if let Some(helper_ty) = self.infer_runtime_helper_call_type(*callee, args, env) {
                     helper_ty
+                } else if let Some(method_ty) =
+                    self.infer_trait_method_call_type(*callee, args, env)
+                {
+                    method_ty
                 } else {
                     self.infer_function_call_type(*callee, args, env)
                 }
@@ -620,6 +632,93 @@ impl<'a> BodyChecker<'a> {
                 Some(TypeId::Builtin(BuiltinType::USize))
             }
         }
+    }
+
+    fn infer_trait_method_call_type(
+        &mut self,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let expr = self.lowered.module.expr(callee);
+        let ExprKind::Field { receiver, name } = &expr.kind else {
+            return None;
+        };
+        let receiver_ty = self.infer_expr_type(*receiver, env);
+        let (trait_name, self_ty) = match &receiver_ty {
+            TypeId::Trait(name) => (name.clone(), receiver_ty.clone()),
+            TypeId::Generic(generic_name) => {
+                let trait_name = env
+                    .generic_bounds
+                    .get(generic_name)
+                    .and_then(|bounds| {
+                        bounds.iter().find(|trait_name| {
+                            self.trait_method_function(trait_name, name).is_some()
+                        })
+                    })
+                    .cloned()?;
+                (trait_name, receiver_ty.clone())
+            }
+            _ => return None,
+        };
+
+        let method_function = self.trait_method_function(&trait_name, name)?;
+        let Some(method) = self.function_index.by_id.get(&method_function) else {
+            return Some(TypeId::Builtin(BuiltinType::Unit));
+        };
+        let params = method
+            .params
+            .iter()
+            .filter(|param| param.name != "self")
+            .collect::<Vec<_>>();
+        let arg_tys = self.infer_call_args(args, env);
+        if params.len() != arg_tys.len() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::CallArityMismatch {
+                    function_name: name.clone(),
+                    expected: params.len(),
+                    found: arg_tys.len(),
+                })
+                .with_span(self.lowered.source_map.expr_span(callee)),
+            );
+        }
+        for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
+            if let Some(param) = params.get(index) {
+                let expected = substitute_self_type(&param.ty, &self_ty);
+                if expected != *arg_ty {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
+                            function_name: name.clone(),
+                            parameter_name: param.name.clone(),
+                            expected: display_type_id(&expected),
+                            found: display_type_id(arg_ty),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*arg_expr)),
+                    );
+                }
+            }
+        }
+
+        Some(substitute_self_type(&method.return_type, &self_ty))
+    }
+
+    fn trait_method_function(
+        &self,
+        trait_name: &str,
+        method_name: &str,
+    ) -> Option<crate::hir::FunctionId> {
+        self.lowered
+            .module
+            .traits
+            .iter()
+            .find(|trait_def| trait_def.name == trait_name)
+            .and_then(|trait_def| {
+                trait_def
+                    .methods
+                    .iter()
+                    .find(|method| method.name == method_name)
+                    .map(|method| method.function)
+            })
     }
 
     fn infer_function_call_type(
@@ -989,5 +1088,26 @@ impl<'a> BodyChecker<'a> {
                     .with_span(self.lowered.source_map.expr_span(expr_id)),
             );
         }
+    }
+}
+
+fn substitute_self_type(ty: &TypeId, self_ty: &TypeId) -> TypeId {
+    match ty {
+        TypeId::Generic(name) if name == "Self" => self_ty.clone(),
+        TypeId::Tuple(elements) => TypeId::Tuple(
+            elements
+                .iter()
+                .map(|element| substitute_self_type(element, self_ty))
+                .collect::<Vec<_>>(),
+        ),
+        TypeId::Array(element) => TypeId::Array(Box::new(substitute_self_type(element, self_ty))),
+        TypeId::StandardEnum { name, args } => TypeId::StandardEnum {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|arg| substitute_self_type(arg, self_ty))
+                .collect::<Vec<_>>(),
+        },
+        _ => ty.clone(),
     }
 }

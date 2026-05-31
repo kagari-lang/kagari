@@ -8,7 +8,8 @@ use std::collections::HashMap;
 
 use kagari_hir::AnalyzedModule;
 use kagari_hir::hir::{
-    BinaryOp, ConstId, ExprId, ExprKind, FunctionId, LiteralKind, LocalId, PlaceId, PrefixOp,
+    BinaryOp, ConstId, ExprId, ExprKind, FunctionId, FunctionKind, LiteralKind, LocalId, PlaceId,
+    PrefixOp,
 };
 use kagari_hir::resolver::ResolvedName;
 
@@ -73,6 +74,7 @@ pub fn lower_to_ir(module: &AnalyzedModule) -> Result<IrModule, IrLoweringError>
         .module
         .functions
         .iter()
+        .filter(|function| matches!(function.kind, FunctionKind::User | FunctionKind::ModuleInit))
         .map(|function| function::lower_function(module, function, &const_values, &static_slots))
         .collect::<Result<Vec<_>, _>>()?;
 

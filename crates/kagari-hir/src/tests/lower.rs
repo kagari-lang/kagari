@@ -67,6 +67,17 @@ impl Display for Player {
 
     assert_eq!(lowered.module.traits.len(), 1);
     assert_eq!(lowered.module.traits[0].name, "Display");
+    assert_eq!(lowered.module.traits[0].methods.len(), 1);
+    let trait_method = &lowered.module.traits[0].methods[0];
+    assert_eq!(trait_method.name, "show");
+    let trait_function = lowered
+        .module
+        .functions
+        .iter()
+        .find(|function| function.id == trait_method.function)
+        .expect("expected lowered trait method function");
+    assert!(matches!(trait_function.kind, FunctionKind::TraitMethod));
+    assert_eq!(trait_function.params[0].name, "self");
 
     assert_eq!(lowered.module.impls.len(), 1);
     assert_eq!(
@@ -80,6 +91,17 @@ impl Display for Player {
         lowered.module.type_ref(for_type).kind,
         TypeKind::Named(ref name) if name == "Player"
     ));
+    assert_eq!(lowered.module.impls[0].methods.len(), 1);
+    let impl_method = &lowered.module.impls[0].methods[0];
+    assert_eq!(impl_method.name, "show");
+    let impl_function = lowered
+        .module
+        .functions
+        .iter()
+        .find(|function| function.id == impl_method.function)
+        .expect("expected lowered impl method function");
+    assert!(matches!(impl_function.kind, FunctionKind::ImplMethod));
+    assert_eq!(impl_function.params[0].name, "self");
 
     assert!(matches!(lowered.module.items[0], Item::Module(_)));
     assert!(matches!(lowered.module.items[1], Item::Trait(_)));

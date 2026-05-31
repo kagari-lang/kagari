@@ -795,3 +795,156 @@ fn main() -> i32 { VERSION = 2; 0 }
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
 }
+
+#[test]
+fn validates_trait_impl_and_interface_method_calls() {
+    let lowered = common::lower_ok(
+        r#"
+trait Display {
+    fn show(self) -> String;
+}
+
+struct Player {
+    val name: String,
+}
+
+impl Display for Player {
+    fn show(self) -> String {
+        self.name
+    }
+}
+
+fn show_interface(value: Display) -> String {
+    value.show()
+}
+
+fn show_static<T>(value: T) -> String
+where T: Display
+{
+    value.show()
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+
+    let show_interface = typed
+        .functions
+        .iter()
+        .find(|function| function.name == "show_interface")
+        .expect("expected show_interface");
+    assert_eq!(
+        show_interface.params[0].ty,
+        TypeId::Trait("Display".to_string())
+    );
+    assert_eq!(
+        show_interface.return_type,
+        TypeId::Builtin(BuiltinType::String)
+    );
+}
+
+#[test]
+fn reports_unknown_trait_bounds() {
+    let lowered = common::lower_ok(
+        r#"
+fn show<T>(value: T) -> T
+where T: Missing
+{
+    value
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("type checker should reject unknown bound");
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::UnknownTrait {
+                trait_name: "Missing".to_string(),
+            }
+    }));
+}
+
+#[test]
+fn rejects_interface_use_of_generic_trait_methods() {
+    let lowered = common::lower_ok(
+        r#"
+trait Mapper {
+    fn map<T>(self, value: T) -> T;
+}
+
+fn use_mapper(value: Mapper) {
+    value;
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("type checker should reject interface type");
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::InvalidInterfaceType {
+                trait_name: "Mapper".to_string(),
+                reason: "method `map` is not interface-compatible".to_string(),
+            }
+    }));
+}
+
+#[test]
+fn rejects_invalid_trait_impls() {
+    let missing_method = common::lower_ok(
+        r#"
+trait Display {
+    fn show(self) -> String;
+}
+
+struct Player {
+    val name: String,
+}
+
+impl Display for Player {}
+"#,
+    );
+    let names = resolve_names(&missing_method).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&missing_method, &names).expect_err("type checker should reject impl");
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::TraitMethodMismatch {
+                trait_name: "Display".to_string(),
+                method_name: "show".to_string(),
+                reason: "missing impl method".to_string(),
+            }
+    }));
+
+    let wrong_return = common::lower_ok(
+        r#"
+trait Display {
+    fn show(self) -> String;
+}
+
+struct Player {
+    val name: String,
+}
+
+impl Display for Player {
+    fn show(self) -> i32 {
+        1
+    }
+}
+"#,
+    );
+    let names = resolve_names(&wrong_return).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&wrong_return, &names).expect_err("type checker should reject impl");
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::TraitMethodMismatch {
+                trait_name: "Display".to_string(),
+                method_name: "show".to_string(),
+                reason: "return type expected `String`, found `i32`".to_string(),
+            }
+    }));
+}

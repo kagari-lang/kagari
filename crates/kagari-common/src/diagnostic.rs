@@ -134,6 +134,23 @@ pub enum DiagnosticKind {
         struct_name: String,
         reason: String,
     },
+    UnknownTrait {
+        trait_name: String,
+    },
+    InvalidTraitImpl {
+        trait_name: String,
+        type_name: String,
+        reason: String,
+    },
+    InvalidInterfaceType {
+        trait_name: String,
+        reason: String,
+    },
+    TraitMethodMismatch {
+        trait_name: String,
+        method_name: String,
+        reason: String,
+    },
     IfBranchTypeMismatch {
         expected: String,
         found: String,
@@ -367,6 +384,27 @@ impl Display for DiagnosticKind {
             } => write!(
                 f,
                 "invalid struct initializer for `{struct_name}`: {reason}"
+            ),
+            Self::UnknownTrait { trait_name } => write!(f, "unknown trait `{trait_name}`"),
+            Self::InvalidTraitImpl {
+                trait_name,
+                type_name,
+                reason,
+            } => write!(
+                f,
+                "invalid impl of trait `{trait_name}` for `{type_name}`: {reason}"
+            ),
+            Self::InvalidInterfaceType { trait_name, reason } => write!(
+                f,
+                "trait `{trait_name}` cannot be used as an interface type: {reason}"
+            ),
+            Self::TraitMethodMismatch {
+                trait_name,
+                method_name,
+                reason,
+            } => write!(
+                f,
+                "trait method `{trait_name}.{method_name}` mismatch: {reason}"
             ),
             Self::IfBranchTypeMismatch { expected, found } => write!(
                 f,

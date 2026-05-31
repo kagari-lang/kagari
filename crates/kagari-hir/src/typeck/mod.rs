@@ -67,4 +67,6 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) locals: HashMap<LocalId, TypeId>,
     pub(crate) local_writeability: HashMap<LocalId, Writeability>,
     pub(crate) exprs: HashMap<ExprId, TypeId>,
+    pub(crate) generics: Vec<String>,
+    pub(crate) generic_bounds: HashMap<String, Vec<String>>,
 }

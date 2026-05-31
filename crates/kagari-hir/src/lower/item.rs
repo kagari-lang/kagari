@@ -1,8 +1,9 @@
 use kagari_syntax::ast;
 
 use crate::hir::{
-    BlockData, ConstItem, Enum, Export, ExportItem, Field, Function, FunctionKind, Impl, Item,
-    ModuleDecl, Param, Struct, TraitDef, Variant, Visibility, Writeability,
+    BlockData, ConstItem, Enum, Export, ExportItem, Field, Function, FunctionKind, GenericParam,
+    Impl, ImplMethod, Item, ModuleDecl, Param, Struct, TraitBound, TraitDef, TraitMethod, TraitRef,
+    TypeRefId, Variant, Visibility, Writeability,
 };
 use crate::lower::context::{Lowerer, syntax_span};
 
@@ -105,6 +106,8 @@ impl Lowerer {
                 kind: FunctionKind::ModuleInit,
                 visibility: Visibility::Private,
                 name: "__module_init__".to_owned(),
+                generic_params: Vec::new(),
+                bounds: Vec::new(),
                 params: Vec::new(),
                 return_type: None,
                 body,
@@ -126,29 +129,173 @@ impl Lowerer {
     }
 
     fn lower_trait(&mut self, trait_def: &ast::TraitDef) -> TraitDef {
+        let id = self.source_map.push_trait(syntax_span(trait_def));
+        let generic_params = trait_def
+            .generic_params()
+            .map(|params| self.lower_generic_params(&params))
+            .unwrap_or_default();
+        let methods = trait_def
+            .methods()
+            .map(|method| self.lower_trait_method(&method, &generic_params))
+            .collect::<Vec<_>>();
         TraitDef {
-            id: self.source_map.push_trait(syntax_span(trait_def)),
+            id,
             visibility: if trait_def.is_pub() {
                 Visibility::Public
             } else {
                 Visibility::Private
             },
             name: trait_def.name_text().unwrap_or_default(),
-            methods: Vec::new(),
+            generic_params,
+            methods,
         }
     }
 
     fn lower_impl(&mut self, impl_block: &ast::ImplBlock) -> Impl {
+        let generic_params = impl_block
+            .generic_params()
+            .map(|params| self.lower_generic_params(&params))
+            .unwrap_or_default();
+        let for_type = impl_block
+            .target_type()
+            .map(|target_type| self.lower_type(&target_type));
+        let methods = impl_block
+            .methods()
+            .map(|method| self.lower_impl_method(&method, for_type, &generic_params))
+            .collect::<Vec<_>>();
         Impl {
             id: self.source_map.push_impl(syntax_span(impl_block)),
+            generic_params,
             trait_ref: impl_block
                 .trait_ref()
                 .and_then(|trait_ref| trait_ref.path_text()),
-            for_type: impl_block
-                .target_type()
-                .map(|target_type| self.lower_type(&target_type)),
-            methods: Vec::new(),
+            for_type,
+            bounds: impl_block
+                .where_clause()
+                .map(|where_clause| self.lower_where_clause(&where_clause))
+                .unwrap_or_default(),
+            methods,
         }
+    }
+
+    fn lower_trait_method(
+        &mut self,
+        method: &ast::MethodDef,
+        inherited_generics: &[GenericParam],
+    ) -> TraitMethod {
+        let function =
+            self.lower_method_function(method, FunctionKind::TraitMethod, None, inherited_generics);
+        let id = self.source_map.push_trait_method(syntax_span(method));
+        let function_id = function.id;
+        self.module.functions.push(function);
+        TraitMethod {
+            id,
+            name: method.name_text().unwrap_or_default(),
+            receiver: crate::hir::ReceiverKind::Value,
+            function: function_id,
+        }
+    }
+
+    fn lower_impl_method(
+        &mut self,
+        method: &ast::MethodDef,
+        receiver_ty: Option<TypeRefId>,
+        inherited_generics: &[GenericParam],
+    ) -> ImplMethod {
+        let function = self.lower_method_function(
+            method,
+            FunctionKind::ImplMethod,
+            receiver_ty,
+            inherited_generics,
+        );
+        let function_id = function.id;
+        self.module.functions.push(function);
+        ImplMethod {
+            name: method.name_text().unwrap_or_default(),
+            function: function_id,
+        }
+    }
+
+    fn lower_method_function(
+        &mut self,
+        method: &ast::MethodDef,
+        kind: FunctionKind,
+        receiver_ty: Option<TypeRefId>,
+        inherited_generics: &[GenericParam],
+    ) -> Function {
+        let id = self.source_map.push_function(syntax_span(method));
+        let params = method
+            .param_list()
+            .map(|param_list| self.lower_method_params(&param_list, receiver_ty))
+            .unwrap_or_default();
+        let mut generic_params = inherited_generics.to_vec();
+        generic_params.extend(
+            method
+                .generic_params()
+                .map(|params| self.lower_generic_params(&params))
+                .unwrap_or_default(),
+        );
+        Function {
+            id,
+            kind,
+            visibility: if method.is_pub() {
+                Visibility::Public
+            } else {
+                Visibility::Private
+            },
+            name: method.name_text().unwrap_or_default(),
+            generic_params,
+            bounds: method
+                .where_clause()
+                .map(|where_clause| self.lower_where_clause(&where_clause))
+                .unwrap_or_default(),
+            params,
+            return_type: method.return_type().map(|ty| self.lower_type(&ty)),
+            body: method
+                .body()
+                .map(|body| self.lower_block(&body))
+                .unwrap_or_else(|| {
+                    self.alloc_block(
+                        syntax_span(method),
+                        BlockData {
+                            statements: Default::default(),
+                            tail_expr: None,
+                        },
+                    )
+                }),
+        }
+    }
+
+    fn lower_method_params(
+        &mut self,
+        param_list: &ast::ParamList,
+        receiver_ty: Option<TypeRefId>,
+    ) -> Vec<Param> {
+        param_list
+            .params()
+            .map(|param| {
+                let name = param.name_text().unwrap_or_default();
+                let ty = if name == "self" {
+                    receiver_ty.unwrap_or_else(|| self.synthetic_named_type("Self"))
+                } else {
+                    param
+                        .ty()
+                        .map(|ty| self.lower_type(&ty))
+                        .unwrap_or_else(|| self.synthetic_named_type("<missing>"))
+                };
+                Param {
+                    id: self.source_map.push_param(
+                        param
+                            .name()
+                            .map(|name| syntax_span(&name))
+                            .unwrap_or_else(|| syntax_span(&param)),
+                    ),
+                    writeability: Writeability::Val,
+                    name,
+                    ty,
+                }
+            })
+            .collect::<Vec<_>>()
     }
 
     fn lower_function(&mut self, function: &ast::FnDef) -> Function {
@@ -185,6 +332,14 @@ impl Lowerer {
                 Visibility::Private
             },
             name: function.name_text().unwrap_or_default(),
+            generic_params: function
+                .generic_params()
+                .map(|params| self.lower_generic_params(&params))
+                .unwrap_or_default(),
+            bounds: function
+                .where_clause()
+                .map(|where_clause| self.lower_where_clause(&where_clause))
+                .unwrap_or_default(),
             params,
             return_type: function.return_type().map(|ty| self.lower_type(&ty)),
             body: function
@@ -200,6 +355,39 @@ impl Lowerer {
                     )
                 }),
         }
+    }
+
+    fn lower_generic_params(&mut self, params: &ast::GenericParamList) -> Vec<GenericParam> {
+        params
+            .params()
+            .map(|param| GenericParam {
+                name: param.name_text().unwrap_or_default(),
+                bounds: param
+                    .bounds()
+                    .map(|bounds| self.lower_trait_refs(bounds.bounds()))
+                    .unwrap_or_default(),
+            })
+            .collect::<Vec<_>>()
+    }
+
+    fn lower_where_clause(&mut self, where_clause: &ast::WhereClause) -> Vec<TraitBound> {
+        where_clause
+            .predicates()
+            .map(|predicate| TraitBound {
+                target: predicate.name_text().unwrap_or_default(),
+                traits: predicate
+                    .bounds()
+                    .map(|bounds| self.lower_trait_refs(bounds.bounds()))
+                    .unwrap_or_default(),
+            })
+            .collect::<Vec<_>>()
+    }
+
+    fn lower_trait_refs(&mut self, refs: impl Iterator<Item = ast::TraitRef>) -> Vec<TraitRef> {
+        refs.map(|trait_ref| TraitRef {
+            name: trait_ref.path_text().unwrap_or_default(),
+        })
+        .collect::<Vec<_>>()
     }
 
     fn lower_const(&mut self, const_def: &ast::ConstDef) -> ConstItem {

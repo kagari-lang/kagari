@@ -1,8 +1,26 @@
 use crate::{builtin::surface, hir, types::TypeId};
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct TypeContext<'a> {
+    pub generics: &'a [String],
+}
+
 pub(super) fn resolve_type(module: &hir::Module, ty: hir::TypeRefId) -> Option<TypeId> {
+    resolve_type_in(module, ty, TypeContext::default())
+}
+
+pub(super) fn resolve_type_in(
+    module: &hir::Module,
+    ty: hir::TypeRefId,
+    context: TypeContext<'_>,
+) -> Option<TypeId> {
     match &module.type_ref(ty).kind {
-        hir::TypeKind::Named(name) => TypeId::from_name(name)
+        hir::TypeKind::Named(name) => context
+            .generics
+            .iter()
+            .find(|generic| *generic == name)
+            .map(|_| TypeId::Generic(name.clone()))
+            .or_else(|| TypeId::from_name(name))
             .or_else(|| {
                 module
                     .structs
@@ -16,17 +34,24 @@ pub(super) fn resolve_type(module: &hir::Module, ty: hir::TypeRefId) -> Option<T
                     .iter()
                     .find(|item| item.name == *name)
                     .map(|_| TypeId::Enum(name.clone()))
+            })
+            .or_else(|| {
+                module
+                    .traits
+                    .iter()
+                    .find(|item| item.name == *name)
+                    .map(|_| TypeId::Trait(name.clone()))
             }),
         hir::TypeKind::Generic { name, args } => {
             let args = args
                 .iter()
-                .map(|arg| resolve_type(module, *arg))
+                .map(|arg| resolve_type_in(module, *arg, context))
                 .collect::<Option<Vec<_>>>()?;
             surface::standard_enum_type(name, args)
         }
         hir::TypeKind::Tuple(elements) => elements
             .iter()
-            .map(|element| resolve_type(module, *element))
+            .map(|element| resolve_type_in(module, *element, context))
             .collect::<Option<Vec<_>>>()
             .map(|elements| {
                 if elements.is_empty() {
@@ -35,9 +60,8 @@ pub(super) fn resolve_type(module: &hir::Module, ty: hir::TypeRefId) -> Option<T
                     TypeId::Tuple(elements)
                 }
             }),
-        hir::TypeKind::Array(element) => {
-            resolve_type(module, *element).map(|element| TypeId::Array(Box::new(element)))
-        }
+        hir::TypeKind::Array(element) => resolve_type_in(module, *element, context)
+            .map(|element| TypeId::Array(Box::new(element))),
     }
 }
 
