@@ -1265,6 +1265,53 @@ mod tests {
     }
 
     #[test]
+    fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_abi_is_stable() {
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_module(
+                "reloadable",
+                module_with_public_function_and_constant("i32", 1),
+            )
+            .expect("module should load");
+        let artifact = runtime
+            .register_execution_artifact(
+                ExecutionArtifactKind::Jit,
+                loaded.key(),
+                None,
+                ReloadDependencySnapshot::from_bytecode(&loaded.bytecode),
+            )
+            .expect("jit artifact should register");
+
+        assert!(runtime.execution_artifact(artifact).is_some());
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(loaded.key())
+                .compiled_artifacts,
+            1
+        );
+
+        let reloaded = runtime
+            .reload_module(
+                &loaded,
+                "reloadable",
+                module_with_public_function_and_constant("i32", 2),
+            )
+            .expect("implementation-only reload should publish a new epoch");
+
+        assert_eq!(reloaded.id, loaded.id);
+        assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
+        assert!(runtime.execution_artifact(artifact).is_none());
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(loaded.key())
+                .compiled_artifacts,
+            0
+        );
+    }
+
+    #[test]
     fn backend_boundary_registers_executable_function_artifacts() {
         let mut runtime = Runtime::default();
         let loaded = runtime

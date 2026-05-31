@@ -1,11 +1,13 @@
 use kagari_common::Span;
 use kagari_ir::{
     bytecode::{
-        BytecodeInstruction, ConstantOperand, DebugPointId, FunctionRef, InstructionSourceSpan,
-        LineTableEntry, Register, SafeDebugPoint, SafeDebugPointKind,
+        BinaryOp, BytecodeInstruction, ConstantOperand, DebugPointId, FunctionRef,
+        InstructionSourceSpan, LineTableEntry, Register, SafeDebugPoint, SafeDebugPointKind,
+        UnaryOp,
     },
     module::ValueType,
 };
+use kagari_jit_cranelift::CraneliftBackend;
 use kagari_runtime::{
     BackendCompileError, BackendFunctionInput, BackendId, BackendInvocationError, BackendTarget,
     CapabilitySet, CodegenBackend, DebugVisibilityPolicy, ExecutableDebugInfo,
@@ -56,6 +58,7 @@ struct NativeBackend {
     backend: BackendId,
     target: BackendTarget,
     supports_debugging: bool,
+    compile_count: usize,
 }
 
 impl NativeBackend {
@@ -64,6 +67,7 @@ impl NativeBackend {
             backend: BackendId::new("test-native-jit"),
             target: BackendTarget::new("test-target", 64),
             supports_debugging: false,
+            compile_count: 0,
         }
     }
 
@@ -72,7 +76,12 @@ impl NativeBackend {
             backend: BackendId::new("test-native-jit"),
             target: BackendTarget::new("test-target", 64),
             supports_debugging: true,
+            compile_count: 0,
         }
+    }
+
+    fn compile_count(&self) -> usize {
+        self.compile_count
     }
 }
 
@@ -89,6 +98,7 @@ impl CodegenBackend for NativeBackend {
         &mut self,
         input: BackendFunctionInput<'_>,
     ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
+        self.compile_count += 1;
         let mut artifact =
             ExecutableFunctionArtifact::new(self.backend_id(), self.target(), input.function_ref());
         artifact.entry =
@@ -149,7 +159,8 @@ fn jit_unsupported_compile_falls_back_to_interpreter_with_diagnostics() {
         ValueType::I32,
         vec![ValueType::I32],
     );
-    let (runtime, loaded) = common::load_bytecode_module("jit_fallback", module);
+    let (runtime, loaded) =
+        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_fallback", module);
     let mut vm = Vm::new(runtime);
     let mut backend = UnsupportedBackend::new();
 
@@ -200,7 +211,8 @@ fn jit_native_execution_reports_registered_artifact() {
         ValueType::I32,
         vec![ValueType::I32],
     );
-    let (runtime, loaded) = common::load_bytecode_module("jit_native", module);
+    let (runtime, loaded) =
+        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_native", module);
     let mut vm = Vm::new(runtime);
     let mut backend = NativeBackend::new();
 
@@ -215,6 +227,155 @@ fn jit_native_execution_reports_registered_artifact() {
     assert!(jit.artifact.is_some());
     assert!(jit.diagnostics.is_empty());
     assert_eq!(vm.runtime().resources().counters().instruction_steps, 1);
+}
+
+#[test]
+fn jit_policy_disablement_falls_back_before_backend_compile() {
+    let module = common::test_function_module(
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantOperand::I32(7),
+            },
+            BytecodeInstruction::Return(Some(Register::new(0))),
+        ],
+        ValueType::I32,
+        vec![ValueType::I32],
+    );
+    let (runtime, loaded) = common::load_bytecode_module("jit_policy_disabled", module);
+    let mut vm = Vm::new(runtime);
+    let mut backend = NativeBackend::new();
+
+    let report = vm
+        .execute_with_backend(&loaded, "main", &mut backend)
+        .expect("disabled JIT policy should fall back to the interpreter");
+
+    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(backend.compile_count(), 0);
+    let jit = report.jit.expect("policy fallback should be reported");
+    assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
+    assert!(jit.artifact.is_none());
+    assert_eq!(jit.diagnostics.len(), 1);
+    assert!(jit.diagnostics[0].message.contains("runtime policy"));
+    assert!(jit.diagnostics[0].message.contains("jit"));
+}
+
+#[test]
+fn jit_equivalence_matches_interpreter_for_compiled_scalar_functions() {
+    let cases = vec![
+        (
+            "jit_eq_arithmetic",
+            common::test_function_module(
+                "main",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantOperand::I32(6),
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(1),
+                        constant: ConstantOperand::I32(7),
+                    },
+                    BytecodeInstruction::Binary {
+                        dst: Register::new(2),
+                        op: BinaryOp::Mul,
+                        lhs: Register::new(0),
+                        rhs: Register::new(1),
+                    },
+                    BytecodeInstruction::Unary {
+                        dst: Register::new(3),
+                        op: UnaryOp::Neg,
+                        operand: Register::new(2),
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(3))),
+                ],
+                ValueType::I32,
+                vec![
+                    ValueType::I32,
+                    ValueType::I32,
+                    ValueType::I32,
+                    ValueType::I32,
+                ],
+            ),
+        ),
+        (
+            "jit_eq_comparison",
+            common::test_function_module(
+                "main",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantOperand::I32(40),
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(1),
+                        constant: ConstantOperand::I32(2),
+                    },
+                    BytecodeInstruction::Binary {
+                        dst: Register::new(2),
+                        op: BinaryOp::Add,
+                        lhs: Register::new(0),
+                        rhs: Register::new(1),
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(3),
+                        constant: ConstantOperand::I32(42),
+                    },
+                    BytecodeInstruction::Binary {
+                        dst: Register::new(4),
+                        op: BinaryOp::Eq,
+                        lhs: Register::new(2),
+                        rhs: Register::new(3),
+                    },
+                    BytecodeInstruction::Unary {
+                        dst: Register::new(5),
+                        op: UnaryOp::Not,
+                        operand: Register::new(4),
+                    },
+                    BytecodeInstruction::Unary {
+                        dst: Register::new(6),
+                        op: UnaryOp::Not,
+                        operand: Register::new(5),
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(6))),
+                ],
+                ValueType::Bool,
+                vec![
+                    ValueType::I32,
+                    ValueType::I32,
+                    ValueType::I32,
+                    ValueType::I32,
+                    ValueType::Bool,
+                    ValueType::Bool,
+                    ValueType::Bool,
+                ],
+            ),
+        ),
+    ];
+
+    for (module_name, module) in cases {
+        let (runtime, loaded) = common::load_bytecode_module(module_name, module.clone());
+        let mut vm = Vm::new(runtime);
+        let interpreted = vm
+            .execute(&loaded, "main")
+            .expect("interpreter execution should succeed");
+        let (runtime, loaded) =
+            common::load_bytecode_module_with_runtime(jit_runtime(), module_name, module);
+        let mut vm = Vm::new(runtime);
+        let mut backend =
+            CraneliftBackend::for_host().expect("host Cranelift target should initialize");
+
+        let compiled = vm
+            .execute_with_backend(&loaded, "main", &mut backend)
+            .expect("eligible scalar bytecode should run through the JIT");
+
+        assert_eq!(compiled.return_value, interpreted.return_value);
+        let jit = compiled.jit.expect("JIT execution should be reported");
+        assert_eq!(jit.status, JitExecutionStatus::Native);
+        assert!(jit.artifact.is_some());
+        assert!(jit.diagnostics.is_empty());
+    }
 }
 
 #[test]
@@ -273,10 +434,12 @@ fn debug_runtime(module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
         security: SecurityContext {
             profile: LanguageProfile {
+                allow_jit: true,
                 allow_debugger: true,
                 ..LanguageProfile::default()
             },
             capabilities: CapabilitySet {
+                jit: true,
                 debug_attach: true,
                 debug_breakpoints: true,
                 debug_pause: true,
@@ -289,6 +452,22 @@ fn debug_runtime(module_name: &str) -> Runtime {
         debug_visibility: DebugVisibilityPolicy {
             visible_modules: vec![module_name.to_owned()],
             ..DebugVisibilityPolicy::default()
+        },
+        ..RuntimeConfig::default()
+    })
+}
+
+fn jit_runtime() -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_jit: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                jit: true,
+                ..CapabilitySet::default()
+            },
         },
         ..RuntimeConfig::default()
     })

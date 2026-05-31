@@ -171,16 +171,7 @@ fn artifact_invalidated_by_reload(
         if artifact.module.epoch == invalidation.published.epoch {
             return false;
         }
-        return artifact.dependencies.public_abi_fingerprints
-            != invalidation.dependencies.public_abi_fingerprints
-            || artifact.dependencies.typed_path_fingerprints
-                != invalidation.dependencies.typed_path_fingerprints
-            || artifact.dependencies.dependency_fingerprints
-                != invalidation.dependencies.dependency_fingerprints
-            || artifact.dependencies.host_registry_fingerprint
-                != invalidation.dependencies.host_registry_fingerprint
-            || artifact.dependencies.runtime_helper_abi_version
-                != invalidation.dependencies.runtime_helper_abi_version;
+        return true;
     }
 
     artifact

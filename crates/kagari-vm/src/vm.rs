@@ -263,6 +263,17 @@ impl Vm {
             .functions
             .get(entry.index())
             .ok_or(VmError::InvalidFunctionRef(entry))?;
+        if let Err(error) = self.runtime.validate_jit_boundary() {
+            return Ok(JitEntryResult::Fallback(JitExecutionReport {
+                backend: backend_id,
+                function: entry,
+                status: JitExecutionStatus::InterpreterFallback,
+                artifact: None,
+                diagnostics: vec![BackendDiagnostic::unsupported(format!(
+                    "JIT disabled by runtime policy: {error}"
+                ))],
+            }));
+        }
         let dependencies = ReloadDependencySnapshot::from_bytecode(&module.bytecode);
         let artifact = match backend.compile_function(BackendFunctionInput {
             module_key: module.key(),
