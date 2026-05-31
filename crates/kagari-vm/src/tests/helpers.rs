@@ -15,7 +15,9 @@ use kagari_runtime::{
 };
 
 use crate::Vm;
-use crate::tests::common::{compile_test_bytecode, load_bytecode_module, load_test_module};
+use crate::tests::common::{
+    compile_test_bytecode, load_bytecode_module, load_test_module, test_function_module,
+};
 
 fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {
     let mut runtime = Runtime::default();
@@ -89,10 +91,30 @@ fn path_module(
     instructions: Vec<BytecodeInstruction>,
     return_type: ValueType,
 ) -> BytecodeModule {
+    let instructions_constants = instructions
+        .iter()
+        .filter_map(|instruction| match instruction {
+            BytecodeInstruction::LoadConst { constant, .. } => Some(constant.clone()),
+            _ => None,
+        })
+        .collect();
+    let metadata = kagari_ir::bytecode::FunctionMetadata {
+        return_type,
+        registers: vec![
+            ValueType::HeapObject,
+            ValueType::I32,
+            ValueType::I32,
+            ValueType::I32,
+            ValueType::I32,
+            ValueType::HeapObject,
+        ],
+        ..Default::default()
+    };
     BytecodeModule {
         module_init: None,
         module_slots: vec![],
-        types: vec![ValueType::HeapObject, ValueType::I32],
+        constants: instructions_constants,
+        types: vec![ValueType::Unit, ValueType::HeapObject, ValueType::I32],
         paths: vec![PathRecord {
             id: PathId::new(0),
             root_ty: ValueType::HeapObject,
@@ -100,24 +122,20 @@ fn path_module(
             read_only: false,
             debug_name: "game.Player.hp".to_owned(),
         }],
+        function_table: vec![kagari_ir::bytecode::FunctionRecord {
+            id: FunctionRef::new(0),
+            name: name.to_owned(),
+            params: metadata.params.clone(),
+            return_type: metadata.return_type,
+            effects: metadata.effects,
+        }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
             name: name.to_owned(),
             parameter_count: 0,
-            register_count: 6,
+            register_count: metadata.registers.len() as u16,
             local_count: 0,
-            metadata: kagari_ir::bytecode::FunctionMetadata {
-                return_type,
-                registers: vec![
-                    ValueType::HeapObject,
-                    ValueType::I32,
-                    ValueType::I32,
-                    ValueType::I32,
-                    ValueType::I32,
-                    ValueType::HeapObject,
-                ],
-                ..Default::default()
-            },
+            metadata,
             instructions,
         }],
         ..Default::default()
@@ -142,37 +160,29 @@ fn executes_runtime_host_helper_call() {
     let loaded = runtime
         .load_module(
             "helper.kbc",
-            BytecodeModule {
-                module_init: None,
-                module_slots: vec![],
-                functions: vec![BytecodeFunction {
-                    id: FunctionRef::new(0),
-                    name: "main".to_owned(),
-                    parameter_count: 0,
-                    register_count: 3,
-                    local_count: 0,
-                    instructions: vec![
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(0),
-                            constant: ConstantOperand::I32(40),
-                        },
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(1),
-                            constant: ConstantOperand::I32(2),
-                        },
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(2)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.add_i32".to_owned(),
-                            )),
-                            args: vec![Register::new(0), Register::new(1)],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(2))),
-                    ],
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
+            test_function_module(
+                "main",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantOperand::I32(40),
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(1),
+                        constant: ConstantOperand::I32(2),
+                    },
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(2)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                            "host.add_i32".to_owned(),
+                        )),
+                        args: vec![Register::new(0), Register::new(1)],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(2))),
+                ],
+                ValueType::I32,
+                vec![ValueType::I32, ValueType::I32, ValueType::I32],
+            ),
         )
         .expect("helper module should load");
 
@@ -294,31 +304,23 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
 fn executes_runtime_reflect_type_of_helper() {
     let (runtime, loaded) = load_bytecode_module(
         "reflect_type.kbc",
-        BytecodeModule {
-            module_init: None,
-            module_slots: vec![],
-            functions: vec![BytecodeFunction {
-                id: FunctionRef::new(0),
-                name: "main".to_owned(),
-                parameter_count: 0,
-                register_count: 2,
-                local_count: 0,
-                instructions: vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(7),
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(1)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                        args: vec![Register::new(0)],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(1))),
-                ],
-                ..Default::default()
-            }],
-            ..Default::default()
-        },
+        test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(7),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(1)),
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
+                    args: vec![Register::new(0)],
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
+            ],
+            ValueType::Str,
+            vec![ValueType::I32, ValueType::Str],
+        ),
     );
 
     let mut vm = Vm::new(runtime);
@@ -331,52 +333,50 @@ fn executes_runtime_reflect_type_of_helper() {
 fn executes_runtime_reflect_get_and_set_field_helpers() {
     let (runtime, loaded) = load_bytecode_module(
         "reflect_field.kbc",
-        BytecodeModule {
-            module_init: None,
-            module_slots: vec![],
-            functions: vec![BytecodeFunction {
-                id: FunctionRef::new(0),
-                name: "main".to_owned(),
-                parameter_count: 0,
-                register_count: 5,
-                local_count: 0,
-                instructions: vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(1),
-                    },
-                    BytecodeInstruction::MakeStruct {
-                        dst: Register::new(1),
-                        name: "Point".to_owned(),
-                        fields: vec![StructFieldInit {
-                            name: "x".to_owned(),
-                            value: Register::new(0),
-                        }],
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(2),
-                        constant: ConstantOperand::I32(9),
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(3)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
-                            "x".to_owned(),
-                        )),
-                        args: vec![Register::new(1), Register::new(2)],
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(4)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
-                            "x".to_owned(),
-                        )),
-                        args: vec![Register::new(3)],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(4))),
-                ],
-                ..Default::default()
-            }],
-            ..Default::default()
-        },
+        test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(1),
+                },
+                BytecodeInstruction::MakeStruct {
+                    dst: Register::new(1),
+                    name: "Point".to_owned(),
+                    fields: vec![StructFieldInit {
+                        name: "x".to_owned(),
+                        value: Register::new(0),
+                    }],
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(2),
+                    constant: ConstantOperand::I32(9),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(3)),
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
+                        "x".to_owned(),
+                    )),
+                    args: vec![Register::new(1), Register::new(2)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(4)),
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
+                        "x".to_owned(),
+                    )),
+                    args: vec![Register::new(3)],
+                },
+                BytecodeInstruction::Return(Some(Register::new(4))),
+            ],
+            ValueType::I32,
+            vec![
+                ValueType::I32,
+                ValueType::HeapObject,
+                ValueType::I32,
+                ValueType::HeapObject,
+                ValueType::I32,
+            ],
+        ),
     );
 
     let mut vm = Vm::new(runtime);
@@ -389,43 +389,41 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
 fn executes_runtime_reflect_set_index_helper() {
     let (runtime, loaded) = load_bytecode_module(
         "reflect_index.kbc",
-        BytecodeModule {
-            module_init: None,
-            module_slots: vec![],
-            functions: vec![BytecodeFunction {
-                id: FunctionRef::new(0),
-                name: "main".to_owned(),
-                parameter_count: 0,
-                register_count: 5,
-                local_count: 0,
-                instructions: vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(1),
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(1),
-                        constant: ConstantOperand::I32(2),
-                    },
-                    BytecodeInstruction::MakeArray {
-                        dst: Register::new(2),
-                        elements: vec![Register::new(0), Register::new(1)],
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(3),
-                        constant: ConstantOperand::I32(0),
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(4)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
-                        args: vec![Register::new(2), Register::new(3), Register::new(1)],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(4))),
-                ],
-                ..Default::default()
-            }],
-            ..Default::default()
-        },
+        test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(1),
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(1),
+                    constant: ConstantOperand::I32(2),
+                },
+                BytecodeInstruction::MakeArray {
+                    dst: Register::new(2),
+                    elements: vec![Register::new(0), Register::new(1)],
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(3),
+                    constant: ConstantOperand::I32(0),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(4)),
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+                    args: vec![Register::new(2), Register::new(3), Register::new(1)],
+                },
+                BytecodeInstruction::Return(Some(Register::new(4))),
+            ],
+            ValueType::HeapObject,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::HeapObject,
+                ValueType::I32,
+                ValueType::HeapObject,
+            ],
+        ),
     );
 
     let mut vm = Vm::new(runtime);

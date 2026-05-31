@@ -2,14 +2,87 @@ use std::sync::{Arc, Mutex};
 
 use kagari_ir::bytecode::{
     BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
-    FunctionRef, Register, RuntimeHelper,
+    FunctionMetadata, FunctionRecord, FunctionRef, Register, RuntimeHelper,
 };
+use kagari_ir::module::ValueType;
 use kagari_runtime::host::HostFunction;
 use kagari_runtime::value::{StructValueField, Value};
 use kagari_runtime::{ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind};
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
 use crate::{Vm, VmError};
+
+fn test_function(
+    id: usize,
+    name: &str,
+    instructions: Vec<BytecodeInstruction>,
+    return_type: ValueType,
+    registers: Vec<ValueType>,
+) -> BytecodeFunction {
+    let metadata = FunctionMetadata {
+        return_type,
+        registers,
+        ..FunctionMetadata::default()
+    };
+    BytecodeFunction {
+        id: FunctionRef::new(id),
+        name: name.to_owned(),
+        parameter_count: 0,
+        register_count: metadata.registers.len() as u16,
+        local_count: 0,
+        metadata,
+        instructions,
+    }
+}
+
+fn verified_module(
+    module_init: Option<FunctionRef>,
+    functions: Vec<BytecodeFunction>,
+) -> BytecodeModule {
+    let constants = functions
+        .iter()
+        .flat_map(|function| &function.instructions)
+        .filter_map(|instruction| match instruction {
+            BytecodeInstruction::LoadConst { constant, .. } => Some(constant.clone()),
+            _ => None,
+        })
+        .fold(Vec::new(), |mut constants, constant| {
+            if !constants.contains(&constant) {
+                constants.push(constant);
+            }
+            constants
+        });
+    let mut types = vec![ValueType::Unit];
+    for function in &functions {
+        for ty in std::iter::once(function.metadata.return_type)
+            .chain(function.metadata.params.iter().copied())
+            .chain(function.metadata.locals.iter().copied())
+            .chain(function.metadata.registers.iter().copied())
+        {
+            if !types.contains(&ty) {
+                types.push(ty);
+            }
+        }
+    }
+    let function_table = functions
+        .iter()
+        .map(|function| FunctionRecord {
+            id: function.id,
+            name: function.name.clone(),
+            params: function.metadata.params.clone(),
+            return_type: function.metadata.return_type,
+            effects: function.metadata.effects,
+        })
+        .collect();
+    BytecodeModule {
+        module_init,
+        constants,
+        types,
+        function_table,
+        functions,
+        ..BytecodeModule::default()
+    }
+}
 
 #[test]
 fn executes_simple_arithmetic_function() {
@@ -43,6 +116,117 @@ fn reports_runtime_instruction_step_limit() {
         error,
         VmError::RuntimeError(ref err)
             if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
+    ));
+}
+
+#[test]
+fn rejects_unverified_bytecode_before_execution() {
+    let mut bytecode = verified_module(
+        None,
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(1),
+                },
+                BytecodeInstruction::Return(Some(Register::new(0))),
+            ],
+            ValueType::I32,
+            vec![ValueType::I32],
+        )],
+    );
+    bytecode.function_table.clear();
+    let mut runtime = Runtime::new(RuntimeConfig {
+        resources: ResourcePolicy {
+            max_instruction_steps: Some(0),
+            ..ResourcePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = runtime
+        .load_module("unverified.kbc", bytecode)
+        .expect("runtime can store bytecode before VM validation");
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("VM must reject unverified bytecode before dispatch");
+
+    assert!(matches!(
+        error,
+        VmError::BytecodeVerification(
+            kagari_ir::bytecode::BytecodeVerificationError::FunctionTableLengthMismatch {
+                functions: 1,
+                table: 0,
+            }
+        )
+    ));
+}
+
+#[test]
+fn rejects_unsupported_bytecode_before_execution() {
+    let register_call = verified_module(
+        None,
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(1),
+                },
+                BytecodeInstruction::Call {
+                    dst: None,
+                    callee: CallTarget::Register(Register::new(0)),
+                    args: vec![],
+                },
+                BytecodeInstruction::Return(None),
+            ],
+            ValueType::Unit,
+            vec![ValueType::I32],
+        )],
+    );
+    let dynamic_call = verified_module(
+        None,
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::Call {
+                    dst: None,
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
+                    args: vec![],
+                },
+                BytecodeInstruction::Return(None),
+            ],
+            ValueType::Unit,
+            vec![],
+        )],
+    );
+    let mut runtime = Runtime::new(RuntimeConfig {
+        resources: ResourcePolicy {
+            max_instruction_steps: Some(0),
+            ..ResourcePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let register_loaded = runtime
+        .load_module("register_call.kbc", register_call)
+        .expect("runtime can store bytecode before VM support validation");
+    let dynamic_loaded = runtime
+        .load_module("dynamic_call.kbc", dynamic_call)
+        .expect("runtime can store bytecode before VM support validation");
+    let mut vm = Vm::new(runtime);
+
+    assert!(matches!(
+        vm.execute(&register_loaded, "main").unwrap_err(),
+        VmError::UnsupportedCallTarget(CallTarget::Register(_))
+    ));
+    assert!(matches!(
+        vm.execute(&dynamic_loaded, "main").unwrap_err(),
+        VmError::UnsupportedInstruction("dynamic_call")
     ));
 }
 
@@ -183,17 +367,13 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
     let loaded = runtime
         .load_module(
             "module_init_once.kgr",
-            BytecodeModule {
-                module_init: Some(FunctionRef::new(0)),
-                module_slots: vec![],
-                functions: vec![
-                    BytecodeFunction {
-                        id: FunctionRef::new(0),
-                        name: "__module_init__".to_owned(),
-                        parameter_count: 0,
-                        register_count: 0,
-                        local_count: 0,
-                        instructions: vec![
+            verified_module(
+                Some(FunctionRef::new(0)),
+                vec![
+                    test_function(
+                        0,
+                        "__module_init__",
+                        vec![
                             BytecodeInstruction::Call {
                                 dst: None,
                                 callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
@@ -203,26 +383,24 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
                             },
                             BytecodeInstruction::Return(None),
                         ],
-                        ..Default::default()
-                    },
-                    BytecodeFunction {
-                        id: FunctionRef::new(1),
-                        name: "main".to_owned(),
-                        parameter_count: 0,
-                        register_count: 1,
-                        local_count: 0,
-                        instructions: vec![
+                        ValueType::Unit,
+                        vec![],
+                    ),
+                    test_function(
+                        1,
+                        "main",
+                        vec![
                             BytecodeInstruction::LoadConst {
                                 dst: Register::new(0),
                                 constant: ConstantOperand::I32(7),
                             },
                             BytecodeInstruction::Return(Some(Register::new(0))),
                         ],
-                        ..Default::default()
-                    },
+                        ValueType::I32,
+                        vec![ValueType::I32],
+                    ),
                 ],
-                ..Default::default()
-            },
+            ),
         )
         .expect("module should load");
 
@@ -258,16 +436,12 @@ fn reruns_module_init_for_new_module_epoch() {
         ))
         .expect("host function should register");
 
-    let bytecode = BytecodeModule {
-        module_init: Some(FunctionRef::new(0)),
-        module_slots: vec![],
-        functions: vec![BytecodeFunction {
-            id: FunctionRef::new(0),
-            name: "__module_init__".to_owned(),
-            parameter_count: 0,
-            register_count: 0,
-            local_count: 0,
-            instructions: vec![
+    let bytecode = verified_module(
+        Some(FunctionRef::new(0)),
+        vec![test_function(
+            0,
+            "__module_init__",
+            vec![
                 BytecodeInstruction::Call {
                     dst: None,
                     callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
@@ -277,10 +451,10 @@ fn reruns_module_init_for_new_module_epoch() {
                 },
                 BytecodeInstruction::Return(None),
             ],
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
+            ValueType::Unit,
+            vec![],
+        )],
+    );
     let first_loaded = runtime
         .load_module("reloadable.kgr", bytecode.clone())
         .expect("first module epoch should load");
@@ -319,16 +493,12 @@ fn caches_failed_module_init_without_retrying() {
     let loaded = runtime
         .load_module(
             "module_init_failed.kgr",
-            BytecodeModule {
-                module_init: Some(FunctionRef::new(0)),
-                module_slots: vec![],
-                functions: vec![BytecodeFunction {
-                    id: FunctionRef::new(0),
-                    name: "__module_init__".to_owned(),
-                    parameter_count: 0,
-                    register_count: 0,
-                    local_count: 0,
-                    instructions: vec![
+            verified_module(
+                Some(FunctionRef::new(0)),
+                vec![test_function(
+                    0,
+                    "__module_init__",
+                    vec![
                         BytecodeInstruction::Call {
                             dst: None,
                             callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
@@ -338,10 +508,10 @@ fn caches_failed_module_init_without_retrying() {
                         },
                         BytecodeInstruction::Return(None),
                     ],
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
+                    ValueType::Unit,
+                    vec![],
+                )],
+            ),
         )
         .expect("failed-init module should load");
 

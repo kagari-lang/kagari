@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use kagari_ir::bytecode::{BytecodeModule, FunctionRef};
+use kagari_ir::bytecode::{
+    BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef, RuntimeHelper, verify_module,
+};
 use kagari_runtime::{LoadedModule, ModuleInitializationState, ModuleKey, Runtime, value::Value};
 
 use crate::error::VmError;
@@ -41,6 +43,7 @@ impl Vm {
         module: &LoadedModule,
         entry: &str,
     ) -> Result<ExecutionReport, VmError> {
+        validate_executable_bytecode(&module.bytecode)?;
         self.execute_module(module)?;
         let module_instance = self
             .runtime
@@ -61,6 +64,7 @@ impl Vm {
     }
 
     pub fn execute_module(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
+        validate_executable_bytecode(&module.bytecode)?;
         let key = module.key();
         if let Some(instance) = self.runtime.module_instance_snapshot(module) {
             match instance.state {
@@ -137,4 +141,27 @@ fn find_function_ref(module: &BytecodeModule, name: &str) -> Option<FunctionRef>
         .iter()
         .find(|function| function.name == name)
         .map(|function| function.id)
+}
+
+fn validate_executable_bytecode(module: &BytecodeModule) -> Result<(), VmError> {
+    verify_module(module).map_err(VmError::BytecodeVerification)?;
+    for function in &module.functions {
+        for instruction in &function.instructions {
+            let BytecodeInstruction::Call { callee, .. } = instruction else {
+                continue;
+            };
+            match callee {
+                CallTarget::Register(_) => {
+                    return Err(VmError::UnsupportedCallTarget(callee.clone()));
+                }
+                CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
+                    return Err(VmError::UnsupportedInstruction("dynamic_call"));
+                }
+                CallTarget::Function(_)
+                | CallTarget::BuiltinMethod(_)
+                | CallTarget::RuntimeHelper(_) => {}
+            }
+        }
+    }
+    Ok(())
 }

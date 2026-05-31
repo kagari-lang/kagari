@@ -542,6 +542,7 @@ impl EmbeddingError {
                     RuntimeFailureKind::ScriptTrap
                 }
             },
+            VmError::BytecodeVerification(_) => RuntimeFailureKind::BytecodeVerification,
             VmError::InvalidFunctionRef(_)
             | VmError::InvalidJumpTarget(_)
             | VmError::InvalidRegister(_)
