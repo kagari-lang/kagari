@@ -599,6 +599,7 @@ impl<'a> BodyChecker<'a> {
             BuiltinMethod::Array(method) => {
                 self.infer_array_method_call_type(method, callee, &receiver_ty, args, env)
             }
+            BuiltinMethod::Iterable(_) => None,
             BuiltinMethod::String(method) => {
                 self.infer_string_method_call_type(method, callee, args, env)
             }

@@ -328,6 +328,9 @@ fn exposes_standard_builtin_surface_metadata() {
     assert_eq!(result.arity, 2);
     assert_eq!(result.variants[0].name, "Ok");
     assert_eq!(result.variants[1].name, "Err");
+    assert!(surface::standard_module("std::array").is_some());
+    assert!(surface::standard_module("std::string").is_some());
+    assert!(surface::standard_module("std::fs").is_none());
 
     assert!(surface::supports_const_type(&TypeId::Builtin(
         BuiltinType::U64
@@ -339,6 +342,12 @@ fn exposes_standard_builtin_surface_metadata() {
         surface::iterable_protocol(&TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))),
         Some(IterableProtocol::Array {
             item: TypeId::Builtin(BuiltinType::I32)
+        })
+    ));
+    assert!(matches!(
+        surface::iterable_protocol(&TypeId::Builtin(BuiltinType::String)),
+        Some(IterableProtocol::String {
+            item: BuiltinType::String
         })
     ));
 }

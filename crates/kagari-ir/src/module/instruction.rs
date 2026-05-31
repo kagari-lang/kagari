@@ -318,6 +318,7 @@ impl CallTarget {
                     EffectSet::runtime_call().union(EffectSet::aggregate_write())
                 }
                 BuiltinMethod::Array(kagari_hir::builtin::array::Method::Len)
+                | BuiltinMethod::Iterable(_)
                 | BuiltinMethod::String(kagari_hir::builtin::StringMethod::Len) => {
                     EffectSet::runtime_call().union(EffectSet::aggregate_read())
                 }

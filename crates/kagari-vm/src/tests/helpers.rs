@@ -1,6 +1,7 @@
+use kagari_ir::builtin::iterable;
 use kagari_ir::bytecode::{
-    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
-    FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StructFieldInit,
+    BinaryOp, BuiltinMethod, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
+    ConstantOperand, FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StructFieldInit,
 };
 use kagari_ir::module::ValueType;
 use std::sync::{Arc, Mutex};
@@ -676,6 +677,71 @@ fn main() -> usize {
 }
 
 #[test]
+fn executes_iterable_protocol_builtin_over_arrays() {
+    let (runtime, loaded) = load_bytecode_module(
+        "iterable_array.kbc",
+        test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(4),
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(1),
+                    constant: ConstantOperand::I32(7),
+                },
+                BytecodeInstruction::MakeArray {
+                    dst: Register::new(2),
+                    elements: vec![Register::new(0), Register::new(1)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(3)),
+                    callee: CallTarget::BuiltinMethod(BuiltinMethod::Iterable(
+                        iterable::Method::Len,
+                    )),
+                    args: vec![Register::new(2)],
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(4),
+                    constant: ConstantOperand::I32(1),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(5)),
+                    callee: CallTarget::BuiltinMethod(BuiltinMethod::Iterable(
+                        iterable::Method::Get,
+                    )),
+                    args: vec![Register::new(2), Register::new(4)],
+                },
+                BytecodeInstruction::MakeTuple {
+                    dst: Register::new(6),
+                    elements: vec![Register::new(3), Register::new(5)],
+                },
+                BytecodeInstruction::Return(Some(Register::new(6))),
+            ],
+            ValueType::HeapObject,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::HeapObject,
+                ValueType::I64,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::HeapObject,
+            ],
+        ),
+    );
+
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(
+        report.return_value,
+        Value::Tuple(vec![Value::I64(2), Value::I32(7)])
+    );
+}
+
+#[test]
 fn executes_source_lowered_string_len_method() {
     let (runtime, loaded) = load_test_module(
         r#"
@@ -688,6 +754,61 @@ fn main() -> usize {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I64(6));
+}
+
+#[test]
+fn executes_iterable_protocol_builtin_over_strings() {
+    let (runtime, loaded) = load_bytecode_module(
+        "iterable_string.kbc",
+        test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::Str("ab".to_owned()),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(1)),
+                    callee: CallTarget::BuiltinMethod(BuiltinMethod::Iterable(
+                        iterable::Method::Len,
+                    )),
+                    args: vec![Register::new(0)],
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(2),
+                    constant: ConstantOperand::I32(0),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(3)),
+                    callee: CallTarget::BuiltinMethod(BuiltinMethod::Iterable(
+                        iterable::Method::Get,
+                    )),
+                    args: vec![Register::new(0), Register::new(2)],
+                },
+                BytecodeInstruction::MakeTuple {
+                    dst: Register::new(4),
+                    elements: vec![Register::new(1), Register::new(3)],
+                },
+                BytecodeInstruction::Return(Some(Register::new(4))),
+            ],
+            ValueType::HeapObject,
+            vec![
+                ValueType::Str,
+                ValueType::I64,
+                ValueType::I32,
+                ValueType::Str,
+                ValueType::HeapObject,
+            ],
+        ),
+    );
+
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(
+        report.return_value,
+        Value::Tuple(vec![Value::I64(2), Value::Str("a".to_owned())])
+    );
 }
 
 #[test]

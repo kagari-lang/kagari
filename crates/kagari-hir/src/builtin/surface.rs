@@ -26,6 +26,16 @@ pub enum StandardEnum {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StandardModule {
+    Debug,
+    Math,
+    Array,
+    String,
+    Option,
+    Result,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StandardVariantSpec {
     pub name: &'static str,
     pub payload_arity: usize,
@@ -37,6 +47,12 @@ pub struct StandardEnumSpec {
     pub name: &'static str,
     pub arity: usize,
     pub variants: &'static [StandardVariantSpec],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StandardModuleSpec {
+    pub kind: StandardModule,
+    pub path: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,6 +206,33 @@ const STANDARD_ENUMS: &[StandardEnumSpec] = &[
     },
 ];
 
+const STANDARD_MODULES: &[StandardModuleSpec] = &[
+    StandardModuleSpec {
+        kind: StandardModule::Debug,
+        path: "std::debug",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::Math,
+        path: "std::math",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::Array,
+        path: "std::array",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::String,
+        path: "std::string",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::Option,
+        path: "std::option",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::Result,
+        path: "std::result",
+    },
+];
+
 pub fn builtin_types() -> &'static [BuiltinTypeSpec] {
     BUILTIN_TYPES
 }
@@ -211,6 +254,14 @@ pub fn standard_enums() -> &'static [StandardEnumSpec] {
 
 pub fn standard_enum(name: &str) -> Option<&'static StandardEnumSpec> {
     standard_enums().iter().find(|spec| spec.name == name)
+}
+
+pub fn standard_modules() -> &'static [StandardModuleSpec] {
+    STANDARD_MODULES
+}
+
+pub fn standard_module(path: &str) -> Option<&'static StandardModuleSpec> {
+    standard_modules().iter().find(|spec| spec.path == path)
 }
 
 pub fn standard_enum_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {

@@ -1,4 +1,5 @@
 pub mod array;
+pub mod iterable;
 pub mod surface;
 
 use crate::types::{BuiltinType, TypeId};
@@ -28,6 +29,7 @@ impl BuiltinFunction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinMethod {
     Array(array::Method),
+    Iterable(iterable::Method),
     String(StringMethod),
 }
 
@@ -44,6 +46,7 @@ pub enum BuiltinMethodResult {
     Unit,
     Receiver,
     ArrayElement,
+    IterableElement,
     Builtin(BuiltinType),
 }
 
@@ -78,6 +81,7 @@ impl BuiltinMethod {
     pub fn owner_name(self) -> &'static str {
         match self {
             Self::Array(_) => "array",
+            Self::Iterable(_) => "iterable",
             Self::String(_) => "String",
         }
     }
@@ -85,6 +89,7 @@ impl BuiltinMethod {
     pub fn spec(self) -> &'static BuiltinMethodSpec {
         match self {
             Self::Array(method) => array::method_spec(method),
+            Self::Iterable(method) => iterable::method_spec(method),
             Self::String(StringMethod::Len) => &STRING_LEN_SPEC,
         }
     }

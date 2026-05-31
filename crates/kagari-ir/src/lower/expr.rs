@@ -514,6 +514,7 @@ impl FunctionLowerer<'_> {
                 IrBuiltinMethod::String(StringMethod::Len),
                 smallvec::smallvec![self.lower_expr(receiver)?],
             )),
+            BuiltinMethod::Iterable(_) => None,
         };
 
         Ok(lowered)
