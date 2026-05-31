@@ -9,7 +9,7 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::TypeRef);
         self.bump_trivia();
         match self.current_kind() {
-            Some(TokenKind::Ident) if self.current_text_is("dyn") => self.parse_legacy_dyn_type(),
+            Some(TokenKind::Ident) if self.current_text_is("dyn") => self.parse_invalid_dyn_type(),
             Some(
                 TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
             ) => {
@@ -26,8 +26,8 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_legacy_dyn_type(&mut self) {
-        self.error_here(DiagnosticKind::LegacyDynTrait);
+    fn parse_invalid_dyn_type(&mut self) {
+        self.error_here(DiagnosticKind::InvalidDynTraitSyntax);
         self.start_node(SyntaxKind::Error);
         self.bump();
         self.bump_trivia();

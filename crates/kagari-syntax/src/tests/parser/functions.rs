@@ -35,7 +35,7 @@ fn rejects_ref_parameter() {
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
         parse.diagnostics()[0].kind,
-        DiagnosticKind::LegacyRefParameter
+        DiagnosticKind::InvalidRefParameter
     );
 }
 
@@ -47,7 +47,7 @@ fn rejects_receiver_modifiers() {
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
         parse.diagnostics()[0].kind,
-        DiagnosticKind::LegacyReceiverModifier
+        DiagnosticKind::InvalidReceiverModifier
     );
 
     let parse = common::parse("fn update(ref self: Player) {}");
@@ -56,7 +56,7 @@ fn rejects_receiver_modifiers() {
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
         parse.diagnostics()[0].kind,
-        DiagnosticKind::LegacyRefParameter
+        DiagnosticKind::InvalidRefParameter
     );
 }
 
@@ -66,5 +66,8 @@ fn rejects_dyn_trait_type() {
 
     assert_eq!(parse.diagnostics().len(), 1);
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
-    assert_eq!(parse.diagnostics()[0].kind, DiagnosticKind::LegacyDynTrait);
+    assert_eq!(
+        parse.diagnostics()[0].kind,
+        DiagnosticKind::InvalidDynTraitSyntax
+    );
 }

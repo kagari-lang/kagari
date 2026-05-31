@@ -134,7 +134,7 @@ fn lexes_array_and_tuple_tokens() {
 }
 
 #[test]
-fn lexes_removed_source_words_as_identifiers() {
+fn lexes_non_spec_rust_words_as_identifiers() {
     let source = common::source("let static mut ref dyn");
     let tokens = lex(source.text());
     let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();

@@ -186,13 +186,13 @@ where T: Display + Clone
 }
 
 #[test]
-fn legacy_diagnostics_explain_spec_replacements() {
+fn invalid_syntax_diagnostics_explain_spec_replacements() {
     let parse = common::parse("fn main() { let mut value = 1; }");
     assert_eq!(parse.diagnostics().len(), 1);
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
         parse.diagnostics()[0].kind,
-        DiagnosticKind::LegacyLetBinding
+        DiagnosticKind::InvalidLetBinding
     );
     assert_eq!(
         parse.diagnostics()[0].to_string(),
@@ -202,10 +202,13 @@ fn legacy_diagnostics_explain_spec_replacements() {
     let parse = common::parse("fn apply(effect: dyn Effect) {}");
     assert_eq!(parse.diagnostics().len(), 1);
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
-    assert_eq!(parse.diagnostics()[0].kind, DiagnosticKind::LegacyDynTrait);
+    assert_eq!(
+        parse.diagnostics()[0].kind,
+        DiagnosticKind::InvalidDynTraitSyntax
+    );
     assert_eq!(
         parse.diagnostics()[0].to_string(),
-        "Error: `dyn Trait` is not valid; use the trait name directly at 17..20"
+        "Error: `dyn` interface type syntax is not valid; use the trait name directly at 17..20"
     );
 
     let parse = common::parse("struct Player { hp: i32 }");

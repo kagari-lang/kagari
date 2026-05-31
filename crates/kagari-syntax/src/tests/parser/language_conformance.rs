@@ -115,37 +115,37 @@ fn main() -> i32 {
 }
 
 #[test]
-fn syntax_spec_rejects_removed_rust_compatibility_forms() {
+fn syntax_spec_rejects_non_spec_rust_forms() {
     let cases = [
         (
             "docs/spec/syntax.md#binding-and-field-writeability",
             "let bindings",
             "fn main() { let value = 1; }",
-            DiagnosticKind::LegacyLetBinding,
+            DiagnosticKind::InvalidLetBinding,
         ),
         (
             "docs/spec/syntax.md#module-structure",
             "static items",
             "pub static mut COUNTER: i32 = 0;",
-            DiagnosticKind::LegacyStaticItem,
+            DiagnosticKind::InvalidStaticItem,
         ),
         (
             "docs/spec/traits.md#scope-exclusions",
             "dyn trait object syntax",
             "fn apply(effect: dyn Effect) {}",
-            DiagnosticKind::LegacyDynTrait,
+            DiagnosticKind::InvalidDynTraitSyntax,
         ),
         (
             "docs/spec/syntax.md#ordinary-parameter-semantics",
             "ref parameters",
             "fn update(ref value: i32) {}",
-            DiagnosticKind::LegacyRefParameter,
+            DiagnosticKind::InvalidRefParameter,
         ),
         (
             "docs/spec/syntax.md#impl-blocks-and-methods",
             "mut self receivers",
             "fn update(mut self: Player) {}",
-            DiagnosticKind::LegacyReceiverModifier,
+            DiagnosticKind::InvalidReceiverModifier,
         ),
         (
             "docs/spec/syntax.md#structs-and-enums",

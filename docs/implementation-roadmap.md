@@ -813,7 +813,7 @@ Current M10 implementation notes:
 - M10.1 through M10.5 are present as roadmap-step commits.
 - The CLI implements `parse`, `check`, `emit`, `run`, `run-artifact`, implicit path execution, profile selection, and feature-gated `--jit`.
 - The VM exposes a debugger adapter boundary with request, response, event, and event-sink types.
-- M10.7 remains responsible for removing any remaining dead compatibility code, obsolete tests, and non-spec examples.
+- M10.7 removes legacy-named parser diagnostics and stale cleanup wording while preserving negative coverage for non-spec source forms.
 
 Verification:
 

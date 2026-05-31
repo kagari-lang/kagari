@@ -14,7 +14,7 @@ This currently means:
 - The syntax and builtin surface are intentionally small and still evolving toward the specifications.
 - Interpreter execution is the semantic foundation.
 - The Cranelift JIT is optional and feature-gated; unsupported functions or debug-policy conflicts fall back to the interpreter.
-- Runtime, host interop, reload, reflection, and debugger APIs expose structural boundaries, but production polish and legacy cleanup are still in progress.
+- Runtime, host interop, reload, reflection, and debugger APIs expose structural boundaries, while production polish continues beyond the current implementation slice.
 
 ## Documentation
 
@@ -125,7 +125,6 @@ The current codebase includes:
 
 Near-term work continues to focus on:
 
-- Removing incorrect legacy compatibility code and examples that are not in the specs
 - Expanding conformance coverage for syntax, semantics, host interop, reload, debugger, security, reflection, and JIT policy
 - Filling out the remaining specified language and builtin surface
 - Hardening artifact encoding, loader policy, GC behavior, host APIs, and production diagnostics
@@ -133,4 +132,4 @@ Near-term work continues to focus on:
 
 ## Note
 
-Kagari is still an early project. The current implementation is useful for validating the architecture and exercising the language pipeline, but the specifications remain the source of truth while the remaining roadmap work removes legacy behavior and fills out production details.
+Kagari is still an early project. The current implementation is useful for validating the architecture and exercising the language pipeline, but the specifications remain the source of truth while later roadmap work fills out production details.

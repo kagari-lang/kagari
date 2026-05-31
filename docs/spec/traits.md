@@ -23,8 +23,8 @@ Runtime model rules are defined separately in [runtime.md](runtime.md).
 Kagari traits do not reproduce all of Rust's trait features.
 The initial trait scope excludes:
 
-- script-level `dyn Trait` syntax
-- Rust-style trait object syntax such as `&dyn Trait` or `Box<dyn Trait>`
+- script-level `dyn` trait-object syntax
+- Rust-style trait object syntax such as borrowed or boxed `dyn` trait objects
 - lifetime-parameterized traits
 - generalized associated types
 - associated types
@@ -43,7 +43,7 @@ Kagari traits serve two script-facing purposes:
 1. static trait constraints for generic code
 2. ordinary interface value types for dynamic dispatch
 
-There is no script-visible split between `Trait` and `dyn Trait`.
+There is no script-visible split between a trait name and a separate `dyn` trait-object type.
 A trait name can be used directly as a type when a value is handled through that interface.
 
 Example:
@@ -361,7 +361,7 @@ The initial trait system includes:
 
 The initial trait system excludes:
 
-- script-level `dyn Trait`
+- script-level `dyn` trait-object syntax
 - associated types
 - associated consts
 - trait inheritance with complex conflict rules

@@ -79,6 +79,6 @@ fn rejects_script_static_item() {
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
         parse.diagnostics()[0].kind,
-        DiagnosticKind::LegacyStaticItem
+        DiagnosticKind::InvalidStaticItem
     );
 }

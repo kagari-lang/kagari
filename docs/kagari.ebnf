@@ -1,7 +1,7 @@
 (* Kagari source grammar *)
 (* This file is a compact single-file EBNF view of the source syntax. *)
 (* Kagari is a Kotlin-style business scripting language with Rust-inspired syntax. *)
-(* Trait names are interface types directly. There is no script-level `dyn Trait`. *)
+(* Trait names are interface types directly. There is no script-level dyn trait-object syntax. *)
 (* `pub` is the only explicit visibility marker; unmarked items are private. *)
 (* Fields and referenced objects may be mutated according to their type and host policy. *)
 (* `val` declares a read-only binding or field slot; `var` declares a writable one. *)

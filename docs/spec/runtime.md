@@ -185,7 +185,7 @@ Reflection rules are defined in [reflection.md](reflection.md).
 ## Interface Values
 
 Trait/interface values are modeled as runtime interface objects.
-Kagari does not expose Rust-style `dyn Trait` syntax to scripts.
+Kagari does not expose Rust-style `dyn` trait-object syntax to scripts.
 
 The model is:
 

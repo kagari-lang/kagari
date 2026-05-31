@@ -388,7 +388,7 @@ path_segment    ::= IDENT
 Kagari does not include Rust reference type syntax such as `&T`, and it does not include caller-slot alias parameters.
 
 Trait names may be used directly as interface types.
-Kagari does not expose Rust-style `dyn Trait`, `Box<dyn Trait>`, or borrow-dependent trait object syntax.
+Kagari does not expose Rust-style `dyn` trait-object, boxed trait-object, or borrow-dependent trait-object syntax.
 
 The empty tuple type `()` is Kagari's unit type.
 It represents the absence of a meaningful value and is the default result type for functions or module initialization paths that do not produce a value.

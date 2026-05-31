@@ -831,19 +831,19 @@ fn main() -> i32 { VERSION = 2; 0 }
 }
 
 #[test]
-fn rejects_removed_source_forms_before_hir_analysis() {
+fn rejects_non_spec_source_forms_before_hir_analysis() {
     let cases = [
         (
             "fn main() { let value = 1; }",
-            DiagnosticKind::LegacyLetBinding,
+            DiagnosticKind::InvalidLetBinding,
         ),
         (
             "pub static mut COUNTER: i32 = 0;",
-            DiagnosticKind::LegacyStaticItem,
+            DiagnosticKind::InvalidStaticItem,
         ),
         (
             "fn apply(effect: dyn Effect) {}",
-            DiagnosticKind::LegacyDynTrait,
+            DiagnosticKind::InvalidDynTraitSyntax,
         ),
     ];
 
