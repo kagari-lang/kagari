@@ -26,6 +26,51 @@ pub struct ModuleKey {
     pub epoch: ModuleEpoch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModuleEpochRetention {
+    ActiveCall,
+    RuntimeValue,
+    CompiledArtifact,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModuleEpochRetentionCounts {
+    pub active_calls: usize,
+    pub runtime_values: usize,
+    pub compiled_artifacts: usize,
+}
+
+impl ModuleEpochRetentionCounts {
+    pub fn total(self) -> usize {
+        self.active_calls + self.runtime_values + self.compiled_artifacts
+    }
+
+    pub fn is_retained(self) -> bool {
+        self.total() > 0
+    }
+
+    fn increment(&mut self, retention: ModuleEpochRetention) {
+        match retention {
+            ModuleEpochRetention::ActiveCall => self.active_calls += 1,
+            ModuleEpochRetention::RuntimeValue => self.runtime_values += 1,
+            ModuleEpochRetention::CompiledArtifact => self.compiled_artifacts += 1,
+        }
+    }
+
+    fn decrement(&mut self, retention: ModuleEpochRetention) -> bool {
+        let counter = match retention {
+            ModuleEpochRetention::ActiveCall => &mut self.active_calls,
+            ModuleEpochRetention::RuntimeValue => &mut self.runtime_values,
+            ModuleEpochRetention::CompiledArtifact => &mut self.compiled_artifacts,
+        };
+        if *counter == 0 {
+            return false;
+        }
+        *counter -= 1;
+        true
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleInitializationState {
     Uninitialized,
@@ -104,6 +149,7 @@ struct ModuleStoreInner {
     loaded: HashMap<ModuleKey, LoadedModule>,
     latest_by_name: HashMap<String, ModuleKey>,
     instances: HashMap<ModuleKey, ModuleInstance>,
+    retentions: HashMap<ModuleKey, ModuleEpochRetentionCounts>,
 }
 
 impl ModuleStore {
@@ -133,6 +179,7 @@ impl ModuleStore {
         let key = module.key();
         inner.latest_by_name.insert(name, key);
         inner.instances.insert(key, ModuleInstance::new(&module));
+        inner.retentions.entry(key).or_default();
         inner.loaded.insert(key, module.clone());
         module
     }
@@ -160,6 +207,71 @@ impl ModuleStore {
 
     pub fn loaded_count(&self) -> usize {
         self.inner.borrow().loaded.len()
+    }
+
+    pub fn retain_epoch(&self, key: ModuleKey, retention: ModuleEpochRetention) -> bool {
+        let mut inner = self.inner.borrow_mut();
+        if !inner.loaded.contains_key(&key) {
+            return false;
+        }
+        inner
+            .retentions
+            .entry(key)
+            .or_default()
+            .increment(retention);
+        true
+    }
+
+    pub fn release_epoch(&self, key: ModuleKey, retention: ModuleEpochRetention) -> bool {
+        let mut inner = self.inner.borrow_mut();
+        let Some(counts) = inner.retentions.get_mut(&key) else {
+            return false;
+        };
+        counts.decrement(retention)
+    }
+
+    pub fn retention_counts(&self, key: ModuleKey) -> ModuleEpochRetentionCounts {
+        self.inner
+            .borrow()
+            .retentions
+            .get(&key)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn is_reachable(&self, key: ModuleKey) -> bool {
+        let inner = self.inner.borrow();
+        inner.latest_by_name.values().any(|latest| *latest == key)
+            || inner
+                .retentions
+                .get(&key)
+                .copied()
+                .is_some_and(ModuleEpochRetentionCounts::is_retained)
+    }
+
+    pub fn collect_unreachable_epochs(&self) -> Vec<ModuleKey> {
+        let mut inner = self.inner.borrow_mut();
+        let latest_keys = inner.latest_by_name.values().copied().collect::<Vec<_>>();
+        let removable = inner
+            .loaded
+            .keys()
+            .copied()
+            .filter(|key| {
+                !latest_keys.contains(key)
+                    && !inner
+                        .retentions
+                        .get(key)
+                        .copied()
+                        .is_some_and(ModuleEpochRetentionCounts::is_retained)
+            })
+            .collect::<Vec<_>>();
+
+        for key in &removable {
+            inner.loaded.remove(key);
+            inner.instances.remove(key);
+            inner.retentions.remove(key);
+        }
+        removable
     }
 }
 
@@ -220,5 +332,31 @@ mod tests {
         let failed = store.instance_snapshot(next.key()).unwrap();
         assert_eq!(failed.state, ModuleInitializationState::Failed);
         assert_eq!(failed.init_result, None);
+    }
+
+    #[test]
+    fn keeps_latest_and_retained_old_epochs_reachable() {
+        let store = ModuleStore::default();
+        let first = store.load("game.player", ModuleEpoch(1), BytecodeModule::default());
+        let second = store.load("game.player", ModuleEpoch(2), BytecodeModule::default());
+
+        assert!(store.is_reachable(second.key()));
+        assert!(!store.is_reachable(first.key()));
+        assert!(store.retain_epoch(first.key(), ModuleEpochRetention::ActiveCall));
+        assert!(store.retain_epoch(first.key(), ModuleEpochRetention::RuntimeValue));
+        assert!(store.retain_epoch(first.key(), ModuleEpochRetention::CompiledArtifact));
+        assert!(store.is_reachable(first.key()));
+        assert_eq!(store.retention_counts(first.key()).active_calls, 1);
+        assert_eq!(store.retention_counts(first.key()).runtime_values, 1);
+        assert_eq!(store.retention_counts(first.key()).compiled_artifacts, 1);
+        assert!(store.collect_unreachable_epochs().is_empty());
+        assert!(store.loaded(first.key()).is_some());
+
+        assert!(store.release_epoch(first.key(), ModuleEpochRetention::ActiveCall));
+        assert!(store.release_epoch(first.key(), ModuleEpochRetention::RuntimeValue));
+        assert!(store.release_epoch(first.key(), ModuleEpochRetention::CompiledArtifact));
+        assert_eq!(store.collect_unreachable_epochs(), vec![first.key()]);
+        assert!(store.loaded(first.key()).is_none());
+        assert!(store.loaded(second.key()).is_some());
     }
 }

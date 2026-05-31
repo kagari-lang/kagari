@@ -28,7 +28,8 @@ pub use metadata::{
     TypeRegistry, VariantInfo, VariantMetadataId, Visibility,
 };
 pub use module::{
-    LoadedModule, ModuleId, ModuleInitializationState, ModuleInstance, ModuleKey, ModuleStore,
+    LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId,
+    ModuleInitializationState, ModuleInstance, ModuleKey, ModuleStore,
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};

@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use kagari_ir::bytecode::{
     BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef, RuntimeHelper, verify_module,
 };
-use kagari_runtime::{LoadedModule, ModuleInitializationState, ModuleKey, Runtime, value::Value};
+use kagari_runtime::{
+    LoadedModule, ModuleEpochRetention, ModuleInitializationState, ModuleKey, ModuleStore, Runtime,
+    value::Value,
+};
 
 use crate::debug::DebugSession;
 use crate::error::VmError;
@@ -63,13 +66,18 @@ impl Vm {
         if let Some(debug_session) = self.debug_session.as_mut() {
             debug_session.resolve_module(module.id, &module.name, module.epoch.0, &module.bytecode);
         }
+        let entry_name = entry.to_owned();
+        let entry = find_function_ref(&module.bytecode, &entry_name)
+            .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
+        let _epoch_guard = ModuleEpochGuard::new(
+            self.runtime.modules(),
+            module.key(),
+            ModuleEpochRetention::ActiveCall,
+        );
         let module_instance = self
             .runtime
             .module_instance_mut(module)
             .expect("module instance should exist after module initialization");
-        let entry_name = entry.to_owned();
-        let entry = find_function_ref(&module.bytecode, &entry_name)
-            .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
         let mut executor = Executor::new(
             &self.runtime,
             &module.bytecode,
@@ -122,6 +130,11 @@ impl Vm {
 
         let result = match module.bytecode.module_init {
             Some(module_init) => {
+                let _epoch_guard = ModuleEpochGuard::new(
+                    self.runtime.modules(),
+                    module.key(),
+                    ModuleEpochRetention::ActiveCall,
+                );
                 let module_instance = self
                     .runtime
                     .module_instance_mut(module)
@@ -159,6 +172,33 @@ impl Vm {
                 self.module_failures.insert(key, error.clone());
                 Err(error)
             }
+        }
+    }
+}
+
+struct ModuleEpochGuard<'a> {
+    modules: &'a ModuleStore,
+    key: ModuleKey,
+    retention: ModuleEpochRetention,
+    retained: bool,
+}
+
+impl<'a> ModuleEpochGuard<'a> {
+    fn new(modules: &'a ModuleStore, key: ModuleKey, retention: ModuleEpochRetention) -> Self {
+        let retained = modules.retain_epoch(key, retention);
+        Self {
+            modules,
+            key,
+            retention,
+            retained,
+        }
+    }
+}
+
+impl Drop for ModuleEpochGuard<'_> {
+    fn drop(&mut self) {
+        if self.retained {
+            self.modules.release_epoch(self.key, self.retention);
         }
     }
 }

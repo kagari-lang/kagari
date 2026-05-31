@@ -140,6 +140,13 @@ fn executes_simple_arithmetic_function() {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(3));
+    assert_eq!(
+        vm.runtime()
+            .modules()
+            .retention_counts(loaded.key())
+            .active_calls,
+        0
+    );
 }
 
 #[test]
