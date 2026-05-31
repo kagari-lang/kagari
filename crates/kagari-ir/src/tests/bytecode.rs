@@ -9,7 +9,7 @@ use crate::{
 
 #[test]
 fn lowers_function_metadata_into_bytecode() {
-    let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { let c = a + b; c }");
+    let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }");
     let function = &bytecode.functions[0];
 
     assert_eq!(function.id, FunctionRef::new(0));
@@ -21,7 +21,7 @@ fn lowers_function_metadata_into_bytecode() {
 
 #[test]
 fn lowers_arithmetic_into_real_bytecode_instructions() {
-    let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { let c = a + b; c }");
+    let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }");
     let function = &bytecode.functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
@@ -135,9 +135,9 @@ fn lowers_aggregate_and_access_instructions() {
 struct Point { var x: i32 }
 
 fn main() -> unit {
-    let tuple = (1, 2);
-    let array = [1, 2];
-    let point = Point { x: 1 };
+    val tuple = (1, 2);
+    val array = [1, 2];
+    val point = Point { x: 1 };
     tuple;
     array[0];
     point.x;
@@ -219,8 +219,8 @@ fn lowers_reflection_field_builtins_to_runtime_helper_calls() {
 struct Point { var x: i32 }
 
 fn main() -> Point {
-    let point = Point { x: 1 };
-    let next = set_field(point, "x", 9);
+    val point = Point { x: 1 };
+    val next = set_field(point, "x", 9);
     get_field(next, "x");
     next
 }
@@ -272,9 +272,9 @@ struct Point { var x: i32 }
 struct Holder { var inner: Point }
 
 fn main() -> i32 {
-    let mut holder = Holder { inner: Point { x: 1 } };
+    var holder = Holder { inner: Point { x: 1 } };
     holder.inner.x = 7;
-    let mut values = [1, 2];
+    var values = [1, 2];
     values[0] = 5;
     holder.inner.x + values[0]
 }
@@ -302,7 +302,7 @@ fn main() -> i32 {
 fn preserves_module_init_function_metadata_in_bytecode() {
     let bytecode = common::bytecode_ok(
         r#"
-let boot = 1;
+val boot = 1;
 
 fn main() -> i32 { 1 }
 "#,
@@ -347,7 +347,7 @@ fn lowers_array_methods_to_builtin_method_calls() {
     let bytecode = common::bytecode_ok(
         r#"
 fn main() -> i32 {
-    let values = [1, 2];
+    val values = [1, 2];
     values.push(3).pop().len()
 }
 "#,

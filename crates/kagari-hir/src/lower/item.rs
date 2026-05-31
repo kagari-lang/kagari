@@ -2,7 +2,7 @@ use kagari_syntax::ast;
 
 use crate::hir::{
     BlockData, ConstItem, Enum, Export, ExportItem, Field, Function, FunctionKind, Item, Param,
-    StaticItem, Struct, Variant, Visibility,
+    Struct, Variant, Visibility,
 };
 use crate::lower::context::{Lowerer, syntax_span};
 
@@ -31,17 +31,6 @@ impl Lowerer {
                     }
                     self.module.items.push(Item::Const(hir_const.id));
                     self.module.consts.push(hir_const);
-                }
-                ast::Item::StaticDef(static_def) => {
-                    let hir_static = self.lower_static(&static_def);
-                    if hir_static.visibility == Visibility::Public {
-                        self.module.exports.push(Export {
-                            name: hir_static.name.clone(),
-                            item: ExportItem::Static(hir_static.id),
-                        });
-                    }
-                    self.module.items.push(Item::Static(hir_static.id));
-                    self.module.statics.push(hir_static);
                 }
                 ast::Item::StructDef(struct_def) => {
                     let hir_struct = self.lower_struct(&struct_def);
@@ -156,24 +145,6 @@ impl Lowerer {
             name: const_def.name_text().unwrap_or_default(),
             ty: const_def.ty().map(|ty| self.lower_type(&ty)),
             initializer: const_def
-                .initializer()
-                .map(|expr| self.lower_expr(&expr))
-                .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
-        }
-    }
-
-    fn lower_static(&mut self, static_def: &ast::StaticDef) -> StaticItem {
-        StaticItem {
-            id: self.source_map.push_static(syntax_span(static_def)),
-            visibility: if static_def.is_pub() {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
-            mutable: static_def.is_mut(),
-            name: static_def.name_text().unwrap_or_default(),
-            ty: static_def.ty().map(|ty| self.lower_type(&ty)),
-            initializer: static_def
                 .initializer()
                 .map(|expr| self.lower_expr(&expr))
                 .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),

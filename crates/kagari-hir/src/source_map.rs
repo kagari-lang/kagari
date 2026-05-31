@@ -35,12 +35,6 @@ impl SourceMap {
         id
     }
 
-    pub(crate) fn push_static(&mut self, span: Span) -> StaticId {
-        let id = StaticId::new(self.static_spans.len());
-        self.static_spans.push(span);
-        id
-    }
-
     pub(crate) fn push_param(&mut self, span: Span) -> ParamId {
         let id = ParamId::new(self.param_spans.len());
         self.param_spans.push(span);

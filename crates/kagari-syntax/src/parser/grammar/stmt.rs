@@ -17,12 +17,14 @@ impl<'a> Parser<'a> {
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             match self.current_kind() {
                 Some(TokenKind::ValKw | TokenKind::VarKw) => self.parse_binding_stmt(),
-                Some(TokenKind::LetKw) => self.parse_let_stmt(),
                 Some(TokenKind::ReturnKw) => self.parse_return_stmt(),
                 Some(TokenKind::WhileKw) => self.parse_while_stmt(),
                 Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
                 Some(TokenKind::BreakKw) => self.parse_break_stmt(),
                 Some(TokenKind::ContinueKw) => self.parse_continue_stmt(),
+                Some(TokenKind::Ident) if self.current_text_is("let") => {
+                    self.recover_until_statement_boundary(DiagnosticKind::LegacyLetBinding);
+                }
                 Some(TokenKind::Ident) if self.expr_followed_by_assignment() => {
                     self.parse_assign_stmt()
                 }
@@ -85,26 +87,6 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
     }
 
-    pub(crate) fn parse_let_stmt(&mut self) {
-        self.start_node(SyntaxKind::LetStmt);
-        self.expect(TokenKind::LetKw, DiagnosticKind::ExpectedLetKeyword);
-        self.bump_trivia();
-        if self.at(TokenKind::MutKw) {
-            self.bump();
-        }
-        self.parse_let_binding_name();
-        self.bump_trivia();
-        if self.at(TokenKind::Colon) {
-            self.bump();
-            self.parse_type_ref();
-        }
-        self.expect(TokenKind::Eq, DiagnosticKind::ExpectedLetInitializer);
-        self.parse_expr();
-        self.bump_trivia();
-        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
-        self.finish_node();
-    }
-
     fn parse_return_stmt(&mut self) {
         self.start_node(SyntaxKind::ReturnStmt);
         self.expect(TokenKind::ReturnKw, DiagnosticKind::ExpectedReturnKeyword);
@@ -120,7 +102,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_assign_stmt(&mut self) {
         self.start_node(SyntaxKind::AssignStmt);
         self.parse_place_expr();
-        self.expect(TokenKind::Eq, DiagnosticKind::ExpectedLetInitializer);
+        self.expect(TokenKind::Eq, DiagnosticKind::ExpectedAssignmentOperator);
         self.parse_expr();
         self.bump_trivia();
         self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);

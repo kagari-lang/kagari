@@ -82,22 +82,6 @@ fn parses_val_binding_without_initializer() {
 }
 
 #[test]
-fn parses_mutable_let_binding() {
-    let module = common::parse_ok("fn main() { let mut value = 1; }");
-    let function = common::first_function(&module);
-    let body = function.body().expect("expected function body");
-    let statements: Vec<_> = body.statements().collect();
-
-    match &statements[0] {
-        Stmt::LetStmt(stmt) => {
-            assert!(stmt.is_mut());
-            assert_eq!(stmt.name_text().as_deref(), Some("value"));
-        }
-        other => panic!("unexpected first statement: {other:?}"),
-    }
-}
-
-#[test]
 fn parses_field_and_index_assignment_targets() {
     let module = common::parse_ok(
         r#"
@@ -134,17 +118,13 @@ fn main() {
 }
 
 #[test]
-fn reports_missing_let_initializer_operator() {
-    let parse = common::parse("fn main() { let value 1; }");
+fn rejects_legacy_let_binding() {
+    let parse = common::parse("fn main() { let mut value = 1; }");
 
     assert_eq!(parse.diagnostics().len(), 1);
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
         parse.diagnostics()[0].kind,
-        DiagnosticKind::ExpectedLetInitializer
-    );
-    assert_eq!(
-        parse.diagnostics()[0].to_string(),
-        "Error: expected `=` after let binding name at 22..23"
+        DiagnosticKind::LegacyLetBinding
     );
 }

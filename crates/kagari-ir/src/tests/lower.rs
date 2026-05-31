@@ -158,9 +158,9 @@ struct Point { var x: i32 }
 struct Holder { var inner: Point }
 
 fn main() -> i32 {
-    let mut holder = Holder { inner: Point { x: 1 } };
+    var holder = Holder { inner: Point { x: 1 } };
     holder.inner.x = 7;
-    let mut values = [1, 2];
+    var values = [1, 2];
     values[0] = 5;
     holder.inner.x + values[0]
 }
@@ -202,7 +202,7 @@ fn lowers_array_methods_to_builtin_method_calls() {
     let analyzed = common::analyze_ok(
         r#"
 fn main() -> [i32] {
-    let values = [1, 2];
+    val values = [1, 2];
     values.push(3).pop()
 }
 "#,
@@ -245,11 +245,11 @@ fn lowers_tuple_array_struct_and_access_expressions() {
 struct Point { var x: i32 }
 
 fn main() -> unit {
-    let tuple = (1, 2);
+    val tuple = (1, 2);
     tuple;
-    let array = [1, 2];
+    val array = [1, 2];
     array[0];
-    let point = Point { x: 1 };
+    val point = Point { x: 1 };
     point.x;
 }
 "#,

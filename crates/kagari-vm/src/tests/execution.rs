@@ -13,7 +13,7 @@ use crate::{Vm, VmError};
 
 #[test]
 fn executes_simple_arithmetic_function() {
-    let (runtime, loaded) = load_test_module("fn main() -> i32 { let value = 1 + 2; value }");
+    let (runtime, loaded) = load_test_module("fn main() -> i32 { val value = 1 + 2; value }");
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
@@ -46,7 +46,7 @@ fn main() -> i32 { callee() }
 #[test]
 fn executes_array_index_access() {
     let (runtime, loaded) =
-        load_test_module("fn main() -> i32 { let values = [1, 2, 3]; values[1] }");
+        load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
@@ -60,7 +60,7 @@ fn executes_struct_field_access() {
 struct Point { var x: i32, var y: i32 }
 
 fn main() -> i32 {
-    let point = Point { x: 1, y: 2 };
+    val point = Point { x: 1, y: 2 };
     point.y
 }
 "#,
@@ -122,7 +122,7 @@ fn main() -> Point {
 fn executes_top_level_tail_expression_as_module_result() {
     let (runtime, loaded) = load_test_module(
         r#"
-let value = 1;
+val value = 1;
 
 value + 2
 "#,

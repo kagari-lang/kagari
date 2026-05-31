@@ -12,7 +12,6 @@ use crate::{
 };
 
 ast_node!(BindingStmt, BindingStmt);
-ast_node!(LetStmt, LetStmt);
 ast_node!(ReturnStmt, ReturnStmt);
 ast_node!(AssignStmt, AssignStmt);
 ast_node!(WhileStmt, WhileStmt);
@@ -24,7 +23,6 @@ ast_node!(ExprStmt, ExprStmt);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
     BindingStmt(BindingStmt),
-    LetStmt(LetStmt),
     ReturnStmt(ReturnStmt),
     AssignStmt(AssignStmt),
     WhileStmt(WhileStmt),
@@ -39,7 +37,6 @@ impl AstNode for Stmt {
         matches!(
             kind,
             SyntaxKind::BindingStmt
-                | SyntaxKind::LetStmt
                 | SyntaxKind::ReturnStmt
                 | SyntaxKind::AssignStmt
                 | SyntaxKind::WhileStmt
@@ -53,7 +50,6 @@ impl AstNode for Stmt {
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         match syntax.kind() {
             SyntaxKind::BindingStmt => BindingStmt::cast(syntax).map(Self::BindingStmt),
-            SyntaxKind::LetStmt => LetStmt::cast(syntax).map(Self::LetStmt),
             SyntaxKind::ReturnStmt => ReturnStmt::cast(syntax).map(Self::ReturnStmt),
             SyntaxKind::AssignStmt => AssignStmt::cast(syntax).map(Self::AssignStmt),
             SyntaxKind::WhileStmt => WhileStmt::cast(syntax).map(Self::WhileStmt),
@@ -68,7 +64,6 @@ impl AstNode for Stmt {
     fn syntax(&self) -> &SyntaxNode {
         match self {
             Self::BindingStmt(node) => node.syntax(),
-            Self::LetStmt(node) => node.syntax(),
             Self::ReturnStmt(node) => node.syntax(),
             Self::AssignStmt(node) => node.syntax(),
             Self::WhileStmt(node) => node.syntax(),
@@ -97,28 +92,6 @@ impl BindingStmt {
 
     pub fn is_var(&self) -> bool {
         self.writeability() == Some(Writeability::Var)
-    }
-
-    pub fn name(&self) -> Option<Name> {
-        support::child(self.syntax())
-    }
-
-    pub fn name_text(&self) -> Option<String> {
-        self.name().and_then(|name| name.text())
-    }
-
-    pub fn ty(&self) -> Option<TypeRef> {
-        support::child(self.syntax())
-    }
-
-    pub fn initializer(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
-    }
-}
-
-impl LetStmt {
-    pub fn is_mut(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::MutKw).is_some()
     }
 
     pub fn name(&self) -> Option<Name> {

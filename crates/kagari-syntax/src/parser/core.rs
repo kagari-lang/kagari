@@ -78,6 +78,27 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    pub(crate) fn recover_until_statement_boundary(&mut self, diagnostic: DiagnosticKind) {
+        self.error_here(diagnostic);
+        self.start_node(SyntaxKind::Error);
+        while !self.at_any(&[TokenKind::Semi, TokenKind::RBrace, TokenKind::Eof]) {
+            self.bump();
+        }
+        if self.at(TokenKind::Semi) {
+            self.bump();
+        }
+        self.finish_node();
+    }
+
+    pub(crate) fn recover_until_param_boundary(&mut self, diagnostic: DiagnosticKind) {
+        self.error_here(diagnostic);
+        self.start_node(SyntaxKind::Error);
+        while !self.at_any(&[TokenKind::Comma, TokenKind::RParen, TokenKind::Eof]) {
+            self.bump();
+        }
+        self.finish_node();
+    }
+
     pub(crate) fn bump(&mut self) {
         if let Some(token) = self.peek().cloned() {
             let kind = token.kind.to_syntax_kind();
@@ -109,6 +130,22 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn current_kind(&self) -> Option<TokenKind> {
         self.peek().map(|token| token.kind.clone())
+    }
+
+    pub(crate) fn current_text_is(&self, text: &str) -> bool {
+        self.peek()
+            .filter(|token| !token.kind.is_trivia())
+            .map(|token| &self.text[token.span.start..token.span.end] == text)
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn nth_nontrivia_text(&self, n: usize) -> Option<&str> {
+        self.tokens
+            .iter()
+            .skip(self.cursor)
+            .filter(|token| !token.kind.is_trivia())
+            .nth(n)
+            .map(|token| &self.text[token.span.start..token.span.end])
     }
 
     pub(crate) fn allow_struct_literals(&self) -> bool {

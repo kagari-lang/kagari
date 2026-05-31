@@ -134,27 +134,23 @@ fn lexes_array_and_tuple_tokens() {
 }
 
 #[test]
-fn lexes_let_and_return_keywords() {
-    let source = common::source("let value = 1; return value;");
+fn lexes_removed_source_words_as_identifiers() {
+    let source = common::source("let static mut ref dyn");
     let tokens = lex(source.text());
     let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
 
     assert_eq!(
         kinds,
         vec![
-            TokenKind::LetKw,
+            TokenKind::Ident,
             TokenKind::Whitespace,
             TokenKind::Ident,
             TokenKind::Whitespace,
-            TokenKind::Eq,
-            TokenKind::Whitespace,
-            TokenKind::Number,
-            TokenKind::Semi,
-            TokenKind::Whitespace,
-            TokenKind::ReturnKw,
+            TokenKind::Ident,
             TokenKind::Whitespace,
             TokenKind::Ident,
-            TokenKind::Semi,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
             TokenKind::Eof,
         ]
     );
@@ -272,7 +268,7 @@ fn lexes_control_flow_keywords() {
 
 #[test]
 fn lexes_module_item_keywords() {
-    let source = common::source("pub const A = 1; pub static mut B = 2;");
+    let source = common::source("pub const A = 1;");
     let tokens = lex(source.text());
     let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
 
@@ -282,19 +278,6 @@ fn lexes_module_item_keywords() {
             TokenKind::PubKw,
             TokenKind::Whitespace,
             TokenKind::ConstKw,
-            TokenKind::Whitespace,
-            TokenKind::Ident,
-            TokenKind::Whitespace,
-            TokenKind::Eq,
-            TokenKind::Whitespace,
-            TokenKind::Number,
-            TokenKind::Semi,
-            TokenKind::Whitespace,
-            TokenKind::PubKw,
-            TokenKind::Whitespace,
-            TokenKind::StaticKw,
-            TokenKind::Whitespace,
-            TokenKind::MutKw,
             TokenKind::Whitespace,
             TokenKind::Ident,
             TokenKind::Whitespace,

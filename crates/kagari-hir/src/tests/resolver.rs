@@ -32,7 +32,7 @@ fn foo() {}
 
 #[test]
 fn resolves_params_and_locals_in_function_body() {
-    let lowered = common::lower_ok("fn main(value: i32) -> i32 { let next: i32 = value; next }");
+    let lowered = common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value; next }");
     let resolved = resolve_names(&lowered).expect("resolver should succeed");
     let function = &lowered.module.functions[0];
 
@@ -84,13 +84,12 @@ fn resolves_named_match_pattern_bindings_inside_arm() {
 }
 
 #[test]
-fn resolves_const_and_static_names_in_function_body() {
+fn resolves_const_names_in_function_body() {
     let lowered = common::lower_ok(
         r#"
 const VERSION: i32 = 1;
-static mut COUNTER: i32 = 0;
 
-fn main() -> i32 { VERSION + COUNTER }
+fn main() -> i32 { VERSION }
 "#,
     );
     let resolved = resolve_names(&lowered).expect("resolver should succeed");
@@ -103,17 +102,8 @@ fn main() -> i32 { VERSION + COUNTER }
     let block = lowered.module.block(function.body);
     let tail_expr = block.tail_expr.expect("tail expr");
 
-    let (lhs, rhs) = match &lowered.module.expr(tail_expr).kind {
-        ExprKind::Binary { lhs, rhs, .. } => (*lhs, *rhs),
-        other => panic!("unexpected expr kind: {other:?}"),
-    };
-
     assert_eq!(
-        resolved.expr_resolution(lhs),
+        resolved.expr_resolution(tail_expr),
         Some(ResolvedName::Const(lowered.module.consts[0].id))
-    );
-    assert_eq!(
-        resolved.expr_resolution(rhs),
-        Some(ResolvedName::Static(lowered.module.statics[0].id))
     );
 }

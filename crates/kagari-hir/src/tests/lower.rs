@@ -26,7 +26,7 @@ fn main(value: i32) -> i32 { value }
 #[test]
 fn lowers_function_body_expressions_and_statements() {
     let lowered = common::lower_ok(
-        "fn main(value: i32) -> i32 { let next: i32 = value + 1; match next { _ => next } }",
+        "fn main(value: i32) -> i32 { val next: i32 = value + 1; match next { _ => next } }",
     );
     let function = &lowered.module.functions[0];
 
@@ -90,7 +90,7 @@ struct Point { var x: i32 }
 struct Holder { var inner: Point }
 
 fn main() {
-    let mut holder = Holder { inner: Point { x: 1 } };
+    var holder = Holder { inner: Point { x: 1 } };
     holder.inner.x = 2;
 }
 "#,
@@ -108,8 +108,8 @@ fn main() {
 }
 
 #[test]
-fn lowers_mutable_let_binding() {
-    let lowered = common::lower_ok("fn main() { let mut value = 1; value = 2; }");
+fn lowers_var_binding() {
+    let lowered = common::lower_ok("fn main() { var value = 1; value = 2; }");
     let function = &lowered.module.functions[0];
     let block = lowered.module.block(function.body);
     let stmt = lowered.module.stmt(block.statements[0]);
@@ -127,7 +127,7 @@ fn lowers_mutable_let_binding() {
 fn lowers_top_level_statements_into_module_init_function() {
     let lowered = common::lower_ok(
         r#"
-let boot = 1;
+val boot = 1;
 
 fn main() -> i32 { 1 }
 "#,
@@ -159,7 +159,7 @@ fn main() -> i32 { 1 }
 fn lowers_top_level_tail_expression_into_module_init_result() {
     let lowered = common::lower_ok(
         r#"
-let boot = 1;
+val boot = 1;
 
 boot + 1
 "#,
@@ -185,16 +185,15 @@ boot + 1
 }
 
 #[test]
-fn lowers_const_and_static_items_and_exports() {
+fn lowers_const_items_and_exports() {
     let lowered = common::lower_ok(
         r#"
 pub const VERSION: i32 = 1;
-pub static mut COUNTER: i32 = 0;
 "#,
     );
 
-    assert_eq!(lowered.module.items.len(), 2);
-    assert_eq!(lowered.module.exports.len(), 2);
+    assert_eq!(lowered.module.items.len(), 1);
+    assert_eq!(lowered.module.exports.len(), 1);
 
     let const_item = &lowered.module.consts[0];
     assert_eq!(const_item.name, "VERSION");
@@ -204,12 +203,5 @@ pub static mut COUNTER: i32 = 0;
         ExprKind::Literal(_)
     ));
 
-    let static_item = &lowered.module.statics[0];
-    assert_eq!(static_item.name, "COUNTER");
-    assert!(matches!(static_item.visibility, Visibility::Public));
-    assert!(static_item.mutable);
-    assert!(matches!(
-        lowered.module.expr(static_item.initializer).kind,
-        ExprKind::Literal(_)
-    ));
+    assert!(lowered.module.statics.is_empty());
 }

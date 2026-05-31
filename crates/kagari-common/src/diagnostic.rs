@@ -15,17 +15,14 @@ pub enum DiagnosticKind {
     TopLevelControlFlowNotAllowed,
     ExpectedFunctionKeyword,
     ExpectedConstKeyword,
-    ExpectedStaticKeyword,
     ExpectedStructKeyword,
     ExpectedEnumKeyword,
-    ExpectedLetKeyword,
     ExpectedBindingKeyword,
     ExpectedReturnKeyword,
     ExpectedBreakKeyword,
     ExpectedContinueKeyword,
     ExpectedFunctionName,
     ExpectedConstName,
-    ExpectedStaticName,
     ExpectedStructName,
     ExpectedEnumName,
     ExpectedFieldName,
@@ -47,12 +44,10 @@ pub enum DiagnosticKind {
     ExpectedMatchPattern,
     ExpectedMatchArmArrow,
     ExpectedType,
-    ExpectedLetBindingName,
     ExpectedBindingName,
-    ExpectedLetInitializer,
+    ExpectedAssignmentOperator,
     ExpectedFieldBinding,
     ExpectedConstInitializer,
-    ExpectedStaticInitializer,
     ExpectedFunctionBodyStart,
     ExpectedStructBodyStart,
     ExpectedBlockEnd,
@@ -139,6 +134,11 @@ pub enum DiagnosticKind {
     },
     BreakOutsideLoop,
     ContinueOutsideLoop,
+    LegacyLetBinding,
+    LegacyStaticItem,
+    LegacyRefParameter,
+    LegacyReceiverModifier,
+    LegacyDynTrait,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,17 +182,14 @@ impl Display for DiagnosticKind {
             }
             Self::ExpectedFunctionKeyword => write!(f, "expected `fn`"),
             Self::ExpectedConstKeyword => write!(f, "expected `const`"),
-            Self::ExpectedStaticKeyword => write!(f, "expected `static`"),
             Self::ExpectedStructKeyword => write!(f, "expected `struct`"),
             Self::ExpectedEnumKeyword => write!(f, "expected `enum`"),
-            Self::ExpectedLetKeyword => write!(f, "expected `let`"),
             Self::ExpectedBindingKeyword => write!(f, "expected `val` or `var`"),
             Self::ExpectedReturnKeyword => write!(f, "expected `return`"),
             Self::ExpectedBreakKeyword => write!(f, "expected `break`"),
             Self::ExpectedContinueKeyword => write!(f, "expected `continue`"),
             Self::ExpectedFunctionName => write!(f, "expected function name"),
             Self::ExpectedConstName => write!(f, "expected const name"),
-            Self::ExpectedStaticName => write!(f, "expected static name"),
             Self::ExpectedStructName => write!(f, "expected struct name"),
             Self::ExpectedEnumName => write!(f, "expected enum name"),
             Self::ExpectedFieldName => write!(f, "expected field name"),
@@ -222,12 +219,10 @@ impl Display for DiagnosticKind {
             Self::ExpectedMatchPattern => write!(f, "expected match pattern"),
             Self::ExpectedMatchArmArrow => write!(f, "expected `=>` after match pattern"),
             Self::ExpectedType => write!(f, "expected type"),
-            Self::ExpectedLetBindingName => write!(f, "expected let binding name"),
             Self::ExpectedBindingName => write!(f, "expected binding name"),
-            Self::ExpectedLetInitializer => write!(f, "expected `=` after let binding name"),
+            Self::ExpectedAssignmentOperator => write!(f, "expected `=` in assignment"),
             Self::ExpectedFieldBinding => write!(f, "expected `val` or `var` before field name"),
             Self::ExpectedConstInitializer => write!(f, "expected `=` after const name"),
-            Self::ExpectedStaticInitializer => write!(f, "expected `=` after static name"),
             Self::ExpectedFunctionBodyStart => {
                 write!(f, "expected `{{` to start function body")
             }
@@ -356,6 +351,19 @@ impl Display for DiagnosticKind {
             ),
             Self::BreakOutsideLoop => write!(f, "`break` used outside of a loop"),
             Self::ContinueOutsideLoop => write!(f, "`continue` used outside of a loop"),
+            Self::LegacyLetBinding => {
+                write!(f, "`let` bindings are not valid; use `val` or `var`")
+            }
+            Self::LegacyStaticItem => {
+                write!(f, "`static` items are not part of the source language")
+            }
+            Self::LegacyRefParameter => write!(f, "`ref` parameters are not valid"),
+            Self::LegacyReceiverModifier => {
+                write!(f, "receiver modifiers are not valid; use plain `self`")
+            }
+            Self::LegacyDynTrait => {
+                write!(f, "`dyn Trait` is not valid; use the trait name directly")
+            }
         }
     }
 }

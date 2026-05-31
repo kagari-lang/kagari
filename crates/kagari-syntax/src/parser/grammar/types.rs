@@ -9,10 +9,22 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::TypeRef);
         self.bump_trivia();
         match self.current_kind() {
+            Some(TokenKind::Ident) if self.current_text_is("dyn") => self.parse_legacy_dyn_type(),
             Some(TokenKind::Ident) => self.parse_name(),
             Some(TokenKind::LParen) => self.parse_tuple_type(),
             Some(TokenKind::LBracket) => self.parse_array_type(),
             _ => self.error_here(DiagnosticKind::ExpectedType),
+        }
+        self.finish_node();
+    }
+
+    fn parse_legacy_dyn_type(&mut self) {
+        self.error_here(DiagnosticKind::LegacyDynTrait);
+        self.start_node(SyntaxKind::Error);
+        self.bump();
+        self.bump_trivia();
+        if self.at(TokenKind::Ident) {
+            self.bump();
         }
         self.finish_node();
     }

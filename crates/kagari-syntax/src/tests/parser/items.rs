@@ -72,16 +72,13 @@ fn parses_public_const_item() {
 }
 
 #[test]
-fn parses_public_static_mut_item() {
-    let module = common::parse_ok("pub static mut COUNTER: i32 = 0;");
-    let static_def = common::first_static(&module);
+fn rejects_script_static_item() {
+    let parse = common::parse("pub static mut COUNTER: i32 = 0;");
 
-    assert!(static_def.is_pub());
-    assert!(static_def.is_mut());
-    assert_eq!(static_def.name_text().as_deref(), Some("COUNTER"));
+    assert_eq!(parse.diagnostics().len(), 1);
+    assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
-        static_def.ty().and_then(|ty| ty.name_text()).as_deref(),
-        Some("i32")
+        parse.diagnostics()[0].kind,
+        DiagnosticKind::LegacyStaticItem
     );
-    assert!(static_def.initializer().is_some());
 }

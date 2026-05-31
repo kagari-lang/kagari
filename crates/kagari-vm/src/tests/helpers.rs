@@ -255,8 +255,8 @@ fn executes_source_lowered_reflection_field_helpers() {
 struct Point { var x: i32 }
 
 fn main() -> i32 {
-    let point = Point { x: 1 };
-    let next = set_field(point, "x", 9);
+    val point = Point { x: 1 };
+    val next = set_field(point, "x", 9);
     get_field(next, "x")
 }
 "#,
@@ -272,7 +272,7 @@ fn executes_source_lowered_set_index_helper() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> [i32] {
-    let values = [1, 2];
+    val values = [1, 2];
     set_index(values, 0, 9)
 }
 "#,
@@ -297,9 +297,9 @@ struct Point { var x: i32 }
 struct Holder { var inner: Point }
 
 fn main() -> i32 {
-    let mut holder = Holder { inner: Point { x: 1 } };
+    var holder = Holder { inner: Point { x: 1 } };
     holder.inner.x = 7;
-    let mut values = [1, 2];
+    var values = [1, 2];
     values[0] = 5;
     holder.inner.x + values[0]
 }
@@ -316,7 +316,7 @@ fn executes_source_lowered_array_methods() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> i32 {
-    let values = [1, 2];
+    val values = [1, 2];
     values.push(3).pop().len()
 }
 "#,
@@ -332,8 +332,8 @@ fn array_methods_mutate_shared_array_handle_in_place() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> i32 {
-    let values = [1, 2];
-    let alias = values;
+    val values = [1, 2];
+    val alias = values;
     values.push(3);
     alias.len()
 }
@@ -352,8 +352,8 @@ fn struct_field_updates_mutate_shared_struct_handle_in_place() {
 struct Point { var x: i32 }
 
 fn main() -> i32 {
-    let point = Point { x: 1 };
-    let alias = point;
+    val point = Point { x: 1 };
+    val alias = point;
     set_field(point, "x", 9);
     alias.x
 }

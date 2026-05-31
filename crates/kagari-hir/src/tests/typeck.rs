@@ -235,7 +235,7 @@ fn main() -> i32 {
 #[test]
 fn records_expression_types_for_resolved_body_expressions() {
     let lowered =
-        common::lower_ok("fn main(value: i32) -> i32 { let next: i32 = value + 1; next }");
+        common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value + 1; next }");
     let names = resolve_names(&lowered).expect("resolver should succeed");
     let typed = check_module(&lowered, &names).expect("type checker should succeed");
     let function = &lowered.module.functions[0];
@@ -263,8 +263,8 @@ fn infers_array_method_call_types() {
     let lowered = common::lower_ok(
         r#"
 fn main() -> i32 {
-    let values = [1, 2];
-    let next = values.push(3);
+    val values = [1, 2];
+    val next = values.push(3);
     next.pop().len()
 }
 "#,
@@ -356,7 +356,7 @@ fn reports_invalid_assignment_target() {
 
 #[test]
 fn reports_assignment_type_mismatch() {
-    let lowered = common::lower_ok("fn foo() -> i32 { let mut x: i32 = 1; x = true; x }");
+    let lowered = common::lower_ok("fn foo() -> i32 { var x: i32 = 1; x = true; x }");
     let names = resolve_names(&lowered).expect("resolver should succeed");
 
     let diagnostics =
@@ -472,7 +472,7 @@ fn foo() -> Point {
 
 #[test]
 fn allows_assignment_to_mutable_local_but_not_immutable_local_or_param() {
-    let mutable_local = common::lower_ok("fn foo() -> i32 { let mut x: i32 = 1; x = 2; x }");
+    let mutable_local = common::lower_ok("fn foo() -> i32 { var x: i32 = 1; x = 2; x }");
     let names = resolve_names(&mutable_local).expect("resolver should succeed");
     let typed = check_module(&mutable_local, &names).expect("type checker should succeed");
     let function = &mutable_local.module.functions[0];
@@ -483,7 +483,7 @@ fn allows_assignment_to_mutable_local_but_not_immutable_local_or_param() {
         Some(TypeId::Builtin(BuiltinType::I32))
     );
 
-    let immutable_local = common::lower_ok("fn foo() -> i32 { let x: i32 = 1; x = 2; x }");
+    let immutable_local = common::lower_ok("fn foo() -> i32 { val x: i32 = 1; x = 2; x }");
     let names = resolve_names(&immutable_local).expect("resolver should succeed");
     let diagnostics =
         check_module(&immutable_local, &names).expect_err("immutable local should reject write");
@@ -504,7 +504,7 @@ struct Point { var x: i32 }
 struct Holder { var inner: Point }
 
 fn main() -> i32 {
-    let mut holder = Holder { inner: Point { x: 1 } };
+    var holder = Holder { inner: Point { x: 1 } };
     holder.inner.x = 3;
     holder.inner.x
 }
@@ -524,7 +524,7 @@ fn main() -> i32 {
     let index_assignment = common::lower_ok(
         r#"
 fn main() -> i32 {
-    let mut values = [1, 2];
+    var values = [1, 2];
     values[1] = 9;
     values[1]
 }
@@ -598,13 +598,12 @@ fn records_named_match_pattern_binding_type() {
 }
 
 #[test]
-fn records_const_and_static_reference_types() {
+fn records_const_reference_types() {
     let lowered = common::lower_ok(
         r#"
 const VERSION: i32 = 1;
-static mut COUNTER: i32 = 0;
 
-fn main() -> i32 { VERSION + COUNTER }
+fn main() -> i32 { VERSION }
 "#,
     );
     let names = resolve_names(&lowered).expect("resolver should succeed");
@@ -626,50 +625,21 @@ fn main() -> i32 { VERSION + COUNTER }
         typed.consts.get(&lowered.module.consts[0].id),
         Some(&TypeId::Builtin(BuiltinType::I32))
     );
-    assert_eq!(
-        typed
-            .statics
-            .get(&lowered.module.statics[0].id)
-            .map(|item| &item.ty),
-        Some(&TypeId::Builtin(BuiltinType::I32))
-    );
+    assert!(typed.statics.is_empty());
 }
 
 #[test]
-fn allows_assignment_to_static_mut_but_not_const_or_static() {
-    let mutable_static = common::lower_ok(
-        r#"
-static mut COUNTER: i32 = 0;
-fn main() -> i32 { COUNTER = 1; COUNTER }
-"#,
-    );
-    let names = resolve_names(&mutable_static).expect("resolver should succeed");
-    let typed = check_module(&mutable_static, &names).expect("type checker should succeed");
-    let function = mutable_static
-        .module
-        .functions
-        .iter()
-        .find(|function| function.name == "main")
-        .expect("expected main function");
-    let block = mutable_static.module.block(function.body);
-    let tail_expr = block.tail_expr.expect("tail expr");
-    assert_eq!(
-        typed.type_table.expr_type(tail_expr),
-        Some(TypeId::Builtin(BuiltinType::I32))
-    );
-
+fn rejects_assignment_to_const() {
     let immutable_storage = common::lower_ok(
         r#"
 const VERSION: i32 = 1;
-static CACHE: i32 = 0;
-fn main() -> i32 { VERSION = 2; CACHE = 3; 0 }
+fn main() -> i32 { VERSION = 2; 0 }
 "#,
     );
     let names = resolve_names(&immutable_storage).expect("resolver should succeed");
     let diagnostics =
         check_module(&immutable_storage, &names).expect_err("type checker should reject writes");
 
-    assert_eq!(diagnostics.len(), 2);
+    assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
-    assert_eq!(diagnostics[1].kind, DiagnosticKind::InvalidAssignmentTarget);
 }

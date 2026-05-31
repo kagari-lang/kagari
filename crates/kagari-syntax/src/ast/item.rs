@@ -15,7 +15,6 @@ use crate::{
 ast_node!(SourceFile, SourceFile);
 ast_node!(FnDef, FnDef);
 ast_node!(ConstDef, ConstDef);
-ast_node!(StaticDef, StaticDef);
 ast_node!(StructDef, StructDef);
 ast_node!(EnumDef, EnumDef);
 
@@ -23,7 +22,6 @@ ast_node!(EnumDef, EnumDef);
 pub enum Item {
     FnDef(FnDef),
     ConstDef(ConstDef),
-    StaticDef(StaticDef),
     StructDef(StructDef),
     EnumDef(EnumDef),
 }
@@ -32,11 +30,7 @@ impl AstNode for Item {
     fn can_cast(kind: SyntaxKind) -> bool {
         matches!(
             kind,
-            SyntaxKind::FnDef
-                | SyntaxKind::ConstDef
-                | SyntaxKind::StaticDef
-                | SyntaxKind::StructDef
-                | SyntaxKind::EnumDef
+            SyntaxKind::FnDef | SyntaxKind::ConstDef | SyntaxKind::StructDef | SyntaxKind::EnumDef
         )
     }
 
@@ -44,7 +38,6 @@ impl AstNode for Item {
         match syntax.kind() {
             SyntaxKind::FnDef => FnDef::cast(syntax).map(Self::FnDef),
             SyntaxKind::ConstDef => ConstDef::cast(syntax).map(Self::ConstDef),
-            SyntaxKind::StaticDef => StaticDef::cast(syntax).map(Self::StaticDef),
             SyntaxKind::StructDef => StructDef::cast(syntax).map(Self::StructDef),
             SyntaxKind::EnumDef => EnumDef::cast(syntax).map(Self::EnumDef),
             _ => None,
@@ -55,7 +48,6 @@ impl AstNode for Item {
         match self {
             Self::FnDef(node) => node.syntax(),
             Self::ConstDef(node) => node.syntax(),
-            Self::StaticDef(node) => node.syntax(),
             Self::StructDef(node) => node.syntax(),
             Self::EnumDef(node) => node.syntax(),
         }
@@ -105,32 +97,6 @@ impl FnDef {
 impl ConstDef {
     pub fn is_pub(&self) -> bool {
         support::token(self.syntax(), SyntaxKind::PubKw).is_some()
-    }
-
-    pub fn name(&self) -> Option<Name> {
-        support::child(self.syntax())
-    }
-
-    pub fn name_text(&self) -> Option<String> {
-        self.name().and_then(|name| name.text())
-    }
-
-    pub fn ty(&self) -> Option<TypeRef> {
-        self.syntax().children().filter_map(TypeRef::cast).next()
-    }
-
-    pub fn initializer(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
-    }
-}
-
-impl StaticDef {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
-    }
-
-    pub fn is_mut(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::MutKw).is_some()
     }
 
     pub fn name(&self) -> Option<Name> {
