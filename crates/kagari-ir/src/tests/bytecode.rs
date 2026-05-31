@@ -344,6 +344,13 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
         artifact.validate_for_loader(&requirements),
         Err(ArtifactValidationError::RuntimeAbiMismatch { .. })
     ));
+    assert_eq!(
+        artifact
+            .validate_for_loader(&requirements)
+            .unwrap_err()
+            .code(),
+        "KG_ARTIFACT_RUNTIME_ABI_MISMATCH"
+    );
 
     let requirements = ArtifactCompatibility::default();
     artifact.module.constants.clear();
@@ -351,6 +358,13 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
         artifact.validate_for_loader(&requirements),
         Err(ArtifactValidationError::ContentHashMismatch)
     ));
+    assert_eq!(
+        artifact
+            .validate_for_loader(&requirements)
+            .unwrap_err()
+            .code(),
+        "KG_ARTIFACT_CONTENT_HASH_MISMATCH"
+    );
 
     let artifact = KbcArtifact::from_module(
         common::bytecode_ok("fn main() -> i32 { 1 }"),
@@ -366,6 +380,13 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
         artifact.validate_for_loader(&ArtifactCompatibility::default()),
         Err(ArtifactValidationError::DependencyFingerprintMismatch)
     ));
+    assert_eq!(
+        artifact
+            .validate_for_loader(&ArtifactCompatibility::default())
+            .unwrap_err()
+            .code(),
+        "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH"
+    );
 }
 
 #[test]
@@ -379,6 +400,10 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
         verify_module(&invalid_register),
         Err(BytecodeVerificationError::InvalidRegister { .. })
     ));
+    assert_eq!(
+        verify_module(&invalid_register).unwrap_err().code(),
+        "KG_BYTECODE_INVALID_REGISTER"
+    );
 
     let mut invalid_local = common::bytecode_ok("fn main() -> i32 { val value = 1; value }");
     invalid_local.functions[0].instructions[1] = BytecodeInstruction::StoreLocal {
@@ -389,6 +414,10 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
         verify_module(&invalid_local),
         Err(BytecodeVerificationError::InvalidLocal { .. })
     ));
+    assert_eq!(
+        verify_module(&invalid_local).unwrap_err().code(),
+        "KG_BYTECODE_INVALID_LOCAL"
+    );
 
     let mut invalid_jump = common::bytecode_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
     invalid_jump.functions[0]
@@ -399,6 +428,10 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
         verify_module(&invalid_jump),
         Err(BytecodeVerificationError::InvalidJumpTarget { .. })
     ));
+    assert_eq!(
+        verify_module(&invalid_jump).unwrap_err().code(),
+        "KG_BYTECODE_INVALID_JUMP_TARGET"
+    );
 }
 
 #[test]

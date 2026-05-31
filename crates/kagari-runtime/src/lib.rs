@@ -1068,6 +1068,7 @@ mod tests {
             .reload_module(&loaded, "reloadable", module_with_public_function("String"))
             .expect_err("public ABI change should reject reload");
 
+        assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
         assert!(matches!(
             error,
             ReloadValidationError::PublicAbiFingerprintMismatch
@@ -1094,6 +1095,7 @@ mod tests {
             .reload_module(&first, "reloadable", module_with_public_function("i32"))
             .expect_err("stale active epoch should reject reload");
 
+        assert_eq!(error.code(), "KG_RELOAD_MODULE_NOT_ACTIVE");
         assert!(matches!(
             error,
             ReloadValidationError::ModuleNotActive {
@@ -1126,6 +1128,7 @@ mod tests {
             .reload_module(&loaded, "reloadable", module_with_public_function("i32"))
             .expect_err("resource limit should reject reload before publication");
 
+        assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
         assert!(matches!(
             error,
             ReloadValidationError::Runtime(ref error)
@@ -1156,6 +1159,7 @@ mod tests {
             )
             .expect_err("loader compatibility mismatch should reject reload");
 
+        assert_eq!(error.code(), "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH");
         assert!(matches!(
             error,
             ReloadValidationError::Artifact(

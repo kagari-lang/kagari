@@ -16,6 +16,25 @@ pub enum RuntimeErrorKind {
     StaleHandle,
 }
 
+impl RuntimeErrorKind {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::CapabilityDenied => "KG_RUNTIME_CAPABILITY_DENIED",
+            Self::InvalidReflectiveRead => "KG_RUNTIME_INVALID_REFLECTIVE_READ",
+            Self::InvalidReflectiveWrite => "KG_RUNTIME_INVALID_REFLECTIVE_WRITE",
+            Self::ExpiredHostBorrow => "KG_RUNTIME_EXPIRED_HOST_BORROW",
+            Self::HostBorrowConflict => "KG_RUNTIME_HOST_BORROW_CONFLICT",
+            Self::HostBorrowEscape => "KG_RUNTIME_HOST_BORROW_ESCAPE",
+            Self::HostCallFailure => "KG_RUNTIME_HOST_CALL_FAILURE",
+            Self::TypedPathValidation => "KG_RUNTIME_TYPED_PATH_VALIDATION",
+            Self::ModuleValidation => "KG_RUNTIME_MODULE_VALIDATION",
+            Self::ResourceLimitExceeded => "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED",
+            Self::MetadataConflict => "KG_RUNTIME_METADATA_CONFLICT",
+            Self::StaleHandle => "KG_RUNTIME_STALE_HANDLE",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeError {
     kind: RuntimeErrorKind,
@@ -111,6 +130,10 @@ impl RuntimeError {
         self.kind
     }
 
+    pub fn code(&self) -> &'static str {
+        self.kind.code()
+    }
+
     pub fn message(&self) -> &str {
         &self.message
     }
@@ -123,3 +146,20 @@ impl fmt::Display for RuntimeError {
 }
 
 impl std::error::Error for RuntimeError {}
+
+#[cfg(test)]
+mod tests {
+    use super::{RuntimeError, RuntimeErrorKind};
+
+    #[test]
+    fn runtime_errors_expose_stable_codes() {
+        let error = RuntimeError::capability_denied("host_calls");
+
+        assert_eq!(
+            RuntimeErrorKind::CapabilityDenied.code(),
+            "KG_RUNTIME_CAPABILITY_DENIED"
+        );
+        assert_eq!(error.code(), "KG_RUNTIME_CAPABILITY_DENIED");
+        assert_eq!(error.kind(), RuntimeErrorKind::CapabilityDenied);
+    }
+}

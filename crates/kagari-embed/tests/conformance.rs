@@ -123,6 +123,7 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
         .load_module(incompatible, LoadOptions::default())
         .expect_err("incompatible artifact should be rejected before publication");
 
+    assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_HELPER_ABI_MISMATCH");
     assert!(matches!(
         error,
         EmbeddingError::ArtifactValidation {

@@ -248,6 +248,11 @@ fn compile_failures_return_structured_diagnostics() {
             .iter()
             .all(|diagnostic| !diagnostic.message.is_empty())
     );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.starts_with("KG_PARSE_"))
+    );
 }
 
 #[test]
@@ -266,7 +271,7 @@ fn analysis_failures_return_structured_diagnostics() {
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.contains("UnknownType"))
+            .any(|diagnostic| diagnostic.code == "KG_TYPE_UNKNOWN_TYPE")
     );
 }
 
@@ -296,6 +301,7 @@ fn execution_context_resource_limits_surface_as_runtime_failures() {
         .execute(&loaded, "main", &[], &context)
         .expect_err("execution should hit context resource limit");
 
+    assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
     assert!(matches!(
         error,
         EmbeddingError::Runtime {
@@ -336,6 +342,7 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
         )
         .expect_err("invalid artifact should not reload");
 
+    assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_ABI_MISMATCH");
     assert!(matches!(error, EmbeddingError::ReloadValidation { .. }));
     assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
     assert_eq!(
@@ -386,9 +393,10 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
         )
         .expect_err("changed typed path fingerprints should reject reload");
 
-    let EmbeddingError::ReloadValidation { message } = error else {
+    let EmbeddingError::ReloadValidation { code, message } = error else {
         panic!("expected reload validation error");
     };
+    assert_eq!(code, "KG_RELOAD_PATH_FINGERPRINT_MISMATCH");
     assert!(message.contains("typed path fingerprints"));
     assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
     assert_eq!(
@@ -422,6 +430,7 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
         .execute(&loaded, "main", &[Value::I32(1)], &context)
         .expect_err("argument passing is not implemented yet");
 
+    assert_eq!(error.code(), "KG_RUNTIME_UNSUPPORTED_EXECUTION");
     assert!(matches!(
         error,
         EmbeddingError::Runtime {
@@ -481,6 +490,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         .execute(&loaded, "main", &[], &context)
         .expect_err("context should deny host path mutation");
 
+    assert_eq!(error.code(), "KG_RUNTIME_CAPABILITY_DENIED");
     assert!(matches!(
         error,
         EmbeddingError::Runtime {
@@ -539,6 +549,7 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         .execute(&loaded, "main", &[], &context)
         .expect_err("missing capability should surface through embedding runtime errors");
 
+    assert_eq!(error.code(), "KG_RUNTIME_CAPABILITY_DENIED");
     assert!(matches!(
         error,
         EmbeddingError::Runtime {

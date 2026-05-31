@@ -36,6 +36,21 @@ pub enum ReloadValidationError {
     PathFingerprintMismatch,
 }
 
+impl ReloadValidationError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::ModuleIdentityMismatch { .. } => "KG_RELOAD_MODULE_IDENTITY_MISMATCH",
+            Self::ModuleIdChanged { .. } => "KG_RELOAD_MODULE_ID_CHANGED",
+            Self::ModuleNotActive { .. } => "KG_RELOAD_MODULE_NOT_ACTIVE",
+            Self::Artifact(error) => error.code(),
+            Self::Bytecode(error) => error.code(),
+            Self::Runtime(error) => error.code(),
+            Self::PublicAbiFingerprintMismatch => "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH",
+            Self::PathFingerprintMismatch => "KG_RELOAD_PATH_FINGERPRINT_MISMATCH",
+        }
+    }
+}
+
 impl std::fmt::Display for ReloadValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -57,8 +72,8 @@ impl std::fmt::Display for ReloadValidationError {
                 "reload target `{module_name}` is not active: expected {:?}, active {:?}",
                 expected, active
             ),
-            Self::Artifact(error) => write!(f, "reload artifact validation failed: {error:?}"),
-            Self::Bytecode(error) => write!(f, "reload bytecode validation failed: {error:?}"),
+            Self::Artifact(error) => write!(f, "reload artifact validation failed: {error}"),
+            Self::Bytecode(error) => write!(f, "reload bytecode validation failed: {error}"),
             Self::Runtime(error) => write!(f, "reload runtime validation failed: {error}"),
             Self::PublicAbiFingerprintMismatch => {
                 write!(f, "reload public ABI fingerprints changed")

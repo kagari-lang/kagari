@@ -451,7 +451,7 @@ impl EmbeddingDiagnostic {
     fn from_diagnostic(diagnostic: Diagnostic) -> Self {
         Self {
             severity: diagnostic.severity,
-            code: format!("{:?}", diagnostic.kind),
+            code: diagnostic.kind.code().to_owned(),
             span: diagnostic.span,
             message: diagnostic.kind.to_string(),
             notes: Vec::new(),
@@ -481,6 +481,17 @@ pub enum CompilationPhase {
     BytecodeLowering,
 }
 
+impl CompilationPhase {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Parse => "KG_COMPILE_PARSE",
+            Self::Analyze => "KG_COMPILE_ANALYZE",
+            Self::IrLowering => "KG_COMPILE_IR_LOWERING",
+            Self::BytecodeLowering => "KG_COMPILE_BYTECODE_LOWERING",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeFailureKind {
     ScriptTrap,
@@ -493,6 +504,23 @@ pub enum RuntimeFailureKind {
     ReloadValidation,
     EngineInvariant,
     UnsupportedExecution,
+}
+
+impl RuntimeFailureKind {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",
+            Self::BytecodeVerification => "KG_BYTECODE_VERIFICATION_FAILED",
+            Self::CapabilityDenied => "KG_RUNTIME_CAPABILITY_DENIED",
+            Self::ResourceLimitExceeded => "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED",
+            Self::HostCallFailure => "KG_RUNTIME_HOST_CALL_FAILURE",
+            Self::TypedPathValidation => "KG_RUNTIME_TYPED_PATH_VALIDATION",
+            Self::StaleModuleOrHostRoot => "KG_RUNTIME_STALE_HANDLE",
+            Self::ReloadValidation => "KG_RELOAD_VALIDATION_FAILED",
+            Self::EngineInvariant => "KG_ENGINE_INVARIANT",
+            Self::UnsupportedExecution => "KG_RUNTIME_UNSUPPORTED_EXECUTION",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -515,11 +543,26 @@ pub enum EmbeddingError {
         message: String,
     },
     ReloadValidation {
+        code: String,
         message: String,
     },
 }
 
 impl EmbeddingError {
+    pub fn code(&self) -> String {
+        match self {
+            Self::Diagnostics { diagnostics } => diagnostics
+                .first()
+                .map(|diagnostic| diagnostic.code.clone())
+                .unwrap_or_else(|| "KG_DIAGNOSTIC_EMPTY".to_owned()),
+            Self::Compilation { phase, .. } => phase.code().to_owned(),
+            Self::ArtifactValidation { error } => error.code().to_owned(),
+            Self::Load { error } => error.code().to_owned(),
+            Self::Runtime { kind, .. } => kind.code().to_owned(),
+            Self::ReloadValidation { code, .. } => code.clone(),
+        }
+    }
+
     fn diagnostics(diagnostics: Box<smallvec::SmallVec<[Diagnostic; 4]>>) -> Self {
         Self::Diagnostics {
             diagnostics: diagnostics
@@ -560,8 +603,10 @@ impl EmbeddingError {
     }
 
     fn reload_validation(error: impl Into<ReloadValidationError>) -> Self {
+        let error = error.into();
         Self::ReloadValidation {
-            message: error.into().to_string(),
+            code: error.code().to_owned(),
+            message: error.to_string(),
         }
     }
 
@@ -619,8 +664,17 @@ pub enum ReloadValidationError {
 impl std::fmt::Display for ReloadValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Artifact(error) => write!(f, "artifact validation failed: {error:?}"),
+            Self::Artifact(error) => write!(f, "artifact validation failed: {error}"),
             Self::Runtime(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl ReloadValidationError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Artifact(error) => error.code(),
+            Self::Runtime(error) => error.code(),
         }
     }
 }

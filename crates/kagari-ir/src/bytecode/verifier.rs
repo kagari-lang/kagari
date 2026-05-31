@@ -1,3 +1,5 @@
+use std::fmt::{self, Display, Formatter};
+
 use crate::{
     bytecode::{
         BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
@@ -75,6 +77,114 @@ pub enum BytecodeVerificationError {
         found: usize,
     },
 }
+
+impl BytecodeVerificationError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidModuleInit(_) => "KG_BYTECODE_INVALID_MODULE_INIT",
+            Self::FunctionTableLengthMismatch { .. } => {
+                "KG_BYTECODE_FUNCTION_TABLE_LENGTH_MISMATCH"
+            }
+            Self::FunctionRecordMismatch { .. } => "KG_BYTECODE_FUNCTION_RECORD_MISMATCH",
+            Self::MetadataCountMismatch { .. } => "KG_BYTECODE_METADATA_COUNT_MISMATCH",
+            Self::InvalidRegister { .. } => "KG_BYTECODE_INVALID_REGISTER",
+            Self::InvalidLocal { .. } => "KG_BYTECODE_INVALID_LOCAL",
+            Self::InvalidModuleSlot { .. } => "KG_BYTECODE_INVALID_MODULE_SLOT",
+            Self::InvalidFieldId { .. } => "KG_BYTECODE_INVALID_FIELD_ID",
+            Self::InvalidPathId { .. } => "KG_BYTECODE_INVALID_PATH_ID",
+            Self::ReadOnlyPath { .. } => "KG_BYTECODE_READ_ONLY_PATH",
+            Self::InvalidFunctionRef { .. } => "KG_BYTECODE_INVALID_FUNCTION_REF",
+            Self::MissingConstant { .. } => "KG_BYTECODE_MISSING_CONSTANT",
+            Self::MissingType { .. } => "KG_BYTECODE_MISSING_TYPE",
+            Self::InvalidJumpTarget { .. } => "KG_BYTECODE_INVALID_JUMP_TARGET",
+            Self::TypeMismatch { .. } => "KG_BYTECODE_TYPE_MISMATCH",
+            Self::ArityMismatch { .. } => "KG_BYTECODE_ARITY_MISMATCH",
+        }
+    }
+}
+
+impl Display for BytecodeVerificationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidModuleInit(function) => {
+                write!(
+                    f,
+                    "invalid module initializer function reference {function:?}"
+                )
+            }
+            Self::FunctionTableLengthMismatch { functions, table } => write!(
+                f,
+                "function table length mismatch: {functions} functions, {table} table records"
+            ),
+            Self::FunctionRecordMismatch { function } => {
+                write!(f, "function record mismatch for {function:?}")
+            }
+            Self::MetadataCountMismatch {
+                function,
+                layout,
+                expected,
+                found,
+            } => write!(
+                f,
+                "metadata count mismatch in {function:?} {layout}: expected {expected}, found {found}"
+            ),
+            Self::InvalidRegister { function, register } => {
+                write!(f, "invalid register {register:?} in {function:?}")
+            }
+            Self::InvalidLocal { function, local } => {
+                write!(f, "invalid local {local:?} in {function:?}")
+            }
+            Self::InvalidModuleSlot { function, slot } => {
+                write!(f, "invalid module slot {slot:?} in {function:?}")
+            }
+            Self::InvalidFieldId { function, field } => {
+                write!(f, "invalid field id {field:?} in {function:?}")
+            }
+            Self::InvalidPathId { function, path } => {
+                write!(f, "invalid path id {path:?} in {function:?}")
+            }
+            Self::ReadOnlyPath { function, path } => {
+                write!(f, "write to read-only path {path:?} in {function:?}")
+            }
+            Self::InvalidFunctionRef { function, target } => write!(
+                f,
+                "invalid call target {target:?} referenced from {function:?}"
+            ),
+            Self::MissingConstant { function } => {
+                write!(
+                    f,
+                    "instruction in {function:?} references a missing constant"
+                )
+            }
+            Self::MissingType { function, ty } => {
+                write!(f, "metadata in {function:?} references missing type {ty:?}")
+            }
+            Self::InvalidJumpTarget { function, target } => {
+                write!(f, "invalid jump target {target:?} in {function:?}")
+            }
+            Self::TypeMismatch {
+                function,
+                context,
+                expected,
+                found,
+            } => write!(
+                f,
+                "bytecode type mismatch in {function:?} {context}: expected {expected:?}, found {found:?}"
+            ),
+            Self::ArityMismatch {
+                function,
+                target,
+                expected,
+                found,
+            } => write!(
+                f,
+                "call arity mismatch in {function:?} to {target:?}: expected {expected}, found {found}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for BytecodeVerificationError {}
 
 pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
     if module.function_table.len() != module.functions.len() {

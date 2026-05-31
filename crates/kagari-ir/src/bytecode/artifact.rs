@@ -1,3 +1,5 @@
+use std::fmt::{self, Display, Formatter};
+
 use crate::{
     bytecode::{BytecodeDebugMetadata, BytecodeModule, FunctionRef, PathId, verify_module},
     module::ValueType,
@@ -618,6 +620,82 @@ pub enum ArtifactValidationError {
     PublicAbiFingerprintMismatch,
     Bytecode(crate::bytecode::BytecodeVerificationError),
 }
+
+impl ArtifactValidationError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidMagic(_) => "KG_ARTIFACT_INVALID_MAGIC",
+            Self::FormatVersionMismatch { .. } => "KG_ARTIFACT_FORMAT_VERSION_MISMATCH",
+            Self::LanguageVersionMismatch { .. } => "KG_ARTIFACT_LANGUAGE_VERSION_MISMATCH",
+            Self::RuntimeAbiMismatch { .. } => "KG_ARTIFACT_RUNTIME_ABI_MISMATCH",
+            Self::RuntimeHelperAbiMismatch { .. } => "KG_ARTIFACT_RUNTIME_HELPER_ABI_MISMATCH",
+            Self::ModuleIdentityMismatch { .. } => "KG_ARTIFACT_MODULE_IDENTITY_MISMATCH",
+            Self::ContentHashMismatch => "KG_ARTIFACT_CONTENT_HASH_MISMATCH",
+            Self::UnverifiedBytecode => "KG_ARTIFACT_UNVERIFIED_BYTECODE",
+            Self::DependencyFingerprintMismatch => "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH",
+            Self::HostRegistryFingerprintMismatch { .. } => {
+                "KG_ARTIFACT_HOST_REGISTRY_FINGERPRINT_MISMATCH"
+            }
+            Self::SecurityProfileMismatch { .. } => "KG_ARTIFACT_SECURITY_PROFILE_MISMATCH",
+            Self::PathFingerprintMismatch => "KG_ARTIFACT_PATH_FINGERPRINT_MISMATCH",
+            Self::PublicAbiFingerprintMismatch => "KG_ARTIFACT_PUBLIC_ABI_FINGERPRINT_MISMATCH",
+            Self::Bytecode(error) => error.code(),
+        }
+    }
+}
+
+impl Display for ArtifactValidationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidMagic(magic) => write!(f, "invalid KBC magic bytes {magic:?}"),
+            Self::FormatVersionMismatch { expected, found } => write!(
+                f,
+                "artifact format version mismatch: expected {expected}, found {found}"
+            ),
+            Self::LanguageVersionMismatch { expected, found } => write!(
+                f,
+                "artifact language version mismatch: expected `{expected}`, found `{found}`"
+            ),
+            Self::RuntimeAbiMismatch { expected, found } => write!(
+                f,
+                "artifact runtime ABI mismatch: expected `{expected}`, found `{found}`"
+            ),
+            Self::RuntimeHelperAbiMismatch { expected, found } => write!(
+                f,
+                "artifact runtime helper ABI mismatch: expected `{expected}`, found `{found}`"
+            ),
+            Self::ModuleIdentityMismatch { expected, found } => write!(
+                f,
+                "artifact module identity mismatch: expected `{}`, found `{}`",
+                expected.module_id, found.module_id
+            ),
+            Self::ContentHashMismatch => write!(f, "artifact content hash mismatch"),
+            Self::UnverifiedBytecode => write!(f, "artifact bytecode was not verified"),
+            Self::DependencyFingerprintMismatch => {
+                write!(f, "artifact dependency fingerprints mismatch")
+            }
+            Self::HostRegistryFingerprintMismatch { expected, found } => write!(
+                f,
+                "artifact host registry fingerprint mismatch: expected {}, found {}",
+                expected.to_hex(),
+                found.to_hex()
+            ),
+            Self::SecurityProfileMismatch { expected, found } => write!(
+                f,
+                "artifact security profile mismatch: expected {expected:?}, found {found:?}"
+            ),
+            Self::PathFingerprintMismatch => {
+                write!(f, "artifact typed path fingerprints mismatch")
+            }
+            Self::PublicAbiFingerprintMismatch => {
+                write!(f, "artifact public ABI fingerprints mismatch")
+            }
+            Self::Bytecode(error) => write!(f, "artifact bytecode verification failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ArtifactValidationError {}
 
 pub type ArtifactSectionBuffer = Vec<ArtifactSection>;
 pub type HostDependencyTable = Vec<String>;

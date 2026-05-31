@@ -202,6 +202,106 @@ impl Diagnostic {
     }
 }
 
+impl DiagnosticKind {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnexpectedToken => "KG_PARSE_UNEXPECTED_TOKEN",
+            Self::ExpectedTopLevelItem => "KG_PARSE_EXPECTED_TOP_LEVEL_ITEM",
+            Self::TopLevelControlFlowNotAllowed => "KG_PARSE_TOP_LEVEL_CONTROL_FLOW",
+            Self::ExpectedModuleKeyword => "KG_PARSE_EXPECTED_MODULE_KEYWORD",
+            Self::ExpectedModuleName => "KG_PARSE_EXPECTED_MODULE_NAME",
+            Self::ExpectedModuleBodyStart => "KG_PARSE_EXPECTED_MODULE_BODY_START",
+            Self::ExpectedUseKeyword => "KG_PARSE_EXPECTED_USE_KEYWORD",
+            Self::ExpectedUseTree => "KG_PARSE_EXPECTED_USE_TREE",
+            Self::ExpectedUseAlias => "KG_PARSE_EXPECTED_USE_ALIAS",
+            Self::ExpectedPath => "KG_PARSE_EXPECTED_PATH",
+            Self::ExpectedTraitKeyword => "KG_PARSE_EXPECTED_TRAIT_KEYWORD",
+            Self::ExpectedTraitName => "KG_PARSE_EXPECTED_TRAIT_NAME",
+            Self::ExpectedImplKeyword => "KG_PARSE_EXPECTED_IMPL_KEYWORD",
+            Self::ExpectedImplBodyStart => "KG_PARSE_EXPECTED_IMPL_BODY_START",
+            Self::ExpectedForKeyword => "KG_PARSE_EXPECTED_FOR_KEYWORD",
+            Self::ExpectedGenericParameterName => "KG_PARSE_EXPECTED_GENERIC_PARAMETER_NAME",
+            Self::ExpectedWherePredicateSeparator => "KG_PARSE_EXPECTED_WHERE_PREDICATE_SEPARATOR",
+            Self::ExpectedFunctionKeyword => "KG_PARSE_EXPECTED_FUNCTION_KEYWORD",
+            Self::ExpectedConstKeyword => "KG_PARSE_EXPECTED_CONST_KEYWORD",
+            Self::ExpectedStructKeyword => "KG_PARSE_EXPECTED_STRUCT_KEYWORD",
+            Self::ExpectedEnumKeyword => "KG_PARSE_EXPECTED_ENUM_KEYWORD",
+            Self::ExpectedTraitBodyStart => "KG_PARSE_EXPECTED_TRAIT_BODY_START",
+            Self::ExpectedBindingKeyword => "KG_PARSE_EXPECTED_BINDING_KEYWORD",
+            Self::ExpectedReturnKeyword => "KG_PARSE_EXPECTED_RETURN_KEYWORD",
+            Self::ExpectedBreakKeyword => "KG_PARSE_EXPECTED_BREAK_KEYWORD",
+            Self::ExpectedContinueKeyword => "KG_PARSE_EXPECTED_CONTINUE_KEYWORD",
+            Self::ExpectedFunctionName => "KG_PARSE_EXPECTED_FUNCTION_NAME",
+            Self::ExpectedConstName => "KG_PARSE_EXPECTED_CONST_NAME",
+            Self::ExpectedStructName => "KG_PARSE_EXPECTED_STRUCT_NAME",
+            Self::ExpectedEnumName => "KG_PARSE_EXPECTED_ENUM_NAME",
+            Self::ExpectedFieldName => "KG_PARSE_EXPECTED_FIELD_NAME",
+            Self::ExpectedVariantName => "KG_PARSE_EXPECTED_VARIANT_NAME",
+            Self::ExpectedIfKeyword => "KG_PARSE_EXPECTED_IF_KEYWORD",
+            Self::ExpectedMatchKeyword => "KG_PARSE_EXPECTED_MATCH_KEYWORD",
+            Self::ExpectedElseBranch => "KG_PARSE_EXPECTED_ELSE_BRANCH",
+            Self::ExpectedWhileKeyword => "KG_PARSE_EXPECTED_WHILE_KEYWORD",
+            Self::ExpectedLoopKeyword => "KG_PARSE_EXPECTED_LOOP_KEYWORD",
+            Self::ExpectedFunctionParameterListStart => {
+                "KG_PARSE_EXPECTED_FUNCTION_PARAMETER_LIST_START"
+            }
+            Self::ExpectedFunctionParameterListEnd => {
+                "KG_PARSE_EXPECTED_FUNCTION_PARAMETER_LIST_END"
+            }
+            Self::ExpectedClosingParen => "KG_PARSE_EXPECTED_CLOSING_PAREN",
+            Self::ExpectedClosingBracket => "KG_PARSE_EXPECTED_CLOSING_BRACKET",
+            Self::ExpectedParameterName => "KG_PARSE_EXPECTED_PARAMETER_NAME",
+            Self::ExpectedParameterTypeSeparator => "KG_PARSE_EXPECTED_PARAMETER_TYPE_SEPARATOR",
+            Self::ExpectedFieldTypeSeparator => "KG_PARSE_EXPECTED_FIELD_TYPE_SEPARATOR",
+            Self::ExpectedStructLiteralBodyStart => "KG_PARSE_EXPECTED_STRUCT_LITERAL_BODY_START",
+            Self::ExpectedMatchBodyStart => "KG_PARSE_EXPECTED_MATCH_BODY_START",
+            Self::ExpectedMatchPattern => "KG_PARSE_EXPECTED_MATCH_PATTERN",
+            Self::ExpectedMatchArmArrow => "KG_PARSE_EXPECTED_MATCH_ARM_ARROW",
+            Self::ExpectedType => "KG_PARSE_EXPECTED_TYPE",
+            Self::ExpectedBindingName => "KG_PARSE_EXPECTED_BINDING_NAME",
+            Self::ExpectedAssignmentOperator => "KG_PARSE_EXPECTED_ASSIGNMENT_OPERATOR",
+            Self::ExpectedFieldBinding => "KG_PARSE_EXPECTED_FIELD_BINDING",
+            Self::ExpectedConstInitializer => "KG_PARSE_EXPECTED_CONST_INITIALIZER",
+            Self::ExpectedFunctionBodyStart => "KG_PARSE_EXPECTED_FUNCTION_BODY_START",
+            Self::ExpectedStructBodyStart => "KG_PARSE_EXPECTED_STRUCT_BODY_START",
+            Self::ExpectedBlockEnd => "KG_PARSE_EXPECTED_BLOCK_END",
+            Self::ExpectedStatementTerminator => "KG_PARSE_EXPECTED_STATEMENT_TERMINATOR",
+            Self::ExpectedExpression => "KG_PARSE_EXPECTED_EXPRESSION",
+            Self::MissingFunctionName => "KG_RESOLVE_MISSING_FUNCTION_NAME",
+            Self::DuplicateFunction { .. } => "KG_RESOLVE_DUPLICATE_FUNCTION",
+            Self::UnknownType { .. } => "KG_TYPE_UNKNOWN_TYPE",
+            Self::UnknownConstType { .. } => "KG_TYPE_UNKNOWN_CONST_TYPE",
+            Self::InvalidConstInitializer { .. } => "KG_TYPE_INVALID_CONST_INITIALIZER",
+            Self::ConstCycle { .. } => "KG_TYPE_CONST_CYCLE",
+            Self::ConstWriteNotAllowed { .. } => "KG_TYPE_CONST_WRITE_NOT_ALLOWED",
+            Self::CallArityMismatch { .. } => "KG_TYPE_CALL_ARITY_MISMATCH",
+            Self::ArgumentTypeMismatch { .. } => "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
+            Self::InvalidAssignmentTarget { .. } => "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
+            Self::AssignmentTypeMismatch { .. } => "KG_TYPE_ASSIGNMENT_TYPE_MISMATCH",
+            Self::ConditionTypeMismatch { .. } => "KG_TYPE_CONDITION_TYPE_MISMATCH",
+            Self::BinaryOperandTypeMismatch { .. } => "KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH",
+            Self::UnaryOperandTypeMismatch { .. } => "KG_TYPE_UNARY_OPERAND_TYPE_MISMATCH",
+            Self::ArrayElementTypeMismatch { .. } => "KG_TYPE_ARRAY_ELEMENT_TYPE_MISMATCH",
+            Self::InvalidStructInitializer { .. } => "KG_TYPE_INVALID_STRUCT_INITIALIZER",
+            Self::UnknownTrait { .. } => "KG_TYPE_UNKNOWN_TRAIT",
+            Self::InvalidTraitImpl { .. } => "KG_TYPE_INVALID_TRAIT_IMPL",
+            Self::InvalidInterfaceType { .. } => "KG_TYPE_INVALID_INTERFACE_TYPE",
+            Self::TraitMethodMismatch { .. } => "KG_TYPE_TRAIT_METHOD_MISMATCH",
+            Self::IfBranchTypeMismatch { .. } => "KG_TYPE_IF_BRANCH_TYPE_MISMATCH",
+            Self::MatchArmTypeMismatch { .. } => "KG_TYPE_MATCH_ARM_TYPE_MISMATCH",
+            Self::ReturnTypeMismatch { .. } => "KG_TYPE_RETURN_TYPE_MISMATCH",
+            Self::BreakOutsideLoop => "KG_TYPE_BREAK_OUTSIDE_LOOP",
+            Self::ContinueOutsideLoop => "KG_TYPE_CONTINUE_OUTSIDE_LOOP",
+            Self::LegacyLetBinding => "KG_PARSE_LEGACY_LET_BINDING",
+            Self::LegacyStaticItem => "KG_PARSE_LEGACY_STATIC_ITEM",
+            Self::LegacyRefParameter => "KG_PARSE_LEGACY_REF_PARAMETER",
+            Self::LegacyReceiverModifier => "KG_PARSE_LEGACY_RECEIVER_MODIFIER",
+            Self::LegacyDynTrait => "KG_PARSE_LEGACY_DYN_TRAIT",
+            Self::ProfileFeatureDisabled { .. } => "KG_PROFILE_FEATURE_DISABLED",
+        }
+    }
+}
+
 impl Display for DiagnosticKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -450,5 +550,34 @@ impl Display for Diagnostic {
             ),
             None => write!(f, "{:?}: {}", self.severity, self.kind),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DiagnosticKind, TypePosition};
+
+    #[test]
+    fn diagnostic_kinds_expose_stable_codes() {
+        assert_eq!(
+            DiagnosticKind::LegacyLetBinding.code(),
+            "KG_PARSE_LEGACY_LET_BINDING"
+        );
+        assert_eq!(
+            DiagnosticKind::DuplicateFunction {
+                name: "main".to_owned()
+            }
+            .code(),
+            "KG_RESOLVE_DUPLICATE_FUNCTION"
+        );
+        assert_eq!(
+            DiagnosticKind::UnknownType {
+                type_name: "Missing".to_owned(),
+                function_name: "main".to_owned(),
+                position: TypePosition::Return,
+            }
+            .code(),
+            "KG_TYPE_UNKNOWN_TYPE"
+        );
     }
 }
