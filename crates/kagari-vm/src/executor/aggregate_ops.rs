@@ -14,11 +14,17 @@ impl Executor<'_> {
     }
 
     pub(crate) fn make_array(&self, elements: &[Register]) -> Result<Value, VmError> {
-        elements
+        let elements = elements
             .iter()
             .map(|element| self.current_frame()?.read_register(*element))
-            .collect::<Result<Vec<_>, _>>()
-            .map(|elements| Value::Array(self.runtime.gc().alloc_array(elements)))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.runtime
+            .gc()
+            .alloc_array(elements)
+            .map(Value::Array)
+            .ok_or(VmError::TypeMismatch(
+                "make_array expects default-storable elements",
+            ))
     }
 
     pub(crate) fn make_struct(
@@ -36,7 +42,13 @@ impl Executor<'_> {
             })
             .collect::<Result<Vec<_>, VmError>>()?;
 
-        Ok(Value::Struct(self.runtime.gc().alloc_struct(name, fields)))
+        self.runtime
+            .gc()
+            .alloc_struct(name, fields)
+            .map(Value::Struct)
+            .ok_or(VmError::TypeMismatch(
+                "make_struct expects default-storable fields",
+            ))
     }
 
     pub(crate) fn read_field(&self, base: Register, name: &str) -> Result<Value, VmError> {
@@ -86,6 +98,11 @@ impl Executor<'_> {
         value: Register,
     ) -> Result<(), VmError> {
         let value = self.current_frame()?.read_register(value)?;
+        if !value.is_default_heap_payload() {
+            return Err(VmError::TypeMismatch(
+                "write_field expects default-storable value",
+            ));
+        }
         match self.current_frame()?.read_register(base)? {
             Value::Struct(handle) => self
                 .runtime
@@ -116,11 +133,17 @@ impl Executor<'_> {
         };
 
         match base_value {
-            Value::Array(handle) => self
-                .runtime
-                .gc()
-                .array_set(handle, index, value)
-                .ok_or(VmError::InvalidIndex(index)),
+            Value::Array(handle) => {
+                if !value.is_default_heap_payload() {
+                    return Err(VmError::TypeMismatch(
+                        "write_index expects default-storable value",
+                    ));
+                }
+                self.runtime
+                    .gc()
+                    .array_set(handle, index, value)
+                    .ok_or(VmError::InvalidIndex(index))
+            }
             Value::Tuple(mut elements) => {
                 let Some(slot) = elements.get_mut(index) else {
                     return Err(VmError::InvalidIndex(index));

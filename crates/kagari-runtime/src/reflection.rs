@@ -35,8 +35,10 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
             );
         }
         Value::GcHandle(_) => "gc_handle",
-        Value::HostRef(_) => "host_ref",
-        Value::HostMut(_) => "host_mut",
+        Value::Interface(_) => "interface",
+        Value::HostOwned(_) => "host_owned",
+        Value::HostPathView(_) => "host_path_view",
+        Value::Ephemeral(_) => "ephemeral",
     };
 
     Value::Str(type_name.to_owned())
@@ -59,6 +61,12 @@ pub fn set_field(
     field_name: &str,
     next_value: Value,
 ) -> Result<Value, ReflectionError> {
+    if !next_value.is_default_heap_payload() {
+        return Err(ReflectionError::new(
+            "reflect_set_field expects default-storable value",
+        ));
+    }
+
     match value {
         Value::Struct(handle) => {
             let Some(()) = gc.struct_set_field(*handle, field_name, next_value) else {
@@ -80,6 +88,12 @@ pub fn set_index(
     index: &Value,
     next_value: Value,
 ) -> Result<Value, ReflectionError> {
+    if !next_value.is_default_heap_payload() {
+        return Err(ReflectionError::new(
+            "reflect_set_index expects default-storable value",
+        ));
+    }
+
     let index = match index {
         Value::I32(index) if *index >= 0 => *index as usize,
         Value::I64(index) if *index >= 0 => *index as usize,
@@ -108,5 +122,37 @@ pub fn set_index(
         _ => Err(ReflectionError::new(
             "reflect_set_index expects array or tuple value",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        gc::GcHeapConfig,
+        host::HostObjectId,
+        value::{HostPathViewId, InterfaceObjectId},
+    };
+
+    #[test]
+    fn reports_production_value_category_names() {
+        let gc = GcHeap::new(GcHeapConfig::default());
+
+        assert_eq!(
+            type_of(&gc, &Value::Interface(InterfaceObjectId(1))),
+            Value::Str("interface".to_owned())
+        );
+        assert_eq!(
+            type_of(&gc, &Value::HostOwned(HostObjectId(2))),
+            Value::Str("host_owned".to_owned())
+        );
+        assert_eq!(
+            type_of(&gc, &Value::HostPathView(HostPathViewId(3))),
+            Value::Str("host_path_view".to_owned())
+        );
+        assert_eq!(
+            type_of(&gc, &Value::host_ref(HostObjectId(4))),
+            Value::Str("ephemeral".to_owned())
+        );
     }
 }

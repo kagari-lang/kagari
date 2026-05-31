@@ -37,6 +37,12 @@ fn push(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         ));
     };
 
+    if !next_value.is_default_heap_payload() {
+        return Err(BuiltinError::new(
+            "array.push expects default-storable value",
+        ));
+    }
+
     match value {
         Value::Array(handle) => gc
             .array_push(*handle, next_value.clone())

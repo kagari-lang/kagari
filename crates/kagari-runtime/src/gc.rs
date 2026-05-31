@@ -61,12 +61,25 @@ impl GcHeap {
         self.objects.borrow().len()
     }
 
-    pub fn alloc_array(&self, elements: Vec<Value>) -> HeapObjectId {
-        self.alloc_object(HeapObject::Array(elements))
+    pub fn alloc_array(&self, elements: Vec<Value>) -> Option<HeapObjectId> {
+        if !elements.iter().all(Value::is_default_heap_payload) {
+            return None;
+        }
+        Some(self.alloc_object(HeapObject::Array(elements)))
     }
 
-    pub fn alloc_struct(&self, name: String, fields: Vec<StructValueField>) -> HeapObjectId {
-        self.alloc_object(HeapObject::Struct { name, fields })
+    pub fn alloc_struct(
+        &self,
+        name: String,
+        fields: Vec<StructValueField>,
+    ) -> Option<HeapObjectId> {
+        if !fields
+            .iter()
+            .all(|field| field.value.is_default_heap_payload())
+        {
+            return None;
+        }
+        Some(self.alloc_object(HeapObject::Struct { name, fields }))
     }
 
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {
@@ -83,6 +96,9 @@ impl GcHeap {
     }
 
     pub fn array_push(&self, id: HeapObjectId, value: Value) -> Option<()> {
+        if !value.is_default_heap_payload() {
+            return None;
+        }
         self.with_array_mut(id, |elements| {
             elements.push(value);
         })
@@ -93,6 +109,9 @@ impl GcHeap {
     }
 
     pub fn array_set(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
+        if !value.is_default_heap_payload() {
+            return None;
+        }
         self.with_array_mut(id, |elements| {
             let slot = elements.get_mut(index)?;
             *slot = value;
@@ -125,6 +144,9 @@ impl GcHeap {
         field_name: &str,
         next_value: Value,
     ) -> Option<()> {
+        if !next_value.is_default_heap_payload() {
+            return None;
+        }
         self.with_struct_mut(id, |_, fields| {
             let field = fields.iter_mut().find(|field| field.name == field_name)?;
             field.value = next_value;
@@ -182,5 +204,81 @@ impl GcHeap {
             HeapObject::Struct { name, fields } => Some(f(name, fields)),
             HeapObject::Array(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        host::HostObjectId,
+        value::{HostPathViewId, StructValueField},
+    };
+
+    #[test]
+    fn rejects_ephemeral_values_as_heap_payloads() {
+        let heap = GcHeap::new(GcHeapConfig::default());
+
+        assert!(
+            heap.alloc_array(vec![Value::host_ref(HostObjectId(1))])
+                .is_none()
+        );
+        assert!(
+            heap.alloc_array(vec![Value::host_mut(HostObjectId(2))])
+                .is_none()
+        );
+        assert_eq!(heap.allocated_objects(), 0);
+    }
+
+    #[test]
+    fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
+        let heap = GcHeap::new(GcHeapConfig::default());
+
+        assert!(
+            heap.alloc_array(vec![Value::HostOwned(HostObjectId(1))])
+                .is_none()
+        );
+        assert!(
+            heap.alloc_struct(
+                "HostBacked".to_owned(),
+                vec![StructValueField {
+                    name: "path".to_owned(),
+                    value: Value::HostPathView(HostPathViewId(3)),
+                }],
+            )
+            .is_none()
+        );
+        assert_eq!(heap.allocated_objects(), 0);
+    }
+
+    #[test]
+    fn rejects_non_storable_heap_mutations() {
+        let heap = GcHeap::new(GcHeapConfig::default());
+        let array = heap.alloc_array(vec![Value::I32(1)]).unwrap();
+        let record = heap
+            .alloc_struct(
+                "Record".to_owned(),
+                vec![StructValueField {
+                    name: "value".to_owned(),
+                    value: Value::I32(1),
+                }],
+            )
+            .unwrap();
+
+        assert!(
+            heap.array_push(array, Value::host_ref(HostObjectId(1)))
+                .is_none()
+        );
+        assert!(
+            heap.array_set(array, 0, Value::HostPathView(HostPathViewId(4)))
+                .is_none()
+        );
+        assert!(
+            heap.struct_set_field(record, "value", Value::HostOwned(HostObjectId(5)))
+                .is_none()
+        );
+
+        assert_eq!(heap.array_snapshot(array), Some(vec![Value::I32(1)]));
+        assert_eq!(heap.struct_get_field(record, "value"), Some(Value::I32(1)));
     }
 }
