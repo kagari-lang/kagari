@@ -1,9 +1,25 @@
 use kagari_common::SourceFile;
 use kagari_embed::{
-    ArtifactOptions, CompileOptions, EmbeddingError, ExecutionContext, HostExposurePolicy,
-    KagariEngine, LoadOptions, ReloadOptions, RuntimeFailureKind,
+    ArtifactOptions, BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext,
+    HostExposurePolicy, KagariEngine, KagariRuntime, LoadOptions, ReloadOptions,
+    RuntimeFailureKind,
 };
-use kagari_runtime::{CapabilitySet, LanguageProfile, ResourcePolicy, value::Value};
+use kagari_ir::{
+    bytecode::{
+        ArtifactBuildOptions, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
+        ConstantOperand, FunctionMetadata, FunctionRecord, FunctionRef, KbcArtifact, PathId,
+        PathRecord, Register, RuntimeHelper,
+    },
+    module::ValueType,
+};
+use kagari_runtime::{
+    AbiFingerprint, CapabilitySet, FieldMetadataId, HostObjectId, HostPathAdapter,
+    HostPathDescriptorId, HostPathDescriptorRegistration, HostPathSegment, HostReflectionPolicy,
+    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess,
+    ResourcePolicy, TypeKind, TypeRegistration,
+    host::{HostError, HostFunction},
+    value::Value,
+};
 
 fn compile_artifact(
     engine: &KagariEngine,
@@ -17,6 +33,134 @@ fn compile_artifact(
             ArtifactOptions::default(),
         )
         .expect("source should compile")
+}
+
+fn register_embedding_host_path_runtime(
+    runtime: &mut KagariRuntime,
+    path_access: PathAccess,
+    capability_requirements: CapabilitySet,
+) -> HostPathDescriptorId {
+    let i32_id = runtime
+        .runtime_mut()
+        .types()
+        .register(TypeRegistration {
+            abi_fingerprint: AbiFingerprint(101),
+            ..TypeRegistration::new("i32", TypeKind::Primitive)
+        })
+        .unwrap();
+    let mut host_type = HostTypeRegistration::new("game.Player", "game.Player");
+    host_type.ownership = HostTypeOwnership::HostRoot;
+    host_type.path_access = PathAccess::ReadWrite;
+    host_type.reflection = HostReflectionPolicy::Hidden;
+    host_type.abi_fingerprint = AbiFingerprint(102);
+    let player_id = runtime.register_host_type(host_type).unwrap();
+    let root = runtime
+        .runtime_mut()
+        .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    runtime
+        .register_host_function(HostFunction::new(
+            "host.player",
+            vec![],
+            "Player",
+            move |_| Ok(Value::HostRoot(root)),
+        ))
+        .unwrap();
+
+    let descriptor_id = runtime
+        .runtime_mut()
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: player_id,
+            result_type: i32_id,
+            segments: vec![HostPathSegment::Field {
+                name: "hp".to_owned(),
+                field_id: FieldMetadataId::new(0),
+                owner_type: player_id,
+                result_type: i32_id,
+                access: path_access,
+                abi_fingerprint: AbiFingerprint(103),
+            }],
+            access: path_access,
+            schema_epoch: HostSchemaEpoch::new(0),
+            abi_fingerprint: AbiFingerprint(104),
+            capability_requirements,
+        })
+        .unwrap();
+    assert_eq!(descriptor_id.index(), 0);
+
+    runtime
+        .runtime_mut()
+        .register_host_path_adapter(
+            descriptor_id,
+            HostPathAdapter::new()
+                .with_read(|_| Ok(Value::I32(10)))
+                .with_write(|_, value| {
+                    if matches!(value, Value::I32(_)) {
+                        Ok(())
+                    } else {
+                        Err(HostError::new("hp expects i32"))
+                    }
+                }),
+        )
+        .unwrap();
+    descriptor_id
+}
+
+fn host_path_artifact(
+    source_name: &str,
+    path_debug_name: &str,
+    instructions: Vec<BytecodeInstruction>,
+    registers: Vec<ValueType>,
+    return_type: ValueType,
+) -> BytecodeArtifact {
+    let constants = instructions
+        .iter()
+        .filter_map(|instruction| match instruction {
+            BytecodeInstruction::LoadConst { constant, .. } => Some(constant.clone()),
+            _ => None,
+        })
+        .collect();
+    let metadata = FunctionMetadata {
+        return_type,
+        registers,
+        ..FunctionMetadata::default()
+    };
+    KbcArtifact::from_module(
+        BytecodeModule {
+            module_init: None,
+            module_slots: vec![],
+            constants,
+            types: vec![ValueType::Unit, ValueType::HeapObject, ValueType::I32],
+            paths: vec![PathRecord {
+                id: PathId::new(0),
+                root_ty: ValueType::HeapObject,
+                result_ty: ValueType::I32,
+                read_only: false,
+                debug_name: path_debug_name.to_owned(),
+            }],
+            function_table: vec![FunctionRecord {
+                id: FunctionRef::new(0),
+                name: "main".to_owned(),
+                params: metadata.params.clone(),
+                return_type: metadata.return_type,
+                effects: metadata.effects,
+            }],
+            functions: vec![BytecodeFunction {
+                id: FunctionRef::new(0),
+                name: "main".to_owned(),
+                parameter_count: 0,
+                register_count: metadata.registers.len() as u16,
+                local_count: 0,
+                metadata,
+                instructions,
+            }],
+            ..BytecodeModule::default()
+        },
+        ArtifactBuildOptions {
+            module_identity: kagari_ir::bytecode::ArtifactModuleIdentity::single_file(source_name),
+            ..ArtifactBuildOptions::default()
+        },
+    )
 }
 
 #[test]
@@ -181,6 +325,64 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
 }
 
 #[test]
+fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
+    let engine = KagariEngine::default();
+    let context = ExecutionContext::default();
+    let first = host_path_artifact(
+        "reload_paths.kgr",
+        "game.Player.hp",
+        vec![BytecodeInstruction::Return(None)],
+        vec![],
+        ValueType::Unit,
+    );
+    let candidate = host_path_artifact(
+        "reload_paths.kgr",
+        "game.Player.mp",
+        vec![BytecodeInstruction::Return(None)],
+        vec![],
+        ValueType::Unit,
+    );
+
+    let mut runtime = engine.runtime(context);
+    let loaded = runtime
+        .load_module(
+            first,
+            LoadOptions {
+                module_name: Some("reload_paths".to_owned()),
+                ..LoadOptions::default()
+            },
+        )
+        .expect("module should load");
+    let before_count = runtime.runtime().modules().loaded_count();
+
+    let error = runtime
+        .reload_module(
+            &loaded,
+            candidate,
+            ReloadOptions {
+                module_name: Some("reload_paths".to_owned()),
+                ..ReloadOptions::default()
+            },
+        )
+        .expect_err("changed typed path fingerprints should reject reload");
+
+    let EmbeddingError::ReloadValidation { message } = error else {
+        panic!("expected reload validation error");
+    };
+    assert!(message.contains("typed path fingerprints"));
+    assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
+    assert_eq!(
+        runtime
+            .runtime()
+            .modules()
+            .latest("reload_paths")
+            .unwrap()
+            .epoch,
+        loaded.epoch
+    );
+}
+
+#[test]
 fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
@@ -204,6 +406,123 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
         error,
         EmbeddingError::Runtime {
             kind: RuntimeFailureKind::UnsupportedExecution,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn execution_context_denies_host_path_mutation_with_structured_error() {
+    let engine = KagariEngine::default();
+    let context = ExecutionContext::default();
+    let artifact = host_path_artifact(
+        "set_path.kgr",
+        "game.Player.hp",
+        vec![
+            BytecodeInstruction::Call {
+                dst: Some(Register::new(0)),
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                    "host.player".to_owned(),
+                )),
+                args: vec![],
+            },
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(1),
+                constant: ConstantOperand::I32(5),
+            },
+            BytecodeInstruction::SetPath {
+                root_or_view: Register::new(0),
+                path: PathId::new(0),
+                dynamic_args: vec![],
+                value: Register::new(1),
+            },
+            BytecodeInstruction::Return(None),
+        ],
+        vec![ValueType::HeapObject, ValueType::I32],
+        ValueType::Unit,
+    );
+    let mut runtime = engine.runtime(context);
+    register_embedding_host_path_runtime(
+        &mut runtime,
+        PathAccess::ReadWrite,
+        CapabilitySet::default(),
+    );
+    let loaded = runtime
+        .load_module(
+            artifact,
+            LoadOptions {
+                module_name: Some("set_path".to_owned()),
+                ..LoadOptions::default()
+            },
+        )
+        .expect("module should load");
+
+    let error = runtime
+        .execute(&loaded, "main", &[], &context)
+        .expect_err("context should deny host path mutation");
+
+    assert!(matches!(
+        error,
+        EmbeddingError::Runtime {
+            kind: RuntimeFailureKind::CapabilityDenied,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn host_path_capability_denials_surface_as_structured_runtime_errors() {
+    let engine = KagariEngine::default();
+    let context = ExecutionContext::default();
+    let artifact = host_path_artifact(
+        "read_secure_path.kgr",
+        "game.Player.secure_hp",
+        vec![
+            BytecodeInstruction::Call {
+                dst: Some(Register::new(0)),
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                    "host.player".to_owned(),
+                )),
+                args: vec![],
+            },
+            BytecodeInstruction::ReadPath {
+                dst: Register::new(1),
+                root_or_view: Register::new(0),
+                path: PathId::new(0),
+                dynamic_args: vec![],
+            },
+            BytecodeInstruction::Return(Some(Register::new(1))),
+        ],
+        vec![ValueType::HeapObject, ValueType::I32],
+        ValueType::I32,
+    );
+    let mut runtime = engine.runtime(context);
+    register_embedding_host_path_runtime(
+        &mut runtime,
+        PathAccess::ReadOnly,
+        CapabilitySet {
+            reflection_read: true,
+            ..CapabilitySet::default()
+        },
+    );
+    let loaded = runtime
+        .load_module(
+            artifact,
+            LoadOptions {
+                module_name: Some("read_secure_path".to_owned()),
+                ..LoadOptions::default()
+            },
+        )
+        .expect("module should load");
+
+    let error = runtime
+        .execute(&loaded, "main", &[], &context)
+        .expect_err("missing capability should surface through embedding runtime errors");
+
+    assert!(matches!(
+        error,
+        EmbeddingError::Runtime {
+            kind: RuntimeFailureKind::CapabilityDenied,
             ..
         }
     ));

@@ -3,9 +3,9 @@ use kagari_hir::{AnalyzedModule, analyze_module};
 use kagari_ir::{
     IrLoweringError,
     bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, ArtifactModuleIdentity,
+        ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
         ArtifactValidationError, BytecodeInstruction, BytecodeLoweringError, BytecodeModule,
-        CallTarget, KbcArtifact, RuntimeHelper, lower_to_bytecode,
+        CallTarget, KbcArtifact, PathDescriptorFingerprint, RuntimeHelper, lower_to_bytecode,
     },
     lower_to_ir,
 };
@@ -169,6 +169,12 @@ impl KagariRuntime {
                 },
             ));
         }
+        let previous_path_fingerprints = path_fingerprints_for_module(&previous.bytecode);
+        if previous_path_fingerprints != artifact.verification.typed_path_fingerprints {
+            return Err(EmbeddingError::reload_validation(
+                ReloadValidationError::PathFingerprintMismatch,
+            ));
+        }
         let reloaded = self
             .vm
             .runtime_mut()
@@ -319,43 +325,51 @@ impl ExecutionContext {
                 format!("JIT policy for `{entry}` is not implemented by the baseline runtime"),
             ));
         }
-        self.validate_runtime_helper_policy(module)
+        self.validate_bytecode_policy(module)
     }
 
-    fn validate_runtime_helper_policy(&self, module: &BytecodeModule) -> RunResult<()> {
+    fn validate_bytecode_policy(&self, module: &BytecodeModule) -> RunResult<()> {
         let security = self.security_context();
         for function in &module.functions {
             for instruction in &function.instructions {
-                let BytecodeInstruction::Call {
-                    callee: CallTarget::RuntimeHelper(helper),
-                    ..
-                } = instruction
-                else {
-                    continue;
-                };
-                match helper {
-                    RuntimeHelper::HostFunction(symbol)
-                        if !self.host_policy.allow_host_functions =>
+                match instruction {
+                    BytecodeInstruction::Call {
+                        callee: CallTarget::RuntimeHelper(helper),
+                        ..
+                    } => match helper {
+                        RuntimeHelper::HostFunction(symbol)
+                            if !self.host_policy.allow_host_functions =>
+                        {
+                            return Err(EmbeddingError::runtime(
+                                RuntimeFailureKind::CapabilityDenied,
+                                format!("host function `{symbol}` is denied by execution context"),
+                            ));
+                        }
+                        RuntimeHelper::ReflectTypeOf | RuntimeHelper::ReflectGetField(_)
+                            if !security.allows_reflection_read() =>
+                        {
+                            return Err(EmbeddingError::runtime(
+                                RuntimeFailureKind::CapabilityDenied,
+                                "reflection read is denied by execution context",
+                            ));
+                        }
+                        RuntimeHelper::ReflectSetField(_) | RuntimeHelper::ReflectSetIndex
+                            if !security.allows_reflection_write() =>
+                        {
+                            return Err(EmbeddingError::runtime(
+                                RuntimeFailureKind::CapabilityDenied,
+                                "reflection write is denied by execution context",
+                            ));
+                        }
+                        _ => {}
+                    },
+                    BytecodeInstruction::SetPath { .. }
+                    | BytecodeInstruction::ModifyPath { .. }
+                        if !self.host_policy.allow_host_path_mutation =>
                     {
                         return Err(EmbeddingError::runtime(
                             RuntimeFailureKind::CapabilityDenied,
-                            format!("host function `{symbol}` is denied by execution context"),
-                        ));
-                    }
-                    RuntimeHelper::ReflectTypeOf | RuntimeHelper::ReflectGetField(_)
-                        if !security.allows_reflection_read() =>
-                    {
-                        return Err(EmbeddingError::runtime(
-                            RuntimeFailureKind::CapabilityDenied,
-                            "reflection read is denied by execution context",
-                        ));
-                    }
-                    RuntimeHelper::ReflectSetField(_) | RuntimeHelper::ReflectSetIndex
-                        if !security.allows_reflection_write() =>
-                    {
-                        return Err(EmbeddingError::runtime(
-                            RuntimeFailureKind::CapabilityDenied,
-                            "reflection write is denied by execution context",
+                            "host path mutation is denied by execution context",
                         ));
                     }
                     _ => {}
@@ -553,6 +567,7 @@ pub enum ReloadValidationError {
     Artifact(ArtifactValidationError),
     ModuleIdentityMismatch { expected: String, found: String },
     ModuleIdChanged { expected: ModuleId, found: ModuleId },
+    PathFingerprintMismatch,
 }
 
 impl std::fmt::Display for ReloadValidationError {
@@ -568,6 +583,9 @@ impl std::fmt::Display for ReloadValidationError {
                 "reload module id changed: expected {:?}, found {:?}",
                 expected, found
             ),
+            Self::PathFingerprintMismatch => {
+                write!(f, "reload typed path fingerprints changed")
+            }
         }
     }
 }
@@ -576,4 +594,15 @@ impl From<ArtifactValidationError> for ReloadValidationError {
     fn from(error: ArtifactValidationError) -> Self {
         Self::Artifact(error)
     }
+}
+
+fn path_fingerprints_for_module(module: &BytecodeModule) -> Vec<PathDescriptorFingerprint> {
+    module
+        .paths
+        .iter()
+        .map(|path| PathDescriptorFingerprint {
+            path: path.id,
+            fingerprint: ArtifactFingerprint::of_debug(path),
+        })
+        .collect()
 }

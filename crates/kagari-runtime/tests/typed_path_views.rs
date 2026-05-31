@@ -190,6 +190,74 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
 }
 
 #[test]
+fn path_execution_validates_stale_roots_and_dynamic_indexes() {
+    let mut runtime = Runtime::default();
+    let i32_id = register_i32(&runtime);
+    let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor_id = runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: player_id,
+            result_type: i32_id,
+            segments: vec![HostPathSegment::Index {
+                slot: DynamicPathArgSlot::new(0),
+                collection_type: player_id,
+                index_type: i32_id,
+                result_type: i32_id,
+                access: PathAccess::ReadOnly,
+                abi_fingerprint: AbiFingerprint(71),
+            }],
+            access: PathAccess::ReadOnly,
+            schema_epoch: HostSchemaEpoch::new(0),
+            abi_fingerprint: AbiFingerprint(72),
+            capability_requirements: CapabilitySet::default(),
+        })
+        .unwrap();
+
+    runtime
+        .register_host_path_adapter(
+            descriptor_id,
+            HostPathAdapter::new().with_read(|context| {
+                let Value::I32(index) = &context.dynamic_args.as_slice()[0].value else {
+                    return Err(HostError::new("inventory index must be i32"));
+                };
+                Ok(Value::I32(*index * 10))
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::HostRoot(root), descriptor_id, vec![Value::I32(4)])
+            .unwrap(),
+        Value::I32(40)
+    );
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::HostRoot(root), descriptor_id, Vec::new())
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+
+    let stale = kagari_runtime::HostRootHandle::new(
+        root.object_id(),
+        root.type_id(),
+        HostSchemaEpoch::new(1),
+        root.abi_fingerprint(),
+    );
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::HostRoot(stale), descriptor_id, vec![Value::I32(1)])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+}
+
+#[test]
 fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
     let mut runtime = Runtime::default();
     let i32_id = register_i32(&runtime);
