@@ -72,6 +72,7 @@ pub enum SyntaxKind {
     TupleType,
     ArrayType,
     BlockExpr,
+    BindingStmt,
     LetStmt,
     ReturnStmt,
     AssignStmt,

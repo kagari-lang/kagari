@@ -1,13 +1,13 @@
 use kagari_common::DiagnosticKind;
 
-use crate::ast::Expr;
+use crate::ast::{Expr, Stmt};
 use crate::tests::common;
 
 #[test]
 fn parses_top_level_statements_alongside_items() {
     let module = common::parse_ok(
         r#"
-let boot = 1;
+val boot = 1;
 
 fn main() -> i32 {
     1
@@ -20,13 +20,14 @@ fn main() -> i32 {
 
     assert_eq!(statements.len(), 1);
     assert_eq!(items.len(), 1);
+    assert!(matches!(statements[0], Stmt::BindingStmt(_)));
 }
 
 #[test]
 fn parses_top_level_tail_expression_as_module_result() {
     let module = common::parse_ok(
         r#"
-let boot = 1;
+var boot = 1;
 
 boot + 1
 "#,
@@ -36,6 +37,7 @@ boot + 1
     let tail_expr = module.tail_expr().expect("expected top-level tail expr");
 
     assert_eq!(statements.len(), 1);
+    assert!(matches!(statements[0], Stmt::BindingStmt(_)));
     assert!(matches!(tail_expr, Expr::BinaryExpr(_)));
 }
 

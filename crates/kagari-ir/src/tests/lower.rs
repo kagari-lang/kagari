@@ -154,8 +154,8 @@ fn main() -> i32 { VALUE }
 fn lowers_field_and_index_assignments_via_runtime_helpers() {
     let analyzed = common::analyze_ok(
         r#"
-struct Point { x: i32 }
-struct Holder { inner: Point }
+struct Point { var x: i32 }
+struct Holder { var inner: Point }
 
 fn main() -> i32 {
     let mut holder = Holder { inner: Point { x: 1 } };
@@ -242,7 +242,7 @@ fn main() -> [i32] {
 fn lowers_tuple_array_struct_and_access_expressions() {
     let analyzed = common::analyze_ok(
         r#"
-struct Point { x: i32 }
+struct Point { var x: i32 }
 
 fn main() -> unit {
     let tuple = (1, 2);

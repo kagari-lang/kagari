@@ -32,7 +32,7 @@ fn lexes_function_signature_tokens() {
 
 #[test]
 fn lexes_struct_definition_tokens() {
-    let source = common::source("struct Player { hp: i32 }");
+    let source = common::source("struct Player { val hp: i32 }");
     let tokens = lex(source.text());
     let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
 
@@ -44,6 +44,8 @@ fn lexes_struct_definition_tokens() {
             TokenKind::Ident,
             TokenKind::Whitespace,
             TokenKind::LBrace,
+            TokenKind::Whitespace,
+            TokenKind::ValKw,
             TokenKind::Whitespace,
             TokenKind::Ident,
             TokenKind::Colon,

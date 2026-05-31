@@ -31,6 +31,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::StaticKw) => self.parse_static(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
+            Some(TokenKind::ValKw | TokenKind::VarKw) => self.parse_binding_stmt(),
             Some(TokenKind::LetKw) => self.parse_let_stmt(),
             Some(TokenKind::WhileKw) => self.parse_while_stmt(),
             Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
@@ -165,6 +166,17 @@ impl<'a> Parser<'a> {
 
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             self.start_node(SyntaxKind::Field);
+            self.bump_trivia();
+            if self.at(TokenKind::PubKw) {
+                self.bump();
+                self.bump_trivia();
+            }
+            if self.at_any(&[TokenKind::ValKw, TokenKind::VarKw]) {
+                self.bump();
+            } else {
+                self.error_here(DiagnosticKind::ExpectedFieldBinding);
+            }
+            self.bump_trivia();
             self.parse_field_name();
             self.expect(TokenKind::Colon, DiagnosticKind::ExpectedFieldTypeSeparator);
             self.parse_type_ref();
@@ -256,6 +268,12 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_let_binding_name(&mut self) {
         self.start_node(SyntaxKind::Name);
         self.expect(TokenKind::Ident, DiagnosticKind::ExpectedLetBindingName);
+        self.finish_node();
+    }
+
+    pub(crate) fn parse_binding_name(&mut self) {
+        self.start_node(SyntaxKind::Name);
+        self.expect(TokenKind::Ident, DiagnosticKind::ExpectedBindingName);
         self.finish_node();
     }
 

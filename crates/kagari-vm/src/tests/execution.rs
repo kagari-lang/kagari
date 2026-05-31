@@ -57,7 +57,7 @@ fn executes_array_index_access() {
 fn executes_struct_field_access() {
     let (runtime, loaded) = load_test_module(
         r#"
-struct Point { x: i32, y: i32 }
+struct Point { var x: i32, var y: i32 }
 
 fn main() -> i32 {
     let point = Point { x: 1, y: 2 };
@@ -87,7 +87,7 @@ fn executes_tuple_literal_return() {
 fn executes_struct_literal_return() {
     let (runtime, loaded) = load_test_module(
         r#"
-struct Point { x: i32, y: i32 }
+struct Point { var x: i32, var y: i32 }
 
 fn main() -> Point {
     Point { x: 1, y: 2 }

@@ -16,6 +16,7 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             match self.current_kind() {
+                Some(TokenKind::ValKw | TokenKind::VarKw) => self.parse_binding_stmt(),
                 Some(TokenKind::LetKw) => self.parse_let_stmt(),
                 Some(TokenKind::ReturnKw) => self.parse_return_stmt(),
                 Some(TokenKind::WhileKw) => self.parse_while_stmt(),
@@ -53,6 +54,35 @@ impl<'a> Parser<'a> {
         }
 
         self.finish_node();
+    }
+
+    pub(crate) fn parse_binding_stmt(&mut self) {
+        self.start_node(SyntaxKind::BindingStmt);
+        self.parse_binding_kind();
+        self.parse_binding_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Colon) {
+            self.bump();
+            self.parse_type_ref();
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.parse_expr();
+            self.bump_trivia();
+        }
+        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        self.finish_node();
+    }
+
+    pub(crate) fn parse_binding_kind(&mut self) {
+        self.bump_trivia();
+        if self.at_any(&[TokenKind::ValKw, TokenKind::VarKw]) {
+            self.bump();
+        } else {
+            self.error_here(DiagnosticKind::ExpectedBindingKeyword);
+        }
+        self.bump_trivia();
     }
 
     pub(crate) fn parse_let_stmt(&mut self) {

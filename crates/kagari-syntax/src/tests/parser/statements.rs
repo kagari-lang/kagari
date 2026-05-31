@@ -8,7 +8,7 @@ use crate::{
 #[test]
 fn parses_let_return_and_tail_expr_in_block() {
     let module =
-        common::parse_ok("fn main() -> i32 { let mut value: i32 = 1; value = 2; return; value }");
+        common::parse_ok("fn main() -> i32 { var value: i32 = 1; value = 2; return; value }");
 
     let function = common::first_function(&module);
 
@@ -18,7 +18,8 @@ fn parses_let_return_and_tail_expr_in_block() {
     assert_eq!(statements.len(), 3);
 
     match &statements[0] {
-        Stmt::LetStmt(stmt) => {
+        Stmt::BindingStmt(stmt) => {
+            assert!(stmt.is_var());
             assert_eq!(stmt.name_text().as_deref(), Some("value"));
             assert_eq!(
                 stmt.ty().and_then(|ty| ty.name_text()).as_deref(),
@@ -26,7 +27,7 @@ fn parses_let_return_and_tail_expr_in_block() {
             );
             match stmt.initializer().expect("expected initializer") {
                 Expr::Literal(literal) => assert_eq!(literal.text().as_deref(), Some("1")),
-                other => panic!("unexpected let initializer: {other:?}"),
+                other => panic!("unexpected binding initializer: {other:?}"),
             }
         }
         other => panic!("unexpected first statement: {other:?}"),
@@ -56,6 +57,27 @@ fn parses_let_return_and_tail_expr_in_block() {
     match body.tail_expr().expect("expected tail expression") {
         Expr::PathExpr(path) => assert_eq!(path.name_text().as_deref(), Some("value")),
         other => panic!("unexpected tail expr: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_val_binding_without_initializer() {
+    let module = common::parse_ok("fn main() { val answer: i32; }");
+    let function = common::first_function(&module);
+    let body = function.body().expect("expected function body");
+    let statements: Vec<_> = body.statements().collect();
+
+    match &statements[0] {
+        Stmt::BindingStmt(stmt) => {
+            assert!(stmt.is_val());
+            assert_eq!(stmt.name_text().as_deref(), Some("answer"));
+            assert_eq!(
+                stmt.ty().and_then(|ty| ty.name_text()).as_deref(),
+                Some("i32")
+            );
+            assert!(stmt.initializer().is_none());
+        }
+        other => panic!("unexpected first statement: {other:?}"),
     }
 }
 

@@ -23,6 +23,20 @@ impl Lowerer {
 
     pub(crate) fn lower_stmt(&mut self, stmt: &ast::Stmt) -> StmtId {
         let kind = match stmt {
+            ast::Stmt::BindingStmt(stmt) => StmtKind::Let {
+                local: self.source_map.push_local(
+                    stmt.name()
+                        .map(|name| syntax_span(&name))
+                        .unwrap_or_else(|| syntax_span(stmt)),
+                ),
+                mutable: stmt.is_var(),
+                name: stmt.name_text().unwrap_or_default(),
+                ty: stmt.ty().map(|ty| self.lower_type(&ty)),
+                initializer: stmt
+                    .initializer()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+            },
             ast::Stmt::LetStmt(stmt) => StmtKind::Let {
                 local: self.source_map.push_local(
                     stmt.name()

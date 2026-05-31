@@ -132,7 +132,7 @@ fn main() -> unit {
 fn lowers_aggregate_and_access_instructions() {
     let bytecode = common::bytecode_ok(
         r#"
-struct Point { x: i32 }
+struct Point { var x: i32 }
 
 fn main() -> unit {
     let tuple = (1, 2);
@@ -216,7 +216,7 @@ fn lowers_type_of_builtin_to_runtime_helper_call() {
 fn lowers_reflection_field_builtins_to_runtime_helper_calls() {
     let bytecode = common::bytecode_ok(
         r#"
-struct Point { x: i32 }
+struct Point { var x: i32 }
 
 fn main() -> Point {
     let point = Point { x: 1 };
@@ -268,8 +268,8 @@ fn main(values: [i32]) -> [i32] {
 fn lowers_place_assignments_to_reflection_helpers() {
     let bytecode = common::bytecode_ok(
         r#"
-struct Point { x: i32 }
-struct Holder { inner: Point }
+struct Point { var x: i32 }
+struct Holder { var inner: Point }
 
 fn main() -> i32 {
     let mut holder = Holder { inner: Point { x: 1 } };

@@ -252,7 +252,7 @@ fn executes_source_lowered_print_builtin() {
 fn executes_source_lowered_reflection_field_helpers() {
     let (runtime, loaded) = load_test_module(
         r#"
-struct Point { x: i32 }
+struct Point { var x: i32 }
 
 fn main() -> i32 {
     let point = Point { x: 1 };
@@ -293,8 +293,8 @@ fn main() -> [i32] {
 fn executes_source_lowered_place_assignments() {
     let (runtime, loaded) = load_test_module(
         r#"
-struct Point { x: i32 }
-struct Holder { inner: Point }
+struct Point { var x: i32 }
+struct Holder { var inner: Point }
 
 fn main() -> i32 {
     let mut holder = Holder { inner: Point { x: 1 } };
@@ -349,7 +349,7 @@ fn main() -> i32 {
 fn struct_field_updates_mutate_shared_struct_handle_in_place() {
     let (runtime, loaded) = load_test_module(
         r#"
-struct Point { x: i32 }
+struct Point { var x: i32 }
 
 fn main() -> i32 {
     let point = Point { x: 1 };

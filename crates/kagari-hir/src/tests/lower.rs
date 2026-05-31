@@ -7,7 +7,7 @@ use crate::{
 fn lowers_items_into_hir_module() {
     let lowered = common::lower_ok(
         r#"
-struct Player { hp: i32 }
+struct Player { var hp: i32 }
 enum Color { Red, Blue }
 fn main(value: i32) -> i32 { value }
 "#,
@@ -86,8 +86,8 @@ fn lowers_function_body_expressions_and_statements() {
 
     let nested = common::lower_ok(
         r#"
-struct Point { x: i32 }
-struct Holder { inner: Point }
+struct Point { var x: i32 }
+struct Holder { var inner: Point }
 
 fn main() {
     let mut holder = Holder { inner: Point { x: 1 } };

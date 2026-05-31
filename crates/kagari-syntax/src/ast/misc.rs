@@ -3,6 +3,12 @@ use crate::{
     kind::SyntaxKind,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Writeability {
+    Val,
+    Var,
+}
+
 ast_node!(Name, Name);
 ast_node!(ParamList, ParamList);
 ast_node!(Param, Param);
@@ -44,6 +50,24 @@ impl FieldList {
 }
 
 impl Field {
+    pub fn writeability(&self) -> Option<Writeability> {
+        if support::token(self.syntax(), SyntaxKind::ValKw).is_some() {
+            Some(Writeability::Val)
+        } else if support::token(self.syntax(), SyntaxKind::VarKw).is_some() {
+            Some(Writeability::Var)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_val(&self) -> bool {
+        self.writeability() == Some(Writeability::Val)
+    }
+
+    pub fn is_var(&self) -> bool {
+        self.writeability() == Some(Writeability::Var)
+    }
+
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }

@@ -73,8 +73,8 @@ fn reports_invalid_const_initializer_expression() {
 fn reports_reflection_write_on_const_value() {
     let lowered = common::lower_ok(
         r#"
-struct Point { x: i32 }
-struct Holder { inner: Point }
+struct Point { var x: i32 }
+struct Holder { var inner: Point }
 const ROOT: Holder = Holder { inner: Point { x: 1 } };
 
 fn main() -> Point { set_field(ROOT.inner, "x", 2) }
@@ -115,7 +115,7 @@ const B: i32 = A;
 fn rejects_heap_backed_const_types() {
     let lowered = common::lower_ok(
         r#"
-struct Point { x: i32, y: i32 }
+struct Point { var x: i32, var y: i32 }
 const PAIR: (i32, i32) = (1, 2);
 const VALUES: [i32] = [3, 4];
 const POINT: Point = Point { x: 5, y: 6 };
@@ -155,7 +155,7 @@ const POINT: Point = Point { x: 5, y: 6 };
 fn plain_function_calls_keep_fresh_return_flow() {
     let lowered = common::lower_ok(
         r#"
-struct Point { x: i32 }
+struct Point { var x: i32 }
 
 fn id(point: Point) -> Point { point }
 
@@ -428,7 +428,7 @@ fn reports_array_element_type_mismatch() {
 fn reports_invalid_struct_initializers() {
     let lowered = common::lower_ok(
         r#"
-struct Point { x: i32, y: bool }
+struct Point { var x: i32, var y: bool }
 
 fn foo() -> Point {
     Point { x: true, z: 1, x: 2 }
@@ -500,8 +500,8 @@ fn allows_assignment_to_mutable_local_but_not_immutable_local_or_param() {
 fn allows_assignment_to_mutable_field_and_index_places() {
     let field_assignment = common::lower_ok(
         r#"
-struct Point { x: i32 }
-struct Holder { inner: Point }
+struct Point { var x: i32 }
+struct Holder { var inner: Point }
 
 fn main() -> i32 {
     let mut holder = Holder { inner: Point { x: 1 } };
