@@ -54,12 +54,17 @@ The embedding API must expose operations equivalent to:
 ```text
 compile_source(source, compile_options) -> CompileResult<CheckedModule>
 emit_bytecode(checked_module, artifact_options) -> CompileResult<BytecodeArtifact>
+compile_to_artifact(source, compile_options, artifact_options) -> CompileResult<BytecodeArtifact>
 load_module(module_id, bytecode, load_options) -> LoadResult<LoadedModule>
 execute(module, entry, args, execution_context) -> RunResult<Value>
 reload_module(module_id, bytecode, reload_options) -> ReloadResult<LoadedModule>
 ```
 
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
+
+The current Rust facade uses `KagariEngine` for compile and artifact emission and `KagariRuntime` for load, execute, reload, host registration, and optional backend execution.
+`KagariRuntime::execute` runs through the interpreter.
+`KagariRuntime::execute_with_backend` uses a host-supplied `CodegenBackend` after validating JIT capability and artifact policy.
 
 ## Host Registry API
 
@@ -143,6 +148,9 @@ Runtime failures return classified errors:
 - reload validation failure
 - engine invariant violation
 
+Current public error values expose stable code strings through `EmbeddingError::code()`.
+Frontend diagnostics, bytecode verification failures, artifact validation failures, runtime errors, and reload validation failures all map to `KG_*`-style codes.
+
 Engine invariant violations may panic in debug builds, but production APIs still expose a controlled error boundary where practical.
 
 ## Hot Reload API
@@ -175,7 +183,8 @@ Artifact loading must:
 - reject artifacts produced for incompatible language or runtime versions
 - preserve debug metadata when available
 
-The artifact format is specified in [artifacts.md](/Users/mikai/CLionProjects/kagari/docs/spec/artifacts.md).
+The artifact format is specified in [artifacts.md](artifacts.md).
+The current `BytecodeArtifact` alias exposes `to_bytes()` and `from_bytes()` helpers for the implemented Rust `.kbc` serialization.
 
 ## JIT Control
 
@@ -212,7 +221,8 @@ Debugger operations include:
 The debugger API is not script-visible.
 Debugger attachment and inspection require runtime capabilities and host policy.
 
-Debug sessions use the model defined in [debugger.md](/Users/mikai/CLionProjects/kagari/docs/spec/debugger.md).
+Debug sessions use the model defined in [debugger.md](debugger.md).
+The VM adapter boundary is documented in [debugger-adapter.md](../debugger-adapter.md) and exposes request, response, event, and event-sink types for IDE or DAP integrations.
 
 ## Threading and Isolates
 

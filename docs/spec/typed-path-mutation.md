@@ -2,10 +2,10 @@
 
 This document defines the model for mutating host-owned structured data through ordinary Kagari field and index syntax.
 
-Runtime behavior is defined in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
-Host interop is defined in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
-Execution behavior is defined in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Bytecode behavior is defined in [bytecode.md](/Users/mikai/CLionProjects/kagari/docs/spec/bytecode.md).
+Runtime behavior is defined in [runtime.md](runtime.md).
+Host interop is defined in [host-interop.md](host-interop.md).
+Execution behavior is defined in [execution.md](execution.md).
+Bytecode behavior is defined in [bytecode.md](bytecode.md).
 
 ## Purpose
 
@@ -31,7 +31,7 @@ For host-owned values, their semantic meaning is a checked mutation of a typed p
 - allow scripts to keep multiple nested views into the same host object graph
 - support dirty tracking, validation, persistence updates, and event hooks
 - support hot reload through schema and path metadata
-- keep the execution model compatible with both the interpreter and future JIT backends
+- keep the execution model compatible with both the interpreter and optional JIT backends
 - avoid unnecessary allocation for nested host-backed field access
 
 ## Non-Goals
@@ -311,14 +311,14 @@ It is not string reflection.
 
 ### Specialization
 
-The runtime and future JIT may specialize frequently executed paths.
+The runtime and optional JIT may specialize frequently executed paths.
 
 Specialization tiers:
 
 1. execute cold paths through generic typed descriptors
 2. cache path descriptors and host adapter lookups
 3. use direct adapter function pointers for hot paths
-4. let a future JIT emit specialized fast paths when profitable
+4. let a JIT backend emit specialized fast paths when profitable
 
 Typed path mutation must not require eager code generation for every possible deep field path.
 Large host structures remain practical by defaulting to compact descriptors and specializing only observed or declared hot paths.

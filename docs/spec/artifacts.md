@@ -1,7 +1,7 @@
 # Kagari Bytecode Artifact Specification
 
 This document defines the `.kbc` artifact boundary.
-The semantic bytecode model is defined in [bytecode.md](/Users/mikai/CLionProjects/kagari/docs/spec/bytecode.md).
+The semantic bytecode model is defined in [bytecode.md](bytecode.md).
 
 ## Design Goals
 
@@ -42,6 +42,8 @@ KbcArtifact {
 ```
 
 The exact binary encoding is an implementation detail as long as the logical sections remain versioned and validated.
+The current Rust implementation serializes `KbcArtifact` with `bincode` through `to_bytes()` and `from_bytes()`.
+That helper is the implemented `.kbc` exchange format for this repository snapshot, while the logical sections and validation rules remain the compatibility contract.
 
 ## Header
 
@@ -152,6 +154,7 @@ Artifact loading proceeds as:
 
 ```text
 read bytes
+  -> decode implemented artifact encoding
   -> validate header
   -> validate versions and hashes
   -> decode tables

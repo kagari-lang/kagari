@@ -1,7 +1,7 @@
 # Kagari Module Loading Specification
 
 This document defines how source files, module ids, imports, package roots, and bytecode artifacts are resolved.
-Module execution semantics are defined in [modules.md](/Users/mikai/CLionProjects/kagari/docs/spec/modules.md).
+Module execution semantics are defined in [modules.md](modules.md).
 
 ## Design Goals
 
@@ -84,7 +84,7 @@ The exact physical layout can evolve, but a package must not contain two source 
 Builtin modules are provided by the runtime or host.
 They are resolved by stable module identity, not by files on disk.
 
-Builtin modules include standard language facilities defined in [builtins.md](/Users/mikai/CLionProjects/kagari/docs/spec/builtins.md).
+Builtin modules include standard language facilities defined in [builtins.md](builtins.md).
 
 ## Bytecode Artifact Loading
 
@@ -116,14 +116,17 @@ Cache entries are invalidated by source hash, dependency fingerprint, host regis
 
 The CLI uses the same loader model as embedded hosts.
 
-CLI commands may include:
+The current CLI commands are:
 
 - parse source
 - check source
 - emit `.kbc`
 - run source
 - run `.kbc`
-- reload a module in a host-managed session, if supported
+
+An implicit source path runs source and an implicit `.kbc` path runs an artifact.
+The CLI also supports `--profile restricted`, `--profile dev`, `--profile tooling`, `--jit`, `--no-jit`, and `-o` / `--output` for artifact emission.
+Module reload remains a host-managed embedding operation rather than a standalone CLI command.
 
 CLI convenience behavior must not define different language semantics from embedding behavior.
 

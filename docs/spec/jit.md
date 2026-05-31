@@ -76,6 +76,10 @@ The core language crates own:
 - value representation
 - GC, host interop, security, and hot reload policy
 
+The current backend boundary is the runtime `CodegenBackend` trait.
+`kagari-jit-cranelift` implements that trait for a baseline Cranelift backend, and `kagari-vm` invokes it through `execute_with_backend`.
+The CLI enables this path only when built with the `jit` feature and invoked with `--jit`.
+
 ## Runtime Helper ABI
 
 JIT code calls shared runtime helpers for operations that may allocate, trap, inspect metadata, call host code, mutate host state, interact with reflection, touch security state, or require safepoint behavior.
@@ -216,6 +220,8 @@ The production baseline includes:
 - typed path operations through helpers
 - artifact invalidation by module epoch and ABI fingerprints
 - interpreter fallback for unsupported functions
+
+The current implementation is intentionally conservative: unsupported bytecode shapes, missing safepoint or debug metadata, disabled JIT policy, or backend invocation errors fall back to interpreter execution or surface structured backend diagnostics according to the call boundary.
 
 ## Scope Exclusions
 

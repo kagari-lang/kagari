@@ -4,10 +4,10 @@ This document defines Kagari traits and their use as interface value types.
 
 The main goal is to preserve useful abstraction mechanisms from Rust-like languages while keeping the script-facing model closer to Kotlin interfaces than Rust trait objects.
 
-Reflection rules are defined separately in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
-Security rules are defined separately in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
-Host interop rules are defined separately in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
-Runtime model rules are defined separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
+Reflection rules are defined separately in [reflection.md](reflection.md).
+Security rules are defined separately in [security.md](security.md).
+Host interop rules are defined separately in [host-interop.md](host-interop.md).
+Runtime model rules are defined separately in [runtime.md](runtime.md).
 
 ## Design Goals
 

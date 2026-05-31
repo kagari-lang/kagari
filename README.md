@@ -6,14 +6,15 @@ The current goal of the project is to build a language system suitable for embed
 
 ## Project Status
 
-Kagari is currently in the research and foundation-building stage. The repository primarily provides an early skeleton for the frontend, semantic analysis, IR, runtime, and virtual machine so that future language and runtime work can evolve on top of clear engineering boundaries.
+Kagari is still an early language, but the repository now contains an end-to-end implementation slice. The implemented pipeline includes parsing, semantic analysis, IR lowering, bytecode lowering and verification, `.kbc` artifact construction and validation, VM execution, hot-reload validation metadata, host registration boundaries, runtime security profiles, debugger hooks, and an optional baseline Cranelift JIT backend.
 
 This currently means:
 
-- The syntax and standard library are not finalized
-- The type system is still expected to evolve
-- The runtime, GC, hot reload, and host ABI are still represented mostly by early abstractions and extension points
-- interpreter execution is the semantic foundation, with an optional baseline Cranelift JIT planned as a backend
+- The specifications in `docs/spec/`, `docs/kagari.ebnf`, and `docs/architecture.md` are authoritative over legacy implementation behavior.
+- The syntax and builtin surface are intentionally small and still evolving toward the specifications.
+- Interpreter execution is the semantic foundation.
+- The Cranelift JIT is optional and feature-gated; unsupported functions or debug-policy conflicts fall back to the interpreter.
+- Runtime, host interop, reload, reflection, and debugger APIs expose structural boundaries, but production polish and legacy cleanup are still in progress.
 
 ## Documentation
 
@@ -40,7 +41,7 @@ Kagari is currently being shaped around the following principles:
 - A GC-backed runtime responsible for script-owned memory
 - Hot reload as a first-class concern, with module loading and version evolution treated as core capabilities
 - Natural interoperability with Rust hosts through controlled host APIs, frame-scoped host borrow tokens, and typed path mutation
-- A clean separation between frontend, intermediate representation, and execution backends so the project can grow toward interpretation, AOT, and JIT without rewriting the whole stack
+- A clean separation between frontend, intermediate representation, bytecode, interpreter execution, and optional machine-code backends
 
 ## Runtime and Host Interoperability Principles
 
@@ -56,17 +57,19 @@ The aim is to keep the scripting model ergonomic without giving up the host appl
 
 ## Repository Layout
 
-The repository is organized as a Rust workspace so that major responsibilities are separated early:
+The repository is organized as a Rust workspace so that major responsibilities are separated:
 
 - `kagari-common`: shared foundational types such as source files, spans, and diagnostics
 - `kagari-syntax`: lexer, parser, and AST
-- `kagari-hir`: HIR lowering, name resolution, builtin types, semantic analysis, and type-checking scaffolding
+- `kagari-hir`: HIR lowering, name resolution, builtin types, semantic analysis, and type checking
 - `kagari-ir`: lowering from typed semantics into IR and bytecode-oriented forms
-- `kagari-runtime`: runtime abstractions, GC placeholders, host ABI boundaries, and hot-reload metadata
-- `kagari-vm`: the initial interpreter layer
-- `kagari-cli`: a thin command-line entry point for driving the pipeline
+- `kagari-runtime`: runtime values, GC boundaries, host ABI boundaries, security policy, backend interfaces, and hot-reload metadata
+- `kagari-vm`: bytecode interpreter, debugger hooks, and debugger adapter boundary
+- `kagari-jit-cranelift`: optional baseline Cranelift backend
+- `kagari-embed`: Rust embedding facade for compile, artifact, load, execute, reload, and backend execution flows
+- `kagari-cli`: command-line driver for parsing, checking, artifact emission, source execution, and artifact execution
 
-This structure is not meant to make the project unnecessarily complex early on. Its purpose is to prevent syntax, semantics, runtime logic, and execution backends from becoming tightly coupled as the project grows.
+This structure prevents syntax, semantics, runtime logic, and execution backends from becoming tightly coupled as the project grows.
 
 ## Naming Conventions
 
@@ -77,6 +80,22 @@ The project currently uses the following naming conventions:
 - Bytecode artifact extension: `.kbc`
 
 These names are intended to serve as the baseline vocabulary for the future toolchain, module system, and build outputs.
+
+## CLI
+
+The CLI uses the same embedding pipeline as hosts.
+
+```sh
+cargo run -p kagari-cli -- parse path/to/main.kgr
+cargo run -p kagari-cli -- check path/to/main.kgr
+cargo run -p kagari-cli -- emit -o path/to/main.kbc path/to/main.kgr
+cargo run -p kagari-cli -- run path/to/main.kgr
+cargo run -p kagari-cli -- run-artifact path/to/main.kbc
+```
+
+An implicit path selects `run-artifact` for `.kbc` files and `run` for other paths.
+Profiles are selected with `--profile restricted`, `--profile dev`, or `--profile tooling`.
+`--jit` requests JIT execution when the binary is built with the `jit` feature; `--no-jit` forces interpreter execution.
 
 ## Engineering Priorities
 
@@ -90,30 +109,28 @@ At the implementation level, Kagari currently prioritizes the following:
 
 ## What the Repository Already Provides
 
-The current codebase already includes the following minimal building blocks:
+The current codebase includes:
 
 - A runnable workspace structure
-- Basic source and diagnostic types
-- A small lexer and parser skeleton
-- An initial name-resolution and builtin-type-checking flow
-- A lowering path from semantic results into an initial IR
-- Basic abstractions for the runtime, hot-reload epochs, and host function registration
-- A minimal runnable VM entry example
-
-These pieces exist primarily to validate architectural boundaries. They should not be interpreted as evidence that the language itself is already feature-complete.
+- Source, span, and structured diagnostic types with stable diagnostic codes
+- Lexer, parser, AST, HIR lowering, name resolution, builtin metadata, and semantic checks
+- Lowering from analyzed modules to typed IR and verified bytecode
+- `.kbc` artifact metadata, validation, and current Rust serialization helpers
+- Runtime values, host function/type registration, capability checks, resource policy, module epochs, and reload validation
+- A bytecode VM with debugger hooks, breakpoint resolution, stepping state, watch evaluation, and adapter-boundary request/event types
+- An optional Cranelift backend isolated behind `CodegenBackend`
+- A CLI and embedding facade that share compile, artifact, load, execute, and reload boundaries
 
 ## Expected Areas of Growth
 
-In later stages, the project will likely continue to focus on:
+Near-term work continues to focus on:
 
-- Full expression, statement, module, and type-annotation syntax
-- A stricter and more extensible type system
-- Host type registration, reflection, and function binding mechanisms
-- A clearer bytecode format and module loading protocol
-- A maintainable GC object model
-- Module version management and state migration strategies for hot reload
-- an optional baseline Cranelift JIT backend aimed at performance-oriented use cases
+- Removing incorrect legacy compatibility code and examples that are not in the specs
+- Expanding conformance coverage for syntax, semantics, host interop, reload, debugger, security, reflection, and JIT policy
+- Filling out the remaining specified language and builtin surface
+- Hardening artifact encoding, loader policy, GC behavior, host APIs, and production diagnostics
+- Extending the baseline JIT while preserving interpreter semantics
 
 ## Note
 
-Kagari is still an early project. Many modules in this repository exist to stabilize system boundaries as early as possible rather than to provide a polished language experience today. The intention is to ensure that later work on language design, runtime behavior, and host integration can proceed on top of a clear and durable structure.
+Kagari is still an early project. The current implementation is useful for validating the architecture and exercising the language pipeline, but the specifications remain the source of truth while the remaining roadmap work removes legacy behavior and fills out production details.

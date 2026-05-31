@@ -2,9 +2,9 @@
 
 This document defines the module execution model for Kagari.
 
-Syntax is defined in [syntax.md](/Users/mikai/CLionProjects/kagari/docs/spec/syntax.md).
-Execution pipeline behavior is defined in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Runtime behavior is defined in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
+Syntax is defined in [syntax.md](syntax.md).
+Execution pipeline behavior is defined in [execution.md](execution.md).
+Runtime behavior is defined in [runtime.md](runtime.md).
 
 ## Design Goals
 

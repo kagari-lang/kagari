@@ -21,6 +21,7 @@ Milestones remain acceptance groupings, not commit boundaries.
 - Include the step's `Roadmap-Step: Mx.y` trailer in every step commit.
 - Do not combine multiple steps in one commit unless the roadmap explicitly marks them as one step.
 - Do not advance to the next step while the current step has uncommitted changes.
+- For documentation-only steps, update tests only if behavior changes are made, but still run the relevant milestone verification commands required before committing the step.
 
 ## Reference Documents
 
@@ -98,6 +99,7 @@ Do not repeat completed step commits.
 Continue with exactly one roadmap step at a time.
 Verify and commit each completed step with its required conventional commit message.
 Specs remain authoritative over the current implementation.
+When the next step is documentation alignment, update README, architecture, roadmap, this guide, and the relevant specs to match implemented behavior without expanding into the following cleanup step.
 ```
 
 ## Status Report Format

@@ -360,6 +360,11 @@ An IntelliJ plugin or DAP adapter owns:
 
 The adapter must not define language semantics.
 
+The current VM exposes this boundary as `DebugProtocolAdapter`.
+Adapters send `DebugAdapterRequest` values such as `Attach`, `SetBreakpoint`, `Continue`, `Pause`, stepping requests, `RunToCursor`, `EvaluateWatch`, and `FlushEvents`.
+They receive `DebugAdapterResponse` values for request results and `DebugAdapterEvent` values for attachment, breakpoint, continue, pause-request, breakpoint-resolution, and pause notifications.
+Tool-specific transports, message ids, and DAP or IDE object models remain outside the VM.
+
 ## Acceptance Criteria
 
 Debugger support is complete when:

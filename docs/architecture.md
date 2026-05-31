@@ -11,7 +11,7 @@ When existing code conflicts with the specifications, the specifications are aut
 - Script authors do not work with Rust lifetimes, Rust borrowing, or script-level `dyn Trait`.
 - Hot reload is a core runtime property, not a later patch over module loading.
 - Host-owned state and Kagari-owned state remain explicit and separately controlled.
-- Bytecode and typed IR are semantic boundaries shared by the interpreter and future machine-code backends.
+- Bytecode and typed IR are semantic boundaries shared by the interpreter and optional machine-code backends.
 - Cranelift JIT is an optional backend layer and never the definition of language semantics.
 
 ## Specification Authority
@@ -40,7 +40,10 @@ crates/
   kagari-ir       typed IR, bytecode, metadata tables, and backend-neutral lowering
   kagari-runtime  values, GC, module store, host registry, security context, and reload state
   kagari-vm       bytecode interpreter
+  kagari-embed    Rust embedding facade over compile, artifact, load, execute, and reload flows
   kagari-cli      command-line entry point and pipeline driver
+  kagari-jit-cranelift
+                  optional baseline Cranelift backend
 ```
 
 Additional backend crates may be added when they make ownership and dependency boundaries clearer.
@@ -62,8 +65,7 @@ package root / host source / bytecode artifact
   -> type checking and trait/interface validation
   -> typed IR
   -> verified bytecode
-  -> interpreter execution
-  -> optional baseline JIT execution
+  -> interpreter execution, or optional baseline JIT execution with interpreter fallback
 ```
 
 The parser owns source spelling and recovery.
@@ -197,6 +199,9 @@ The embedding API owns:
 Embedding APIs expose stable Kagari concepts rather than parser or backend internals.
 Convenience CLI behavior must remain a thin layer over the same embedding pipeline.
 
+The current embedding facade exposes `KagariEngine`, `KagariRuntime`, `CompileOptions`, `ArtifactOptions`, `LoadOptions`, `ReloadOptions`, `ExecutionContext`, and the `BytecodeArtifact` alias for `.kbc` artifacts.
+It supports source compilation, artifact emission, artifact loading, module execution, explicit entry execution, reload validation, host function and type registration, structured diagnostics, and backend execution through `CodegenBackend`.
+
 ## Interpreter
 
 The interpreter is the semantic execution foundation.
@@ -230,6 +235,9 @@ It is built on:
 The baseline debugger is interpreter-first and supports source breakpoints, conditional breakpoints, hit counts, stepping, call stacks, variable inspection, watch expressions, trap breakpoints, and hot-reload-aware breakpoint remapping.
 JIT execution may participate only when it provides equivalent debug metadata and safe debug points; otherwise debugged functions fall back to the interpreter.
 
+The implemented VM exposes a debugger adapter boundary through `DebugProtocolAdapter`, `DebugAdapterRequest`, `DebugAdapterResponse`, `DebugAdapterEvent`, and `DebugAdapterEventSink`.
+IDE and DAP integrations should translate their transport messages at that boundary instead of coupling directly to VM internals.
+
 ## Baseline Cranelift JIT
 
 The baseline JIT is optional and function-level.
@@ -245,6 +253,7 @@ The JIT must:
 - avoid mandatory deoptimization, tracing behavior, and optimizing-tier complexity
 
 `docs/spec/jit.md` defines the JIT contract.
+The current Cranelift backend is feature-gated in `kagari-jit-cranelift` and is reached from the VM or embedding layer through the backend-neutral `CodegenBackend` trait.
 
 ## Hot Reload
 
@@ -273,6 +282,12 @@ Security is layered:
 Reflection is metadata-driven and profile-gated.
 Ordinary game-state mutation must not go through reflection.
 Privileged reflective writes, when provided by an embedding, are separate from typed path mutation and must be explicitly gated.
+
+The CLI currently maps profiles to runtime policy as follows:
+
+- `restricted`: default-deny capabilities, no host calls, debugger, module loading, reflection, path mutation, or JIT.
+- `dev`: host calls for `host.log`; JIT only when `--jit` is requested and the binary has the `jit` feature.
+- `tooling`: host calls, reflection, path mutation, module loading, debugger capabilities, and optional JIT.
 
 ## Production Readiness Definition
 

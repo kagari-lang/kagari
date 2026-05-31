@@ -11,17 +11,17 @@ The execution pipeline supports:
 - hot reload
 - a bytecode-first implementation strategy
 
-Backend abstraction rules are defined in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
-Bytecode rules are defined in [bytecode.md](/Users/mikai/CLionProjects/kagari/docs/spec/bytecode.md).
-Module execution rules are defined in [modules.md](/Users/mikai/CLionProjects/kagari/docs/spec/modules.md).
+Backend abstraction rules are defined in [codegen-backend.md](codegen-backend.md).
+Bytecode rules are defined in [bytecode.md](bytecode.md).
+Module execution rules are defined in [modules.md](modules.md).
 
 ## Design Goals
 
 - make bytecode interpretation the primary semantic execution model
 - support precompiled bytecode artifacts for faster loading and distribution
-- leave a clean architectural path for later JIT compilation
+- support optional JIT compilation without making it the semantic authority
 - avoid coupling the execution strategy directly to AST structures
-- keep runtime services shared across interpreter and future JIT backends
+- keep runtime services shared across interpreter and optional JIT backends
 
 ## Execution Strategy
 
@@ -57,11 +57,14 @@ Native AOT and JIT are backend layers; they do not define language semantics.
 
 The repository contains bytecode-first implementation components:
 
-- [bytecode/mod.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/bytecode/mod.rs)
-- [module/mod.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/module/mod.rs)
-- [lib.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-vm/src/lib.rs)
+- `crates/kagari-ir/src/bytecode/mod.rs`
+- `crates/kagari-ir/src/module/mod.rs`
+- `crates/kagari-vm/src/lib.rs`
+- `crates/kagari-runtime/src/backend.rs`
+- `crates/kagari-jit-cranelift/src/lib.rs`
 
 These components are part of the bytecode-first execution model.
+The Cranelift backend is optional and must preserve interpreter-visible behavior through the `CodegenBackend` boundary.
 
 ## Execution Tiers
 
@@ -133,7 +136,7 @@ Use cases:
 - signing or integrity validation
 - hot-reload comparisons
 
-This matches the naming already documented in [README.md](/Users/mikai/CLionProjects/kagari/README.md).
+This matches the naming already documented in [README.md](../../README.md).
 
 ## AOT in the Near Term
 
@@ -310,7 +313,7 @@ In particular, JIT code must still respect:
 
 JIT code calls shared runtime helpers at these boundaries unless a specialization is proven to preserve the same safety checks.
 
-Host interop rules are defined in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
+Host interop rules are defined in [host-interop.md](host-interop.md).
 
 ## Hot Reload and JIT
 

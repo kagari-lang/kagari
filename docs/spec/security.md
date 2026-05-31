@@ -4,8 +4,8 @@ This document defines the security model for Kagari.
 
 The main goal is to let host applications safely embed Kagari while retaining fine-grained control over language features, runtime capabilities, and exposed host APIs.
 
-Host interop is defined in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
-Runtime behavior is defined in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
+Host interop is defined in [host-interop.md](host-interop.md).
+Runtime behavior is defined in [runtime.md](runtime.md).
 
 ## Design Goals
 
@@ -93,6 +93,14 @@ Pipeline:
 4. reject unsupported language constructs with diagnostics
 
 This is preferable to making the parser itself host-specific.
+
+The current CLI provides three host-facing profiles:
+
+- `restricted`: default-deny language and runtime capabilities.
+- `dev`: host calls are enabled for `host.log`; JIT is enabled only when requested and allowed.
+- `tooling`: reflection, path mutation, module loading, debugger capabilities, host visibility, and optional JIT are enabled for trusted tooling workflows.
+
+These CLI profiles are conveniences over the same `LanguageProfile`, `CapabilitySet`, `HostExposurePolicy`, and `ExecutionContext` structures used by embeddings.
 
 ## Layer 2: Runtime Capabilities
 
@@ -219,7 +227,7 @@ Split:
 - reflection-based mutation must be separately gated when it exists
 - host objects do not automatically expose reflective write access
 
-This works well with the reflection design in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
+This works well with the reflection design in [reflection.md](reflection.md).
 
 ### Reflection Gates
 
@@ -241,7 +249,7 @@ Examples:
 - downcast may be permitted while reflective mutation is denied
 - trait-based host APIs still depend on host exposure policy
 
-Trait-system behavior is defined in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
+Trait-system behavior is defined in [traits.md](traits.md).
 
 ## Modules and Loading
 

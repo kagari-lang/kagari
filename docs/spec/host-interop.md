@@ -4,10 +4,10 @@ This document defines the host interop model for Kagari, with a focus on Rust em
 
 The main goal is to let Rust applications expose types and functions to Kagari while preserving Rust-side safety constraints and avoiding unnecessary data copies.
 
-Runtime behavior is defined in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
-Execution behavior is defined in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Backend abstraction is defined in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
-Typed path mutation is defined in [typed-path-mutation.md](/Users/mikai/CLionProjects/kagari/docs/spec/typed-path-mutation.md).
+Runtime behavior is defined in [runtime.md](runtime.md).
+Execution behavior is defined in [execution.md](execution.md).
+Backend abstraction is defined in [codegen-backend.md](codegen-backend.md).
+Typed path mutation is defined in [typed-path-mutation.md](typed-path-mutation.md).
 
 ## Design Goals
 
@@ -78,7 +78,7 @@ Function registration records:
 - return type
 - capability requirements if any
 
-This aligns with the existing host runtime surface in [host.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/host.rs).
+This aligns with the existing host runtime surface in [host.rs](../../crates/kagari-runtime/src/host.rs).
 
 ## Passing Styles
 
@@ -303,7 +303,7 @@ Conflicts for path operations are handled when each checked path read or mutatio
 
 ## Runtime Representation
 
-The runtime representation uses the host value categories present in [value.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/value.rs):
+The runtime representation uses the host value categories present in [value.rs](../../crates/kagari-runtime/src/value.rs):
 
 - `HostRef`
 - `HostMut`
@@ -447,7 +447,7 @@ Behavior:
 - reflective writes over host objects are privileged tooling operations, not the ordinary mutation model
 - ordinary script mutation of host-owned structured state uses typed path mutation
 
-Reflection is defined in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
+Reflection is defined in [reflection.md](reflection.md).
 
 ## Interaction with Traits
 
@@ -459,7 +459,7 @@ Behavior:
 - host values may be viewed through trait/interface value types
 - `is<T>` and `downcast<T>` rely on concrete type identity
 
-Trait-system behavior is defined in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
+Trait-system behavior is defined in [traits.md](traits.md).
 
 ## Interaction with Security
 
@@ -471,7 +471,7 @@ Behavior:
 - host reflection is separately gated
 - dynamic loading and powerful host services are controlled through capabilities and profile checks
 
-Security behavior is defined in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
+Security behavior is defined in [security.md](security.md).
 
 ## V1 Feature Set
 

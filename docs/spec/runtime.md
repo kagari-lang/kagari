@@ -4,9 +4,9 @@ This document specifies the runtime model for Kagari.
 
 The goal is to unify the runtime-facing concepts that appear across the syntax, trait, reflection, security, and host-interop documents.
 
-Execution-model rules are defined in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Backend abstraction rules are defined in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
-Typed path mutation rules are defined in [typed-path-mutation.md](/Users/mikai/CLionProjects/kagari/docs/spec/typed-path-mutation.md).
+Execution-model rules are defined in [execution.md](execution.md).
+Backend abstraction rules are defined in [codegen-backend.md](codegen-backend.md).
+Typed path mutation rules are defined in [typed-path-mutation.md](typed-path-mutation.md).
 
 ## Design Goals
 
@@ -20,11 +20,12 @@ Typed path mutation rules are defined in [typed-path-mutation.md](/Users/mikai/C
 
 The current runtime crate defines the main system boundaries:
 
-- [lib.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/lib.rs)
-- [value.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/value.rs)
-- [gc.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/gc.rs)
-- [host.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/host.rs)
-- [reload.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/reload.rs)
+- `crates/kagari-runtime/src/lib.rs`
+- `crates/kagari-runtime/src/value.rs`
+- `crates/kagari-runtime/src/gc.rs`
+- `crates/kagari-runtime/src/host.rs`
+- `crates/kagari-runtime/src/reload.rs`
+- `crates/kagari-runtime/src/backend.rs`
 
 This specification uses those boundaries.
 
@@ -102,7 +103,7 @@ The key property is:
 
 ## Value Shape
 
-The current [value.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/value.rs) file already separates script-owned handles from host-backed handles.
+The current `value.rs` file already separates script-owned handles from host-backed handles.
 
 The value shape is:
 
@@ -146,7 +147,7 @@ Its responsibilities include:
 
 The GC must not own Rust host borrows.
 
-This aligns with [gc.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/gc.rs).
+This aligns with `gc.rs`.
 
 ## Type Registry
 
@@ -179,7 +180,7 @@ Each `TypeInfo` carries:
 - method metadata
 - implemented trait metadata
 
-Reflection rules are defined in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
+Reflection rules are defined in [reflection.md](reflection.md).
 
 ## Interface Values
 
@@ -204,7 +205,7 @@ This model supports:
 - `is<T>`
 - `downcast<T>`
 
-Trait-system rules are defined in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
+Trait-system rules are defined in [traits.md](traits.md).
 
 ## Host Registry
 
@@ -215,7 +216,7 @@ The host registry manages:
 - parameter passing metadata
 - capability requirements for host entry points
 
-This extends the current shape in [host.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/host.rs).
+This extends the current shape in `host.rs`.
 
 The model is:
 
@@ -293,7 +294,7 @@ These tokens are:
 - non-storable in GC-managed objects
 - rejected at suspension boundaries
 
-Host interop rules are defined in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
+Host interop rules are defined in [host-interop.md](host-interop.md).
 
 ## Security Context
 
@@ -315,7 +316,7 @@ This context is the runtime-side anchor for:
 - resource limits
 - feature-gated runtime behavior
 
-Security rules are defined in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
+Security rules are defined in [security.md](security.md).
 
 ## Resource Accounting
 
@@ -354,7 +355,7 @@ The execution format is allowed to diverge from raw IR, but the runtime keeps th
 
 Hot reload is coordinated through explicit module epochs.
 
-The implementation in [reload.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-runtime/src/reload.rs) is compatible with this.
+The implementation in [reload.rs](../../crates/kagari-runtime/src/reload.rs) is compatible with this.
 
 The runtime uses epochs for:
 

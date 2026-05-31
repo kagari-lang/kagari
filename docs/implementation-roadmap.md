@@ -248,7 +248,7 @@ Acceptance criteria:
 - IR and bytecode can represent all accepted milestone 1-2 syntax.
 - Bytecode verifier rejects malformed control flow, type mismatches, invalid writes, and unresolved paths.
 - Typed path descriptors are resolved before execution.
-- Interpreter and future JIT have enough metadata for effects, safepoints, and reload validation.
+- Interpreter and optional JIT have enough metadata for effects, safepoints, and reload validation.
 
 Verification:
 
@@ -765,7 +765,7 @@ Implementation tasks:
 - Add debugger conformance tests and IDE adapter boundary tests.
 - Add fuzz or property tests for lexer/parser and bytecode verifier where practical.
 - Improve diagnostics for parse, resolution, type, bytecode verification, runtime, host, reload, and security errors.
-- Update CLI commands for parse/check/run and optional JIT execution.
+- Update CLI commands for parse, check, emit `.kbc`, run source, run artifacts, profile selection, and optional JIT execution.
 - Update README and docs to match final behavior.
 - Remove dead compatibility code and obsolete tests.
 
@@ -807,6 +807,13 @@ Acceptance criteria:
 - Specs, architecture, and implementation roadmap agree with the code.
 - Public APIs are documented enough for host embedding examples.
 - No known legacy syntax remains accepted unless explicitly present in the specs.
+
+Current M10 implementation notes:
+
+- M10.1 through M10.5 are present as roadmap-step commits.
+- The CLI implements `parse`, `check`, `emit`, `run`, `run-artifact`, implicit path execution, profile selection, and feature-gated `--jit`.
+- The VM exposes a debugger adapter boundary with request, response, event, and event-sink types.
+- M10.7 remains responsible for removing any remaining dead compatibility code, obsolete tests, and non-spec examples.
 
 Verification:
 

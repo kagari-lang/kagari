@@ -3,9 +3,9 @@
 This document specifies the Kagari bytecode execution model.
 The on-disk artifact encoding is versioned separately from the semantic bytecode model described here.
 
-Execution-model context is defined in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Backend abstraction rules are defined in [codegen-backend.md](/Users/mikai/CLionProjects/kagari/docs/spec/codegen-backend.md).
-Typed path mutation rules are defined in [typed-path-mutation.md](/Users/mikai/CLionProjects/kagari/docs/spec/typed-path-mutation.md).
+Execution-model context is defined in [execution.md](execution.md).
+Backend abstraction rules are defined in [codegen-backend.md](codegen-backend.md).
+Typed path mutation rules are defined in [typed-path-mutation.md](typed-path-mutation.md).
 
 ## Scope
 
@@ -475,12 +475,13 @@ The logical separation is reflected in the in-memory model so the artifact forma
 
 The current code shape lives in:
 
-- [bytecode/mod.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/bytecode/mod.rs)
-- [bytecode/module.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/bytecode/module.rs)
-- [bytecode/instruction.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/bytecode/instruction.rs)
-- [bytecode/lower.rs](/Users/mikai/CLionProjects/kagari/crates/kagari-ir/src/bytecode/lower.rs)
+- [bytecode/mod.rs](../../crates/kagari-ir/src/bytecode/mod.rs)
+- [bytecode/module.rs](../../crates/kagari-ir/src/bytecode/module.rs)
+- [bytecode/instruction.rs](../../crates/kagari-ir/src/bytecode/instruction.rs)
+- [bytecode/lower.rs](../../crates/kagari-ir/src/bytecode/lower.rs)
 
-The current implementation defines the execution-layer boundary while the serialized artifact format remains separate.
+The current implementation defines the execution-layer boundary and wraps bytecode in versioned `.kbc` artifact metadata.
+Artifact serialization is implemented separately from bytecode semantics so the binary exchange format can evolve without changing VM behavior.
 
 ## Relationship to IR
 

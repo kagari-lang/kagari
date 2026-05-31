@@ -127,7 +127,7 @@ These are Kagari concepts, not Cranelift concepts.
 
 ## Backend Interface
 
-The backend interface has this shape:
+The backend interface has this semantic shape:
 
 ```text
 CodegenBackend {
@@ -150,6 +150,22 @@ SafepointTable
 
 Names are implementation details.
 The interface is framed in Kagari terms rather than in a backend library's native API.
+
+The current Rust interface lives in `crates/kagari-runtime/src/backend.rs`.
+It exposes `BackendId`, `BackendTarget`, `BackendFunctionInput`, `ExecutableFunctionArtifact`, safepoint and debug metadata, backend diagnostics, and `CodegenBackend`.
+The implemented trait compiles one function at a time and optionally invokes a compiled artifact:
+
+```text
+CodegenBackend {
+  backend_id() -> BackendId
+  target() -> BackendTarget
+  compile_function(input) -> ExecutableFunctionArtifact
+  invoke_function(artifact, runtime) -> Value
+}
+```
+
+Module-level compilation remains a valid future extension of the same boundary, not a requirement of the current trait.
+`kagari-jit-cranelift` implements this boundary for the optional baseline Cranelift backend.
 
 ## Runtime ABI Surface
 
@@ -324,9 +340,9 @@ This order keeps backend experimentation from destabilizing the rest of the lang
 
 This document complements:
 
-- [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md)
-- [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md)
-- [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md)
+- [execution.md](execution.md)
+- [runtime.md](runtime.md)
+- [host-interop.md](host-interop.md)
 
 Those documents define the execution model, runtime model, and host boundary.
 This document defines how code generation backends plug into that larger architecture.

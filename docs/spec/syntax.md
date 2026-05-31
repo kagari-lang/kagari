@@ -30,13 +30,13 @@ This document does not define:
 - module resolution semantics
 - the final const evaluation rules
 
-Trait-system rules are defined separately in [traits.md](/Users/mikai/CLionProjects/kagari/docs/spec/traits.md).
-Reflection rules are defined separately in [reflection.md](/Users/mikai/CLionProjects/kagari/docs/spec/reflection.md).
-Security rules are defined separately in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
-Host interop rules are defined separately in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
-Runtime model rules are defined separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
-Execution model rules are defined separately in [execution.md](/Users/mikai/CLionProjects/kagari/docs/spec/execution.md).
-Module execution rules are defined separately in [modules.md](/Users/mikai/CLionProjects/kagari/docs/spec/modules.md).
+Trait-system rules are defined separately in [traits.md](traits.md).
+Reflection rules are defined separately in [reflection.md](reflection.md).
+Security rules are defined separately in [security.md](security.md).
+Host interop rules are defined separately in [host-interop.md](host-interop.md).
+Runtime model rules are defined separately in [runtime.md](runtime.md).
+Execution model rules are defined separately in [execution.md](execution.md).
+Module execution rules are defined separately in [modules.md](modules.md).
 
 ## Grammar Notation
 

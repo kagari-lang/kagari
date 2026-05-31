@@ -4,10 +4,10 @@ This document defines Kagari's runtime metadata and optional reflection model.
 
 The main goal is to provide the metadata needed by the compiler, VM, GC, host integration, tooling, and hot reload without turning ordinary Kagari code into a dynamic reflection-driven language.
 
-Security rules are defined separately in [security.md](/Users/mikai/CLionProjects/kagari/docs/spec/security.md).
-Host interop rules are defined separately in [host-interop.md](/Users/mikai/CLionProjects/kagari/docs/spec/host-interop.md).
-Runtime model rules are defined separately in [runtime.md](/Users/mikai/CLionProjects/kagari/docs/spec/runtime.md).
-Typed path mutation rules are defined separately in [typed-path-mutation.md](/Users/mikai/CLionProjects/kagari/docs/spec/typed-path-mutation.md).
+Security rules are defined separately in [security.md](security.md).
+Host interop rules are defined separately in [host-interop.md](host-interop.md).
+Runtime model rules are defined separately in [runtime.md](runtime.md).
+Typed path mutation rules are defined separately in [typed-path-mutation.md](typed-path-mutation.md).
 
 ## Core Position
 
