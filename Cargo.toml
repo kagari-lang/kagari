@@ -5,6 +5,7 @@ members = [
     "crates/kagari-embed",
     "crates/kagari-hir",
     "crates/kagari-ir",
+    "crates/kagari-jit-cranelift",
     "crates/kagari-runtime",
     "crates/kagari-syntax",
     "crates/kagari-vm",
@@ -21,7 +22,10 @@ kagari-common = { path = "crates/kagari-common" }
 kagari-embed = { path = "crates/kagari-embed" }
 kagari-hir = { path = "crates/kagari-hir" }
 kagari-ir = { path = "crates/kagari-ir" }
+kagari-jit-cranelift = { path = "crates/kagari-jit-cranelift" }
 kagari-runtime = { path = "crates/kagari-runtime" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }
+cranelift-codegen = "0.132.0"
+cranelift-native = "0.132.0"
 smallvec = "1.15.1"

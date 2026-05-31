@@ -1,0 +1,17 @@
+[package]
+name = "kagari-jit-cranelift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+jit = []
+
+[dependencies]
+cranelift-codegen.workspace = true
+cranelift-native.workspace = true
+kagari-runtime.workspace = true
+
+[dev-dependencies]
+kagari-ir.workspace = true
