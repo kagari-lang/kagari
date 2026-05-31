@@ -200,7 +200,7 @@ fn main() -> i32 { VALUE }
 }
 
 #[test]
-fn lowers_field_and_index_assignments_via_runtime_helpers() {
+fn lowers_field_and_index_assignments_to_aggregate_writes() {
     let analyzed = common::analyze_ok(
         r#"
 struct Point { var x: i32 }
@@ -218,32 +218,30 @@ fn main() -> i32 {
     let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
+    let instructions = function
+        .blocks
+        .iter()
+        .flat_map(|block| block.instructions.iter())
+        .collect::<Vec<_>>();
+
+    assert!(instructions.iter().any(|instruction| matches!(
+        instruction,
+        Instruction::WriteAggregateField { field, .. } if field.name == "x"
+    )));
     assert!(
-        function
-            .blocks
+        instructions
             .iter()
-            .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(
-                instruction,
-                Instruction::Call {
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(field)),
-                    ..
-                } if field == "x"
-            ))
+            .any(|instruction| matches!(instruction, Instruction::WriteAggregateIndex { .. }))
     );
-    assert!(
-        function
-            .blocks
-            .iter()
-            .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(
-                instruction,
-                Instruction::Call {
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
-                    ..
-                }
-            ))
-    );
+    assert!(!instructions.iter().any(|instruction| matches!(
+        instruction,
+        Instruction::Call {
+            callee: CallTarget::RuntimeHelper(
+                RuntimeHelper::ReflectSetField(_) | RuntimeHelper::ReflectSetIndex
+            ),
+            ..
+        }
+    )));
 }
 
 #[test]
@@ -378,7 +376,9 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             values
         }
         Instruction::ReadAggregateField { dst, base, .. } => vec![*dst, *base],
+        Instruction::WriteAggregateField { base, value, .. } => vec![*base, *value],
         Instruction::ReadAggregateIndex { dst, base, index } => vec![*dst, *base, *index],
+        Instruction::WriteAggregateIndex { base, index, value } => vec![*base, *index, *value],
         Instruction::ReadPath {
             dst,
             root_or_view,

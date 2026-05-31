@@ -204,10 +204,20 @@ pub enum BytecodeInstruction {
         base: Register,
         field: FieldId,
     },
+    WriteAggregateField {
+        base: Register,
+        field: FieldId,
+        value: Register,
+    },
     ReadAggregateIndex {
         dst: Register,
         base: Register,
         index: Register,
+    },
+    WriteAggregateIndex {
+        base: Register,
+        index: Register,
+        value: Register,
     },
     ReadPath {
         dst: Register,

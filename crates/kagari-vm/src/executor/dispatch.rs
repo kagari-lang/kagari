@@ -110,9 +110,20 @@ impl<'a> Executor<'a> {
                 let value = self.read_field(base, &field.name)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
+            BytecodeInstruction::WriteAggregateField { base, field, value } => {
+                let field = self
+                    .module
+                    .fields
+                    .get(field.index())
+                    .ok_or(VmError::UnsupportedInstruction("invalid_aggregate_field"))?;
+                self.write_field(base, &field.name, value)?;
+            }
             BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
                 let value = self.read_index(base, index)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
+            }
+            BytecodeInstruction::WriteAggregateIndex { base, index, value } => {
+                self.write_index(base, index, value)?;
             }
             BytecodeInstruction::ReadPath { .. } => {
                 return Err(VmError::UnsupportedInstruction("read_path"));

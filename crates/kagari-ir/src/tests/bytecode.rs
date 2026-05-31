@@ -507,7 +507,7 @@ fn main(values: [i32]) -> [i32] {
 }
 
 #[test]
-fn lowers_place_assignments_to_reflection_helpers() {
+fn lowers_place_assignments_to_aggregate_writes() {
     let bytecode = common::bytecode_ok(
         r#"
 struct Point { var x: i32 }
@@ -526,15 +526,21 @@ fn main() -> i32 {
 
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
-        BytecodeInstruction::Call {
-            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(field)),
-            ..
-        } if field == "x"
+        BytecodeInstruction::WriteAggregateField { field, .. }
+            if bytecode.fields.get(field.index()).is_some_and(|record| record.name == "x")
     )));
-    assert!(function.instructions.iter().any(|instruction| matches!(
+    assert!(
+        function.instructions.iter().any(|instruction| matches!(
+            instruction,
+            BytecodeInstruction::WriteAggregateIndex { .. }
+        ))
+    );
+    assert!(!function.instructions.iter().any(|instruction| matches!(
         instruction,
         BytecodeInstruction::Call {
-            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+            callee: CallTarget::RuntimeHelper(
+                RuntimeHelper::ReflectSetField(_) | RuntimeHelper::ReflectSetIndex
+            ),
             ..
         }
     )));

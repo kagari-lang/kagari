@@ -373,11 +373,25 @@ fn lower_instruction(
                 field: context.field_id(field, dst.ty),
             }
         }
+        Instruction::WriteAggregateField { base, field, value } => {
+            BytecodeInstruction::WriteAggregateField {
+                base: lower_value(*base),
+                field: context.field_id(field, value.ty),
+                value: lower_value(*value),
+            }
+        }
         Instruction::ReadAggregateIndex { dst, base, index } => {
             BytecodeInstruction::ReadAggregateIndex {
                 dst: lower_value(*dst),
                 base: lower_value(*base),
                 index: lower_value(*index),
+            }
+        }
+        Instruction::WriteAggregateIndex { base, index, value } => {
+            BytecodeInstruction::WriteAggregateIndex {
+                base: lower_value(*base),
+                index: lower_value(*index),
+                value: lower_value(*value),
             }
         }
         Instruction::ReadPath {

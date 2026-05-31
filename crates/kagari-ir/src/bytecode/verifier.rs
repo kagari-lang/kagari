@@ -282,10 +282,20 @@ fn verify_instruction(
             expect_register_ty(function, *dst, field.ty, "aggregate field dst")?;
             expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
         }
+        BytecodeInstruction::WriteAggregateField { base, field, value } => {
+            let field = field_record(module, function, *field)?;
+            expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
+            expect_register_ty(function, *value, field.ty, "aggregate field value")?;
+        }
         BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
             let _ = register_ty(function, *dst)?;
             expect_register_ty(function, *base, ValueType::HeapObject, "index base")?;
             let _ = register_ty(function, *index)?;
+        }
+        BytecodeInstruction::WriteAggregateIndex { base, index, value } => {
+            expect_register_ty(function, *base, ValueType::HeapObject, "index base")?;
+            let _ = register_ty(function, *index)?;
+            let _ = register_ty(function, *value)?;
         }
         BytecodeInstruction::ReadPath {
             dst,

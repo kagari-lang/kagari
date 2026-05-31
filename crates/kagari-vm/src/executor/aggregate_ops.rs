@@ -78,4 +78,60 @@ impl Executor<'_> {
             )),
         }
     }
+
+    pub(crate) fn write_field(
+        &self,
+        base: Register,
+        name: &str,
+        value: Register,
+    ) -> Result<(), VmError> {
+        let value = self.current_frame()?.read_register(value)?;
+        match self.current_frame()?.read_register(base)? {
+            Value::Struct(handle) => self
+                .runtime
+                .gc()
+                .struct_set_field(handle, name, value)
+                .ok_or_else(|| VmError::MissingField(name.to_owned())),
+            _ => Err(VmError::TypeMismatch("write_field expects struct value")),
+        }
+    }
+
+    pub(crate) fn write_index(
+        &mut self,
+        base: Register,
+        index: Register,
+        value: Register,
+    ) -> Result<(), VmError> {
+        let base_value = self.current_frame()?.read_register(base)?;
+        let index_value = self.current_frame()?.read_register(index)?;
+        let value = self.current_frame()?.read_register(value)?;
+        let index = match index_value {
+            Value::I32(index) if index >= 0 => index as usize,
+            Value::I64(index) if index >= 0 => index as usize,
+            _ => {
+                return Err(VmError::TypeMismatch(
+                    "write_index expects non-negative integer index",
+                ));
+            }
+        };
+
+        match base_value {
+            Value::Array(handle) => self
+                .runtime
+                .gc()
+                .array_set(handle, index, value)
+                .ok_or(VmError::InvalidIndex(index)),
+            Value::Tuple(mut elements) => {
+                let Some(slot) = elements.get_mut(index) else {
+                    return Err(VmError::InvalidIndex(index));
+                };
+                *slot = value;
+                self.current_frame_mut()?
+                    .write_register(base, Value::Tuple(elements))
+            }
+            _ => Err(VmError::TypeMismatch(
+                "write_index expects array or tuple value",
+            )),
+        }
+    }
 }

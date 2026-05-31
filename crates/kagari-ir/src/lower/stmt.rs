@@ -3,7 +3,7 @@ use kagari_hir::resolver::ResolvedName;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::{FunctionLowerer, LoopScope};
-use crate::module::instruction::{CallTarget, Instruction, IrValue, RuntimeHelper, Terminator};
+use crate::module::instruction::{Instruction, IrValue, Terminator};
 
 impl FunctionLowerer<'_> {
     pub(crate) fn lower_block(
@@ -155,15 +155,24 @@ impl FunctionLowerer<'_> {
                 Ok(())
             }
             hir::PlaceKind::Field { base, name } => {
+                let field = self.aggregate_field_ref_for_place(base, name)?;
                 let base_value = self.lower_place_value(base)?;
-                let updated_base = self.lower_reflect_set_field(base, base_value, name, src)?;
-                self.lower_place_assignment(base, updated_base)
+                self.emit(Instruction::WriteAggregateField {
+                    base: base_value,
+                    field,
+                    value: src,
+                });
+                self.lower_place_assignment(base, base_value)
             }
             hir::PlaceKind::Index { base, index } => {
                 let base_value = self.lower_place_value(base)?;
                 let index = self.lower_expr(index)?;
-                let updated_base = self.lower_reflect_set_index(base, base_value, index, src)?;
-                self.lower_place_assignment(base, updated_base)
+                self.emit(Instruction::WriteAggregateIndex {
+                    base: base_value,
+                    index,
+                    value: src,
+                });
+                self.lower_place_assignment(base, base_value)
             }
         }
     }
@@ -205,37 +214,5 @@ impl FunctionLowerer<'_> {
                 Ok(dst)
             }
         }
-    }
-
-    fn lower_reflect_set_field(
-        &mut self,
-        place_id: hir::PlaceId,
-        base: IrValue,
-        name: String,
-        value: IrValue,
-    ) -> Result<IrValue, IrLoweringError> {
-        let dst = self.alloc_temp(self.place_type(place_id)?);
-        self.emit(Instruction::Call {
-            dst: Some(dst),
-            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(name)),
-            args: smallvec::smallvec![base, value],
-        });
-        Ok(dst)
-    }
-
-    fn lower_reflect_set_index(
-        &mut self,
-        place_id: hir::PlaceId,
-        base: IrValue,
-        index: IrValue,
-        value: IrValue,
-    ) -> Result<IrValue, IrLoweringError> {
-        let dst = self.alloc_temp(self.place_type(place_id)?);
-        self.emit(Instruction::Call {
-            dst: Some(dst),
-            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
-            args: smallvec::smallvec![base, index, value],
-        });
-        Ok(dst)
     }
 }

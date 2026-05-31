@@ -84,10 +84,20 @@ pub enum Instruction {
         base: IrValue,
         field: AggregateFieldRef,
     },
+    WriteAggregateField {
+        base: IrValue,
+        field: AggregateFieldRef,
+        value: IrValue,
+    },
     ReadAggregateIndex {
         dst: IrValue,
         base: IrValue,
         index: IrValue,
+    },
+    WriteAggregateIndex {
+        base: IrValue,
+        index: IrValue,
+        value: IrValue,
     },
     ReadPath {
         dst: IrValue,
@@ -281,6 +291,9 @@ impl Instruction {
             }
             Self::ReadAggregateField { .. } | Self::ReadAggregateIndex { .. } => {
                 EffectSet::aggregate_read()
+            }
+            Self::WriteAggregateField { .. } | Self::WriteAggregateIndex { .. } => {
+                EffectSet::aggregate_write()
             }
             Self::ReadPath { .. } | Self::MakePathView { .. } => EffectSet::path_read(),
             Self::SetPath { .. } => EffectSet::path_write(),
