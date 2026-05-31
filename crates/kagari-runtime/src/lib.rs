@@ -14,9 +14,12 @@ use kagari_ir::bytecode::{BuiltinMethod, BytecodeModule};
 
 pub use error::{RuntimeError, RuntimeErrorKind};
 pub use host::{
-    BorrowEpoch, FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallGuard, HostFrameId,
-    HostFunctionEffects, HostFunctionId, HostFunctionMetadata, HostObjectId, HostReflectionPolicy,
-    HostTypeInfo, HostTypeOwnership, HostTypeRegistration,
+    BorrowEpoch, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
+    DynamicPathParameter, FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallGuard,
+    HostFrameId, HostFunctionEffects, HostFunctionId, HostFunctionMetadata, HostObjectId,
+    HostPathDescriptor, HostPathDescriptorId, HostPathDescriptorRegistration, HostPathSegment,
+    HostPathViewHandle, HostReflectionPolicy, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
+    HostTypeOwnership, HostTypeRegistration,
 };
 pub use metadata::{
     AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
@@ -107,6 +110,31 @@ impl Runtime {
         self.host
             .register_type(HostTypeInfo::from_registration(type_id, registration))?;
         Ok(type_id)
+    }
+
+    pub fn register_host_root(
+        &mut self,
+        object_id: host::HostObjectId,
+        type_id: TypeId,
+        schema_epoch: host::HostSchemaEpoch,
+    ) -> Result<host::HostRootHandle, RuntimeError> {
+        self.host.register_root(object_id, type_id, schema_epoch)
+    }
+
+    pub fn register_host_path_descriptor(
+        &mut self,
+        registration: host::HostPathDescriptorRegistration,
+    ) -> Result<host::HostPathDescriptorId, RuntimeError> {
+        self.host.register_path_descriptor(registration)
+    }
+
+    pub fn make_host_path_view(
+        &self,
+        root: host::HostRootHandle,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: host::DynamicPathArguments,
+    ) -> Result<host::HostPathViewHandle, RuntimeError> {
+        self.host.make_path_view(root, descriptor_id, dynamic_args)
     }
 
     pub fn types(&self) -> &TypeRegistry {

@@ -315,7 +315,7 @@ impl GcHeap {
             | Value::F64(_)
             | Value::Str(_)
             | Value::Interface(_)
-            | Value::HostOwned(_)
+            | Value::HostRoot(_)
             | Value::HostPathView(_)
             | Value::Ephemeral(_) => {}
         }
@@ -398,10 +398,69 @@ impl GcHeap {
 mod tests {
     use super::*;
     use crate::{
-        host::{HostBorrowTable, HostObjectId},
-        metadata::TypeId,
-        value::{HostPathViewId, StructValueField},
+        host::{
+            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+            HostPathSegment, HostRegistry, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
+            HostTypeOwnership,
+        },
+        metadata::{AbiFingerprint, FieldMetadataId, PathAccess, TypeId},
+        value::StructValueField,
     };
+
+    fn host_root_value(object_id: u64) -> Value {
+        Value::HostRoot(HostRootHandle::new(
+            HostObjectId(object_id),
+            TypeId::new(0),
+            HostSchemaEpoch::new(0),
+            AbiFingerprint(1),
+        ))
+    }
+
+    fn path_view_value(object_id: u64) -> Value {
+        let root_type = TypeId::new(0);
+        let result_type = TypeId::new(1);
+        let mut registry = HostRegistry::default();
+        registry
+            .register_type(HostTypeInfo {
+                type_id: root_type,
+                script_name: "Player".to_owned(),
+                rust_type_name: "Player".to_owned(),
+                ownership: HostTypeOwnership::HostRoot,
+                fields: Vec::new(),
+                methods: Vec::new(),
+                traits: Vec::new(),
+                path_access: PathAccess::ReadWrite,
+                reflection: crate::host::HostReflectionPolicy::Hidden,
+                abi_fingerprint: AbiFingerprint(1),
+            })
+            .unwrap();
+        let root = registry
+            .register_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
+            .unwrap();
+        let descriptor = registry
+            .register_path_descriptor(HostPathDescriptorRegistration {
+                root_type,
+                result_type,
+                segments: vec![HostPathSegment::Field {
+                    name: "hp".to_owned(),
+                    field_id: FieldMetadataId::new(0),
+                    owner_type: root_type,
+                    result_type,
+                    access: PathAccess::ReadWrite,
+                    abi_fingerprint: AbiFingerprint(2),
+                }],
+                access: PathAccess::ReadWrite,
+                schema_epoch: HostSchemaEpoch::new(0),
+                abi_fingerprint: AbiFingerprint(3),
+                capability_requirements: crate::security::CapabilitySet::default(),
+            })
+            .unwrap();
+        Value::HostPathView(
+            registry
+                .make_path_view(root, descriptor, DynamicPathArguments::empty())
+                .unwrap(),
+        )
+    }
 
     fn shared_borrow_value(object_id: u64) -> Value {
         let table = HostBorrowTable::default();
@@ -436,16 +495,13 @@ mod tests {
     fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
         let heap = GcHeap::new(GcHeapConfig::default());
 
-        assert!(
-            heap.alloc_array(vec![Value::HostOwned(HostObjectId(1))])
-                .is_none()
-        );
+        assert!(heap.alloc_array(vec![host_root_value(1)]).is_none());
         assert!(
             heap.alloc_struct(
                 "HostBacked".to_owned(),
                 vec![StructValueField {
                     name: "path".to_owned(),
-                    value: Value::HostPathView(HostPathViewId(3)),
+                    value: path_view_value(3),
                 }],
             )
             .is_none()
@@ -468,12 +524,9 @@ mod tests {
             .unwrap();
 
         assert!(heap.array_push(array, shared_borrow_value(1)).is_none());
+        assert!(heap.array_set(array, 0, path_view_value(4)).is_none());
         assert!(
-            heap.array_set(array, 0, Value::HostPathView(HostPathViewId(4)))
-                .is_none()
-        );
-        assert!(
-            heap.struct_set_field(record, "value", Value::HostOwned(HostObjectId(5)))
+            heap.struct_set_field(record, "value", host_root_value(5))
                 .is_none()
         );
 
@@ -505,16 +558,16 @@ mod tests {
     #[test]
     fn roots_are_explicit_storable_slots() {
         let heap = GcHeap::new(GcHeapConfig::default());
-        let root = heap.root_value(Value::HostOwned(HostObjectId(1))).unwrap();
+        let object = heap.alloc_array(vec![Value::I32(1)]).unwrap();
+        let root = heap.root_value(Value::Array(object)).unwrap();
 
         assert_eq!(root.index(), 0);
-        assert_eq!(
-            heap.root_snapshot(root),
-            Some(Value::HostOwned(HostObjectId(1)))
-        );
+        assert_eq!(heap.root_snapshot(root), Some(Value::Array(object)));
         assert_eq!(heap.active_roots(), 1);
-        assert_eq!(heap.trace_roots(), Vec::<HeapObjectId>::new());
+        assert_eq!(heap.trace_roots(), vec![object]);
 
+        assert!(heap.root_value(host_root_value(1)).is_none());
+        assert!(heap.root_value(path_view_value(1)).is_none());
         assert!(
             heap.root_value(Value::Tuple(vec![shared_borrow_value(2)]))
                 .is_none()
@@ -537,11 +590,7 @@ mod tests {
             .unwrap();
 
         let root = heap
-            .root_value(Value::Tuple(vec![
-                Value::Struct(record),
-                Value::HostOwned(HostObjectId(7)),
-                Value::HostPathView(HostPathViewId(8)),
-            ]))
+            .root_value(Value::Tuple(vec![Value::Struct(record), Value::Unit]))
             .unwrap();
 
         assert_eq!(heap.trace_roots(), vec![record, leaf]);

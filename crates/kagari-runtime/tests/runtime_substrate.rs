@@ -3,9 +3,68 @@ use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId,
     MethodOrigin, ModuleInitializationState, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind,
     TraitInfo, TypeId, TypeKind, TypeRegistration, Visibility,
-    host::{HostBorrowTable, HostObjectId},
-    value::{HostPathViewId, StructValueField, Value, ValueCategory},
+    host::{
+        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+        HostPathSegment, HostRegistry, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
+        HostTypeOwnership,
+    },
+    value::{StructValueField, Value, ValueCategory},
 };
+
+fn host_root_value(object_id: u64) -> Value {
+    Value::HostRoot(HostRootHandle::new(
+        HostObjectId(object_id),
+        TypeId::new(0),
+        HostSchemaEpoch::new(0),
+        AbiFingerprint(1),
+    ))
+}
+
+fn path_view_value(object_id: u64) -> Value {
+    let root_type = TypeId::new(0);
+    let result_type = TypeId::new(1);
+    let mut registry = HostRegistry::default();
+    registry
+        .register_type(HostTypeInfo {
+            type_id: root_type,
+            script_name: "Player".to_owned(),
+            rust_type_name: "Player".to_owned(),
+            ownership: HostTypeOwnership::HostRoot,
+            fields: Vec::new(),
+            methods: Vec::new(),
+            traits: Vec::new(),
+            path_access: PathAccess::ReadWrite,
+            reflection: kagari_runtime::host::HostReflectionPolicy::Hidden,
+            abi_fingerprint: AbiFingerprint(1),
+        })
+        .unwrap();
+    let root = registry
+        .register_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = registry
+        .register_path_descriptor(HostPathDescriptorRegistration {
+            root_type,
+            result_type,
+            segments: vec![HostPathSegment::Field {
+                name: "hp".to_owned(),
+                field_id: FieldMetadataId::new(0),
+                owner_type: root_type,
+                result_type,
+                access: PathAccess::ReadWrite,
+                abi_fingerprint: AbiFingerprint(2),
+            }],
+            access: PathAccess::ReadWrite,
+            schema_epoch: HostSchemaEpoch::new(0),
+            abi_fingerprint: AbiFingerprint(3),
+            capability_requirements: CapabilitySet::default(),
+        })
+        .unwrap();
+    Value::HostPathView(
+        registry
+            .make_path_view(root, descriptor, DynamicPathArguments::empty())
+            .unwrap(),
+    )
+}
 
 fn shared_borrow_value(object_id: u64) -> Value {
     let table = HostBorrowTable::default();
@@ -19,8 +78,8 @@ fn shared_borrow_value(object_id: u64) -> Value {
 
 #[test]
 fn value_categories_and_storage_boundaries_match_runtime_spec() {
-    let host_owned = Value::HostOwned(HostObjectId(1));
-    let host_path_view = Value::HostPathView(HostPathViewId(2));
+    let host_root = host_root_value(1);
+    let host_path_view = path_view_value(2);
     let host_borrow = shared_borrow_value(3);
 
     assert_eq!(Value::Unit.category(), ValueCategory::Unit);
@@ -29,16 +88,16 @@ fn value_categories_and_storage_boundaries_match_runtime_spec() {
         Value::Tuple(vec![Value::I32(7)]).category(),
         ValueCategory::ScriptOwned
     );
-    assert_eq!(host_owned.category(), ValueCategory::HostHandle);
+    assert_eq!(host_root.category(), ValueCategory::HostHandle);
     assert_eq!(host_path_view.category(), ValueCategory::HostPathView);
     assert_eq!(host_borrow.category(), ValueCategory::Ephemeral);
 
-    assert!(host_owned.is_storable());
-    assert!(host_path_view.is_storable());
+    assert!(!host_root.is_storable());
+    assert!(!host_path_view.is_storable());
     assert!(!host_borrow.is_storable());
     assert!(!Value::Tuple(vec![host_borrow]).is_storable());
 
-    assert!(!host_owned.is_default_heap_payload());
+    assert!(!host_root.is_default_heap_payload());
     assert!(!host_path_view.is_default_heap_payload());
 }
 
@@ -58,11 +117,7 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         .unwrap();
 
     let root = runtime
-        .root_value(Value::Tuple(vec![
-            Value::Struct(record),
-            Value::HostOwned(HostObjectId(10)),
-            Value::HostPathView(HostPathViewId(11)),
-        ]))
+        .root_value(Value::Tuple(vec![Value::Struct(record), Value::Unit]))
         .unwrap();
 
     assert_eq!(runtime.trace_roots(), vec![record, leaf]);
@@ -183,12 +238,7 @@ fn metadata_registry_carries_reload_and_path_validation_records() {
 fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let runtime = Runtime::default();
 
-    assert!(
-        runtime
-            .gc()
-            .alloc_array(vec![Value::HostOwned(HostObjectId(1))])
-            .is_none()
-    );
+    assert!(runtime.gc().alloc_array(vec![host_root_value(1)]).is_none());
     assert!(
         runtime
             .gc()
@@ -196,19 +246,17 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
                 "HostBacked".to_owned(),
                 vec![StructValueField {
                     name: "path".to_owned(),
-                    value: Value::HostPathView(HostPathViewId(2)),
+                    value: path_view_value(2),
                 }],
             )
             .is_none()
     );
 
     let script = runtime.gc().alloc_array(vec![Value::I32(1)]).unwrap();
+    assert!(runtime.root_value(host_root_value(3)).is_none());
+    assert!(runtime.root_value(path_view_value(4)).is_none());
     runtime
-        .root_value(Value::Tuple(vec![
-            Value::HostOwned(HostObjectId(3)),
-            Value::HostPathView(HostPathViewId(4)),
-            Value::Array(script),
-        ]))
+        .root_value(Value::Tuple(vec![Value::Array(script), Value::Unit]))
         .unwrap();
 
     assert_eq!(runtime.trace_roots(), vec![script]);

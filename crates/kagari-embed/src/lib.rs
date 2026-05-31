@@ -522,7 +522,8 @@ impl EmbeddingError {
                 RuntimeErrorKind::StaleHandle => RuntimeFailureKind::StaleModuleOrHostRoot,
                 RuntimeErrorKind::HostBorrowConflict
                 | RuntimeErrorKind::HostBorrowEscape
-                | RuntimeErrorKind::ExpiredHostBorrow => RuntimeFailureKind::TypedPathValidation,
+                | RuntimeErrorKind::ExpiredHostBorrow
+                | RuntimeErrorKind::TypedPathValidation => RuntimeFailureKind::TypedPathValidation,
                 RuntimeErrorKind::InvalidReflectiveWrite | RuntimeErrorKind::MetadataConflict => {
                     RuntimeFailureKind::ScriptTrap
                 }

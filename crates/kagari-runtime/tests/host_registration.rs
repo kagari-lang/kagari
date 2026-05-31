@@ -2,10 +2,22 @@ use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, HostFunctionEffects,
     HostFunctionMetadata, HostReflectionPolicy, HostTypeOwnership, HostTypeRegistration,
     MethodInfo, MethodMetadataId, MethodOrigin, ParameterInfo, PathAccess, Runtime,
-    RuntimeErrorKind, TypeKind, TypeRegistration, Visibility,
-    host::{HostError, HostFunction, HostParameter, HostPassingStyle},
+    RuntimeErrorKind, TypeId, TypeKind, TypeRegistration, Visibility,
+    host::{
+        HostError, HostFunction, HostObjectId, HostParameter, HostPassingStyle, HostRootHandle,
+        HostSchemaEpoch,
+    },
     value::Value,
 };
+
+fn host_root_value(object_id: u64) -> Value {
+    Value::HostRoot(HostRootHandle::new(
+        HostObjectId(object_id),
+        TypeId::new(0),
+        HostSchemaEpoch::new(0),
+        AbiFingerprint(1),
+    ))
+}
 
 #[test]
 fn registers_host_function_metadata_and_invokes_handler() {
@@ -49,7 +61,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
         .register_host_function(HostFunction::with_metadata(
             metadata,
             move |args| match args {
-                [Value::HostOwned(_), Value::I32(hp)] => Ok(Value::I32(hp + i32_id.index() as i32)),
+                [Value::HostRoot(_), Value::I32(hp)] => Ok(Value::I32(hp + i32_id.index() as i32)),
                 _ => Err(HostError::new("game.heal expects host root and i32")),
             },
         ))
@@ -68,13 +80,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
     assert_eq!(registered.metadata().abi_fingerprint, AbiFingerprint(55));
     assert_eq!(
         runtime
-            .invoke_host(
-                "game.heal",
-                &[
-                    Value::HostOwned(kagari_runtime::host::HostObjectId(1)),
-                    Value::I32(7)
-                ]
-            )
+            .invoke_host("game.heal", &[host_root_value(1), Value::I32(7)])
             .unwrap(),
         Value::I32(7)
     );

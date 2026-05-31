@@ -3,8 +3,8 @@ use std::{cell::RefCell, collections::HashMap, fmt, sync::Arc};
 use crate::{
     error::RuntimeError,
     metadata::{
-        AbiFingerprint, FieldInfo, MethodInfo, PathAccess, TraitInfo, TypeId, TypeKind,
-        TypeRegistration,
+        AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, PathAccess, TraitInfo, TypeId,
+        TypeKind, TypeRegistration,
     },
     security::CapabilitySet,
     value::Value,
@@ -12,6 +12,396 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostObjectId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HostSchemaEpoch(u64);
+
+impl HostSchemaEpoch {
+    pub fn new(index: usize) -> Self {
+        Self(index as u64)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HostRootHandle {
+    object_id: HostObjectId,
+    type_id: TypeId,
+    schema_epoch: HostSchemaEpoch,
+    abi_fingerprint: AbiFingerprint,
+}
+
+impl HostRootHandle {
+    pub fn new(
+        object_id: HostObjectId,
+        type_id: TypeId,
+        schema_epoch: HostSchemaEpoch,
+        abi_fingerprint: AbiFingerprint,
+    ) -> Self {
+        Self {
+            object_id,
+            type_id,
+            schema_epoch,
+            abi_fingerprint,
+        }
+    }
+
+    pub fn object_id(self) -> HostObjectId {
+        self.object_id
+    }
+
+    pub fn type_id(self) -> TypeId {
+        self.type_id
+    }
+
+    pub fn schema_epoch(self) -> HostSchemaEpoch {
+        self.schema_epoch
+    }
+
+    pub fn abi_fingerprint(self) -> AbiFingerprint {
+        self.abi_fingerprint
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HostPathDescriptorId(u64);
+
+impl HostPathDescriptorId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u64)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DynamicPathArgSlot(u32);
+
+impl DynamicPathArgSlot {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DynamicPathArgument {
+    pub ty: TypeId,
+    pub value: Value,
+}
+
+impl DynamicPathArgument {
+    pub fn new(ty: TypeId, value: Value) -> Self {
+        Self { ty, value }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DynamicPathArguments {
+    args: Vec<DynamicPathArgument>,
+}
+
+impl DynamicPathArguments {
+    pub fn new(args: Vec<DynamicPathArgument>) -> Self {
+        Self { args }
+    }
+
+    pub fn empty() -> Self {
+        Self { args: Vec::new() }
+    }
+
+    pub fn as_slice(&self) -> &[DynamicPathArgument] {
+        &self.args
+    }
+
+    pub fn len(&self) -> usize {
+        self.args.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.args.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DynamicPathParameter {
+    pub slot: DynamicPathArgSlot,
+    pub ty: TypeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostPathSegment {
+    Field {
+        name: String,
+        field_id: FieldMetadataId,
+        owner_type: TypeId,
+        result_type: TypeId,
+        access: PathAccess,
+        abi_fingerprint: AbiFingerprint,
+    },
+    Index {
+        slot: DynamicPathArgSlot,
+        collection_type: TypeId,
+        index_type: TypeId,
+        result_type: TypeId,
+        access: PathAccess,
+        abi_fingerprint: AbiFingerprint,
+    },
+    Virtual {
+        name: String,
+        result_type: TypeId,
+        access: PathAccess,
+        abi_fingerprint: AbiFingerprint,
+    },
+}
+
+impl HostPathSegment {
+    pub fn result_type(&self) -> TypeId {
+        match self {
+            Self::Field { result_type, .. }
+            | Self::Index { result_type, .. }
+            | Self::Virtual { result_type, .. } => *result_type,
+        }
+    }
+
+    pub fn access(&self) -> PathAccess {
+        match self {
+            Self::Field { access, .. }
+            | Self::Index { access, .. }
+            | Self::Virtual { access, .. } => *access,
+        }
+    }
+
+    pub fn abi_fingerprint(&self) -> AbiFingerprint {
+        match self {
+            Self::Field {
+                abi_fingerprint, ..
+            }
+            | Self::Index {
+                abi_fingerprint, ..
+            }
+            | Self::Virtual {
+                abi_fingerprint, ..
+            } => *abi_fingerprint,
+        }
+    }
+
+    fn dynamic_parameter(&self) -> Option<DynamicPathParameter> {
+        match self {
+            Self::Index {
+                slot, index_type, ..
+            } => Some(DynamicPathParameter {
+                slot: *slot,
+                ty: *index_type,
+            }),
+            Self::Field { .. } | Self::Virtual { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostPathDescriptorRegistration {
+    pub root_type: TypeId,
+    pub result_type: TypeId,
+    pub segments: Vec<HostPathSegment>,
+    pub access: PathAccess,
+    pub schema_epoch: HostSchemaEpoch,
+    pub abi_fingerprint: AbiFingerprint,
+    pub capability_requirements: CapabilitySet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostPathDescriptor {
+    pub id: HostPathDescriptorId,
+    pub root_type: TypeId,
+    pub result_type: TypeId,
+    pub segments: Vec<HostPathSegment>,
+    pub dynamic_parameters: Vec<DynamicPathParameter>,
+    pub access: PathAccess,
+    pub schema_epoch: HostSchemaEpoch,
+    pub abi_fingerprint: AbiFingerprint,
+    pub capability_requirements: CapabilitySet,
+}
+
+impl HostPathDescriptor {
+    fn from_registration(
+        id: HostPathDescriptorId,
+        registration: HostPathDescriptorRegistration,
+    ) -> Result<Self, RuntimeError> {
+        validate_path_access(registration.access, "path descriptor")?;
+        let dynamic_parameters = collect_dynamic_parameters(&registration.segments)?;
+        let Some(last_segment) = registration.segments.last() else {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor must contain at least one segment",
+            ));
+        };
+        if last_segment.result_type() != registration.result_type {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor result type does not match its final segment",
+            ));
+        }
+        for segment in &registration.segments {
+            validate_path_access(segment.access(), "path segment")?;
+            if !path_access_allows(segment.access(), registration.access) {
+                return Err(RuntimeError::typed_path_validation(
+                    "path descriptor access exceeds a segment access policy",
+                ));
+            }
+        }
+        Ok(Self {
+            id,
+            root_type: registration.root_type,
+            result_type: registration.result_type,
+            segments: registration.segments,
+            dynamic_parameters,
+            access: registration.access,
+            schema_epoch: registration.schema_epoch,
+            abi_fingerprint: registration.abi_fingerprint,
+            capability_requirements: registration.capability_requirements,
+        })
+    }
+
+    pub fn requires_dynamic_args(&self) -> bool {
+        !self.dynamic_parameters.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostPathViewHandle {
+    root: HostRootHandle,
+    descriptor_id: HostPathDescriptorId,
+    result_type: TypeId,
+    access: PathAccess,
+    schema_epoch: HostSchemaEpoch,
+    dynamic_args: DynamicPathArguments,
+}
+
+impl HostPathViewHandle {
+    fn new(
+        root: HostRootHandle,
+        descriptor: &HostPathDescriptor,
+        dynamic_args: DynamicPathArguments,
+    ) -> Self {
+        Self {
+            root,
+            descriptor_id: descriptor.id,
+            result_type: descriptor.result_type,
+            access: descriptor.access,
+            schema_epoch: descriptor.schema_epoch,
+            dynamic_args,
+        }
+    }
+
+    pub fn root(&self) -> HostRootHandle {
+        self.root
+    }
+
+    pub fn descriptor_id(&self) -> HostPathDescriptorId {
+        self.descriptor_id
+    }
+
+    pub fn result_type(&self) -> TypeId {
+        self.result_type
+    }
+
+    pub fn access(&self) -> PathAccess {
+        self.access
+    }
+
+    pub fn schema_epoch(&self) -> HostSchemaEpoch {
+        self.schema_epoch
+    }
+
+    pub fn dynamic_args(&self) -> &DynamicPathArguments {
+        &self.dynamic_args
+    }
+}
+
+fn collect_dynamic_parameters(
+    segments: &[HostPathSegment],
+) -> Result<Vec<DynamicPathParameter>, RuntimeError> {
+    let mut parameters = Vec::<DynamicPathParameter>::new();
+    for segment in segments {
+        let Some(parameter) = segment.dynamic_parameter() else {
+            continue;
+        };
+        if let Some(existing) = parameters
+            .iter()
+            .find(|existing| existing.slot == parameter.slot)
+        {
+            if existing.ty != parameter.ty {
+                return Err(RuntimeError::typed_path_validation(
+                    "dynamic path argument slot used with multiple types",
+                ));
+            }
+            continue;
+        }
+        parameters.push(parameter);
+    }
+    parameters.sort_by_key(|parameter| parameter.slot.index());
+    for (expected, parameter) in parameters.iter().enumerate() {
+        if parameter.slot.index() != expected {
+            return Err(RuntimeError::typed_path_validation(
+                "dynamic path argument slots must be contiguous from zero",
+            ));
+        }
+    }
+    Ok(parameters)
+}
+
+fn validate_dynamic_arguments(
+    descriptor: &HostPathDescriptor,
+    args: &DynamicPathArguments,
+) -> Result<(), RuntimeError> {
+    if descriptor.dynamic_parameters.len() != args.len() {
+        return Err(RuntimeError::typed_path_validation(format!(
+            "path descriptor expects {} dynamic arguments, found {}",
+            descriptor.dynamic_parameters.len(),
+            args.len()
+        )));
+    }
+    for (parameter, arg) in descriptor.dynamic_parameters.iter().zip(args.as_slice()) {
+        if parameter.ty != arg.ty {
+            return Err(RuntimeError::typed_path_validation(format!(
+                "dynamic argument {} has the wrong type",
+                parameter.slot.index()
+            )));
+        }
+        if !arg.value.is_storable() {
+            return Err(RuntimeError::typed_path_validation(
+                "dynamic path arguments must be storable script values",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_path_access(access: PathAccess, context: &str) -> Result<(), RuntimeError> {
+    if access == PathAccess::None {
+        Err(RuntimeError::typed_path_validation(format!(
+            "{context} has no path access"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn path_access_allows(available: PathAccess, required: PathAccess) -> bool {
+    matches!(
+        (available, required),
+        (PathAccess::ReadOnly, PathAccess::ReadOnly)
+            | (PathAccess::ReadWrite, PathAccess::ReadOnly)
+            | (PathAccess::ReadWrite, PathAccess::ReadWrite)
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostFrameId(u64);
@@ -624,9 +1014,12 @@ impl HostFunction {
 #[derive(Debug, Default)]
 pub struct HostRegistry {
     next_function_id: usize,
+    next_path_descriptor_id: usize,
     functions: HashMap<String, HostFunction>,
     types: HashMap<TypeId, HostTypeInfo>,
     type_names: HashMap<String, TypeId>,
+    roots: HashMap<HostObjectId, HostRootHandle>,
+    path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
 }
 
 impl HostRegistry {
@@ -651,6 +1044,109 @@ impl HostRegistry {
             .insert(info.script_name.clone(), info.type_id);
         self.types.insert(info.type_id, info);
         Ok(())
+    }
+
+    pub fn register_root(
+        &mut self,
+        object_id: HostObjectId,
+        type_id: TypeId,
+        schema_epoch: HostSchemaEpoch,
+    ) -> Result<HostRootHandle, RuntimeError> {
+        if self.roots.contains_key(&object_id) {
+            return Err(RuntimeError::metadata_conflict(format!(
+                "host root {}",
+                object_id.0
+            )));
+        }
+        let Some(info) = self.types.get(&type_id) else {
+            return Err(RuntimeError::typed_path_validation(
+                "host root type is not registered",
+            ));
+        };
+        if info.ownership != HostTypeOwnership::HostRoot {
+            return Err(RuntimeError::typed_path_validation(
+                "host root type must use HostRoot ownership",
+            ));
+        }
+        validate_path_access(info.path_access, "host root type")?;
+        let root = HostRootHandle::new(object_id, type_id, schema_epoch, info.abi_fingerprint);
+        self.roots.insert(object_id, root);
+        Ok(root)
+    }
+
+    pub fn root(&self, object_id: HostObjectId) -> Option<HostRootHandle> {
+        self.roots.get(&object_id).copied()
+    }
+
+    pub fn roots(&self) -> impl Iterator<Item = HostRootHandle> + '_ {
+        self.roots.values().copied()
+    }
+
+    pub fn register_path_descriptor(
+        &mut self,
+        registration: HostPathDescriptorRegistration,
+    ) -> Result<HostPathDescriptorId, RuntimeError> {
+        let Some(root_type) = self.types.get(&registration.root_type) else {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor root type is not registered",
+            ));
+        };
+        if root_type.ownership != HostTypeOwnership::HostRoot {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor root type must use HostRoot ownership",
+            ));
+        }
+        if !path_access_allows(root_type.path_access, registration.access) {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor access exceeds root type policy",
+            ));
+        }
+
+        let id = HostPathDescriptorId::new(self.next_path_descriptor_id);
+        let descriptor = HostPathDescriptor::from_registration(id, registration)?;
+        self.next_path_descriptor_id += 1;
+        self.path_descriptors.insert(id, descriptor);
+        Ok(id)
+    }
+
+    pub fn path_descriptor(&self, id: HostPathDescriptorId) -> Option<&HostPathDescriptor> {
+        self.path_descriptors.get(&id)
+    }
+
+    pub fn path_descriptors(&self) -> impl Iterator<Item = &HostPathDescriptor> {
+        self.path_descriptors.values()
+    }
+
+    pub fn make_path_view(
+        &self,
+        root: HostRootHandle,
+        descriptor_id: HostPathDescriptorId,
+        dynamic_args: DynamicPathArguments,
+    ) -> Result<HostPathViewHandle, RuntimeError> {
+        let registered_root = self
+            .roots
+            .get(&root.object_id)
+            .ok_or_else(|| RuntimeError::typed_path_validation("host root is not registered"))?;
+        if *registered_root != root {
+            return Err(RuntimeError::typed_path_validation(
+                "host root handle does not match registered root metadata",
+            ));
+        }
+        let descriptor = self.path_descriptors.get(&descriptor_id).ok_or_else(|| {
+            RuntimeError::typed_path_validation("path descriptor is not registered")
+        })?;
+        if descriptor.root_type != root.type_id {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor root type does not match host root type",
+            ));
+        }
+        if descriptor.schema_epoch != root.schema_epoch {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor schema epoch does not match host root epoch",
+            ));
+        }
+        validate_dynamic_arguments(descriptor, &dynamic_args)?;
+        Ok(HostPathViewHandle::new(root, descriptor, dynamic_args))
     }
 
     pub fn function(&self, symbol: &str) -> Option<&HostFunction> {

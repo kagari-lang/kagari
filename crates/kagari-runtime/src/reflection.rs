@@ -36,7 +36,7 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
         }
         Value::GcHandle(_) => "gc_handle",
         Value::Interface(_) => "interface",
-        Value::HostOwned(_) => "host_owned",
+        Value::HostRoot(_) => "host_root",
         Value::HostPathView(_) => "host_path_view",
         Value::Ephemeral(_) => "ephemeral",
     };
@@ -130,10 +130,69 @@ mod tests {
     use super::*;
     use crate::{
         gc::GcHeapConfig,
-        host::{HostBorrowTable, HostObjectId},
-        metadata::TypeId,
-        value::{HostPathViewId, InterfaceObjectId},
+        host::{
+            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+            HostPathSegment, HostRegistry, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
+            HostTypeOwnership,
+        },
+        metadata::{AbiFingerprint, FieldMetadataId, PathAccess, TypeId},
+        value::InterfaceObjectId,
     };
+
+    fn host_root_value(object_id: u64) -> Value {
+        Value::HostRoot(HostRootHandle::new(
+            HostObjectId(object_id),
+            TypeId::new(0),
+            HostSchemaEpoch::new(0),
+            AbiFingerprint(1),
+        ))
+    }
+
+    fn path_view_value(object_id: u64) -> Value {
+        let root_type = TypeId::new(0);
+        let result_type = TypeId::new(1);
+        let mut registry = HostRegistry::default();
+        registry
+            .register_type(HostTypeInfo {
+                type_id: root_type,
+                script_name: "Player".to_owned(),
+                rust_type_name: "Player".to_owned(),
+                ownership: HostTypeOwnership::HostRoot,
+                fields: Vec::new(),
+                methods: Vec::new(),
+                traits: Vec::new(),
+                path_access: PathAccess::ReadWrite,
+                reflection: crate::host::HostReflectionPolicy::Hidden,
+                abi_fingerprint: AbiFingerprint(1),
+            })
+            .unwrap();
+        let root = registry
+            .register_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
+            .unwrap();
+        let descriptor = registry
+            .register_path_descriptor(HostPathDescriptorRegistration {
+                root_type,
+                result_type,
+                segments: vec![HostPathSegment::Field {
+                    name: "hp".to_owned(),
+                    field_id: FieldMetadataId::new(0),
+                    owner_type: root_type,
+                    result_type,
+                    access: PathAccess::ReadWrite,
+                    abi_fingerprint: AbiFingerprint(2),
+                }],
+                access: PathAccess::ReadWrite,
+                schema_epoch: HostSchemaEpoch::new(0),
+                abi_fingerprint: AbiFingerprint(3),
+                capability_requirements: crate::security::CapabilitySet::default(),
+            })
+            .unwrap();
+        Value::HostPathView(
+            registry
+                .make_path_view(root, descriptor, DynamicPathArguments::empty())
+                .unwrap(),
+        )
+    }
 
     fn shared_borrow_value(object_id: u64) -> Value {
         let table = HostBorrowTable::default();
@@ -154,11 +213,11 @@ mod tests {
             Value::Str("interface".to_owned())
         );
         assert_eq!(
-            type_of(&gc, &Value::HostOwned(HostObjectId(2))),
-            Value::Str("host_owned".to_owned())
+            type_of(&gc, &host_root_value(2)),
+            Value::Str("host_root".to_owned())
         );
         assert_eq!(
-            type_of(&gc, &Value::HostPathView(HostPathViewId(3))),
+            type_of(&gc, &path_view_value(3)),
             Value::Str("host_path_view".to_owned())
         );
         assert_eq!(

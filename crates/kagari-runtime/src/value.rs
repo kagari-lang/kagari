@@ -1,5 +1,5 @@
 use crate::gc::HeapObjectId;
-use crate::host::{FrameHostBorrowToken, HostObjectId};
+use crate::host::{FrameHostBorrowToken, HostPathViewHandle, HostRootHandle};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructValueField {
@@ -9,9 +9,6 @@ pub struct StructValueField {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InterfaceObjectId(pub u64);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HostPathViewId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EphemeralValueId(pub u64);
@@ -48,8 +45,8 @@ pub enum Value {
     Struct(HeapObjectId),
     GcHandle(HeapObjectId),
     Interface(InterfaceObjectId),
-    HostOwned(HostObjectId),
-    HostPathView(HostPathViewId),
+    HostRoot(HostRootHandle),
+    HostPathView(HostPathViewHandle),
     Ephemeral(EphemeralValue),
 }
 
@@ -67,7 +64,7 @@ impl Value {
                 ValueCategory::ScriptOwned
             }
             Self::Interface(_) => ValueCategory::Interface,
-            Self::HostOwned(_) => ValueCategory::HostHandle,
+            Self::HostRoot(_) => ValueCategory::HostHandle,
             Self::HostPathView(_) => ValueCategory::HostPathView,
             Self::Ephemeral(_) => ValueCategory::Ephemeral,
         }
@@ -76,7 +73,7 @@ impl Value {
     pub fn is_storable(&self) -> bool {
         match self {
             Self::Tuple(elements) => elements.iter().all(Self::is_storable),
-            Self::Ephemeral(_) => false,
+            Self::HostRoot(_) | Self::HostPathView(_) | Self::Ephemeral(_) => false,
             _ => true,
         }
     }
@@ -112,7 +109,7 @@ impl Value {
             | Self::Str(_) => true,
             Self::Tuple(elements) => elements.iter().all(Self::is_default_heap_payload),
             Self::Array(_) | Self::Struct(_) | Self::GcHandle(_) | Self::Interface(_) => true,
-            Self::HostOwned(_) | Self::HostPathView(_) | Self::Ephemeral(_) => false,
+            Self::HostRoot(_) | Self::HostPathView(_) | Self::Ephemeral(_) => false,
         }
     }
 
@@ -129,9 +126,68 @@ impl Value {
 mod tests {
     use super::*;
     use crate::{
-        host::{HostBorrowTable, HostObjectId},
-        metadata::TypeId,
+        host::{
+            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+            HostPathSegment, HostRegistry, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
+            HostTypeOwnership,
+        },
+        metadata::{AbiFingerprint, FieldMetadataId, PathAccess, TypeId},
     };
+
+    fn host_root(object_id: u64) -> HostRootHandle {
+        HostRootHandle::new(
+            HostObjectId(object_id),
+            TypeId::new(0),
+            HostSchemaEpoch::new(0),
+            AbiFingerprint(1),
+        )
+    }
+
+    fn path_view_value(object_id: u64) -> Value {
+        let root_type = TypeId::new(0);
+        let result_type = TypeId::new(1);
+        let mut registry = HostRegistry::default();
+        registry
+            .register_type(HostTypeInfo {
+                type_id: root_type,
+                script_name: "Player".to_owned(),
+                rust_type_name: "Player".to_owned(),
+                ownership: HostTypeOwnership::HostRoot,
+                fields: Vec::new(),
+                methods: Vec::new(),
+                traits: Vec::new(),
+                path_access: PathAccess::ReadWrite,
+                reflection: crate::host::HostReflectionPolicy::Hidden,
+                abi_fingerprint: AbiFingerprint(1),
+            })
+            .unwrap();
+        let root = registry
+            .register_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
+            .unwrap();
+        let descriptor = registry
+            .register_path_descriptor(HostPathDescriptorRegistration {
+                root_type,
+                result_type,
+                segments: vec![HostPathSegment::Field {
+                    name: "hp".to_owned(),
+                    field_id: FieldMetadataId::new(0),
+                    owner_type: root_type,
+                    result_type,
+                    access: PathAccess::ReadWrite,
+                    abi_fingerprint: AbiFingerprint(2),
+                }],
+                access: PathAccess::ReadWrite,
+                schema_epoch: HostSchemaEpoch::new(0),
+                abi_fingerprint: AbiFingerprint(3),
+                capability_requirements: crate::security::CapabilitySet::default(),
+            })
+            .unwrap();
+        Value::HostPathView(
+            registry
+                .make_path_view(root, descriptor, DynamicPathArguments::empty())
+                .unwrap(),
+        )
+    }
 
     fn shared_borrow_value(object_id: u64) -> Value {
         let table = HostBorrowTable::default();
@@ -156,8 +212,8 @@ mod tests {
     #[test]
     fn classifies_storable_and_ephemeral_value_categories() {
         let scalar = Value::I32(1);
-        let host_root = Value::HostOwned(HostObjectId(7));
-        let path_view = Value::HostPathView(HostPathViewId(3));
+        let host_root = Value::HostRoot(host_root(7));
+        let path_view = path_view_value(3);
         let host_ref = shared_borrow_value(9);
         let host_mut = unique_borrow_value(10);
 
@@ -169,8 +225,8 @@ mod tests {
         assert_eq!(host_mut.category(), ValueCategory::Ephemeral);
 
         assert!(scalar.is_storable());
-        assert!(host_root.is_storable());
-        assert!(path_view.is_storable());
+        assert!(!host_root.is_storable());
+        assert!(!path_view.is_storable());
         assert!(!host_ref.is_storable());
         assert!(!host_mut.is_storable());
         assert!(host_ref.contains_ephemeral());
@@ -182,8 +238,8 @@ mod tests {
     fn keeps_host_handles_out_of_default_heap_payloads() {
         assert!(Value::Tuple(vec![Value::Unit]).is_default_heap_payload());
         assert!(Value::Interface(InterfaceObjectId(1)).is_default_heap_payload());
-        assert!(!Value::HostOwned(HostObjectId(1)).is_default_heap_payload());
-        assert!(!Value::HostPathView(HostPathViewId(1)).is_default_heap_payload());
+        assert!(!Value::HostRoot(host_root(1)).is_default_heap_payload());
+        assert!(!path_view_value(1).is_default_heap_payload());
         assert!(!shared_borrow_value(1).is_default_heap_payload());
         assert!(!Value::Tuple(vec![unique_borrow_value(1)]).is_default_heap_payload());
     }

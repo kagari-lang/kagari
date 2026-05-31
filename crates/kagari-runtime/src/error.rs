@@ -7,6 +7,7 @@ pub enum RuntimeErrorKind {
     ExpiredHostBorrow,
     HostBorrowConflict,
     HostBorrowEscape,
+    TypedPathValidation,
     ResourceLimitExceeded,
     MetadataConflict,
     StaleHandle,
@@ -65,6 +66,13 @@ impl RuntimeError {
         Self::new(
             RuntimeErrorKind::HostBorrowEscape,
             format!("host borrow escape: {}", detail.into()),
+        )
+    }
+
+    pub fn typed_path_validation(detail: impl Into<String>) -> Self {
+        Self::new(
+            RuntimeErrorKind::TypedPathValidation,
+            format!("typed path validation failed: {}", detail.into()),
         )
     }
 
