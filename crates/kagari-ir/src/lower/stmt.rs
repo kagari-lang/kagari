@@ -142,10 +142,6 @@ impl FunctionLowerer<'_> {
                         let local = self.lookup_binding(resolved)?;
                         self.emit(Instruction::StoreLocal { local, src });
                     }
-                    ResolvedName::Static(_) => {
-                        let slot = self.lookup_module_slot(resolved)?;
-                        self.emit(Instruction::StoreModule { slot, src });
-                    }
                     ResolvedName::Const(_)
                     | ResolvedName::Function(_)
                     | ResolvedName::Module(_)
@@ -183,12 +179,6 @@ impl FunctionLowerer<'_> {
                         let local = self.lookup_binding(resolved)?;
                         let dst = self.alloc_temp(self.place_type(place_id)?);
                         self.emit(Instruction::LoadLocal { dst, local });
-                        Ok(dst)
-                    }
-                    ResolvedName::Static(_) => {
-                        let slot = self.lookup_module_slot(resolved)?;
-                        let dst = self.alloc_temp(self.place_type(place_id)?);
-                        self.emit(Instruction::LoadModule { dst, slot });
                         Ok(dst)
                     }
                     ResolvedName::Const(_)

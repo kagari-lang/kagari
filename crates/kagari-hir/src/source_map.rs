@@ -2,14 +2,13 @@ use kagari_common::Span;
 
 use crate::hir::{
     BlockId, ConstId, EnumId, ExprId, FunctionId, ImplId, LocalId, ModuleId, ParamId, PatternId,
-    PlaceId, StaticId, StmtId, StructId, TraitId, TraitMethodId, TypeRefId,
+    PlaceId, StmtId, StructId, TraitId, TraitMethodId, TypeRefId,
 };
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
     function_spans: Vec<Span>,
     const_spans: Vec<Span>,
-    static_spans: Vec<Span>,
     module_spans: Vec<Span>,
     trait_spans: Vec<Span>,
     trait_method_spans: Vec<Span>,
@@ -145,10 +144,6 @@ impl SourceMap {
 
     pub fn const_span(&self, id: ConstId) -> Span {
         self.const_spans[id.index()]
-    }
-
-    pub fn static_span(&self, id: StaticId) -> Span {
-        self.static_spans[id.index()]
     }
 
     pub fn param_span(&self, id: ParamId) -> Span {

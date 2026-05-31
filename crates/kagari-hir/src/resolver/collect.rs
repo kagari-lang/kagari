@@ -51,12 +51,6 @@ pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiag
         }
     }
 
-    for static_item in &lowered.module.statics {
-        if !static_item.name.is_empty() {
-            names.insert_static(static_item.name.clone(), static_item.id);
-        }
-    }
-
     for enum_def in &lowered.module.enums {
         if !enum_def.name.is_empty() {
             names.insert_enum(enum_def.name.clone(), enum_def.id);
@@ -80,9 +74,6 @@ pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiag
     let mut resolver = BodyResolver::new(&names, &lowered.module);
     for const_item in &lowered.module.consts {
         resolver.resolve_top_level_expr(const_item.initializer);
-    }
-    for static_item in &lowered.module.statics {
-        resolver.resolve_top_level_expr(static_item.initializer);
     }
     for function in &lowered.module.functions {
         resolver.resolve_function(

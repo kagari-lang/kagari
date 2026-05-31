@@ -13,7 +13,7 @@ use kagari_hir::hir::{
 };
 use kagari_hir::resolver::ResolvedName;
 
-use crate::module::{Constant, IrModule, IrModuleSlot, ModuleSlotId, ValueType};
+use crate::module::{Constant, IrModule};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum EvaluatedConst {
@@ -49,25 +49,6 @@ pub enum IrLoweringError {
 
 pub fn lower_to_ir(module: &AnalyzedModule) -> Result<IrModule, IrLoweringError> {
     let const_values = lower_const_values(module)?;
-    let mut static_slots = HashMap::new();
-    let mut module_slots = Vec::new();
-
-    for static_item in &module.lowered.module.statics {
-        let ty = module
-            .typed
-            .statics
-            .get(&static_item.id)
-            .map(|item| ValueType::from_type_id(&item.ty))
-            .unwrap_or(ValueType::Unit);
-        let id = ModuleSlotId::new(module_slots.len());
-        static_slots.insert(static_item.id, id);
-        module_slots.push(IrModuleSlot {
-            id,
-            name: static_item.name.clone(),
-            ty,
-            mutable: static_item.writeability.is_var(),
-        });
-    }
 
     let functions = module
         .lowered
@@ -75,12 +56,12 @@ pub fn lower_to_ir(module: &AnalyzedModule) -> Result<IrModule, IrLoweringError>
         .functions
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::User | FunctionKind::ModuleInit))
-        .map(|function| function::lower_function(module, function, &const_values, &static_slots))
+        .map(|function| function::lower_function(module, function, &const_values))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(IrModule {
         module_init: module.lowered.module.module_init,
-        module_slots,
+        module_slots: Vec::new(),
         functions,
     })
 }

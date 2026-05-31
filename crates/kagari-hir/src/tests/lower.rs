@@ -290,6 +290,4 @@ pub const VERSION: i32 = 1;
         lowered.module.expr(const_item.initializer).kind,
         ExprKind::Literal(_)
     ));
-
-    assert!(lowered.module.statics.is_empty());
 }

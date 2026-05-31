@@ -1,7 +1,4 @@
-use crate::hir::{
-    ConstId, EnumId, ExprId, FunctionId, ModuleId, StaticId, StructId, TraitId, TypeRefId,
-    Writeability,
-};
+use crate::hir::{ConstId, EnumId, ExprId, FunctionId, ModuleId, StructId, TraitId, TypeRefId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
@@ -18,21 +15,10 @@ pub struct ConstItem {
     pub initializer: ExprId,
 }
 
-#[derive(Debug, Clone)]
-pub struct StaticItem {
-    pub id: StaticId,
-    pub visibility: Visibility,
-    pub writeability: Writeability,
-    pub name: String,
-    pub ty: Option<TypeRefId>,
-    pub initializer: ExprId,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportItem {
     Function(FunctionId),
     Const(ConstId),
-    Static(StaticId),
     Module(ModuleId),
     Struct(StructId),
     Enum(EnumId),
@@ -46,5 +32,4 @@ pub struct Export {
 }
 
 pub type ConstBuffer = Vec<ConstItem>;
-pub type StaticBuffer = Vec<StaticItem>;
 pub type ExportBuffer = Vec<Export>;

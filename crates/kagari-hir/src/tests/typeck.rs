@@ -1,4 +1,5 @@
-use kagari_common::{DiagnosticKind, TypePosition};
+use kagari_common::{DiagnosticKind, SourceFile, TypePosition};
+use kagari_syntax::parse_module;
 
 use crate::{
     builtin::surface::{self, IterableProtocol},
@@ -463,7 +464,12 @@ fn reports_invalid_assignment_target() {
     let diagnostics =
         check_module(&lowered, &names).expect_err("type checker should reject assignment target");
 
-    assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
+    assert_eq!(
+        diagnostics[0].kind,
+        DiagnosticKind::InvalidAssignmentTarget {
+            reason: "function item is not assignable".to_string(),
+        }
+    );
 }
 
 #[test]
@@ -598,13 +604,23 @@ fn allows_assignment_to_var_local_but_not_val_local_or_param() {
     let val_local = common::lower_ok("fn foo() -> i32 { val x: i32 = 1; x = 2; x }");
     let names = resolve_names(&val_local).expect("resolver should succeed");
     let diagnostics = check_module(&val_local, &names).expect_err("val local should reject write");
-    assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
+    assert_eq!(
+        diagnostics[0].kind,
+        DiagnosticKind::InvalidAssignmentTarget {
+            reason: "`val` binding cannot be reassigned".to_string(),
+        }
+    );
 
     let param_assignment = common::lower_ok("fn foo(value: i32) -> i32 { value = 1; value }");
     let names = resolve_names(&param_assignment).expect("resolver should succeed");
     let diagnostics =
         check_module(&param_assignment, &names).expect_err("parameter should reject write");
-    assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
+    assert_eq!(
+        diagnostics[0].kind,
+        DiagnosticKind::InvalidAssignmentTarget {
+            reason: "function parameters are `val` bindings and cannot be reassigned".to_string(),
+        }
+    );
 }
 
 #[test]
@@ -691,7 +707,12 @@ fn main() -> i32 {
     let diagnostics =
         check_module(&field_assignment, &names).expect_err("val field should reject write");
 
-    assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
+    assert_eq!(
+        diagnostics[0].kind,
+        DiagnosticKind::InvalidAssignmentTarget {
+            reason: "`val` field `x` cannot be assigned".to_string(),
+        }
+    );
 }
 
 #[test]
@@ -777,7 +798,6 @@ fn main() -> i32 { VERSION }
         typed.consts.get(&lowered.module.consts[0].id),
         Some(&TypeId::Builtin(BuiltinType::I32))
     );
-    assert!(typed.statics.is_empty());
 }
 
 #[test]
@@ -793,7 +813,41 @@ fn main() -> i32 { VERSION = 2; 0 }
         check_module(&const_storage, &names).expect_err("type checker should reject writes");
 
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
+    assert_eq!(
+        diagnostics[0].kind,
+        DiagnosticKind::InvalidAssignmentTarget {
+            reason: "`const` item cannot be reassigned".to_string(),
+        }
+    );
+}
+
+#[test]
+fn rejects_removed_source_forms_before_hir_analysis() {
+    let cases = [
+        (
+            "fn main() { let value = 1; }",
+            DiagnosticKind::LegacyLetBinding,
+        ),
+        (
+            "pub static mut COUNTER: i32 = 0;",
+            DiagnosticKind::LegacyStaticItem,
+        ),
+        (
+            "fn apply(effect: dyn Effect) {}",
+            DiagnosticKind::LegacyDynTrait,
+        ),
+    ];
+
+    for (source, expected) in cases {
+        let source = SourceFile::new("test.kg", source);
+        let diagnostics = parse_module(&source).expect_err("source form should be rejected");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.kind == expected),
+            "expected {expected:?}, got {diagnostics:?}"
+        );
+    }
 }
 
 #[test]

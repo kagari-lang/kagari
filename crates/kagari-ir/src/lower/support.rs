@@ -3,7 +3,7 @@ use kagari_hir::{hir, resolver::ResolvedName};
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
 use crate::lower::{EvaluatedConst, EvaluatedConstField};
-use crate::module::ids::{LocalId, ModuleSlotId, TempId};
+use crate::module::ids::{LocalId, TempId};
 use crate::module::instruction::{
     BinaryOp, CallTarget, Constant, Instruction, StructFieldInit, UnaryOp,
 };
@@ -44,36 +44,12 @@ impl FunctionLowerer<'_> {
                 .copied()
                 .ok_or(IrLoweringError::MissingBinding("local")),
             ResolvedName::Const(_)
-            | ResolvedName::Static(_)
             | ResolvedName::Function(_)
             | ResolvedName::Module(_)
             | ResolvedName::Struct(_)
             | ResolvedName::Enum(_)
             | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
                 "non-local binding used as local value",
-            )),
-        }
-    }
-
-    pub(crate) fn lookup_module_slot(
-        &self,
-        resolved: ResolvedName,
-    ) -> Result<ModuleSlotId, IrLoweringError> {
-        match resolved {
-            ResolvedName::Static(id) => self
-                .static_slots
-                .get(&id)
-                .copied()
-                .ok_or(IrLoweringError::MissingBinding("static")),
-            ResolvedName::Const(_)
-            | ResolvedName::Param(_)
-            | ResolvedName::Local(_)
-            | ResolvedName::Function(_)
-            | ResolvedName::Module(_)
-            | ResolvedName::Struct(_)
-            | ResolvedName::Enum(_)
-            | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
-                "non-module binding used as module slot",
             )),
         }
     }
@@ -204,12 +180,6 @@ impl FunctionLowerer<'_> {
                     .ok_or(IrLoweringError::MissingBinding("const value"))?;
                 self.lower_evaluated_const(&constant, self.expr_type(expr_id)?)
             }
-            ResolvedName::Static(_) => {
-                let slot = self.lookup_module_slot(resolved)?;
-                let dst = self.alloc_temp(self.expr_type(expr_id)?);
-                self.emit(Instruction::LoadModule { dst, slot });
-                Ok(dst)
-            }
             ResolvedName::Function(_) => Err(IrLoweringError::UnsupportedExpr(
                 "bare function values are not lowered yet",
             )),
@@ -233,7 +203,6 @@ impl FunctionLowerer<'_> {
         match resolved {
             ResolvedName::Function(id) => Ok(Some(CallTarget::Function(id))),
             ResolvedName::Const(_)
-            | ResolvedName::Static(_)
             | ResolvedName::Param(_)
             | ResolvedName::Local(_)
             | ResolvedName::Module(_)

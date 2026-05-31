@@ -91,10 +91,6 @@ pub enum DiagnosticKind {
     ConstWriteNotAllowed {
         const_name: String,
     },
-    UnknownStaticType {
-        static_name: String,
-        type_name: String,
-    },
     CallArityMismatch {
         function_name: String,
         expected: usize,
@@ -106,7 +102,9 @@ pub enum DiagnosticKind {
         expected: String,
         found: String,
     },
-    InvalidAssignmentTarget,
+    InvalidAssignmentTarget {
+        reason: String,
+    },
     AssignmentTypeMismatch {
         expected: String,
         found: String,
@@ -324,13 +322,6 @@ impl Display for DiagnosticKind {
                     "cannot perform write-like operation on const `{const_name}`"
                 )
             }
-            Self::UnknownStaticType {
-                static_name,
-                type_name,
-            } => write!(
-                f,
-                "unknown static type `{type_name}` in static `{static_name}`"
-            ),
             Self::CallArityMismatch {
                 function_name,
                 expected,
@@ -348,7 +339,9 @@ impl Display for DiagnosticKind {
                 f,
                 "argument type mismatch for parameter `{parameter_name}` in `{function_name}`: expected `{expected}`, found `{found}`"
             ),
-            Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
+            Self::InvalidAssignmentTarget { reason } => {
+                write!(f, "invalid assignment target: {reason}")
+            }
             Self::AssignmentTypeMismatch { expected, found } => write!(
                 f,
                 "assignment type mismatch: expected `{expected}`, found `{found}`"

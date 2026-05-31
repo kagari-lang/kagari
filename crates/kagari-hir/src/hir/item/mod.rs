@@ -12,14 +12,12 @@ pub use behavior::{
 };
 pub use function::{Function, FunctionBuffer, FunctionKind, Param, ParamBuffer};
 pub use module::{ModuleDecl, ModuleDeclBuffer};
-pub use storage::{
-    ConstBuffer, ConstItem, Export, ExportBuffer, ExportItem, StaticBuffer, StaticItem, Visibility,
-};
+pub use storage::{ConstBuffer, ConstItem, Export, ExportBuffer, ExportItem, Visibility};
 
 use crate::hir::{
     BlockData, BlockId, Body, ConstId, EnumId, ExprData, ExprId, FunctionId, ImplId, ModuleId,
-    PatternData, PatternId, PlaceData, PlaceId, StaticId, StmtData, StmtId, StructId, TraitId,
-    TypeData, TypeRefId,
+    PatternData, PatternId, PlaceData, PlaceId, StmtData, StmtId, StructId, TraitId, TypeData,
+    TypeRefId,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -30,7 +28,6 @@ pub struct Module {
     pub functions: FunctionBuffer,
     pub methods: MethodBuffer,
     pub consts: ConstBuffer,
-    pub statics: StaticBuffer,
     pub modules: ModuleDeclBuffer,
     pub structs: StructBuffer,
     pub enums: EnumBuffer,
@@ -69,7 +66,6 @@ impl Module {
 pub enum Item {
     Function(FunctionId),
     Const(ConstId),
-    Static(StaticId),
     Module(ModuleId),
     Struct(StructId),
     Enum(EnumId),

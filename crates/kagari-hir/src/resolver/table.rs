@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 
-use crate::hir::{ConstId, EnumId, FunctionId, ImplId, ModuleId, StaticId, StructId, TraitId};
+use crate::hir::{ConstId, EnumId, FunctionId, ImplId, ModuleId, StructId, TraitId};
 
 #[derive(Debug, Clone, Default)]
 pub struct NameTable {
     pub(crate) functions: HashMap<String, FunctionId>,
     pub(crate) consts: HashMap<String, ConstId>,
-    pub(crate) statics: HashMap<String, StaticId>,
     pub(crate) modules: HashMap<String, ModuleId>,
     pub(crate) structs: HashMap<String, StructId>,
     pub(crate) enums: HashMap<String, EnumId>,
@@ -21,10 +20,6 @@ impl NameTable {
 
     pub(crate) fn insert_const(&mut self, name: String, id: ConstId) -> Option<ConstId> {
         self.consts.insert(name, id)
-    }
-
-    pub(crate) fn insert_static(&mut self, name: String, id: StaticId) -> Option<StaticId> {
-        self.statics.insert(name, id)
     }
 
     pub(crate) fn insert_module(&mut self, name: String, id: ModuleId) -> Option<ModuleId> {
@@ -53,10 +48,6 @@ impl NameTable {
 
     pub fn contains_const(&self, name: &str) -> bool {
         self.consts.contains_key(name)
-    }
-
-    pub fn contains_static(&self, name: &str) -> bool {
-        self.statics.contains_key(name)
     }
 
     pub fn contains_module(&self, name: &str) -> bool {

@@ -18,7 +18,6 @@ macro_rules! id_newtype {
 id_newtype!(FunctionId);
 id_newtype!(MethodId);
 id_newtype!(ConstId);
-id_newtype!(StaticId);
 id_newtype!(TraitId);
 id_newtype!(TraitMethodId);
 id_newtype!(ImplId);

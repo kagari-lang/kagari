@@ -13,7 +13,7 @@ use crate::{
     typeck::ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     typeck::{
         BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable, TypedFunction,
-        TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer, TypedStatic,
+        TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer,
     },
     types::{BuiltinType, TypeId},
 };
@@ -162,47 +162,6 @@ pub fn check_module(
         );
         validate_trait_surface(lowered, &function_index, &mut diagnostics);
 
-        for static_item in &lowered.module.statics {
-            let ty = match static_item.ty {
-                Some(ty_ref) => match resolve_type(&lowered.module, ty_ref) {
-                    Some(ty) => ty,
-                    None => {
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::UnknownStaticType {
-                                static_name: static_item.name.clone(),
-                                type_name: display_type(&lowered.module, ty_ref),
-                            })
-                            .with_span(lowered.source_map.static_span(static_item.id)),
-                        );
-                        TypeId::Builtin(BuiltinType::Unit)
-                    }
-                },
-                None => {
-                    let mut env = BodyTypeEnv::default();
-                    let mut checker = BodyChecker::new(
-                        lowered,
-                        names,
-                        TypeIndexes {
-                            function_index: &function_index,
-                            top_level_index: &top_level_index,
-                        },
-                        &mut diagnostics,
-                        &mut type_table,
-                        "<static>",
-                        TypeId::Builtin(BuiltinType::Unit),
-                    );
-                    checker.infer_expr_type(static_item.initializer, &mut env)
-                }
-            };
-            top_level_index.statics.insert(
-                static_item.id,
-                TypedStatic {
-                    ty,
-                    writeability: static_item.writeability,
-                },
-            );
-        }
-
         for function in &lowered.module.functions {
             if matches!(function.kind, FunctionKind::TraitMethod) {
                 continue;
@@ -256,7 +215,6 @@ pub fn check_module(
             Ok(TypedModule {
                 functions,
                 consts: top_level_index.consts,
-                statics: top_level_index.statics,
                 type_table,
             })
         } else {

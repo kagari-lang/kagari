@@ -100,10 +100,13 @@ impl<'a> BodyChecker<'a> {
                         })
                         .with_span(self.lowered.source_map.place_span(*target)),
                     ),
-                    None => self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget)
-                            .with_span(self.lowered.source_map.place_span(*target)),
-                    ),
+                    None => {
+                        let reason = self.assignment_target_error_reason(*target, env);
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget { reason })
+                                .with_span(self.lowered.source_map.place_span(*target)),
+                        );
+                    }
                     _ => {}
                 }
             }
@@ -175,12 +178,6 @@ impl<'a> BodyChecker<'a> {
                                     .is_some_and(|writeability| writeability.is_var())
                             })
                             .cloned(),
-                        ResolvedName::Static(id) => self
-                            .top_level_index
-                            .statics
-                            .get(&id)
-                            .filter(|item| item.writeability.is_var())
-                            .map(|item| item.ty.clone()),
                         ResolvedName::Const(_)
                         | ResolvedName::Function(_)
                         | ResolvedName::Module(_)
@@ -219,11 +216,6 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Param(id) => env.params.get(&id).cloned(),
                         ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                         ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
-                        ResolvedName::Static(id) => self
-                            .top_level_index
-                            .statics
-                            .get(&id)
-                            .map(|item| item.ty.clone()),
                         ResolvedName::Function(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::Struct(_)
@@ -247,6 +239,60 @@ impl<'a> BodyChecker<'a> {
         }
 
         ty
+    }
+
+    fn assignment_target_error_reason(
+        &mut self,
+        place_id: PlaceId,
+        env: &mut BodyTypeEnv,
+    ) -> String {
+        match &self.lowered.module.place(place_id).kind {
+            PlaceKind::Name(_) => self
+                .place_root_resolution(place_id)
+                .map(|resolved| match resolved {
+                    ResolvedName::Param(_) => {
+                        "function parameters are `val` bindings and cannot be reassigned"
+                            .to_string()
+                    }
+                    ResolvedName::Local(id) => match env.local_writeability.get(&id).copied() {
+                        Some(writeability) if !writeability.is_var() => {
+                            "`val` binding cannot be reassigned".to_string()
+                        }
+                        Some(_) => "assignment target type could not be resolved".to_string(),
+                        None => "unresolved assignment target".to_string(),
+                    },
+                    ResolvedName::Const(_) => "`const` item cannot be reassigned".to_string(),
+                    ResolvedName::Function(_) => "function item is not assignable".to_string(),
+                    ResolvedName::Module(_) => "module item is not assignable".to_string(),
+                    ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
+                    ResolvedName::Enum(_) => "enum type is not assignable".to_string(),
+                    ResolvedName::Trait(_) => "trait type is not assignable".to_string(),
+                })
+                .unwrap_or_else(|| "unresolved assignment target".to_string()),
+            PlaceKind::Field { base, name } => {
+                let Some(base_ty) = self.resolve_readable_place_type(*base, env) else {
+                    return self.assignment_target_error_reason(*base, env);
+                };
+                match self.resolve_field(&base_ty, name) {
+                    Some(field) if !field.writeability.is_var() => {
+                        format!("`val` field `{name}` cannot be assigned")
+                    }
+                    Some(_) => "assignment target type could not be resolved".to_string(),
+                    None => format!("unknown field `{name}`"),
+                }
+            }
+            PlaceKind::Index { base, index } => {
+                let Some(base_ty) = self.resolve_readable_place_type(*base, env) else {
+                    return self.assignment_target_error_reason(*base, env);
+                };
+                self.infer_expr_type(*index, env);
+                if self.resolve_index_type(*index, &base_ty).is_none() {
+                    "indexed value is not assignable".to_string()
+                } else {
+                    "assignment target type could not be resolved".to_string()
+                }
+            }
+        }
     }
 
     fn place_root_resolution(&self, place_id: PlaceId) -> Option<ResolvedName> {
@@ -275,11 +321,6 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Param(id) => env.params.get(&id).cloned(),
                     ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                     ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
-                    ResolvedName::Static(id) => self
-                        .top_level_index
-                        .statics
-                        .get(&id)
-                        .map(|item| item.ty.clone()),
                     ResolvedName::Function(id) => self
                         .function_index
                         .by_id

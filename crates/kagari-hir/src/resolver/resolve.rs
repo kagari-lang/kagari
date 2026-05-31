@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::hir::{
     BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
-    PlaceId, PlaceKind, StaticId, StmtId, StmtKind, StructId, TraitId,
+    PlaceId, PlaceKind, StmtId, StmtKind, StructId, TraitId,
 };
 use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
 
@@ -183,9 +183,6 @@ impl<'a> BodyResolver<'a> {
         if let Some(id) = self.names.const_(name) {
             return Some(ResolvedName::Const(id));
         }
-        if let Some(id) = self.names.static_(name) {
-            return Some(ResolvedName::Static(id));
-        }
         if let Some(id) = self.names.module(name) {
             return Some(ResolvedName::Module(id));
         }
@@ -216,7 +213,6 @@ impl<'a> BodyResolver<'a> {
 trait TopLevelLookup {
     fn function(&self, name: &str) -> Option<FunctionId>;
     fn const_(&self, name: &str) -> Option<ConstId>;
-    fn static_(&self, name: &str) -> Option<StaticId>;
     fn module(&self, name: &str) -> Option<ModuleId>;
     fn struct_(&self, name: &str) -> Option<StructId>;
     fn enum_(&self, name: &str) -> Option<EnumId>;
@@ -230,10 +226,6 @@ impl TopLevelLookup for NameTable {
 
     fn const_(&self, name: &str) -> Option<ConstId> {
         self.consts.get(name).copied()
-    }
-
-    fn static_(&self, name: &str) -> Option<StaticId> {
-        self.statics.get(name).copied()
     }
 
     fn module(&self, name: &str) -> Option<ModuleId> {
