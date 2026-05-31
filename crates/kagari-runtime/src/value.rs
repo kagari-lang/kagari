@@ -74,7 +74,11 @@ impl Value {
     }
 
     pub fn is_storable(&self) -> bool {
-        !self.is_ephemeral()
+        match self {
+            Self::Tuple(elements) => elements.iter().all(Self::is_storable),
+            Self::Ephemeral(_) => false,
+            _ => true,
+        }
     }
 
     pub fn is_ephemeral(&self) -> bool {
@@ -129,6 +133,7 @@ mod tests {
         assert!(path_view.is_storable());
         assert!(!host_ref.is_storable());
         assert!(!host_mut.is_storable());
+        assert!(!Value::Tuple(vec![host_ref]).is_storable());
     }
 
     #[test]

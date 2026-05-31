@@ -9,7 +9,7 @@ use kagari_ir::bytecode::{BuiltinMethod, BytecodeModule};
 
 use crate::{
     builtin::BuiltinError,
-    gc::{GcHeap, GcHeapConfig},
+    gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
     host::{HostError, HostRegistry},
     reflection::ReflectionError,
     reload::{HotReloadCoordinator, ModuleEpoch},
@@ -53,6 +53,26 @@ impl Runtime {
 
     pub fn host_mut(&mut self) -> &mut HostRegistry {
         &mut self.host
+    }
+
+    pub fn root_value(&self, value: value::Value) -> Option<GcRootId> {
+        self.gc.root_value(value)
+    }
+
+    pub fn root_snapshot(&self, id: GcRootId) -> Option<value::Value> {
+        self.gc.root_snapshot(id)
+    }
+
+    pub fn update_root(&self, id: GcRootId, value: value::Value) -> Option<()> {
+        self.gc.update_root(id, value)
+    }
+
+    pub fn release_root(&self, id: GcRootId) -> Option<value::Value> {
+        self.gc.release_root(id)
+    }
+
+    pub fn trace_roots(&self) -> Vec<HeapObjectId> {
+        self.gc.trace_roots()
     }
 
     pub fn invoke_host(
