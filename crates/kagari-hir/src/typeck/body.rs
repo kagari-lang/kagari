@@ -84,7 +84,7 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Assign { target, value } => {
                 let value_ty = self.infer_expr_type(*value, env);
-                match self.resolve_place_type(*target, env) {
+                match self.resolve_assignment_target_type(*target, env) {
                     Some(expected) if expected != value_ty => self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
                             expected: display_type_id(&expected),
@@ -147,7 +147,11 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn resolve_place_type(&mut self, place_id: PlaceId, env: &mut BodyTypeEnv) -> Option<TypeId> {
+    fn resolve_assignment_target_type(
+        &mut self,
+        place_id: PlaceId,
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
         let ty = match &self.lowered.module.place(place_id).kind {
             PlaceKind::Name(_) => {
                 self.place_root_resolution(place_id)
@@ -177,11 +181,54 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::Trait(_) => None,
                     })
             }
-            PlaceKind::Field { base, name } => self
-                .resolve_place_type(*base, env)
-                .and_then(|base_ty| self.resolve_field_type(&base_ty, name)),
+            PlaceKind::Field { base, name } => {
+                let base_ty = self.resolve_readable_place_type(*base, env)?;
+                self.resolve_writable_field_type(&base_ty, name)
+            }
             PlaceKind::Index { base, index } => {
-                let base_ty = self.resolve_place_type(*base, env)?;
+                let base_ty = self.resolve_readable_place_type(*base, env)?;
+                self.infer_expr_type(*index, env);
+                self.resolve_index_type(*index, &base_ty)
+            }
+        };
+
+        if let Some(ty) = ty.clone() {
+            self.type_table.insert_place(place_id, ty);
+        }
+
+        ty
+    }
+
+    fn resolve_readable_place_type(
+        &mut self,
+        place_id: PlaceId,
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let ty = match &self.lowered.module.place(place_id).kind {
+            PlaceKind::Name(_) => {
+                self.place_root_resolution(place_id)
+                    .and_then(|resolved| match resolved {
+                        ResolvedName::Param(id) => env.params.get(&id).cloned(),
+                        ResolvedName::Local(id) => env.locals.get(&id).cloned(),
+                        ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
+                        ResolvedName::Static(id) => self
+                            .top_level_index
+                            .statics
+                            .get(&id)
+                            .map(|item| item.ty.clone()),
+                        ResolvedName::Function(_)
+                        | ResolvedName::Module(_)
+                        | ResolvedName::Struct(_)
+                        | ResolvedName::Enum(_)
+                        | ResolvedName::Trait(_) => None,
+                    })
+            }
+            PlaceKind::Field { base, name } => {
+                let base_ty = self.resolve_readable_place_type(*base, env)?;
+                self.resolve_field_type(&base_ty, name)
+            }
+            PlaceKind::Index { base, index } => {
+                let base_ty = self.resolve_readable_place_type(*base, env)?;
                 self.infer_expr_type(*index, env);
                 self.resolve_index_type(*index, &base_ty)
             }
@@ -616,6 +663,17 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn resolve_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
+        self.resolve_field(receiver, field_name)
+            .and_then(|field| resolve_type(&self.lowered.module, field.ty))
+    }
+
+    fn resolve_writable_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
+        self.resolve_field(receiver, field_name)
+            .filter(|field| field.writeability.is_var())
+            .and_then(|field| resolve_type(&self.lowered.module, field.ty))
+    }
+
+    fn resolve_field(&self, receiver: &TypeId, field_name: &str) -> Option<&crate::hir::Field> {
         match receiver {
             TypeId::Struct(name) => self
                 .lowered
@@ -623,8 +681,7 @@ impl<'a> BodyChecker<'a> {
                 .structs
                 .iter()
                 .find(|item| item.name == *name)
-                .and_then(|item| item.fields.iter().find(|field| field.name == field_name))
-                .and_then(|field| resolve_type(&self.lowered.module, field.ty)),
+                .and_then(|item| item.fields.iter().find(|field| field.name == field_name)),
             _ => None,
         }
     }

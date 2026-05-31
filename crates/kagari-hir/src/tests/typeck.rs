@@ -500,10 +500,10 @@ fn allows_assignment_to_var_field_and_index_places() {
     let field_assignment = common::lower_ok(
         r#"
 struct Point { var x: i32 }
-struct Holder { var inner: Point }
+struct Holder { val inner: Point }
 
 fn main() -> i32 {
-    var holder = Holder { inner: Point { x: 1 } };
+    val holder = Holder { inner: Point { x: 1 } };
     holder.inner.x = 3;
     holder.inner.x
 }
@@ -520,10 +520,31 @@ fn main() -> i32 {
         Some(TypeId::Builtin(BuiltinType::I32))
     );
 
+    let param_field_assignment = common::lower_ok(
+        r#"
+struct Point { var x: i32 }
+
+fn main(point: Point) -> i32 {
+    point.x = 3;
+    point.x
+}
+"#,
+    );
+    let names = resolve_names(&param_field_assignment).expect("resolver should succeed");
+    let typed = check_module(&param_field_assignment, &names)
+        .expect("var field assignment through parameter should type check");
+    let function = &param_field_assignment.module.functions[0];
+    let block = param_field_assignment.module.block(function.body);
+    let tail_expr = block.tail_expr.expect("tail expr");
+    assert_eq!(
+        typed.type_table.expr_type(tail_expr),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+
     let index_assignment = common::lower_ok(
         r#"
 fn main() -> i32 {
-    var values = [1, 2];
+    val values = [1, 2];
     values[1] = 9;
     values[1]
 }
@@ -539,6 +560,26 @@ fn main() -> i32 {
         typed.type_table.expr_type(tail_expr),
         Some(TypeId::Builtin(BuiltinType::I32))
     );
+}
+
+#[test]
+fn rejects_assignment_to_val_field() {
+    let field_assignment = common::lower_ok(
+        r#"
+struct Point { val x: i32 }
+
+fn main() -> i32 {
+    val point = Point { x: 1 };
+    point.x = 3;
+    point.x
+}
+"#,
+    );
+    let names = resolve_names(&field_assignment).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&field_assignment, &names).expect_err("val field should reject write");
+
+    assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
 }
 
 #[test]
