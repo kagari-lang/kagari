@@ -10,7 +10,7 @@ pub mod resource;
 pub mod security;
 pub mod value;
 
-use kagari_ir::bytecode::{BuiltinMethod, BytecodeModule};
+use kagari_ir::bytecode::{ArtifactCompatibility, BuiltinMethod, BytecodeModule, KbcArtifact};
 
 pub use error::{RuntimeError, RuntimeErrorKind};
 pub use host::{
@@ -39,7 +39,10 @@ use crate::{
     gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
     host::{HostError, HostFunction, HostRegistry},
     reflection::ReflectionError,
-    reload::{HotReloadCoordinator, validate_load_candidate, validate_reload_candidate},
+    reload::{
+        HotReloadCoordinator, validate_load_candidate, validate_reload_artifact_candidate,
+        validate_reload_candidate,
+    },
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -418,6 +421,33 @@ impl Runtime {
         let name = name.into();
         let latest = self.modules.latest(&active.name);
         validate_reload_candidate(active, &name, &bytecode, latest.as_ref())?;
+        self.publish_validated_reload(name, bytecode)
+    }
+
+    pub fn reload_artifact(
+        &mut self,
+        active: &LoadedModule,
+        name: impl Into<String>,
+        artifact: KbcArtifact,
+        compatibility: &ArtifactCompatibility,
+    ) -> Result<LoadedModule, ReloadValidationError> {
+        let name = name.into();
+        let latest = self.modules.latest(&active.name);
+        validate_reload_artifact_candidate(
+            active,
+            &name,
+            &artifact,
+            compatibility,
+            latest.as_ref(),
+        )?;
+        self.publish_validated_reload(name, artifact.module)
+    }
+
+    fn publish_validated_reload(
+        &mut self,
+        name: String,
+        bytecode: BytecodeModule,
+    ) -> Result<LoadedModule, ReloadValidationError> {
         self.resources
             .record_loaded_modules(self.modules.loaded_count() + 1)
             .map_err(ReloadValidationError::Runtime)?;
@@ -440,7 +470,10 @@ impl Default for Runtime {
 mod tests {
     use super::*;
     use kagari_ir::{
-        bytecode::BytecodeModule,
+        bytecode::{
+            ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, BytecodeModule,
+            DependencyFingerprint, KbcArtifact,
+        },
         module::{FunctionAbi, PublicAbiItem},
     };
 
@@ -454,6 +487,31 @@ mod tests {
                 return_type: return_type.to_owned(),
             })],
             ..BytecodeModule::default()
+        }
+    }
+
+    fn artifact_with_loader_fingerprints() -> KbcArtifact {
+        KbcArtifact::from_module(
+            module_with_public_function("i32"),
+            ArtifactBuildOptions {
+                dependency_fingerprints: vec![DependencyFingerprint {
+                    module_id: "pkg/dependency".to_owned(),
+                    fingerprint: ArtifactFingerprint::of_str("dependency-v1"),
+                }],
+                host_registry_fingerprint: ArtifactFingerprint::of_str("host-v1"),
+                security_profile: Some("dev".to_owned()),
+                ..ArtifactBuildOptions::default()
+            },
+        )
+    }
+
+    fn compatibility_for_artifact(artifact: &KbcArtifact) -> ArtifactCompatibility {
+        ArtifactCompatibility {
+            module_identity: Some(artifact.header.module_identity.clone()),
+            dependency_fingerprints: artifact.verification.loader.dependency_fingerprints.clone(),
+            host_registry_fingerprint: artifact.verification.loader.host_registry_fingerprint,
+            security_profile: artifact.verification.loader.security_profile.clone(),
+            ..ArtifactCompatibility::default()
         }
     }
 
@@ -576,6 +634,58 @@ mod tests {
         assert_eq!(
             runtime.modules().latest("reloadable").unwrap().epoch,
             loaded.epoch
+        );
+    }
+
+    #[test]
+    fn reload_artifact_validates_loader_compatibility_before_publication() {
+        let artifact = artifact_with_loader_fingerprints();
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_module("reloadable", artifact.module.clone())
+            .expect("module should load");
+        let before_count = runtime.modules().loaded_count();
+
+        let error = runtime
+            .reload_artifact(
+                &loaded,
+                "reloadable",
+                artifact,
+                &ArtifactCompatibility::default(),
+            )
+            .expect_err("loader compatibility mismatch should reject reload");
+
+        assert!(matches!(
+            error,
+            ReloadValidationError::Artifact(
+                kagari_ir::bytecode::ArtifactValidationError::DependencyFingerprintMismatch
+            )
+        ));
+        assert_eq!(runtime.modules().loaded_count(), before_count);
+        assert_eq!(
+            runtime.modules().latest("reloadable").unwrap().epoch,
+            loaded.epoch
+        );
+    }
+
+    #[test]
+    fn reload_artifact_publishes_after_loader_and_reload_validation() {
+        let artifact = artifact_with_loader_fingerprints();
+        let compatibility = compatibility_for_artifact(&artifact);
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_module("reloadable", artifact.module.clone())
+            .expect("module should load");
+
+        let reloaded = runtime
+            .reload_artifact(&loaded, "reloadable", artifact, &compatibility)
+            .expect("compatible artifact should reload");
+
+        assert_eq!(reloaded.id, loaded.id);
+        assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
+        assert_eq!(
+            runtime.modules().latest("reloadable").unwrap().epoch,
+            reloaded.epoch
         );
     }
 

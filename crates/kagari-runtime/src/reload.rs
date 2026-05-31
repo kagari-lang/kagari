@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use kagari_ir::bytecode::{
-    ArtifactFingerprint, BytecodeModule, BytecodeVerificationError, PathDescriptorFingerprint,
-    PublicAbiFingerprint, verify_module,
+    ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError, BytecodeModule,
+    BytecodeVerificationError, KbcArtifact, PathDescriptorFingerprint, PublicAbiFingerprint,
+    verify_module,
 };
 
 use crate::{
@@ -28,6 +29,7 @@ pub enum ReloadValidationError {
         expected: ModuleEpoch,
         active: Option<ModuleEpoch>,
     },
+    Artifact(ArtifactValidationError),
     Bytecode(BytecodeVerificationError),
     Runtime(RuntimeError),
     PublicAbiFingerprintMismatch,
@@ -55,6 +57,7 @@ impl std::fmt::Display for ReloadValidationError {
                 "reload target `{module_name}` is not active: expected {:?}, active {:?}",
                 expected, active
             ),
+            Self::Artifact(error) => write!(f, "reload artifact validation failed: {error:?}"),
             Self::Bytecode(error) => write!(f, "reload bytecode validation failed: {error:?}"),
             Self::Runtime(error) => write!(f, "reload runtime validation failed: {error}"),
             Self::PublicAbiFingerprintMismatch => {
@@ -69,6 +72,19 @@ impl std::error::Error for ReloadValidationError {}
 
 pub fn validate_load_candidate(bytecode: &BytecodeModule) -> Result<(), ReloadValidationError> {
     verify_module(bytecode).map_err(ReloadValidationError::Bytecode)
+}
+
+pub fn validate_reload_artifact_candidate(
+    active: &LoadedModule,
+    candidate_name: &str,
+    artifact: &KbcArtifact,
+    compatibility: &ArtifactCompatibility,
+    active_latest: Option<&LoadedModule>,
+) -> Result<(), ReloadValidationError> {
+    artifact
+        .validate_for_loader(compatibility)
+        .map_err(ReloadValidationError::Artifact)?;
+    validate_reload_candidate(active, candidate_name, &artifact.module, active_latest)
 }
 
 pub fn validate_reload_candidate(

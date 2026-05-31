@@ -155,15 +155,12 @@ impl KagariRuntime {
         artifact: BytecodeArtifact,
         options: ReloadOptions,
     ) -> ReloadResult<LoadedModule> {
-        artifact
-            .validate_for_loader(&options.compatibility)
-            .map_err(EmbeddingError::reload_validation)?;
         let module_name = options
             .module_name
             .unwrap_or_else(|| artifact.header.module_identity.source_uri.clone());
         self.vm
             .runtime_mut()
-            .reload_module(previous, module_name, artifact.module)
+            .reload_artifact(previous, module_name, artifact, &options.compatibility)
             .map_err(EmbeddingError::reload_validation)
     }
 
