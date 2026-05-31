@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::hir::{
-    BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ParamId, PatternKind, PlaceId,
-    PlaceKind, StaticId, StmtId, StmtKind, StructId,
+    BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
+    PlaceId, PlaceKind, StaticId, StmtId, StmtKind, StructId, TraitId,
 };
 use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
 
@@ -186,10 +186,16 @@ impl<'a> BodyResolver<'a> {
         if let Some(id) = self.names.static_(name) {
             return Some(ResolvedName::Static(id));
         }
+        if let Some(id) = self.names.module(name) {
+            return Some(ResolvedName::Module(id));
+        }
         if let Some(id) = self.names.struct_(name) {
             return Some(ResolvedName::Struct(id));
         }
-        self.names.enum_(name).map(ResolvedName::Enum)
+        if let Some(id) = self.names.enum_(name) {
+            return Some(ResolvedName::Enum(id));
+        }
+        self.names.trait_(name).map(ResolvedName::Trait)
     }
 
     fn bind_name(&mut self, name: &str, resolved: ResolvedName) {
@@ -211,8 +217,10 @@ trait TopLevelLookup {
     fn function(&self, name: &str) -> Option<FunctionId>;
     fn const_(&self, name: &str) -> Option<ConstId>;
     fn static_(&self, name: &str) -> Option<StaticId>;
+    fn module(&self, name: &str) -> Option<ModuleId>;
     fn struct_(&self, name: &str) -> Option<StructId>;
     fn enum_(&self, name: &str) -> Option<EnumId>;
+    fn trait_(&self, name: &str) -> Option<TraitId>;
 }
 
 impl TopLevelLookup for NameTable {
@@ -228,11 +236,19 @@ impl TopLevelLookup for NameTable {
         self.statics.get(name).copied()
     }
 
+    fn module(&self, name: &str) -> Option<ModuleId> {
+        self.modules.get(name).copied()
+    }
+
     fn struct_(&self, name: &str) -> Option<StructId> {
         self.structs.get(name).copied()
     }
 
     fn enum_(&self, name: &str) -> Option<EnumId> {
         self.enums.get(name).copied()
+    }
+
+    fn trait_(&self, name: &str) -> Option<TraitId> {
+        self.traits.get(name).copied()
     }
 }

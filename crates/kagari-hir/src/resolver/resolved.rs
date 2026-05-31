@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::hir::{
-    ConstId, EnumId, ExprId, FunctionId, LocalId, ParamId, PlaceId, StaticId, StructId,
+    ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, ParamId, PlaceId, StaticId, StructId,
+    TraitId,
 };
 use crate::resolver::table::NameTable;
 
@@ -12,8 +13,10 @@ pub enum ResolvedName {
     Param(ParamId),
     Local(LocalId),
     Static(StaticId),
+    Module(ModuleId),
     Struct(StructId),
     Enum(EnumId),
+    Trait(TraitId),
 }
 
 #[derive(Debug, Clone)]

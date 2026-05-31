@@ -40,6 +40,54 @@ fn main(value: i32) -> i32 { value }
 }
 
 #[test]
+fn lowers_module_trait_and_impl_namespace_items() {
+    let lowered = common::lower_ok(
+        r#"
+mod gameplay;
+
+trait Display {
+    fn show(self) -> String;
+}
+
+struct Player {
+    val name: String,
+}
+
+impl Display for Player {
+    fn show(self) -> String {
+        self.name
+    }
+}
+"#,
+    );
+
+    assert_eq!(lowered.module.modules.len(), 1);
+    assert_eq!(lowered.module.modules[0].name, "gameplay");
+    assert!(!lowered.module.modules[0].inline);
+
+    assert_eq!(lowered.module.traits.len(), 1);
+    assert_eq!(lowered.module.traits[0].name, "Display");
+
+    assert_eq!(lowered.module.impls.len(), 1);
+    assert_eq!(
+        lowered.module.impls[0].trait_ref.as_deref(),
+        Some("Display")
+    );
+    let for_type = lowered.module.impls[0]
+        .for_type
+        .expect("expected impl target type");
+    assert!(matches!(
+        lowered.module.type_ref(for_type).kind,
+        TypeKind::Named(ref name) if name == "Player"
+    ));
+
+    assert!(matches!(lowered.module.items[0], Item::Module(_)));
+    assert!(matches!(lowered.module.items[1], Item::Trait(_)));
+    assert!(matches!(lowered.module.items[2], Item::Struct(_)));
+    assert!(matches!(lowered.module.items[3], Item::Impl(_)));
+}
+
+#[test]
 fn lowers_function_body_expressions_and_statements() {
     let lowered = common::lower_ok(
         "fn main(value: i32) -> i32 { val next: i32 = value + 1; match next { _ => next } }",

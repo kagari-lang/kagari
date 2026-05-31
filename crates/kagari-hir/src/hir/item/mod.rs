@@ -1,6 +1,7 @@
 mod adt;
 mod behavior;
 mod function;
+mod module;
 mod storage;
 
 pub use adt::{Enum, EnumBuffer, Field, FieldBuffer, Struct, StructBuffer, Variant, VariantBuffer};
@@ -9,14 +10,15 @@ pub use behavior::{
     ReceiverKind, TraitBuffer, TraitDef, TraitMethod, TraitMethodBuffer,
 };
 pub use function::{Function, FunctionBuffer, FunctionKind, Param, ParamBuffer};
+pub use module::{ModuleDecl, ModuleDeclBuffer};
 pub use storage::{
     ConstBuffer, ConstItem, Export, ExportBuffer, ExportItem, StaticBuffer, StaticItem, Visibility,
 };
 
 use crate::hir::{
-    BlockData, BlockId, Body, ConstId, EnumId, ExprData, ExprId, FunctionId, PatternData,
-    PatternId, PlaceData, PlaceId, StaticId, StmtData, StmtId, StructId, TraitId, TypeData,
-    TypeRefId,
+    BlockData, BlockId, Body, ConstId, EnumId, ExprData, ExprId, FunctionId, ImplId, ModuleId,
+    PatternData, PatternId, PlaceData, PlaceId, StaticId, StmtData, StmtId, StructId, TraitId,
+    TypeData, TypeRefId,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -28,6 +30,7 @@ pub struct Module {
     pub methods: MethodBuffer,
     pub consts: ConstBuffer,
     pub statics: StaticBuffer,
+    pub modules: ModuleDeclBuffer,
     pub structs: StructBuffer,
     pub enums: EnumBuffer,
     pub traits: TraitBuffer,
@@ -66,9 +69,11 @@ pub enum Item {
     Function(FunctionId),
     Const(ConstId),
     Static(StaticId),
+    Module(ModuleId),
     Struct(StructId),
     Enum(EnumId),
     Trait(TraitId),
+    Impl(ImplId),
 }
 
 pub type ItemBuffer = Vec<Item>;

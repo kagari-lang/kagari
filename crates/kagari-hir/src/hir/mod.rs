@@ -14,15 +14,15 @@ pub use expr::{
     MatchArm, MatchArmBuffer, PrefixOp,
 };
 pub use ids::{
-    BlockId, ConstId, EnumId, ExprId, FunctionId, ImplId, LocalId, MethodId, ParamId, PatternId,
-    PlaceId, StaticId, StmtId, StructId, TraitId, TraitMethodId, TypeRefId,
+    BlockId, ConstId, EnumId, ExprId, FunctionId, ImplId, LocalId, MethodId, ModuleId, ParamId,
+    PatternId, PlaceId, StaticId, StmtId, StructId, TraitId, TraitMethodId, TypeRefId,
 };
 pub use item::{
     ConstBuffer, ConstItem, Enum, EnumBuffer, Export, ExportBuffer, ExportItem, Field, FieldBuffer,
     Function, FunctionBuffer, FunctionKind, Impl, ImplBuffer, ImplMethod, ImplMethodBuffer, Item,
-    ItemBuffer, Method, MethodBuffer, MethodOwner, Module, Param, ParamBuffer, ReceiverKind,
-    StaticBuffer, StaticItem, Struct, StructBuffer, TraitBuffer, TraitDef, TraitMethod,
-    TraitMethodBuffer, Variant, VariantBuffer, Visibility,
+    ItemBuffer, Method, MethodBuffer, MethodOwner, Module, ModuleDecl, ModuleDeclBuffer, Param,
+    ParamBuffer, ReceiverKind, StaticBuffer, StaticItem, Struct, StructBuffer, TraitBuffer,
+    TraitDef, TraitMethod, TraitMethodBuffer, Variant, VariantBuffer, Visibility,
 };
 pub use pattern::{PatternData, PatternKind};
 pub use place::{PlaceData, PlaceKind};

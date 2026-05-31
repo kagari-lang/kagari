@@ -39,6 +39,12 @@ pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiag
         }
     }
 
+    for module_decl in &lowered.module.modules {
+        if !module_decl.name.is_empty() {
+            names.insert_module(module_decl.name.clone(), module_decl.id);
+        }
+    }
+
     for const_item in &lowered.module.consts {
         if !const_item.name.is_empty() {
             names.insert_const(const_item.name.clone(), const_item.id);
@@ -55,6 +61,16 @@ pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiag
         if !enum_def.name.is_empty() {
             names.insert_enum(enum_def.name.clone(), enum_def.id);
         }
+    }
+
+    for trait_def in &lowered.module.traits {
+        if !trait_def.name.is_empty() {
+            names.insert_trait(trait_def.name.clone(), trait_def.id);
+        }
+    }
+
+    for impl_block in &lowered.module.impls {
+        names.insert_impl(impl_block.id);
     }
 
     if !diagnostics.is_empty() {

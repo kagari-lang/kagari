@@ -171,8 +171,10 @@ impl<'a> BodyChecker<'a> {
                             .map(|item| item.ty.clone()),
                         ResolvedName::Const(_)
                         | ResolvedName::Function(_)
+                        | ResolvedName::Module(_)
                         | ResolvedName::Struct(_)
-                        | ResolvedName::Enum(_) => None,
+                        | ResolvedName::Enum(_)
+                        | ResolvedName::Trait(_) => None,
                     })
             }
             PlaceKind::Field { base, name } => self
@@ -228,7 +230,10 @@ impl<'a> BodyChecker<'a> {
                         .by_id
                         .get(&id)
                         .map(|function| function.return_type.clone()),
-                    ResolvedName::Struct(_) | ResolvedName::Enum(_) => None,
+                    ResolvedName::Module(_)
+                    | ResolvedName::Struct(_)
+                    | ResolvedName::Enum(_)
+                    | ResolvedName::Trait(_) => None,
                 })
                 .unwrap_or(TypeId::Builtin(BuiltinType::Unit)),
             ExprKind::Literal(literal) => match literal.kind {

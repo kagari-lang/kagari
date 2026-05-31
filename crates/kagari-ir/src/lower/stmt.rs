@@ -148,8 +148,10 @@ impl FunctionLowerer<'_> {
                     }
                     ResolvedName::Const(_)
                     | ResolvedName::Function(_)
+                    | ResolvedName::Module(_)
                     | ResolvedName::Struct(_)
-                    | ResolvedName::Enum(_) => {
+                    | ResolvedName::Enum(_)
+                    | ResolvedName::Trait(_) => {
                         return Err(IrLoweringError::UnsupportedStatement(
                             "invalid assignment target during lowering",
                         ));
@@ -191,8 +193,10 @@ impl FunctionLowerer<'_> {
                     }
                     ResolvedName::Const(_)
                     | ResolvedName::Function(_)
+                    | ResolvedName::Module(_)
                     | ResolvedName::Struct(_)
-                    | ResolvedName::Enum(_) => Err(IrLoweringError::UnsupportedStatement(
+                    | ResolvedName::Enum(_)
+                    | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedStatement(
                         "invalid assignment target during lowering",
                     )),
                 }

@@ -1,8 +1,8 @@
 use kagari_common::Span;
 
 use crate::hir::{
-    BlockId, ConstId, EnumId, ExprId, FunctionId, LocalId, ParamId, PatternId, PlaceId, StaticId,
-    StmtId, StructId, TypeRefId,
+    BlockId, ConstId, EnumId, ExprId, FunctionId, ImplId, LocalId, ModuleId, ParamId, PatternId,
+    PlaceId, StaticId, StmtId, StructId, TraitId, TypeRefId,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -10,6 +10,9 @@ pub struct SourceMap {
     function_spans: Vec<Span>,
     const_spans: Vec<Span>,
     static_spans: Vec<Span>,
+    module_spans: Vec<Span>,
+    trait_spans: Vec<Span>,
+    impl_spans: Vec<Span>,
     param_spans: Vec<Span>,
     local_spans: Vec<Span>,
     struct_spans: Vec<Span>,
@@ -32,6 +35,24 @@ impl SourceMap {
     pub(crate) fn push_const(&mut self, span: Span) -> ConstId {
         let id = ConstId::new(self.const_spans.len());
         self.const_spans.push(span);
+        id
+    }
+
+    pub(crate) fn push_module(&mut self, span: Span) -> ModuleId {
+        let id = ModuleId::new(self.module_spans.len());
+        self.module_spans.push(span);
+        id
+    }
+
+    pub(crate) fn push_trait(&mut self, span: Span) -> TraitId {
+        let id = TraitId::new(self.trait_spans.len());
+        self.trait_spans.push(span);
+        id
+    }
+
+    pub(crate) fn push_impl(&mut self, span: Span) -> ImplId {
+        let id = ImplId::new(self.impl_spans.len());
+        self.impl_spans.push(span);
         id
     }
 
@@ -97,6 +118,18 @@ impl SourceMap {
 
     pub fn function_span(&self, id: FunctionId) -> Span {
         self.function_spans[id.index()]
+    }
+
+    pub fn module_span(&self, id: ModuleId) -> Span {
+        self.module_spans[id.index()]
+    }
+
+    pub fn trait_span(&self, id: TraitId) -> Span {
+        self.trait_spans[id.index()]
+    }
+
+    pub fn impl_span(&self, id: ImplId) -> Span {
+        self.impl_spans[id.index()]
     }
 
     pub fn const_span(&self, id: ConstId) -> Span {

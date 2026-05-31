@@ -22,6 +22,7 @@ id_newtype!(StaticId);
 id_newtype!(TraitId);
 id_newtype!(TraitMethodId);
 id_newtype!(ImplId);
+id_newtype!(ModuleId);
 id_newtype!(ParamId);
 id_newtype!(LocalId);
 id_newtype!(StructId);

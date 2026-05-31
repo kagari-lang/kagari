@@ -42,8 +42,8 @@ pub struct TraitMethod {
 #[derive(Debug, Clone)]
 pub struct Impl {
     pub id: ImplId,
-    pub trait_id: TraitId,
-    pub for_type: TypeRefId,
+    pub trait_ref: Option<String>,
+    pub for_type: Option<TypeRefId>,
     pub methods: ImplMethodBuffer,
 }
 

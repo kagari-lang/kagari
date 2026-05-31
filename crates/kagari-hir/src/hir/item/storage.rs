@@ -1,5 +1,6 @@
 use crate::hir::{
-    ConstId, EnumId, ExprId, FunctionId, StaticId, StructId, TypeRefId, Writeability,
+    ConstId, EnumId, ExprId, FunctionId, ModuleId, StaticId, StructId, TraitId, TypeRefId,
+    Writeability,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,8 +33,10 @@ pub enum ExportItem {
     Function(FunctionId),
     Const(ConstId),
     Static(StaticId),
+    Module(ModuleId),
     Struct(StructId),
     Enum(EnumId),
+    Trait(TraitId),
 }
 
 #[derive(Debug, Clone)]

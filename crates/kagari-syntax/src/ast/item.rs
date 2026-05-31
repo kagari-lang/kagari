@@ -2,7 +2,9 @@ use crate::{
     ast::{
         expr::{BlockExpr, Expr},
         macros::ast_node,
-        misc::{FieldList, GenericParamList, Name, ParamList, Path, VariantList, WhereClause},
+        misc::{
+            FieldList, GenericParamList, Name, ParamList, Path, TraitRef, VariantList, WhereClause,
+        },
         stmt::Stmt,
         support,
         traits::AstNode,
@@ -173,6 +175,14 @@ impl TraitDef {
 impl ImplBlock {
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
+    }
+
+    pub fn trait_ref(&self) -> Option<TraitRef> {
+        support::child(self.syntax())
+    }
+
+    pub fn target_type(&self) -> Option<TypeRef> {
+        self.syntax().children().filter_map(TypeRef::cast).next()
     }
 
     pub fn where_clause(&self) -> Option<WhereClause> {

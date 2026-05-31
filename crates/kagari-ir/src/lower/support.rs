@@ -46,8 +46,10 @@ impl FunctionLowerer<'_> {
             ResolvedName::Const(_)
             | ResolvedName::Static(_)
             | ResolvedName::Function(_)
+            | ResolvedName::Module(_)
             | ResolvedName::Struct(_)
-            | ResolvedName::Enum(_) => Err(IrLoweringError::UnsupportedExpr(
+            | ResolvedName::Enum(_)
+            | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
                 "non-local binding used as local value",
             )),
         }
@@ -67,8 +69,10 @@ impl FunctionLowerer<'_> {
             | ResolvedName::Param(_)
             | ResolvedName::Local(_)
             | ResolvedName::Function(_)
+            | ResolvedName::Module(_)
             | ResolvedName::Struct(_)
-            | ResolvedName::Enum(_) => Err(IrLoweringError::UnsupportedExpr(
+            | ResolvedName::Enum(_)
+            | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
                 "non-module binding used as module slot",
             )),
         }
@@ -209,9 +213,12 @@ impl FunctionLowerer<'_> {
             ResolvedName::Function(_) => Err(IrLoweringError::UnsupportedExpr(
                 "bare function values are not lowered yet",
             )),
-            ResolvedName::Struct(_) | ResolvedName::Enum(_) => Err(
-                IrLoweringError::UnsupportedExpr("type-level names are not value expressions"),
-            ),
+            ResolvedName::Module(_)
+            | ResolvedName::Struct(_)
+            | ResolvedName::Enum(_)
+            | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
+                "type-level names are not value expressions",
+            )),
         }
     }
 
@@ -229,8 +236,10 @@ impl FunctionLowerer<'_> {
             | ResolvedName::Static(_)
             | ResolvedName::Param(_)
             | ResolvedName::Local(_)
+            | ResolvedName::Module(_)
             | ResolvedName::Struct(_)
-            | ResolvedName::Enum(_) => Ok(None),
+            | ResolvedName::Enum(_)
+            | ResolvedName::Trait(_) => Ok(None),
         }
     }
 
