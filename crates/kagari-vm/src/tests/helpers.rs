@@ -9,8 +9,9 @@ use std::sync::{Arc, Mutex};
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldMetadataId, HostExposurePolicy, HostObjectId,
     HostPathAdapter, HostPathDescriptorRegistration, HostPathSegment, HostReflectionPolicy,
-    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime,
-    RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind, TypeRegistration,
+    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess,
+    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind,
+    TypeRegistration,
     host::{HostError, HostFunction},
     value::Value,
 };
@@ -602,6 +603,80 @@ fn reflection_read_and_write_gates_are_separate() {
             if error.kind() == RuntimeErrorKind::CapabilityDenied
                 && error.message().contains("reflection_write")
     ));
+}
+
+#[test]
+fn reflection_helpers_enforce_reflection_operation_resource_limit() {
+    let mut runtime = Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_reflection: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                reflection_metadata: true,
+                reflection_read: true,
+                ..CapabilitySet::default()
+            },
+        },
+        resources: ResourcePolicy {
+            max_reflection_operations: Some(1),
+            ..ResourcePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = runtime
+        .load_module(
+            "reflect_operation_limit.kbc",
+            test_function_module(
+                "main",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantOperand::I32(1),
+                    },
+                    BytecodeInstruction::MakeStruct {
+                        dst: Register::new(1),
+                        name: "Point".to_owned(),
+                        fields: vec![StructFieldInit {
+                            name: "x".to_owned(),
+                            value: Register::new(0),
+                        }],
+                    },
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(2)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
+                        args: vec![Register::new(1)],
+                    },
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(3)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
+                            "x".to_owned(),
+                        )),
+                        args: vec![Register::new(1)],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(3))),
+                ],
+                ValueType::I32,
+                vec![
+                    ValueType::I32,
+                    ValueType::HeapObject,
+                    ValueType::Str,
+                    ValueType::I32,
+                ],
+            ),
+        )
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    let error = vm.execute(&loaded, "main").unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
+                && error.message().contains("reflection operations")
+    ));
+    assert_eq!(vm.runtime().resources().counters().reflection_operations, 1);
 }
 
 #[test]

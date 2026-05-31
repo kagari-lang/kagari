@@ -49,6 +49,7 @@ use crate::{
         validate_reload_candidate,
     },
 };
+use value::{StructValueField, Value};
 
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeConfig {
@@ -92,6 +93,32 @@ impl Runtime {
 
     pub fn gc(&self) -> &GcHeap {
         &self.gc
+    }
+
+    pub fn alloc_array(&self, elements: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
+        let units = 1 + elements.len();
+        self.resources.consume_allocation_units(units)?;
+        let handle = self
+            .gc
+            .alloc_array(elements)
+            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
+        self.sync_heap_accounting()?;
+        Ok(handle)
+    }
+
+    pub fn alloc_struct(
+        &self,
+        name: String,
+        fields: Vec<StructValueField>,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        let units = 1 + fields.len();
+        self.resources.consume_allocation_units(units)?;
+        let handle = self
+            .gc
+            .alloc_struct(name, fields)
+            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
+        self.sync_heap_accounting()?;
+        Ok(handle)
     }
 
     pub fn host(&self) -> &HostRegistry {
@@ -329,6 +356,7 @@ impl Runtime {
         };
         let metadata = function.metadata();
         self.validate_capabilities(metadata.capability_requirements)?;
+        self.resources.consume_host_call()?;
         if let Some(cost) = metadata.resource_cost_hint {
             self.resources.consume_instruction_steps(cost)?;
         }
@@ -515,6 +543,7 @@ impl Runtime {
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {
         self.validate_reflection_metadata_boundary()?;
+        self.resources.consume_reflection_operation()?;
         Ok(reflection::type_of(&self.gc, value))
     }
 
@@ -524,6 +553,7 @@ impl Runtime {
         field_name: &str,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_reflection_read_boundary()?;
+        self.resources.consume_reflection_operation()?;
         reflection::get_field(&self.gc, value, field_name)
             .map_err(|error| RuntimeError::invalid_reflective_read(error.message()))
     }
@@ -535,6 +565,7 @@ impl Runtime {
         next_value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_reflection_write_boundary()?;
+        self.resources.consume_reflection_operation()?;
         reflection::set_field(&self.gc, value, field_name, next_value)
             .map_err(|error| RuntimeError::invalid_reflective_write(error.message()))
     }
@@ -546,6 +577,7 @@ impl Runtime {
         next_value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_reflection_write_boundary()?;
+        self.resources.consume_reflection_operation()?;
         reflection::set_index(&self.gc, value, index, next_value)
             .map_err(|error| RuntimeError::invalid_reflective_write(error.message()))
     }

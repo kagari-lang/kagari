@@ -215,6 +215,34 @@ fn reports_runtime_instruction_step_limit() {
 }
 
 #[test]
+fn reports_runtime_allocation_unit_limit() {
+    let bytecode = compile_test_bytecode("fn main() -> i32 { val values = [1, 2]; 0 }");
+    let mut runtime = Runtime::new(RuntimeConfig {
+        resources: ResourcePolicy {
+            max_allocation_units: Some(2),
+            ..ResourcePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = runtime
+        .load_module("allocation_limited.kgr", bytecode)
+        .expect("module should load");
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("array allocation should exceed allocation unit limit");
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref err)
+            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
+                && err.message().contains("allocation units")
+    ));
+    assert_eq!(vm.runtime().resources().counters().allocation_units, 0);
+}
+
+#[test]
 fn rejects_unverified_bytecode_before_publication() {
     let mut bytecode = verified_module(
         None,
@@ -832,6 +860,85 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
             if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
     ));
     assert_eq!(*calls.lock().expect("host call counter should lock"), 0);
+}
+
+#[test]
+fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
+    let calls = Arc::new(Mutex::new(0usize));
+    let calls_for_host = Arc::clone(&calls);
+
+    let mut runtime = Runtime::new(RuntimeConfig {
+        security: kagari_runtime::SecurityContext {
+            profile: kagari_runtime::LanguageProfile {
+                allow_host_calls: true,
+                ..kagari_runtime::LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                host_calls: true,
+                ..CapabilitySet::default()
+            },
+        },
+        resources: ResourcePolicy {
+            max_host_calls: Some(0),
+            ..ResourcePolicy::default()
+        },
+        host_exposure: kagari_runtime::HostExposurePolicy {
+            allowed_host_functions: vec!["host.limited".to_owned()],
+            ..kagari_runtime::HostExposurePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    runtime
+        .register_host_function(HostFunction::new(
+            "host.limited",
+            vec![],
+            "i32",
+            move |_| {
+                *calls_for_host
+                    .lock()
+                    .expect("host call counter should lock") += 1;
+                Ok(Value::I32(1))
+            },
+        ))
+        .expect("host function should register");
+    let loaded = runtime
+        .load_module(
+            "host_call_limit.kbc",
+            verified_module(
+                None,
+                vec![test_function(
+                    0,
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                                "host.limited".to_owned(),
+                            )),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(0))),
+                    ],
+                    ValueType::I32,
+                    vec![ValueType::I32],
+                )],
+            ),
+        )
+        .expect("module should load");
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("host helper should hit host call limit");
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
+                && error.message().contains("host calls")
+    ));
+    assert_eq!(*calls.lock().expect("host call counter should lock"), 0);
+    assert_eq!(vm.runtime().resources().counters().host_calls, 0);
 }
 
 #[test]

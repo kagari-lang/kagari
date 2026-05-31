@@ -8,6 +8,8 @@ pub struct ResourcePolicy {
     pub max_call_depth: Option<u32>,
     pub max_heap_units: Option<usize>,
     pub max_allocation_units: Option<usize>,
+    pub max_host_calls: Option<u64>,
+    pub max_reflection_operations: Option<u64>,
     pub max_modules: Option<usize>,
     pub max_wall_time_ms: Option<u64>,
 }
@@ -20,6 +22,8 @@ pub struct ResourceCounters {
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
     pub allocation_units: usize,
+    pub host_calls: u64,
+    pub reflection_operations: u64,
     pub loaded_modules: usize,
     pub elapsed_wall_time_ms: u64,
 }
@@ -105,6 +109,30 @@ impl ResourceState {
         Ok(())
     }
 
+    pub fn consume_host_call(&self) -> Result<(), RuntimeError> {
+        let mut counters = self.counters.borrow_mut();
+        let next = counters.host_calls.saturating_add(1);
+        if let Some(max) = self.policy.max_host_calls {
+            if next > max {
+                return Err(RuntimeError::resource_limit("host calls"));
+            }
+        }
+        counters.host_calls = next;
+        Ok(())
+    }
+
+    pub fn consume_reflection_operation(&self) -> Result<(), RuntimeError> {
+        let mut counters = self.counters.borrow_mut();
+        let next = counters.reflection_operations.saturating_add(1);
+        if let Some(max) = self.policy.max_reflection_operations {
+            if next > max {
+                return Err(RuntimeError::resource_limit("reflection operations"));
+            }
+        }
+        counters.reflection_operations = next;
+        Ok(())
+    }
+
     pub fn record_loaded_modules(&self, loaded_modules: usize) -> Result<(), RuntimeError> {
         if let Some(max) = self.policy.max_modules {
             if loaded_modules > max {
@@ -167,5 +195,36 @@ mod tests {
         assert!(resources.enter_call().is_err());
         resources.leave_call();
         assert_eq!(resources.counters().current_call_depth, 1);
+    }
+
+    #[test]
+    fn enforces_allocation_host_and_reflection_limits() {
+        let resources = ResourceState::new(ResourcePolicy {
+            max_allocation_units: Some(2),
+            max_host_calls: Some(1),
+            max_reflection_operations: Some(1),
+            ..ResourcePolicy::default()
+        });
+
+        resources.consume_allocation_units(2).unwrap();
+        assert_eq!(
+            resources.consume_allocation_units(1).unwrap_err().kind(),
+            RuntimeErrorKind::ResourceLimitExceeded
+        );
+        assert_eq!(resources.counters().allocation_units, 2);
+
+        resources.consume_host_call().unwrap();
+        assert_eq!(
+            resources.consume_host_call().unwrap_err().kind(),
+            RuntimeErrorKind::ResourceLimitExceeded
+        );
+        assert_eq!(resources.counters().host_calls, 1);
+
+        resources.consume_reflection_operation().unwrap();
+        assert_eq!(
+            resources.consume_reflection_operation().unwrap_err().kind(),
+            RuntimeErrorKind::ResourceLimitExceeded
+        );
+        assert_eq!(resources.counters().reflection_operations, 1);
     }
 }
