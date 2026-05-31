@@ -11,6 +11,14 @@ pub enum Writeability {
 
 ast_node!(Name, Name);
 ast_node!(Path, Path);
+ast_node!(GenericParamList, GenericParamList);
+ast_node!(GenericParam, GenericParam);
+ast_node!(GenericArgList, GenericArgList);
+ast_node!(WhereClause, WhereClause);
+ast_node!(WherePredicate, WherePredicate);
+ast_node!(TraitBoundList, TraitBoundList);
+ast_node!(TraitRef, TraitRef);
+ast_node!(TypeList, TypeList);
 ast_node!(ParamList, ParamList);
 ast_node!(Param, Param);
 ast_node!(FieldList, FieldList);
@@ -50,6 +58,78 @@ impl Path {
             .filter_map(|segment| segment.text())
             .collect::<Vec<_>>();
         (!segments.is_empty()).then(|| segments.join("::"))
+    }
+}
+
+impl GenericParamList {
+    pub fn params(&self) -> impl Iterator<Item = GenericParam> {
+        support::children(self.syntax())
+    }
+}
+
+impl GenericParam {
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    pub fn name_text(&self) -> Option<String> {
+        self.name().and_then(|name| name.text())
+    }
+
+    pub fn bounds(&self) -> Option<TraitBoundList> {
+        support::child(self.syntax())
+    }
+}
+
+impl GenericArgList {
+    pub fn args(&self) -> impl Iterator<Item = TypeRef> {
+        support::children(self.syntax())
+    }
+}
+
+impl WhereClause {
+    pub fn predicates(&self) -> impl Iterator<Item = WherePredicate> {
+        support::children(self.syntax())
+    }
+}
+
+impl WherePredicate {
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    pub fn name_text(&self) -> Option<String> {
+        self.name().and_then(|name| name.text())
+    }
+
+    pub fn bounds(&self) -> Option<TraitBoundList> {
+        support::child(self.syntax())
+    }
+}
+
+impl TraitBoundList {
+    pub fn bounds(&self) -> impl Iterator<Item = TraitRef> {
+        support::children(self.syntax())
+    }
+}
+
+impl TraitRef {
+    pub fn path(&self) -> Option<Path> {
+        support::child(self.syntax())
+    }
+
+    pub fn path_text(&self) -> Option<String> {
+        self.path().and_then(|path| path.text())
+    }
+
+    pub fn generic_args(&self) -> Option<GenericArgList> {
+        support::child(self.syntax())
+    }
+}
+
+impl TypeList {
+    pub fn types(&self) -> impl Iterator<Item = TypeRef> {
+        support::children(self.syntax())
     }
 }
 
@@ -124,5 +204,9 @@ impl Variant {
 
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
+    }
+
+    pub fn payload_types(&self) -> Option<TypeList> {
+        support::child(self.syntax())
     }
 }

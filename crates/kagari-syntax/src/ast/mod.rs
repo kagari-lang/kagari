@@ -9,11 +9,13 @@ mod ty;
 
 pub use expr::{BlockExpr, Expr, Literal, MatchArm, MatchArmList, PathExpr, Pattern};
 pub use item::{
-    ConstDef, EnumDef, FnDef, Item, ModuleBlock, ModuleDef, SourceFile, StructDef, UseDecl,
-    UseTree, UseTreeList,
+    ConstDef, EnumDef, FnDef, ImplBlock, Item, MethodDef, ModuleBlock, ModuleDef, SourceFile,
+    StructDef, TraitDef, UseDecl, UseTree, UseTreeList,
 };
 pub use misc::{
-    Field, FieldList, Name, Param, ParamList, Path, Variant, VariantList, Writeability,
+    Field, FieldList, GenericArgList, GenericParam, GenericParamList, Name, Param, ParamList, Path,
+    TraitBoundList, TraitRef, TypeList, Variant, VariantList, WhereClause, WherePredicate,
+    Writeability,
 };
 pub use stmt::{AssignStmt, BindingStmt, ExprStmt, ReturnStmt, Stmt};
 pub use traits::AstNode;

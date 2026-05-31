@@ -2,7 +2,7 @@ use crate::{
     ast::{
         expr::{BlockExpr, Expr},
         macros::ast_node,
-        misc::{FieldList, Name, ParamList, Path, VariantList},
+        misc::{FieldList, GenericParamList, Name, ParamList, Path, VariantList, WhereClause},
         stmt::Stmt,
         support,
         traits::AstNode,
@@ -18,6 +18,9 @@ ast_node!(ModuleBlock, ModuleBlock);
 ast_node!(UseDecl, UseDecl);
 ast_node!(UseTree, UseTree);
 ast_node!(UseTreeList, UseTreeList);
+ast_node!(TraitDef, TraitDef);
+ast_node!(ImplBlock, ImplBlock);
+ast_node!(MethodDef, MethodDef);
 ast_node!(FnDef, FnDef);
 ast_node!(ConstDef, ConstDef);
 ast_node!(StructDef, StructDef);
@@ -27,6 +30,8 @@ ast_node!(EnumDef, EnumDef);
 pub enum Item {
     ModuleDef(ModuleDef),
     UseDecl(UseDecl),
+    TraitDef(TraitDef),
+    ImplBlock(ImplBlock),
     FnDef(FnDef),
     ConstDef(ConstDef),
     StructDef(StructDef),
@@ -39,6 +44,8 @@ impl AstNode for Item {
             kind,
             SyntaxKind::ModuleDef
                 | SyntaxKind::UseDecl
+                | SyntaxKind::TraitDef
+                | SyntaxKind::ImplBlock
                 | SyntaxKind::FnDef
                 | SyntaxKind::ConstDef
                 | SyntaxKind::StructDef
@@ -50,6 +57,8 @@ impl AstNode for Item {
         match syntax.kind() {
             SyntaxKind::ModuleDef => ModuleDef::cast(syntax).map(Self::ModuleDef),
             SyntaxKind::UseDecl => UseDecl::cast(syntax).map(Self::UseDecl),
+            SyntaxKind::TraitDef => TraitDef::cast(syntax).map(Self::TraitDef),
+            SyntaxKind::ImplBlock => ImplBlock::cast(syntax).map(Self::ImplBlock),
             SyntaxKind::FnDef => FnDef::cast(syntax).map(Self::FnDef),
             SyntaxKind::ConstDef => ConstDef::cast(syntax).map(Self::ConstDef),
             SyntaxKind::StructDef => StructDef::cast(syntax).map(Self::StructDef),
@@ -62,6 +71,8 @@ impl AstNode for Item {
         match self {
             Self::ModuleDef(node) => node.syntax(),
             Self::UseDecl(node) => node.syntax(),
+            Self::TraitDef(node) => node.syntax(),
+            Self::ImplBlock(node) => node.syntax(),
             Self::FnDef(node) => node.syntax(),
             Self::ConstDef(node) => node.syntax(),
             Self::StructDef(node) => node.syntax(),
@@ -137,6 +148,76 @@ impl UseTreeList {
     }
 }
 
+impl TraitDef {
+    pub fn is_pub(&self) -> bool {
+        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    }
+
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    pub fn name_text(&self) -> Option<String> {
+        self.name().and_then(|name| name.text())
+    }
+
+    pub fn generic_params(&self) -> Option<GenericParamList> {
+        support::child(self.syntax())
+    }
+
+    pub fn methods(&self) -> impl Iterator<Item = MethodDef> {
+        support::children(self.syntax())
+    }
+}
+
+impl ImplBlock {
+    pub fn generic_params(&self) -> Option<GenericParamList> {
+        support::child(self.syntax())
+    }
+
+    pub fn where_clause(&self) -> Option<WhereClause> {
+        support::child(self.syntax())
+    }
+
+    pub fn methods(&self) -> impl Iterator<Item = MethodDef> {
+        support::children(self.syntax())
+    }
+}
+
+impl MethodDef {
+    pub fn is_pub(&self) -> bool {
+        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    }
+
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    pub fn name_text(&self) -> Option<String> {
+        self.name().and_then(|name| name.text())
+    }
+
+    pub fn generic_params(&self) -> Option<GenericParamList> {
+        support::child(self.syntax())
+    }
+
+    pub fn param_list(&self) -> Option<ParamList> {
+        support::child(self.syntax())
+    }
+
+    pub fn return_type(&self) -> Option<TypeRef> {
+        self.syntax().children().filter_map(TypeRef::cast).next()
+    }
+
+    pub fn where_clause(&self) -> Option<WhereClause> {
+        support::child(self.syntax())
+    }
+
+    pub fn body(&self) -> Option<BlockExpr> {
+        support::child(self.syntax())
+    }
+}
+
 impl SourceFile {
     pub fn items(&self) -> impl Iterator<Item = Item> {
         support::children(self.syntax())
@@ -168,11 +249,19 @@ impl FnDef {
         support::child(self.syntax())
     }
 
+    pub fn generic_params(&self) -> Option<GenericParamList> {
+        support::child(self.syntax())
+    }
+
     pub fn return_type(&self) -> Option<TypeRef> {
         self.syntax().children().filter_map(TypeRef::cast).next()
     }
 
     pub fn body(&self) -> Option<BlockExpr> {
+        support::child(self.syntax())
+    }
+
+    pub fn where_clause(&self) -> Option<WhereClause> {
         support::child(self.syntax())
     }
 }
@@ -215,6 +304,10 @@ impl StructDef {
     pub fn field_list(&self) -> Option<FieldList> {
         support::child(self.syntax())
     }
+
+    pub fn generic_params(&self) -> Option<GenericParamList> {
+        support::child(self.syntax())
+    }
 }
 
 impl EnumDef {
@@ -231,6 +324,10 @@ impl EnumDef {
     }
 
     pub fn variant_list(&self) -> Option<VariantList> {
+        support::child(self.syntax())
+    }
+
+    pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
 }

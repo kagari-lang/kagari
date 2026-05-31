@@ -1,6 +1,6 @@
 use crate::ast::{
     macros::ast_node,
-    misc::{Name, Path},
+    misc::{GenericArgList, Name, Path},
     support,
     traits::AstNode,
 };
@@ -21,6 +21,10 @@ impl TypeRef {
     }
 
     pub fn path(&self) -> Option<Path> {
+        support::child(self.syntax())
+    }
+
+    pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
 

@@ -10,7 +10,10 @@ impl Lowerer {
     pub(crate) fn lower_module(&mut self, module: &ast::SourceFile) {
         for item in module.items() {
             match item {
-                ast::Item::ModuleDef(_) | ast::Item::UseDecl(_) => {}
+                ast::Item::ModuleDef(_)
+                | ast::Item::UseDecl(_)
+                | ast::Item::TraitDef(_)
+                | ast::Item::ImplBlock(_) => {}
                 ast::Item::FnDef(function) => {
                     let hir_function = self.lower_function(&function);
                     if hir_function.visibility == Visibility::Public {

@@ -15,14 +15,23 @@ pub enum DiagnosticKind {
     TopLevelControlFlowNotAllowed,
     ExpectedModuleKeyword,
     ExpectedModuleName,
+    ExpectedModuleBodyStart,
     ExpectedUseKeyword,
     ExpectedUseTree,
     ExpectedUseAlias,
     ExpectedPath,
+    ExpectedTraitKeyword,
+    ExpectedTraitName,
+    ExpectedImplKeyword,
+    ExpectedImplBodyStart,
+    ExpectedForKeyword,
+    ExpectedGenericParameterName,
+    ExpectedWherePredicateSeparator,
     ExpectedFunctionKeyword,
     ExpectedConstKeyword,
     ExpectedStructKeyword,
     ExpectedEnumKeyword,
+    ExpectedTraitBodyStart,
     ExpectedBindingKeyword,
     ExpectedReturnKeyword,
     ExpectedBreakKeyword,
@@ -179,7 +188,10 @@ impl Display for DiagnosticKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnexpectedToken => write!(f, "unexpected token"),
-            Self::ExpectedTopLevelItem => write!(f, "expected a top-level item"),
+            Self::ExpectedTopLevelItem => write!(
+                f,
+                "expected top-level item (`use`, `mod`, `fn`, `const`, `struct`, `enum`, `trait`, or `impl`)"
+            ),
             Self::TopLevelControlFlowNotAllowed => {
                 write!(
                     f,
@@ -188,14 +200,25 @@ impl Display for DiagnosticKind {
             }
             Self::ExpectedModuleKeyword => write!(f, "expected `mod`"),
             Self::ExpectedModuleName => write!(f, "expected module name"),
+            Self::ExpectedModuleBodyStart => write!(f, "expected `{{` to start module body"),
             Self::ExpectedUseKeyword => write!(f, "expected `use`"),
             Self::ExpectedUseTree => write!(f, "expected import path or import group"),
             Self::ExpectedUseAlias => write!(f, "expected import alias"),
             Self::ExpectedPath => write!(f, "expected path"),
+            Self::ExpectedTraitKeyword => write!(f, "expected `trait`"),
+            Self::ExpectedTraitName => write!(f, "expected trait name"),
+            Self::ExpectedImplKeyword => write!(f, "expected `impl`"),
+            Self::ExpectedImplBodyStart => write!(f, "expected `{{` to start impl body"),
+            Self::ExpectedForKeyword => write!(f, "expected `for`"),
+            Self::ExpectedGenericParameterName => write!(f, "expected generic parameter name"),
+            Self::ExpectedWherePredicateSeparator => {
+                write!(f, "expected `:` after where predicate name")
+            }
             Self::ExpectedFunctionKeyword => write!(f, "expected `fn`"),
             Self::ExpectedConstKeyword => write!(f, "expected `const`"),
             Self::ExpectedStructKeyword => write!(f, "expected `struct`"),
             Self::ExpectedEnumKeyword => write!(f, "expected `enum`"),
+            Self::ExpectedTraitBodyStart => write!(f, "expected `{{` to start trait body"),
             Self::ExpectedBindingKeyword => write!(f, "expected `val` or `var`"),
             Self::ExpectedReturnKeyword => write!(f, "expected `return`"),
             Self::ExpectedBreakKeyword => write!(f, "expected `break`"),
@@ -230,7 +253,7 @@ impl Display for DiagnosticKind {
             Self::ExpectedMatchBodyStart => write!(f, "expected `{{` to start match body"),
             Self::ExpectedMatchPattern => write!(f, "expected match pattern"),
             Self::ExpectedMatchArmArrow => write!(f, "expected `=>` after match pattern"),
-            Self::ExpectedType => write!(f, "expected type"),
+            Self::ExpectedType => write!(f, "expected type path, array type, or tuple type"),
             Self::ExpectedBindingName => write!(f, "expected binding name"),
             Self::ExpectedAssignmentOperator => write!(f, "expected `=` in assignment"),
             Self::ExpectedFieldBinding => write!(f, "expected `val` or `var` before field name"),

@@ -1,4 +1,5 @@
 mod collections;
+mod conformance;
 mod control_flow;
 mod errors;
 mod expr;

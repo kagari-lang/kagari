@@ -312,7 +312,7 @@ fn lexes_control_flow_keywords() {
 
 #[test]
 fn lexes_module_item_keywords() {
-    let source = common::source("pub const A = 1;");
+    let source = common::source("pub const A = 1; trait T {} impl T for U where U: T {}");
     let tokens = lex(source.text());
     let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
 
@@ -329,6 +329,31 @@ fn lexes_module_item_keywords() {
             TokenKind::Whitespace,
             TokenKind::Number,
             TokenKind::Semi,
+            TokenKind::Whitespace,
+            TokenKind::TraitKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::LBrace,
+            TokenKind::RBrace,
+            TokenKind::Whitespace,
+            TokenKind::ImplKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::ForKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::WhereKw,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Colon,
+            TokenKind::Whitespace,
+            TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::LBrace,
+            TokenKind::RBrace,
             TokenKind::Eof,
         ]
     );

@@ -32,6 +32,8 @@ impl<'a> Parser<'a> {
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
+            Some(TokenKind::TraitKw) => self.parse_trait(),
+            Some(TokenKind::ImplKw) => self.parse_impl(),
             Some(TokenKind::ValKw | TokenKind::VarKw) => self.parse_binding_stmt(),
             Some(TokenKind::WhileKw) => self.parse_while_stmt(),
             Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
@@ -77,6 +79,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
+            Some(TokenKind::TraitKw) => self.parse_trait(),
             Some(TokenKind::Ident) if self.nth_nontrivia_text(1) == Some("static") => {
                 self.recover_until_statement_boundary(DiagnosticKind::LegacyStaticItem);
             }
@@ -96,6 +99,8 @@ impl<'a> Parser<'a> {
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
+            Some(TokenKind::TraitKw) => self.parse_trait(),
+            Some(TokenKind::ImplKw) => self.parse_impl(),
             Some(TokenKind::Ident) if self.current_text_is("static") => {
                 self.recover_until_statement_boundary(DiagnosticKind::LegacyStaticItem);
             }
@@ -131,7 +136,7 @@ impl<'a> Parser<'a> {
 
     fn parse_module_block(&mut self) {
         self.start_node(SyntaxKind::ModuleBlock);
-        if !self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedStructBodyStart) {
+        if !self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedModuleBodyStart) {
             self.finish_node();
             return;
         }
@@ -221,6 +226,10 @@ impl<'a> Parser<'a> {
         }
         self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
         self.parse_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
         self.expect(
             TokenKind::LParen,
             DiagnosticKind::ExpectedFunctionParameterListStart,
@@ -237,6 +246,10 @@ impl<'a> Parser<'a> {
             self.parse_type_ref();
         }
 
+        self.bump_trivia();
+        if self.at(TokenKind::WhereKw) {
+            self.parse_where_clause();
+        }
         self.bump_trivia();
         self.parse_block();
         self.finish_node();
@@ -271,7 +284,11 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::StructKw, DiagnosticKind::ExpectedStructKeyword);
         self.parse_struct_name();
         self.bump_trivia();
-        self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedStructBodyStart);
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedTraitBodyStart);
 
         self.start_node(SyntaxKind::FieldList);
         self.bump_trivia();
@@ -317,7 +334,11 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::EnumKw, DiagnosticKind::ExpectedEnumKeyword);
         self.parse_enum_name();
         self.bump_trivia();
-        self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedStructBodyStart);
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedImplBodyStart);
 
         self.start_node(SyntaxKind::VariantList);
         self.bump_trivia();
@@ -325,6 +346,12 @@ impl<'a> Parser<'a> {
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             self.start_node(SyntaxKind::Variant);
             self.parse_variant_name();
+            self.bump_trivia();
+            if self.at(TokenKind::LParen) {
+                self.bump();
+                self.parse_type_list();
+                self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+            }
             self.finish_node();
 
             self.bump_trivia();
@@ -337,6 +364,72 @@ impl<'a> Parser<'a> {
         }
 
         self.finish_node();
+        self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
+        self.finish_node();
+    }
+
+    fn parse_trait(&mut self) {
+        self.start_node(SyntaxKind::TraitDef);
+        self.bump_trivia();
+        if self.at(TokenKind::PubKw) {
+            self.bump();
+        }
+        self.expect(TokenKind::TraitKw, DiagnosticKind::ExpectedTraitKeyword);
+        self.parse_trait_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::Colon) {
+            self.bump();
+            self.parse_trait_bound_list();
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedStructBodyStart);
+
+        self.bump_trivia();
+        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
+            self.parse_method(false);
+            self.bump_trivia();
+        }
+
+        self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
+        self.finish_node();
+    }
+
+    fn parse_impl(&mut self) {
+        self.start_node(SyntaxKind::ImplBlock);
+        self.bump_trivia();
+        self.expect(TokenKind::ImplKw, DiagnosticKind::ExpectedImplKeyword);
+        self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
+        self.bump_trivia();
+
+        if self.impl_target_followed_by_for() {
+            self.parse_trait_ref();
+            self.bump_trivia();
+            self.expect(TokenKind::ForKw, DiagnosticKind::ExpectedForKeyword);
+            self.parse_type_ref();
+        } else {
+            self.parse_type_ref();
+        }
+
+        self.bump_trivia();
+        if self.at(TokenKind::WhereKw) {
+            self.parse_where_clause();
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedStructBodyStart);
+
+        self.bump_trivia();
+        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
+            self.parse_method(true);
+            self.bump_trivia();
+        }
+
         self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
         self.finish_node();
     }
@@ -377,6 +470,12 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    pub(crate) fn parse_trait_name(&mut self) {
+        self.start_node(SyntaxKind::Name);
+        self.expect(TokenKind::Ident, DiagnosticKind::ExpectedTraitName);
+        self.finish_node();
+    }
+
     pub(crate) fn parse_binding_name(&mut self) {
         self.start_node(SyntaxKind::Name);
         self.expect(TokenKind::Ident, DiagnosticKind::ExpectedBindingName);
@@ -386,6 +485,95 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_use_alias(&mut self) {
         self.start_node(SyntaxKind::Name);
         self.expect(TokenKind::Ident, DiagnosticKind::ExpectedUseAlias);
+        self.finish_node();
+    }
+
+    fn parse_generic_param_list(&mut self) {
+        self.start_node(SyntaxKind::GenericParamList);
+        self.expect(TokenKind::Lt, DiagnosticKind::ExpectedGenericParameterName);
+        self.bump_trivia();
+
+        while !self.at_any(&[TokenKind::Gt, TokenKind::Eof]) {
+            self.start_node(SyntaxKind::GenericParam);
+            self.start_node(SyntaxKind::Name);
+            self.expect(
+                TokenKind::Ident,
+                DiagnosticKind::ExpectedGenericParameterName,
+            );
+            self.finish_node();
+            self.bump_trivia();
+            if self.at(TokenKind::Colon) {
+                self.bump();
+                self.parse_trait_bound_list();
+            }
+            self.finish_node();
+
+            self.bump_trivia();
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                self.bump_trivia();
+            } else {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::Gt, DiagnosticKind::ExpectedGenericParameterName);
+        self.finish_node();
+    }
+
+    fn parse_trait_bound_list(&mut self) {
+        self.start_node(SyntaxKind::TraitBoundList);
+        self.parse_trait_ref();
+        self.bump_trivia();
+
+        while self.at(TokenKind::Plus) {
+            self.bump();
+            self.parse_trait_ref();
+            self.bump_trivia();
+        }
+
+        self.finish_node();
+    }
+
+    fn parse_trait_ref(&mut self) {
+        self.start_node(SyntaxKind::TraitRef);
+        self.parse_path();
+        self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_arg_list();
+        }
+        self.finish_node();
+    }
+
+    fn parse_where_clause(&mut self) {
+        self.start_node(SyntaxKind::WhereClause);
+        self.expect(TokenKind::WhereKw, DiagnosticKind::UnexpectedToken);
+        self.bump_trivia();
+
+        while !self.at_any(&[TokenKind::LBrace, TokenKind::Eof]) {
+            self.start_node(SyntaxKind::WherePredicate);
+            self.start_node(SyntaxKind::Name);
+            self.expect(
+                TokenKind::Ident,
+                DiagnosticKind::ExpectedGenericParameterName,
+            );
+            self.finish_node();
+            self.expect(
+                TokenKind::Colon,
+                DiagnosticKind::ExpectedWherePredicateSeparator,
+            );
+            self.parse_trait_bound_list();
+            self.finish_node();
+
+            self.bump_trivia();
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                self.bump_trivia();
+            } else {
+                break;
+            }
+        }
+
         self.finish_node();
     }
 
@@ -421,6 +609,60 @@ impl<'a> Parser<'a> {
         )
     }
 
+    fn impl_target_followed_by_for(&self) -> bool {
+        let mut cursor = self.cursor();
+        if !matches!(
+            self.nth_nontrivia_kind_from(&mut cursor),
+            Some(TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw)
+        ) {
+            return false;
+        }
+
+        loop {
+            match self.nth_nontrivia_kind_from(&mut cursor) {
+                Some(TokenKind::ColonColon) => {
+                    if !matches!(
+                        self.nth_nontrivia_kind_from(&mut cursor),
+                        Some(
+                            TokenKind::Ident
+                                | TokenKind::CrateKw
+                                | TokenKind::SelfKw
+                                | TokenKind::SuperKw
+                        )
+                    ) {
+                        return false;
+                    }
+                }
+                Some(TokenKind::Lt) => {
+                    if !self.skip_angle_group(&mut cursor) {
+                        return false;
+                    }
+                }
+                Some(TokenKind::ForKw) => return true,
+                _ => return false,
+            }
+        }
+    }
+
+    fn skip_angle_group(&self, cursor: &mut usize) -> bool {
+        let mut depth = 1;
+        while let Some(kind) = self.nth_nontrivia_kind_from(cursor) {
+            match kind {
+                TokenKind::Lt => depth += 1,
+                TokenKind::Gt => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return true;
+                    }
+                }
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+        }
+
+        false
+    }
+
     fn parse_path_segment(&mut self) {
         self.start_node(SyntaxKind::Name);
         self.bump_trivia();
@@ -444,40 +686,55 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    fn parse_method(&mut self, allow_visibility: bool) {
+        self.start_node(SyntaxKind::MethodDef);
+        self.bump_trivia();
+        if allow_visibility && self.at(TokenKind::PubKw) {
+            self.bump();
+            self.bump_trivia();
+        }
+        self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
+        self.parse_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
+        self.expect(
+            TokenKind::LParen,
+            DiagnosticKind::ExpectedFunctionParameterListStart,
+        );
+        self.parse_method_param_list();
+        self.expect(
+            TokenKind::RParen,
+            DiagnosticKind::ExpectedFunctionParameterListEnd,
+        );
+
+        self.bump_trivia();
+        if self.at(TokenKind::Arrow) {
+            self.bump();
+            self.parse_type_ref();
+        }
+
+        self.bump_trivia();
+        if self.at(TokenKind::WhereKw) {
+            self.parse_where_clause();
+        }
+
+        self.bump_trivia();
+        if self.at(TokenKind::LBrace) {
+            self.parse_block();
+        } else {
+            self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        }
+        self.finish_node();
+    }
+
     fn parse_param_list(&mut self) {
         self.start_node(SyntaxKind::ParamList);
         self.bump_trivia();
 
         while !self.at_any(&[TokenKind::RParen, TokenKind::Eof]) {
-            self.start_node(SyntaxKind::Param);
-            self.bump_trivia();
-            if self.current_text_is("ref") {
-                self.recover_until_param_boundary(DiagnosticKind::LegacyRefParameter);
-                self.finish_node();
-                if self.at(TokenKind::Comma) {
-                    self.bump();
-                    self.bump_trivia();
-                    continue;
-                }
-                break;
-            }
-            if self.current_text_is("mut") {
-                self.recover_until_param_boundary(DiagnosticKind::LegacyReceiverModifier);
-                self.finish_node();
-                if self.at(TokenKind::Comma) {
-                    self.bump();
-                    self.bump_trivia();
-                    continue;
-                }
-                break;
-            }
-            self.parse_parameter_name();
-            self.expect(
-                TokenKind::Colon,
-                DiagnosticKind::ExpectedParameterTypeSeparator,
-            );
-            self.parse_type_ref();
-            self.finish_node();
+            self.parse_param();
 
             if self.at(TokenKind::Comma) {
                 self.bump();
@@ -487,6 +744,56 @@ impl<'a> Parser<'a> {
             self.bump_trivia();
         }
 
+        self.finish_node();
+    }
+
+    fn parse_method_param_list(&mut self) {
+        self.start_node(SyntaxKind::ParamList);
+        self.bump_trivia();
+        let mut first = true;
+
+        while !self.at_any(&[TokenKind::RParen, TokenKind::Eof]) {
+            if first && self.at(TokenKind::SelfKw) {
+                self.start_node(SyntaxKind::Param);
+                self.start_node(SyntaxKind::Name);
+                self.bump();
+                self.finish_node();
+                self.finish_node();
+            } else {
+                self.parse_param();
+            }
+            first = false;
+
+            if self.at(TokenKind::Comma) {
+                self.bump();
+            } else {
+                break;
+            }
+            self.bump_trivia();
+        }
+
+        self.finish_node();
+    }
+
+    fn parse_param(&mut self) {
+        self.start_node(SyntaxKind::Param);
+        self.bump_trivia();
+        if self.current_text_is("ref") {
+            self.recover_until_param_boundary(DiagnosticKind::LegacyRefParameter);
+            self.finish_node();
+            return;
+        }
+        if self.current_text_is("mut") {
+            self.recover_until_param_boundary(DiagnosticKind::LegacyReceiverModifier);
+            self.finish_node();
+            return;
+        }
+        self.parse_parameter_name();
+        self.expect(
+            TokenKind::Colon,
+            DiagnosticKind::ExpectedParameterTypeSeparator,
+        );
+        self.parse_type_ref();
         self.finish_node();
     }
 
