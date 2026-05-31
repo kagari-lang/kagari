@@ -1,4 +1,4 @@
-use crate::hir::{EnumId, ImplId, MethodId, StructId, TypeRefId};
+use crate::hir::{EnumId, ImplId, MethodId, StructId, TypeRefId, Writeability};
 
 use super::Visibility;
 
@@ -14,6 +14,7 @@ pub struct Struct {
 
 #[derive(Debug, Clone)]
 pub struct Field {
+    pub writeability: Writeability,
     pub name: String,
     pub ty: TypeRefId,
 }

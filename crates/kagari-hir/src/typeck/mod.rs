@@ -6,7 +6,7 @@ mod ty;
 use crate::types::TypeId;
 use std::collections::HashMap;
 
-use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, StaticId};
+use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, StaticId, Writeability};
 
 pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
@@ -33,12 +33,13 @@ pub struct TypedFunction {
 #[derive(Debug, Clone)]
 pub struct TypedStatic {
     pub ty: TypeId,
-    pub mutable: bool,
+    pub writeability: Writeability,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypedParameter {
     pub id: ParamId,
+    pub writeability: Writeability,
     pub name: String,
     pub ty: TypeId,
 }
@@ -64,6 +65,6 @@ pub(crate) struct TypeIndexes<'a> {
 pub(crate) struct BodyTypeEnv {
     pub(crate) params: HashMap<ParamId, TypeId>,
     pub(crate) locals: HashMap<LocalId, TypeId>,
-    pub(crate) local_mutability: HashMap<LocalId, bool>,
+    pub(crate) local_writeability: HashMap<LocalId, Writeability>,
     pub(crate) exprs: HashMap<ExprId, TypeId>,
 }

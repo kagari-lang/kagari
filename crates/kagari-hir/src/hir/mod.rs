@@ -6,6 +6,7 @@ pub mod pattern;
 pub mod place;
 pub mod stmt;
 pub mod ty;
+pub mod writeability;
 
 pub use body::Body;
 pub use expr::{
@@ -27,3 +28,4 @@ pub use pattern::{PatternData, PatternKind};
 pub use place::{PlaceData, PlaceKind};
 pub use stmt::{BlockData, StmtBuffer, StmtData, StmtKind};
 pub use ty::{TypeBuffer, TypeData, TypeKind};
+pub use writeability::Writeability;

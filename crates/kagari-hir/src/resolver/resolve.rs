@@ -59,7 +59,7 @@ impl<'a> BodyResolver<'a> {
     fn resolve_stmt(&mut self, stmt_id: StmtId) {
         let stmt = self.module.stmt(stmt_id);
         match &stmt.kind {
-            StmtKind::Let {
+            StmtKind::Binding {
                 local,
                 name,
                 initializer,

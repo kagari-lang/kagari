@@ -2,7 +2,7 @@ use kagari_syntax::ast;
 
 use crate::hir::{
     BlockData, ConstItem, Enum, Export, ExportItem, Field, Function, FunctionKind, Item, Param,
-    Struct, Variant, Visibility,
+    Struct, Variant, Visibility, Writeability,
 };
 use crate::lower::context::{Lowerer, syntax_span};
 
@@ -102,6 +102,7 @@ impl Lowerer {
                                 .map(|name| syntax_span(&name))
                                 .unwrap_or_else(|| syntax_span(&param)),
                         ),
+                        writeability: Writeability::Val,
                         name: param.name_text().unwrap_or_default(),
                         ty: param
                             .ty()
@@ -163,6 +164,11 @@ impl Lowerer {
                 field_list
                     .fields()
                     .map(|field| Field {
+                        writeability: if field.is_var() {
+                            Writeability::Var
+                        } else {
+                            Writeability::Val
+                        },
                         name: field.name_text().unwrap_or_default(),
                         ty: field
                             .ty()

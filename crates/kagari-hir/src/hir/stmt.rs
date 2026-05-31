@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::hir::{BlockId, ExprId, LocalId, PlaceId, StmtId, TypeRefId};
+use crate::hir::{BlockId, ExprId, LocalId, PlaceId, StmtId, TypeRefId, Writeability};
 
 #[derive(Debug, Clone)]
 pub struct BlockData {
@@ -15,9 +15,9 @@ pub struct StmtData {
 
 #[derive(Debug, Clone)]
 pub enum StmtKind {
-    Let {
+    Binding {
         local: LocalId,
-        mutable: bool,
+        writeability: Writeability,
         name: String,
         ty: Option<TypeRefId>,
         initializer: ExprId,

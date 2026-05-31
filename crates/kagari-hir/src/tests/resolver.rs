@@ -39,7 +39,7 @@ fn resolves_params_and_locals_in_function_body() {
     let block = lowered.module.block(function.body);
     let let_stmt = lowered.module.stmt(block.statements[0]);
     let (let_local, init_expr) = match &let_stmt.kind {
-        StmtKind::Let {
+        StmtKind::Binding {
             local, initializer, ..
         } => (*local, *initializer),
         other => panic!("unexpected stmt kind: {other:?}"),

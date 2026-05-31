@@ -67,9 +67,9 @@ impl<'a> BodyChecker<'a> {
     fn check_stmt(&mut self, stmt_id: StmtId, env: &mut BodyTypeEnv) {
         let stmt = self.lowered.module.stmt(stmt_id);
         match &stmt.kind {
-            StmtKind::Let {
+            StmtKind::Binding {
                 local,
-                mutable,
+                writeability,
                 ty,
                 initializer,
                 ..
@@ -79,7 +79,7 @@ impl<'a> BodyChecker<'a> {
                     .and_then(|ty| resolve_type(&self.lowered.module, ty))
                     .unwrap_or(initializer_ty);
                 env.locals.insert(*local, local_ty.clone());
-                env.local_mutability.insert(*local, *mutable);
+                env.local_writeability.insert(*local, *writeability);
                 self.type_table.insert_local(*local, local_ty);
             }
             StmtKind::Assign { target, value } => {
@@ -156,13 +156,18 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Local(id) => env
                             .locals
                             .get(&id)
-                            .filter(|_| env.local_mutability.get(&id).copied().unwrap_or(false))
+                            .filter(|_| {
+                                env.local_writeability
+                                    .get(&id)
+                                    .copied()
+                                    .is_some_and(|writeability| writeability.is_var())
+                            })
                             .cloned(),
                         ResolvedName::Static(id) => self
                             .top_level_index
                             .statics
                             .get(&id)
-                            .filter(|item| item.mutable)
+                            .filter(|item| item.writeability.is_var())
                             .map(|item| item.ty.clone()),
                         ResolvedName::Const(_)
                         | ResolvedName::Function(_)

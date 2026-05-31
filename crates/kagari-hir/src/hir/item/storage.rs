@@ -1,4 +1,6 @@
-use crate::hir::{ConstId, EnumId, ExprId, FunctionId, StaticId, StructId, TypeRefId};
+use crate::hir::{
+    ConstId, EnumId, ExprId, FunctionId, StaticId, StructId, TypeRefId, Writeability,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
@@ -19,7 +21,7 @@ pub struct ConstItem {
 pub struct StaticItem {
     pub id: StaticId,
     pub visibility: Visibility,
-    pub mutable: bool,
+    pub writeability: Writeability,
     pub name: String,
     pub ty: Option<TypeRefId>,
     pub initializer: ExprId,

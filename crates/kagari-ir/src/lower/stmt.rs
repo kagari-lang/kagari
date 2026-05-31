@@ -26,7 +26,7 @@ impl FunctionLowerer<'_> {
     fn lower_stmt(&mut self, stmt_id: hir::StmtId) -> Result<(), IrLoweringError> {
         let stmt = self.analyzed.lowered.module.stmt(stmt_id).clone();
         match stmt.kind {
-            hir::StmtKind::Let {
+            hir::StmtKind::Binding {
                 local,
                 name,
                 initializer,

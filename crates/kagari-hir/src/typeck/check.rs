@@ -46,6 +46,7 @@ pub fn check_module(
                 Some(ty) => {
                     params.push(TypedParameter {
                         id: param.id,
+                        writeability: param.writeability,
                         name: param_name,
                         ty,
                     });
@@ -191,7 +192,7 @@ pub fn check_module(
                 static_item.id,
                 TypedStatic {
                     ty,
-                    mutable: static_item.mutable,
+                    writeability: static_item.writeability,
                 },
             );
         }

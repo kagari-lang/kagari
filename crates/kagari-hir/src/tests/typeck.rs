@@ -243,7 +243,7 @@ fn records_expression_types_for_resolved_body_expressions() {
     let block = lowered.module.block(function.body);
     let let_stmt = lowered.module.stmt(block.statements[0]);
     let init_expr = match &let_stmt.kind {
-        StmtKind::Let { initializer, .. } => *initializer,
+        StmtKind::Binding { initializer, .. } => *initializer,
         other => panic!("unexpected stmt kind: {other:?}"),
     };
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -275,7 +275,7 @@ fn main() -> i32 {
     let block = lowered.module.block(function.body);
 
     let push_expr = match &lowered.module.stmt(block.statements[1]).kind {
-        StmtKind::Let { initializer, .. } => *initializer,
+        StmtKind::Binding { initializer, .. } => *initializer,
         other => panic!("unexpected stmt kind: {other:?}"),
     };
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -471,22 +471,21 @@ fn foo() -> Point {
 }
 
 #[test]
-fn allows_assignment_to_mutable_local_but_not_immutable_local_or_param() {
-    let mutable_local = common::lower_ok("fn foo() -> i32 { var x: i32 = 1; x = 2; x }");
-    let names = resolve_names(&mutable_local).expect("resolver should succeed");
-    let typed = check_module(&mutable_local, &names).expect("type checker should succeed");
-    let function = &mutable_local.module.functions[0];
-    let block = mutable_local.module.block(function.body);
+fn allows_assignment_to_var_local_but_not_val_local_or_param() {
+    let var_local = common::lower_ok("fn foo() -> i32 { var x: i32 = 1; x = 2; x }");
+    let names = resolve_names(&var_local).expect("resolver should succeed");
+    let typed = check_module(&var_local, &names).expect("type checker should succeed");
+    let function = &var_local.module.functions[0];
+    let block = var_local.module.block(function.body);
     let tail_expr = block.tail_expr.expect("tail expr");
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
         Some(TypeId::Builtin(BuiltinType::I32))
     );
 
-    let immutable_local = common::lower_ok("fn foo() -> i32 { val x: i32 = 1; x = 2; x }");
-    let names = resolve_names(&immutable_local).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&immutable_local, &names).expect_err("immutable local should reject write");
+    let val_local = common::lower_ok("fn foo() -> i32 { val x: i32 = 1; x = 2; x }");
+    let names = resolve_names(&val_local).expect("resolver should succeed");
+    let diagnostics = check_module(&val_local, &names).expect_err("val local should reject write");
     assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);
 
     let param_assignment = common::lower_ok("fn foo(value: i32) -> i32 { value = 1; value }");
@@ -497,7 +496,7 @@ fn allows_assignment_to_mutable_local_but_not_immutable_local_or_param() {
 }
 
 #[test]
-fn allows_assignment_to_mutable_field_and_index_places() {
+fn allows_assignment_to_var_field_and_index_places() {
     let field_assignment = common::lower_ok(
         r#"
 struct Point { var x: i32 }
@@ -630,15 +629,15 @@ fn main() -> i32 { VERSION }
 
 #[test]
 fn rejects_assignment_to_const() {
-    let immutable_storage = common::lower_ok(
+    let const_storage = common::lower_ok(
         r#"
 const VERSION: i32 = 1;
 fn main() -> i32 { VERSION = 2; 0 }
 "#,
     );
-    let names = resolve_names(&immutable_storage).expect("resolver should succeed");
+    let names = resolve_names(&const_storage).expect("resolver should succeed");
     let diagnostics =
-        check_module(&immutable_storage, &names).expect_err("type checker should reject writes");
+        check_module(&const_storage, &names).expect_err("type checker should reject writes");
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget);

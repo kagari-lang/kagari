@@ -64,7 +64,7 @@ pub fn lower_to_ir(module: &AnalyzedModule) -> Result<IrModule, IrLoweringError>
             id,
             name: static_item.name.clone(),
             ty,
-            mutable: static_item.mutable,
+            mutable: static_item.writeability.is_var(),
         });
     }
 

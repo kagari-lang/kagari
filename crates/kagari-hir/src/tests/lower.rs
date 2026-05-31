@@ -1,5 +1,8 @@
 use crate::{
-    hir::{ExprKind, FunctionKind, Item, PatternKind, PlaceKind, StmtKind, TypeKind, Visibility},
+    hir::{
+        ExprKind, FunctionKind, Item, PatternKind, PlaceKind, StmtKind, TypeKind, Visibility,
+        Writeability,
+    },
     tests::common,
 };
 
@@ -7,7 +10,7 @@ use crate::{
 fn lowers_items_into_hir_module() {
     let lowered = common::lower_ok(
         r#"
-struct Player { var hp: i32 }
+struct Player { val id: i32, var hp: i32 }
 enum Color { Red, Blue }
 fn main(value: i32) -> i32 { value }
 "#,
@@ -19,8 +22,21 @@ fn main(value: i32) -> i32 { value }
     assert!(matches!(lowered.module.items[2], Item::Function(_)));
 
     assert_eq!(lowered.module.structs[0].name, "Player");
+    assert_eq!(lowered.module.structs[0].fields.len(), 2);
+    assert_eq!(
+        lowered.module.structs[0].fields[0].writeability,
+        Writeability::Val
+    );
+    assert_eq!(
+        lowered.module.structs[0].fields[1].writeability,
+        Writeability::Var
+    );
     assert_eq!(lowered.module.enums[0].name, "Color");
     assert_eq!(lowered.module.functions[0].name, "main");
+    assert_eq!(
+        lowered.module.functions[0].params[0].writeability,
+        Writeability::Val
+    );
 }
 
 #[test]
@@ -39,14 +55,14 @@ fn lowers_function_body_expressions_and_statements() {
     let block = lowered.module.block(function.body);
     let stmt = lowered.module.stmt(block.statements[0]);
     match &stmt.kind {
-        StmtKind::Let {
+        StmtKind::Binding {
             local: _,
-            mutable,
+            writeability,
             name,
             ty,
             initializer,
         } => {
-            assert!(!mutable);
+            assert_eq!(*writeability, Writeability::Val);
             assert_eq!(name, "next");
             assert!(matches!(
                 ty.map(|ty| &lowered.module.type_ref(ty).kind),
@@ -115,8 +131,10 @@ fn lowers_var_binding() {
     let stmt = lowered.module.stmt(block.statements[0]);
 
     match &stmt.kind {
-        StmtKind::Let { mutable, name, .. } => {
-            assert!(*mutable);
+        StmtKind::Binding {
+            writeability, name, ..
+        } => {
+            assert_eq!(*writeability, Writeability::Var);
             assert_eq!(name, "value");
         }
         other => panic!("unexpected stmt kind: {other:?}"),
@@ -151,7 +169,7 @@ fn main() -> i32 { 1 }
     assert_eq!(block.statements.len(), 1);
     assert!(matches!(
         lowered.module.stmt(block.statements[0]).kind,
-        StmtKind::Let { .. }
+        StmtKind::Binding { .. }
     ));
 }
 

@@ -1,4 +1,4 @@
-use crate::hir::{BlockId, FunctionId, ParamId, TypeRefId};
+use crate::hir::{BlockId, FunctionId, ParamId, TypeRefId, Writeability};
 
 use super::Visibility;
 
@@ -22,6 +22,7 @@ pub enum FunctionKind {
 #[derive(Debug, Clone)]
 pub struct Param {
     pub id: ParamId,
+    pub writeability: Writeability,
     pub name: String,
     pub ty: TypeRefId,
 }
