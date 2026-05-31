@@ -1,9 +1,12 @@
+use std::sync::{Arc, Mutex};
+
+use kagari_ir::bytecode::BinaryOp;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
-    FieldMetadataId, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-    HostPathSegment, HostReflectionPolicy, HostSchemaEpoch, HostTypeOwnership,
-    HostTypeRegistration, PathAccess, Runtime, RuntimeErrorKind, TypeId, TypeKind,
-    TypeRegistration, value::Value,
+    FieldMetadataId, HostBorrowTable, HostObjectId, HostPathAdapter, HostPathDescriptorId,
+    HostPathDescriptorRegistration, HostPathOperation, HostPathSegment, HostReflectionPolicy,
+    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, PathAccess, Runtime,
+    RuntimeErrorKind, TypeId, TypeKind, TypeRegistration, host::HostError, value::Value,
 };
 
 fn register_i32(runtime: &Runtime) -> TypeId {
@@ -23,6 +26,32 @@ fn register_host_root_type(runtime: &mut Runtime, name: &str, access: PathAccess
     registration.reflection = HostReflectionPolicy::Metadata;
     registration.abi_fingerprint = AbiFingerprint(20);
     runtime.register_host_type(registration).unwrap()
+}
+
+fn register_hp_descriptor(
+    runtime: &mut Runtime,
+    player_id: TypeId,
+    i32_id: TypeId,
+    access: PathAccess,
+) -> HostPathDescriptorId {
+    runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: player_id,
+            result_type: i32_id,
+            segments: vec![HostPathSegment::Field {
+                name: "hp".to_owned(),
+                field_id: FieldMetadataId::new(0),
+                owner_type: player_id,
+                result_type: i32_id,
+                access,
+                abi_fingerprint: AbiFingerprint(21),
+            }],
+            access,
+            schema_epoch: HostSchemaEpoch::new(0),
+            abi_fingerprint: AbiFingerprint(22),
+            capability_requirements: CapabilitySet::default(),
+        })
+        .unwrap()
 }
 
 #[test]
@@ -238,5 +267,170 @@ fn rejects_stale_root_metadata_when_creating_views() {
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::TypedPathValidation
+    );
+}
+
+#[test]
+fn executes_path_read_set_modify_and_dirty_hooks_in_order() {
+    let mut runtime = Runtime::default();
+    let i32_id = register_i32(&runtime);
+    let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor_id =
+        register_hp_descriptor(&mut runtime, player_id, i32_id, PathAccess::ReadWrite);
+    let hp = Arc::new(Mutex::new(10));
+    let events = Arc::new(Mutex::new(Vec::<String>::new()));
+    let read_hp = Arc::clone(&hp);
+    let write_hp = Arc::clone(&hp);
+    let validate_events = Arc::clone(&events);
+    let dirty_events = Arc::clone(&events);
+
+    runtime
+        .register_host_path_adapter(
+            descriptor_id,
+            HostPathAdapter::new()
+                .with_validate(move |_, operation, value| {
+                    validate_events
+                        .lock()
+                        .unwrap()
+                        .push(format!("validate:{operation:?}:{}", value.is_some()));
+                    Ok(())
+                })
+                .with_read(move |_| Ok(Value::I32(*read_hp.lock().unwrap())))
+                .with_write(move |_, value| {
+                    let Value::I32(value) = value else {
+                        return Err(HostError::new("hp expects i32"));
+                    };
+                    *write_hp.lock().unwrap() = value;
+                    Ok(())
+                })
+                .with_dirty(move |record| {
+                    dirty_events.lock().unwrap().push(format!(
+                        "dirty:{:?}:{:?}->{:?}",
+                        record.operation, record.old_value, record.new_value
+                    ));
+                    Ok(())
+                }),
+        )
+        .unwrap();
+    let root_value = Value::HostRoot(root);
+
+    assert_eq!(
+        runtime
+            .read_host_path(&root_value, descriptor_id, Vec::new())
+            .unwrap(),
+        Value::I32(10)
+    );
+    runtime
+        .set_host_path(&root_value, descriptor_id, Vec::new(), Value::I32(20))
+        .unwrap();
+    assert_eq!(*hp.lock().unwrap(), 20);
+    assert_eq!(
+        runtime
+            .modify_host_path(
+                &root_value,
+                descriptor_id,
+                Vec::new(),
+                BinaryOp::Sub,
+                Value::I32(3),
+            )
+            .unwrap(),
+        Value::I32(17)
+    );
+    assert_eq!(*hp.lock().unwrap(), 17);
+
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec![
+            "validate:Read:false".to_owned(),
+            "validate:Set:true".to_owned(),
+            "dirty:Set:Some(I32(10))->I32(20)".to_owned(),
+            "validate:Modify(Sub):true".to_owned(),
+            "dirty:Modify(Sub):Some(I32(20))->I32(17)".to_owned(),
+        ]
+    );
+    let dirty = runtime.host_dirty_paths();
+    assert_eq!(dirty.len(), 2);
+    assert_eq!(dirty[0].operation, HostPathOperation::Set);
+    assert_eq!(dirty[1].operation, HostPathOperation::Modify(BinaryOp::Sub));
+}
+
+#[test]
+fn path_execution_classifies_validation_failures() {
+    let mut runtime = Runtime::default();
+    let i32_id = register_i32(&runtime);
+    let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    let read_only = register_hp_descriptor(&mut runtime, player_id, i32_id, PathAccess::ReadOnly);
+    runtime
+        .register_host_path_adapter(
+            read_only,
+            HostPathAdapter::new().with_read(|_| Ok(Value::I32(1))),
+        )
+        .unwrap();
+    let root_value = Value::HostRoot(root);
+
+    assert_eq!(
+        runtime
+            .set_host_path(&root_value, read_only, Vec::new(), Value::I32(2))
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::I32(1), read_only, Vec::new())
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+}
+
+#[test]
+fn path_execution_enforces_descriptor_capabilities() {
+    let mut runtime = Runtime::default();
+    let i32_id = register_i32(&runtime);
+    let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor_id = runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: player_id,
+            result_type: i32_id,
+            segments: vec![HostPathSegment::Field {
+                name: "secure_hp".to_owned(),
+                field_id: FieldMetadataId::new(2),
+                owner_type: player_id,
+                result_type: i32_id,
+                access: PathAccess::ReadOnly,
+                abi_fingerprint: AbiFingerprint(61),
+            }],
+            access: PathAccess::ReadOnly,
+            schema_epoch: HostSchemaEpoch::new(0),
+            abi_fingerprint: AbiFingerprint(62),
+            capability_requirements: CapabilitySet {
+                reflection_read: true,
+                ..CapabilitySet::default()
+            },
+        })
+        .unwrap();
+    runtime
+        .register_host_path_adapter(
+            descriptor_id,
+            HostPathAdapter::new().with_read(|_| Ok(Value::I32(99))),
+        )
+        .unwrap();
+
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::HostRoot(root), descriptor_id, Vec::new())
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::CapabilityDenied
     );
 }

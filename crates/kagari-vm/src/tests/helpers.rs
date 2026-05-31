@@ -1,17 +1,128 @@
 use kagari_ir::bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
-    FunctionRef, Register, RuntimeHelper, StructFieldInit,
+    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
+    FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StructFieldInit,
 };
+use kagari_ir::module::ValueType;
 use std::sync::{Arc, Mutex};
 
 use kagari_runtime::{
-    Runtime,
+    AbiFingerprint, CapabilitySet, FieldMetadataId, HostObjectId, HostPathAdapter,
+    HostPathDescriptorRegistration, HostPathSegment, HostReflectionPolicy, HostSchemaEpoch,
+    HostTypeOwnership, HostTypeRegistration, PathAccess, Runtime, RuntimeErrorKind, TypeKind,
+    TypeRegistration,
     host::{HostError, HostFunction},
     value::Value,
 };
 
 use crate::Vm;
 use crate::tests::common::{compile_test_bytecode, load_bytecode_module, load_test_module};
+
+fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {
+    let mut runtime = Runtime::default();
+    let i32_id = runtime
+        .types()
+        .register(TypeRegistration {
+            abi_fingerprint: AbiFingerprint(1),
+            ..TypeRegistration::new("i32", TypeKind::Primitive)
+        })
+        .unwrap();
+    let mut host_type = HostTypeRegistration::new("game.Player", "game.Player");
+    host_type.ownership = HostTypeOwnership::HostRoot;
+    host_type.path_access = PathAccess::ReadWrite;
+    host_type.reflection = HostReflectionPolicy::Hidden;
+    host_type.abi_fingerprint = AbiFingerprint(2);
+    let player_id = runtime.register_host_type(host_type).unwrap();
+    let root = runtime
+        .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    runtime
+        .register_host_function(HostFunction::new(
+            "host.player",
+            vec![],
+            "Player",
+            move |_| Ok(Value::HostRoot(root)),
+        ))
+        .unwrap();
+    let descriptor_id = runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: player_id,
+            result_type: i32_id,
+            segments: vec![HostPathSegment::Field {
+                name: "hp".to_owned(),
+                field_id: FieldMetadataId::new(0),
+                owner_type: player_id,
+                result_type: i32_id,
+                access,
+                abi_fingerprint: AbiFingerprint(3),
+            }],
+            access,
+            schema_epoch: HostSchemaEpoch::new(0),
+            abi_fingerprint: AbiFingerprint(4),
+            capability_requirements: CapabilitySet::default(),
+        })
+        .unwrap();
+    assert_eq!(descriptor_id.index(), 0);
+
+    let hp = Arc::new(Mutex::new(10));
+    let read_hp = Arc::clone(&hp);
+    let write_hp = Arc::clone(&hp);
+    runtime
+        .register_host_path_adapter(
+            descriptor_id,
+            HostPathAdapter::new()
+                .with_read(move |_| Ok(Value::I32(*read_hp.lock().unwrap())))
+                .with_write(move |_, value| {
+                    let Value::I32(value) = value else {
+                        return Err(HostError::new("hp expects i32"));
+                    };
+                    *write_hp.lock().unwrap() = value;
+                    Ok(())
+                }),
+        )
+        .unwrap();
+
+    (runtime, hp)
+}
+
+fn path_module(
+    name: &str,
+    instructions: Vec<BytecodeInstruction>,
+    return_type: ValueType,
+) -> BytecodeModule {
+    BytecodeModule {
+        module_init: None,
+        module_slots: vec![],
+        types: vec![ValueType::HeapObject, ValueType::I32],
+        paths: vec![PathRecord {
+            id: PathId::new(0),
+            root_ty: ValueType::HeapObject,
+            result_ty: ValueType::I32,
+            read_only: false,
+            debug_name: "game.Player.hp".to_owned(),
+        }],
+        functions: vec![BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: name.to_owned(),
+            parameter_count: 0,
+            register_count: 6,
+            local_count: 0,
+            metadata: kagari_ir::bytecode::FunctionMetadata {
+                return_type,
+                registers: vec![
+                    ValueType::HeapObject,
+                    ValueType::I32,
+                    ValueType::I32,
+                    ValueType::I32,
+                    ValueType::I32,
+                    ValueType::HeapObject,
+                ],
+                ..Default::default()
+            },
+            instructions,
+        }],
+        ..Default::default()
+    }
+}
 
 #[test]
 fn executes_runtime_host_helper_call() {
@@ -69,6 +180,114 @@ fn executes_runtime_host_helper_call() {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(42));
+}
+
+#[test]
+fn executes_typed_path_read_set_modify_and_view_instructions() {
+    let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
+    let loaded = runtime
+        .load_module(
+            "paths.kbc",
+            path_module(
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                            "host.player".to_owned(),
+                        )),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::ReadPath {
+                        dst: Register::new(1),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(2),
+                        constant: ConstantOperand::I32(5),
+                    },
+                    BytecodeInstruction::SetPath {
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                        value: Register::new(2),
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(3),
+                        constant: ConstantOperand::I32(2),
+                    },
+                    BytecodeInstruction::ModifyPath {
+                        dst: Some(Register::new(4)),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                        op: BinaryOp::Add,
+                        value: Register::new(3),
+                    },
+                    BytecodeInstruction::MakePathView {
+                        dst: Register::new(5),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(4))),
+                ],
+                ValueType::I32,
+            ),
+        )
+        .unwrap();
+
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").unwrap();
+
+    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(*hp.lock().unwrap(), 7);
+    assert_eq!(vm.runtime().host_dirty_paths().len(), 2);
+}
+
+#[test]
+fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
+    let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadOnly);
+    let loaded = runtime
+        .load_module(
+            "readonly_path.kbc",
+            path_module(
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                            "host.player".to_owned(),
+                        )),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(1),
+                        constant: ConstantOperand::I32(2),
+                    },
+                    BytecodeInstruction::SetPath {
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                        value: Register::new(1),
+                    },
+                    BytecodeInstruction::Return(None),
+                ],
+                ValueType::Unit,
+            ),
+        )
+        .unwrap();
+
+    let mut vm = Vm::new(runtime);
+    let error = vm.execute(&loaded, "main").unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::TypedPathValidation
+    ));
 }
 
 #[test]

@@ -17,7 +17,8 @@ pub use host::{
     BorrowEpoch, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
     DynamicPathParameter, FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallGuard,
     HostFrameId, HostFunctionEffects, HostFunctionId, HostFunctionMetadata, HostObjectId,
-    HostPathDescriptor, HostPathDescriptorId, HostPathDescriptorRegistration, HostPathSegment,
+    HostPathAdapter, HostPathContext, HostPathDescriptor, HostPathDescriptorId,
+    HostPathDescriptorRegistration, HostPathMutationRecord, HostPathOperation, HostPathSegment,
     HostPathViewHandle, HostReflectionPolicy, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
     HostTypeOwnership, HostTypeRegistration,
 };
@@ -128,6 +129,14 @@ impl Runtime {
         self.host.register_path_descriptor(registration)
     }
 
+    pub fn register_host_path_adapter(
+        &mut self,
+        descriptor_id: host::HostPathDescriptorId,
+        adapter: host::HostPathAdapter,
+    ) -> Result<(), RuntimeError> {
+        self.host.register_path_adapter(descriptor_id, adapter)
+    }
+
     pub fn make_host_path_view(
         &self,
         root: host::HostRootHandle,
@@ -135,6 +144,99 @@ impl Runtime {
         dynamic_args: host::DynamicPathArguments,
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
         self.host.make_path_view(root, descriptor_id, dynamic_args)
+    }
+
+    pub fn make_host_path_view_from_value(
+        &self,
+        root_or_view: &value::Value,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: Vec<value::Value>,
+    ) -> Result<host::HostPathViewHandle, RuntimeError> {
+        self.validate_host_path_capabilities(descriptor_id)?;
+        self.host
+            .make_path_view_from_value(root_or_view, descriptor_id, dynamic_args)
+    }
+
+    pub fn read_host_path(
+        &self,
+        root_or_view: &value::Value,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: Vec<value::Value>,
+    ) -> Result<value::Value, RuntimeError> {
+        self.validate_host_path_capabilities(descriptor_id)?;
+        self.host
+            .read_path(root_or_view, descriptor_id, dynamic_args)
+    }
+
+    pub fn set_host_path(
+        &self,
+        root_or_view: &value::Value,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: Vec<value::Value>,
+        value: value::Value,
+    ) -> Result<(), RuntimeError> {
+        self.validate_host_path_capabilities(descriptor_id)?;
+        self.host
+            .set_path(root_or_view, descriptor_id, dynamic_args, value)
+    }
+
+    pub fn modify_host_path(
+        &self,
+        root_or_view: &value::Value,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: Vec<value::Value>,
+        op: kagari_ir::bytecode::BinaryOp,
+        value: value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        self.validate_host_path_capabilities(descriptor_id)?;
+        self.host
+            .modify_path(root_or_view, descriptor_id, dynamic_args, op, value)
+    }
+
+    pub fn host_dirty_paths(&self) -> Vec<host::HostPathMutationRecord> {
+        self.host.dirty_paths()
+    }
+
+    pub fn clear_host_dirty_paths(&self) {
+        self.host.clear_dirty_paths();
+    }
+
+    fn validate_host_path_capabilities(
+        &self,
+        descriptor_id: host::HostPathDescriptorId,
+    ) -> Result<(), RuntimeError> {
+        let Some(descriptor) = self.host.path_descriptor(descriptor_id) else {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor is not registered",
+            ));
+        };
+        let required = descriptor.capability_requirements;
+        let granted = self.security.capabilities;
+        if required.fs_read && !granted.fs_read {
+            return Err(RuntimeError::capability_denied("fs_read"));
+        }
+        if required.fs_write && !granted.fs_write {
+            return Err(RuntimeError::capability_denied("fs_write"));
+        }
+        if required.net && !granted.net {
+            return Err(RuntimeError::capability_denied("net"));
+        }
+        if required.clock && !granted.clock {
+            return Err(RuntimeError::capability_denied("clock"));
+        }
+        if required.random && !granted.random {
+            return Err(RuntimeError::capability_denied("random"));
+        }
+        if required.reflection_read && !granted.reflection_read {
+            return Err(RuntimeError::capability_denied("reflection_read"));
+        }
+        if required.reflection_write && !granted.reflection_write {
+            return Err(RuntimeError::capability_denied("reflection_write"));
+        }
+        if required.dynamic_load && !granted.dynamic_load {
+            return Err(RuntimeError::capability_denied("dynamic_load"));
+        }
+        Ok(())
     }
 
     pub fn types(&self) -> &TypeRegistry {

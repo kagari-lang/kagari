@@ -1,5 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, fmt, sync::Arc};
 
+use kagari_ir::bytecode::BinaryOp;
+
 use crate::{
     error::RuntimeError,
     metadata::{
@@ -128,6 +130,20 @@ impl DynamicPathArguments {
 
     pub fn is_empty(&self) -> bool {
         self.args.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostPathOperation {
+    Read,
+    Set,
+    Modify(BinaryOp),
+    MakeView,
+}
+
+impl HostPathOperation {
+    pub fn writes(self) -> bool {
+        matches!(self, Self::Set | Self::Modify(_))
     }
 }
 
@@ -277,6 +293,7 @@ impl HostPathDescriptor {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HostPathViewHandle {
     root: HostRootHandle,
+    base: Option<Box<HostPathViewHandle>>,
     descriptor_id: HostPathDescriptorId,
     result_type: TypeId,
     access: PathAccess,
@@ -287,11 +304,13 @@ pub struct HostPathViewHandle {
 impl HostPathViewHandle {
     fn new(
         root: HostRootHandle,
+        base: Option<HostPathViewHandle>,
         descriptor: &HostPathDescriptor,
         dynamic_args: DynamicPathArguments,
     ) -> Self {
         Self {
             root,
+            base: base.map(Box::new),
             descriptor_id: descriptor.id,
             result_type: descriptor.result_type,
             access: descriptor.access,
@@ -302,6 +321,10 @@ impl HostPathViewHandle {
 
     pub fn root(&self) -> HostRootHandle {
         self.root
+    }
+
+    pub fn base(&self) -> Option<&HostPathViewHandle> {
+        self.base.as_deref()
     }
 
     pub fn descriptor_id(&self) -> HostPathDescriptorId {
@@ -322,6 +345,96 @@ impl HostPathViewHandle {
 
     pub fn dynamic_args(&self) -> &DynamicPathArguments {
         &self.dynamic_args
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostPathContext {
+    pub root: HostRootHandle,
+    pub base_view: Option<HostPathViewHandle>,
+    pub descriptor: HostPathDescriptor,
+    pub dynamic_args: DynamicPathArguments,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostPathMutationRecord {
+    pub root: HostRootHandle,
+    pub base_view: Option<HostPathViewHandle>,
+    pub descriptor_id: HostPathDescriptorId,
+    pub operation: HostPathOperation,
+    pub dynamic_args: DynamicPathArguments,
+    pub old_value: Option<Value>,
+    pub new_value: Value,
+}
+
+pub type HostPathReadCallback =
+    dyn Fn(&HostPathContext) -> Result<Value, HostError> + Send + Sync + 'static;
+pub type HostPathWriteCallback =
+    dyn Fn(&HostPathContext, Value) -> Result<(), HostError> + Send + Sync + 'static;
+pub type HostPathValidateCallback = dyn Fn(&HostPathContext, HostPathOperation, Option<&Value>) -> Result<(), HostError>
+    + Send
+    + Sync
+    + 'static;
+pub type HostPathDirtyCallback =
+    dyn Fn(&HostPathMutationRecord) -> Result<(), HostError> + Send + Sync + 'static;
+
+#[derive(Clone, Default)]
+pub struct HostPathAdapter {
+    read: Option<Arc<HostPathReadCallback>>,
+    write: Option<Arc<HostPathWriteCallback>>,
+    validate: Option<Arc<HostPathValidateCallback>>,
+    dirty: Option<Arc<HostPathDirtyCallback>>,
+}
+
+impl fmt::Debug for HostPathAdapter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostPathAdapter")
+            .field("has_read", &self.read.is_some())
+            .field("has_write", &self.write.is_some())
+            .field("has_validate", &self.validate.is_some())
+            .field("has_dirty", &self.dirty.is_some())
+            .finish()
+    }
+}
+
+impl HostPathAdapter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_read(
+        mut self,
+        read: impl Fn(&HostPathContext) -> Result<Value, HostError> + Send + Sync + 'static,
+    ) -> Self {
+        self.read = Some(Arc::new(read));
+        self
+    }
+
+    pub fn with_write(
+        mut self,
+        write: impl Fn(&HostPathContext, Value) -> Result<(), HostError> + Send + Sync + 'static,
+    ) -> Self {
+        self.write = Some(Arc::new(write));
+        self
+    }
+
+    pub fn with_validate(
+        mut self,
+        validate: impl Fn(&HostPathContext, HostPathOperation, Option<&Value>) -> Result<(), HostError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.validate = Some(Arc::new(validate));
+        self
+    }
+
+    pub fn with_dirty(
+        mut self,
+        dirty: impl Fn(&HostPathMutationRecord) -> Result<(), HostError> + Send + Sync + 'static,
+    ) -> Self {
+        self.dirty = Some(Arc::new(dirty));
+        self
     }
 }
 
@@ -384,6 +497,27 @@ fn validate_dynamic_arguments(
     Ok(())
 }
 
+fn dynamic_args_for_descriptor(
+    descriptor: &HostPathDescriptor,
+    values: Vec<Value>,
+) -> Result<DynamicPathArguments, RuntimeError> {
+    if descriptor.dynamic_parameters.len() != values.len() {
+        return Err(RuntimeError::typed_path_validation(format!(
+            "path descriptor expects {} dynamic arguments, found {}",
+            descriptor.dynamic_parameters.len(),
+            values.len()
+        )));
+    }
+    Ok(DynamicPathArguments::new(
+        descriptor
+            .dynamic_parameters
+            .iter()
+            .zip(values)
+            .map(|(parameter, value)| DynamicPathArgument::new(parameter.ty, value))
+            .collect(),
+    ))
+}
+
 fn validate_path_access(access: PathAccess, context: &str) -> Result<(), RuntimeError> {
     if access == PathAccess::None {
         Err(RuntimeError::typed_path_validation(format!(
@@ -401,6 +535,47 @@ fn path_access_allows(available: PathAccess, required: PathAccess) -> bool {
             | (PathAccess::ReadWrite, PathAccess::ReadOnly)
             | (PathAccess::ReadWrite, PathAccess::ReadWrite)
     )
+}
+
+fn apply_path_modify(op: BinaryOp, old_value: Value, rhs: Value) -> Result<Value, RuntimeError> {
+    match op {
+        BinaryOp::Add => match (old_value, rhs) {
+            (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs + rhs)),
+            (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs + rhs)),
+            _ => Err(RuntimeError::typed_path_validation(
+                "path add modify expects matching numeric values",
+            )),
+        },
+        BinaryOp::Sub => match (old_value, rhs) {
+            (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs - rhs)),
+            (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs - rhs)),
+            _ => Err(RuntimeError::typed_path_validation(
+                "path sub modify expects matching numeric values",
+            )),
+        },
+        BinaryOp::Mul => match (old_value, rhs) {
+            (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs * rhs)),
+            (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs * rhs)),
+            _ => Err(RuntimeError::typed_path_validation(
+                "path mul modify expects matching numeric values",
+            )),
+        },
+        BinaryOp::Div => match (old_value, rhs) {
+            (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs / rhs)),
+            (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs / rhs)),
+            _ => Err(RuntimeError::typed_path_validation(
+                "path div modify expects matching numeric values",
+            )),
+        },
+        BinaryOp::Eq
+        | BinaryOp::NotEq
+        | BinaryOp::Lt
+        | BinaryOp::Gt
+        | BinaryOp::Le
+        | BinaryOp::Ge => Err(RuntimeError::typed_path_validation(
+            "path modify expects an arithmetic assignment operator",
+        )),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1020,6 +1195,8 @@ pub struct HostRegistry {
     type_names: HashMap<String, TypeId>,
     roots: HashMap<HostObjectId, HostRootHandle>,
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
+    path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,
+    dirty_paths: RefCell<Vec<HostPathMutationRecord>>,
 }
 
 impl HostRegistry {
@@ -1109,6 +1286,20 @@ impl HostRegistry {
         Ok(id)
     }
 
+    pub fn register_path_adapter(
+        &mut self,
+        descriptor_id: HostPathDescriptorId,
+        adapter: HostPathAdapter,
+    ) -> Result<(), RuntimeError> {
+        if !self.path_descriptors.contains_key(&descriptor_id) {
+            return Err(RuntimeError::typed_path_validation(
+                "path adapter descriptor is not registered",
+            ));
+        }
+        self.path_adapters.insert(descriptor_id, adapter);
+        Ok(())
+    }
+
     pub fn path_descriptor(&self, id: HostPathDescriptorId) -> Option<&HostPathDescriptor> {
         self.path_descriptors.get(&id)
     }
@@ -1146,7 +1337,285 @@ impl HostRegistry {
             ));
         }
         validate_dynamic_arguments(descriptor, &dynamic_args)?;
-        Ok(HostPathViewHandle::new(root, descriptor, dynamic_args))
+        Ok(HostPathViewHandle::new(
+            root,
+            None,
+            descriptor,
+            dynamic_args,
+        ))
+    }
+
+    pub fn make_path_view_from_value(
+        &self,
+        root_or_view: &Value,
+        descriptor_id: HostPathDescriptorId,
+        dynamic_args: Vec<Value>,
+    ) -> Result<HostPathViewHandle, RuntimeError> {
+        let context = self.resolve_path_context(
+            root_or_view,
+            descriptor_id,
+            dynamic_args,
+            HostPathOperation::MakeView,
+        )?;
+        Ok(HostPathViewHandle::new(
+            context.root,
+            context.base_view,
+            &context.descriptor,
+            context.dynamic_args,
+        ))
+    }
+
+    pub fn read_path(
+        &self,
+        root_or_view: &Value,
+        descriptor_id: HostPathDescriptorId,
+        dynamic_args: Vec<Value>,
+    ) -> Result<Value, RuntimeError> {
+        let context = self.resolve_path_context(
+            root_or_view,
+            descriptor_id,
+            dynamic_args,
+            HostPathOperation::Read,
+        )?;
+        let adapter = self.path_adapter(context.descriptor.id)?;
+        self.validate_path_operation(&adapter, &context, HostPathOperation::Read, None)?;
+        let read = adapter.read.as_ref().ok_or_else(|| {
+            RuntimeError::typed_path_validation("path descriptor does not support reads")
+        })?;
+        read(&context).map_err(|error| {
+            RuntimeError::typed_path_validation(format!(
+                "host path read failed: {}",
+                error.message()
+            ))
+        })
+    }
+
+    pub fn set_path(
+        &self,
+        root_or_view: &Value,
+        descriptor_id: HostPathDescriptorId,
+        dynamic_args: Vec<Value>,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        let context = self.resolve_path_context(
+            root_or_view,
+            descriptor_id,
+            dynamic_args,
+            HostPathOperation::Set,
+        )?;
+        if !value.is_default_heap_payload() {
+            return Err(RuntimeError::typed_path_validation(
+                "path set value must be a default heap payload",
+            ));
+        }
+        let adapter = self.path_adapter(context.descriptor.id)?;
+        self.validate_path_operation(&adapter, &context, HostPathOperation::Set, Some(&value))?;
+        let old_value = adapter.read.as_ref().and_then(|read| read(&context).ok());
+        self.write_path_value(&adapter, &context, value.clone())?;
+        self.mark_dirty(
+            &adapter,
+            HostPathMutationRecord {
+                root: context.root,
+                base_view: context.base_view.clone(),
+                descriptor_id: context.descriptor.id,
+                operation: HostPathOperation::Set,
+                dynamic_args: context.dynamic_args.clone(),
+                old_value,
+                new_value: value,
+            },
+        )
+    }
+
+    pub fn modify_path(
+        &self,
+        root_or_view: &Value,
+        descriptor_id: HostPathDescriptorId,
+        dynamic_args: Vec<Value>,
+        op: BinaryOp,
+        value: Value,
+    ) -> Result<Value, RuntimeError> {
+        let context = self.resolve_path_context(
+            root_or_view,
+            descriptor_id,
+            dynamic_args,
+            HostPathOperation::Modify(op),
+        )?;
+        if !value.is_default_heap_payload() {
+            return Err(RuntimeError::typed_path_validation(
+                "path modify value must be a default heap payload",
+            ));
+        }
+        let adapter = self.path_adapter(context.descriptor.id)?;
+        self.validate_path_operation(
+            &adapter,
+            &context,
+            HostPathOperation::Modify(op),
+            Some(&value),
+        )?;
+        let read = adapter.read.as_ref().ok_or_else(|| {
+            RuntimeError::typed_path_validation("path descriptor does not support modify reads")
+        })?;
+        let old_value = read(&context).map_err(|error| {
+            RuntimeError::typed_path_validation(format!(
+                "host path modify read failed: {}",
+                error.message()
+            ))
+        })?;
+        let new_value = apply_path_modify(op, old_value.clone(), value)?;
+        self.write_path_value(&adapter, &context, new_value.clone())?;
+        self.mark_dirty(
+            &adapter,
+            HostPathMutationRecord {
+                root: context.root,
+                base_view: context.base_view.clone(),
+                descriptor_id: context.descriptor.id,
+                operation: HostPathOperation::Modify(op),
+                dynamic_args: context.dynamic_args.clone(),
+                old_value: Some(old_value),
+                new_value: new_value.clone(),
+            },
+        )?;
+        Ok(new_value)
+    }
+
+    pub fn dirty_paths(&self) -> Vec<HostPathMutationRecord> {
+        self.dirty_paths.borrow().clone()
+    }
+
+    pub fn clear_dirty_paths(&self) {
+        self.dirty_paths.borrow_mut().clear();
+    }
+
+    fn resolve_path_context(
+        &self,
+        root_or_view: &Value,
+        descriptor_id: HostPathDescriptorId,
+        dynamic_args: Vec<Value>,
+        operation: HostPathOperation,
+    ) -> Result<HostPathContext, RuntimeError> {
+        let descriptor = self
+            .path_descriptors
+            .get(&descriptor_id)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeError::typed_path_validation("path descriptor is not registered")
+            })?;
+        if operation.writes() && descriptor.access != PathAccess::ReadWrite {
+            return Err(RuntimeError::typed_path_validation(
+                "path descriptor is not writable",
+            ));
+        }
+        let dynamic_args = dynamic_args_for_descriptor(&descriptor, dynamic_args)?;
+        validate_dynamic_arguments(&descriptor, &dynamic_args)?;
+        let (root, base_view) = match root_or_view {
+            Value::HostRoot(root) => {
+                let registered_root = self.roots.get(&root.object_id).ok_or_else(|| {
+                    RuntimeError::typed_path_validation("host root is not registered")
+                })?;
+                if registered_root != root {
+                    return Err(RuntimeError::typed_path_validation(
+                        "host root handle does not match registered root metadata",
+                    ));
+                }
+                if descriptor.root_type != root.type_id {
+                    return Err(RuntimeError::typed_path_validation(
+                        "path descriptor root type does not match host root type",
+                    ));
+                }
+                if descriptor.schema_epoch != root.schema_epoch {
+                    return Err(RuntimeError::typed_path_validation(
+                        "path descriptor schema epoch does not match host root epoch",
+                    ));
+                }
+                (*root, None)
+            }
+            Value::HostPathView(view) => {
+                if descriptor.root_type != view.result_type {
+                    return Err(RuntimeError::typed_path_validation(
+                        "path descriptor root type does not match host path view result type",
+                    ));
+                }
+                if descriptor.schema_epoch != view.schema_epoch {
+                    return Err(RuntimeError::typed_path_validation(
+                        "path descriptor schema epoch does not match host path view epoch",
+                    ));
+                }
+                (view.root, Some(view.clone()))
+            }
+            _ => {
+                return Err(RuntimeError::typed_path_validation(
+                    "path operation expects host root or host path view",
+                ));
+            }
+        };
+        Ok(HostPathContext {
+            root,
+            base_view,
+            descriptor,
+            dynamic_args,
+        })
+    }
+
+    fn path_adapter(
+        &self,
+        descriptor_id: HostPathDescriptorId,
+    ) -> Result<HostPathAdapter, RuntimeError> {
+        self.path_adapters
+            .get(&descriptor_id)
+            .cloned()
+            .ok_or_else(|| RuntimeError::typed_path_validation("path descriptor has no adapter"))
+    }
+
+    fn validate_path_operation(
+        &self,
+        adapter: &HostPathAdapter,
+        context: &HostPathContext,
+        operation: HostPathOperation,
+        value: Option<&Value>,
+    ) -> Result<(), RuntimeError> {
+        if let Some(validate) = &adapter.validate {
+            validate(context, operation, value).map_err(|error| {
+                RuntimeError::typed_path_validation(format!(
+                    "host path validation failed: {}",
+                    error.message()
+                ))
+            })?;
+        }
+        Ok(())
+    }
+
+    fn write_path_value(
+        &self,
+        adapter: &HostPathAdapter,
+        context: &HostPathContext,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        let write = adapter.write.as_ref().ok_or_else(|| {
+            RuntimeError::typed_path_validation("path descriptor does not support writes")
+        })?;
+        write(context, value).map_err(|error| {
+            RuntimeError::typed_path_validation(format!(
+                "host path write failed: {}",
+                error.message()
+            ))
+        })
+    }
+
+    fn mark_dirty(
+        &self,
+        adapter: &HostPathAdapter,
+        record: HostPathMutationRecord,
+    ) -> Result<(), RuntimeError> {
+        if let Some(dirty) = &adapter.dirty {
+            dirty(&record).map_err(|error| {
+                RuntimeError::typed_path_validation(format!(
+                    "host path dirty hook failed: {}",
+                    error.message()
+                ))
+            })?;
+        }
+        self.dirty_paths.borrow_mut().push(record);
+        Ok(())
     }
 
     pub fn function(&self, symbol: &str) -> Option<&HostFunction> {

@@ -1,7 +1,7 @@
 use kagari_ir::bytecode::{
-    BuiltinMethod, BytecodeInstruction, CallTarget, Register, RuntimeHelper,
+    BuiltinMethod, BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
 };
-use kagari_runtime::value::Value;
+use kagari_runtime::{HostPathDescriptorId, value::Value};
 
 use crate::error::VmError;
 use crate::executor::Executor;
@@ -125,22 +125,81 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::WriteAggregateIndex { base, index, value } => {
                 self.write_index(base, index, value)?;
             }
-            BytecodeInstruction::ReadPath { .. } => {
-                return Err(VmError::UnsupportedInstruction("read_path"));
+            BytecodeInstruction::ReadPath {
+                dst,
+                root_or_view,
+                path,
+                dynamic_args,
+            } => {
+                let root_or_view = self.current_frame()?.read_register(root_or_view)?;
+                let dynamic_args = self.read_path_args(&dynamic_args)?;
+                let value = self
+                    .runtime
+                    .read_host_path(&root_or_view, descriptor_id(path), dynamic_args)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?.write_register(dst, value)?;
             }
-            BytecodeInstruction::SetPath { .. } => {
-                return Err(VmError::UnsupportedInstruction("set_path"));
+            BytecodeInstruction::SetPath {
+                root_or_view,
+                path,
+                dynamic_args,
+                value,
+            } => {
+                let root_or_view = self.current_frame()?.read_register(root_or_view)?;
+                let dynamic_args = self.read_path_args(&dynamic_args)?;
+                let value = self.current_frame()?.read_register(value)?;
+                self.runtime
+                    .set_host_path(&root_or_view, descriptor_id(path), dynamic_args, value)
+                    .map_err(VmError::RuntimeError)?;
             }
-            BytecodeInstruction::ModifyPath { .. } => {
-                return Err(VmError::UnsupportedInstruction("modify_path"));
+            BytecodeInstruction::ModifyPath {
+                dst,
+                root_or_view,
+                path,
+                dynamic_args,
+                op,
+                value,
+            } => {
+                let root_or_view = self.current_frame()?.read_register(root_or_view)?;
+                let dynamic_args = self.read_path_args(&dynamic_args)?;
+                let value = self.current_frame()?.read_register(value)?;
+                let value = self
+                    .runtime
+                    .modify_host_path(&root_or_view, descriptor_id(path), dynamic_args, op, value)
+                    .map_err(VmError::RuntimeError)?;
+                if let Some(dst) = dst {
+                    self.current_frame_mut()?.write_register(dst, value)?;
+                }
             }
-            BytecodeInstruction::MakePathView { .. } => {
-                return Err(VmError::UnsupportedInstruction("make_path_view"));
+            BytecodeInstruction::MakePathView {
+                dst,
+                root_or_view,
+                path,
+                dynamic_args,
+            } => {
+                let root_or_view = self.current_frame()?.read_register(root_or_view)?;
+                let dynamic_args = self.read_path_args(&dynamic_args)?;
+                let view = self
+                    .runtime
+                    .make_host_path_view_from_value(
+                        &root_or_view,
+                        descriptor_id(path),
+                        dynamic_args,
+                    )
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?
+                    .write_register(dst, Value::HostPathView(view))?;
             }
             BytecodeInstruction::Return(_) => unreachable!("return handled in run loop"),
         }
 
         Ok(())
+    }
+
+    fn read_path_args(&self, args: &[Register]) -> Result<Vec<Value>, VmError> {
+        args.iter()
+            .map(|arg| self.current_frame()?.read_register(*arg))
+            .collect()
     }
 
     fn dispatch_call(
@@ -269,4 +328,8 @@ impl<'a> Executor<'a> {
             )),
         }
     }
+}
+
+fn descriptor_id(path: PathId) -> HostPathDescriptorId {
+    HostPathDescriptorId::new(path.index())
 }
