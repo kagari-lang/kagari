@@ -5,7 +5,6 @@ use kagari_runtime::{HostPathDescriptorId, value::Value};
 
 use crate::error::VmError;
 use crate::executor::Executor;
-use crate::frame::Frame;
 
 impl<'a> Executor<'a> {
     pub(crate) fn dispatch_instruction(
@@ -87,7 +86,7 @@ impl<'a> Executor<'a> {
                 self.dispatch_call(dst, callee, args)?;
             }
             BytecodeInstruction::Unreachable => {
-                return Err(VmError::UnsupportedInstruction("unreachable"));
+                return Err(VmError::Trap("unreachable"));
             }
             BytecodeInstruction::MakeTuple { dst, elements } => {
                 let value = self.make_tuple(&elements)?;
@@ -220,8 +219,7 @@ impl<'a> Executor<'a> {
                     .functions
                     .get(id.index())
                     .ok_or(VmError::InvalidFunctionRef(id))?;
-                self.frames.push(Frame::new(function, &arg_values, dst));
-                Ok(())
+                self.push_frame(function, &arg_values, dst)
             }
             CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(callee)),
             CallTarget::BuiltinMethod(method) => {

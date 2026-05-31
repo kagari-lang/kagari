@@ -30,21 +30,20 @@ impl<'a> Executor<'a> {
             .get(entry.index())
             .ok_or(VmError::InvalidFunctionRef(entry))?;
 
-        Ok(Self {
+        let mut executor = Self {
             runtime,
             module,
             module_instance,
-            frames: vec![Frame::new(function, &[], None)],
-        })
+            frames: Vec::new(),
+        };
+        executor.push_frame(function, &[], None)?;
+        Ok(executor)
     }
 
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
         loop {
             let instruction = {
-                let frame = self
-                    .frames
-                    .last_mut()
-                    .expect("executor should have a frame");
+                let frame = self.current_frame_mut()?;
                 frame.next_instruction().cloned()
             };
 
@@ -63,7 +62,7 @@ impl<'a> Executor<'a> {
                         None => Value::Unit,
                     };
                     let return_dst = self.current_frame()?.return_dst();
-                    self.frames.pop();
+                    self.pop_frame()?;
                     if let Some(frame) = self.frames.last_mut() {
                         if let Some(dst) = return_dst {
                             frame.write_register(dst, value)?;
@@ -87,5 +86,40 @@ impl<'a> Executor<'a> {
         self.frames
             .last_mut()
             .ok_or(VmError::UnsupportedInstruction("missing_frame"))
+    }
+
+    pub(crate) fn push_frame(
+        &mut self,
+        function: &'a kagari_ir::bytecode::BytecodeFunction,
+        args: &[Value],
+        return_dst: Option<kagari_ir::bytecode::Register>,
+    ) -> Result<(), VmError> {
+        self.runtime.enter_call().map_err(VmError::RuntimeError)?;
+        match Frame::new(function, args, return_dst) {
+            Ok(frame) => {
+                self.frames.push(frame);
+                Ok(())
+            }
+            Err(error) => {
+                self.runtime.leave_call();
+                Err(error)
+            }
+        }
+    }
+
+    fn pop_frame(&mut self) -> Result<(), VmError> {
+        self.frames
+            .pop()
+            .ok_or(VmError::UnsupportedInstruction("missing_frame"))?;
+        self.runtime.leave_call();
+        Ok(())
+    }
+}
+
+impl Drop for Executor<'_> {
+    fn drop(&mut self) {
+        while self.frames.pop().is_some() {
+            self.runtime.leave_call();
+        }
     }
 }

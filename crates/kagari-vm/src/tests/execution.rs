@@ -254,6 +254,91 @@ fn main() -> i32 { callee() }
 }
 
 #[test]
+fn deterministic_frames_keep_caller_and_callee_storage_isolated() {
+    let (runtime, loaded) = load_test_module(
+        r#"
+fn callee(input: i32) -> i32 {
+    val local = input + 1;
+    local
+}
+
+fn main() -> i32 {
+    val local = 10;
+    val returned = callee(1);
+    local + returned
+}
+"#,
+    );
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(report.return_value, Value::I32(12));
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+}
+
+#[test]
+fn deterministic_frames_account_call_depth_and_unwind_on_failure() {
+    let bytecode = compile_test_bytecode(
+        r#"
+fn leaf() -> i32 { 1 }
+fn middle() -> i32 { leaf() }
+fn main() -> i32 { middle() }
+"#,
+    );
+    let mut runtime = Runtime::new(RuntimeConfig {
+        resources: ResourcePolicy {
+            max_call_depth: Some(2),
+            ..ResourcePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = runtime
+        .load_module("call_depth.kgr", bytecode)
+        .expect("module should load");
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("third frame should exceed call depth");
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref err)
+            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
+    ));
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(vm.runtime().resources().counters().peak_call_depth, 2);
+}
+
+#[test]
+fn unreachable_instruction_is_a_script_trap() {
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_module(
+            "trap.kbc",
+            verified_module(
+                None,
+                vec![test_function(
+                    0,
+                    "main",
+                    vec![BytecodeInstruction::Unreachable],
+                    ValueType::Unit,
+                    vec![],
+                )],
+            ),
+        )
+        .expect("module should load");
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("unreachable should trap");
+
+    assert!(matches!(error, VmError::Trap("unreachable")));
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+}
+
+#[test]
 fn executes_array_index_access() {
     let (runtime, loaded) =
         load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");

@@ -544,6 +544,7 @@ impl EmbeddingError {
             },
             VmError::BytecodeVerification(_) => RuntimeFailureKind::BytecodeVerification,
             VmError::InvalidFunctionRef(_)
+            | VmError::InvalidFrameArity { .. }
             | VmError::InvalidJumpTarget(_)
             | VmError::InvalidRegister(_)
             | VmError::InvalidLocal(_)
@@ -557,6 +558,7 @@ impl EmbeddingError {
             | VmError::InvalidBranchCondition
             | VmError::BuiltinError(_)
             | VmError::ReflectionError(_)
+            | VmError::Trap(_)
             | VmError::TypeMismatch(_) => RuntimeFailureKind::ScriptTrap,
         };
         Self::runtime(kind, format!("{error:?}"))

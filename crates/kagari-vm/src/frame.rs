@@ -17,23 +17,27 @@ impl<'a> Frame<'a> {
         function: &'a BytecodeFunction,
         args: &[Value],
         return_dst: Option<Register>,
-    ) -> Self {
+    ) -> Result<Self, VmError> {
+        let expected = usize::from(function.parameter_count);
+        if args.len() != expected {
+            return Err(VmError::InvalidFrameArity {
+                function: function.id,
+                expected,
+                found: args.len(),
+            });
+        }
         let mut locals = vec![Value::Unit; usize::from(function.local_count)];
-        for (slot, value) in args
-            .iter()
-            .take(usize::from(function.parameter_count))
-            .enumerate()
-        {
+        for (slot, value) in args.iter().enumerate() {
             locals[slot] = value.clone();
         }
 
-        Self {
+        Ok(Self {
             function,
             ip: 0,
             registers: vec![Value::Unit; usize::from(function.register_count)],
             locals,
             return_dst,
-        }
+        })
     }
 
     pub(crate) fn next_instruction(&mut self) -> Option<&'a BytecodeInstruction> {
