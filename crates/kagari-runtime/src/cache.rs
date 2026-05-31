@@ -7,6 +7,7 @@ use kagari_ir::bytecode::{
 };
 
 use crate::{
+    backend::ExecutableFunctionArtifact,
     module::{ModuleId, ModuleKey},
     reload::{path_fingerprints_for_module, public_abi_fingerprints_for_module},
 };
@@ -67,6 +68,7 @@ pub struct ExecutionArtifactRecord {
     pub module: ModuleKey,
     pub function: Option<FunctionRef>,
     pub dependencies: ReloadDependencySnapshot,
+    pub executable: Option<ExecutableFunctionArtifact>,
     pub valid: bool,
 }
 
@@ -108,6 +110,32 @@ impl ExecutionArtifactRegistry {
                 module,
                 function,
                 dependencies,
+                executable: None,
+                valid: true,
+            },
+        );
+        id
+    }
+
+    pub fn register_executable_function(
+        &self,
+        module: ModuleKey,
+        dependencies: ReloadDependencySnapshot,
+        executable: ExecutableFunctionArtifact,
+    ) -> ExecutionArtifactId {
+        let mut inner = self.inner.borrow_mut();
+        let id = ExecutionArtifactId(inner.next_id);
+        inner.next_id += 1;
+        let function = Some(executable.function);
+        inner.artifacts.insert(
+            id,
+            ExecutionArtifactRecord {
+                id,
+                kind: ExecutionArtifactKind::Jit,
+                module,
+                function,
+                dependencies,
+                executable: Some(executable),
                 valid: true,
             },
         );

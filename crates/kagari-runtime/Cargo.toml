@@ -4,5 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+jit = []
+
 [dependencies]
 kagari-ir.workspace = true

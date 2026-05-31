@@ -1,3 +1,4 @@
+pub mod backend;
 pub mod builtin;
 pub mod cache;
 pub mod error;
@@ -13,6 +14,11 @@ pub mod value;
 
 use kagari_ir::bytecode::{ArtifactCompatibility, BuiltinMethod, BytecodeModule, KbcArtifact};
 
+pub use backend::{
+    BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,
+    BackendTarget, CodegenBackend, ExecutableEntryPoint, ExecutableFunctionArtifact,
+    ExecutableSafepoint, ExecutableTrap,
+};
 pub use cache::{
     ExecutionArtifactId, ExecutionArtifactKind, ExecutionArtifactRecord, ExecutionArtifactRegistry,
     ReloadDependencySnapshot, ReloadInvalidation,
@@ -606,6 +612,27 @@ impl Runtime {
         )
     }
 
+    pub fn register_executable_function_artifact(
+        &self,
+        module: ModuleKey,
+        dependencies: ReloadDependencySnapshot,
+        artifact: ExecutableFunctionArtifact,
+    ) -> Option<ExecutionArtifactId> {
+        let loaded = self.modules.loaded(module)?;
+        loaded
+            .bytecode
+            .functions
+            .iter()
+            .any(|function| function.id == artifact.function)
+            .then_some(())?;
+        self.modules
+            .retain_epoch(module, ModuleEpochRetention::CompiledArtifact);
+        Some(
+            self.execution_artifacts
+                .register_executable_function(module, dependencies, artifact),
+        )
+    }
+
     pub fn execution_artifact(&self, id: ExecutionArtifactId) -> Option<ExecutionArtifactRecord> {
         let artifact = self.execution_artifacts.get(id)?;
         if !artifact.valid || !self.modules.is_reachable(artifact.module) {
@@ -847,10 +874,11 @@ mod tests {
     use super::*;
     use kagari_ir::{
         bytecode::{
-            ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, BytecodeModule,
-            ConstantOperand, DependencyFingerprint, KbcArtifact,
+            ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, BytecodeFunction,
+            BytecodeModule, ConstantOperand, DependencyFingerprint, FunctionMetadata, FunctionRef,
+            KbcArtifact,
         },
-        module::{FunctionAbi, PublicAbiItem},
+        module::{FunctionAbi, PublicAbiItem, ValueType},
     };
 
     fn module_with_public_function(return_type: &str) -> BytecodeModule {
@@ -870,6 +898,30 @@ mod tests {
         let mut module = module_with_public_function(return_type);
         module.constants.push(ConstantOperand::I32(value));
         module
+    }
+
+    fn module_with_executable_function() -> BytecodeModule {
+        let metadata = FunctionMetadata {
+            return_type: ValueType::Unit,
+            ..FunctionMetadata::default()
+        };
+        BytecodeModule {
+            types: vec![ValueType::Unit],
+            function_table: vec![kagari_ir::bytecode::FunctionRecord {
+                id: FunctionRef::new(0),
+                name: "main".to_owned(),
+                params: metadata.params.clone(),
+                return_type: metadata.return_type,
+                effects: metadata.effects,
+            }],
+            functions: vec![BytecodeFunction {
+                id: FunctionRef::new(0),
+                name: "main".to_owned(),
+                metadata,
+                ..BytecodeFunction::default()
+            }],
+            ..BytecodeModule::default()
+        }
     }
 
     fn artifact_with_loader_fingerprints() -> KbcArtifact {
@@ -904,6 +956,57 @@ mod tests {
                 ..LanguageProfile::default()
             },
             capabilities,
+        }
+    }
+
+    struct FakeBackend {
+        backend: BackendId,
+        target: BackendTarget,
+    }
+
+    impl FakeBackend {
+        fn new() -> Self {
+            Self {
+                backend: BackendId::new("test-baseline"),
+                target: BackendTarget::new("test-target", 64),
+            }
+        }
+    }
+
+    impl CodegenBackend for FakeBackend {
+        fn backend_id(&self) -> BackendId {
+            self.backend.clone()
+        }
+
+        fn target(&self) -> BackendTarget {
+            self.target.clone()
+        }
+
+        fn compile_function(
+            &mut self,
+            input: BackendFunctionInput<'_>,
+        ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
+            if input.function.name != "main" {
+                return Err(BackendCompileError::unsupported(format!(
+                    "unsupported function `{}`",
+                    input.function.name
+                )));
+            }
+
+            let mut artifact = ExecutableFunctionArtifact::new(
+                self.backend_id(),
+                self.target(),
+                input.function_ref(),
+            );
+            artifact.entry = ExecutableEntryPoint::Symbol(format!(
+                "{}::{}",
+                input.module_name, input.function.name
+            ));
+            artifact.safepoints.push(ExecutableSafepoint {
+                instruction_offset: 0,
+                live_value_slots: Vec::new(),
+            });
+            Ok(artifact)
         }
     }
 
@@ -1152,6 +1255,73 @@ mod tests {
                 .retention_counts(consumer.key())
                 .compiled_artifacts,
             0
+        );
+    }
+
+    #[test]
+    fn backend_boundary_registers_executable_function_artifacts() {
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_module("backend_module", module_with_executable_function())
+            .expect("module should load");
+        let dependencies = ReloadDependencySnapshot::from_bytecode(&loaded.bytecode);
+        let mut backend = FakeBackend::new();
+        let artifact = backend
+            .compile_function(BackendFunctionInput {
+                module_key: loaded.key(),
+                module_name: &loaded.name,
+                module: &loaded.bytecode,
+                function: &loaded.bytecode.functions[0],
+                dependencies: dependencies.clone(),
+            })
+            .expect("fake backend should compile main");
+
+        let id = runtime
+            .register_executable_function_artifact(loaded.key(), dependencies, artifact)
+            .expect("executable artifact should register");
+        let record = runtime
+            .execution_artifact(id)
+            .expect("registered artifact should be reachable");
+
+        assert_eq!(record.kind, ExecutionArtifactKind::Jit);
+        assert_eq!(record.module, loaded.key());
+        assert_eq!(record.function, Some(FunctionRef::new(0)));
+        assert_eq!(
+            record
+                .executable
+                .as_ref()
+                .expect("artifact should carry executable metadata")
+                .backend,
+            BackendId::new("test-baseline")
+        );
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(loaded.key())
+                .compiled_artifacts,
+            1
+        );
+
+        let stale_function_artifact = ExecutableFunctionArtifact::new(
+            BackendId::new("test-baseline"),
+            BackendTarget::new("test-target", 64),
+            FunctionRef::new(99),
+        );
+        assert!(
+            runtime
+                .register_executable_function_artifact(
+                    loaded.key(),
+                    ReloadDependencySnapshot::from_bytecode(&loaded.bytecode),
+                    stale_function_artifact,
+                )
+                .is_none()
+        );
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(loaded.key())
+                .compiled_artifacts,
+            1
         );
     }
 
