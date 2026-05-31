@@ -1368,6 +1368,69 @@ mod tests {
     }
 
     #[test]
+    fn security_restricted_profiles_disable_runtime_boundaries_independently() {
+        let capability_only = Runtime::new(RuntimeConfig {
+            security: SecurityContext {
+                profile: LanguageProfile {
+                    allow_interface_values: false,
+                    ..LanguageProfile::default()
+                },
+                capabilities: CapabilitySet {
+                    host_calls: true,
+                    path_mutation: true,
+                    module_loading: true,
+                    jit: true,
+                    reflection_metadata: true,
+                    reflection_read: true,
+                    reflection_write: true,
+                    dynamic_invocation: true,
+                    downcast: true,
+                    debug_attach: true,
+                    debug_breakpoints: true,
+                    debug_pause: true,
+                    debug_stack_inspection: true,
+                    debug_value_inspection: true,
+                    debug_watch_evaluation: true,
+                    ..CapabilitySet::default()
+                },
+                ..SecurityContext::default()
+            },
+            host_exposure: HostExposurePolicy {
+                allow_host_functions: true,
+                ..HostExposurePolicy::default()
+            },
+            ..RuntimeConfig::default()
+        });
+
+        let denied = [
+            capability_only.validate_host_function_boundary("host.open"),
+            capability_only.validate_path_mutation_boundary(),
+            capability_only.validate_module_loading_boundary(),
+            capability_only.validate_jit_boundary(),
+            capability_only.validate_reflection_metadata_boundary(),
+            capability_only.validate_reflection_read_boundary(),
+            capability_only.validate_reflection_write_boundary(),
+            capability_only.validate_dynamic_invocation_boundary(),
+            capability_only.validate_downcast_boundary(),
+            capability_only.validate_debug_attach_boundary(),
+            capability_only.validate_debug_breakpoint_boundary(),
+            capability_only.validate_debug_pause_boundary(),
+            capability_only.validate_debug_stack_inspection_boundary(),
+            capability_only.validate_debug_value_inspection_boundary(),
+            capability_only.validate_debug_watch_evaluation_boundary(),
+        ];
+
+        for result in denied {
+            assert_eq!(
+                result
+                    .expect_err("restricted profile should deny boundary")
+                    .kind(),
+                RuntimeErrorKind::CapabilityDenied
+            );
+        }
+    }
+
+    #[test]
     fn downcast_gate_is_independent_from_reflection_gates() {
         let downcast_only = Runtime::new(RuntimeConfig {
             security: SecurityContext {
