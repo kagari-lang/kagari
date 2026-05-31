@@ -1,5 +1,5 @@
 use crate::gc::HeapObjectId;
-use crate::host::HostObjectId;
+use crate::host::{FrameHostBorrowToken, HostObjectId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructValueField {
@@ -29,8 +29,8 @@ pub enum ValueCategory {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EphemeralValue {
-    HostRef(HostObjectId),
-    HostMut(HostObjectId),
+    HostRef(FrameHostBorrowToken),
+    HostMut(FrameHostBorrowToken),
     Runtime(EphemeralValueId),
 }
 
@@ -85,6 +85,22 @@ impl Value {
         matches!(self, Self::Ephemeral(_))
     }
 
+    pub fn contains_ephemeral(&self) -> bool {
+        match self {
+            Self::Tuple(elements) => elements.iter().any(Self::contains_ephemeral),
+            Self::Ephemeral(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn contains_host_borrow(&self) -> bool {
+        match self {
+            Self::Tuple(elements) => elements.iter().any(Self::contains_host_borrow),
+            Self::Ephemeral(EphemeralValue::HostRef(_) | EphemeralValue::HostMut(_)) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_default_heap_payload(&self) -> bool {
         match self {
             Self::Unit
@@ -100,26 +116,50 @@ impl Value {
         }
     }
 
-    pub fn host_ref(id: HostObjectId) -> Self {
-        Self::Ephemeral(EphemeralValue::HostRef(id))
+    pub fn host_ref(token: FrameHostBorrowToken) -> Self {
+        Self::Ephemeral(EphemeralValue::HostRef(token))
     }
 
-    pub fn host_mut(id: HostObjectId) -> Self {
-        Self::Ephemeral(EphemeralValue::HostMut(id))
+    pub fn host_mut(token: FrameHostBorrowToken) -> Self {
+        Self::Ephemeral(EphemeralValue::HostMut(token))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        host::{HostBorrowTable, HostObjectId},
+        metadata::TypeId,
+    };
+
+    fn shared_borrow_value(object_id: u64) -> Value {
+        let table = HostBorrowTable::default();
+        let guard = table.enter_frame();
+        Value::host_ref(
+            guard
+                .borrow_shared(HostObjectId(object_id), TypeId::new(0))
+                .unwrap(),
+        )
+    }
+
+    fn unique_borrow_value(object_id: u64) -> Value {
+        let table = HostBorrowTable::default();
+        let guard = table.enter_frame();
+        Value::host_mut(
+            guard
+                .borrow_unique(HostObjectId(object_id), TypeId::new(0))
+                .unwrap(),
+        )
+    }
 
     #[test]
     fn classifies_storable_and_ephemeral_value_categories() {
         let scalar = Value::I32(1);
         let host_root = Value::HostOwned(HostObjectId(7));
         let path_view = Value::HostPathView(HostPathViewId(3));
-        let host_ref = Value::host_ref(HostObjectId(9));
-        let host_mut = Value::host_mut(HostObjectId(10));
+        let host_ref = shared_borrow_value(9);
+        let host_mut = unique_borrow_value(10);
 
         assert_eq!(Value::Unit.category(), ValueCategory::Unit);
         assert_eq!(scalar.category(), ValueCategory::Primitive);
@@ -133,6 +173,8 @@ mod tests {
         assert!(path_view.is_storable());
         assert!(!host_ref.is_storable());
         assert!(!host_mut.is_storable());
+        assert!(host_ref.contains_ephemeral());
+        assert!(host_mut.contains_host_borrow());
         assert!(!Value::Tuple(vec![host_ref]).is_storable());
     }
 
@@ -142,7 +184,7 @@ mod tests {
         assert!(Value::Interface(InterfaceObjectId(1)).is_default_heap_payload());
         assert!(!Value::HostOwned(HostObjectId(1)).is_default_heap_payload());
         assert!(!Value::HostPathView(HostPathViewId(1)).is_default_heap_payload());
-        assert!(!Value::host_ref(HostObjectId(1)).is_default_heap_payload());
-        assert!(!Value::Tuple(vec![Value::host_mut(HostObjectId(1))]).is_default_heap_payload());
+        assert!(!shared_borrow_value(1).is_default_heap_payload());
+        assert!(!Value::Tuple(vec![unique_borrow_value(1)]).is_default_heap_payload());
     }
 }

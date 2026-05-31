@@ -398,22 +398,37 @@ impl GcHeap {
 mod tests {
     use super::*;
     use crate::{
-        host::HostObjectId,
+        host::{HostBorrowTable, HostObjectId},
+        metadata::TypeId,
         value::{HostPathViewId, StructValueField},
     };
+
+    fn shared_borrow_value(object_id: u64) -> Value {
+        let table = HostBorrowTable::default();
+        let guard = table.enter_frame();
+        Value::host_ref(
+            guard
+                .borrow_shared(HostObjectId(object_id), TypeId::new(0))
+                .unwrap(),
+        )
+    }
+
+    fn unique_borrow_value(object_id: u64) -> Value {
+        let table = HostBorrowTable::default();
+        let guard = table.enter_frame();
+        Value::host_mut(
+            guard
+                .borrow_unique(HostObjectId(object_id), TypeId::new(0))
+                .unwrap(),
+        )
+    }
 
     #[test]
     fn rejects_ephemeral_values_as_heap_payloads() {
         let heap = GcHeap::new(GcHeapConfig::default());
 
-        assert!(
-            heap.alloc_array(vec![Value::host_ref(HostObjectId(1))])
-                .is_none()
-        );
-        assert!(
-            heap.alloc_array(vec![Value::host_mut(HostObjectId(2))])
-                .is_none()
-        );
+        assert!(heap.alloc_array(vec![shared_borrow_value(1)]).is_none());
+        assert!(heap.alloc_array(vec![unique_borrow_value(2)]).is_none());
         assert_eq!(heap.allocated_objects(), 0);
     }
 
@@ -452,10 +467,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(
-            heap.array_push(array, Value::host_ref(HostObjectId(1)))
-                .is_none()
-        );
+        assert!(heap.array_push(array, shared_borrow_value(1)).is_none());
         assert!(
             heap.array_set(array, 0, Value::HostPathView(HostPathViewId(4)))
                 .is_none()
@@ -504,7 +516,7 @@ mod tests {
         assert_eq!(heap.trace_roots(), Vec::<HeapObjectId>::new());
 
         assert!(
-            heap.root_value(Value::Tuple(vec![Value::host_ref(HostObjectId(2))]))
+            heap.root_value(Value::Tuple(vec![shared_borrow_value(2)]))
                 .is_none()
         );
         assert_eq!(heap.active_roots(), 1);

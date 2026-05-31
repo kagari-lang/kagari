@@ -2,16 +2,26 @@ use kagari_ir::bytecode::BytecodeModule;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId,
     MethodOrigin, ModuleInitializationState, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind,
-    TraitInfo, TypeKind, TypeRegistration, Visibility,
-    host::HostObjectId,
+    TraitInfo, TypeId, TypeKind, TypeRegistration, Visibility,
+    host::{HostBorrowTable, HostObjectId},
     value::{HostPathViewId, StructValueField, Value, ValueCategory},
 };
+
+fn shared_borrow_value(object_id: u64) -> Value {
+    let table = HostBorrowTable::default();
+    let guard = table.enter_frame();
+    Value::host_ref(
+        guard
+            .borrow_shared(HostObjectId(object_id), TypeId::new(0))
+            .unwrap(),
+    )
+}
 
 #[test]
 fn value_categories_and_storage_boundaries_match_runtime_spec() {
     let host_owned = Value::HostOwned(HostObjectId(1));
     let host_path_view = Value::HostPathView(HostPathViewId(2));
-    let host_borrow = Value::host_ref(HostObjectId(3));
+    let host_borrow = shared_borrow_value(3);
 
     assert_eq!(Value::Unit.category(), ValueCategory::Unit);
     assert_eq!(Value::I32(7).category(), ValueCategory::Primitive);

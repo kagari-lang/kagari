@@ -130,9 +130,20 @@ mod tests {
     use super::*;
     use crate::{
         gc::GcHeapConfig,
-        host::HostObjectId,
+        host::{HostBorrowTable, HostObjectId},
+        metadata::TypeId,
         value::{HostPathViewId, InterfaceObjectId},
     };
+
+    fn shared_borrow_value(object_id: u64) -> Value {
+        let table = HostBorrowTable::default();
+        let guard = table.enter_frame();
+        Value::host_ref(
+            guard
+                .borrow_shared(HostObjectId(object_id), TypeId::new(0))
+                .unwrap(),
+        )
+    }
 
     #[test]
     fn reports_production_value_category_names() {
@@ -151,7 +162,7 @@ mod tests {
             Value::Str("host_path_view".to_owned())
         );
         assert_eq!(
-            type_of(&gc, &Value::host_ref(HostObjectId(4))),
+            type_of(&gc, &shared_borrow_value(4)),
             Value::Str("ephemeral".to_owned())
         );
     }

@@ -5,6 +5,8 @@ pub enum RuntimeErrorKind {
     CapabilityDenied,
     InvalidReflectiveWrite,
     ExpiredHostBorrow,
+    HostBorrowConflict,
+    HostBorrowEscape,
     ResourceLimitExceeded,
     MetadataConflict,
     StaleHandle,
@@ -42,6 +44,27 @@ impl RuntimeError {
         Self::new(
             RuntimeErrorKind::MetadataConflict,
             format!("metadata conflict: {}", name.into()),
+        )
+    }
+
+    pub fn expired_host_borrow(detail: impl Into<String>) -> Self {
+        Self::new(
+            RuntimeErrorKind::ExpiredHostBorrow,
+            format!("expired host borrow: {}", detail.into()),
+        )
+    }
+
+    pub fn host_borrow_conflict(detail: impl Into<String>) -> Self {
+        Self::new(
+            RuntimeErrorKind::HostBorrowConflict,
+            format!("host borrow conflict: {}", detail.into()),
+        )
+    }
+
+    pub fn host_borrow_escape(detail: impl Into<String>) -> Self {
+        Self::new(
+            RuntimeErrorKind::HostBorrowEscape,
+            format!("host borrow escape: {}", detail.into()),
         )
     }
 

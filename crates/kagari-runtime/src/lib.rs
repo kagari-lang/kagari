@@ -14,8 +14,9 @@ use kagari_ir::bytecode::{BuiltinMethod, BytecodeModule};
 
 pub use error::{RuntimeError, RuntimeErrorKind};
 pub use host::{
-    HostFunctionEffects, HostFunctionId, HostFunctionMetadata, HostReflectionPolicy, HostTypeInfo,
-    HostTypeOwnership, HostTypeRegistration,
+    BorrowEpoch, FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallGuard, HostFrameId,
+    HostFunctionEffects, HostFunctionId, HostFunctionMetadata, HostObjectId, HostReflectionPolicy,
+    HostTypeInfo, HostTypeOwnership, HostTypeRegistration,
 };
 pub use metadata::{
     AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
@@ -48,6 +49,7 @@ pub struct Runtime {
     gc: GcHeap,
     types: TypeRegistry,
     host: HostRegistry,
+    host_borrows: HostBorrowTable,
     security: SecurityContext,
     resources: ResourceState,
     reloads: HotReloadCoordinator,
@@ -62,6 +64,7 @@ impl Runtime {
             gc: GcHeap::new(gc_config),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
+            host_borrows: HostBorrowTable::default(),
             security: config.security,
             resources: ResourceState::new(config.resources),
             reloads: HotReloadCoordinator::default(),
@@ -79,6 +82,14 @@ impl Runtime {
 
     pub fn host_mut(&mut self) -> &mut HostRegistry {
         &mut self.host
+    }
+
+    pub fn host_borrows(&self) -> &HostBorrowTable {
+        &self.host_borrows
+    }
+
+    pub fn enter_host_call(&self) -> HostCallGuard<'_> {
+        self.host_borrows.enter_frame()
     }
 
     pub fn register_host_function(
