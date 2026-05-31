@@ -8,6 +8,7 @@ pub enum RuntimeErrorKind {
     HostBorrowConflict,
     HostBorrowEscape,
     TypedPathValidation,
+    ModuleValidation,
     ResourceLimitExceeded,
     MetadataConflict,
     StaleHandle,
@@ -73,6 +74,13 @@ impl RuntimeError {
         Self::new(
             RuntimeErrorKind::TypedPathValidation,
             format!("typed path validation failed: {}", detail.into()),
+        )
+    }
+
+    pub fn module_validation(detail: impl Into<String>) -> Self {
+        Self::new(
+            RuntimeErrorKind::ModuleValidation,
+            format!("module validation failed: {}", detail.into()),
         )
     }
 

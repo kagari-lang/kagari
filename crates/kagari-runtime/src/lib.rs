@@ -30,6 +30,7 @@ pub use metadata::{
 pub use module::{
     LoadedModule, ModuleId, ModuleInitializationState, ModuleInstance, ModuleKey, ModuleStore,
 };
+pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
 pub use security::{CapabilitySet, LanguageProfile, SecurityContext};
 
@@ -38,7 +39,7 @@ use crate::{
     gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
     host::{HostError, HostFunction, HostRegistry},
     reflection::ReflectionError,
-    reload::HotReloadCoordinator,
+    reload::{HotReloadCoordinator, validate_load_candidate, validate_reload_candidate},
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -393,12 +394,38 @@ impl Runtime {
         bytecode: BytecodeModule,
     ) -> Result<LoadedModule, RuntimeError> {
         let name = name.into();
+        validate_load_candidate(&bytecode).map_err(|error| match error {
+            ReloadValidationError::Bytecode(error) => {
+                RuntimeError::module_validation(format!("bytecode validation failed: {error:?}"))
+            }
+            error => RuntimeError::module_validation(error.to_string()),
+        })?;
         self.resources
             .record_loaded_modules(self.modules.loaded_count() + 1)?;
         let epoch = self.reloads.publish(&name);
         let module = self.modules.load(name, epoch, bytecode);
         self.resources
             .record_loaded_modules(self.modules.loaded_count())?;
+        Ok(module)
+    }
+
+    pub fn reload_module(
+        &mut self,
+        active: &LoadedModule,
+        name: impl Into<String>,
+        bytecode: BytecodeModule,
+    ) -> Result<LoadedModule, ReloadValidationError> {
+        let name = name.into();
+        let latest = self.modules.latest(&active.name);
+        validate_reload_candidate(active, &name, &bytecode, latest.as_ref())?;
+        self.resources
+            .record_loaded_modules(self.modules.loaded_count() + 1)
+            .map_err(ReloadValidationError::Runtime)?;
+        let epoch = self.reloads.publish(&name);
+        let module = self.modules.load(name, epoch, bytecode);
+        self.resources
+            .record_loaded_modules(self.modules.loaded_count())
+            .map_err(ReloadValidationError::Runtime)?;
         Ok(module)
     }
 }
@@ -412,7 +439,23 @@ impl Default for Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_ir::bytecode::BytecodeModule;
+    use kagari_ir::{
+        bytecode::BytecodeModule,
+        module::{FunctionAbi, PublicAbiItem},
+    };
+
+    fn module_with_public_function(return_type: &str) -> BytecodeModule {
+        BytecodeModule {
+            public_items: vec![PublicAbiItem::Function(FunctionAbi {
+                name: "main".to_owned(),
+                generic_params: Vec::new(),
+                bounds: Vec::new(),
+                params: Vec::new(),
+                return_type: return_type.to_owned(),
+            })],
+            ..BytecodeModule::default()
+        }
+    }
 
     #[test]
     fn load_module_reports_module_resource_limit() {
@@ -433,6 +476,107 @@ mod tests {
 
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
         assert_eq!(runtime.resources().counters().loaded_modules, 1);
+    }
+
+    #[test]
+    fn reload_publishes_valid_candidate_after_validation() {
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_module("reloadable", module_with_public_function("i32"))
+            .expect("module should load");
+
+        let reloaded = runtime
+            .reload_module(&loaded, "reloadable", module_with_public_function("i32"))
+            .expect("compatible module should reload");
+
+        assert_eq!(reloaded.id, loaded.id);
+        assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
+        assert_eq!(
+            runtime.modules().latest("reloadable").unwrap().epoch,
+            reloaded.epoch
+        );
+    }
+
+    #[test]
+    fn reload_rejects_public_abi_changes_before_publication() {
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_module("reloadable", module_with_public_function("i32"))
+            .expect("module should load");
+        let before_count = runtime.modules().loaded_count();
+
+        let error = runtime
+            .reload_module(&loaded, "reloadable", module_with_public_function("String"))
+            .expect_err("public ABI change should reject reload");
+
+        assert!(matches!(
+            error,
+            ReloadValidationError::PublicAbiFingerprintMismatch
+        ));
+        assert_eq!(runtime.modules().loaded_count(), before_count);
+        assert_eq!(
+            runtime.modules().latest("reloadable").unwrap().epoch,
+            loaded.epoch
+        );
+    }
+
+    #[test]
+    fn reload_rejects_stale_active_epoch_before_publication() {
+        let mut runtime = Runtime::default();
+        let first = runtime
+            .load_module("reloadable", module_with_public_function("i32"))
+            .expect("module should load");
+        let second = runtime
+            .reload_module(&first, "reloadable", module_with_public_function("i32"))
+            .expect("compatible module should reload");
+        let before_count = runtime.modules().loaded_count();
+
+        let error = runtime
+            .reload_module(&first, "reloadable", module_with_public_function("i32"))
+            .expect_err("stale active epoch should reject reload");
+
+        assert!(matches!(
+            error,
+            ReloadValidationError::ModuleNotActive {
+                expected,
+                active: Some(active),
+                ..
+            } if expected == first.epoch && active == second.epoch
+        ));
+        assert_eq!(runtime.modules().loaded_count(), before_count);
+        assert_eq!(
+            runtime.modules().latest("reloadable").unwrap().epoch,
+            second.epoch
+        );
+    }
+
+    #[test]
+    fn reload_resource_failure_preserves_active_epoch() {
+        let mut runtime = Runtime::new(RuntimeConfig {
+            resources: ResourcePolicy {
+                max_modules: Some(1),
+                ..ResourcePolicy::default()
+            },
+            ..RuntimeConfig::default()
+        });
+        let loaded = runtime
+            .load_module("reloadable", module_with_public_function("i32"))
+            .expect("module should load");
+
+        let error = runtime
+            .reload_module(&loaded, "reloadable", module_with_public_function("i32"))
+            .expect_err("resource limit should reject reload before publication");
+
+        assert!(matches!(
+            error,
+            ReloadValidationError::Runtime(ref error)
+                if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
+        ));
+        assert_eq!(runtime.modules().loaded_count(), 1);
+        assert_eq!(
+            runtime.modules().latest("reloadable").unwrap().epoch,
+            loaded.epoch
+        );
     }
 
     #[test]

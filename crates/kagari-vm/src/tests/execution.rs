@@ -169,7 +169,7 @@ fn reports_runtime_instruction_step_limit() {
 }
 
 #[test]
-fn rejects_unverified_bytecode_before_execution() {
+fn rejects_unverified_bytecode_before_publication() {
     let mut bytecode = verified_module(
         None,
         vec![test_function(
@@ -194,24 +194,13 @@ fn rejects_unverified_bytecode_before_execution() {
         },
         ..RuntimeConfig::default()
     });
-    let loaded = runtime
+    let error = runtime
         .load_module("unverified.kbc", bytecode)
-        .expect("runtime can store bytecode before VM validation");
+        .expect_err("runtime must reject unverified bytecode before publication");
 
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("VM must reject unverified bytecode before dispatch");
-
-    assert!(matches!(
-        error,
-        VmError::BytecodeVerification(
-            kagari_ir::bytecode::BytecodeVerificationError::FunctionTableLengthMismatch {
-                functions: 1,
-                table: 0,
-            }
-        )
-    ));
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(error.message().contains("FunctionTableLengthMismatch"));
+    assert_eq!(runtime.modules().loaded_count(), 0);
 }
 
 #[test]

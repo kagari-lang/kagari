@@ -3,16 +3,16 @@ use kagari_hir::{AnalyzedModule, analyze_module};
 use kagari_ir::{
     IrLoweringError,
     bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
+        ArtifactBuildOptions, ArtifactCompatibility, ArtifactModuleIdentity,
         ArtifactValidationError, BytecodeInstruction, BytecodeLoweringError, BytecodeModule,
-        CallTarget, KbcArtifact, PathDescriptorFingerprint, RuntimeHelper, lower_to_bytecode,
+        CallTarget, KbcArtifact, RuntimeHelper, lower_to_bytecode,
     },
     lower_to_ir,
 };
 use kagari_runtime::{
-    CapabilitySet, HostFunctionId, HostTypeRegistration, LanguageProfile, LoadedModule, ModuleId,
-    ResourcePolicy, Runtime, RuntimeConfig, RuntimeError, RuntimeErrorKind, SecurityContext,
-    TypeId, host::HostFunction, value::Value,
+    CapabilitySet, HostFunctionId, HostTypeRegistration, LanguageProfile, LoadedModule,
+    ReloadValidationError as RuntimeReloadValidationError, ResourcePolicy, Runtime, RuntimeConfig,
+    RuntimeError, RuntimeErrorKind, SecurityContext, TypeId, host::HostFunction, value::Value,
 };
 use kagari_syntax::parse_module;
 use kagari_vm::{ExecutionReport, Vm, VmError};
@@ -161,34 +161,10 @@ impl KagariRuntime {
         let module_name = options
             .module_name
             .unwrap_or_else(|| artifact.header.module_identity.source_uri.clone());
-        if module_name != previous.name {
-            return Err(EmbeddingError::reload_validation(
-                ReloadValidationError::ModuleIdentityMismatch {
-                    expected: previous.name.clone(),
-                    found: module_name,
-                },
-            ));
-        }
-        let previous_path_fingerprints = path_fingerprints_for_module(&previous.bytecode);
-        if previous_path_fingerprints != artifact.verification.typed_path_fingerprints {
-            return Err(EmbeddingError::reload_validation(
-                ReloadValidationError::PathFingerprintMismatch,
-            ));
-        }
-        let reloaded = self
-            .vm
+        self.vm
             .runtime_mut()
-            .load_module(previous.name.clone(), artifact.module)
-            .map_err(EmbeddingError::load)?;
-        if reloaded.id != previous.id {
-            return Err(EmbeddingError::reload_validation(
-                ReloadValidationError::ModuleIdChanged {
-                    expected: previous.id,
-                    found: reloaded.id,
-                },
-            ));
-        }
-        Ok(reloaded)
+            .reload_module(previous, module_name, artifact.module)
+            .map_err(EmbeddingError::reload_validation)
     }
 
     pub fn execute(
@@ -544,6 +520,7 @@ impl EmbeddingError {
                 | RuntimeErrorKind::HostBorrowEscape
                 | RuntimeErrorKind::ExpiredHostBorrow
                 | RuntimeErrorKind::TypedPathValidation => RuntimeFailureKind::TypedPathValidation,
+                RuntimeErrorKind::ModuleValidation => RuntimeFailureKind::BytecodeVerification,
                 RuntimeErrorKind::InvalidReflectiveWrite | RuntimeErrorKind::MetadataConflict => {
                     RuntimeFailureKind::ScriptTrap
                 }
@@ -575,27 +552,14 @@ impl EmbeddingError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReloadValidationError {
     Artifact(ArtifactValidationError),
-    ModuleIdentityMismatch { expected: String, found: String },
-    ModuleIdChanged { expected: ModuleId, found: ModuleId },
-    PathFingerprintMismatch,
+    Runtime(RuntimeReloadValidationError),
 }
 
 impl std::fmt::Display for ReloadValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Artifact(error) => write!(f, "artifact validation failed: {error:?}"),
-            Self::ModuleIdentityMismatch { expected, found } => write!(
-                f,
-                "reload module identity mismatch: expected `{expected}`, found `{found}`"
-            ),
-            Self::ModuleIdChanged { expected, found } => write!(
-                f,
-                "reload module id changed: expected {:?}, found {:?}",
-                expected, found
-            ),
-            Self::PathFingerprintMismatch => {
-                write!(f, "reload typed path fingerprints changed")
-            }
+            Self::Runtime(error) => write!(f, "{error}"),
         }
     }
 }
@@ -606,13 +570,8 @@ impl From<ArtifactValidationError> for ReloadValidationError {
     }
 }
 
-fn path_fingerprints_for_module(module: &BytecodeModule) -> Vec<PathDescriptorFingerprint> {
-    module
-        .paths
-        .iter()
-        .map(|path| PathDescriptorFingerprint {
-            path: path.id,
-            fingerprint: ArtifactFingerprint::of_debug(path),
-        })
-        .collect()
+impl From<RuntimeReloadValidationError> for ReloadValidationError {
+    fn from(error: RuntimeReloadValidationError) -> Self {
+        Self::Runtime(error)
+    }
 }
