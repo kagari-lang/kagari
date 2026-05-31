@@ -2,7 +2,7 @@ use crate::{
     builtin::array,
     lower_to_ir,
     module::instruction::RuntimeHelper,
-    module::{BinaryOp, BuiltinMethod, CallTarget, Instruction, Terminator},
+    module::{BinaryOp, BuiltinMethod, CallTarget, Instruction, IrFunction, IrValue, Terminator},
     tests::common,
 };
 
@@ -19,6 +19,55 @@ fn lowers_function_into_cfg_shaped_ir() {
         function.blocks[0].terminator,
         Some(Terminator::Return(Some(_)))
     ));
+}
+
+#[test]
+fn normalizes_ir_operands_as_typed_values() {
+    let analyzed = common::analyze_ok("fn main(value: i32) -> i32 { val next = value + 1; next }");
+    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let function = &ir.functions[0];
+
+    assert_eq!(
+        function.params[0].ty,
+        function.locals[function.params[0].local.index()].ty
+    );
+    for block in &function.blocks {
+        for instruction in &block.instructions {
+            for value in instruction_values(instruction) {
+                assert_value_matches_temp_layout(function, value);
+            }
+        }
+        if let Some(terminator) = &block.terminator {
+            for value in terminator_values(terminator) {
+                assert_value_matches_temp_layout(function, value);
+            }
+        }
+    }
+}
+
+#[test]
+fn records_ir_function_effect_summary() {
+    let analyzed = common::analyze_ok(
+        r#"
+fn main() -> usize {
+    val values = [1, 2];
+    values.push(3);
+    print("ok");
+    values.len()
+}
+"#,
+    );
+    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let effects = ir.functions[0].effects;
+
+    assert!(effects.reads_local);
+    assert!(effects.writes_local);
+    assert!(effects.reads_aggregate);
+    assert!(effects.writes_aggregate);
+    assert!(effects.allocates);
+    assert!(effects.calls);
+    assert!(effects.touches_runtime);
+    assert!(effects.may_trap);
 }
 
 #[test]
@@ -292,4 +341,51 @@ fn main() -> () {
             .flat_map(|block| block.instructions.iter())
             .any(|instruction| matches!(instruction, Instruction::ReadField { .. }))
     );
+}
+
+fn assert_value_matches_temp_layout(function: &IrFunction, value: IrValue) {
+    assert_eq!(function.temps[value.temp.index()].ty, value.ty);
+}
+
+fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
+    match instruction {
+        Instruction::LoadConst { dst, .. }
+        | Instruction::LoadLocal { dst, .. }
+        | Instruction::LoadModule { dst, .. } => vec![*dst],
+        Instruction::StoreLocal { src, .. } | Instruction::StoreModule { src, .. } => vec![*src],
+        Instruction::Move { dst, src } => vec![*dst, *src],
+        Instruction::Unary { dst, operand, .. } => vec![*dst, *operand],
+        Instruction::Binary { dst, lhs, rhs, .. } => vec![*dst, *lhs, *rhs],
+        Instruction::Call { dst, callee, args } => {
+            let mut values = Vec::new();
+            if let Some(dst) = dst {
+                values.push(*dst);
+            }
+            if let CallTarget::Value(callee) = callee {
+                values.push(*callee);
+            }
+            values.extend(args.iter().copied());
+            values
+        }
+        Instruction::MakeTuple { dst, elements } | Instruction::MakeArray { dst, elements } => {
+            let mut values = vec![*dst];
+            values.extend(elements.iter().copied());
+            values
+        }
+        Instruction::MakeStruct { dst, fields, .. } => {
+            let mut values = vec![*dst];
+            values.extend(fields.iter().map(|field| field.value));
+            values
+        }
+        Instruction::ReadField { dst, base, .. } => vec![*dst, *base],
+        Instruction::ReadIndex { dst, base, index } => vec![*dst, *base, *index],
+    }
+}
+
+fn terminator_values(terminator: &Terminator) -> Vec<IrValue> {
+    match terminator {
+        Terminator::Return(value) => value.iter().copied().collect(),
+        Terminator::Branch { cond, .. } => vec![*cond],
+        Terminator::Jump(_) | Terminator::Unreachable => Vec::new(),
+    }
 }

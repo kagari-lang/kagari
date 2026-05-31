@@ -7,7 +7,7 @@ use crate::lower::EvaluatedConst;
 use crate::module::{
     function::{BasicBlock, IrFunction, IrLocal, IrParameter, IrTemp, ParameterBuffer},
     ids::{BlockId, LocalId, TempId},
-    instruction::{Instruction, Terminator},
+    instruction::{EffectSet, Instruction, IrValue, Terminator},
     types::ValueType,
 };
 
@@ -25,6 +25,7 @@ pub(crate) struct FunctionLowerer<'a> {
     pub(crate) params: HashMap<hir::ParamId, LocalId>,
     pub(crate) locals: HashMap<hir::LocalId, LocalId>,
     pub(crate) loops: Vec<LoopScope>,
+    pub(crate) effects: EffectSet,
 }
 
 impl<'a> FunctionLowerer<'a> {
@@ -47,6 +48,7 @@ impl<'a> FunctionLowerer<'a> {
                 terminator: None,
             }],
             entry,
+            effects: EffectSet::default(),
         };
 
         let mut params = HashMap::new();
@@ -72,10 +74,12 @@ impl<'a> FunctionLowerer<'a> {
             params,
             locals: HashMap::new(),
             loops: Vec::new(),
+            effects: EffectSet::default(),
         }
     }
 
-    pub(crate) fn finish(self) -> IrFunction {
+    pub(crate) fn finish(mut self) -> IrFunction {
+        self.function.effects = self.effects;
         self.function
     }
 
@@ -99,12 +103,14 @@ impl<'a> FunctionLowerer<'a> {
     }
 
     pub(crate) fn emit(&mut self, instruction: Instruction) {
+        self.effects = self.effects.union(instruction.effects());
         self.function.blocks[self.current_block.index()]
             .instructions
             .push(instruction);
     }
 
     pub(crate) fn set_terminator(&mut self, terminator: Terminator) {
+        self.effects = self.effects.union(terminator.effects());
         self.function.blocks[self.current_block.index()].terminator = Some(terminator);
     }
 
@@ -114,10 +120,10 @@ impl<'a> FunctionLowerer<'a> {
         }
     }
 
-    pub(crate) fn alloc_temp(&mut self, ty: ValueType) -> TempId {
+    pub(crate) fn alloc_temp(&mut self, ty: ValueType) -> IrValue {
         let id = TempId::new(self.function.temps.len());
         self.function.temps.push(IrTemp { ty });
-        id
+        IrValue { temp: id, ty }
     }
 
     pub(crate) fn alloc_local(&mut self, name: String, ty: ValueType) -> LocalId {

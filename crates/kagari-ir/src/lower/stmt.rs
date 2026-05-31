@@ -3,14 +3,13 @@ use kagari_hir::resolver::ResolvedName;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::{FunctionLowerer, LoopScope};
-use crate::module::ids::TempId;
-use crate::module::instruction::{CallTarget, Instruction, RuntimeHelper, Terminator};
+use crate::module::instruction::{CallTarget, Instruction, IrValue, RuntimeHelper, Terminator};
 
 impl FunctionLowerer<'_> {
     pub(crate) fn lower_block(
         &mut self,
         block_id: hir::BlockId,
-    ) -> Result<Option<TempId>, IrLoweringError> {
+    ) -> Result<Option<IrValue>, IrLoweringError> {
         let block = self.analyzed.lowered.module.block(block_id).clone();
         for stmt in &block.statements {
             self.lower_stmt(*stmt)?;
@@ -131,7 +130,7 @@ impl FunctionLowerer<'_> {
     fn lower_place_assignment(
         &mut self,
         place_id: hir::PlaceId,
-        src: TempId,
+        src: IrValue,
     ) -> Result<(), IrLoweringError> {
         let place = self.analyzed.lowered.module.place(place_id).clone();
         match place.kind {
@@ -169,7 +168,7 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    fn lower_place_value(&mut self, place_id: hir::PlaceId) -> Result<TempId, IrLoweringError> {
+    fn lower_place_value(&mut self, place_id: hir::PlaceId) -> Result<IrValue, IrLoweringError> {
         let place = self.analyzed.lowered.module.place(place_id).clone();
         match place.kind {
             hir::PlaceKind::Name(_) => {
@@ -210,10 +209,10 @@ impl FunctionLowerer<'_> {
     fn lower_reflect_set_field(
         &mut self,
         place_id: hir::PlaceId,
-        base: TempId,
+        base: IrValue,
         name: String,
-        value: TempId,
-    ) -> Result<TempId, IrLoweringError> {
+        value: IrValue,
+    ) -> Result<IrValue, IrLoweringError> {
         let dst = self.alloc_temp(self.place_type(place_id)?);
         self.emit(Instruction::Call {
             dst: Some(dst),
@@ -226,10 +225,10 @@ impl FunctionLowerer<'_> {
     fn lower_reflect_set_index(
         &mut self,
         place_id: hir::PlaceId,
-        base: TempId,
-        index: TempId,
-        value: TempId,
-    ) -> Result<TempId, IrLoweringError> {
+        base: IrValue,
+        index: IrValue,
+        value: IrValue,
+    ) -> Result<IrValue, IrLoweringError> {
         let dst = self.alloc_temp(self.place_type(place_id)?);
         self.emit(Instruction::Call {
             dst: Some(dst),

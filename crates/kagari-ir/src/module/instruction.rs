@@ -2,80 +2,87 @@ use kagari_hir::{builtin::BuiltinMethod, hir};
 use smallvec::SmallVec;
 
 use crate::module::ids::{BlockId, LocalId, ModuleSlotId, TempId};
+use crate::module::types::ValueType;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IrValue {
+    pub temp: TempId,
+    pub ty: ValueType,
+}
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
     LoadConst {
-        dst: TempId,
+        dst: IrValue,
         constant: Constant,
     },
     LoadLocal {
-        dst: TempId,
+        dst: IrValue,
         local: LocalId,
     },
     LoadModule {
-        dst: TempId,
+        dst: IrValue,
         slot: ModuleSlotId,
     },
     StoreLocal {
         local: LocalId,
-        src: TempId,
+        src: IrValue,
     },
     StoreModule {
         slot: ModuleSlotId,
-        src: TempId,
+        src: IrValue,
     },
     Move {
-        dst: TempId,
-        src: TempId,
+        dst: IrValue,
+        src: IrValue,
     },
     Unary {
-        dst: TempId,
+        dst: IrValue,
         op: UnaryOp,
-        operand: TempId,
+        operand: IrValue,
     },
     Binary {
-        dst: TempId,
+        dst: IrValue,
         op: BinaryOp,
-        lhs: TempId,
-        rhs: TempId,
+        lhs: IrValue,
+        rhs: IrValue,
     },
     Call {
-        dst: Option<TempId>,
+        dst: Option<IrValue>,
         callee: CallTarget,
-        args: TempIdBuffer,
+        args: ValueBuffer,
     },
     MakeTuple {
-        dst: TempId,
-        elements: TempIdBuffer,
+        dst: IrValue,
+        elements: ValueBuffer,
     },
     MakeArray {
-        dst: TempId,
-        elements: TempIdBuffer,
+        dst: IrValue,
+        elements: ValueBuffer,
     },
     MakeStruct {
-        dst: TempId,
+        dst: IrValue,
         name: String,
         fields: StructFieldInitBuffer,
     },
     ReadField {
-        dst: TempId,
-        base: TempId,
+        dst: IrValue,
+        base: IrValue,
         name: String,
     },
     ReadIndex {
-        dst: TempId,
-        base: TempId,
-        index: TempId,
+        dst: IrValue,
+        base: IrValue,
+        index: IrValue,
     },
 }
 
 #[derive(Debug, Clone)]
 pub enum Terminator {
-    Return(Option<TempId>),
+    Return(Option<IrValue>),
     Jump(BlockId),
     Branch {
-        cond: TempId,
+        cond: IrValue,
         then_block: BlockId,
         else_block: BlockId,
     },
@@ -85,9 +92,173 @@ pub enum Terminator {
 #[derive(Debug, Clone)]
 pub enum CallTarget {
     Function(hir::FunctionId),
-    Temp(TempId),
+    Value(IrValue),
     BuiltinMethod(BuiltinMethod),
     RuntimeHelper(RuntimeHelper),
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EffectSet {
+    pub reads_local: bool,
+    pub writes_local: bool,
+    pub reads_module: bool,
+    pub writes_module: bool,
+    pub reads_aggregate: bool,
+    pub writes_aggregate: bool,
+    pub allocates: bool,
+    pub calls: bool,
+    pub touches_runtime: bool,
+    pub may_trap: bool,
+}
+
+impl EffectSet {
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            reads_local: self.reads_local || other.reads_local,
+            writes_local: self.writes_local || other.writes_local,
+            reads_module: self.reads_module || other.reads_module,
+            writes_module: self.writes_module || other.writes_module,
+            reads_aggregate: self.reads_aggregate || other.reads_aggregate,
+            writes_aggregate: self.writes_aggregate || other.writes_aggregate,
+            allocates: self.allocates || other.allocates,
+            calls: self.calls || other.calls,
+            touches_runtime: self.touches_runtime || other.touches_runtime,
+            may_trap: self.may_trap || other.may_trap,
+        }
+    }
+
+    pub fn local_read() -> Self {
+        Self {
+            reads_local: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn local_write() -> Self {
+        Self {
+            writes_local: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn aggregate_read() -> Self {
+        Self {
+            reads_aggregate: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn module_read() -> Self {
+        Self {
+            reads_module: true,
+            touches_runtime: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn module_write() -> Self {
+        Self {
+            writes_module: true,
+            touches_runtime: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn aggregate_write() -> Self {
+        Self {
+            writes_aggregate: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn allocation() -> Self {
+        Self {
+            allocates: true,
+            touches_runtime: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn call() -> Self {
+        Self {
+            calls: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn runtime_call() -> Self {
+        Self {
+            calls: true,
+            touches_runtime: true,
+            may_trap: true,
+            ..Self::default()
+        }
+    }
+}
+
+impl Instruction {
+    pub fn effects(&self) -> EffectSet {
+        match self {
+            Self::LoadConst { .. }
+            | Self::Move { .. }
+            | Self::Unary { .. }
+            | Self::Binary { .. } => EffectSet::default(),
+            Self::LoadLocal { .. } => EffectSet::local_read(),
+            Self::StoreLocal { .. } => EffectSet::local_write(),
+            Self::LoadModule { .. } => EffectSet::module_read(),
+            Self::StoreModule { .. } => EffectSet::module_write(),
+            Self::Call { callee, .. } => callee.effects(),
+            Self::MakeTuple { .. } | Self::MakeArray { .. } | Self::MakeStruct { .. } => {
+                EffectSet::allocation()
+            }
+            Self::ReadField { .. } | Self::ReadIndex { .. } => EffectSet::aggregate_read(),
+        }
+    }
+}
+
+impl Terminator {
+    pub fn effects(&self) -> EffectSet {
+        EffectSet::default()
+    }
+}
+
+impl CallTarget {
+    pub fn effects(&self) -> EffectSet {
+        match self {
+            Self::Function(_) | Self::Value(_) => EffectSet::call(),
+            Self::BuiltinMethod(method) => match method {
+                BuiltinMethod::Array(kagari_hir::builtin::array::Method::Push)
+                | BuiltinMethod::Array(kagari_hir::builtin::array::Method::Pop) => {
+                    EffectSet::runtime_call().union(EffectSet::aggregate_write())
+                }
+                BuiltinMethod::Array(kagari_hir::builtin::array::Method::Len)
+                | BuiltinMethod::String(kagari_hir::builtin::StringMethod::Len) => {
+                    EffectSet::runtime_call().union(EffectSet::aggregate_read())
+                }
+            },
+            Self::RuntimeHelper(helper) => helper.effects(),
+        }
+    }
+}
+
+impl RuntimeHelper {
+    pub fn effects(&self) -> EffectSet {
+        match self {
+            Self::HostFunction(_) | Self::DynamicCall => EffectSet::runtime_call(),
+            Self::ReflectTypeOf | Self::ReflectGetField(_) => {
+                EffectSet::runtime_call().union(EffectSet::aggregate_read())
+            }
+            Self::ReflectSetField(_) | Self::ReflectSetIndex => {
+                EffectSet::runtime_call().union(EffectSet::aggregate_write())
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -134,9 +305,9 @@ pub enum BinaryOp {
 #[derive(Debug, Clone)]
 pub struct StructFieldInit {
     pub name: String,
-    pub value: TempId,
+    pub value: IrValue,
 }
 
 pub type InstructionBuffer = Vec<Instruction>;
-pub type TempIdBuffer = SmallVec<[TempId; 4]>;
+pub type ValueBuffer = SmallVec<[IrValue; 4]>;
 pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;

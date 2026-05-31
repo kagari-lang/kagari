@@ -2,7 +2,7 @@ use kagari_hir::hir;
 
 use crate::module::{
     ids::{BlockId, LocalId, ModuleSlotId},
-    instruction::{InstructionBuffer, Terminator},
+    instruction::{EffectSet, InstructionBuffer, Terminator},
     types::ValueType,
 };
 
@@ -23,6 +23,7 @@ pub struct IrFunction {
     pub temps: TempBuffer,
     pub blocks: BlockBuffer,
     pub entry: BlockId,
+    pub effects: EffectSet,
 }
 
 #[derive(Debug, Clone)]

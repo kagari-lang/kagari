@@ -6,15 +6,14 @@ use kagari_hir::{
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
 use crate::module::BuiltinMethod as IrBuiltinMethod;
-use crate::module::ids::TempId;
 use crate::module::instruction::{
-    BinaryOp, CallTarget, Constant, Instruction, RuntimeHelper, StructFieldInit, TempIdBuffer,
-    Terminator,
+    BinaryOp, CallTarget, Constant, Instruction, IrValue, RuntimeHelper, StructFieldInit,
+    Terminator, ValueBuffer,
 };
 use crate::module::types::ValueType;
 
 impl FunctionLowerer<'_> {
-    pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<TempId, IrLoweringError> {
+    pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         let expr = self.analyzed.lowered.module.expr(expr_id).clone();
         match expr.kind {
             hir::ExprKind::Name(_) => self.lower_name_expr(expr_id),
@@ -75,7 +74,7 @@ impl FunctionLowerer<'_> {
                         .collect::<Result<_, _>>()?;
                     let callee = match self.lower_direct_callee(callee)? {
                         Some(callee) => callee,
-                        None => CallTarget::Temp(self.lower_expr(callee)?),
+                        None => CallTarget::Value(self.lower_expr(callee)?),
                     };
                     (callee, args)
                 };
@@ -116,7 +115,7 @@ impl FunctionLowerer<'_> {
         condition: hir::ExprId,
         then_branch: hir::BlockId,
         else_branch: Option<hir::ExprId>,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let cond = self.lower_expr(condition)?;
         let then_block = self.new_block();
         let else_block = self.new_block();
@@ -164,7 +163,7 @@ impl FunctionLowerer<'_> {
         lhs: hir::ExprId,
         op: hir::BinaryOp,
         rhs: hir::ExprId,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let lhs = self.lower_expr(lhs)?;
         let rhs_block = self.new_block();
         let short_block = self.new_block();
@@ -224,7 +223,7 @@ impl FunctionLowerer<'_> {
         expr_id: hir::ExprId,
         scrutinee: hir::ExprId,
         arms: hir::MatchArmBuffer,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let scrutinee_temp = self.lower_expr(scrutinee)?;
         let result = self.alloc_temp(self.expr_type(expr_id)?);
         let exit_block = self.new_block();
@@ -310,7 +309,7 @@ impl FunctionLowerer<'_> {
         Ok(result)
     }
 
-    fn lower_literal_value(&mut self, literal: &hir::Literal) -> TempId {
+    fn lower_literal_value(&mut self, literal: &hir::Literal) -> IrValue {
         match literal.kind {
             hir::LiteralKind::Number => {
                 let value = literal.text.parse::<i32>().unwrap_or_default();
@@ -334,7 +333,7 @@ impl FunctionLowerer<'_> {
         &mut self,
         expr_id: hir::ExprId,
         elements: hir::ExprBuffer,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let elements = elements
             .iter()
             .map(|expr| self.lower_expr(*expr))
@@ -348,7 +347,7 @@ impl FunctionLowerer<'_> {
         &mut self,
         expr_id: hir::ExprId,
         elements: hir::ExprBuffer,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let elements = elements
             .iter()
             .map(|expr| self.lower_expr(*expr))
@@ -363,7 +362,7 @@ impl FunctionLowerer<'_> {
         expr_id: hir::ExprId,
         path: String,
         fields: hir::FieldInitBuffer,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let fields = fields
             .iter()
             .map(|field| {
@@ -387,7 +386,7 @@ impl FunctionLowerer<'_> {
         expr_id: hir::ExprId,
         receiver: hir::ExprId,
         name: String,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let base = self.lower_expr(receiver)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadField { dst, base, name });
@@ -399,7 +398,7 @@ impl FunctionLowerer<'_> {
         expr_id: hir::ExprId,
         receiver: hir::ExprId,
         index: hir::ExprId,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let base = self.lower_expr(receiver)?;
         let index = self.lower_expr(index)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
@@ -411,7 +410,7 @@ impl FunctionLowerer<'_> {
         &mut self,
         callee: hir::ExprId,
         args: &[hir::ExprId],
-    ) -> Result<Option<(RuntimeHelper, TempIdBuffer)>, IrLoweringError> {
+    ) -> Result<Option<(RuntimeHelper, ValueBuffer)>, IrLoweringError> {
         let Some(helper) = self.runtime_helper_name(callee) else {
             return Ok(None);
         };
@@ -481,7 +480,7 @@ impl FunctionLowerer<'_> {
         &mut self,
         callee: hir::ExprId,
         args: &[hir::ExprId],
-    ) -> Result<Option<(IrBuiltinMethod, TempIdBuffer)>, IrLoweringError> {
+    ) -> Result<Option<(IrBuiltinMethod, ValueBuffer)>, IrLoweringError> {
         let Some((method, receiver)) = self.builtin_method(callee) else {
             return Ok(None);
         };

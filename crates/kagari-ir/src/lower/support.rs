@@ -3,9 +3,9 @@ use kagari_hir::{hir, resolver::ResolvedName};
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
 use crate::lower::{EvaluatedConst, EvaluatedConstField};
-use crate::module::ids::{LocalId, TempId};
+use crate::module::ids::LocalId;
 use crate::module::instruction::{
-    BinaryOp, CallTarget, Constant, Instruction, StructFieldInit, UnaryOp,
+    BinaryOp, CallTarget, Constant, Instruction, IrValue, StructFieldInit, UnaryOp,
 };
 use crate::module::types::ValueType;
 
@@ -94,13 +94,13 @@ impl FunctionLowerer<'_> {
             .ok_or(IrLoweringError::UnresolvedPlace(root))
     }
 
-    pub(crate) fn lower_constant(&mut self, constant: Constant, ty: ValueType) -> TempId {
+    pub(crate) fn lower_constant(&mut self, constant: Constant, ty: ValueType) -> IrValue {
         let dst = self.alloc_temp(ty);
         self.emit(Instruction::LoadConst { dst, constant });
         dst
     }
 
-    pub(crate) fn lower_unit(&mut self) -> TempId {
+    pub(crate) fn lower_unit(&mut self) -> IrValue {
         self.lower_constant(Constant::Unit, ValueType::Unit)
     }
 
@@ -108,7 +108,7 @@ impl FunctionLowerer<'_> {
         &mut self,
         value: &EvaluatedConst,
         ty: ValueType,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         match value {
             EvaluatedConst::Scalar(constant) => Ok(self.lower_constant(constant.clone(), ty)),
             EvaluatedConst::Tuple(elements) => {
@@ -158,7 +158,7 @@ impl FunctionLowerer<'_> {
     pub(crate) fn lower_name_expr(
         &mut self,
         expr_id: hir::ExprId,
-    ) -> Result<TempId, IrLoweringError> {
+    ) -> Result<IrValue, IrLoweringError> {
         let resolved = self
             .analyzed
             .names

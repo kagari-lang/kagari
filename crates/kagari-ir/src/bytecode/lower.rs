@@ -12,7 +12,7 @@ use crate::module::{
     function::{BasicBlock, IrFunction, IrModule},
     ids::{BlockId, LocalId, ModuleSlotId, TempId},
     instruction::{
-        BinaryOp as IrBinaryOp, CallTarget as IrCallTarget, Constant, Instruction,
+        BinaryOp as IrBinaryOp, CallTarget as IrCallTarget, Constant, Instruction, IrValue,
         RuntimeHelper as IrRuntimeHelper, Terminator, UnaryOp as IrUnaryOp,
     },
 };
@@ -118,39 +118,39 @@ fn lower_instruction(
 ) -> BytecodeInstruction {
     match instruction {
         Instruction::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
-            dst: lower_temp(*dst),
+            dst: lower_value(*dst),
             constant: lower_constant(constant),
         },
         Instruction::LoadLocal { dst, local } => BytecodeInstruction::LoadLocal {
-            dst: lower_temp(*dst),
+            dst: lower_value(*dst),
             local: lower_local(*local),
         },
         Instruction::LoadModule { dst, slot } => BytecodeInstruction::LoadModule {
-            dst: lower_temp(*dst),
+            dst: lower_value(*dst),
             slot: lower_module_slot(*slot),
         },
         Instruction::StoreLocal { local, src } => BytecodeInstruction::StoreLocal {
             local: lower_local(*local),
-            src: lower_temp(*src),
+            src: lower_value(*src),
         },
         Instruction::StoreModule { slot, src } => BytecodeInstruction::StoreModule {
             slot: lower_module_slot(*slot),
-            src: lower_temp(*src),
+            src: lower_value(*src),
         },
         Instruction::Move { dst, src } => BytecodeInstruction::Move {
-            dst: lower_temp(*dst),
-            src: lower_temp(*src),
+            dst: lower_value(*dst),
+            src: lower_value(*src),
         },
         Instruction::Unary { dst, op, operand } => BytecodeInstruction::Unary {
-            dst: lower_temp(*dst),
+            dst: lower_value(*dst),
             op: match op {
                 IrUnaryOp::Neg => UnaryOp::Neg,
                 IrUnaryOp::Not => UnaryOp::Not,
             },
-            operand: lower_temp(*operand),
+            operand: lower_value(*operand),
         },
         Instruction::Binary { dst, op, lhs, rhs } => BytecodeInstruction::Binary {
-            dst: lower_temp(*dst),
+            dst: lower_value(*dst),
             op: match op {
                 IrBinaryOp::Add => BinaryOp::Add,
                 IrBinaryOp::Sub => BinaryOp::Sub,
@@ -168,18 +168,18 @@ fn lower_instruction(
                     )
                 }
             },
-            lhs: lower_temp(*lhs),
-            rhs: lower_temp(*rhs),
+            lhs: lower_value(*lhs),
+            rhs: lower_value(*rhs),
         },
         Instruction::Call { dst, callee, args } => BytecodeInstruction::Call {
-            dst: dst.map(lower_temp),
+            dst: dst.map(lower_value),
             callee: match callee {
                 IrCallTarget::Function(id) => CallTarget::Function(
                     *function_refs
                         .get(id)
                         .expect("bytecode lowering should resolve direct call targets"),
                 ),
-                IrCallTarget::Temp(temp) => CallTarget::Register(lower_temp(*temp)),
+                IrCallTarget::Value(value) => CallTarget::Register(lower_value(*value)),
                 IrCallTarget::BuiltinMethod(method) => {
                     CallTarget::BuiltinMethod(lower_builtin_method(*method))
                 }
@@ -187,42 +187,42 @@ fn lower_instruction(
                     CallTarget::RuntimeHelper(lower_runtime_helper(helper))
                 }
             },
-            args: args.iter().map(|arg| lower_temp(*arg)).collect(),
+            args: args.iter().map(|arg| lower_value(*arg)).collect(),
         },
         Instruction::MakeTuple { dst, elements } => BytecodeInstruction::MakeTuple {
-            dst: lower_temp(*dst),
+            dst: lower_value(*dst),
             elements: elements
                 .iter()
-                .map(|element| lower_temp(*element))
+                .map(|element| lower_value(*element))
                 .collect(),
         },
         Instruction::MakeArray { dst, elements } => BytecodeInstruction::MakeArray {
-            dst: lower_temp(*dst),
+            dst: lower_value(*dst),
             elements: elements
                 .iter()
-                .map(|element| lower_temp(*element))
+                .map(|element| lower_value(*element))
                 .collect(),
         },
         Instruction::MakeStruct { dst, name, fields } => BytecodeInstruction::MakeStruct {
-            dst: lower_temp(*dst),
+            dst: lower_value(*dst),
             name: name.clone(),
             fields: fields
                 .iter()
                 .map(|field| StructFieldInit {
                     name: field.name.clone(),
-                    value: lower_temp(field.value),
+                    value: lower_value(field.value),
                 })
                 .collect(),
         },
         Instruction::ReadField { dst, base, name } => BytecodeInstruction::ReadField {
-            dst: lower_temp(*dst),
-            base: lower_temp(*base),
+            dst: lower_value(*dst),
+            base: lower_value(*base),
             name: name.clone(),
         },
         Instruction::ReadIndex { dst, base, index } => BytecodeInstruction::ReadIndex {
-            dst: lower_temp(*dst),
-            base: lower_temp(*base),
-            index: lower_temp(*index),
+            dst: lower_value(*dst),
+            base: lower_value(*base),
+            index: lower_value(*index),
         },
     }
 }
@@ -232,7 +232,7 @@ fn lower_terminator(
     block_offsets: &HashMap<BlockId, JumpTarget>,
 ) -> Result<BytecodeInstruction, BytecodeLoweringError> {
     Ok(match terminator {
-        Terminator::Return(value) => BytecodeInstruction::Return(value.map(lower_temp)),
+        Terminator::Return(value) => BytecodeInstruction::Return(value.map(lower_value)),
         Terminator::Jump(target) => BytecodeInstruction::Jump {
             target: lower_jump(*target, block_offsets)?,
         },
@@ -241,7 +241,7 @@ fn lower_terminator(
             then_block,
             else_block,
         } => BytecodeInstruction::Branch {
-            cond: lower_temp(*cond),
+            cond: lower_value(*cond),
             then_target: lower_jump(*then_block, block_offsets)?,
             else_target: lower_jump(*else_block, block_offsets)?,
         },
@@ -276,6 +276,10 @@ fn lower_runtime_helper(helper: &IrRuntimeHelper) -> RuntimeHelper {
 
 fn lower_temp(temp: TempId) -> Register {
     Register::new(temp.index())
+}
+
+fn lower_value(value: IrValue) -> Register {
+    lower_temp(value.temp)
 }
 
 fn lower_local(local: LocalId) -> LocalSlot {
