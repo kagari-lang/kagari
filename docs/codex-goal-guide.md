@@ -18,6 +18,7 @@ Milestones remain acceptance groupings, not commit boundaries.
 - Add tests before or alongside behavior changes.
 - Keep each step small enough to leave a reviewable working tree.
 - Commit after every fully verified roadmap step with that step's exact conventional commit message.
+- Include the step's `Roadmap-Step: Mx.y` trailer in every step commit.
 - Do not combine multiple steps in one commit unless the roadmap explicitly marks them as one step.
 - Do not advance to the next step while the current step has uncommitted changes.
 
@@ -29,13 +30,17 @@ Codex must read these before starting or resuming execution:
 - `docs/implementation-roadmap.md`
 - `docs/kagari.ebnf`
 - `docs/spec/syntax.md`
+- `docs/spec/builtins.md`
 - `docs/spec/modules.md`
+- `docs/spec/module-loading.md`
 - `docs/spec/traits.md`
 - `docs/spec/reflection.md`
 - `docs/spec/typed-path-mutation.md`
 - `docs/spec/bytecode.md`
+- `docs/spec/artifacts.md`
 - `docs/spec/runtime.md`
 - `docs/spec/host-interop.md`
+- `docs/spec/embedding-api.md`
 - `docs/spec/security.md`
 - `docs/spec/execution.md`
 - `docs/spec/codegen-backend.md`
@@ -69,6 +74,7 @@ Execution rules:
 - Before committing the step, run the relevant package tests from the current milestone plus git diff --check.
 - Run the milestone verification commands when the step completes a milestone.
 - Commit immediately after each fully verified step using the exact conventional commit message listed for that step.
+- Add the exact `Roadmap-Step: Mx.y` trailer listed for that step to the commit body.
 - Do not proceed to the next step until the current step is verified and committed.
 - Keep the working tree small and reviewable at all times.
 
@@ -86,7 +92,7 @@ Use this prompt when resuming an interrupted Goal Mode session:
 /goal Resume execution of docs/implementation-roadmap.md.
 
 First inspect git status, recent commits, and the roadmap.
-Find the first incomplete step.
+Find the first incomplete step by checking roadmap step ids and `Roadmap-Step: Mx.y` commit trailers in git log.
 Do not repeat completed step commits.
 Continue with exactly one roadmap step at a time.
 Verify and commit each completed step with its required conventional commit message.
@@ -109,4 +115,6 @@ Verification:
 - ...
 Commit:
 - <hash and message, or not committed yet>
+Trailer:
+- Roadmap-Step: <Mx.y, or not committed yet>
 ```

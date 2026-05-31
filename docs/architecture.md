@@ -51,7 +51,10 @@ A Cranelift backend should live outside the frontend, HIR, and core runtime crat
 The production pipeline is:
 
 ```text
-source
+package root / host source / bytecode artifact
+  -> module loader
+  -> source or verified .kbc artifact
+  -> source
   -> tokens
   -> syntax tree / AST views
   -> HIR
@@ -69,6 +72,9 @@ Typed IR owns normalized control flow and typed operations.
 Bytecode owns the interpreter contract.
 JIT backends consume typed IR or a verified bytecode-like lowered form without changing observable behavior.
 
+Module loading is defined in `docs/spec/module-loading.md`.
+Bytecode artifact boundaries are defined in `docs/spec/artifacts.md`.
+
 ## Source Language Layer
 
 The syntax layer implements the grammar in `docs/spec/syntax.md` and `docs/kagari.ebnf`.
@@ -85,6 +91,20 @@ Core source-language facts:
 - trait names are interface value types directly; there is no script-level `dyn Trait`
 
 The syntax layer must not encode semantic shortcuts that only exist because of the current implementation.
+
+## Builtins and Standard Modules
+
+Kagari has a small standard surface defined in `docs/spec/builtins.md`.
+
+The builtin layer owns:
+
+- primitive numeric, boolean, string, unit, tuple, array, `Option`, and `Result` types
+- standard modules such as `std::debug`, `std::math`, `std::array`, `std::string`, `std::option`, and `std::result`
+- iterable protocol support used by `for`
+- builtin metadata for type checking, bytecode, reflection profiles, reload validation, and JIT lowering
+
+Host-sensitive APIs such as file system, networking, timers, persistence, service registries, and logging sinks are host APIs.
+They are not exposed as unrestricted core standard modules.
 
 ## HIR, Resolution, and Type System
 
@@ -160,6 +180,23 @@ Typed path mutation represents a checked path rooted at a host object.
 It carries typed metadata, dynamic index operands, access policy, dirty tracking hooks, and reload validation data.
 It must not store Rust `&mut` references in script values.
 
+## Embedding API
+
+The Rust embedding surface is defined in `docs/spec/embedding-api.md`.
+
+The embedding API owns:
+
+- compile, load, execute, and reload entry points
+- host registry setup
+- module loader configuration
+- execution context construction
+- runtime capability and resource policy
+- structured diagnostics and runtime errors
+- interpreter/JIT execution policy
+
+Embedding APIs expose stable Kagari concepts rather than parser or backend internals.
+Convenience CLI behavior must remain a thin layer over the same embedding pipeline.
+
 ## Interpreter
 
 The interpreter is the semantic execution foundation.
@@ -223,6 +260,8 @@ Privileged reflective writes, when provided by an embedding, are separate from t
 Kagari is production-ready when:
 
 - syntax, semantics, runtime, and bytecode match the specifications
+- module loading, artifact validation, and embedding APIs are stable
+- the builtin surface is implemented and tested
 - incompatible legacy language forms have been removed
 - conformance tests cover accepted and rejected source programs
 - interpreter behavior is deterministic and verified through integration tests

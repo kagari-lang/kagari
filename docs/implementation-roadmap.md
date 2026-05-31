@@ -19,6 +19,7 @@ Each milestone is complete when all of its steps are committed and the milestone
 - Before committing a step, run the relevant package tests from that milestone plus `git diff --check`.
 - Run the milestone verification commands when the final step in a milestone is complete.
 - Commit every completed step immediately.
+- Include the step's `Roadmap-Step: Mx.y` trailer in each step commit body.
 - Keep the working tree small; do not accumulate a whole milestone before committing.
 
 ## Milestone 1: Spec-Aligned Syntax and AST
@@ -40,6 +41,7 @@ Spec references:
 - `docs/spec/syntax.md`
 - `docs/kagari.ebnf`
 - `docs/spec/modules.md`
+- `docs/spec/module-loading.md`
 - `docs/spec/traits.md`
 
 Implementation tasks:
@@ -57,12 +59,19 @@ Execution steps:
 
 - M1.1 Add `val` / `var` lexer tokens, keyword classification, and token tests.
   Commit: `feat(syntax): add val var tokens`
+  Trailer: `Roadmap-Step: M1.1`
 - M1.2 Implement parser and AST support for `val` / `var` local bindings, top-level bindings, and struct fields.
   Commit: `feat(syntax): parse val var bindings`
+  Trailer: `Roadmap-Step: M1.2`
 - M1.3 Remove legacy parser support for source `let`, `let mut`, `ref` parameters, receiver modifiers, script `static`, and script `dyn Trait`.
   Commit: `fix(syntax): reject legacy source forms`
-- M1.4 Update syntax fixtures, parser diagnostics, and conformance tests for spec-valid grammar.
+  Trailer: `Roadmap-Step: M1.3`
+- M1.4 Implement source file, module path, package-root, and import-resolution syntax hooks required by module loading.
+  Commit: `feat(syntax): add module loading hooks`
+  Trailer: `Roadmap-Step: M1.4`
+- M1.5 Update syntax fixtures, parser diagnostics, and conformance tests for spec-valid grammar.
   Commit: `test(syntax): cover spec grammar conformance`
+  Trailer: `Roadmap-Step: M1.5`
 
 Forbidden shortcuts:
 
@@ -107,6 +116,7 @@ Required code areas:
 Spec references:
 
 - `docs/spec/syntax.md`
+- `docs/spec/builtins.md`
 - `docs/spec/traits.md`
 - `docs/spec/modules.md`
 - `docs/spec/reflection.md`
@@ -127,14 +137,22 @@ Execution steps:
 
 - M2.1 Replace semantic binding and field mutability structures with `val` / `var` writeability.
   Commit: `feat(hir): model val var writeability`
+  Trailer: `Roadmap-Step: M2.1`
 - M2.2 Align resolver namespaces for locals, fields, consts, functions, traits, impls, modules, and top-level initialization bindings.
   Commit: `feat(hir): align resolver namespaces`
+  Trailer: `Roadmap-Step: M2.2`
 - M2.3 Enforce parameter, local, field, and const writeability rules in type checking.
   Commit: `feat(typeck): enforce writeability rules`
-- M2.4 Implement trait, impl, bound, interface-type, and interface-compatibility validation without script-level `dyn`.
+  Trailer: `Roadmap-Step: M2.3`
+- M2.4 Implement builtin type, standard enum, collection, numeric, string, and iterable protocol metadata.
+  Commit: `feat(typeck): add builtin standard surface`
+  Trailer: `Roadmap-Step: M2.4`
+- M2.5 Implement trait, impl, bound, interface-type, and interface-compatibility validation without script-level `dyn`.
   Commit: `feat(typeck): add trait interface validation`
-- M2.5 Update semantic diagnostics and negative tests for removed legacy constructs and invalid assignments.
+  Trailer: `Roadmap-Step: M2.5`
+- M2.6 Update semantic diagnostics and negative tests for removed legacy constructs and invalid assignments.
   Commit: `test(hir): cover semantic conformance`
+  Trailer: `Roadmap-Step: M2.6`
 
 Forbidden shortcuts:
 
@@ -178,6 +196,7 @@ Required code areas:
 Spec references:
 
 - `docs/spec/bytecode.md`
+- `docs/spec/artifacts.md`
 - `docs/spec/typed-path-mutation.md`
 - `docs/spec/codegen-backend.md`
 - `docs/spec/jit.md`
@@ -197,14 +216,22 @@ Execution steps:
 
 - M3.1 Normalize typed IR around explicit control flow, typed operands, values, locals, and effect metadata.
   Commit: `feat(ir): normalize typed control flow`
+  Trailer: `Roadmap-Step: M3.1`
 - M3.2 Add bytecode tables, metadata records, and verifier checks for register/local bytecode.
   Commit: `feat(bytecode): add verified metadata tables`
+  Trailer: `Roadmap-Step: M3.2`
 - M3.3 Separate ordinary aggregate field/index access from host-backed typed path access in IR and bytecode.
   Commit: `feat(ir): separate aggregate and path access`
-- M3.4 Remove ordinary assignment lowering through reflection helpers.
+  Trailer: `Roadmap-Step: M3.3`
+- M3.4 Add `.kbc` artifact logical sections, version metadata, dependency fingerprints, and loader-facing validation metadata.
+  Commit: `feat(bytecode): define kbc artifact metadata`
+  Trailer: `Roadmap-Step: M3.4`
+- M3.5 Remove ordinary assignment lowering through reflection helpers.
   Commit: `fix(ir): remove reflection assignment lowering`
-- M3.5 Add verifier, lowering, source-span, and effect metadata tests.
+  Trailer: `Roadmap-Step: M3.5`
+- M3.6 Add verifier, lowering, source-span, artifact, and effect metadata tests.
   Commit: `test(ir): cover bytecode verifier contracts`
+  Trailer: `Roadmap-Step: M3.6`
 
 Forbidden shortcuts:
 
@@ -265,14 +292,19 @@ Execution steps:
 
 - M4.1 Define production runtime value categories: storable values, ephemeral values, host handles, interface values, path views, and `()`.
   Commit: `feat(runtime): define production value categories`
+  Trailer: `Roadmap-Step: M4.1`
 - M4.2 Implement explicit roots, GC object identity, and root scanning boundaries.
   Commit: `feat(runtime): add explicit gc roots`
+  Trailer: `Roadmap-Step: M4.2`
 - M4.3 Add module store structures for module ids, epochs, instances, initialization state, and initialization results.
   Commit: `feat(runtime): model module epochs`
+  Trailer: `Roadmap-Step: M4.3`
 - M4.4 Add runtime metadata registries, resource accounting, and runtime error categories.
   Commit: `feat(runtime): add metadata and resource state`
+  Trailer: `Roadmap-Step: M4.4`
 - M4.5 Add runtime tests for value categories, roots, module epochs, metadata, and host-object GC boundaries.
   Commit: `test(runtime): cover runtime substrate`
+  Trailer: `Roadmap-Step: M4.5`
 
 Forbidden shortcuts:
 
@@ -316,6 +348,7 @@ Required code areas:
 Spec references:
 
 - `docs/spec/host-interop.md`
+- `docs/spec/embedding-api.md`
 - `docs/spec/typed-path-mutation.md`
 - `docs/spec/security.md`
 - `docs/spec/reflection.md`
@@ -335,14 +368,22 @@ Execution steps:
 
 - M5.1 Implement host type and function registration metadata.
   Commit: `feat(host): add host registration metadata`
+  Trailer: `Roadmap-Step: M5.1`
 - M5.2 Implement frame-scoped host borrow tokens and no-escape validation.
   Commit: `feat(host): enforce frame scoped borrows`
-- M5.3 Implement typed host roots, typed path descriptors, host path views, and dynamic path arguments.
+  Trailer: `Roadmap-Step: M5.2`
+- M5.3 Implement embedding API entry points for compile, load, execute, reload, execution context, and structured errors.
+  Commit: `feat(embed): add host embedding entrypoints`
+  Trailer: `Roadmap-Step: M5.3`
+- M5.4 Implement typed host roots, typed path descriptors, host path views, and dynamic path arguments.
   Commit: `feat(host): add typed path views`
-- M5.4 Execute path read, set, modify, and view operations with validation, dirty hooks, and failure classification.
+  Trailer: `Roadmap-Step: M5.4`
+- M5.5 Execute path read, set, modify, and view operations with validation, dirty hooks, and failure classification.
   Commit: `feat(host): execute typed path mutations`
-- M5.5 Add host interop tests for path policy, stale roots, dynamic indexes, denied capabilities, and reload fingerprints.
+  Trailer: `Roadmap-Step: M5.5`
+- M5.6 Add host interop and embedding API tests for path policy, stale roots, dynamic indexes, denied capabilities, structured errors, and reload fingerprints.
   Commit: `test(host): cover path policy and reload guards`
+  Trailer: `Roadmap-Step: M5.6`
 
 Forbidden shortcuts:
 
@@ -404,14 +445,22 @@ Execution steps:
 
 - M6.1 Require verified bytecode before VM execution and reject unsupported bytecode.
   Commit: `feat(vm): require verified bytecode`
+  Trailer: `Roadmap-Step: M6.1`
 - M6.2 Implement deterministic frames, local/register storage, control flow, calls, returns, and traps.
   Commit: `feat(vm): implement deterministic frames`
+  Trailer: `Roadmap-Step: M6.2`
 - M6.3 Enforce runtime helper, resource accounting, security, host, reflection, and path boundaries.
   Commit: `feat(vm): enforce runtime boundaries`
-- M6.4 Implement module initialization and epoch-visible execution behavior.
+  Trailer: `Roadmap-Step: M6.3`
+- M6.4 Execute builtin standard modules and iterable protocol behavior through VM/runtime helpers.
+  Commit: `feat(vm): execute builtin standard surface`
+  Trailer: `Roadmap-Step: M6.4`
+- M6.5 Implement module initialization and epoch-visible execution behavior.
   Commit: `feat(vm): execute module epochs`
-- M6.5 Add interpreter integration tests for successful execution and classified failure paths.
+  Trailer: `Roadmap-Step: M6.5`
+- M6.6 Add interpreter integration tests for successful execution and classified failure paths.
   Commit: `test(vm): cover interpreter conformance`
+  Trailer: `Roadmap-Step: M6.6`
 
 Forbidden shortcuts:
 
@@ -455,8 +504,10 @@ Required code areas:
 Spec references:
 
 - `docs/spec/modules.md`
+- `docs/spec/module-loading.md`
 - `docs/spec/runtime.md`
 - `docs/spec/bytecode.md`
+- `docs/spec/artifacts.md`
 - `docs/spec/typed-path-mutation.md`
 - `docs/spec/jit.md`
 
@@ -474,14 +525,22 @@ Execution steps:
 
 - M7.1 Add ABI fingerprints for public functions, consts, types, traits, interface tables, and typed path descriptors.
   Commit: `feat(reload): add abi fingerprints`
+  Trailer: `Roadmap-Step: M7.1`
 - M7.2 Validate new module epochs before publication and preserve the active module on failure.
   Commit: `feat(reload): validate module publication`
-- M7.3 Preserve old epochs and metadata while old values, calls, or compiled artifacts need them.
+  Trailer: `Roadmap-Step: M7.2`
+- M7.3 Integrate module loader and `.kbc` artifact compatibility checks into reload validation.
+  Commit: `feat(reload): validate loader artifacts`
+  Trailer: `Roadmap-Step: M7.3`
+- M7.4 Preserve old epochs and metadata while old values, calls, or compiled artifacts need them.
   Commit: `feat(reload): preserve reachable epochs`
-- M7.4 Invalidate interpreter caches and JIT artifacts when reload dependencies change.
+  Trailer: `Roadmap-Step: M7.4`
+- M7.5 Invalidate interpreter caches and JIT artifacts when reload dependencies change.
   Commit: `feat(reload): invalidate stale artifacts`
-- M7.5 Add reload tests for compatible reloads, incompatible reloads, active-call stability, path descriptor changes, and failure rollback.
+  Trailer: `Roadmap-Step: M7.5`
+- M7.6 Add reload tests for compatible reloads, incompatible reloads, active-call stability, artifact changes, path descriptor changes, and failure rollback.
   Commit: `test(reload): cover safe reload behavior`
+  Trailer: `Roadmap-Step: M7.6`
 
 Forbidden shortcuts:
 
@@ -542,14 +601,19 @@ Execution steps:
 
 - M8.1 Implement language profiles and runtime capabilities for reflection, host calls, path mutation, module loading, and JIT.
   Commit: `feat(security): add profiles and capabilities`
+  Trailer: `Roadmap-Step: M8.1`
 - M8.2 Enforce host API exposure policy at runtime entry points.
   Commit: `feat(security): enforce host exposure policy`
+  Trailer: `Roadmap-Step: M8.2`
 - M8.3 Gate reflection metadata reads, reflective reads, reflective writes, dynamic invocation, and downcasts separately.
   Commit: `feat(security): gate reflection operations`
+  Trailer: `Roadmap-Step: M8.3`
 - M8.4 Enforce runtime resource limits for instruction count, call depth, allocation, host calls, and reflection operations.
   Commit: `feat(security): enforce runtime resource limits`
+  Trailer: `Roadmap-Step: M8.4`
 - M8.5 Add tests for restricted profiles, denied operations, reflection gates, and resource limit failures.
   Commit: `test(security): cover denied operations`
+  Trailer: `Roadmap-Step: M8.5`
 
 Forbidden shortcuts:
 
@@ -614,14 +678,19 @@ Execution steps:
 
 - M9.1 Add the backend boundary trait and executable artifact registry without Cranelift-specific types in core IR.
   Commit: `feat(jit): add backend artifact boundary`
+  Trailer: `Roadmap-Step: M9.1`
 - M9.2 Add optional Cranelift integration behind a feature or backend crate.
   Commit: `feat(jit): wire optional cranelift backend`
+  Trailer: `Roadmap-Step: M9.2`
 - M9.3 Compile eligible baseline functions from typed IR or verified bytecode-like IR and call shared runtime helpers.
   Commit: `feat(jit): compile baseline functions`
+  Trailer: `Roadmap-Step: M9.3`
 - M9.4 Add safepoint metadata, stack-map handling, interpreter fallback, and unsupported-function diagnostics.
   Commit: `feat(jit): add safepoints and fallback`
+  Trailer: `Roadmap-Step: M9.4`
 - M9.5 Add JIT equivalence, policy disablement, fallback, and reload invalidation tests.
   Commit: `test(jit): cover equivalence and invalidation`
+  Trailer: `Roadmap-Step: M9.5`
 
 Forbidden shortcuts:
 
@@ -684,14 +753,22 @@ Execution steps:
 
 - M10.1 Add conformance and negative tests organized by language feature and spec section.
   Commit: `test: add language conformance suite`
-- M10.2 Improve parse, resolution, type, bytecode verification, runtime, host, reload, and security diagnostics.
+  Trailer: `Roadmap-Step: M10.1`
+- M10.2 Add module loading, artifact, builtin, and embedding API conformance coverage.
+  Commit: `test: cover loader artifact builtin embed surfaces`
+  Trailer: `Roadmap-Step: M10.2`
+- M10.3 Improve parse, resolution, type, bytecode verification, runtime, host, reload, and security diagnostics.
   Commit: `feat(diagnostics): improve compiler runtime errors`
-- M10.3 Update CLI commands for parse, check, run, profile selection, and optional JIT execution.
+  Trailer: `Roadmap-Step: M10.3`
+- M10.4 Update CLI commands for parse, check, emit `.kbc`, run source, run artifacts, profile selection, and optional JIT execution.
   Commit: `feat(cli): polish language pipeline commands`
-- M10.4 Update README, architecture, roadmap, goal guide, and specs to match implemented behavior.
+  Trailer: `Roadmap-Step: M10.4`
+- M10.5 Update README, architecture, roadmap, goal guide, and specs to match implemented behavior.
   Commit: `docs: align documentation with implementation`
-- M10.5 Remove dead compatibility code, obsolete tests, and non-spec examples.
+  Trailer: `Roadmap-Step: M10.5`
+- M10.6 Remove dead compatibility code, obsolete tests, and non-spec examples.
   Commit: `chore: remove legacy compatibility code`
+  Trailer: `Roadmap-Step: M10.6`
 
 Forbidden shortcuts:
 

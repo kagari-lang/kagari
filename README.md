@@ -22,6 +22,10 @@ This currently means:
 - [Implementation roadmap](docs/implementation-roadmap.md)
 - [Codex goal guide](docs/codex-goal-guide.md)
 - [Syntax grammar](docs/kagari.ebnf)
+- [Embedding API specification](docs/spec/embedding-api.md)
+- [Module loading specification](docs/spec/module-loading.md)
+- [Builtins and standard library specification](docs/spec/builtins.md)
+- [Bytecode artifact specification](docs/spec/artifacts.md)
 - [Baseline JIT specification](docs/spec/jit.md)
 
 ## Design Direction
