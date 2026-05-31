@@ -210,7 +210,10 @@ impl Runtime {
                 "path descriptor is not registered",
             ));
         };
-        let required = descriptor.capability_requirements;
+        self.validate_capabilities(descriptor.capability_requirements)
+    }
+
+    fn validate_capabilities(&self, required: CapabilitySet) -> Result<(), RuntimeError> {
         let granted = self.security.capabilities;
         if required.fs_read && !granted.fs_read {
             return Err(RuntimeError::capability_denied("fs_read"));
@@ -239,12 +242,44 @@ impl Runtime {
         Ok(())
     }
 
+    pub fn validate_host_function_boundary(&self, symbol: &str) -> Result<(), RuntimeError> {
+        let Some(function) = self.host.function(symbol) else {
+            return Ok(());
+        };
+        let metadata = function.metadata();
+        self.validate_capabilities(metadata.capability_requirements)?;
+        if let Some(cost) = metadata.resource_cost_hint {
+            self.resources.consume_instruction_steps(cost)?;
+        }
+        Ok(())
+    }
+
+    pub fn validate_reflection_read_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_reflection_read() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("reflection_read"))
+        }
+    }
+
+    pub fn validate_reflection_write_boundary(&self) -> Result<(), RuntimeError> {
+        if self.security.allows_reflection_write() {
+            Ok(())
+        } else {
+            Err(RuntimeError::capability_denied("reflection_write"))
+        }
+    }
+
     pub fn types(&self) -> &TypeRegistry {
         &self.types
     }
 
     pub fn security(&self) -> SecurityContext {
         self.security
+    }
+
+    pub fn set_security_context(&mut self, security: SecurityContext) {
+        self.security = security;
     }
 
     pub fn resources(&self) -> &ResourceState {

@@ -5,9 +5,9 @@ use kagari_ir::bytecode::{
     FunctionMetadata, FunctionRecord, FunctionRef, Register, RuntimeHelper,
 };
 use kagari_ir::module::ValueType;
-use kagari_runtime::host::HostFunction;
+use kagari_runtime::host::{HostFunction, HostFunctionMetadata};
 use kagari_runtime::value::{StructValueField, Value};
-use kagari_runtime::{ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind};
+use kagari_runtime::{CapabilitySet, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind};
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
 use crate::{Vm, VmError};
@@ -428,6 +428,124 @@ value + 2
         .expect("module init should execute");
 
     assert_eq!(result, Value::I32(3));
+}
+
+#[test]
+fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
+    let calls = Arc::new(Mutex::new(0usize));
+    let calls_for_host = Arc::clone(&calls);
+    let mut metadata = HostFunctionMetadata::new("host.secure", vec![], "i32");
+    metadata.capability_requirements = CapabilitySet {
+        fs_read: true,
+        ..CapabilitySet::default()
+    };
+
+    let mut runtime = Runtime::default();
+    runtime
+        .register_host_function(HostFunction::with_metadata(metadata, move |_| {
+            *calls_for_host
+                .lock()
+                .expect("host call counter should lock") += 1;
+            Ok(Value::I32(1))
+        }))
+        .expect("host function should register");
+    let loaded = runtime
+        .load_module(
+            "host_capability.kbc",
+            verified_module(
+                None,
+                vec![test_function(
+                    0,
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                                "host.secure".to_owned(),
+                            )),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(0))),
+                    ],
+                    ValueType::I32,
+                    vec![ValueType::I32],
+                )],
+            ),
+        )
+        .expect("module should load");
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("host helper should be denied");
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("fs_read")
+    ));
+    assert_eq!(*calls.lock().expect("host call counter should lock"), 0);
+}
+
+#[test]
+fn host_runtime_helpers_charge_resource_cost_before_invocation() {
+    let calls = Arc::new(Mutex::new(0usize));
+    let calls_for_host = Arc::clone(&calls);
+    let mut metadata = HostFunctionMetadata::new("host.costly", vec![], "i32");
+    metadata.resource_cost_hint = Some(2);
+
+    let mut runtime = Runtime::new(RuntimeConfig {
+        resources: ResourcePolicy {
+            max_instruction_steps: Some(2),
+            ..ResourcePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    runtime
+        .register_host_function(HostFunction::with_metadata(metadata, move |_| {
+            *calls_for_host
+                .lock()
+                .expect("host call counter should lock") += 1;
+            Ok(Value::I32(1))
+        }))
+        .expect("host function should register");
+    let loaded = runtime
+        .load_module(
+            "host_cost.kbc",
+            verified_module(
+                None,
+                vec![test_function(
+                    0,
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                                "host.costly".to_owned(),
+                            )),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(0))),
+                    ],
+                    ValueType::I32,
+                    vec![ValueType::I32],
+                )],
+            ),
+        )
+        .expect("module should load");
+
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("host helper should hit cost limit");
+
+    assert!(matches!(
+        error,
+        VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
+    ));
+    assert_eq!(*calls.lock().expect("host call counter should lock"), 0);
 }
 
 #[test]

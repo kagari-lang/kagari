@@ -8,18 +8,55 @@ use std::sync::{Arc, Mutex};
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldMetadataId, HostObjectId, HostPathAdapter,
     HostPathDescriptorRegistration, HostPathSegment, HostReflectionPolicy, HostSchemaEpoch,
-    HostTypeOwnership, HostTypeRegistration, PathAccess, Runtime, RuntimeErrorKind, TypeKind,
-    TypeRegistration,
+    HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig,
+    RuntimeErrorKind, SecurityContext, TypeKind, TypeRegistration,
     host::{HostError, HostFunction},
     value::Value,
 };
 
 use crate::Vm;
 use crate::tests::common::{
-    compile_test_bytecode, load_bytecode_module, load_test_module, test_function_module,
+    compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
+    load_test_module, test_function_module,
 };
 
+fn reflection_runtime() -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                reflection_read: true,
+                reflection_write: true,
+                ..CapabilitySet::default()
+            },
+        },
+        ..RuntimeConfig::default()
+    })
+}
+
+fn load_reflection_bytecode_module(
+    name: &str,
+    bytecode: BytecodeModule,
+) -> (Runtime, kagari_runtime::LoadedModule) {
+    load_bytecode_module_with_runtime(reflection_runtime(), name, bytecode)
+}
+
+fn load_reflection_test_module(source_text: &str) -> (Runtime, kagari_runtime::LoadedModule) {
+    load_reflection_bytecode_module("test.kgr", compile_test_bytecode(source_text))
+}
+
 fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {
+    register_vm_host_path_runtime_with_capabilities(access, CapabilitySet::default())
+}
+
+fn register_vm_host_path_runtime_with_capabilities(
+    access: PathAccess,
+    capability_requirements: CapabilitySet,
+) -> (Runtime, Arc<Mutex<i32>>) {
     let mut runtime = Runtime::default();
     let i32_id = runtime
         .types()
@@ -60,7 +97,7 @@ fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>
             access,
             schema_epoch: HostSchemaEpoch::new(0),
             abi_fingerprint: AbiFingerprint(4),
-            capability_requirements: CapabilitySet::default(),
+            capability_requirements,
         })
         .unwrap();
     assert_eq!(descriptor_id.index(), 0);
@@ -301,8 +338,54 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
 }
 
 #[test]
+fn typed_path_helpers_enforce_runtime_capability_boundary() {
+    let (mut runtime, _) = register_vm_host_path_runtime_with_capabilities(
+        PathAccess::ReadWrite,
+        CapabilitySet {
+            fs_read: true,
+            ..CapabilitySet::default()
+        },
+    );
+    let loaded = runtime
+        .load_module(
+            "path_capability.kbc",
+            path_module(
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
+                            "host.player".to_owned(),
+                        )),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::ReadPath {
+                        dst: Register::new(1),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(1))),
+                ],
+                ValueType::I32,
+            ),
+        )
+        .unwrap();
+
+    let mut vm = Vm::new(runtime);
+    let error = vm.execute(&loaded, "main").unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("fs_read")
+    ));
+}
+
+#[test]
 fn executes_runtime_reflect_type_of_helper() {
-    let (runtime, loaded) = load_bytecode_module(
+    let (runtime, loaded) = load_reflection_bytecode_module(
         "reflect_type.kbc",
         test_function_module(
             "main",
@@ -330,8 +413,42 @@ fn executes_runtime_reflect_type_of_helper() {
 }
 
 #[test]
-fn executes_runtime_reflect_get_and_set_field_helpers() {
+fn runtime_reflection_helpers_require_runtime_capability() {
     let (runtime, loaded) = load_bytecode_module(
+        "reflect_denied.kbc",
+        test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(7),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(1)),
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
+                    args: vec![Register::new(0)],
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
+            ],
+            ValueType::Str,
+            vec![ValueType::I32, ValueType::Str],
+        ),
+    );
+
+    let mut vm = Vm::new(runtime);
+    let error = vm.execute(&loaded, "main").unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::CapabilityDenied
+                && error.message().contains("reflection_read")
+    ));
+}
+
+#[test]
+fn executes_runtime_reflect_get_and_set_field_helpers() {
+    let (runtime, loaded) = load_reflection_bytecode_module(
         "reflect_field.kbc",
         test_function_module(
             "main",
@@ -387,7 +504,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
 
 #[test]
 fn executes_runtime_reflect_set_index_helper() {
-    let (runtime, loaded) = load_bytecode_module(
+    let (runtime, loaded) = load_reflection_bytecode_module(
         "reflect_index.kbc",
         test_function_module(
             "main",
@@ -440,7 +557,7 @@ fn executes_runtime_reflect_set_index_helper() {
 
 #[test]
 fn executes_source_lowered_type_of_helper() {
-    let (runtime, loaded) = load_test_module("fn main() -> String { type_of(7) }");
+    let (runtime, loaded) = load_reflection_test_module("fn main() -> String { type_of(7) }");
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
@@ -481,7 +598,7 @@ fn executes_source_lowered_print_builtin() {
 
 #[test]
 fn executes_source_lowered_reflection_field_helpers() {
-    let (runtime, loaded) = load_test_module(
+    let (runtime, loaded) = load_reflection_test_module(
         r#"
 struct Point { var x: i32 }
 
@@ -500,7 +617,7 @@ fn main() -> i32 {
 
 #[test]
 fn executes_source_lowered_set_index_helper() {
-    let (runtime, loaded) = load_test_module(
+    let (runtime, loaded) = load_reflection_test_module(
         r#"
 fn main() -> [i32] {
     val values = [1, 2];
@@ -593,7 +710,7 @@ fn main() -> usize {
 
 #[test]
 fn struct_field_updates_mutate_shared_struct_handle_in_place() {
-    let (runtime, loaded) = load_test_module(
+    let (runtime, loaded) = load_reflection_test_module(
         r#"
 struct Point { var x: i32 }
 

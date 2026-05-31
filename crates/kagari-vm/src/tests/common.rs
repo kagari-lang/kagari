@@ -12,7 +12,14 @@ use kagari_runtime::{LoadedModule, Runtime};
 use kagari_syntax::parse_module;
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
-    let mut runtime = Runtime::default();
+    load_bytecode_module_with_runtime(Runtime::default(), name, bytecode)
+}
+
+pub fn load_bytecode_module_with_runtime(
+    mut runtime: Runtime,
+    name: &str,
+    bytecode: BytecodeModule,
+) -> (Runtime, LoadedModule) {
     let loaded = runtime
         .load_module(name, bytecode)
         .expect("test module should load");

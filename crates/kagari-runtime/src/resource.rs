@@ -47,8 +47,12 @@ impl ResourceState {
     }
 
     pub fn consume_instruction_step(&self) -> Result<(), RuntimeError> {
+        self.consume_instruction_steps(1)
+    }
+
+    pub fn consume_instruction_steps(&self, steps: u64) -> Result<(), RuntimeError> {
         let mut counters = self.counters.borrow_mut();
-        let next = counters.instruction_steps.saturating_add(1);
+        let next = counters.instruction_steps.saturating_add(steps);
         if let Some(max) = self.policy.max_instruction_steps {
             if next > max {
                 return Err(RuntimeError::resource_limit("instruction steps"));
@@ -134,6 +138,20 @@ mod tests {
         let error = resources.consume_instruction_step().unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
         assert_eq!(resources.counters().instruction_steps, 1);
+    }
+
+    #[test]
+    fn enforces_bulk_instruction_step_limits() {
+        let resources = ResourceState::new(ResourcePolicy {
+            max_instruction_steps: Some(3),
+            ..ResourcePolicy::default()
+        });
+
+        resources.consume_instruction_steps(2).unwrap();
+        let error = resources.consume_instruction_steps(2).unwrap_err();
+
+        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+        assert_eq!(resources.counters().instruction_steps, 2);
     }
 
     #[test]

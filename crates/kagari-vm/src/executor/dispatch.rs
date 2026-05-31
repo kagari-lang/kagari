@@ -255,6 +255,9 @@ impl<'a> Executor<'a> {
     ) -> Result<(), VmError> {
         match helper {
             RuntimeHelper::HostFunction(symbol) => {
+                self.runtime
+                    .validate_host_function_boundary(&symbol)
+                    .map_err(VmError::RuntimeError)?;
                 let value = self
                     .runtime
                     .invoke_host(&symbol, &args)
@@ -270,6 +273,9 @@ impl<'a> Executor<'a> {
                         "reflect_type_of expects one argument",
                     ));
                 };
+                self.runtime
+                    .validate_reflection_read_boundary()
+                    .map_err(VmError::RuntimeError)?;
                 let reflected = self.runtime.reflect_type_of(value);
                 if let Some(dst) = dst {
                     self.current_frame_mut()?.write_register(dst, reflected)?;
@@ -282,6 +288,9 @@ impl<'a> Executor<'a> {
                         "reflect_get_field expects struct argument",
                     ));
                 };
+                self.runtime
+                    .validate_reflection_read_boundary()
+                    .map_err(VmError::RuntimeError)?;
                 let reflected = self
                     .runtime
                     .reflect_get_field(base, &field_name)
@@ -297,6 +306,9 @@ impl<'a> Executor<'a> {
                         "reflect_set_field expects struct and value arguments",
                     ));
                 };
+                self.runtime
+                    .validate_reflection_write_boundary()
+                    .map_err(VmError::RuntimeError)?;
                 let reflected = self
                     .runtime
                     .reflect_set_field(base, &field_name, next_value.clone())
@@ -312,6 +324,9 @@ impl<'a> Executor<'a> {
                         "reflect_set_index expects value, index and next value arguments",
                     ));
                 };
+                self.runtime
+                    .validate_reflection_write_boundary()
+                    .map_err(VmError::RuntimeError)?;
                 let reflected = self
                     .runtime
                     .reflect_set_index(base, index, next_value.clone())

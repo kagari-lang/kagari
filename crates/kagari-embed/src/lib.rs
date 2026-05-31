@@ -208,6 +208,9 @@ impl KagariRuntime {
             ));
         }
         context.validate_for_execute(entry, &module.bytecode)?;
+        self.vm
+            .runtime_mut()
+            .set_security_context(context.security_context());
         self.vm.execute(module, entry).map_err(EmbeddingError::vm)
     }
 
@@ -217,6 +220,9 @@ impl KagariRuntime {
         context: &ExecutionContext,
     ) -> RunResult<Value> {
         context.validate_for_execute("__module_init__", &module.bytecode)?;
+        self.vm
+            .runtime_mut()
+            .set_security_context(context.security_context());
         self.vm.execute_module(module).map_err(EmbeddingError::vm)
     }
 }
