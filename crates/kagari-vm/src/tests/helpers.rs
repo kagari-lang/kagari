@@ -1,7 +1,8 @@
 use kagari_ir::builtin::iterable;
 use kagari_ir::bytecode::{
     BinaryOp, BuiltinMethod, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
-    ConstantOperand, FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StructFieldInit,
+    ConstantOperand, FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StandardIntrinsic,
+    StructFieldInit,
 };
 use kagari_ir::module::ValueType;
 use std::sync::{Arc, Mutex};
@@ -16,11 +17,11 @@ use kagari_runtime::{
     value::Value,
 };
 
+use crate::Vm;
 use crate::tests::common::{
     compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
     load_test_module, test_function_module,
 };
-use crate::{Vm, VmError};
 
 fn host_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -893,22 +894,132 @@ fn main() -> i32 {
 }
 
 #[test]
-fn loads_source_lowered_standard_intrinsics_before_vm_execution_support() {
+fn executes_source_lowered_standard_intrinsics() {
     let (runtime, loaded) = load_test_module(
         r#"
-fn main() -> usize {
+fn main() -> (usize, usize, i32, bool) {
     val values = [1, 2];
     values.push(3);
-    values.pop();
-    values.len()
+    val popped = values.pop();
+    (values.len(), "kagari".len_chars(), std::math::clamp(4, 1, 3), popped.is_some())
 }
 "#,
     );
     let mut vm = Vm::new(runtime);
-    assert!(matches!(
-        vm.execute(&loaded, "main"),
-        Err(VmError::UnsupportedInstruction("standard_intrinsic_call"))
-    ));
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(
+        report.return_value,
+        Value::Tuple(vec![
+            Value::I64(2),
+            Value::I64(6),
+            Value::I32(3),
+            Value::Bool(true),
+        ])
+    );
+}
+
+#[test]
+fn executes_bytecode_standard_collection_intrinsics() {
+    let (runtime, loaded) = load_bytecode_module(
+        "standard_collections.kbc",
+        test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::Str("k".to_owned()),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(1)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapNew),
+                    args: vec![],
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(2),
+                    constant: ConstantOperand::I32(7),
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(3)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapInsert),
+                    args: vec![Register::new(1), Register::new(0), Register::new(2)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(4)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapLen),
+                    args: vec![Register::new(1)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(5)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapContainsKey),
+                    args: vec![Register::new(1), Register::new(0)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(6)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapKeys),
+                    args: vec![Register::new(1)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(7)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayLen),
+                    args: vec![Register::new(6)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(8)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::SetNew),
+                    args: vec![],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(9)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::SetInsert),
+                    args: vec![Register::new(8), Register::new(0)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(10)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::SetContains),
+                    args: vec![Register::new(8), Register::new(0)],
+                },
+                BytecodeInstruction::MakeTuple {
+                    dst: Register::new(11),
+                    elements: vec![
+                        Register::new(4),
+                        Register::new(5),
+                        Register::new(7),
+                        Register::new(10),
+                    ],
+                },
+                BytecodeInstruction::Return(Some(Register::new(11))),
+            ],
+            ValueType::HeapObject,
+            vec![
+                ValueType::Str,
+                ValueType::HeapObject,
+                ValueType::I32,
+                ValueType::HeapObject,
+                ValueType::I64,
+                ValueType::Bool,
+                ValueType::HeapObject,
+                ValueType::I64,
+                ValueType::HeapObject,
+                ValueType::HeapObject,
+                ValueType::Bool,
+                ValueType::HeapObject,
+            ],
+        ),
+    );
+
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(
+        report.return_value,
+        Value::Tuple(vec![
+            Value::I64(1),
+            Value::Bool(true),
+            Value::I64(1),
+            Value::Bool(true),
+        ])
+    );
 }
 
 #[test]
@@ -977,11 +1088,11 @@ fn executes_iterable_protocol_builtin_over_arrays() {
 }
 
 #[test]
-fn executes_source_lowered_string_len_method() {
+fn executes_source_lowered_string_len_chars_method() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> usize {
-    "kagari".len()
+    "kagari".len_chars()
 }
 "#,
     );
@@ -1047,7 +1158,7 @@ fn executes_iterable_protocol_builtin_over_strings() {
 }
 
 #[test]
-fn standard_array_mutation_source_lowers_but_waits_for_vm_intrinsic_execution() {
+fn standard_array_mutation_updates_shared_array_handles() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> usize {
@@ -1059,10 +1170,9 @@ fn main() -> usize {
 "#,
     );
     let mut vm = Vm::new(runtime);
-    assert!(matches!(
-        vm.execute(&loaded, "main"),
-        Err(VmError::UnsupportedInstruction("standard_intrinsic_call"))
-    ));
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(report.return_value, Value::I64(3));
 }
 
 #[test]

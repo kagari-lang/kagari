@@ -179,6 +179,36 @@ fn jit_unsupported_compile_falls_back_to_interpreter_with_diagnostics() {
 }
 
 #[test]
+fn jit_fallback_executes_standard_intrinsics_deterministically() {
+    let module = common::compile_test_bytecode(
+        r#"
+fn main() -> (usize, usize, i32) {
+    val values = [1, 2];
+    values.push(3);
+    (values.len(), "ok".len_chars(), std::math::max(4, 7))
+}
+"#,
+    );
+    let (runtime, loaded) =
+        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_stdlib_fallback", module);
+    let mut vm = Vm::new(runtime);
+    let mut backend = UnsupportedBackend::new();
+
+    let report = vm
+        .execute_with_backend(&loaded, "main", &mut backend)
+        .expect("unsupported JIT compilation should fall back");
+
+    assert_eq!(
+        report.return_value,
+        Value::Tuple(vec![Value::I64(3), Value::I64(2), Value::I32(7)])
+    );
+    let jit = report.jit.expect("JIT attempt should be reported");
+    assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
+    assert!(jit.artifact.is_none());
+    assert_eq!(jit.diagnostics.len(), 1);
+}
+
+#[test]
 fn ordinary_interpreter_execution_has_no_jit_report() {
     let module = common::test_function_module(
         "main",
