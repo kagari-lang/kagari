@@ -96,14 +96,21 @@ The syntax layer must not encode semantic shortcuts that only exist because of t
 
 ## Builtins and Standard Modules
 
-Kagari has a small standard surface defined in `docs/spec/builtins.md`.
+Kagari has a typed standard surface defined in `docs/spec/builtins.md`.
 
 The builtin layer owns:
 
-- primitive numeric, boolean, string, unit, tuple, array, `Option`, and `Result` types
-- standard modules such as `std::debug`, `std::math`, `std::array`, `std::string`, `std::option`, and `std::result`
+- primitive numeric, boolean, string, unit, tuple, array, map, set, `Option`, and `Result` types
+- standard modules such as `std::debug`, `std::math`, `std::array`, `std::map`, `std::set`, `std::string`, `std::option`, `std::result`, and `std::iter`
 - iterable protocol support used by `for`
 - builtin metadata for type checking, bytecode, reflection profiles, reload validation, and JIT lowering
+
+The standard library is not a historical compatibility layer and is not implemented as a second copy of core containers in Kagari source.
+Core containers and string operations are runtime-native builtins with stable intrinsic identifiers.
+Optional `.kg` standard library files may provide pure facades and helper functions, but they must not own container storage, GC behavior, resource accounting, reflection gates, or host boundaries.
+
+Ordered map and set behavior is deterministic.
+The runtime implementation should use an insertion-ordered backing such as Rust `indexmap` for `Map<K, V>` and `Set<T>`.
 
 Host-sensitive APIs such as file system, networking, timers, persistence, service registries, and logging sinks are host APIs.
 They are not exposed as unrestricted core standard modules.
@@ -295,7 +302,7 @@ Kagari is production-ready when:
 
 - syntax, semantics, runtime, and bytecode match the specifications
 - module loading, artifact validation, and embedding APIs are stable
-- the builtin surface is implemented and tested
+- the complete standard library surface is implemented and tested
 - incompatible legacy language forms have been removed
 - conformance tests cover accepted and rejected source programs
 - interpreter behavior is deterministic and verified through integration tests

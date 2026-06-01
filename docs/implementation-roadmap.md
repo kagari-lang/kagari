@@ -828,3 +828,109 @@ Milestone completion:
 
 - All M10 step commits are present.
 - The milestone verification commands pass on a clean working tree.
+
+## Milestone 11: Complete Standard Library Surface
+
+Intent:
+
+- Turn the current builtin surface into the complete production standard library.
+- Keep core containers runtime-native and deterministic.
+- Add ordered `Map<K, V>` and `Set<T>` with `indexmap` backing.
+- Resolve standard modules through typed intrinsic metadata, not reflection, host-string dispatch, or source-level container reimplementations.
+
+Required code areas:
+
+- `crates/kagari-hir/src/builtin`
+- `crates/kagari-hir/src/typeck`
+- `crates/kagari-ir`
+- `crates/kagari-runtime/src/builtin`
+- `crates/kagari-runtime/src/value.rs`
+- `crates/kagari-vm`
+- module resolution and standard module tests
+- standard library conformance tests
+- `Cargo.toml` dependency wiring for `indexmap`
+
+Spec references:
+
+- `docs/spec/builtins.md`
+- `docs/spec/runtime.md`
+- `docs/spec/bytecode.md`
+- `docs/spec/security.md`
+- `docs/spec/reflection.md`
+- `docs/spec/module-loading.md`
+
+Implementation tasks:
+
+- Add `Map<K, V>` and `Set<T>` type identities, type display, heap-backed classification, metadata, and reflection records.
+- Add standard hash-key eligibility rules for map and set keys.
+- Use `indexmap` as the runtime backing for deterministic insertion-ordered maps and sets.
+- Implement complete `std::array`, `std::map`, `std::set`, `std::string`, `std::option`, `std::result`, `std::iter`, `std::math`, and `std::debug` typed metadata.
+- Resolve standard module imports and standard module function calls to stable intrinsic identifiers.
+- Lower standard library calls to IR and bytecode builtin method/runtime intrinsic calls.
+- Execute standard intrinsics through VM/runtime helpers with resource accounting, GC tracing, deterministic errors, and profile/security checks where required.
+- Add `.kg` facade support only for pure helpers that compose native intrinsics.
+- Add conformance coverage for successful standard library programs and rejected invalid key, arity, type, capability, and resource-limit cases.
+
+Execution steps:
+
+- M11.1 Add standard library type, module, function, method, and intrinsic metadata for arrays, maps, sets, strings, options, results, iterators, math, and debug.
+  Commit: `feat(stdlib): add standard surface metadata`
+  Trailer: `Roadmap-Step: M11.1`
+- M11.2 Add runtime-native `Map` and `Set` values backed by `indexmap`, including GC tracing, cloning, display/debug classification, and resource accounting.
+  Commit: `feat(runtime): add ordered map set values`
+  Trailer: `Roadmap-Step: M11.2`
+- M11.3 Implement runtime builtin helpers for the complete array, map, set, string, option, result, iterator, math, and debug surfaces.
+  Commit: `feat(runtime): implement standard library helpers`
+  Trailer: `Roadmap-Step: M11.3`
+- M11.4 Resolve and type-check standard module imports, standard hash-key constraints, generic standard calls, and facade exports.
+  Commit: `feat(typeck): resolve standard library modules`
+  Trailer: `Roadmap-Step: M11.4`
+- M11.5 Lower standard library calls to stable IR and bytecode intrinsic identifiers and verify intrinsic signatures during artifact validation.
+  Commit: `feat(ir): lower standard library intrinsics`
+  Trailer: `Roadmap-Step: M11.5`
+- M11.6 Execute standard intrinsics in the VM with deterministic behavior across interpreter and JIT fallback paths.
+  Commit: `feat(vm): execute standard library intrinsics`
+  Trailer: `Roadmap-Step: M11.6`
+- M11.7 Add standard library conformance, negative, resource-limit, reload, reflection metadata, and embedding API tests.
+  Commit: `test(stdlib): cover complete standard library`
+  Trailer: `Roadmap-Step: M11.7`
+- M11.8 Update README, architecture, builtins spec, and examples to describe the complete standard library surface.
+  Commit: `docs(stdlib): document complete standard library`
+  Trailer: `Roadmap-Step: M11.8`
+
+Forbidden shortcuts:
+
+- Do not implement `Array`, `Map`, `Set`, or `String` storage as Kagari source-level data structures.
+- Do not route standard library calls through script-visible reflection.
+- Do not expose file system, networking, timers, persistence, process control, service registry, or arbitrary logging sinks as core `std` modules.
+- Do not use unordered hash maps for script-visible `Map` or `Set` behavior.
+- Do not accept float, aggregate, host, or interface keys until their hash/equality semantics are specified.
+- Do not key bytecode or artifacts by unstable source spelling when an intrinsic identifier exists.
+
+Acceptance criteria:
+
+- `Map<K, V>` and `Set<T>` are deterministic insertion-ordered runtime-native values.
+- Standard hash-key constraints are enforced in type checking and bytecode validation.
+- The complete standard modules listed in `docs/spec/builtins.md` are available through typed resolution.
+- Standard library calls lower to stable intrinsic IDs.
+- VM/runtime execution covers all standard helpers with resource accounting.
+- `for` loops and iterable helpers work for arrays, maps, sets, strings, and allowed host iterables.
+- Reflection metadata describes standard values without making reflection a backdoor for ordinary stdlib behavior.
+- Host-sensitive APIs remain outside the core standard library.
+
+Verification:
+
+```sh
+cargo test -p kagari-hir stdlib
+cargo test -p kagari-ir stdlib
+cargo test -p kagari-runtime builtin
+cargo test -p kagari-vm helpers
+cargo test --workspace
+cargo test --workspace --features jit
+git diff --check
+```
+
+Milestone completion:
+
+- All M11 step commits are present.
+- The milestone verification commands pass on a clean working tree.
