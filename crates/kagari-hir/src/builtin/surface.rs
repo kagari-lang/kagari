@@ -674,6 +674,14 @@ pub fn standard_functions() -> &'static [StandardFunctionSpec] {
     STANDARD_FUNCTIONS
 }
 
+pub fn standard_function_by_intrinsic(
+    intrinsic: StandardIntrinsic,
+) -> Option<&'static StandardFunctionSpec> {
+    standard_functions()
+        .iter()
+        .find(|spec| spec.intrinsic == intrinsic)
+}
+
 pub fn standard_functions_in_module(
     module: StandardModule,
 ) -> impl Iterator<Item = &'static StandardFunctionSpec> {
@@ -693,6 +701,14 @@ pub fn standard_methods() -> &'static [StandardMethodSpec] {
     STANDARD_METHODS
 }
 
+pub fn standard_method_by_intrinsic(
+    intrinsic: StandardIntrinsic,
+) -> Option<&'static StandardMethodSpec> {
+    standard_methods()
+        .iter()
+        .find(|spec| spec.intrinsic == intrinsic)
+}
+
 pub fn standard_methods_for_receiver(
     receiver: StandardMethodReceiver,
 ) -> impl Iterator<Item = &'static StandardMethodSpec> {
@@ -706,6 +722,27 @@ pub fn standard_method(
     name: &str,
 ) -> Option<&'static StandardMethodSpec> {
     standard_methods_for_receiver(receiver).find(|spec| spec.name == name)
+}
+
+pub fn standard_constraint(name: &str) -> Option<StandardTypeConstraint> {
+    match name {
+        "HashKey" => Some(StandardTypeConstraint::HashKey),
+        "Iterable" => Some(StandardTypeConstraint::Iterable),
+        "OrderedNumber" => Some(StandardTypeConstraint::OrderedNumber),
+        "SignedNumber" => Some(StandardTypeConstraint::SignedNumber),
+        "Comparable" => Some(StandardTypeConstraint::Comparable),
+        _ => None,
+    }
+}
+
+pub fn standard_constraint_name(constraint: StandardTypeConstraint) -> &'static str {
+    match constraint {
+        StandardTypeConstraint::HashKey => "HashKey",
+        StandardTypeConstraint::Iterable => "Iterable",
+        StandardTypeConstraint::OrderedNumber => "OrderedNumber",
+        StandardTypeConstraint::SignedNumber => "SignedNumber",
+        StandardTypeConstraint::Comparable => "Comparable",
+    }
 }
 
 pub fn standard_enum_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {

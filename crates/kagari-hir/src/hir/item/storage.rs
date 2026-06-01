@@ -1,4 +1,7 @@
-use crate::hir::{ConstId, EnumId, ExprId, FunctionId, ModuleId, StructId, TraitId, TypeRefId};
+use crate::{
+    builtin::surface,
+    hir::{ConstId, EnumId, ExprId, FunctionId, ModuleId, StructId, TraitId, TypeRefId},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
@@ -20,6 +23,8 @@ pub enum ExportItem {
     Function(FunctionId),
     Const(ConstId),
     Module(ModuleId),
+    StandardModule(surface::StandardModule),
+    StandardFunction(surface::StandardIntrinsic),
     Struct(StructId),
     Enum(EnumId),
     Trait(TraitId),

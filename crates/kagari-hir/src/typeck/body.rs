@@ -4,7 +4,10 @@ use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
 use crate::{
-    builtin::{BuiltinFunction, BuiltinMethod, StringMethod, array, surface},
+    builtin::{
+        BuiltinFunction, BuiltinMethod, StringMethod, array,
+        surface::{self, StandardIntrinsic, StandardMethodReceiver, StandardTypeConstraint},
+    },
     hir::{
         BinaryOp, BlockId, ExprId, ExprKind, LiteralKind, MatchArm, PatternKind, PlaceId,
         PlaceKind, PrefixOp, StmtId, StmtKind,
@@ -181,6 +184,8 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Const(_)
                         | ResolvedName::Function(_)
                         | ResolvedName::Module(_)
+                        | ResolvedName::StandardModule(_)
+                        | ResolvedName::StandardFunction(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
                         | ResolvedName::Trait(_) => None,
@@ -218,6 +223,8 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
                         ResolvedName::Function(_)
                         | ResolvedName::Module(_)
+                        | ResolvedName::StandardModule(_)
+                        | ResolvedName::StandardFunction(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
                         | ResolvedName::Trait(_) => None,
@@ -264,6 +271,12 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Const(_) => "`const` item cannot be reassigned".to_string(),
                     ResolvedName::Function(_) => "function item is not assignable".to_string(),
                     ResolvedName::Module(_) => "module item is not assignable".to_string(),
+                    ResolvedName::StandardModule(_) => {
+                        "standard module item is not assignable".to_string()
+                    }
+                    ResolvedName::StandardFunction(_) => {
+                        "standard function item is not assignable".to_string()
+                    }
                     ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
                     ResolvedName::Enum(_) => "enum type is not assignable".to_string(),
                     ResolvedName::Trait(_) => "trait type is not assignable".to_string(),
@@ -327,6 +340,8 @@ impl<'a> BodyChecker<'a> {
                         .get(&id)
                         .map(|function| function.return_type.clone()),
                     ResolvedName::Module(_)
+                    | ResolvedName::StandardModule(_)
+                    | ResolvedName::StandardFunction(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_) => None,
@@ -375,7 +390,13 @@ impl<'a> BodyChecker<'a> {
                 self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty)
             }
             ExprKind::Call { callee, args } => {
-                if let Some(helper_ty) = self.infer_runtime_helper_call_type(*callee, args, env) {
+                if let Some(standard_ty) =
+                    self.infer_standard_call_type(expr_id, *callee, args, env)
+                {
+                    standard_ty
+                } else if let Some(helper_ty) =
+                    self.infer_runtime_helper_call_type(*callee, args, env)
+                {
                     helper_ty
                 } else if let Some(method_ty) =
                     self.infer_trait_method_call_type(*callee, args, env)
@@ -494,6 +515,415 @@ impl<'a> BodyChecker<'a> {
             self.type_table.insert_local(local, scrutinee_ty.clone());
         }
         self.infer_expr_type(arm.expr, &mut arm_env)
+    }
+
+    fn infer_standard_call_type(
+        &mut self,
+        call_expr: ExprId,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        if let Some((intrinsic, receiver_ty)) = self.standard_method(callee, env) {
+            self.type_table.insert_standard_call(call_expr, intrinsic);
+            return Some(self.infer_standard_intrinsic_type(
+                intrinsic,
+                callee,
+                Some(receiver_ty),
+                args,
+                env,
+            ));
+        }
+
+        let intrinsic = self.standard_function(callee)?;
+        self.type_table.insert_standard_call(call_expr, intrinsic);
+        Some(self.infer_standard_intrinsic_type(intrinsic, callee, None, args, env))
+    }
+
+    fn infer_standard_intrinsic_type(
+        &mut self,
+        intrinsic: StandardIntrinsic,
+        callee: ExprId,
+        receiver_ty: Option<TypeId>,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> TypeId {
+        use StandardIntrinsic::*;
+
+        let arg_tys = self.infer_call_args(args, env);
+        let name = standard_intrinsic_name(intrinsic);
+        let value_offset = usize::from(receiver_ty.is_none());
+        let arity = receiver_ty.as_ref().map_or_else(
+            || surface::standard_function_by_intrinsic(intrinsic).map(|spec| spec.arity),
+            |_| surface::standard_method_by_intrinsic(intrinsic).map(|spec| spec.arity),
+        );
+        if let Some(expected) = arity {
+            self.check_builtin_arity(name, expected, args.len(), callee);
+        }
+
+        match intrinsic {
+            ArrayLen | ArrayIsEmpty | ArrayClear | ArrayPop => {
+                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Array(element)) = array_ty else {
+                    self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                match intrinsic {
+                    ArrayLen => TypeId::Builtin(BuiltinType::USize),
+                    ArrayIsEmpty => TypeId::Builtin(BuiltinType::Bool),
+                    ArrayPop => option_type((*element).clone()),
+                    ArrayClear => TypeId::Array(element),
+                    _ => unreachable!(),
+                }
+            }
+            ArrayGet | ArrayRemove => {
+                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Array(element)) = array_ty else {
+                    self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_arg_type(
+                    name,
+                    "index",
+                    TypeId::Builtin(BuiltinType::USize),
+                    value_offset,
+                    &arg_tys,
+                );
+                option_type((*element).clone())
+            }
+            ArrayPush => {
+                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Array(element)) = array_ty else {
+                    self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_arg_type(name, "item", (*element).clone(), value_offset, &arg_tys);
+                TypeId::Array(element)
+            }
+            ArrayInsert => {
+                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Array(element)) = array_ty else {
+                    self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_arg_type(
+                    name,
+                    "index",
+                    TypeId::Builtin(BuiltinType::USize),
+                    value_offset,
+                    &arg_tys,
+                );
+                self.check_arg_type(name, "item", (*element).clone(), value_offset + 1, &arg_tys);
+                TypeId::Array(element)
+            }
+            MapNew => TypeId::Map {
+                key: Box::new(TypeId::Generic("K".to_owned())),
+                value: Box::new(TypeId::Generic("V".to_owned())),
+            },
+            MapLen | MapIsEmpty | MapClear | MapKeys | MapValues | MapEntries => {
+                let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Map { key, value }) = map_ty else {
+                    self.emit_standard_arg_error(name, "value", "Map<K, V>", callee, &map_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_standard_constraint(&key, StandardTypeConstraint::HashKey, env, callee);
+                match intrinsic {
+                    MapLen => TypeId::Builtin(BuiltinType::USize),
+                    MapIsEmpty => TypeId::Builtin(BuiltinType::Bool),
+                    MapClear => TypeId::Map { key, value },
+                    MapKeys => TypeId::Array(key),
+                    MapValues => TypeId::Array(value),
+                    MapEntries => TypeId::Array(Box::new(TypeId::Tuple(vec![*key, *value]))),
+                    _ => unreachable!(),
+                }
+            }
+            MapContainsKey | MapGet | MapInsert | MapRemove => {
+                let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Map { key, value }) = map_ty else {
+                    self.emit_standard_arg_error(name, "value", "Map<K, V>", callee, &map_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_standard_constraint(&key, StandardTypeConstraint::HashKey, env, callee);
+                self.check_arg_type(name, "key", (*key).clone(), value_offset, &arg_tys);
+                match intrinsic {
+                    MapContainsKey => TypeId::Builtin(BuiltinType::Bool),
+                    MapGet | MapRemove => option_type((*value).clone()),
+                    MapInsert => {
+                        self.check_arg_type(
+                            name,
+                            "item",
+                            (*value).clone(),
+                            value_offset + 1,
+                            &arg_tys,
+                        );
+                        TypeId::Map { key, value }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            SetNew => TypeId::Set(Box::new(TypeId::Generic("T".to_owned()))),
+            SetLen | SetIsEmpty | SetClear | SetToArray => {
+                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Set(element)) = set_ty else {
+                    self.emit_standard_arg_error(name, "value", "Set<T>", callee, &set_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_standard_constraint(
+                    &element,
+                    StandardTypeConstraint::HashKey,
+                    env,
+                    callee,
+                );
+                match intrinsic {
+                    SetLen => TypeId::Builtin(BuiltinType::USize),
+                    SetIsEmpty => TypeId::Builtin(BuiltinType::Bool),
+                    SetClear => TypeId::Set(element),
+                    SetToArray => TypeId::Array(element),
+                    _ => unreachable!(),
+                }
+            }
+            SetContains | SetInsert | SetRemove => {
+                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Set(element)) = set_ty else {
+                    self.emit_standard_arg_error(name, "value", "Set<T>", callee, &set_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_standard_constraint(
+                    &element,
+                    StandardTypeConstraint::HashKey,
+                    env,
+                    callee,
+                );
+                self.check_arg_type(name, "item", (*element).clone(), value_offset, &arg_tys);
+                match intrinsic {
+                    SetContains | SetRemove => TypeId::Builtin(BuiltinType::Bool),
+                    SetInsert => TypeId::Set(element),
+                    _ => unreachable!(),
+                }
+            }
+            SetUnion | SetIntersection | SetDifference => {
+                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(TypeId::Set(element)) = set_ty else {
+                    self.emit_standard_arg_error(name, "lhs", "Set<T>", callee, &set_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_standard_constraint(
+                    &element,
+                    StandardTypeConstraint::HashKey,
+                    env,
+                    callee,
+                );
+                self.check_arg_type(
+                    name,
+                    "rhs",
+                    TypeId::Set(element.clone()),
+                    value_offset,
+                    &arg_tys,
+                );
+                TypeId::Set(element)
+            }
+            StringLenBytes | StringLenChars => {
+                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
+                TypeId::Builtin(BuiltinType::USize)
+            }
+            StringIsEmpty | StringContains | StringStartsWith | StringEndsWith => {
+                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
+                if matches!(
+                    intrinsic,
+                    StringContains | StringStartsWith | StringEndsWith
+                ) {
+                    self.check_arg_type(
+                        name,
+                        "needle",
+                        TypeId::Builtin(BuiltinType::String),
+                        value_offset,
+                        &arg_tys,
+                    );
+                }
+                TypeId::Builtin(BuiltinType::Bool)
+            }
+            StringConcat => {
+                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
+                self.check_arg_type(
+                    name,
+                    "rhs",
+                    TypeId::Builtin(BuiltinType::String),
+                    value_offset,
+                    &arg_tys,
+                );
+                TypeId::Builtin(BuiltinType::String)
+            }
+            StringSlice => {
+                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
+                self.check_arg_type(
+                    name,
+                    "start",
+                    TypeId::Builtin(BuiltinType::USize),
+                    value_offset,
+                    &arg_tys,
+                );
+                self.check_arg_type(
+                    name,
+                    "end",
+                    TypeId::Builtin(BuiltinType::USize),
+                    value_offset + 1,
+                    &arg_tys,
+                );
+                option_type(TypeId::Builtin(BuiltinType::String))
+            }
+            OptionIsSome | OptionIsNone | OptionUnwrapOr | OptionMap | OptionAndThen => {
+                let option_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some((item_ty, _)) = standard_enum_args(&option_ty, "Option", 1) else {
+                    self.emit_standard_arg_error(name, "value", "Option<T>", callee, &option_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                match intrinsic {
+                    OptionIsSome | OptionIsNone => TypeId::Builtin(BuiltinType::Bool),
+                    OptionUnwrapOr => {
+                        self.check_arg_type(
+                            name,
+                            "fallback",
+                            item_ty.clone(),
+                            value_offset,
+                            &arg_tys,
+                        );
+                        item_ty
+                    }
+                    OptionMap | OptionAndThen => option_type(TypeId::Generic("U".to_owned())),
+                    _ => unreachable!(),
+                }
+            }
+            ResultIsOk | ResultIsErr | ResultUnwrapOr | ResultMap | ResultMapErr
+            | ResultAndThen => {
+                let result_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some((ok_ty, err_ty)) = standard_enum_args(&result_ty, "Result", 2) else {
+                    self.emit_standard_arg_error(name, "value", "Result<T, E>", callee, &result_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                match intrinsic {
+                    ResultIsOk | ResultIsErr => TypeId::Builtin(BuiltinType::Bool),
+                    ResultUnwrapOr => {
+                        self.check_arg_type(
+                            name,
+                            "fallback",
+                            ok_ty.clone(),
+                            value_offset,
+                            &arg_tys,
+                        );
+                        ok_ty
+                    }
+                    ResultMap => result_type(TypeId::Generic("U".to_owned()), err_ty),
+                    ResultMapErr => result_type(ok_ty, TypeId::Generic("F".to_owned())),
+                    ResultAndThen => result_type(TypeId::Generic("U".to_owned()), err_ty),
+                    _ => unreachable!(),
+                }
+            }
+            IterLen | IterIsEmpty | IterGet | IterToArray | IterForEach => {
+                let iterable_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let Some(item_ty) = iterable_item_type(&iterable_ty) else {
+                    self.emit_standard_arg_error(name, "value", "Iterable", callee, &iterable_ty);
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                match intrinsic {
+                    IterLen => TypeId::Builtin(BuiltinType::USize),
+                    IterIsEmpty => TypeId::Builtin(BuiltinType::Bool),
+                    IterGet => {
+                        self.check_arg_type(
+                            name,
+                            "index",
+                            TypeId::Builtin(BuiltinType::USize),
+                            value_offset,
+                            &arg_tys,
+                        );
+                        option_type(item_ty)
+                    }
+                    IterToArray => TypeId::Array(Box::new(item_ty)),
+                    IterForEach => TypeId::Builtin(BuiltinType::Unit),
+                    _ => unreachable!(),
+                }
+            }
+            MathMin | MathMax | MathClamp => {
+                let Some((_, value_ty)) = arg_tys.first() else {
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_standard_constraint(
+                    value_ty,
+                    StandardTypeConstraint::OrderedNumber,
+                    env,
+                    callee,
+                );
+                for (index, (_, ty)) in arg_tys.iter().enumerate().skip(1) {
+                    if ty != value_ty {
+                        self.emit_arg_mismatch(name, &format!("arg{index}"), value_ty, ty, callee);
+                    }
+                }
+                value_ty.clone()
+            }
+            MathAbs => {
+                let Some((_, value_ty)) = arg_tys.first() else {
+                    return TypeId::Builtin(BuiltinType::Unit);
+                };
+                self.check_standard_constraint(
+                    value_ty,
+                    StandardTypeConstraint::SignedNumber,
+                    env,
+                    callee,
+                );
+                value_ty.clone()
+            }
+            MathFloor | MathCeil | MathRound | MathSqrt | MathSin | MathCos | MathTan => {
+                self.check_arg_type(
+                    name,
+                    "value",
+                    TypeId::Builtin(BuiltinType::F64),
+                    0,
+                    &arg_tys,
+                );
+                TypeId::Builtin(BuiltinType::F64)
+            }
+            DebugPrint | DebugPanic => {
+                self.check_arg_type(
+                    name,
+                    "message",
+                    TypeId::Builtin(BuiltinType::String),
+                    0,
+                    &arg_tys,
+                );
+                TypeId::Builtin(BuiltinType::Unit)
+            }
+            DebugAssert => {
+                self.check_arg_type(
+                    name,
+                    "condition",
+                    TypeId::Builtin(BuiltinType::Bool),
+                    0,
+                    &arg_tys,
+                );
+                self.check_arg_type(
+                    name,
+                    "message",
+                    TypeId::Builtin(BuiltinType::String),
+                    1,
+                    &arg_tys,
+                );
+                TypeId::Builtin(BuiltinType::Unit)
+            }
+            DebugAssertEq => {
+                if let (Some((_, lhs)), Some((_, rhs))) = (arg_tys.first(), arg_tys.get(1))
+                    && lhs != rhs
+                {
+                    self.emit_arg_mismatch(name, "rhs", lhs, rhs, callee);
+                }
+                self.check_arg_type(
+                    name,
+                    "message",
+                    TypeId::Builtin(BuiltinType::String),
+                    2,
+                    &arg_tys,
+                );
+                TypeId::Builtin(BuiltinType::Unit)
+            }
+        }
     }
 
     fn infer_runtime_helper_call_type(
@@ -1065,6 +1495,158 @@ impl<'a> BodyChecker<'a> {
         literal.text.parse::<usize>().ok()
     }
 
+    fn standard_function(&self, expr_id: ExprId) -> Option<StandardIntrinsic> {
+        let expr = self.lowered.module.expr(expr_id);
+        let ExprKind::Name(name) = &expr.kind else {
+            return None;
+        };
+        if let Some(ResolvedName::StandardFunction(intrinsic)) = self.names.expr_resolution(expr_id)
+        {
+            return Some(intrinsic);
+        }
+        self.standard_function_path(name)
+    }
+
+    fn standard_function_path(&self, name: &str) -> Option<StandardIntrinsic> {
+        if let Some((module_alias, function_name)) = name.rsplit_once("::") {
+            if let Some(module) = self.standard_module_path(module_alias) {
+                return surface::standard_function(module, function_name)
+                    .map(|function| function.intrinsic);
+            }
+        }
+        None
+    }
+
+    fn standard_module_path(&self, path: &str) -> Option<surface::StandardModule> {
+        if let Some(module) = surface::standard_module(path).map(|module| module.kind) {
+            return Some(module);
+        }
+        if !path.contains("::")
+            && let Some(ResolvedName::StandardModule(module)) = self
+                .names
+                .items
+                .standard_modules
+                .get(path)
+                .copied()
+                .map(ResolvedName::StandardModule)
+        {
+            return Some(module);
+        }
+        None
+    }
+
+    fn standard_method(
+        &mut self,
+        expr_id: ExprId,
+        env: &mut BodyTypeEnv,
+    ) -> Option<(StandardIntrinsic, TypeId)> {
+        let expr = self.lowered.module.expr(expr_id);
+        let ExprKind::Field { receiver, name } = &expr.kind else {
+            return None;
+        };
+        let receiver_ty = self.infer_expr_type(*receiver, env);
+        let receiver = standard_method_receiver(&receiver_ty)?;
+        surface::standard_method(receiver, name).map(|method| (method.intrinsic, receiver_ty))
+    }
+
+    fn check_arg_type(
+        &mut self,
+        function_name: &str,
+        parameter_name: &str,
+        expected: TypeId,
+        index: usize,
+        args: &[(ExprId, TypeId)],
+    ) {
+        let Some((arg_expr, found)) = args.get(index) else {
+            return;
+        };
+        if *found != expected {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
+                    function_name: function_name.to_owned(),
+                    parameter_name: parameter_name.to_owned(),
+                    expected: display_type_id(&expected),
+                    found: display_type_id(found),
+                })
+                .with_span(self.lowered.source_map.expr_span(*arg_expr)),
+            );
+        }
+    }
+
+    fn emit_arg_mismatch(
+        &mut self,
+        function_name: &str,
+        parameter_name: &str,
+        expected: &TypeId,
+        found: &TypeId,
+        span_expr: ExprId,
+    ) {
+        self.diagnostics.push(
+            Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
+                function_name: function_name.to_owned(),
+                parameter_name: parameter_name.to_owned(),
+                expected: display_type_id(expected),
+                found: display_type_id(found),
+            })
+            .with_span(self.lowered.source_map.expr_span(span_expr)),
+        );
+    }
+
+    fn emit_standard_arg_error(
+        &mut self,
+        function_name: &str,
+        parameter_name: &str,
+        expected: &str,
+        span_expr: ExprId,
+        found: &Option<TypeId>,
+    ) {
+        self.diagnostics.push(
+            Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
+                function_name: function_name.to_owned(),
+                parameter_name: parameter_name.to_owned(),
+                expected: expected.to_owned(),
+                found: found
+                    .as_ref()
+                    .map(display_type_id)
+                    .unwrap_or_else(|| "<missing>".to_owned()),
+            })
+            .with_span(self.lowered.source_map.expr_span(span_expr)),
+        );
+    }
+
+    fn check_string_receiver_or_arg(
+        &mut self,
+        function_name: &str,
+        callee: ExprId,
+        receiver_ty: Option<TypeId>,
+        args: &[(ExprId, TypeId)],
+    ) {
+        let found = receiver_ty.or_else(|| args.first().map(|(_, ty)| ty.clone()));
+        if found != Some(TypeId::Builtin(BuiltinType::String)) {
+            self.emit_standard_arg_error(function_name, "value", "String", callee, &found);
+        }
+    }
+
+    fn check_standard_constraint(
+        &mut self,
+        ty: &TypeId,
+        constraint: StandardTypeConstraint,
+        env: &BodyTypeEnv,
+        span_expr: ExprId,
+    ) {
+        if type_satisfies_standard_constraint(ty, constraint, env) {
+            return;
+        }
+        self.diagnostics.push(
+            Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                type_name: display_type_id(ty),
+                constraint: surface::standard_constraint_name(constraint).to_owned(),
+                reason: standard_constraint_reason(constraint).to_owned(),
+            })
+            .with_span(self.lowered.source_map.expr_span(span_expr)),
+        );
+    }
+
     fn builtin_function(&self, expr_id: ExprId) -> Option<BuiltinFunction> {
         let expr = self.lowered.module.expr(expr_id);
         let ExprKind::Name(name) = &expr.kind else {
@@ -1156,5 +1738,180 @@ fn substitute_self_type(ty: &TypeId, self_ty: &TypeId) -> TypeId {
                 .collect::<Vec<_>>(),
         },
         _ => ty.clone(),
+    }
+}
+
+fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
+    match ty {
+        TypeId::Array(_) => Some(StandardMethodReceiver::Array),
+        TypeId::Map { .. } => Some(StandardMethodReceiver::Map),
+        TypeId::Set(_) => Some(StandardMethodReceiver::Set),
+        TypeId::Builtin(BuiltinType::String) => Some(StandardMethodReceiver::String),
+        TypeId::StandardEnum { name, .. } if name == "Option" => {
+            Some(StandardMethodReceiver::Option)
+        }
+        TypeId::StandardEnum { name, .. } if name == "Result" => {
+            Some(StandardMethodReceiver::Result)
+        }
+        _ if surface::iterable_protocol(ty).is_some() => Some(StandardMethodReceiver::Iterable),
+        _ => None,
+    }
+}
+
+fn option_type(item: TypeId) -> TypeId {
+    TypeId::StandardEnum {
+        name: "Option".to_owned(),
+        args: vec![item],
+    }
+}
+
+fn result_type(ok: TypeId, err: TypeId) -> TypeId {
+    TypeId::StandardEnum {
+        name: "Result".to_owned(),
+        args: vec![ok, err],
+    }
+}
+
+fn standard_enum_args(
+    ty: &Option<TypeId>,
+    expected_name: &str,
+    expected_arity: usize,
+) -> Option<(TypeId, TypeId)> {
+    let Some(TypeId::StandardEnum { name, args }) = ty else {
+        return None;
+    };
+    if name != expected_name || args.len() != expected_arity {
+        return None;
+    }
+    let first = args.first()?.clone();
+    let second = args
+        .get(1)
+        .cloned()
+        .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
+    Some((first, second))
+}
+
+fn iterable_item_type(ty: &Option<TypeId>) -> Option<TypeId> {
+    match surface::iterable_protocol(ty.as_ref()?)? {
+        surface::IterableProtocol::Array { item } => Some(item),
+        surface::IterableProtocol::Map { key, value } => Some(TypeId::Tuple(vec![key, value])),
+        surface::IterableProtocol::Set { item } => Some(item),
+        surface::IterableProtocol::String { .. } => Some(TypeId::Builtin(BuiltinType::String)),
+    }
+}
+
+fn type_satisfies_standard_constraint(
+    ty: &TypeId,
+    constraint: StandardTypeConstraint,
+    env: &BodyTypeEnv,
+) -> bool {
+    match ty {
+        TypeId::Generic(name) => env.generic_bounds.get(name).is_some_and(|bounds| {
+            bounds
+                .iter()
+                .any(|bound| surface::standard_constraint(bound) == Some(constraint))
+        }),
+        _ => match constraint {
+            StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
+            StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
+            StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
+            StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
+            StandardTypeConstraint::Comparable => !matches!(
+                ty,
+                TypeId::Array(_)
+                    | TypeId::Map { .. }
+                    | TypeId::Set(_)
+                    | TypeId::Trait(_)
+                    | TypeId::Generic(_)
+            ),
+        },
+    }
+}
+
+fn standard_constraint_reason(constraint: StandardTypeConstraint) -> &'static str {
+    match constraint {
+        StandardTypeConstraint::HashKey => {
+            "only bool, integer, and String keys have specified hash semantics"
+        }
+        StandardTypeConstraint::Iterable => "type is not part of the standard iterable protocol",
+        StandardTypeConstraint::OrderedNumber => "type is not an ordered numeric type",
+        StandardTypeConstraint::SignedNumber => "type is not a signed numeric type",
+        StandardTypeConstraint::Comparable => "type does not have standard equality semantics",
+    }
+}
+
+fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
+    use StandardIntrinsic::*;
+
+    match intrinsic {
+        ArrayLen => "std::array::len",
+        ArrayIsEmpty => "std::array::is_empty",
+        ArrayGet => "std::array::get",
+        ArrayPush => "std::array::push",
+        ArrayPop => "std::array::pop",
+        ArrayInsert => "std::array::insert",
+        ArrayRemove => "std::array::remove",
+        ArrayClear => "std::array::clear",
+        MapNew => "std::map::new",
+        MapLen => "std::map::len",
+        MapIsEmpty => "std::map::is_empty",
+        MapContainsKey => "std::map::contains_key",
+        MapGet => "std::map::get",
+        MapInsert => "std::map::insert",
+        MapRemove => "std::map::remove",
+        MapClear => "std::map::clear",
+        MapKeys => "std::map::keys",
+        MapValues => "std::map::values",
+        MapEntries => "std::map::entries",
+        SetNew => "std::set::new",
+        SetLen => "std::set::len",
+        SetIsEmpty => "std::set::is_empty",
+        SetContains => "std::set::contains",
+        SetInsert => "std::set::insert",
+        SetRemove => "std::set::remove",
+        SetClear => "std::set::clear",
+        SetToArray => "std::set::to_array",
+        SetUnion => "std::set::union",
+        SetIntersection => "std::set::intersection",
+        SetDifference => "std::set::difference",
+        StringLenBytes => "std::string::len_bytes",
+        StringLenChars => "std::string::len_chars",
+        StringIsEmpty => "std::string::is_empty",
+        StringConcat => "std::string::concat",
+        StringContains => "std::string::contains",
+        StringStartsWith => "std::string::starts_with",
+        StringEndsWith => "std::string::ends_with",
+        StringSlice => "std::string::slice",
+        OptionIsSome => "std::option::is_some",
+        OptionIsNone => "std::option::is_none",
+        OptionUnwrapOr => "std::option::unwrap_or",
+        OptionMap => "std::option::map",
+        OptionAndThen => "std::option::and_then",
+        ResultIsOk => "std::result::is_ok",
+        ResultIsErr => "std::result::is_err",
+        ResultUnwrapOr => "std::result::unwrap_or",
+        ResultMap => "std::result::map",
+        ResultMapErr => "std::result::map_err",
+        ResultAndThen => "std::result::and_then",
+        IterLen => "std::iter::len",
+        IterIsEmpty => "std::iter::is_empty",
+        IterGet => "std::iter::get",
+        IterToArray => "std::iter::to_array",
+        IterForEach => "std::iter::for_each",
+        MathMin => "std::math::min",
+        MathMax => "std::math::max",
+        MathClamp => "std::math::clamp",
+        MathAbs => "std::math::abs",
+        MathFloor => "std::math::floor",
+        MathCeil => "std::math::ceil",
+        MathRound => "std::math::round",
+        MathSqrt => "std::math::sqrt",
+        MathSin => "std::math::sin",
+        MathCos => "std::math::cos",
+        MathTan => "std::math::tan",
+        DebugPrint => "std::debug::print",
+        DebugAssert => "std::debug::assert",
+        DebugAssertEq => "std::debug::assert_eq",
+        DebugPanic => "std::debug::panic",
     }
 }

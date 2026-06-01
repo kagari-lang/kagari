@@ -51,6 +51,8 @@ impl FunctionLowerer<'_> {
             ResolvedName::Const(_)
             | ResolvedName::Function(_)
             | ResolvedName::Module(_)
+            | ResolvedName::StandardModule(_)
+            | ResolvedName::StandardFunction(_)
             | ResolvedName::Struct(_)
             | ResolvedName::Enum(_)
             | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
@@ -220,7 +222,11 @@ impl FunctionLowerer<'_> {
             ResolvedName::Function(_) => Err(IrLoweringError::UnsupportedExpr(
                 "bare function values are not lowered yet",
             )),
+            ResolvedName::StandardFunction(_) => Err(IrLoweringError::UnsupportedExpr(
+                "bare standard functions are not lowered yet",
+            )),
             ResolvedName::Module(_)
+            | ResolvedName::StandardModule(_)
             | ResolvedName::Struct(_)
             | ResolvedName::Enum(_)
             | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
@@ -243,6 +249,8 @@ impl FunctionLowerer<'_> {
             | ResolvedName::Param(_)
             | ResolvedName::Local(_)
             | ResolvedName::Module(_)
+            | ResolvedName::StandardModule(_)
+            | ResolvedName::StandardFunction(_)
             | ResolvedName::Struct(_)
             | ResolvedName::Enum(_)
             | ResolvedName::Trait(_) => Ok(None),

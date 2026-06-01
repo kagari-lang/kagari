@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::builtin::surface::StandardIntrinsic;
 use crate::hir::{ExprId, LocalId, PlaceId};
 use crate::types::TypeId;
 
@@ -8,6 +9,7 @@ pub struct TypeTable {
     exprs: HashMap<ExprId, TypeId>,
     locals: HashMap<LocalId, TypeId>,
     places: HashMap<PlaceId, TypeId>,
+    standard_calls: HashMap<ExprId, StandardIntrinsic>,
 }
 
 impl TypeTable {
@@ -23,6 +25,10 @@ impl TypeTable {
         self.places.insert(id, ty);
     }
 
+    pub(crate) fn insert_standard_call(&mut self, id: ExprId, intrinsic: StandardIntrinsic) {
+        self.standard_calls.insert(id, intrinsic);
+    }
+
     pub fn expr_type(&self, id: ExprId) -> Option<TypeId> {
         self.exprs.get(&id).cloned()
     }
@@ -33,5 +39,9 @@ impl TypeTable {
 
     pub fn place_type(&self, id: PlaceId) -> Option<TypeId> {
         self.places.get(&id).cloned()
+    }
+
+    pub fn standard_call_intrinsic(&self, id: ExprId) -> Option<StandardIntrinsic> {
+        self.standard_calls.get(&id).copied()
     }
 }

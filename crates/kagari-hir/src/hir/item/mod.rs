@@ -11,7 +11,9 @@ pub use behavior::{
     TraitMethod, TraitMethodBuffer, TraitRef, TraitRefBuffer,
 };
 pub use function::{Function, FunctionBuffer, FunctionKind, Param, ParamBuffer};
-pub use module::{ModuleDecl, ModuleDeclBuffer};
+pub use module::{
+    ModuleDecl, ModuleDeclBuffer, StandardImport, StandardImportBuffer, StandardImportTarget,
+};
 pub use storage::{ConstBuffer, ConstItem, Export, ExportBuffer, ExportItem, Visibility};
 
 use crate::hir::{
@@ -29,6 +31,7 @@ pub struct Module {
     pub methods: MethodBuffer,
     pub consts: ConstBuffer,
     pub modules: ModuleDeclBuffer,
+    pub standard_imports: StandardImportBuffer,
     pub structs: StructBuffer,
     pub enums: EnumBuffer,
     pub traits: TraitBuffer,

@@ -288,9 +288,11 @@ fn main() -> i32 {
 fn lowers_array_methods_to_builtin_method_calls() {
     let analyzed = common::analyze_ok(
         r#"
-fn main() -> [i32] {
+fn main() -> usize {
     val values = [1, 2];
-    values.push(3).pop()
+    values.push(3);
+    values.pop();
+    values.len()
 }
 "#,
     );

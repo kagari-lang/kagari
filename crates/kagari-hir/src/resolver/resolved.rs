@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::builtin::surface;
 use crate::hir::{
     ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, ParamId, PlaceId, StructId, TraitId,
 };
@@ -12,6 +13,8 @@ pub enum ResolvedName {
     Param(ParamId),
     Local(LocalId),
     Module(ModuleId),
+    StandardModule(surface::StandardModule),
+    StandardFunction(surface::StandardIntrinsic),
     Struct(StructId),
     Enum(EnumId),
     Trait(TraitId),

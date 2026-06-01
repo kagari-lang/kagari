@@ -150,6 +150,8 @@ impl FunctionLowerer<'_> {
                     ResolvedName::Const(_)
                     | ResolvedName::Function(_)
                     | ResolvedName::Module(_)
+                    | ResolvedName::StandardModule(_)
+                    | ResolvedName::StandardFunction(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_) => {
@@ -198,6 +200,8 @@ impl FunctionLowerer<'_> {
                     ResolvedName::Const(_)
                     | ResolvedName::Function(_)
                     | ResolvedName::Module(_)
+                    | ResolvedName::StandardModule(_)
+                    | ResolvedName::StandardFunction(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedStatement(

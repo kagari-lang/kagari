@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     BoxedDiagnosticBuffer,
-    builtin::surface,
+    builtin::surface::{self, StandardTypeConstraint},
     hir::FunctionKind,
     hir::{BinaryOp, ConstId, ConstItem, ExprId, ExprKind, PrefixOp},
     lower::LoweredModule,
@@ -49,6 +49,12 @@ pub fn check_module(
 
             match resolve_type_in(&lowered.module, param.ty, context) {
                 Some(ty) => {
+                    validate_standard_type_constraints(
+                        &ty,
+                        &function_bounds(function),
+                        lowered.source_map.type_span(param.ty),
+                        &mut diagnostics,
+                    );
                     params.push(TypedParameter {
                         id: param.id,
                         writeability: param.writeability,
@@ -69,7 +75,15 @@ pub fn check_module(
 
         let return_type = match &function.return_type {
             Some(ty_ref) => match resolve_type_in(&lowered.module, *ty_ref, context) {
-                Some(ty) => ty,
+                Some(ty) => {
+                    validate_standard_type_constraints(
+                        &ty,
+                        &function_bounds(function),
+                        lowered.source_map.type_span(*ty_ref),
+                        &mut diagnostics,
+                    );
+                    ty
+                }
                 None => {
                     let ty_name = display_type(&lowered.module, *ty_ref);
                     diagnostics.push(
@@ -105,7 +119,15 @@ pub fn check_module(
         for const_item in &lowered.module.consts {
             let ty = match const_item.ty {
                 Some(ty_ref) => match resolve_type(&lowered.module, ty_ref) {
-                    Some(ty) => ty,
+                    Some(ty) => {
+                        validate_standard_type_constraints(
+                            &ty,
+                            &HashMap::new(),
+                            lowered.source_map.type_span(ty_ref),
+                            &mut diagnostics,
+                        );
+                        ty
+                    }
                     None => {
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownConstType {
@@ -399,6 +421,9 @@ fn validate_trait_refs(
 ) {
     for param in generic_params {
         for trait_ref in &param.bounds {
+            if surface::standard_constraint(&trait_ref.name).is_some() {
+                continue;
+            }
             if !trait_names.contains(trait_ref.name.as_str()) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownTrait {
@@ -411,6 +436,9 @@ fn validate_trait_refs(
     }
     for bound in bounds {
         for trait_ref in &bound.traits {
+            if surface::standard_constraint(&trait_ref.name).is_some() {
+                continue;
+            }
             if !trait_names.contains(trait_ref.name.as_str()) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownTrait {
@@ -421,6 +449,85 @@ fn validate_trait_refs(
             }
         }
     }
+}
+
+fn validate_standard_type_constraints(
+    ty: &TypeId,
+    generic_bounds: &HashMap<String, Vec<String>>,
+    span: kagari_common::Span,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    match ty {
+        TypeId::Map { key, value } => {
+            validate_standard_constraint_type(
+                key,
+                StandardTypeConstraint::HashKey,
+                generic_bounds,
+                span,
+                diagnostics,
+            );
+            validate_standard_type_constraints(value, generic_bounds, span, diagnostics);
+        }
+        TypeId::Set(element) => {
+            validate_standard_constraint_type(
+                element,
+                StandardTypeConstraint::HashKey,
+                generic_bounds,
+                span,
+                diagnostics,
+            );
+        }
+        TypeId::Tuple(elements) => {
+            for element in elements {
+                validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
+            }
+        }
+        TypeId::Array(element) => {
+            validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
+        }
+        TypeId::StandardEnum { args, .. } => {
+            for arg in args {
+                validate_standard_type_constraints(arg, generic_bounds, span, diagnostics);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_standard_constraint_type(
+    ty: &TypeId,
+    constraint: StandardTypeConstraint,
+    generic_bounds: &HashMap<String, Vec<String>>,
+    span: kagari_common::Span,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    let ok = match ty {
+        TypeId::Generic(name) => generic_bounds.get(name).is_some_and(|bounds| {
+            bounds
+                .iter()
+                .any(|bound| surface::standard_constraint(bound) == Some(constraint))
+        }),
+        _ => match constraint {
+            StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
+            StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
+            StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
+            StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
+            StandardTypeConstraint::Comparable => true,
+        },
+    };
+
+    if ok {
+        return;
+    }
+
+    diagnostics.push(
+        Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+            type_name: display_type_id(ty),
+            constraint: surface::standard_constraint_name(constraint).to_owned(),
+            reason: "standard collection keys must have specified hash semantics".to_owned(),
+        })
+        .with_span(span),
+    );
 }
 
 fn trait_method_interface_compatible(

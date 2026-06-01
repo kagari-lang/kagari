@@ -1029,7 +1029,9 @@ fn lowers_array_methods_to_builtin_method_calls() {
         r#"
 fn main() -> usize {
     val values = [1, 2];
-    values.push(3).pop().len()
+    values.push(3);
+    values.pop();
+    values.len()
 }
 "#,
     );

@@ -1,9 +1,10 @@
 use kagari_syntax::ast;
 
+use crate::builtin::surface;
 use crate::hir::{
     BlockData, ConstItem, Enum, Export, ExportItem, Field, Function, FunctionKind, GenericParam,
-    Impl, ImplMethod, Item, ModuleDecl, Param, Struct, TraitBound, TraitDef, TraitMethod, TraitRef,
-    TypeRefId, Variant, Visibility, Writeability,
+    Impl, ImplMethod, Item, ModuleDecl, Param, StandardImport, StandardImportTarget, Struct,
+    TraitBound, TraitDef, TraitMethod, TraitRef, TypeRefId, Variant, Visibility, Writeability,
 };
 use crate::lower::context::{Lowerer, syntax_span};
 
@@ -22,7 +23,7 @@ impl Lowerer {
                     self.module.items.push(Item::Module(hir_module.id));
                     self.module.modules.push(hir_module);
                 }
-                ast::Item::UseDecl(_) => {}
+                ast::Item::UseDecl(use_decl) => self.lower_use_decl(&use_decl),
                 ast::Item::TraitDef(trait_def) => {
                     let hir_trait = self.lower_trait(&trait_def);
                     if hir_trait.visibility == Visibility::Public {
@@ -126,6 +127,75 @@ impl Lowerer {
             name: module_def.name_text().unwrap_or_default(),
             inline: module_def.block().is_some(),
         }
+    }
+
+    fn lower_use_decl(&mut self, use_decl: &ast::UseDecl) {
+        let Some(tree) = use_decl.tree() else {
+            return;
+        };
+        let visibility = if use_decl.is_pub() {
+            Visibility::Public
+        } else {
+            Visibility::Private
+        };
+        self.lower_use_tree(visibility, None, &tree);
+    }
+
+    fn lower_use_tree(
+        &mut self,
+        visibility: Visibility,
+        base_path: Option<String>,
+        tree: &ast::UseTree,
+    ) {
+        let path = match (base_path, tree.path().and_then(|path| path.text())) {
+            (Some(base), Some(path)) => format!("{base}::{path}"),
+            (Some(base), None) => base,
+            (None, Some(path)) => path,
+            (None, None) => String::new(),
+        };
+
+        let nested = tree.nested_trees().collect::<Vec<_>>();
+        if nested.is_empty() {
+            self.lower_standard_import(
+                visibility,
+                &path,
+                tree.alias().and_then(|alias| alias.text()),
+            );
+            return;
+        }
+
+        for child in nested {
+            self.lower_use_tree(visibility, Some(path.clone()), &child);
+        }
+    }
+
+    fn lower_standard_import(&mut self, visibility: Visibility, path: &str, alias: Option<String>) {
+        let Some(target) = standard_import_target(path) else {
+            return;
+        };
+        let Some(default_alias) = path.rsplit("::").next() else {
+            return;
+        };
+        let alias = alias.unwrap_or_else(|| default_alias.to_owned());
+        if alias.is_empty() {
+            return;
+        }
+        if visibility == Visibility::Public {
+            self.module.exports.push(Export {
+                name: alias.clone(),
+                item: match target {
+                    StandardImportTarget::Module(module) => ExportItem::StandardModule(module),
+                    StandardImportTarget::Function(intrinsic) => {
+                        ExportItem::StandardFunction(intrinsic)
+                    }
+                },
+            });
+        }
+        self.module.standard_imports.push(StandardImport {
+            visibility,
+            alias,
+            target,
+        });
     }
 
     fn lower_trait(&mut self, trait_def: &ast::TraitDef) -> TraitDef {
@@ -471,4 +541,15 @@ impl Lowerer {
             impls: Vec::new(),
         }
     }
+}
+
+fn standard_import_target(path: &str) -> Option<StandardImportTarget> {
+    if let Some(module) = surface::standard_module(path).map(|spec| spec.kind) {
+        return Some(StandardImportTarget::Module(module));
+    }
+
+    let (module_path, function_name) = path.rsplit_once("::")?;
+    let module = surface::standard_module(module_path)?.kind;
+    surface::standard_function(module, function_name)
+        .map(|function| StandardImportTarget::Function(function.intrinsic))
 }

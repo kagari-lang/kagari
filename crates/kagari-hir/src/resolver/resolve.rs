@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::builtin::surface;
 use crate::hir::{
     BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
     PlaceId, PlaceKind, StmtId, StmtKind, StructId, TraitId,
@@ -186,6 +187,12 @@ impl<'a> BodyResolver<'a> {
         if let Some(id) = self.names.module(name) {
             return Some(ResolvedName::Module(id));
         }
+        if let Some(module) = self.names.standard_module(name) {
+            return Some(ResolvedName::StandardModule(module));
+        }
+        if let Some(intrinsic) = self.names.standard_function(name) {
+            return Some(ResolvedName::StandardFunction(intrinsic));
+        }
         if let Some(id) = self.names.struct_(name) {
             return Some(ResolvedName::Struct(id));
         }
@@ -214,6 +221,8 @@ trait TopLevelLookup {
     fn function(&self, name: &str) -> Option<FunctionId>;
     fn const_(&self, name: &str) -> Option<ConstId>;
     fn module(&self, name: &str) -> Option<ModuleId>;
+    fn standard_module(&self, name: &str) -> Option<surface::StandardModule>;
+    fn standard_function(&self, name: &str) -> Option<surface::StandardIntrinsic>;
     fn struct_(&self, name: &str) -> Option<StructId>;
     fn enum_(&self, name: &str) -> Option<EnumId>;
     fn trait_(&self, name: &str) -> Option<TraitId>;
@@ -230,6 +239,14 @@ impl TopLevelLookup for NameTable {
 
     fn module(&self, name: &str) -> Option<ModuleId> {
         self.modules.get(name).copied()
+    }
+
+    fn standard_module(&self, name: &str) -> Option<surface::StandardModule> {
+        self.standard_modules.get(name).copied()
+    }
+
+    fn standard_function(&self, name: &str) -> Option<surface::StandardIntrinsic> {
+        self.standard_functions.get(name).copied()
     }
 
     fn struct_(&self, name: &str) -> Option<StructId> {

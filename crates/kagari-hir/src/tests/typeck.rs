@@ -2,8 +2,8 @@ use kagari_common::{DiagnosticKind, SourceFile, TypePosition};
 use kagari_syntax::parse_module;
 
 use crate::{
-    builtin::surface::{self, IterableProtocol},
-    hir::{ExprKind, PatternKind, StmtKind},
+    builtin::surface::{self, IterableProtocol, StandardIntrinsic},
+    hir::{ExportItem, ExprKind, PatternKind, StmtKind},
     resolver::resolve_names,
     tests::common,
     typeck::check_module,
@@ -267,7 +267,7 @@ fn infers_array_method_call_types() {
 fn main() -> usize {
     val values = [1, 2];
     val next = values.push(3);
-    next.pop().len()
+    next.len()
 }
 "#,
     );
@@ -471,6 +471,175 @@ fn sized(value: usize) -> usize { value }
         typed.functions[4].return_type,
         TypeId::Builtin(BuiltinType::USize)
     );
+}
+
+#[test]
+fn resolves_standard_module_imports_facade_exports_and_function_calls() {
+    let lowered = common::lower_ok(
+        r#"
+pub use std::math as math;
+use std::map::len as map_len;
+
+fn size(values: Map<String, i32>) -> usize {
+    map_len(values)
+}
+
+fn clamp(value: i32) -> i32 {
+    math::clamp(value, value, value)
+}
+"#,
+    );
+    assert!(lowered.module.standard_imports.iter().any(|import| {
+        import.alias == "math"
+            && matches!(
+                import.target,
+                crate::hir::StandardImportTarget::Module(surface::StandardModule::Math)
+            )
+    }));
+    assert!(lowered.module.exports.iter().any(|export| {
+        export.name == "math"
+            && matches!(
+                export.item,
+                ExportItem::StandardModule(surface::StandardModule::Math)
+            )
+    }));
+
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    assert!(names.items.contains_standard_module("math"));
+    assert!(names.items.contains_standard_function("map_len"));
+    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+
+    let size = &lowered.module.functions[0];
+    let size_tail = lowered
+        .module
+        .block(size.body)
+        .tail_expr
+        .expect("size tail expr");
+    assert_eq!(
+        typed.type_table.standard_call_intrinsic(size_tail),
+        Some(StandardIntrinsic::MapLen)
+    );
+    assert_eq!(
+        typed.type_table.expr_type(size_tail),
+        Some(TypeId::Builtin(BuiltinType::USize))
+    );
+
+    let clamp = &lowered.module.functions[1];
+    let clamp_tail = lowered
+        .module
+        .block(clamp.body)
+        .tail_expr
+        .expect("clamp tail expr");
+    assert_eq!(
+        typed.type_table.standard_call_intrinsic(clamp_tail),
+        Some(StandardIntrinsic::MathClamp)
+    );
+    assert_eq!(
+        typed.type_table.expr_type(clamp_tail),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+}
+
+#[test]
+fn type_checks_standard_methods_and_records_intrinsics() {
+    let lowered = common::lower_ok(
+        r#"
+fn keys(values: Map<String, i32>) -> [String] {
+    values.keys()
+}
+
+fn chars(value: String) -> usize {
+    value.len_chars()
+}
+
+fn popped(values: [i32]) -> Option<i32> {
+    values.pop()
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+
+    let keys_tail = lowered
+        .module
+        .block(lowered.module.functions[0].body)
+        .tail_expr
+        .expect("keys tail expr");
+    assert_eq!(
+        typed.type_table.standard_call_intrinsic(keys_tail),
+        Some(StandardIntrinsic::MapKeys)
+    );
+    assert_eq!(
+        typed.type_table.expr_type(keys_tail),
+        Some(TypeId::Array(Box::new(TypeId::Builtin(
+            BuiltinType::String
+        ))))
+    );
+
+    let chars_tail = lowered
+        .module
+        .block(lowered.module.functions[1].body)
+        .tail_expr
+        .expect("chars tail expr");
+    assert_eq!(
+        typed.type_table.standard_call_intrinsic(chars_tail),
+        Some(StandardIntrinsic::StringLenChars)
+    );
+
+    let popped_tail = lowered
+        .module
+        .block(lowered.module.functions[2].body)
+        .tail_expr
+        .expect("popped tail expr");
+    assert_eq!(
+        typed.type_table.expr_type(popped_tail),
+        Some(TypeId::StandardEnum {
+            name: "Option".to_string(),
+            args: vec![TypeId::Builtin(BuiltinType::I32)],
+        })
+    );
+}
+
+#[test]
+fn enforces_standard_hash_key_constraints_for_collections_and_generic_calls() {
+    let lowered = common::lower_ok(
+        r#"
+fn contains<K: HashKey, V>(values: Map<K, V>, key: K) -> bool {
+    std::map::contains_key(values, key)
+}
+
+fn unique<T: HashKey>(values: Set<T>) -> usize {
+    std::set::len(values)
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    check_module(&lowered, &names).expect("hash-key constrained generics should type check");
+
+    let lowered =
+        common::lower_ok("fn bad(values: Map<f64, i32>) -> usize { std::map::len(values) }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names).expect_err("f64 map keys should reject");
+    assert!(diagnostics.iter().any(|diagnostic| {
+        matches!(
+            &diagnostic.kind,
+            DiagnosticKind::StandardConstraintNotSatisfied { constraint, .. }
+                if constraint == "HashKey"
+        )
+    }));
+
+    let lowered =
+        common::lower_ok("fn bad<K, V>(values: Map<K, V>) -> usize { std::map::len(values) }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("unconstrained generic map key should reject");
+    assert!(diagnostics.iter().any(|diagnostic| {
+        matches!(
+            &diagnostic.kind,
+            DiagnosticKind::StandardConstraintNotSatisfied { type_name, constraint, .. }
+                if type_name == "K" && constraint == "HashKey"
+        )
+    }));
 }
 
 #[test]

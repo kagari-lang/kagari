@@ -102,6 +102,11 @@ pub enum DiagnosticKind {
         expected: String,
         found: String,
     },
+    StandardConstraintNotSatisfied {
+        type_name: String,
+        constraint: String,
+        reason: String,
+    },
     InvalidAssignmentTarget {
         reason: String,
     },
@@ -271,6 +276,9 @@ impl DiagnosticKind {
             Self::ConstWriteNotAllowed { .. } => "KG_TYPE_CONST_WRITE_NOT_ALLOWED",
             Self::CallArityMismatch { .. } => "KG_TYPE_CALL_ARITY_MISMATCH",
             Self::ArgumentTypeMismatch { .. } => "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
+            Self::StandardConstraintNotSatisfied { .. } => {
+                "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"
+            }
             Self::InvalidAssignmentTarget { .. } => "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
             Self::AssignmentTypeMismatch { .. } => "KG_TYPE_ASSIGNMENT_TYPE_MISMATCH",
             Self::ConditionTypeMismatch { .. } => "KG_TYPE_CONDITION_TYPE_MISMATCH",
@@ -431,6 +439,14 @@ impl Display for DiagnosticKind {
             } => write!(
                 f,
                 "argument type mismatch for parameter `{parameter_name}` in `{function_name}`: expected `{expected}`, found `{found}`"
+            ),
+            Self::StandardConstraintNotSatisfied {
+                type_name,
+                constraint,
+                reason,
+            } => write!(
+                f,
+                "type `{type_name}` does not satisfy standard constraint `{constraint}`: {reason}"
             ),
             Self::InvalidAssignmentTarget { reason } => {
                 write!(f, "invalid assignment target: {reason}")

@@ -2,7 +2,7 @@ use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
 use crate::BoxedDiagnosticBuffer;
-use crate::hir::FunctionKind;
+use crate::hir::{FunctionKind, StandardImportTarget};
 use crate::lower::LoweredModule;
 use crate::resolver::ResolvedNames;
 use crate::resolver::resolve::BodyResolver;
@@ -42,6 +42,17 @@ pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiag
     for module_decl in &lowered.module.modules {
         if !module_decl.name.is_empty() {
             names.insert_module(module_decl.name.clone(), module_decl.id);
+        }
+    }
+
+    for import in &lowered.module.standard_imports {
+        match import.target {
+            StandardImportTarget::Module(module) => {
+                names.insert_standard_module(import.alias.clone(), module);
+            }
+            StandardImportTarget::Function(intrinsic) => {
+                names.insert_standard_function(import.alias.clone(), intrinsic);
+            }
         }
     }
 

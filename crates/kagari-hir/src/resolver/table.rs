@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::builtin::surface;
 use crate::hir::{ConstId, EnumId, FunctionId, ImplId, ModuleId, StructId, TraitId};
 
 #[derive(Debug, Clone, Default)]
@@ -7,6 +8,8 @@ pub struct NameTable {
     pub(crate) functions: HashMap<String, FunctionId>,
     pub(crate) consts: HashMap<String, ConstId>,
     pub(crate) modules: HashMap<String, ModuleId>,
+    pub(crate) standard_modules: HashMap<String, surface::StandardModule>,
+    pub(crate) standard_functions: HashMap<String, surface::StandardIntrinsic>,
     pub(crate) structs: HashMap<String, StructId>,
     pub(crate) enums: HashMap<String, EnumId>,
     pub(crate) traits: HashMap<String, TraitId>,
@@ -24,6 +27,22 @@ impl NameTable {
 
     pub(crate) fn insert_module(&mut self, name: String, id: ModuleId) -> Option<ModuleId> {
         self.modules.insert(name, id)
+    }
+
+    pub(crate) fn insert_standard_module(
+        &mut self,
+        name: String,
+        module: surface::StandardModule,
+    ) -> Option<surface::StandardModule> {
+        self.standard_modules.insert(name, module)
+    }
+
+    pub(crate) fn insert_standard_function(
+        &mut self,
+        name: String,
+        intrinsic: surface::StandardIntrinsic,
+    ) -> Option<surface::StandardIntrinsic> {
+        self.standard_functions.insert(name, intrinsic)
     }
 
     pub(crate) fn insert_struct(&mut self, name: String, id: StructId) -> Option<StructId> {
@@ -52,6 +71,14 @@ impl NameTable {
 
     pub fn contains_module(&self, name: &str) -> bool {
         self.modules.contains_key(name)
+    }
+
+    pub fn contains_standard_module(&self, name: &str) -> bool {
+        self.standard_modules.contains_key(name)
+    }
+
+    pub fn contains_standard_function(&self, name: &str) -> bool {
+        self.standard_functions.contains_key(name)
     }
 
     pub fn contains_struct(&self, name: &str) -> bool {
