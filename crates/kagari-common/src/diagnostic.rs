@@ -164,11 +164,6 @@ pub enum DiagnosticKind {
     },
     BreakOutsideLoop,
     ContinueOutsideLoop,
-    InvalidLetBinding,
-    InvalidStaticItem,
-    InvalidRefParameter,
-    InvalidReceiverModifier,
-    InvalidDynTraitSyntax,
     ProfileFeatureDisabled {
         feature: &'static str,
     },
@@ -292,11 +287,6 @@ impl DiagnosticKind {
             Self::ReturnTypeMismatch { .. } => "KG_TYPE_RETURN_TYPE_MISMATCH",
             Self::BreakOutsideLoop => "KG_TYPE_BREAK_OUTSIDE_LOOP",
             Self::ContinueOutsideLoop => "KG_TYPE_CONTINUE_OUTSIDE_LOOP",
-            Self::InvalidLetBinding => "KG_PARSE_INVALID_LET_BINDING",
-            Self::InvalidStaticItem => "KG_PARSE_INVALID_STATIC_ITEM",
-            Self::InvalidRefParameter => "KG_PARSE_INVALID_REF_PARAMETER",
-            Self::InvalidReceiverModifier => "KG_PARSE_INVALID_RECEIVER_MODIFIER",
-            Self::InvalidDynTraitSyntax => "KG_PARSE_INVALID_DYN_TRAIT_SYNTAX",
             Self::ProfileFeatureDisabled { .. } => "KG_PROFILE_FEATURE_DISABLED",
         }
     }
@@ -520,20 +510,6 @@ impl Display for DiagnosticKind {
             ),
             Self::BreakOutsideLoop => write!(f, "`break` used outside of a loop"),
             Self::ContinueOutsideLoop => write!(f, "`continue` used outside of a loop"),
-            Self::InvalidLetBinding => {
-                write!(f, "`let` bindings are not valid; use `val` or `var`")
-            }
-            Self::InvalidStaticItem => {
-                write!(f, "`static` items are not part of the source language")
-            }
-            Self::InvalidRefParameter => write!(f, "`ref` parameters are not valid"),
-            Self::InvalidReceiverModifier => {
-                write!(f, "receiver modifiers are not valid; use plain `self`")
-            }
-            Self::InvalidDynTraitSyntax => write!(
-                f,
-                "`dyn` interface type syntax is not valid; use the trait name directly"
-            ),
             Self::ProfileFeatureDisabled { feature } => {
                 write!(f, "language profile disables {feature}")
             }
@@ -561,8 +537,8 @@ mod tests {
     #[test]
     fn diagnostic_kinds_expose_stable_codes() {
         assert_eq!(
-            DiagnosticKind::InvalidLetBinding.code(),
-            "KG_PARSE_INVALID_LET_BINDING"
+            DiagnosticKind::ExpectedBindingKeyword.code(),
+            "KG_PARSE_EXPECTED_BINDING_KEYWORD"
         );
         assert_eq!(
             DiagnosticKind::DuplicateFunction {

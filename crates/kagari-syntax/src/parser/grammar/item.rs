@@ -50,12 +50,6 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Ident) if self.expr_followed_by_assignment() => {
                 self.parse_assign_stmt()
             }
-            Some(TokenKind::Ident) if self.current_text_is("let") => {
-                self.recover_until_statement_boundary(DiagnosticKind::InvalidLetBinding);
-            }
-            Some(TokenKind::Ident) if self.current_text_is("static") => {
-                self.recover_until_statement_boundary(DiagnosticKind::InvalidStaticItem);
-            }
             Some(_) if self.expr_starts() => return self.parse_top_level_expr_stmt_or_tail(),
             Some(TokenKind::Unknown) => {
                 self.error_here(DiagnosticKind::UnexpectedToken);
@@ -80,9 +74,6 @@ impl<'a> Parser<'a> {
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
             Some(TokenKind::TraitKw) => self.parse_trait(),
-            Some(TokenKind::Ident) if self.nth_nontrivia_text(1) == Some("static") => {
-                self.recover_until_statement_boundary(DiagnosticKind::InvalidStaticItem);
-            }
             _ => {
                 self.error_here(DiagnosticKind::ExpectedTopLevelItem);
                 self.bump_as_error();
@@ -101,9 +92,6 @@ impl<'a> Parser<'a> {
             Some(TokenKind::EnumKw) => self.parse_enum(),
             Some(TokenKind::TraitKw) => self.parse_trait(),
             Some(TokenKind::ImplKw) => self.parse_impl(),
-            Some(TokenKind::Ident) if self.current_text_is("static") => {
-                self.recover_until_statement_boundary(DiagnosticKind::InvalidStaticItem);
-            }
             Some(TokenKind::Unknown) => {
                 self.error_here(DiagnosticKind::UnexpectedToken);
                 self.bump_as_error();
@@ -778,16 +766,6 @@ impl<'a> Parser<'a> {
     fn parse_param(&mut self) {
         self.start_node(SyntaxKind::Param);
         self.bump_trivia();
-        if self.current_text_is("ref") {
-            self.recover_until_param_boundary(DiagnosticKind::InvalidRefParameter);
-            self.finish_node();
-            return;
-        }
-        if self.current_text_is("mut") {
-            self.recover_until_param_boundary(DiagnosticKind::InvalidReceiverModifier);
-            self.finish_node();
-            return;
-        }
         self.parse_parameter_name();
         self.expect(
             TokenKind::Colon,

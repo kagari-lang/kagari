@@ -22,9 +22,6 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
                 Some(TokenKind::BreakKw) => self.parse_break_stmt(),
                 Some(TokenKind::ContinueKw) => self.parse_continue_stmt(),
-                Some(TokenKind::Ident) if self.current_text_is("let") => {
-                    self.recover_until_statement_boundary(DiagnosticKind::InvalidLetBinding);
-                }
                 Some(TokenKind::Ident) if self.expr_followed_by_assignment() => {
                     self.parse_assign_stmt()
                 }

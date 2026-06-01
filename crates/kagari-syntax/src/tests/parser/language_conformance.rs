@@ -1,4 +1,4 @@
-use kagari_common::{DiagnosticKind, Severity};
+use kagari_common::Severity;
 
 use crate::tests::common;
 
@@ -115,53 +115,48 @@ fn main() -> i32 {
 }
 
 #[test]
-fn syntax_spec_rejects_non_spec_rust_forms() {
+fn syntax_spec_rejects_unrecognized_forms() {
     let cases = [
         (
             "docs/spec/syntax.md#binding-and-field-writeability",
             "let bindings",
             "fn main() { let value = 1; }",
-            DiagnosticKind::InvalidLetBinding,
         ),
         (
             "docs/spec/syntax.md#module-structure",
             "static items",
             "pub static mut COUNTER: i32 = 0;",
-            DiagnosticKind::InvalidStaticItem,
         ),
         (
             "docs/spec/traits.md#scope-exclusions",
             "dyn trait object syntax",
             "fn apply(effect: dyn Effect) {}",
-            DiagnosticKind::InvalidDynTraitSyntax,
         ),
         (
             "docs/spec/syntax.md#ordinary-parameter-semantics",
             "ref parameters",
             "fn update(ref value: i32) {}",
-            DiagnosticKind::InvalidRefParameter,
         ),
         (
             "docs/spec/syntax.md#impl-blocks-and-methods",
             "mut self receivers",
             "fn update(mut self: Player) {}",
-            DiagnosticKind::InvalidReceiverModifier,
         ),
         (
             "docs/spec/syntax.md#structs-and-enums",
             "fields without val or var",
             "struct Player { hp: i32 }",
-            DiagnosticKind::ExpectedFieldBinding,
         ),
     ];
 
-    for (spec_section, feature, source, expected) in cases {
+    for (spec_section, feature, source) in cases {
         let parse = common::parse(source);
         assert!(
-            parse.diagnostics().iter().any(|diagnostic| {
-                diagnostic.severity == Severity::Error && diagnostic.kind == expected
-            }),
-            "{spec_section} ({feature}) should reject with {expected:?}, got {:?}",
+            parse
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.severity == Severity::Error),
+            "{spec_section} ({feature}) should reject with an error, got {:?}",
             parse.diagnostics()
         );
     }

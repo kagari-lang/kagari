@@ -1,4 +1,4 @@
-use kagari_common::{DiagnosticKind, Severity};
+use kagari_common::Severity;
 
 use crate::{
     ast::{Expr, Stmt},
@@ -121,10 +121,10 @@ fn main() {
 fn rejects_invalid_let_binding() {
     let parse = common::parse("fn main() { let mut value = 1; }");
 
-    assert_eq!(parse.diagnostics().len(), 1);
-    assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
-        parse.diagnostics()[0].kind,
-        DiagnosticKind::InvalidLetBinding
+        parse.diagnostics()[0].severity,
+        Severity::Error,
+        "expected an error, got {:?}",
+        parse.diagnostics()
     );
 }

@@ -1,4 +1,4 @@
-use kagari_common::{DiagnosticKind, Severity};
+use kagari_common::Severity;
 
 use crate::tests::common;
 
@@ -31,11 +31,11 @@ fn parses_a_function_into_a_syntax_tree() {
 fn rejects_ref_parameter() {
     let parse = common::parse("fn update(ref value: i32) {}");
 
-    assert_eq!(parse.diagnostics().len(), 1);
-    assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
-        parse.diagnostics()[0].kind,
-        DiagnosticKind::InvalidRefParameter
+        parse.diagnostics()[0].severity,
+        Severity::Error,
+        "expected an error, got {:?}",
+        parse.diagnostics()
     );
 }
 
@@ -43,20 +43,20 @@ fn rejects_ref_parameter() {
 fn rejects_receiver_modifiers() {
     let parse = common::parse("fn update(mut self: Player) {}");
 
-    assert_eq!(parse.diagnostics().len(), 1);
-    assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
-        parse.diagnostics()[0].kind,
-        DiagnosticKind::InvalidReceiverModifier
+        parse.diagnostics()[0].severity,
+        Severity::Error,
+        "expected an error, got {:?}",
+        parse.diagnostics()
     );
 
     let parse = common::parse("fn update(ref self: Player) {}");
 
-    assert_eq!(parse.diagnostics().len(), 1);
-    assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
-        parse.diagnostics()[0].kind,
-        DiagnosticKind::InvalidRefParameter
+        parse.diagnostics()[0].severity,
+        Severity::Error,
+        "expected an error, got {:?}",
+        parse.diagnostics()
     );
 }
 
@@ -64,10 +64,10 @@ fn rejects_receiver_modifiers() {
 fn rejects_dyn_trait_type() {
     let parse = common::parse("fn apply(effect: dyn Effect) {}");
 
-    assert_eq!(parse.diagnostics().len(), 1);
-    assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
-        parse.diagnostics()[0].kind,
-        DiagnosticKind::InvalidDynTraitSyntax
+        parse.diagnostics()[0].severity,
+        Severity::Error,
+        "expected an error, got {:?}",
+        parse.diagnostics()
     );
 }

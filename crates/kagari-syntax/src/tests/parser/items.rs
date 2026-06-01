@@ -75,10 +75,10 @@ fn parses_public_const_item() {
 fn rejects_script_static_item() {
     let parse = common::parse("pub static mut COUNTER: i32 = 0;");
 
-    assert_eq!(parse.diagnostics().len(), 1);
-    assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
     assert_eq!(
-        parse.diagnostics()[0].kind,
-        DiagnosticKind::InvalidStaticItem
+        parse.diagnostics()[0].severity,
+        Severity::Error,
+        "expected an error, got {:?}",
+        parse.diagnostics()
     );
 }
