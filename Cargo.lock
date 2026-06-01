@@ -362,6 +362,7 @@ dependencies = [
 name = "kagari-runtime"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "kagari-ir",
 ]
 

@@ -31,6 +31,35 @@ pub enum EphemeralValue {
     Runtime(EphemeralValueId),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    Bool(bool),
+    I32(i32),
+    I64(i64),
+    Str(String),
+}
+
+impl MapKey {
+    pub fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Bool(value) => Some(Self::Bool(*value)),
+            Value::I32(value) => Some(Self::I32(*value)),
+            Value::I64(value) => Some(Self::I64(*value)),
+            Value::Str(value) => Some(Self::Str(value.clone())),
+            _ => None,
+        }
+    }
+
+    pub fn to_value(&self) -> Value {
+        match self {
+            Self::Bool(value) => Value::Bool(*value),
+            Self::I32(value) => Value::I32(*value),
+            Self::I64(value) => Value::I64(*value),
+            Self::Str(value) => Value::Str(value.clone()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Unit,
@@ -42,6 +71,8 @@ pub enum Value {
     Str(String),
     Tuple(Vec<Value>),
     Array(HeapObjectId),
+    Map(HeapObjectId),
+    Set(HeapObjectId),
     Struct(HeapObjectId),
     GcHandle(HeapObjectId),
     Interface(InterfaceObjectId),
@@ -60,9 +91,12 @@ impl Value {
             | Self::F32(_)
             | Self::F64(_)
             | Self::Str(_) => ValueCategory::Primitive,
-            Self::Tuple(_) | Self::Array(_) | Self::Struct(_) | Self::GcHandle(_) => {
-                ValueCategory::ScriptOwned
-            }
+            Self::Tuple(_)
+            | Self::Array(_)
+            | Self::Map(_)
+            | Self::Set(_)
+            | Self::Struct(_)
+            | Self::GcHandle(_) => ValueCategory::ScriptOwned,
             Self::Interface(_) => ValueCategory::Interface,
             Self::HostRoot(_) => ValueCategory::HostHandle,
             Self::HostPathView(_) => ValueCategory::HostPathView,
@@ -108,7 +142,12 @@ impl Value {
             | Self::F64(_)
             | Self::Str(_) => true,
             Self::Tuple(elements) => elements.iter().all(Self::is_default_heap_payload),
-            Self::Array(_) | Self::Struct(_) | Self::GcHandle(_) | Self::Interface(_) => true,
+            Self::Array(_)
+            | Self::Map(_)
+            | Self::Set(_)
+            | Self::Struct(_)
+            | Self::GcHandle(_)
+            | Self::Interface(_) => true,
             Self::HostRoot(_) | Self::HostPathView(_) | Self::Ephemeral(_) => false,
         }
     }
@@ -219,6 +258,14 @@ mod tests {
 
         assert_eq!(Value::Unit.category(), ValueCategory::Unit);
         assert_eq!(scalar.category(), ValueCategory::Primitive);
+        assert_eq!(
+            Value::Map(HeapObjectId::new(1)).category(),
+            ValueCategory::ScriptOwned
+        );
+        assert_eq!(
+            Value::Set(HeapObjectId::new(2)).category(),
+            ValueCategory::ScriptOwned
+        );
         assert_eq!(host_root.category(), ValueCategory::HostHandle);
         assert_eq!(path_view.category(), ValueCategory::HostPathView);
         assert_eq!(host_ref.category(), ValueCategory::Ephemeral);
@@ -237,10 +284,32 @@ mod tests {
     #[test]
     fn keeps_host_handles_out_of_default_heap_payloads() {
         assert!(Value::Tuple(vec![Value::Unit]).is_default_heap_payload());
+        assert!(Value::Map(HeapObjectId::new(1)).is_default_heap_payload());
+        assert!(Value::Set(HeapObjectId::new(2)).is_default_heap_payload());
         assert!(Value::Interface(InterfaceObjectId(1)).is_default_heap_payload());
         assert!(!Value::HostRoot(host_root(1)).is_default_heap_payload());
         assert!(!path_view_value(1).is_default_heap_payload());
         assert!(!shared_borrow_value(1).is_default_heap_payload());
         assert!(!Value::Tuple(vec![unique_borrow_value(1)]).is_default_heap_payload());
+    }
+
+    #[test]
+    fn maps_standard_hash_key_values() {
+        assert_eq!(
+            MapKey::from_value(&Value::Bool(true)),
+            Some(MapKey::Bool(true))
+        );
+        assert_eq!(MapKey::from_value(&Value::I32(7)), Some(MapKey::I32(7)));
+        assert_eq!(MapKey::from_value(&Value::I64(9)), Some(MapKey::I64(9)));
+        assert_eq!(
+            MapKey::from_value(&Value::Str("hp".to_owned())),
+            Some(MapKey::Str("hp".to_owned()))
+        );
+        assert_eq!(
+            MapKey::Str("name".to_owned()).to_value(),
+            Value::Str("name".to_owned())
+        );
+        assert!(MapKey::from_value(&Value::F64(1.0)).is_none());
+        assert!(MapKey::from_value(&Value::Tuple(vec![])).is_none());
     }
 }

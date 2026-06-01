@@ -120,6 +120,28 @@ impl Runtime {
         Ok(handle)
     }
 
+    pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Result<HeapObjectId, RuntimeError> {
+        let units = 1 + entries.len();
+        self.resources.consume_allocation_units(units)?;
+        let handle = self
+            .gc
+            .alloc_map(entries)
+            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
+        self.sync_heap_accounting()?;
+        Ok(handle)
+    }
+
+    pub fn alloc_set(&self, values: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
+        let units = 1 + values.len();
+        self.resources.consume_allocation_units(units)?;
+        let handle = self
+            .gc
+            .alloc_set(values)
+            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
+        self.sync_heap_accounting()?;
+        Ok(handle)
+    }
+
     pub fn alloc_struct(
         &self,
         name: String,
@@ -1454,6 +1476,31 @@ mod tests {
 
         assert_eq!(counters.current_heap_units, 3);
         assert_eq!(counters.peak_heap_units, 3);
+    }
+
+    #[test]
+    fn builtin_map_and_set_allocations_update_resource_counters() {
+        let runtime = Runtime::default();
+        let map = runtime
+            .alloc_map(vec![
+                (value::Value::Str("hp".to_owned()), value::Value::I32(100)),
+                (value::Value::Str("mp".to_owned()), value::Value::I32(20)),
+            ])
+            .unwrap();
+        let set = runtime
+            .alloc_set(vec![
+                value::Value::Str("ready".to_owned()),
+                value::Value::Str("visible".to_owned()),
+            ])
+            .unwrap();
+
+        assert_eq!(runtime.gc().map_len(map), Some(2));
+        assert_eq!(runtime.gc().set_len(set), Some(2));
+
+        let counters = runtime.resources().counters();
+        assert_eq!(counters.allocation_units, 6);
+        assert_eq!(counters.current_heap_units, 6);
+        assert_eq!(counters.peak_heap_units, 6);
     }
 
     #[test]

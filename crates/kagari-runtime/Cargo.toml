@@ -10,3 +10,4 @@ jit = []
 
 [dependencies]
 kagari-ir.workspace = true
+indexmap.workspace = true

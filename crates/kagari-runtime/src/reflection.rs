@@ -28,6 +28,8 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
         Value::Str(_) => "String",
         Value::Tuple(_) => "tuple",
         Value::Array(_) => "array",
+        Value::Map(_) => "map",
+        Value::Set(_) => "set",
         Value::Struct(handle) => {
             return Value::Str(
                 gc.struct_name(*handle)
@@ -207,7 +209,11 @@ mod tests {
     #[test]
     fn reports_production_value_category_names() {
         let gc = GcHeap::new(GcHeapConfig::default());
+        let map = gc.alloc_map(vec![]).unwrap();
+        let set = gc.alloc_set(vec![]).unwrap();
 
+        assert_eq!(type_of(&gc, &Value::Map(map)), Value::Str("map".to_owned()));
+        assert_eq!(type_of(&gc, &Value::Set(set)), Value::Str("set".to_owned()));
         assert_eq!(
             type_of(&gc, &Value::Interface(InterfaceObjectId(1))),
             Value::Str("interface".to_owned())
