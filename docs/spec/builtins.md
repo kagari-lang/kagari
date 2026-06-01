@@ -173,6 +173,20 @@ Short-circuit behavior is part of language semantics and must be preserved by by
 The standard module set is deterministic and typed.
 Standard modules are compiler-known exports backed by intrinsic identifiers.
 They may also expose optional `.kg` facade functions for pure helper logic, but native runtime builtins remain the source of truth for core containers, strings, numeric operations, and security-sensitive helpers.
+Standard library calls must not be resolved through script-visible reflection, host string dispatch, or source-level reimplementations of core storage.
+
+The production execution path is:
+
+```text
+typed source call
+  -> standard function or method metadata
+  -> stable IR and bytecode intrinsic identifier
+  -> bytecode verifier signature and key-eligibility checks
+  -> VM/runtime standard helper
+```
+
+Runtime helpers own GC tracing, mutation semantics, resource accounting, deterministic traps, and profile or capability checks where a helper is policy-sensitive.
+The interpreter and optional JIT fallback paths must observe the same intrinsic semantics.
 
 Core standard modules:
 
@@ -190,6 +204,17 @@ std::iter
 
 Host-sensitive modules such as file system, networking, timers, database, logging sinks, and service registries are not core standard modules.
 They are host APIs and require explicit exposure through the host registry.
+
+### Standard Value Semantics
+
+Arrays, maps, sets, strings, `Option`, and `Result` are structural runtime values.
+Arrays, maps, and sets are heap-backed and mutable according to ordinary Kagari value and resource rules.
+String values are script-visible text values with validated UTF-8 boundary behavior for slicing.
+`Option<T>` and `Result<T, E>` are ordinary standard enum values and are not hidden control-flow constructs.
+
+`Map<K, V>` and `Set<T>` preserve insertion order.
+The Rust runtime implementation uses `indexmap` to provide deterministic script-visible ordering.
+The same ordering is used by `keys`, `values`, `entries`, `to_array`, set algebra helpers, iterable helpers, display/debug classification, and reflection metadata.
 
 ### Standard Module Shape
 
@@ -298,6 +323,33 @@ Float helpers must define deterministic trap or result behavior for invalid inpu
 
 Debug helpers may trap, emit debugger events, or call host-provided debug sinks according to the active runtime profile.
 They must not grant unrestricted file, terminal, network, or process access.
+
+### Standard Library Example
+
+```kagari
+fn main() -> (usize, bool, usize, bool, i32) {
+    val values = [1, 2];
+    values.push(3);
+
+    val scores: Map<String, i32> = std::map::new();
+    scores.insert("alice", 10);
+    scores.insert("bob", 12);
+
+    val names: Set<String> = std::set::new();
+    names.insert("alice");
+    names.insert("bob");
+
+    std::debug::assert(scores.contains_key("alice"), "missing score");
+
+    (
+        values.len(),
+        std::string::starts_with("kagari", "ka"),
+        scores.keys().len(),
+        names.contains("bob"),
+        std::math::max(10, 12)
+    )
+}
+```
 
 ## Debug and Logging
 

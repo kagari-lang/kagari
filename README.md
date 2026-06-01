@@ -11,7 +11,7 @@ Kagari is still an early language, but the repository now contains an end-to-end
 This currently means:
 
 - The specifications in `docs/spec/`, `docs/kagari.ebnf`, and `docs/architecture.md` are authoritative over legacy implementation behavior.
-- The syntax and builtin surface are intentionally small and still evolving toward the specifications.
+- The core standard library surface is implemented as typed runtime-native builtins rather than as compatibility wrappers or Kagari source-level container implementations.
 - Interpreter execution is the semantic foundation.
 - The Cranelift JIT is optional and feature-gated; unsupported functions or debug-policy conflicts fall back to the interpreter.
 - Runtime, host interop, reload, reflection, and debugger APIs expose structural boundaries, while production polish continues beyond the current implementation slice.
@@ -97,6 +97,33 @@ An implicit path selects `run-artifact` for `.kbc` files and `run` for other pat
 Profiles are selected with `--profile restricted`, `--profile dev`, or `--profile tooling`.
 `--jit` requests JIT execution when the binary is built with the `jit` feature; `--no-jit` forces interpreter execution.
 
+## Standard Library
+
+Kagari's core standard library is a typed intrinsic surface defined in [docs/spec/builtins.md](docs/spec/builtins.md).
+The compiler resolves these modules and methods to stable intrinsic identifiers, bytecode validation checks their signatures, and the VM executes them through runtime helpers.
+Core container storage remains runtime-native and participates in GC tracing, resource accounting, reflection metadata, reload validation, and JIT fallback behavior.
+
+The core standard modules are:
+
+- `std::array`
+- `std::map`
+- `std::set`
+- `std::string`
+- `std::option`
+- `std::result`
+- `std::iter`
+- `std::math`
+- `std::debug`
+
+`Map<K, V>` and `Set<T>` are deterministic insertion-ordered collections backed by `indexmap`.
+Their initial production key/member surface accepts only standard hash-key values: `bool`, integer types, and `String`.
+Floating-point, aggregate, host, and interface keys remain rejected until their equality and hashing semantics are specified.
+
+Host-sensitive capabilities such as file systems, networking, timers, process control, persistence, service registries, and logging sinks are not core standard modules.
+Hosts expose those capabilities explicitly through the host registry and security policy.
+
+See [examples/standard-library.kgr](examples/standard-library.kgr) for a small program using arrays, maps, sets, strings, math, and debug assertions.
+
 ## Engineering Priorities
 
 At the implementation level, Kagari currently prioritizes the following:
@@ -115,6 +142,7 @@ The current codebase includes:
 - Source, span, and structured diagnostic types with stable diagnostic codes
 - Lexer, parser, AST, HIR lowering, name resolution, builtin metadata, and semantic checks
 - Lowering from analyzed modules to typed IR and verified bytecode
+- A complete typed core standard library surface for arrays, maps, sets, strings, options, results, iterables, math, and debug helpers
 - `.kbc` artifact metadata, validation, and current Rust serialization helpers
 - Runtime values, host function/type registration, capability checks, resource policy, module epochs, and reload validation
 - A bytecode VM with debugger hooks, breakpoint resolution, stepping state, watch evaluation, and adapter-boundary request/event types

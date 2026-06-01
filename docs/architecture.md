@@ -110,7 +110,23 @@ Core containers and string operations are runtime-native builtins with stable in
 Optional `.kg` standard library files may provide pure facades and helper functions, but they must not own container storage, GC behavior, resource accounting, reflection gates, or host boundaries.
 
 Ordered map and set behavior is deterministic.
-The runtime implementation should use an insertion-ordered backing such as Rust `indexmap` for `Map<K, V>` and `Set<T>`.
+The runtime implementation uses insertion-ordered `indexmap` backing for script-visible `Map<K, V>` and `Set<T>` behavior.
+Map keys and set members are restricted to standard hash-key values: `bool`, integer types, and `String`.
+Float, aggregate, host, and interface keys are rejected until the language specifies stable equality and hashing semantics for them.
+
+Standard library calls flow through one structural path:
+
+```text
+source call or method
+  -> typed standard module/function/method metadata
+  -> stable IR and bytecode intrinsic id
+  -> bytecode verifier signature checks
+  -> VM dispatch to runtime standard helper
+```
+
+This keeps ordinary standard library execution out of script-visible reflection and host string dispatch.
+Reflection metadata may describe standard values for tooling when the active profile allows it, but reflection is not the implementation mechanism for arrays, maps, sets, strings, or standard helpers.
+Reload validation and JIT fallback use the same intrinsic ids and metadata as the interpreter.
 
 Host-sensitive APIs such as file system, networking, timers, persistence, service registries, and logging sinks are host APIs.
 They are not exposed as unrestricted core standard modules.
