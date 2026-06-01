@@ -47,7 +47,7 @@ pub(super) fn resolve_type_in(
                 .iter()
                 .map(|arg| resolve_type_in(module, *arg, context))
                 .collect::<Option<Vec<_>>>()?;
-            surface::standard_enum_type(name, args)
+            surface::standard_generic_type(name, args)
         }
         hir::TypeKind::Tuple(elements) => elements
             .iter()

@@ -484,6 +484,13 @@ fn validate_interface_type(
         TypeId::Array(element) => {
             validate_interface_type(lowered, function_index, element, span, diagnostics);
         }
+        TypeId::Map { key, value } => {
+            validate_interface_type(lowered, function_index, key, span, diagnostics);
+            validate_interface_type(lowered, function_index, value, span, diagnostics);
+        }
+        TypeId::Set(element) => {
+            validate_interface_type(lowered, function_index, element, span, diagnostics);
+        }
         TypeId::StandardEnum { args, .. } => {
             for arg in args {
                 validate_interface_type(lowered, function_index, arg, span, diagnostics);
@@ -616,6 +623,11 @@ fn substitute_self_type(ty: &TypeId, self_ty: &TypeId) -> TypeId {
                 .collect::<Vec<_>>(),
         ),
         TypeId::Array(element) => TypeId::Array(Box::new(substitute_self_type(element, self_ty))),
+        TypeId::Map { key, value } => TypeId::Map {
+            key: Box::new(substitute_self_type(key, self_ty)),
+            value: Box::new(substitute_self_type(value, self_ty)),
+        },
+        TypeId::Set(element) => TypeId::Set(Box::new(substitute_self_type(element, self_ty))),
         TypeId::StandardEnum { name, args } => TypeId::StandardEnum {
             name: name.clone(),
             args: args

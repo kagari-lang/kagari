@@ -314,7 +314,7 @@ fn main(value: String) -> usize {
 }
 
 #[test]
-fn exposes_standard_builtin_surface_metadata() {
+fn exposes_stdlib_standard_builtin_surface_metadata() {
     assert!(surface::builtin_type("String").is_some());
     assert!(surface::builtin_type("usize").is_some());
     assert!(surface::builtin_type("str").is_none());
@@ -328,8 +328,23 @@ fn exposes_standard_builtin_surface_metadata() {
     assert_eq!(result.arity, 2);
     assert_eq!(result.variants[0].name, "Ok");
     assert_eq!(result.variants[1].name, "Err");
+    assert_eq!(
+        surface::standard_type_constructor("Map")
+            .expect("Map should be standard")
+            .arity,
+        2
+    );
+    assert_eq!(
+        surface::standard_type_constructor("Set")
+            .expect("Set should be standard")
+            .arity,
+        1
+    );
     assert!(surface::standard_module("std::array").is_some());
+    assert!(surface::standard_module("std::map").is_some());
+    assert!(surface::standard_module("std::set").is_some());
     assert!(surface::standard_module("std::string").is_some());
+    assert!(surface::standard_module("std::iter").is_some());
     assert!(surface::standard_module("std::fs").is_none());
 
     assert!(surface::supports_const_type(&TypeId::Builtin(
@@ -337,6 +352,12 @@ fn exposes_standard_builtin_surface_metadata() {
     )));
     assert!(!surface::supports_const_type(&TypeId::Builtin(
         BuiltinType::String
+    )));
+    assert!(surface::supports_hash_key(&TypeId::Builtin(
+        BuiltinType::String
+    )));
+    assert!(!surface::supports_hash_key(&TypeId::Builtin(
+        BuiltinType::F64
     )));
     assert!(matches!(
         surface::iterable_protocol(&TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))),
@@ -350,14 +371,68 @@ fn exposes_standard_builtin_surface_metadata() {
             item: BuiltinType::String
         })
     ));
+    assert!(matches!(
+        surface::iterable_protocol(&TypeId::Map {
+            key: Box::new(TypeId::Builtin(BuiltinType::String)),
+            value: Box::new(TypeId::Builtin(BuiltinType::I32)),
+        }),
+        Some(IterableProtocol::Map {
+            key: TypeId::Builtin(BuiltinType::String),
+            value: TypeId::Builtin(BuiltinType::I32),
+        })
+    ));
+    assert!(matches!(
+        surface::iterable_protocol(&TypeId::Set(Box::new(TypeId::Builtin(BuiltinType::String)))),
+        Some(IterableProtocol::Set {
+            item: TypeId::Builtin(BuiltinType::String),
+        })
+    ));
+
+    let map_get = surface::standard_function(surface::StandardModule::Map, "get")
+        .expect("std::map::get should be standard");
+    assert_eq!(map_get.intrinsic, surface::StandardIntrinsic::MapGet);
+    assert_eq!(
+        map_get.constraints[0].constraint,
+        surface::StandardTypeConstraint::HashKey
+    );
+    assert_eq!(
+        surface::standard_function(surface::StandardModule::String, "slice")
+            .expect("std::string::slice should be standard")
+            .arity,
+        3
+    );
+    assert!(surface::standard_function(surface::StandardModule::Option, "and_then").is_some());
+    assert!(surface::standard_function(surface::StandardModule::Result, "map_err").is_some());
+    assert!(surface::standard_function(surface::StandardModule::Math, "clamp").is_some());
+    assert!(surface::standard_function(surface::StandardModule::Debug, "panic").is_some());
+    assert_eq!(
+        surface::standard_method(surface::StandardMethodReceiver::Map, "insert")
+            .expect("Map.insert should be standard")
+            .intrinsic,
+        surface::StandardIntrinsic::MapInsert
+    );
+    assert_eq!(
+        surface::standard_method(surface::StandardMethodReceiver::Set, "difference")
+            .expect("Set.difference should be standard")
+            .arity,
+        1
+    );
+    assert_eq!(
+        surface::standard_method(surface::StandardMethodReceiver::String, "len_chars")
+            .expect("String.len_chars should be standard")
+            .arity,
+        0
+    );
 }
 
 #[test]
-fn resolves_standard_builtin_type_annotations() {
+fn resolves_stdlib_standard_builtin_type_annotations() {
     let lowered = common::lower_ok(
         r#"
 fn choose(value: Option<i32>) -> Option<i32> { value }
 fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
+fn lookup(value: Map<String, i32>) -> Map<String, i32> { value }
+fn unique(value: Set<String>) -> Set<String> { value }
 fn sized(value: usize) -> usize { value }
 "#,
     );
@@ -383,6 +458,17 @@ fn sized(value: usize) -> usize { value }
     );
     assert_eq!(
         typed.functions[2].return_type,
+        TypeId::Map {
+            key: Box::new(TypeId::Builtin(BuiltinType::String)),
+            value: Box::new(TypeId::Builtin(BuiltinType::I32)),
+        }
+    );
+    assert_eq!(
+        typed.functions[3].return_type,
+        TypeId::Set(Box::new(TypeId::Builtin(BuiltinType::String)))
+    );
+    assert_eq!(
+        typed.functions[4].return_type,
         TypeId::Builtin(BuiltinType::USize)
     );
 }

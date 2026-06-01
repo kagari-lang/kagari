@@ -22,11 +22,19 @@ pub enum TypeId {
     Builtin(BuiltinType),
     Tuple(Vec<TypeId>),
     Array(Box<TypeId>),
+    Map {
+        key: Box<TypeId>,
+        value: Box<TypeId>,
+    },
+    Set(Box<TypeId>),
     Struct(String),
     Enum(String),
     Trait(String),
     Generic(String),
-    StandardEnum { name: String, args: Vec<TypeId> },
+    StandardEnum {
+        name: String,
+        args: Vec<TypeId>,
+    },
 }
 
 impl TypeId {
@@ -48,6 +56,10 @@ impl TypeId {
                 format!("({inner})")
             }
             Self::Array(element) => format!("[{}]", element.display_name()),
+            Self::Map { key, value } => {
+                format!("Map<{}, {}>", key.display_name(), value.display_name())
+            }
+            Self::Set(element) => format!("Set<{}>", element.display_name()),
             Self::Struct(name) | Self::Enum(name) | Self::Trait(name) | Self::Generic(name) => {
                 name.clone()
             }
@@ -69,6 +81,8 @@ impl TypeId {
             }
             Self::Tuple(_)
             | Self::Array(_)
+            | Self::Map { .. }
+            | Self::Set(_)
             | Self::Struct(_)
             | Self::Enum(_)
             | Self::Trait(_)

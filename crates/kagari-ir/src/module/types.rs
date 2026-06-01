@@ -36,6 +36,8 @@ impl ValueType {
             TypeId::Builtin(BuiltinType::String) => Self::Str,
             TypeId::Tuple(_)
             | TypeId::Array(_)
+            | TypeId::Map { .. }
+            | TypeId::Set(_)
             | TypeId::Struct(_)
             | TypeId::Enum(_)
             | TypeId::Trait(_)
