@@ -643,6 +643,42 @@ fn unique<T: HashKey>(values: Set<T>) -> usize {
 }
 
 #[test]
+fn rejects_standard_library_invalid_arity_and_argument_types() {
+    let lowered = common::lower_ok("fn bad() -> i32 { std::math::clamp(1, 2) }");
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("standard call arity should reject");
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::CallArityMismatch {
+                function_name: "std::math::clamp".to_owned(),
+                expected: 3,
+                found: 2,
+            }
+    }));
+
+    let lowered = common::lower_ok(
+        r#"
+fn bad(values: Map<String, i32>) -> bool {
+    values.contains_key(1)
+}
+"#,
+    );
+    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let diagnostics =
+        check_module(&lowered, &names).expect_err("standard method key type should reject");
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind
+            == DiagnosticKind::ArgumentTypeMismatch {
+                function_name: "std::map::contains_key".to_owned(),
+                parameter_name: "key".to_owned(),
+                expected: "String".to_owned(),
+                found: "i32".to_owned(),
+            }
+    }));
+}
+
+#[test]
 fn checks_standard_numeric_surface() {
     let lowered = common::lower_ok(
         r#"

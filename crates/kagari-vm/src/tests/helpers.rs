@@ -920,6 +920,64 @@ fn main() -> (usize, usize, i32, bool) {
 }
 
 #[test]
+fn executes_source_standard_collection_string_math_and_debug_modules() {
+    let (runtime, loaded) = load_test_module(
+        r#"
+fn main() -> (usize, bool, usize, usize, usize, usize, usize, usize, bool, bool, bool, i32) {
+    val map: Map<String, i32> = std::map::new();
+    map.insert("a", 1);
+    map.insert("b", 2);
+    val keys = map.keys();
+    val values = map.values();
+    val entries = map.entries();
+
+    val set: Set<String> = std::set::new();
+    set.insert("x");
+    set.insert("y");
+    val set_items = set.to_array();
+    val union = set.union(set);
+
+    std::debug::assert(map.contains_key("a"), "map key must exist");
+    (
+        map.len(),
+        map.contains_key("a"),
+        keys.len(),
+        values.len(),
+        entries.len(),
+        set.len(),
+        set_items.len(),
+        union.len(),
+        std::string::contains("kagari", "gar"),
+        std::string::starts_with("kagari", "ka"),
+        std::string::ends_with("kagari", "ri"),
+        std::math::max(1, 2)
+    )
+}
+"#,
+    );
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(
+        report.return_value,
+        Value::Tuple(vec![
+            Value::I64(2),
+            Value::Bool(true),
+            Value::I64(2),
+            Value::I64(2),
+            Value::I64(2),
+            Value::I64(2),
+            Value::I64(2),
+            Value::I64(2),
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::I32(2),
+        ])
+    );
+}
+
+#[test]
 fn executes_bytecode_standard_collection_intrinsics() {
     let (runtime, loaded) = load_bytecode_module(
         "standard_collections.kbc",
@@ -1018,6 +1076,138 @@ fn executes_bytecode_standard_collection_intrinsics() {
             Value::Bool(true),
             Value::I64(1),
             Value::Bool(true),
+        ])
+    );
+}
+
+#[test]
+fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
+    let bytecode = test_function_module(
+        "main",
+        vec![
+            BytecodeInstruction::Call {
+                dst: Some(Register::new(0)),
+                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapNew),
+                args: vec![],
+            },
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(1),
+                constant: ConstantOperand::I32(1),
+            },
+            BytecodeInstruction::MakeArray {
+                dst: Register::new(2),
+                elements: vec![Register::new(1)],
+            },
+            BytecodeInstruction::Call {
+                dst: Some(Register::new(3)),
+                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapInsert),
+                args: vec![Register::new(0), Register::new(2), Register::new(1)],
+            },
+            BytecodeInstruction::Return(Some(Register::new(3))),
+        ],
+        ValueType::HeapObject,
+        vec![
+            ValueType::HeapObject,
+            ValueType::I32,
+            ValueType::HeapObject,
+            ValueType::HeapObject,
+        ],
+    );
+    let mut runtime = Runtime::default();
+
+    let error = runtime
+        .load_module("standard_invalid_key.kbc", bytecode)
+        .expect_err("aggregate map key should reject before publication");
+
+    assert!(matches!(error.kind(), RuntimeErrorKind::ModuleValidation));
+    assert!(error.message().contains("hash-key"));
+}
+
+#[test]
+fn standard_intrinsic_execution_observes_resource_limits() {
+    let bytecode = compile_test_bytecode(
+        r#"
+fn main() -> usize {
+    val values = [1, 2];
+    values.push(3);
+    values.len()
+}
+"#,
+    );
+    let mut runtime = Runtime::new(RuntimeConfig {
+        resources: ResourcePolicy {
+            max_instruction_steps: Some(1),
+            ..ResourcePolicy::default()
+        },
+        ..RuntimeConfig::default()
+    });
+    let loaded = runtime
+        .load_module("standard_resource_limit.kgr", bytecode)
+        .expect("module should load");
+    let mut vm = Vm::new(runtime);
+    let error = vm
+        .execute(&loaded, "main")
+        .expect_err("standard intrinsic program should hit resource limit");
+
+    assert!(matches!(
+        error,
+        crate::VmError::RuntimeError(ref error)
+            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
+    ));
+}
+
+#[test]
+fn standard_collection_reflection_metadata_reports_runtime_categories() {
+    let (runtime, loaded) = load_reflection_bytecode_module(
+        "standard_reflection.kbc",
+        test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(0)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapNew),
+                    args: vec![],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(1)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::SetNew),
+                    args: vec![],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(2)),
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
+                    args: vec![Register::new(0)],
+                },
+                BytecodeInstruction::Call {
+                    dst: Some(Register::new(3)),
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
+                    args: vec![Register::new(1)],
+                },
+                BytecodeInstruction::MakeTuple {
+                    dst: Register::new(4),
+                    elements: vec![Register::new(2), Register::new(3)],
+                },
+                BytecodeInstruction::Return(Some(Register::new(4))),
+            ],
+            ValueType::HeapObject,
+            vec![
+                ValueType::HeapObject,
+                ValueType::HeapObject,
+                ValueType::Str,
+                ValueType::Str,
+                ValueType::HeapObject,
+            ],
+        ),
+    );
+
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").expect("vm should execute");
+
+    assert_eq!(
+        report.return_value,
+        Value::Tuple(vec![
+            Value::Str("map".to_owned()),
+            Value::Str("set".to_owned())
         ])
     );
 }

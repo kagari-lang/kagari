@@ -6,7 +6,7 @@ use kagari_ir::bytecode::{
     ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
     ArtifactValidationError, DependencyFingerprint,
 };
-use kagari_runtime::value::Value;
+use kagari_runtime::{ResourcePolicy, value::Value};
 
 fn exact_compatibility(
     artifact: &kagari_embed::BytecodeArtifact,
@@ -142,10 +142,14 @@ fn embedding_conformance_executes_standard_intrinsic_artifacts() {
             SourceFile::new(
                 "builtins.kgr",
                 r#"
-fn main() -> (usize, usize) {
+fn main() -> (usize, usize, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
-    (values.len(), "ok".len_chars())
+    val map: Map<String, i32> = std::map::new();
+    map.insert("ok", 7);
+    val set: Set<String> = std::set::new();
+    set.insert("ready");
+    (values.len(), "ok".len_chars(), map.len(), set.contains("ready"), std::math::max(4, 7))
 }
 "#,
             ),
@@ -170,6 +174,150 @@ fn main() -> (usize, usize) {
 
     assert_eq!(
         report.return_value,
-        Value::Tuple(vec![Value::I64(3), Value::I64(2)])
+        Value::Tuple(vec![
+            Value::I64(3),
+            Value::I64(2),
+            Value::I64(1),
+            Value::Bool(true),
+            Value::I32(7),
+        ])
     );
+}
+
+#[test]
+fn embedding_conformance_reloads_standard_intrinsic_artifacts() {
+    let engine = KagariEngine::default();
+    let context = ExecutionContext::default();
+    let first = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "stdlib_reload.kgr",
+                r#"
+pub fn main() -> usize {
+    val values = [1];
+    values.len()
+}
+"#,
+            ),
+            CompileOptions::default(),
+            ArtifactOptions::default(),
+        )
+        .expect("first standard artifact should compile");
+    let second = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "stdlib_reload.kgr",
+                r#"
+pub fn main() -> usize {
+    val values = [1, 2];
+    values.len()
+}
+"#,
+            ),
+            CompileOptions::default(),
+            ArtifactOptions::default(),
+        )
+        .expect("second standard artifact should compile");
+    let mut invalid = second.clone();
+    invalid.header.runtime_helper_abi_version = "wrong-helper-abi".to_owned();
+
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_module(
+            first,
+            LoadOptions {
+                module_name: Some("stdlib_reload".to_owned()),
+                ..LoadOptions::default()
+            },
+        )
+        .expect("first standard artifact should load");
+    let reloaded = runtime
+        .reload_module(
+            &loaded,
+            second,
+            kagari_embed::ReloadOptions {
+                module_name: Some("stdlib_reload".to_owned()),
+                ..kagari_embed::ReloadOptions::default()
+            },
+        )
+        .expect("compatible standard artifact should reload");
+    let report = runtime
+        .execute(&reloaded, "main", &[], &context)
+        .expect("reloaded standard artifact should execute");
+    assert_eq!(report.return_value, Value::I64(2));
+
+    let failed_epoch = runtime
+        .reload_module(
+            &reloaded,
+            invalid,
+            kagari_embed::ReloadOptions {
+                module_name: Some("stdlib_reload".to_owned()),
+                ..kagari_embed::ReloadOptions::default()
+            },
+        )
+        .expect_err("invalid standard artifact should fail before publication");
+    assert_eq!(
+        failed_epoch.code(),
+        "KG_ARTIFACT_RUNTIME_HELPER_ABI_MISMATCH"
+    );
+    assert_eq!(
+        runtime
+            .runtime()
+            .modules()
+            .latest("stdlib_reload")
+            .expect("latest module should remain published")
+            .epoch,
+        reloaded.epoch
+    );
+}
+
+#[test]
+fn embedding_conformance_surfaces_standard_intrinsic_resource_limits() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "stdlib_resource.kgr",
+                r#"
+fn main() -> usize {
+    val values = [1, 2];
+    values.push(3);
+    values.len()
+}
+"#,
+            ),
+            CompileOptions::default(),
+            ArtifactOptions::default(),
+        )
+        .expect("standard resource source should compile");
+    let context = ExecutionContext {
+        resources: ResourcePolicy {
+            max_instruction_steps: Some(1),
+            ..ResourcePolicy::default()
+        },
+        ..ExecutionContext::default()
+    };
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_module(
+            artifact,
+            LoadOptions {
+                module_name: Some("stdlib_resource".to_owned()),
+                ..LoadOptions::default()
+            },
+        )
+        .expect("standard resource artifact should load");
+
+    let error = runtime
+        .execute(&loaded, "main", &[], &context)
+        .expect_err("standard intrinsic execution should hit context resource limit");
+
+    assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
+    assert!(matches!(
+        error,
+        EmbeddingError::Runtime {
+            kind: kagari_embed::RuntimeFailureKind::ResourceLimitExceeded,
+            ..
+        }
+    ));
 }
