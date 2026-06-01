@@ -467,6 +467,7 @@ fn validate_executable_bytecode(module: &BytecodeModule) -> Result<(), VmError> 
                 }
                 CallTarget::Function(_)
                 | CallTarget::BuiltinMethod(_)
+                | CallTarget::StandardIntrinsic(_)
                 | CallTarget::RuntimeHelper(_) => {}
             }
         }

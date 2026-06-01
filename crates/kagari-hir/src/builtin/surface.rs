@@ -1,4 +1,5 @@
 use crate::types::{BuiltinType, TypeId};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinTypeFamily {
@@ -75,7 +76,7 @@ pub struct StandardModuleSpec {
     pub path: &'static str,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StandardIntrinsic {
     ArrayLen,
     ArrayIsEmpty,

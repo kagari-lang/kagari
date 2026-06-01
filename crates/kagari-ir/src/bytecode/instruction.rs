@@ -1,4 +1,4 @@
-use kagari_hir::builtin::BuiltinMethod;
+use kagari_hir::builtin::{BuiltinMethod, surface::StandardIntrinsic};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -112,6 +112,7 @@ pub enum CallTarget {
     Function(FunctionRef),
     Register(Register),
     BuiltinMethod(BuiltinMethod),
+    StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
 }
 

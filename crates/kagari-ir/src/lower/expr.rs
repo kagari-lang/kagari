@@ -59,7 +59,11 @@ impl FunctionLowerer<'_> {
                 Ok(dst)
             }
             hir::ExprKind::Call { callee, args } => {
-                let (callee, args) = if let Some((builtin, builtin_args)) =
+                let (callee, args) = if let Some((intrinsic, intrinsic_args)) =
+                    self.lower_standard_intrinsic_call(expr_id, callee, &args)?
+                {
+                    (CallTarget::StandardIntrinsic(intrinsic), intrinsic_args)
+                } else if let Some((builtin, builtin_args)) =
                     self.lower_builtin_method_call(callee, &args)?
                 {
                     (CallTarget::BuiltinMethod(builtin), builtin_args)
@@ -479,6 +483,37 @@ impl FunctionLowerer<'_> {
         };
 
         Ok(lowered)
+    }
+
+    fn lower_standard_intrinsic_call(
+        &mut self,
+        call_expr: hir::ExprId,
+        callee: hir::ExprId,
+        args: &[hir::ExprId],
+    ) -> Result<
+        Option<(kagari_hir::builtin::surface::StandardIntrinsic, ValueBuffer)>,
+        IrLoweringError,
+    > {
+        let Some(intrinsic) = self
+            .analyzed
+            .typed
+            .type_table
+            .standard_call_intrinsic(call_expr)
+        else {
+            return Ok(None);
+        };
+
+        let mut lowered = ValueBuffer::new();
+        let callee_expr = self.analyzed.lowered.module.expr(callee).clone();
+        if let hir::ExprKind::Field { receiver, .. } = callee_expr.kind {
+            lowered.push(self.lower_expr(receiver)?);
+        }
+        lowered.extend(
+            args.iter()
+                .map(|arg| self.lower_expr(*arg))
+                .collect::<Result<ValueBuffer, _>>()?,
+        );
+        Ok(Some((intrinsic, lowered)))
     }
 
     fn lower_builtin_method_call(

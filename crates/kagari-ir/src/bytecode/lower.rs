@@ -488,6 +488,9 @@ fn lower_instruction(
                 IrCallTarget::BuiltinMethod(method) => {
                     CallTarget::BuiltinMethod(lower_builtin_method(*method))
                 }
+                IrCallTarget::StandardIntrinsic(intrinsic) => {
+                    CallTarget::StandardIntrinsic(*intrinsic)
+                }
                 IrCallTarget::RuntimeHelper(helper) => {
                     CallTarget::RuntimeHelper(lower_runtime_helper(helper))
                 }

@@ -1,12 +1,11 @@
 use crate::{
-    builtin::array,
     bytecode::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
-        ArtifactSectionId, ArtifactValidationError, BinaryOp, BuiltinMethod, BytecodeFunction,
+        ArtifactSectionId, ArtifactValidationError, BinaryOp, BytecodeFunction,
         BytecodeInstruction, BytecodeModule, BytecodeVerificationError, CallTarget, DebugMetadata,
         DependencyFingerprint, FieldId, FieldRecord, FunctionMetadata, FunctionRef, JumpTarget,
         KBC_MAGIC, KbcArtifact, LocalSlot, PathId, PathRecord, Register, RuntimeHelper,
-        SafeDebugPointKind, UnaryOp, verify_module,
+        SafeDebugPointKind, StandardIntrinsic, UnaryOp, verify_module,
     },
     module::{PublicAbiItem, TypeAbiKind, ValueType},
     tests::common,
@@ -467,6 +466,49 @@ fn verifier_rejects_type_inconsistent_bytecode() {
             found: ValueType::I32,
             ..
         })
+    ));
+}
+
+#[test]
+fn stdlib_verifier_rejects_invalid_standard_intrinsic_signatures() {
+    let mut bytecode = common::bytecode_ok(
+        r#"
+fn main(value: String) -> usize {
+    value.len_chars()
+}
+"#,
+    );
+    let call = bytecode.functions[0]
+        .instructions
+        .iter_mut()
+        .find_map(|instruction| {
+            let BytecodeInstruction::Call { callee, .. } = instruction else {
+                return None;
+            };
+            Some(callee)
+        })
+        .expect("expected standard intrinsic call");
+    *call = CallTarget::StandardIntrinsic(StandardIntrinsic::MathSqrt);
+
+    assert!(matches!(
+        verify_module(&bytecode),
+        Err(BytecodeVerificationError::TypeMismatch {
+            context: "standard intrinsic argument",
+            expected: ValueType::F64,
+            found: ValueType::Str,
+            ..
+        })
+    ));
+
+    let artifact = KbcArtifact::from_module(bytecode, ArtifactBuildOptions::default());
+    assert!(matches!(
+        artifact.validate_for_loader(&ArtifactCompatibility::default()),
+        Err(ArtifactValidationError::Bytecode(
+            BytecodeVerificationError::TypeMismatch {
+                context: "standard intrinsic argument",
+                ..
+            }
+        ))
     ));
 }
 
@@ -1024,7 +1066,7 @@ fn main() -> i32 { VALUE }
 }
 
 #[test]
-fn lowers_array_methods_to_builtin_method_calls() {
+fn stdlib_lowers_standard_library_calls_to_bytecode_intrinsic_ids() {
     let bytecode = common::bytecode_ok(
         r#"
 fn main() -> usize {
@@ -1044,21 +1086,21 @@ fn main() -> usize {
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
         BytecodeInstruction::Call {
-            callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Push)),
+            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush),
             ..
         }
     )));
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
         BytecodeInstruction::Call {
-            callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Pop)),
+            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPop),
             ..
         }
     )));
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
         BytecodeInstruction::Call {
-            callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Len)),
+            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayLen),
             ..
         }
     )));

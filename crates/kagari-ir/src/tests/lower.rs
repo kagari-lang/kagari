@@ -1,8 +1,9 @@
 use crate::{
-    builtin::array,
     lower_to_ir,
     module::instruction::RuntimeHelper,
-    module::{BinaryOp, BuiltinMethod, CallTarget, Instruction, IrFunction, IrValue, Terminator},
+    module::{
+        BinaryOp, CallTarget, Instruction, IrFunction, IrValue, StandardIntrinsic, Terminator,
+    },
     tests::common,
 };
 
@@ -285,7 +286,7 @@ fn main() -> i32 {
 }
 
 #[test]
-fn lowers_array_methods_to_builtin_method_calls() {
+fn stdlib_lowers_standard_library_calls_to_intrinsic_ids() {
     let analyzed = common::analyze_ok(
         r#"
 fn main() -> usize {
@@ -307,7 +308,7 @@ fn main() -> usize {
             .any(|instruction| matches!(
                 instruction,
                 Instruction::Call {
-                    callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Push)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush),
                     ..
                 }
             ))
@@ -320,7 +321,20 @@ fn main() -> usize {
             .any(|instruction| matches!(
                 instruction,
                 Instruction::Call {
-                    callee: CallTarget::BuiltinMethod(BuiltinMethod::Array(array::Method::Pop)),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPop),
+                    ..
+                }
+            ))
+    );
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::Call {
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayLen),
                     ..
                 }
             ))

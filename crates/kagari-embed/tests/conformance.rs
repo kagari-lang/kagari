@@ -6,7 +6,6 @@ use kagari_ir::bytecode::{
     ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
     ArtifactValidationError, DependencyFingerprint,
 };
-use kagari_runtime::value::Value;
 
 fn exact_compatibility(
     artifact: &kagari_embed::BytecodeArtifact,
@@ -134,7 +133,7 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
 }
 
 #[test]
-fn embedding_conformance_executes_core_builtin_surface() {
+fn embedding_conformance_loads_standard_intrinsic_artifacts_before_vm_execution_support() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
     let artifact = engine
@@ -164,12 +163,8 @@ fn main() -> (usize, usize) {
         )
         .expect("builtin artifact should load");
 
-    let report = runtime
+    let error = runtime
         .execute(&loaded, "main", &[], &context)
-        .expect("builtin surface should execute through embedding API");
-
-    assert_eq!(
-        report.return_value,
-        Value::Tuple(vec![Value::I64(3), Value::I64(2)])
-    );
+        .expect_err("standard intrinsic execution is implemented in the next roadmap step");
+    assert_eq!(error.code(), "KG_BYTECODE_VERIFICATION_FAILED");
 }

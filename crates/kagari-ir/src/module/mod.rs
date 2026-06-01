@@ -1,4 +1,4 @@
-pub use kagari_hir::builtin::BuiltinMethod;
+pub use kagari_hir::builtin::{BuiltinMethod, surface::StandardIntrinsic};
 
 pub mod abi;
 pub mod function;

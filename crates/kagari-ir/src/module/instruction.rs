@@ -1,4 +1,7 @@
-use kagari_hir::{builtin::BuiltinMethod, hir};
+use kagari_hir::{
+    builtin::{BuiltinMethod, surface::StandardIntrinsic},
+    hir,
+};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -145,6 +148,7 @@ pub enum CallTarget {
     Function(hir::FunctionId),
     Value(IrValue),
     BuiltinMethod(BuiltinMethod),
+    StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
 }
 
@@ -324,9 +328,69 @@ impl CallTarget {
                     EffectSet::runtime_call().union(EffectSet::aggregate_read())
                 }
             },
+            Self::StandardIntrinsic(intrinsic) => standard_intrinsic_effects(*intrinsic),
             Self::RuntimeHelper(helper) => helper.effects(),
         }
     }
+}
+
+fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
+    use StandardIntrinsic::*;
+
+    let runtime_read = EffectSet::runtime_call().union(EffectSet::aggregate_read());
+    let mutating = matches!(
+        intrinsic,
+        ArrayPush
+            | ArrayPop
+            | ArrayInsert
+            | ArrayRemove
+            | ArrayClear
+            | MapInsert
+            | MapRemove
+            | MapClear
+            | SetInsert
+            | SetRemove
+            | SetClear
+    );
+    let allocating = matches!(
+        intrinsic,
+        ArrayGet
+            | ArrayPop
+            | ArrayRemove
+            | MapNew
+            | MapGet
+            | MapRemove
+            | MapKeys
+            | MapValues
+            | MapEntries
+            | SetNew
+            | SetToArray
+            | SetUnion
+            | SetIntersection
+            | SetDifference
+            | StringSlice
+            | OptionMap
+            | OptionAndThen
+            | ResultMap
+            | ResultMapErr
+            | ResultAndThen
+            | IterGet
+            | IterToArray
+    );
+
+    let mut effects = match intrinsic {
+        MathMin | MathMax | MathClamp | MathAbs | MathFloor | MathCeil | MathRound | MathSqrt
+        | MathSin | MathCos | MathTan => EffectSet::runtime_call(),
+        DebugPrint | DebugAssert | DebugAssertEq | DebugPanic => EffectSet::runtime_call(),
+        _ => runtime_read,
+    };
+    if mutating {
+        effects = effects.union(EffectSet::aggregate_write());
+    }
+    if allocating {
+        effects = effects.union(EffectSet::allocation());
+    }
+    effects
 }
 
 impl RuntimeHelper {

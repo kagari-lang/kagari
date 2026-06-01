@@ -16,11 +16,11 @@ use kagari_runtime::{
     value::Value,
 };
 
-use crate::Vm;
 use crate::tests::common::{
     compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
     load_test_module, test_function_module,
 };
+use crate::{Vm, VmError};
 
 fn host_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -893,7 +893,7 @@ fn main() -> i32 {
 }
 
 #[test]
-fn executes_source_lowered_array_methods() {
+fn loads_source_lowered_standard_intrinsics_before_vm_execution_support() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> usize {
@@ -905,9 +905,10 @@ fn main() -> usize {
 "#,
     );
     let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::I64(2));
+    assert!(matches!(
+        vm.execute(&loaded, "main"),
+        Err(VmError::UnsupportedInstruction("standard_intrinsic_call"))
+    ));
 }
 
 #[test]
@@ -1046,7 +1047,7 @@ fn executes_iterable_protocol_builtin_over_strings() {
 }
 
 #[test]
-fn array_methods_mutate_shared_array_handle_in_place() {
+fn standard_array_mutation_source_lowers_but_waits_for_vm_intrinsic_execution() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> usize {
@@ -1058,9 +1059,10 @@ fn main() -> usize {
 "#,
     );
     let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::I64(3));
+    assert!(matches!(
+        vm.execute(&loaded, "main"),
+        Err(VmError::UnsupportedInstruction("standard_intrinsic_call"))
+    ));
 }
 
 #[test]

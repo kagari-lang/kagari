@@ -225,6 +225,9 @@ impl<'a> Executor<'a> {
             CallTarget::BuiltinMethod(method) => {
                 self.dispatch_builtin_method(method, dst, arg_values)
             }
+            CallTarget::StandardIntrinsic(_) => {
+                Err(VmError::UnsupportedInstruction("standard_intrinsic_call"))
+            }
             CallTarget::RuntimeHelper(helper) => {
                 self.dispatch_runtime_helper(helper, dst, arg_values)
             }
