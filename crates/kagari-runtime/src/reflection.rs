@@ -30,6 +30,13 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
         Value::Array(_) => "array",
         Value::Map(_) => "map",
         Value::Set(_) => "set",
+        Value::Enum(handle) => {
+            return Value::Str(
+                gc.enum_snapshot(*handle)
+                    .map(|snapshot| snapshot.name)
+                    .unwrap_or_else(|| "enum".to_owned()),
+            );
+        }
         Value::Struct(handle) => {
             return Value::Str(
                 gc.struct_name(*handle)

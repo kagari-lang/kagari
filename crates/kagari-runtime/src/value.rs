@@ -7,6 +7,13 @@ pub struct StructValueField {
     pub value: Value,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumValueSnapshot {
+    pub name: String,
+    pub variant: String,
+    pub fields: Vec<Value>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InterfaceObjectId(pub u64);
 
@@ -73,6 +80,7 @@ pub enum Value {
     Array(HeapObjectId),
     Map(HeapObjectId),
     Set(HeapObjectId),
+    Enum(HeapObjectId),
     Struct(HeapObjectId),
     GcHandle(HeapObjectId),
     Interface(InterfaceObjectId),
@@ -95,6 +103,7 @@ impl Value {
             | Self::Array(_)
             | Self::Map(_)
             | Self::Set(_)
+            | Self::Enum(_)
             | Self::Struct(_)
             | Self::GcHandle(_) => ValueCategory::ScriptOwned,
             Self::Interface(_) => ValueCategory::Interface,
@@ -145,6 +154,7 @@ impl Value {
             Self::Array(_)
             | Self::Map(_)
             | Self::Set(_)
+            | Self::Enum(_)
             | Self::Struct(_)
             | Self::GcHandle(_)
             | Self::Interface(_) => true,

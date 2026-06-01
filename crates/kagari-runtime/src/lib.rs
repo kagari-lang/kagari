@@ -13,7 +13,10 @@ pub mod resource;
 pub mod security;
 pub mod value;
 
-use kagari_ir::bytecode::{ArtifactCompatibility, BuiltinMethod, BytecodeModule, KbcArtifact};
+use kagari_ir::{
+    builtin::surface::StandardIntrinsic,
+    bytecode::{ArtifactCompatibility, BuiltinMethod, BytecodeModule, KbcArtifact},
+};
 
 pub use backend::{
     BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,
@@ -152,6 +155,22 @@ impl Runtime {
         let handle = self
             .gc
             .alloc_struct(name, fields)
+            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
+        self.sync_heap_accounting()?;
+        Ok(handle)
+    }
+
+    pub fn alloc_enum(
+        &self,
+        name: String,
+        variant: String,
+        fields: Vec<Value>,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        let units = 1 + fields.len();
+        self.resources.consume_allocation_units(units)?;
+        let handle = self
+            .gc
+            .alloc_enum(name, variant, fields)
             .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
         self.sync_heap_accounting()?;
         Ok(handle)
@@ -773,6 +792,16 @@ impl Runtime {
         args: &[value::Value],
     ) -> Result<value::Value, BuiltinError> {
         let value = builtin::invoke(&self.gc, method, args)?;
+        let _ = self.sync_heap_accounting();
+        Ok(value)
+    }
+
+    pub fn invoke_standard_builtin(
+        &self,
+        intrinsic: StandardIntrinsic,
+        args: &[value::Value],
+    ) -> Result<value::Value, BuiltinError> {
+        let value = builtin::invoke_standard(&self.gc, intrinsic, args)?;
         let _ = self.sync_heap_accounting();
         Ok(value)
     }

@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashSet};
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::value::{MapKey, StructValueField, Value};
+use crate::value::{EnumValueSnapshot, MapKey, StructValueField, Value};
 
 #[derive(Debug, Clone, Copy)]
 pub struct GcHeapConfig {
@@ -59,6 +59,7 @@ pub enum GcObjectKind {
     Array,
     Map,
     Set,
+    Enum,
     Struct,
 }
 
@@ -67,6 +68,7 @@ enum HeapObject {
     Array(Vec<Value>),
     Map(IndexMap<MapKey, Value>),
     Set(IndexSet<MapKey>),
+    Enum(EnumValueSnapshot),
     Struct {
         name: String,
         fields: Vec<StructValueField>,
@@ -155,6 +157,23 @@ impl GcHeap {
         Some(self.alloc_object(HeapObject::Struct { name, fields }))
     }
 
+    pub fn alloc_enum(
+        &self,
+        name: String,
+        variant: String,
+        fields: Vec<Value>,
+    ) -> Option<HeapObjectId> {
+        if !fields.iter().all(Value::is_default_heap_payload) {
+            return None;
+        }
+        self.reserve_heap_units(1 + fields.len())?;
+        Some(self.alloc_object(HeapObject::Enum(EnumValueSnapshot {
+            name,
+            variant,
+            fields,
+        })))
+    }
+
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {
         self.with_array(id, |elements| elements.len())
     }
@@ -184,6 +203,46 @@ impl GcHeap {
             self.release_heap_units(1);
         }
         value
+    }
+
+    pub fn array_insert(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
+        if !value.is_default_heap_payload() {
+            return None;
+        }
+        let valid_index = self.with_array(id, |elements| index <= elements.len())?;
+        if !valid_index {
+            return None;
+        }
+        self.reserve_heap_units(1)?;
+        let inserted = self.with_array_mut(id, |elements| {
+            elements.insert(index, value);
+        });
+        if inserted.is_none() {
+            self.release_heap_units(1);
+        }
+        inserted
+    }
+
+    pub fn array_remove(&self, id: HeapObjectId, index: usize) -> Option<Value> {
+        let value = self
+            .with_array_mut(id, |elements| {
+                (index < elements.len()).then(|| elements.remove(index))
+            })
+            .flatten();
+        if value.is_some() {
+            self.release_heap_units(1);
+        }
+        value
+    }
+
+    pub fn array_clear(&self, id: HeapObjectId) -> Option<()> {
+        let removed = self.with_array_mut(id, |elements| {
+            let removed = elements.len();
+            elements.clear();
+            removed
+        })?;
+        self.release_heap_units(removed);
+        Some(())
     }
 
     pub fn array_set(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
@@ -305,6 +364,10 @@ impl GcHeap {
         self.with_struct(id, |name, _| name.clone())
     }
 
+    pub fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
+        self.with_enum(id, Clone::clone)
+    }
+
     pub fn struct_snapshot(&self, id: HeapObjectId) -> Option<(String, Vec<StructValueField>)> {
         self.with_struct(id, |name, fields| (name.clone(), fields.clone()))
     }
@@ -342,6 +405,7 @@ impl GcHeap {
             HeapObject::Array(_) => Some(GcObjectKind::Array),
             HeapObject::Map(_) => Some(GcObjectKind::Map),
             HeapObject::Set(_) => Some(GcObjectKind::Set),
+            HeapObject::Enum(_) => Some(GcObjectKind::Enum),
             HeapObject::Struct { .. } => Some(GcObjectKind::Struct),
         }
     }
@@ -441,6 +505,7 @@ impl GcHeap {
             Value::Array(id)
             | Value::Map(id)
             | Value::Set(id)
+            | Value::Enum(id)
             | Value::Struct(id)
             | Value::GcHandle(id) => {
                 self.trace_object(*id, seen, traced);
@@ -485,6 +550,11 @@ impl GcHeap {
                 }
             }
             HeapObject::Set(_) => {}
+            HeapObject::Enum(snapshot) => {
+                for field in snapshot.fields {
+                    self.trace_value_inner(&field, seen, traced);
+                }
+            }
             HeapObject::Struct { fields, .. } => {
                 for field in fields {
                     self.trace_value_inner(&field.value, seen, traced);
@@ -497,7 +567,7 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match objects.get(id.index())? {
             HeapObject::Array(elements) => Some(f(elements)),
-            HeapObject::Map(_) | HeapObject::Set(_) => None,
+            HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
             HeapObject::Struct { .. } => None,
         }
     }
@@ -510,7 +580,7 @@ impl GcHeap {
         let mut objects = self.objects.borrow_mut();
         match objects.get_mut(id.index())? {
             HeapObject::Array(elements) => Some(f(elements)),
-            HeapObject::Map(_) | HeapObject::Set(_) => None,
+            HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
             HeapObject::Struct { .. } => None,
         }
     }
@@ -523,7 +593,10 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match objects.get(id.index())? {
             HeapObject::Map(entries) => Some(f(entries)),
-            HeapObject::Array(_) | HeapObject::Set(_) | HeapObject::Struct { .. } => None,
+            HeapObject::Array(_)
+            | HeapObject::Set(_)
+            | HeapObject::Enum(_)
+            | HeapObject::Struct { .. } => None,
         }
     }
 
@@ -535,7 +608,10 @@ impl GcHeap {
         let mut objects = self.objects.borrow_mut();
         match objects.get_mut(id.index())? {
             HeapObject::Map(entries) => Some(f(entries)),
-            HeapObject::Array(_) | HeapObject::Set(_) | HeapObject::Struct { .. } => None,
+            HeapObject::Array(_)
+            | HeapObject::Set(_)
+            | HeapObject::Enum(_)
+            | HeapObject::Struct { .. } => None,
         }
     }
 
@@ -543,7 +619,10 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match objects.get(id.index())? {
             HeapObject::Set(values) => Some(f(values)),
-            HeapObject::Array(_) | HeapObject::Map(_) | HeapObject::Struct { .. } => None,
+            HeapObject::Array(_)
+            | HeapObject::Map(_)
+            | HeapObject::Enum(_)
+            | HeapObject::Struct { .. } => None,
         }
     }
 
@@ -555,7 +634,21 @@ impl GcHeap {
         let mut objects = self.objects.borrow_mut();
         match objects.get_mut(id.index())? {
             HeapObject::Set(values) => Some(f(values)),
-            HeapObject::Array(_) | HeapObject::Map(_) | HeapObject::Struct { .. } => None,
+            HeapObject::Array(_)
+            | HeapObject::Map(_)
+            | HeapObject::Enum(_)
+            | HeapObject::Struct { .. } => None,
+        }
+    }
+
+    fn with_enum<R>(&self, id: HeapObjectId, f: impl FnOnce(&EnumValueSnapshot) -> R) -> Option<R> {
+        let objects = self.objects.borrow();
+        match objects.get(id.index())? {
+            HeapObject::Enum(snapshot) => Some(f(snapshot)),
+            HeapObject::Array(_)
+            | HeapObject::Map(_)
+            | HeapObject::Set(_)
+            | HeapObject::Struct { .. } => None,
         }
     }
 
@@ -567,7 +660,10 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match objects.get(id.index())? {
             HeapObject::Struct { name, fields } => Some(f(name, fields)),
-            HeapObject::Array(_) | HeapObject::Map(_) | HeapObject::Set(_) => None,
+            HeapObject::Array(_)
+            | HeapObject::Map(_)
+            | HeapObject::Set(_)
+            | HeapObject::Enum(_) => None,
         }
     }
 
@@ -579,7 +675,10 @@ impl GcHeap {
         let mut objects = self.objects.borrow_mut();
         match objects.get_mut(id.index())? {
             HeapObject::Struct { name, fields } => Some(f(name, fields)),
-            HeapObject::Array(_) | HeapObject::Map(_) | HeapObject::Set(_) => None,
+            HeapObject::Array(_)
+            | HeapObject::Map(_)
+            | HeapObject::Set(_)
+            | HeapObject::Enum(_) => None,
         }
     }
 }
