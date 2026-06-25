@@ -26,7 +26,7 @@ kagari-jit-cranelift = { path = "crates/kagari-jit-cranelift" }
 kagari-runtime = { path = "crates/kagari-runtime" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }
-cranelift-codegen = "0.132.0"
+cranelift-codegen = "0.133.1"
 cranelift-frontend = "0.132.0"
 cranelift-jit = "0.132.0"
 cranelift-module = "0.132.0"
