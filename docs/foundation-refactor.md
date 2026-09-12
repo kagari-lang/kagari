@@ -158,6 +158,16 @@ Implemented foundation slices:
   unreachable generic calls from being emitted. Generic impl specialization,
   applied trait/type arguments, concrete layouts and dynamic implementation tables
   remain outstanding; ABI labels/runtime fields still need linked identities.
+- R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
+  verifier checks instance identities, direct-call signatures, operand types,
+  control flow, parameter layout, debug alignment, effects and definite
+  initialization across branches and loop backedges. Editing IR invalidates its
+  verification handle. Standard intrinsic and numeric representation contracts
+  are shared with bytecode validation; intrinsic arity uses HIR declarations.
+  Entry block order is preserved, and IDs are bounded before narrowing. Verification
+  supports cancellation and bounds its dataflow matrix to 64 MiB. Nominal field
+  layouts, host signatures, dynamic interface tables, root maps and the final
+  linked-only runtime boundary remain outstanding.
 - R15: IR generation has configurable instance, type-node, type-depth and generated
   instruction limits plus cancellation. Expansion counts nodes while copying,
   including replacement trees. Embedding returns revision-owned structured

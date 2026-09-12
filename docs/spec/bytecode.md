@@ -38,7 +38,7 @@ The lowering pipeline is:
 1. source
 2. syntax
 3. HIR
-4. construction IR
+4. verified construction IR
 5. bytecode
 6. VM execution
 
@@ -48,6 +48,41 @@ Optional backend paths include:
 - construction IR -> JIT backend
 
 Bytecode remains a first-class execution format when those backend paths are present.
+
+## Verified IR Boundary
+
+`lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule`.
+`lower_to_bytecode` accepts only that handle. An optimizer or inspection tool can
+consume it with `into_unverified()`, modify the resulting `IrModule`, and call
+`verify_ir(module, cancellation_token)` to obtain a new verified handle. There is
+no unchecked bytecode-lowering entry point.
+
+Verification checks instance identity and uniqueness, direct-call targets and
+signatures, parameter/local layout, operand annotations, operation representations,
+return and branch types, block targets and terminators, debug-table alignment,
+read-only paths, and conservative instruction effects. Standard calls and numeric
+operations share representation contracts with the bytecode verifier; intrinsic
+arity comes from the standard declaration table. IR rejects unsupported indirect
+calls. The declared entry block is emitted first, even when its arena index is
+nonzero; branches use offsets computed in that same emission order.
+
+Locals and temporaries must be initialized on every reachable predecessor before
+use. This is a fixed-point analysis for non-SSA IR, including loops and merge
+temporaries written in separate branches. Structural and type checks include
+unreachable blocks, while definite initialization concerns reachable execution.
+Only parameter locals begin initialized. A loop backedge cannot initialize a
+value for its first iteration.
+
+Counts are checked before conversion to bytecode ID widths. Verification observes
+analysis cancellation and caps its block/value dataflow matrix at 64 MiB. Failures
+carry `KG_IR_*` codes, function/block/instruction positions and available source
+spans. During source compilation, encoding or verification-state limits become
+`KG_COMPILE_LIMIT_EXCEEDED` diagnostics.
+
+This boundary does not yet prove nominal field layout, dynamic interface dispatch,
+host binding signatures or GC root maps. Those require the R06–R11 linking and
+ownership work. The artifact loader still runs bytecode verification independently;
+the IR handle is neither serialized nor a substitute for artifact validation.
 
 ## Execution Model
 

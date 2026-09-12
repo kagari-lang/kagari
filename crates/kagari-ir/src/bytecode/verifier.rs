@@ -11,6 +11,10 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BytecodeVerificationError {
+    InvalidOperation {
+        function: FunctionRef,
+        reason: &'static str,
+    },
     InvalidModuleInit(FunctionRef),
     FunctionTableLengthMismatch {
         functions: usize,
@@ -86,6 +90,7 @@ pub enum BytecodeVerificationError {
 impl BytecodeVerificationError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::InvalidOperation { .. } => "KG_BYTECODE_INVALID_OPERATION",
             Self::InvalidModuleInit(_) => "KG_BYTECODE_INVALID_MODULE_INIT",
             Self::FunctionTableLengthMismatch { .. } => {
                 "KG_BYTECODE_FUNCTION_TABLE_LENGTH_MISMATCH"
@@ -114,6 +119,9 @@ impl BytecodeVerificationError {
 impl Display for BytecodeVerificationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidOperation { function, reason } => {
+                write!(f, "invalid operation in {function:?}: {reason}")
+            }
             Self::InvalidModuleInit(function) => {
                 write!(
                     f,
@@ -395,34 +403,22 @@ fn verify_instruction(
             expect_register_ty(function, *dst, src_ty, "move dst")?;
         }
         BytecodeInstruction::Unary { dst, op, operand } => {
-            let operand_ty = register_ty(function, *operand)?;
-            let expected = match op {
-                UnaryOp::Neg => operand_ty,
-                UnaryOp::Not => ValueType::Bool,
+            let op = match op {
+                UnaryOp::Neg => crate::module::UnaryOp::Neg,
+                UnaryOp::Not => crate::module::UnaryOp::Not,
             };
-            if *op == UnaryOp::Not && operand_ty != ValueType::Bool {
-                return Err(BytecodeVerificationError::TypeMismatch {
-                    function: function.id,
-                    context: "unary operand",
-                    expected: ValueType::Bool,
-                    found: operand_ty,
-                });
-            }
-            expect_register_ty(function, *dst, expected, "unary dst")?;
+            let ty = crate::module::contracts::unary_result(op, register_ty(function, *operand)?)
+                .map_err(|error| contract_error(function, error))?;
+            expect_register_ty(function, *dst, ty, "unary dst")?;
         }
         BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
-            let lhs_ty = register_ty(function, *lhs)?;
-            expect_register_ty(function, *rhs, lhs_ty, "binary rhs")?;
-            let dst_ty = match op {
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => lhs_ty,
-                BinaryOp::Eq
-                | BinaryOp::NotEq
-                | BinaryOp::Lt
-                | BinaryOp::Gt
-                | BinaryOp::Le
-                | BinaryOp::Ge => ValueType::Bool,
-            };
-            expect_register_ty(function, *dst, dst_ty, "binary dst")?;
+            let ty = crate::module::contracts::binary_result(
+                ir_binary_op(*op),
+                register_ty(function, *lhs)?,
+                register_ty(function, *rhs)?,
+            )
+            .map_err(|error| contract_error(function, error))?;
+            expect_register_ty(function, *dst, ty, "binary dst")?;
         }
         BytecodeInstruction::Call { dst, callee, args } => {
             verify_call(module, function, *dst, callee, args)?;
@@ -494,7 +490,7 @@ fn verify_instruction(
             path,
             dynamic_args,
             value,
-            ..
+            op,
         } => {
             let path = path_record(module, function, *path)?;
             if path.read_only {
@@ -505,6 +501,20 @@ fn verify_instruction(
             }
             expect_register_ty(function, *root_or_view, path.root_ty, "path root")?;
             expect_register_ty(function, *value, path.result_ty, "path modify value")?;
+            let result = crate::module::contracts::binary_result(
+                ir_binary_op(*op),
+                path.result_ty,
+                path.result_ty,
+            )
+            .map_err(|error| contract_error(function, error))?;
+            if result != path.result_ty {
+                return Err(BytecodeVerificationError::TypeMismatch {
+                    function: function.id,
+                    context: "path modification result",
+                    expected: path.result_ty,
+                    found: result,
+                });
+            }
             if let Some(dst) = dst {
                 expect_register_ty(function, *dst, path.result_ty, "path modify dst")?;
             }
@@ -600,374 +610,49 @@ fn verify_call(
     Ok(())
 }
 
+fn contract_error(
+    function: &BytecodeFunction,
+    error: crate::module::contracts::ContractError,
+) -> BytecodeVerificationError {
+    use crate::module::contracts::ContractError;
+    match error {
+        ContractError::TypeMismatch {
+            context,
+            expected,
+            found,
+        } => BytecodeVerificationError::TypeMismatch {
+            function: function.id,
+            context,
+            expected,
+            found,
+        },
+        ContractError::Intrinsic { intrinsic, reason } => {
+            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
+                function: function.id,
+                intrinsic,
+                reason,
+            }
+        }
+        ContractError::InvalidOperation { reason } => BytecodeVerificationError::InvalidOperation {
+            function: function.id,
+            reason,
+        },
+    }
+}
+
 fn verify_standard_intrinsic_call(
     function: &BytecodeFunction,
     dst: Option<Register>,
     intrinsic: StandardIntrinsic,
     args: &[Register],
 ) -> Result<(), BytecodeVerificationError> {
-    use StandardIntrinsic::*;
-
-    let arity = standard_intrinsic_arity(intrinsic);
-    if args.len() != arity {
-        return Err(
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                function: function.id,
-                intrinsic,
-                reason: "arity mismatch",
-            },
-        );
-    }
-
-    match intrinsic {
-        ArrayLen => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::I64)?;
-        }
-        ArrayIsEmpty => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::Bool)?;
-        }
-        ArrayGet | ArrayPop | ArrayRemove => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            if matches!(intrinsic, ArrayGet | ArrayRemove) {
-                expect_arg_ty(
-                    function,
-                    args,
-                    1,
-                    ValueType::I64,
-                    "standard intrinsic index",
-                )?;
-            }
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        ArrayPush | ArrayInsert => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            if intrinsic == ArrayInsert {
-                expect_arg_ty(
-                    function,
-                    args,
-                    1,
-                    ValueType::I64,
-                    "standard intrinsic index",
-                )?;
-            }
-            let _ = register_ty(function, *args.last().expect("arity already checked"))?;
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        ArrayClear => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        MapNew | SetNew => {
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        MapLen | SetLen | IterLen => {
-            expect_iterable_or_heap_arg(function, args, 0, intrinsic)?;
-            verify_call_dst(function, dst, ValueType::I64)?;
-        }
-        MapIsEmpty | SetIsEmpty | IterIsEmpty => {
-            expect_iterable_or_heap_arg(function, args, 0, intrinsic)?;
-            verify_call_dst(function, dst, ValueType::Bool)?;
-        }
-        MapContainsKey | MapGet | MapInsert | MapRemove => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            expect_hash_key_arg(function, args, 1, intrinsic)?;
-            if intrinsic == MapInsert {
-                let _ = register_ty(function, args[2])?;
-            }
-            let return_ty = match intrinsic {
-                MapContainsKey => ValueType::Bool,
-                MapGet | MapRemove => ValueType::HeapObject,
-                MapInsert => ValueType::HeapObject,
-                _ => unreachable!(),
-            };
-            verify_call_dst(function, dst, return_ty)?;
-        }
-        MapClear | MapKeys | MapValues | MapEntries | SetClear | SetToArray => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        SetContains | SetInsert | SetRemove => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            expect_hash_key_arg(function, args, 1, intrinsic)?;
-            let return_ty = match intrinsic {
-                SetContains | SetRemove => ValueType::Bool,
-                SetInsert => ValueType::HeapObject,
-                _ => unreachable!(),
-            };
-            verify_call_dst(function, dst, return_ty)?;
-        }
-        SetUnion | SetIntersection | SetDifference => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            expect_arg_ty(
-                function,
-                args,
-                1,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        StringLenBytes | StringLenChars => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::Str,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::I64)?;
-        }
-        StringIsEmpty | StringContains | StringStartsWith | StringEndsWith => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::Str,
-                "standard intrinsic argument",
-            )?;
-            if intrinsic != StringIsEmpty {
-                expect_arg_ty(
-                    function,
-                    args,
-                    1,
-                    ValueType::Str,
-                    "standard intrinsic argument",
-                )?;
-            }
-            verify_call_dst(function, dst, ValueType::Bool)?;
-        }
-        StringConcat => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::Str,
-                "standard intrinsic argument",
-            )?;
-            expect_arg_ty(
-                function,
-                args,
-                1,
-                ValueType::Str,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::Str)?;
-        }
-        StringSlice => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::Str,
-                "standard intrinsic argument",
-            )?;
-            expect_arg_ty(
-                function,
-                args,
-                1,
-                ValueType::I64,
-                "standard intrinsic index",
-            )?;
-            expect_arg_ty(
-                function,
-                args,
-                2,
-                ValueType::I64,
-                "standard intrinsic index",
-            )?;
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        OptionIsSome | OptionIsNone | ResultIsOk | ResultIsErr => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::Bool)?;
-        }
-        OptionUnwrapOr | ResultUnwrapOr => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            let fallback_ty = register_ty(function, args[1])?;
-            verify_call_dst(function, dst, fallback_ty)?;
-        }
-        OptionMap | OptionAndThen | ResultMap | ResultMapErr | ResultAndThen => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            let _ = register_ty(function, args[1])?;
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        IterGet => {
-            expect_iterable_or_heap_arg(function, args, 0, intrinsic)?;
-            expect_arg_ty(
-                function,
-                args,
-                1,
-                ValueType::I64,
-                "standard intrinsic index",
-            )?;
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        IterToArray => {
-            expect_iterable_or_heap_arg(function, args, 0, intrinsic)?;
-            verify_call_dst(function, dst, ValueType::HeapObject)?;
-        }
-        IterForEach => {
-            expect_iterable_or_heap_arg(function, args, 0, intrinsic)?;
-            let _ = register_ty(function, args[1])?;
-            verify_call_dst(function, dst, ValueType::Unit)?;
-        }
-        MathMin | MathMax => {
-            let lhs = expect_numeric_arg(function, args, 0, intrinsic)?;
-            let rhs = register_ty(function, args[1])?;
-            if rhs != lhs {
-                return Err(BytecodeVerificationError::TypeMismatch {
-                    function: function.id,
-                    context: "standard intrinsic numeric argument",
-                    expected: lhs,
-                    found: rhs,
-                });
-            }
-            verify_call_dst(function, dst, lhs)?;
-        }
-        MathClamp => {
-            let value = expect_numeric_arg(function, args, 0, intrinsic)?;
-            for arg in &args[1..] {
-                expect_register_ty(function, *arg, value, "standard intrinsic numeric argument")?;
-            }
-            verify_call_dst(function, dst, value)?;
-        }
-        MathAbs => {
-            let value = expect_signed_numeric_arg(function, args, 0, intrinsic)?;
-            verify_call_dst(function, dst, value)?;
-        }
-        MathFloor | MathCeil | MathRound | MathSqrt | MathSin | MathCos | MathTan => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::F64,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::F64)?;
-        }
-        DebugPrint | DebugPanic => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::Str,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::Unit)?;
-        }
-        DebugAssert => {
-            expect_arg_ty(
-                function,
-                args,
-                0,
-                ValueType::Bool,
-                "standard intrinsic argument",
-            )?;
-            expect_arg_ty(
-                function,
-                args,
-                1,
-                ValueType::Str,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::Unit)?;
-        }
-        DebugAssertEq => {
-            let lhs = register_ty(function, args[0])?;
-            let rhs = register_ty(function, args[1])?;
-            if lhs != rhs {
-                return Err(BytecodeVerificationError::TypeMismatch {
-                    function: function.id,
-                    context: "standard intrinsic comparable argument",
-                    expected: lhs,
-                    found: rhs,
-                });
-            }
-            expect_arg_ty(
-                function,
-                args,
-                2,
-                ValueType::Str,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(function, dst, ValueType::Unit)?;
-        }
-    }
-    Ok(())
+    let args = args
+        .iter()
+        .map(|arg| register_ty(function, *arg))
+        .collect::<Result<Vec<_>, _>>()?;
+    let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
+    crate::module::contracts::verify_intrinsic(dst, intrinsic, &args)
+        .map_err(|error| contract_error(function, error))
 }
 
 fn verify_call_dst(
@@ -975,138 +660,10 @@ fn verify_call_dst(
     dst: Option<Register>,
     return_type: ValueType,
 ) -> Result<(), BytecodeVerificationError> {
-    match (dst, return_type) {
-        (None, ValueType::Unit) => Ok(()),
-        (Some(dst), ty) => expect_register_ty(function, dst, ty, "call dst"),
-        (None, ty) => Err(BytecodeVerificationError::TypeMismatch {
-            function: function.id,
-            context: "call dst",
-            expected: ty,
-            found: ValueType::Unit,
-        }),
-    }
+    let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
+    crate::module::contracts::verify_call_dst(dst, return_type)
+        .map_err(|error| contract_error(function, error))
 }
-
-fn expect_arg_ty(
-    function: &BytecodeFunction,
-    args: &[Register],
-    index: usize,
-    expected: ValueType,
-    context: &'static str,
-) -> Result<(), BytecodeVerificationError> {
-    expect_register_ty(function, args[index], expected, context)
-}
-
-fn expect_hash_key_arg(
-    function: &BytecodeFunction,
-    args: &[Register],
-    index: usize,
-    intrinsic: StandardIntrinsic,
-) -> Result<(), BytecodeVerificationError> {
-    let found = register_ty(function, args[index])?;
-    if matches!(
-        found,
-        ValueType::Bool | ValueType::I32 | ValueType::I64 | ValueType::Str
-    ) {
-        Ok(())
-    } else {
-        Err(
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                function: function.id,
-                intrinsic,
-                reason: "hash-key argument must be bool, integer, or String",
-            },
-        )
-    }
-}
-
-fn expect_iterable_or_heap_arg(
-    function: &BytecodeFunction,
-    args: &[Register],
-    index: usize,
-    intrinsic: StandardIntrinsic,
-) -> Result<(), BytecodeVerificationError> {
-    let found = register_ty(function, args[index])?;
-    if matches!(found, ValueType::HeapObject | ValueType::Str) {
-        Ok(())
-    } else {
-        Err(
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                function: function.id,
-                intrinsic,
-                reason: "iterable argument must be a heap object or String",
-            },
-        )
-    }
-}
-
-fn expect_numeric_arg(
-    function: &BytecodeFunction,
-    args: &[Register],
-    index: usize,
-    intrinsic: StandardIntrinsic,
-) -> Result<ValueType, BytecodeVerificationError> {
-    let found = register_ty(function, args[index])?;
-    if matches!(
-        found,
-        ValueType::I32 | ValueType::I64 | ValueType::F32 | ValueType::F64
-    ) {
-        Ok(found)
-    } else {
-        Err(
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                function: function.id,
-                intrinsic,
-                reason: "numeric argument must be i32/i64/f32/f64 bytecode value",
-            },
-        )
-    }
-}
-
-fn expect_signed_numeric_arg(
-    function: &BytecodeFunction,
-    args: &[Register],
-    index: usize,
-    intrinsic: StandardIntrinsic,
-) -> Result<ValueType, BytecodeVerificationError> {
-    let found = register_ty(function, args[index])?;
-    if matches!(
-        found,
-        ValueType::I32 | ValueType::I64 | ValueType::F32 | ValueType::F64
-    ) {
-        Ok(found)
-    } else {
-        Err(
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                function: function.id,
-                intrinsic,
-                reason: "signed numeric argument must be i32/i64/f32/f64 bytecode value",
-            },
-        )
-    }
-}
-
-fn standard_intrinsic_arity(intrinsic: StandardIntrinsic) -> usize {
-    use StandardIntrinsic::*;
-
-    match intrinsic {
-        MapNew | SetNew => 0,
-        ArrayLen | ArrayIsEmpty | ArrayPop | ArrayClear | MapLen | MapIsEmpty | MapClear
-        | MapKeys | MapValues | MapEntries | SetLen | SetIsEmpty | SetClear | SetToArray
-        | StringLenBytes | StringLenChars | StringIsEmpty | OptionIsSome | OptionIsNone
-        | ResultIsOk | ResultIsErr | IterLen | IterIsEmpty | IterToArray | MathAbs | MathFloor
-        | MathCeil | MathRound | MathSqrt | MathSin | MathCos | MathTan | DebugPrint
-        | DebugPanic => 1,
-        ArrayGet | ArrayPush | ArrayRemove | MapContainsKey | MapGet | MapRemove | SetContains
-        | SetInsert | SetRemove | SetUnion | SetIntersection | SetDifference | StringConcat
-        | StringContains | StringStartsWith | StringEndsWith | OptionUnwrapOr | OptionMap
-        | OptionAndThen | ResultUnwrapOr | ResultMap | ResultMapErr | ResultAndThen | IterGet
-        | IterForEach | MathMin | MathMax | DebugAssert => 2,
-        ArrayInsert | StringSlice | MathClamp | DebugAssertEq => 3,
-        MapInsert => 3,
-    }
-}
-
 fn function_ref_exists(module: &BytecodeModule, target: FunctionRef) -> bool {
     target.index() < module.functions.len() && target.index() < module.function_table.len()
 }
@@ -1245,5 +802,21 @@ fn constant_type(constant: &ConstantOperand) -> ValueType {
         ConstantOperand::I32(_) => ValueType::I32,
         ConstantOperand::F32(_) => ValueType::F32,
         ConstantOperand::Str(_) => ValueType::Str,
+    }
+}
+
+fn ir_binary_op(op: BinaryOp) -> crate::module::BinaryOp {
+    use crate::module::BinaryOp as Ir;
+    match op {
+        BinaryOp::Add => Ir::Add,
+        BinaryOp::Sub => Ir::Sub,
+        BinaryOp::Mul => Ir::Mul,
+        BinaryOp::Div => Ir::Div,
+        BinaryOp::Eq => Ir::Eq,
+        BinaryOp::NotEq => Ir::NotEq,
+        BinaryOp::Lt => Ir::Lt,
+        BinaryOp::Gt => Ir::Gt,
+        BinaryOp::Le => Ir::Le,
+        BinaryOp::Ge => Ir::Ge,
     }
 }

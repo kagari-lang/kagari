@@ -96,6 +96,12 @@ Signatures, locals, temporaries and direct calls use the selected instance.
 Static trait calls on a concrete type use checked implementation targets; generic
 impl specialization, applied traits and dynamic interface tables remain pending.
 
+`lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule` after
+checking IR structure, operations and definite initialization. Bytecode generation
+requires this handle; editing its `into_unverified()` result requires `verify_ir`
+again. The verification boundary and its remaining linking limits are defined in
+[bytecode.md](bytecode.md#verified-ir-boundary).
+
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated

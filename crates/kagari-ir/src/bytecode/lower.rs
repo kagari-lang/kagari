@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::module::ids::InstanceId;
 use kagari_common::Span;
 
 use crate::bytecode::instruction::{
@@ -15,8 +14,8 @@ use crate::bytecode::module::{
 };
 use crate::bytecode::verify_module;
 use crate::module::{
-    ValueType,
-    function::{BasicBlock, IrFunction, IrModule},
+    ValueType, VerifiedIrModule,
+    function::{BasicBlock, IrFunction},
     ids::{BlockId, LocalId, ModuleSlotId, TempId},
     instruction::{
         AggregateFieldRef, BinaryOp as IrBinaryOp, CallTarget as IrCallTarget, Constant,
@@ -31,25 +30,17 @@ pub enum BytecodeLoweringError {
     Verification(crate::bytecode::BytecodeVerificationError),
 }
 
-pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweringError> {
+pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, BytecodeLoweringError> {
     let mut context = BytecodeLoweringContext::default();
-    let function_refs = ir
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(index, function)| (function.id, FunctionRef::new(index)))
-        .collect::<HashMap<_, _>>();
     let functions = ir
         .functions
         .iter()
-        .map(|function| lower_function(function, &function_refs, &mut context))
+        .map(|function| lower_function(function, &mut context))
         .collect::<Result<Vec<_>, _>>()?;
     let mut module = BytecodeModule {
         identity: ir.identity.clone(),
         source_name: ir.source_name.clone(),
-        module_init: ir
-            .module_init
-            .and_then(|id| function_refs.get(&id).copied()),
+        module_init: ir.module_init.map(|id| FunctionRef::new(id.index())),
         module_slots: ir
             .module_slots
             .iter()
@@ -120,7 +111,6 @@ impl BytecodeLoweringContext {
 
 fn lower_function(
     function: &IrFunction,
-    function_refs: &HashMap<InstanceId, FunctionRef>,
     context: &mut BytecodeLoweringContext,
 ) -> Result<BytecodeFunction, BytecodeLoweringError> {
     let block_offsets = compute_block_offsets(function);
@@ -133,11 +123,10 @@ fn lower_function(
     );
     let mut instruction_spans = Vec::with_capacity(instructions.capacity());
 
-    for block in &function.blocks {
+    for (_, block) in emission_order(function) {
         lower_block(
             block,
             &block_offsets,
-            function_refs,
             context,
             &mut instructions,
             &mut instruction_spans,
@@ -155,9 +144,7 @@ fn lower_function(
     };
 
     Ok(BytecodeFunction {
-        id: *function_refs
-            .get(&function.id)
-            .expect("bytecode lowering should have a function ref for every IR function"),
+        id: FunctionRef::new(function.id.index()),
         name: function.name.clone(),
         parameter_count: function.params.len() as u16,
         register_count: function.temps.len() as u16,
@@ -394,7 +381,7 @@ fn compute_block_offsets(function: &IrFunction) -> HashMap<BlockId, JumpTarget> 
     let mut offsets = HashMap::new();
     let mut next_offset = 0usize;
 
-    for (index, block) in function.blocks.iter().enumerate() {
+    for (index, block) in emission_order(function) {
         let block_id = BlockId::new(index);
         offsets.insert(block_id, JumpTarget::new(next_offset));
         next_offset += block.instructions.len();
@@ -409,13 +396,12 @@ fn compute_block_offsets(function: &IrFunction) -> HashMap<BlockId, JumpTarget> 
 fn lower_block(
     block: &BasicBlock,
     block_offsets: &HashMap<BlockId, JumpTarget>,
-    function_refs: &HashMap<InstanceId, FunctionRef>,
     context: &mut BytecodeLoweringContext,
     out: &mut Vec<BytecodeInstruction>,
     spans: &mut Vec<Span>,
 ) -> Result<(), BytecodeLoweringError> {
     for (index, instruction) in block.instructions.iter().enumerate() {
-        out.push(lower_instruction(instruction, function_refs, context));
+        out.push(lower_instruction(instruction, context));
         spans.push(
             block
                 .instruction_spans
@@ -435,7 +421,6 @@ fn lower_block(
 
 fn lower_instruction(
     instruction: &Instruction,
-    function_refs: &HashMap<InstanceId, FunctionRef>,
     context: &mut BytecodeLoweringContext,
 ) -> BytecodeInstruction {
     match instruction {
@@ -480,11 +465,7 @@ fn lower_instruction(
         Instruction::Call { dst, callee, args } => BytecodeInstruction::Call {
             dst: dst.map(lower_value),
             callee: match callee {
-                IrCallTarget::Function(id) => CallTarget::Function(
-                    *function_refs
-                        .get(id)
-                        .expect("bytecode lowering should resolve direct call targets"),
-                ),
+                IrCallTarget::Function(id) => CallTarget::Function(FunctionRef::new(id.index())),
                 IrCallTarget::Value(value) => CallTarget::Register(lower_value(*value)),
                 IrCallTarget::StandardIntrinsic(intrinsic) => {
                     CallTarget::StandardIntrinsic(*intrinsic)
@@ -684,4 +665,18 @@ fn lower_jump(
         .get(&block)
         .copied()
         .ok_or(BytecodeLoweringError::InvalidBranchTarget(block))
+}
+
+fn emission_order(function: &IrFunction) -> impl Iterator<Item = (usize, &BasicBlock)> {
+    std::iter::once((
+        function.entry.index(),
+        &function.blocks[function.entry.index()],
+    ))
+    .chain(
+        function
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != function.entry.index()),
+    )
 }

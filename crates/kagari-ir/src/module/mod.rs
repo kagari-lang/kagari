@@ -1,10 +1,14 @@
 pub use kagari_hir::builtin::surface::StandardIntrinsic;
 
 pub mod abi;
+pub mod contracts;
 pub mod function;
 pub mod ids;
 pub mod instruction;
 pub mod types;
+mod verify;
+
+pub use verify::{IrVerificationError, IrVerificationErrorKind, VerifiedIrModule, verify_ir};
 
 pub use abi::{
     ConstAbi, FieldAbi, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem,
