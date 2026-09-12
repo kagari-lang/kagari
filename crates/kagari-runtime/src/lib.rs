@@ -165,6 +165,12 @@ impl Runtime {
         self.resources.is_quarantined()
     }
 
+    pub fn execution_root(&self) -> Option<LoadedModule> {
+        self.resources
+            .active_session()
+            .map(|session| session.root.clone())
+    }
+
     pub fn execution_options(&self) -> ExecutionOptions {
         if let Some(session) = self.resources.active_session() {
             return session.options.clone();
@@ -1011,9 +1017,11 @@ impl Runtime {
             .ok_or_else(|| {
                 RuntimeError::host_call_failure("invalid heap reference in host arguments")
             })?;
-        let result = function.invoke(args);
+        let context = host::HostCallContext::new(self);
+        let result = function.invoke(&context, args);
         self.resources.ensure_execution_allowed()?;
         let value = result.map_err(|error| RuntimeError::host_call_failure(error.message()))?;
+        HostBorrowTable::validate_no_escape(&value)?;
         if !self.gc.validate_value(&value) {
             return Err(RuntimeError::host_call_failure(
                 "invalid heap reference in host result",

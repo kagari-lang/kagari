@@ -48,7 +48,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     assert_eq!(runtime.modules().loaded_count(), 0);
     assert_eq!(runtime.resources().counters().loaded_modules, 0);
     runtime
-        .register_host_function(HostFunction::new(required, |_| {
+        .register_host_function(HostFunction::new(required, |_, _| {
             panic!("linking must not invoke host")
         }))
         .unwrap();
@@ -106,10 +106,10 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let mut first = Runtime::default();
     let mut second = Runtime::default();
     let a = first
-        .register_host_function(HostFunction::new(declaration(), |_| unreachable!()))
+        .register_host_function(HostFunction::new(declaration(), |_, _| unreachable!()))
         .unwrap();
     let b = second
-        .register_host_function(HostFunction::new(declaration(), |_| unreachable!()))
+        .register_host_function(HostFunction::new(declaration(), |_, _| unreachable!()))
         .unwrap();
     assert_eq!(a.index(), b.index());
     assert_ne!(a, b);
@@ -155,14 +155,32 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
 fn callback_arguments_and_result_obey_the_declared_representation() {
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
-    let function = HostFunction::new(declaration(), move |_| {
+    let function = HostFunction::new(declaration(), move |_, _| {
         called.fetch_add(1, Ordering::SeqCst);
         Ok(Value::Bool(true))
     });
-    assert!(function.invoke(&[]).is_err());
-    assert!(function.invoke(&[Value::Bool(true)]).is_err());
+    let mut runtime = Runtime::new(kagari_runtime::RuntimeConfig {
+        security: kagari_runtime::SecurityContext {
+            profile: kagari_runtime::LanguageProfile {
+                allow_host_calls: true,
+                ..Default::default()
+            },
+            capabilities: kagari_runtime::CapabilitySet {
+                host_calls: true,
+                ..Default::default()
+            },
+        },
+        host_exposure: kagari_runtime::HostExposurePolicy {
+            allow_host_functions: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let id = runtime.register_host_function(function).unwrap();
+    assert!(runtime.invoke_bound_host(id, &[]).is_err());
+    assert!(runtime.invoke_bound_host(id, &[Value::Bool(true)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert!(function.invoke(&[Value::I32(1)]).is_err());
+    assert!(runtime.invoke_bound_host(id, &[Value::I32(1)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
@@ -179,7 +197,7 @@ fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     let called = calls.clone();
     let mut runtime = Runtime::default();
     let id = runtime
-        .register_host_function(HostFunction::new(declaration, move |_| {
+        .register_host_function(HostFunction::new(declaration, move |_, _| {
             called.fetch_add(1, Ordering::SeqCst);
             Ok(Value::I32(7))
         }))
@@ -194,7 +212,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
     let declaration = declaration();
     let mut runtime = Runtime::default();
     runtime
-        .register_host_function(HostFunction::new(declaration.clone(), |_| {
+        .register_host_function(HostFunction::new(declaration.clone(), |_, _| {
             panic!("linking must not invoke callbacks")
         }))
         .unwrap();
@@ -297,19 +315,19 @@ fn invalid_registration_leaves_registry_unchanged() {
     bad.params[0].passing = HostPassingStyle::UniqueBorrow;
     assert!(
         runtime
-            .register_host_function(HostFunction::new(bad, |_| unreachable!()))
+            .register_host_function(HostFunction::new(bad, |_, _| unreachable!()))
             .is_err()
     );
     assert!(runtime.host().interface().functions.is_empty());
     let a = declaration();
     runtime
-        .register_host_function(HostFunction::new(a.clone(), |_| unreachable!()))
+        .register_host_function(HostFunction::new(a.clone(), |_, _| unreachable!()))
         .unwrap();
     let mut duplicate = a;
     duplicate.symbol = "different-label".into();
     assert!(
         runtime
-            .register_host_function(HostFunction::new(duplicate, |_| unreachable!()))
+            .register_host_function(HostFunction::new(duplicate, |_, _| unreachable!()))
             .is_err()
     );
     assert_eq!(runtime.host().interface().functions.len(), 1);

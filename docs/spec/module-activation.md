@@ -38,8 +38,10 @@ must return without a second panic from an ordinary state-access permission chec
 Failure cleanup cannot downgrade an already initialized instance. It neither
 reopens execution nor retries initialization. Initialization shares the root-call
 session's budget and cancellation with the entry; its lifecycle guard establishes
-the failure cleanup boundary. Synchronous host reentry and full session ownership
-of frames and borrows remain R12 work.
+the failure cleanup boundary. Synchronous host reentry only calls already
+initialized members of the pinned program. Reentry into initializing, failed or
+uninitialized members is rejected without retrying initialization. Full session
+ownership of frame stacks remains R12 work.
 
 Top-level val/var remain private initialization bindings, not durable globals.
 Existing scalar const-safe restrictions remain in force. Persistent state and

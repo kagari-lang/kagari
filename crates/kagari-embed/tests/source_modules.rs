@@ -230,7 +230,7 @@ fn diamond_initialization_is_dependency_first_once_per_runtime_and_failure_is_ca
             runtime
                 .register_host_function(kagari_runtime::host::HostFunction::new(
                     declaration.clone(),
-                    move |args| {
+                    move |_, args| {
                         recorded.lock().unwrap().push(args[0].clone());
                         Ok(args[0].clone())
                     },
@@ -307,7 +307,7 @@ fn dependency_bindings_and_execution_policy_are_checked_before_initialization() 
     runtime
         .register_host_function(kagari_runtime::host::HostFunction::new(
             declaration,
-            move |args| {
+            move |_, args| {
                 recorded.lock().unwrap().push(args[0].clone());
                 Ok(args[0].clone())
             },

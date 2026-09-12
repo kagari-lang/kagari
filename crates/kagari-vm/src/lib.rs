@@ -3,6 +3,7 @@ mod debug_protocol;
 mod error;
 mod executor;
 mod frame;
+mod reentry;
 mod vm;
 
 pub use debug::{
@@ -14,6 +15,7 @@ pub use debug_protocol::{
     DebugAdapterResponse, DebugProtocolAdapter, RecordingDebugAdapterSink,
 };
 pub use error::VmError;
+pub use reentry::reenter;
 pub use vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, Vm};
 
 #[cfg(test)]

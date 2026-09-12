@@ -319,8 +319,14 @@ Implemented foundation slices:
   call without changing runtime defaults. Runtime counters remain cumulative while
   ExecutionCounters reports root usage and peaks. Cooperative cancellation and
   wall-time limits preserve completed effects and release frames; resource
-  termination stays recorded until the session ends. Synchronous callback reentry,
-  session-owned frames/borrows and lexical debugger visibility remain pending.
+  termination stays recorded until the session ends. HostCallContext now owns a
+  scoped borrow guard and exposes synchronous reentry into initialized linked
+  functions of the pinned program. Reentry reuses the explicit executor, validates
+  argument/result representations and returns an explicit rooted result. Tests
+  cover GC during nested calls, retained results, borrow conflicts and cleanup,
+  swallowed termination, ordinary nested traps and rejection of other epochs.
+  Direct registry invocation bypasses are removed. Session-owned frame stacks,
+  nested debugger integration and lexical debugger visibility remain pending.
   Tests cover direct/encoded
   programs, dependency-first initialization/failure caching, stale reloads, old
   dependency calls, malformed program rejection and interpreter/JIT fallback parity.
@@ -328,7 +334,7 @@ Implemented foundation slices:
   integer abs use checked operations. Existing native i32 add/subtract/multiply/
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
-  ABI is v8 and JIT helper ABI is v5. Path arithmetic failure produces no
+  ABI is v9 and JIT helper ABI is v5. Path arithmetic failure produces no
   commit action or dirty record. Heap allocations and standard container growth
   now share resource counters: validation, budget checks and capacity preparation
   precede mutation and accounting commit. Failed operations charge no units;
@@ -352,8 +358,8 @@ Implemented foundation slices:
   quarantine, so an initializer commit fault cannot trigger a second panic while
   attempting an ordinary module-state write. Direct/encoded interpreter and JIT
   fallback fixtures cover both entry and initializer faults. Root sessions provide
-  cancellation and shared budgets; synchronous callback reentry and session-owned
-  frames still require R12 work.
+  cancellation and shared budgets; synchronous callback reentry inherits them.
+  Session-owned frame stacks still require R12 work.
   Const evaluation shares checked arithmetic and
   honors short circuit, with cancellation checks. Full execution-resource ownership,
   narrower integer layouts and the other backend/

@@ -69,7 +69,7 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
             .is_err()
     );
     runtime
-        .register_host_function(HostFunction::new(definition, move |args| {
+        .register_host_function(HostFunction::new(definition, move |_, args| {
             called.lock().unwrap().push(args.to_vec());
             let [Value::I32(value)] = args else {
                 unreachable!()

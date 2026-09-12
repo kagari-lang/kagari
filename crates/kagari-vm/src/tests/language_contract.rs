@@ -204,7 +204,7 @@ fn run(case: &Case, route: Route) {
     runtime
         .register_host_function(HostFunction::new(
             kagari_common::host_interface::standard_log(),
-            move |args| {
+            move |_, args| {
                 let mut state = capture.lock().unwrap();
                 state.calls.push(HostCall {
                     symbol: "host.log",

@@ -512,7 +512,7 @@ fn register_default_host_functions(
 ) -> Result<(), kagari_runtime::RuntimeError> {
     runtime.register_host_function(HostFunction::new(
         kagari_common::host_interface::standard_log(),
-        |args| {
+        |_, args| {
             let Some(Value::Str(message)) = args.first() else {
                 return Err(HostError::new("host.log expects one string argument"));
             };

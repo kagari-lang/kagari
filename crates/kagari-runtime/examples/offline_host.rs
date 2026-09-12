@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         ..Default::default()
     });
-    runtime.register_host_function(HostFunction::new(declaration, |args| match args {
+    runtime.register_host_function(HostFunction::new(declaration, |_, args| match args {
         [Value::I32(value)] => Ok(Value::I32(*value)),
         _ => Err(HostError::new("echo expects one i32")),
     }))?;

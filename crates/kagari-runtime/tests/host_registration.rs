@@ -61,6 +61,38 @@ fn host_call_enabled_runtime() -> Runtime {
 }
 
 #[test]
+fn callback_context_releases_borrows_and_rejects_borrowed_results() {
+    let mut runtime = exposed_host_runtime();
+    runtime
+        .register_host_function(HostFunction::new(
+            HostFunctionDeclaration::new(
+                "game.heal",
+                vec![],
+                kagari_common::host_interface::HostValueType::opaque("game.Player"),
+            ),
+            |context, _| {
+                let token = context
+                    .borrows()
+                    .borrow_unique(HostObjectId(1), TypeId::new(0))
+                    .unwrap();
+                Ok(Value::Ephemeral(
+                    kagari_runtime::value::EphemeralValue::HostMut(token),
+                ))
+            },
+        ))
+        .unwrap();
+    assert_eq!(
+        runtime.invoke_host("game.heal", &[]).unwrap_err().kind(),
+        RuntimeErrorKind::HostBorrowEscape
+    );
+    let frame = runtime.enter_host_call();
+    frame
+        .borrow_unique(HostObjectId(1), TypeId::new(0))
+        .unwrap();
+    assert_eq!(runtime.gc().active_roots(), 0);
+}
+
+#[test]
 fn registers_host_function_metadata_and_invokes_handler() {
     let mut runtime = exposed_host_runtime();
     let i32_id = runtime
@@ -102,7 +134,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
     let fingerprint = metadata.fingerprint().unwrap();
 
     let function_id = runtime
-        .register_host_function(HostFunction::new(metadata, move |args| match args {
+        .register_host_function(HostFunction::new(metadata, move |_, args| match args {
             [Value::HostRoot(_), Value::I32(hp)] => Ok(Value::I32(hp + i32_id.index() as i32)),
             _ => Err(HostError::new("game.heal expects host root and i32")),
         }))
@@ -139,7 +171,7 @@ fn host_functions_are_unavailable_until_exposed() {
                 vec![],
                 kagari_common::host_interface::HostValueType::Unit,
             ),
-            move |_| {
+            move |_, _| {
                 *calls_for_host.lock().expect("counter should lock") += 1;
                 Ok(Value::Unit)
             },
@@ -169,7 +201,7 @@ fn rejects_duplicate_host_function_symbols() {
                 vec![],
                 kagari_common::host_interface::HostValueType::Unit,
             ),
-            |_| Ok(Value::Unit),
+            |_, _| Ok(Value::Unit),
         ))
         .unwrap();
 
@@ -180,7 +212,7 @@ fn rejects_duplicate_host_function_symbols() {
                 vec![],
                 kagari_common::host_interface::HostValueType::Unit,
             ),
-            |_| Ok(Value::Unit),
+            |_, _| Ok(Value::Unit),
         ))
         .unwrap_err();
 

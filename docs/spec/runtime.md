@@ -405,8 +405,10 @@ entries cannot replace inputs or reset the remaining budget. Effective permissio
 and host policy come from the active session, even if runtime defaults change.
 Nested module entries must belong to its pinned dependency program. ModuleStore
 shares its interior state so owned scopes can retain/release versions without a
-mutable borrow spanning execution. Frames still use the explicit driver; callback
-reentry and unified frame/borrow ownership remain R12 work.
+mutable borrow spanning execution. Synchronous host callbacks reenter the existing
+explicit driver with the same runtime and root options. Each host context owns its
+borrow guard; outer scopes remain active during nested execution. Unified session
+ownership of frame stacks and nested debugger events remain open.
 
 Cancellation and an optional monotonic wall-time budget are checked cooperatively
 at instruction safepoints and before resource-consuming operations. They cannot

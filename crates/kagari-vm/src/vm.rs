@@ -101,8 +101,13 @@ impl Vm {
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
-        let mut executor =
-            Executor::new(&self.runtime, module, entry, self.debug_session.as_mut())?;
+        let mut executor = Executor::new(
+            &self.runtime,
+            module,
+            entry,
+            &[],
+            self.debug_session.as_mut(),
+        )?;
         let return_value = executor.run()?;
 
         Ok(ExecutionReport {
@@ -265,6 +270,7 @@ impl Vm {
                     &self.runtime,
                     module,
                     module_init,
+                    &[],
                     self.debug_session.as_mut(),
                 );
                 match executor {
@@ -397,8 +403,13 @@ impl Vm {
         module: &LoadedModule,
         entry: FunctionRef,
     ) -> Result<Value, VmError> {
-        let mut executor =
-            Executor::new(&self.runtime, module, entry, self.debug_session.as_mut())?;
+        let mut executor = Executor::new(
+            &self.runtime,
+            module,
+            entry,
+            &[],
+            self.debug_session.as_mut(),
+        )?;
         executor.run()
     }
 }

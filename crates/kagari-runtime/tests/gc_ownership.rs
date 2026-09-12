@@ -155,7 +155,7 @@ fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_stora
     runtime
         .register_host_function(HostFunction::new(
             HostFunctionDeclaration::new("host.retained", vec![], HostValueType::Bool),
-            move |_| Ok(Value::Bool(retained.value() == Value::Array(object))),
+            move |_, _| Ok(Value::Bool(retained.value() == Value::Array(object))),
         ))
         .unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);

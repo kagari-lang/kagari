@@ -1047,7 +1047,31 @@ impl HostError {
     }
 }
 
-pub type HostCallback = dyn Fn(&[Value]) -> Result<Value, HostError> + 'static;
+/// Available only while a checked runtime host call is active.
+pub struct HostCallContext<'a> {
+    runtime: &'a crate::Runtime,
+    borrows: HostCallGuard<'a>,
+}
+
+impl<'a> HostCallContext<'a> {
+    pub(crate) fn new(runtime: &'a crate::Runtime) -> Self {
+        Self {
+            runtime,
+            borrows: runtime.enter_host_call(),
+        }
+    }
+
+    pub fn runtime(&self) -> &'a crate::Runtime {
+        self.runtime
+    }
+
+    pub fn borrows(&self) -> &HostCallGuard<'a> {
+        &self.borrows
+    }
+}
+
+pub type HostCallback =
+    dyn Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static;
 
 #[derive(Clone)]
 pub struct HostFunction {
@@ -1077,7 +1101,7 @@ impl fmt::Debug for HostFunction {
 impl HostFunction {
     pub fn new(
         declaration: HostFunctionDeclaration,
-        handler: impl Fn(&[Value]) -> Result<Value, HostError> + 'static,
+        handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static,
     ) -> Self {
         Self {
             id: None,
@@ -1097,7 +1121,11 @@ impl HostFunction {
         &self.declaration.symbol
     }
 
-    pub fn invoke(&self, args: &[Value]) -> Result<Value, HostError> {
+    pub(crate) fn invoke(
+        &self,
+        context: &HostCallContext<'_>,
+        args: &[Value],
+    ) -> Result<Value, HostError> {
         if args.len() != self.declaration.params.len()
             || args
                 .iter()
@@ -1108,7 +1136,7 @@ impl HostFunction {
                 "host arguments do not match the declared signature",
             ));
         }
-        let result = (self.handler)(args)?;
+        let result = (self.handler)(context, args)?;
         if !host_value_matches(&result, &self.declaration.return_type) {
             return Err(HostError::new(
                 "host result does not match the declared signature",
@@ -1735,13 +1763,6 @@ impl HostRegistry {
 
     pub fn host_types(&self) -> impl Iterator<Item = &HostTypeInfo> {
         self.types.values()
-    }
-
-    pub fn invoke(&self, symbol: &str, args: &[Value]) -> Result<Value, HostError> {
-        let function = self
-            .function(symbol)
-            .ok_or_else(|| HostError::new(format!("unknown host function `{symbol}`")))?;
-        function.invoke(args)
     }
 }
 

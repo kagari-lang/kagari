@@ -231,7 +231,11 @@ the pinned dependency program, permissions, cancellation and remaining budget.
 Dropping the final scope releases the session; dropping an outer handle early does
 not reset a still-active nested scope. ExecutionSession::counters reports root-call
 usage and peaks; Runtime resource counters remain cumulative. Synchronous script
-reentry through host callbacks is still pending R12.
+reentry is available through HostCallContext and kagari_vm::reenter, using an
+initialized LoadedModule and FunctionRef from the pinned root program. Its returned
+RootedValue remains alive across collection; ordinary raw Value copies do not.
+See [host-interop.md](host-interop.md) for scope and error rules. The `host_reentry`
+example demonstrates this boundary: `cargo run -p kagari-embed --example host_reentry`.
 The `scoped_execution` embedding example demonstrates independent budgets and
 cancellation: `cargo run -p kagari-embed --example scoped_execution`.
 

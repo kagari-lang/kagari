@@ -79,6 +79,27 @@ nominal types. Opaque references use declaration identities, not runtime type sl
 The old callback-owned metadata model, arbitrary ABI fingerprint field, static
 string type names and `with_metadata` constructor have been removed.
 
+Callbacks receive `(&HostCallContext, &[Value])`. The context exposes the checked
+runtime and a call-scoped borrow guard; it cannot be constructed by hosts. Runtime
+entry owns argument roots and releases the borrow guard on every return. Borrowed
+results are rejected before their scope ends. The public registry/function invoke
+bypasses are removed; host invocation goes through Runtime permission, resource,
+signature and heap validation.
+
+`kagari_vm::reenter(context, loaded, function, args)` drives the existing explicit
+frame executor synchronously. The loaded handle and FunctionRef select a linked
+version, which must belong to the current root program and already be initialized.
+Reentry does not initialize modules or switch to the latest epoch. Argument and
+result representations are checked against the linked signature, and arguments
+must contain valid references owned by this runtime. The return is a RootedValue;
+keeping it alive retains the object across subsequent GC and host operations.
+Outer frames and borrow guards remain live while nested calls run. Borrow conflicts
+are checked across these scopes, and each scope releases only its own resources.
+An ordinary nested trap may be handled by the host. Cancellation or budget
+termination remains recorded for the root even if the host ignores the error.
+Nested debugger event integration and unified session ownership of frame stacks
+remain pending; the synchronous callback path currently uses the interpreter.
+
 One declaration can be cloned into a `HostInterface` for offline tooling and into
 the runtime binding. `HostRegistry::link_interface` checks required declarations
 against installed bindings without calling them. It rejects missing bindings,

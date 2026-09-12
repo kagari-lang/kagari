@@ -85,7 +85,7 @@ fn register_embedding_host_path_runtime(
                 vec![],
                 kagari_common::host_interface::HostValueType::opaque("game.Player"),
             ),
-            move |_| Ok(Value::HostRoot(root)),
+            move |_, _| Ok(Value::HostRoot(root)),
         ))
         .unwrap();
 
@@ -651,7 +651,7 @@ fn execution_context_denies_host_and_reflection_helpers() {
     runtime
         .register_host_function(HostFunction::new(
             kagari_common::host_interface::standard_log(),
-            |_| unreachable!("denied callback must not run"),
+            |_, _| unreachable!("denied callback must not run"),
         ))
         .unwrap();
     let print_module = runtime

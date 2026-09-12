@@ -54,7 +54,7 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
                 vec![],
                 kagari_common::host_interface::HostValueType::I32,
             ),
-            |_| unreachable!("hidden callback must not run"),
+            |_, _| unreachable!("hidden callback must not run"),
         ))
         .unwrap();
     let host_module = host_runtime
@@ -312,7 +312,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
                 vec![],
                 kagari_common::host_interface::HostValueType::I32,
             ),
-            |_| Ok(Value::I32(1)),
+            |_, _| Ok(Value::I32(1)),
         ))
         .expect("host function should register");
     let host_module = host_call_limited

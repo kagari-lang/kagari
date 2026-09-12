@@ -22,6 +22,7 @@ impl<'a> Executor<'a> {
         runtime: &'a Runtime,
         loaded: &'a LoadedModule,
         entry: FunctionRef,
+        args: &[Value],
         debug_session: Option<&'a mut DebugSession>,
     ) -> Result<Self, VmError> {
         let module = &loaded.bytecode;
@@ -36,7 +37,7 @@ impl<'a> Executor<'a> {
             frames: Vec::new(),
             debug_session,
         };
-        executor.push_frame(loaded.slot(), function, &[], None)?;
+        executor.push_frame(loaded.slot(), function, args, None)?;
         Ok(executor)
     }
 

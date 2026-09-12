@@ -113,7 +113,7 @@ fn register_vm_host_path_runtime_with_capabilities(
                 vec![],
                 kagari_common::host_interface::HostValueType::opaque("game.Player"),
             ),
-            move |_| Ok(Value::HostRoot(root)),
+            move |_, _| Ok(Value::HostRoot(root)),
         ))
         .unwrap();
     let descriptor_id = runtime
@@ -243,7 +243,7 @@ fn executes_runtime_host_helper_call() {
                 ],
                 kagari_common::host_interface::HostValueType::I32,
             ),
-            |args| match args {
+            |_, args| match args {
                 [Value::I32(lhs), Value::I32(rhs)] => Ok(Value::I32(lhs + rhs)),
                 _ => Err(HostError::new("host.add_i32 expects two i32 arguments")),
             },
@@ -998,7 +998,7 @@ fn executes_source_lowered_print_builtin() {
     runtime
         .register_host_function(HostFunction::new(
             kagari_common::host_interface::standard_log(),
-            move |args| {
+            move |_, args| {
                 let Some(Value::Str(message)) = args.first() else {
                     return Err(HostError::new("host.log expects one string argument"));
                 };
