@@ -249,6 +249,8 @@ impl<'a> BodyChecker<'a> {
                             .cloned(),
                         ResolvedName::Const(_)
                         | ResolvedName::Function(_)
+                        | ResolvedName::SourceItem { .. }
+                        | ResolvedName::SourceImport(_)
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::StandardModule(_)
@@ -298,6 +300,8 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                         ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
                         ResolvedName::Function(_)
+                        | ResolvedName::SourceItem { .. }
+                        | ResolvedName::SourceImport(_)
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::StandardModule(_)
@@ -353,9 +357,10 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::HostFunction(_) | ResolvedName::Function(_) => {
                         "function item is not assignable".to_string()
                     }
-                    ResolvedName::HostModule(_) | ResolvedName::Module(_) => {
-                        "module item is not assignable".to_string()
-                    }
+                    ResolvedName::SourceItem { .. }
+                    | ResolvedName::SourceImport(_)
+                    | ResolvedName::HostModule(_)
+                    | ResolvedName::Module(_) => "module item is not assignable".to_string(),
                     ResolvedName::StandardModule(_) => {
                         "standard module item is not assignable".to_string()
                     }
@@ -434,7 +439,9 @@ impl<'a> BodyChecker<'a> {
                         .by_id
                         .get(&id)
                         .map(|function| function.return_type.clone()),
-                    ResolvedName::HostModule(_)
+                    ResolvedName::SourceItem { .. }
+                    | ResolvedName::SourceImport(_)
+                    | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)
                     | ResolvedName::StandardModule(_)
                     | ResolvedName::HostFunction(_)

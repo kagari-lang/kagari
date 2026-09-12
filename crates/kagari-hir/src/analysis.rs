@@ -287,35 +287,56 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<AnalysisSnapshot, Cancelled> {
         cancel.check()?;
-        let mut files = HashMap::new();
+        let mut prepared = std::collections::BTreeMap::new();
         for file in source.files() {
             cancel.check()?;
-            let analysis = match self.files.get(&file.id()) {
+            let previous = self
+                .files
+                .get(&file.id())
+                .filter(|old| old.source.revision() == file.revision());
+            let parsed = match previous {
+                Some(old) => old.parsed.clone(),
+                None => kagari_syntax::parser::parse_with_cancellation(file, cancel)?,
+            };
+            let lowered = previous
+                .map(|old| old.result.facts().lowered.clone())
+                .unwrap_or_else(|| {
+                    crate::lower::lower_module_controlled(file.clone(), &parsed.syntax(), cancel)
+                });
+            prepared.insert(file.id(), (file.clone(), parsed, lowered));
+        }
+        let graph = Arc::new(crate::imports::ModuleGraph::build(
+            prepared.values().map(|(_, _, lowered)| lowered),
+            &self.hosts,
+            cancel,
+        )?);
+        let mut files = HashMap::new();
+        for (id, (file, parsed, lowered)) in prepared {
+            cancel.check()?;
+            let imports = graph
+                .node(file.module_identity())
+                .expect("prepared module is in graph")
+                .imports
+                .clone();
+            let analysis = match self.files.get(&id) {
                 Some(previous)
                     if previous.source.revision() == file.revision()
                         && previous.profile == profile
                         && previous.result.facts().names.hosts.revision()
-                            == self.hosts.revision() =>
+                            == self.hosts.revision()
+                        && previous.result.facts().names.imports == imports =>
                 {
                     previous.clone()
                 }
                 _ => {
-                    let parsed = self
-                        .files
-                        .get(&file.id())
-                        .filter(|old| old.source.revision() == file.revision())
-                        .map(|old| Ok(old.parsed.clone()))
-                        .unwrap_or_else(|| {
-                            kagari_syntax::parser::parse_with_cancellation(file, cancel)
-                        })?;
-                    cancel.check()?;
                     let reuse = self
                         .files
-                        .get(&file.id())
+                        .get(&id)
                         .filter(|old| {
                             old.result.diagnostics().is_empty()
                                 && old.result.facts().names.hosts.revision()
                                     == self.hosts.revision()
+                                && old.result.facts().names.imports.same_bindings(&imports)
                                 && old.source.module_identity() == file.module_identity()
                         })
                         .map(|old| crate::typeck::BodyReuse {
@@ -324,22 +345,23 @@ impl AnalysisDatabase {
                             new_text: file.text(),
                         });
                     let result = analyze_parsed(
-                        file.clone(),
+                        lowered,
                         &parsed,
                         profile,
                         self.hosts.clone(),
+                        imports,
                         reuse.as_ref(),
                         cancel,
                     );
                     Arc::new(FileAnalysis {
-                        source: file.clone(),
+                        source: file,
                         profile,
                         parsed,
                         result,
                     })
                 }
             };
-            files.insert(file.id(), analysis);
+            files.insert(id, analysis);
         }
         cancel.check()?;
         if source.revision() >= self.latest_revision {
@@ -349,6 +371,7 @@ impl AnalysisDatabase {
         Ok(AnalysisSnapshot {
             revision: source.revision(),
             host_revision: self.hosts.revision(),
+            graph,
             files: Arc::new(files),
         })
     }
@@ -358,10 +381,103 @@ impl AnalysisDatabase {
 pub struct AnalysisSnapshot {
     revision: Revision,
     host_revision: u64,
+    graph: Arc<crate::imports::ModuleGraph>,
     files: Arc<HashMap<FileId, Arc<FileAnalysis>>>,
 }
 
 impl AnalysisSnapshot {
+    pub fn source_import_at(
+        &self,
+        file: FileId,
+        offset: usize,
+    ) -> Option<crate::imports::SourceImport> {
+        use crate::{imports::ImportTarget, resolver::ResolvedName};
+        let facts = self.file(file)?.result.facts();
+        let expression = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter_map(|(id, _)| {
+                let span = facts.lowered.source_map.expr_span(id);
+                if !(span.start <= offset && offset < span.end) {
+                    return None;
+                }
+                let (index, item) = match facts.names.expr_resolution(id)? {
+                    ResolvedName::SourceImport(index) => (index, None),
+                    ResolvedName::SourceItem { import, item } => (import, Some(item)),
+                    _ => return None,
+                };
+                let ImportTarget::Source(target) =
+                    facts.names.imports.entries.get(index)?.target.as_ref()?
+                else {
+                    return None;
+                };
+                let mut target = target.clone();
+                if item.is_some() {
+                    target.item = item;
+                }
+                Some((span.end - span.start, target))
+            })
+            .min_by_key(|(length, _)| *length)
+            .map(|(_, target)| target);
+        expression.or_else(|| {
+            facts.names.imports.entries.iter().find_map(|import| {
+                if !(import.span.start <= offset && offset < import.span.end) {
+                    return None;
+                }
+                match &import.target {
+                    Some(ImportTarget::Source(target)) => Some(target.clone()),
+                    _ => None,
+                }
+            })
+        })
+    }
+
+    pub fn definition_at(
+        &self,
+        file: FileId,
+        offset: usize,
+    ) -> Option<&crate::declarations::Declaration> {
+        if let Some(declaration) = self.file(file)?.definition_at(offset) {
+            return Some(declaration);
+        }
+        use crate::{hir::ExportItem, imports::ImportTarget, resolver::ResolvedName};
+        let mut target = self.source_import_at(file, offset)?;
+        let mut visited = std::collections::HashSet::new();
+        loop {
+            let file = self.file(target.file)?;
+            if file.source.revision() != target.revision
+                || file.source.module_identity() != &target.module
+            {
+                return None;
+            }
+            let resolved = match target.item? {
+                ExportItem::Function(id) => ResolvedName::Function(id),
+                ExportItem::Const(id) => ResolvedName::Const(id),
+                ExportItem::Module(id) => ResolvedName::Module(id),
+                ExportItem::Struct(id) => ResolvedName::Struct(id),
+                ExportItem::Enum(id) => ResolvedName::Enum(id),
+                ExportItem::Trait(id) => ResolvedName::Trait(id),
+                ExportItem::Import(index) => {
+                    if !visited.insert((target.file, index)) {
+                        return None;
+                    }
+                    let Some(ImportTarget::Source(next)) =
+                        &file.result.facts().names.imports.entries.get(index)?.target
+                    else {
+                        return None;
+                    };
+                    target = next.clone();
+                    continue;
+                }
+            };
+            return file.result.facts().declarations.target(resolved);
+        }
+    }
+    pub fn module_graph(&self) -> &crate::imports::ModuleGraph {
+        &self.graph
+    }
     pub fn host_revision(&self) -> u64 {
         self.host_revision
     }

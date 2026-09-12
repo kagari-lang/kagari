@@ -160,6 +160,37 @@ impl KagariEngine {
             message: "file is absent from this source snapshot".into(),
         })?;
         let source = analysis.source();
+        use kagari_hir::imports::ModuleOrderError;
+        let failed_modules = match snapshot
+            .module_graph()
+            .initialization_order(source.module_identity(), cancel)
+        {
+            Ok(_) => Vec::new(),
+            Err(ModuleOrderError::Cancelled) => return Err(EmbeddingError::Cancelled),
+            Err(ModuleOrderError::Cycle(modules)) => modules,
+            Err(ModuleOrderError::InvalidImports(module)) => vec![module],
+            Err(ModuleOrderError::Missing(module)) => {
+                return Err(EmbeddingError::Source {
+                    message: format!("missing source module `{module}`"),
+                });
+            }
+        };
+        if !failed_modules.is_empty() {
+            let mut diagnostics = Vec::new();
+            for module in failed_modules {
+                let node = snapshot
+                    .module_graph()
+                    .node(&module)
+                    .expect("graph failure names an existing node");
+                let file = snapshot
+                    .file(node.file)
+                    .expect("graph node belongs to snapshot");
+                diagnostics.extend(node.imports.diagnostics.iter().cloned().map(|diagnostic| {
+                    EmbeddingDiagnostic::from_diagnostic(diagnostic, file.source())
+                }));
+            }
+            return Err(EmbeddingError::Diagnostics { diagnostics });
+        }
         let analyzed = analysis
             .result()
             .clone()

@@ -10,6 +10,12 @@ The module import graph must be acyclic. Report a cycle before execution; never
 expose a partially initialized instance. Dependencies initialize before their
 importer in deterministic module order. Functions within a module may recurse.
 
+The implemented analysis graph provides this order for registered sources: among
+modules whose dependencies are ready, select the smallest package/path identity.
+Each reachable dependency occurs once. Cycle analysis uses explicit stacks and
+supports cancellation. This graph is a compilation prerequisite; runtime bundle
+initialization and dependency-version retention are still pending R10/R14 work.
+
 Each runtime owns an independent instance for each executable generation.
 Initialization runs at most once per instance, following:
 

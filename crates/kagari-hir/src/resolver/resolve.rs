@@ -29,6 +29,7 @@ impl<'a> BodyResolver<'a> {
         module: &'a Module,
         source_map: &'a SourceMap,
         hosts: std::sync::Arc<crate::host::HostDeclarations>,
+        imports: std::sync::Arc<crate::imports::ModuleImports>,
         cancel: kagari_common::cancellation::CancellationToken,
     ) -> Self {
         Self {
@@ -36,7 +37,7 @@ impl<'a> BodyResolver<'a> {
             names,
             module,
             source_map,
-            resolved: ResolvedNames::new(names.clone(), hosts),
+            resolved: ResolvedNames::new(names.clone(), hosts, imports),
             scopes: Vec::new(),
         }
     }
@@ -233,6 +234,22 @@ impl<'a> BodyResolver<'a> {
         }
         if let Some(id) = self.names.host_functions.get(name) {
             return Some(ResolvedName::HostFunction(*id));
+        }
+        if let Some(index) = self.names.source_imports.get(name) {
+            return Some(ResolvedName::SourceImport(*index));
+        }
+        if let Some((alias, member)) = name.split_once("::")
+            && let Some(index) = self.names.source_imports.get(alias)
+            && let Some(crate::imports::ImportTarget::Source(target)) =
+                &self.resolved.imports.entries[*index].target
+            && target.item.is_none()
+            && let Some(items) = target.members.get(member)
+            && let [item] = items.as_slice()
+        {
+            return Some(ResolvedName::SourceItem {
+                import: *index,
+                item: *item,
+            });
         }
         if let Some(id) = self.names.host_modules.get(name) {
             return Some(ResolvedName::HostModule(*id));

@@ -2,24 +2,28 @@ use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
 use crate::AnalysisResult;
-use crate::builtin::surface;
 use crate::hir::FunctionKind;
+use crate::imports::{ImportTarget, ModuleGraph, ModuleImports};
 use crate::lower::LoweredModule;
 use crate::resolver::ResolvedNames;
 use crate::resolver::resolve::BodyResolver;
 use crate::resolver::table::NameTable;
 
 pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
-    resolve_names_controlled(
-        lowered,
-        crate::host::HostDeclarations::empty(),
-        &Default::default(),
-    )
+    let hosts = crate::host::HostDeclarations::empty();
+    let graph = ModuleGraph::build([lowered], &hosts, &Default::default())
+        .expect("uncancelled name resolution");
+    let imports = graph
+        .node(lowered.source.module_identity())
+        .unwrap()
+        .imports
+        .clone();
+    resolve_names_controlled(lowered, hosts, imports, &Default::default())
 }
-
 pub(crate) fn resolve_names_controlled(
     lowered: &LoweredModule,
     hosts: std::sync::Arc<crate::host::HostDeclarations>,
+    imports: std::sync::Arc<ModuleImports>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<ResolvedNames> {
     let mut names = NameTable::default();
@@ -58,68 +62,27 @@ pub(crate) fn resolve_names_controlled(
         }
     }
 
-    let mut import_names = std::collections::HashSet::new();
-    let local_items = lowered
-        .module
-        .functions
-        .iter()
-        .map(|f| f.name.as_str())
-        .chain(lowered.module.consts.iter().map(|item| item.name.as_str()))
-        .chain(lowered.module.modules.iter().map(|item| item.name.as_str()))
-        .chain(lowered.module.structs.iter().map(|item| item.name.as_str()))
-        .chain(lowered.module.enums.iter().map(|item| item.name.as_str()))
-        .chain(lowered.module.traits.iter().map(|item| item.name.as_str()))
-        .collect::<std::collections::HashSet<_>>();
-    for import in &lowered.module.imports {
-        if cancel.check().is_err() {
-            break;
-        }
-        if local_items.contains(import.alias.as_str()) || !import_names.insert(&import.alias) {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::DuplicateImport {
-                    name: import.alias.clone(),
-                })
-                .with_span(import.span),
-            );
-            continue;
-        }
-        if let Some(module) = surface::standard_module(&import.path) {
-            names.insert_standard_module(import.alias.clone(), module.kind);
-        } else if let Some(function) = import.path.rsplit_once("::").and_then(|(module, name)| {
-            surface::standard_module(module)
-                .and_then(|module| surface::standard_function(module.kind, name))
-        }) {
-            names.insert_standard_function(import.alias.clone(), function.intrinsic);
-        } else if let Some(function) = hosts.resolve(&import.path) {
-            if import.visibility == crate::hir::Visibility::Public {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnsupportedHostReExport {
-                        name: import.alias.clone(),
-                    })
-                    .with_span(import.span),
-                );
+    diagnostics.extend(imports.diagnostics.iter().cloned());
+    for (index, import) in imports.entries.iter().enumerate() {
+        match &import.target {
+            Some(ImportTarget::StandardModule(module)) => {
+                names.insert_standard_module(import.alias.clone(), *module);
             }
-            names.host_functions.insert(import.alias.clone(), function);
-        } else if let Some(module) = hosts.module(&import.path) {
-            if import.visibility == crate::hir::Visibility::Public {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnsupportedHostReExport {
-                        name: import.alias.clone(),
-                    })
-                    .with_span(import.span),
-                );
+            Some(ImportTarget::StandardFunction(function)) => {
+                names.insert_standard_function(import.alias.clone(), *function);
             }
-            names.host_modules.insert(import.alias.clone(), module);
-        } else {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::UnknownName {
-                    name: import.path.clone(),
-                })
-                .with_span(import.span),
-            );
+            Some(ImportTarget::HostModule(module)) => {
+                names.host_modules.insert(import.alias.clone(), *module);
+            }
+            Some(ImportTarget::HostFunction(function)) => {
+                names.host_functions.insert(import.alias.clone(), *function);
+            }
+            Some(ImportTarget::Source(_)) => {
+                names.source_imports.insert(import.alias.clone(), index);
+            }
+            None => {}
         }
     }
-
     for const_item in &lowered.module.consts {
         if !const_item.name.is_empty() {
             names.insert_const(const_item.name.clone(), const_item.id);
@@ -147,6 +110,7 @@ pub(crate) fn resolve_names_controlled(
         &lowered.module,
         &lowered.source_map,
         hosts,
+        imports,
         cancel.clone(),
     );
     for const_item in &lowered.module.consts {

@@ -33,6 +33,11 @@ pub struct LexicalScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
+    SourceImport(usize),
+    SourceItem {
+        import: usize,
+        item: crate::hir::ExportItem,
+    },
     HostModule(crate::host::HostModuleId),
     HostFunction(crate::host::HostFunctionId),
     Function(FunctionId),
@@ -49,6 +54,7 @@ pub enum ResolvedName {
 
 #[derive(Debug, Clone)]
 pub struct ResolvedNames {
+    pub imports: std::sync::Arc<crate::imports::ModuleImports>,
     pub hosts: std::sync::Arc<crate::host::HostDeclarations>,
     pub items: NameTable,
     pub(crate) scopes: Vec<LexicalScope>,
@@ -60,8 +66,10 @@ impl ResolvedNames {
     pub(crate) fn new(
         items: NameTable,
         hosts: std::sync::Arc<crate::host::HostDeclarations>,
+        imports: std::sync::Arc<crate::imports::ModuleImports>,
     ) -> Self {
         Self {
+            imports,
             hosts,
             items,
             scopes: Vec::new(),

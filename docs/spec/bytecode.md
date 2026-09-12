@@ -51,6 +51,13 @@ Bytecode remains a first-class execution format when those backend paths are pre
 
 ## Verified IR Boundary
 
+The checked-analysis gate rejects source imports until executable bundle linking
+is available (`KG_COMPILE_MODULE_LINK_REQUIRED`). A single-module artifact must
+not discard dependency initialization merely because no imported item is called.
+Import-graph errors are reported before this gate with their originating file and
+revision. Standard and offline host imports pass through their existing lowering
+and checked runtime binding paths.
+
 `lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule`.
 `lower_to_bytecode` accepts only that handle. An optimizer or inspection tool can
 consume it with `into_unverified()`, modify the resulting `IrModule`, and call

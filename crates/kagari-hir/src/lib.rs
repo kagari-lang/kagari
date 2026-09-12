@@ -3,6 +3,7 @@ pub mod builtin;
 pub mod declarations;
 pub mod hir;
 pub mod host;
+pub mod imports;
 pub mod lower;
 pub mod profile;
 pub mod resolver;
@@ -11,7 +12,6 @@ pub mod typeck;
 pub mod types;
 
 use kagari_common::Diagnostic;
-use kagari_syntax::ast;
 use std::ops::Deref;
 
 pub use profile::LanguageFeatureProfile;
@@ -66,21 +66,33 @@ impl Deref for CheckedAnalysis {
 }
 
 impl AnalysisResult<AnalyzedModule> {
-    pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
+    pub fn into_codegen(mut self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
+        for import in &self.facts.names.imports.entries {
+            if let Some(imports::ImportTarget::Source(target)) = &import.target {
+                self.diagnostics.push(
+                    kagari_common::Diagnostic::error(
+                        kagari_common::DiagnosticKind::ModuleLinkRequired {
+                            module: target.module.to_string(),
+                        },
+                    )
+                    .with_span(import.span),
+                );
+            }
+        }
         self.into_checked().map(CheckedAnalysis)
     }
 }
 
-fn analyze_syntax(
-    source: std::sync::Arc<kagari_common::SourceFile>,
-    module: &ast::SourceFile,
+fn analyze_lowered(
+    lowered: lower::LoweredModule,
     hosts: std::sync::Arc<host::HostDeclarations>,
+    imports: std::sync::Arc<imports::ModuleImports>,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let lowered = lower::lower_module_controlled(source.clone(), module, cancel);
-    let names = resolver::resolve_names_controlled(&lowered, hosts, cancel);
-    let declarations = declarations::Declarations::collect(&source, &lowered, &names.facts, cancel);
+    let names = resolver::resolve_names_controlled(&lowered, hosts, imports, cancel);
+    let declarations =
+        declarations::Declarations::collect(&lowered.source, &lowered, &names.facts, cancel);
     let typed =
         typeck::check_module_controlled(&lowered, &names.facts, &declarations, reuse, cancel);
     let mut diagnostics = names.diagnostics;
@@ -101,25 +113,40 @@ pub fn analyze_source(
     profile: LanguageFeatureProfile,
 ) -> AnalysisResult<AnalyzedModule> {
     let parsed = kagari_syntax::parse(source);
-    analyze_parsed(
+    let lowered = lower::lower_module_controlled(
         std::sync::Arc::new(source.clone()),
+        &parsed.syntax(),
+        &Default::default(),
+    );
+    let hosts = host::HostDeclarations::empty();
+    let graph = imports::ModuleGraph::build([&lowered], &hosts, &Default::default())
+        .expect("uncancelled source analysis");
+    let imports = graph
+        .node(source.module_identity())
+        .unwrap()
+        .imports
+        .clone();
+    analyze_parsed(
+        lowered,
         &parsed,
         profile,
-        host::HostDeclarations::empty(),
+        hosts,
+        imports,
         None,
         &Default::default(),
     )
 }
 
 pub(crate) fn analyze_parsed(
-    source: std::sync::Arc<kagari_common::SourceFile>,
+    lowered: lower::LoweredModule,
     parsed: &kagari_syntax::Parse,
     profile: LanguageFeatureProfile,
     hosts: std::sync::Arc<host::HostDeclarations>,
+    imports: std::sync::Arc<imports::ModuleImports>,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_syntax(source, &parsed.syntax(), hosts, reuse, cancel);
+    let mut analyzed = analyze_lowered(lowered, hosts, imports, reuse, cancel);
     if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, profile) {
         analyzed.diagnostics.extend(*diagnostics);
     }

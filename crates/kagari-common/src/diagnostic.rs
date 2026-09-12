@@ -10,6 +10,18 @@ pub enum Severity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticKind {
+    CyclicImport {
+        modules: std::sync::Arc<[String]>,
+    },
+    AmbiguousImport {
+        path: String,
+    },
+    ImportNotPublic {
+        path: String,
+    },
+    ModuleLinkRequired {
+        module: String,
+    },
     UnexpectedToken,
     ExpectedTopLevelItem,
     TopLevelControlFlowNotAllowed,
@@ -258,6 +270,10 @@ impl Diagnostic {
 impl DiagnosticKind {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::CyclicImport { .. } => "KG_RESOLVE_CYCLIC_IMPORT",
+            Self::AmbiguousImport { .. } => "KG_RESOLVE_AMBIGUOUS_IMPORT",
+            Self::ImportNotPublic { .. } => "KG_RESOLVE_IMPORT_NOT_PUBLIC",
+            Self::ModuleLinkRequired { .. } => "KG_COMPILE_MODULE_LINK_REQUIRED",
             Self::UnexpectedToken => "KG_PARSE_UNEXPECTED_TOKEN",
             Self::ExpectedTopLevelItem => "KG_PARSE_EXPECTED_TOP_LEVEL_ITEM",
             Self::TopLevelControlFlowNotAllowed => "KG_PARSE_TOP_LEVEL_CONTROL_FLOW",
@@ -372,6 +388,17 @@ impl DiagnosticKind {
 impl Display for DiagnosticKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::CyclicImport { modules } => {
+                write!(f, "cyclic imports among {}", modules.join(", "))
+            }
+            Self::AmbiguousImport { path } => write!(f, "ambiguous import `{path}`"),
+            Self::ImportNotPublic { path } => {
+                write!(f, "import `{path}` does not name a public item")
+            }
+            Self::ModuleLinkRequired { module } => write!(
+                f,
+                "source dependency `{module}` requires a linked module bundle"
+            ),
             Self::UnexpectedToken => write!(f, "unexpected token"),
             Self::ExpectedTopLevelItem => write!(
                 f,

@@ -65,6 +65,8 @@ impl FunctionLowerer<'_, '_> {
             | ResolvedName::Module(_)
             | ResolvedName::StandardModule(_)
             | ResolvedName::HostFunction(_)
+            | ResolvedName::SourceItem { .. }
+            | ResolvedName::SourceImport(_)
             | ResolvedName::HostModule(_)
             | ResolvedName::StandardFunction(_)
             | ResolvedName::Struct(_)
@@ -165,6 +167,8 @@ impl FunctionLowerer<'_, '_> {
                 "bare function values are not lowered yet",
             )),
             ResolvedName::HostFunction(_)
+            | ResolvedName::SourceItem { .. }
+            | ResolvedName::SourceImport(_)
             | ResolvedName::HostModule(_)
             | ResolvedName::StandardFunction(_) => Err(IrLoweringError::UnsupportedExpr(
                 "bare standard functions are not lowered yet",

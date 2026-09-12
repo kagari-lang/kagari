@@ -18,6 +18,36 @@ Runtime behavior is defined in [runtime.md](runtime.md).
 
 Each source file is compiled as a module.
 
+### Source import analysis
+
+An analysis snapshot resolves imports against its registered source files, the
+standard library and immutable host declarations. Hosts bind a source name to a
+package/module identity before analysis. For example, a file bound to package
+`app`, path `library` is imported as `use app::library;`, or a public function as
+`use app::library::value;`. Aliases use `as`. Disk, supplied text and editor overlay
+content all enter through the source database; the active overlay wins for its
+source name. Analysis does not discover or read unregistered disk dependencies.
+
+Source imports retain module identity, file identity and document revision.
+Only public items enter an imported namespace. Ambiguity between a module and an
+item, or between source, standard and host namespaces, is an error. Resolution
+does not choose a fallback namespace. Definition queries can follow source facade
+re-exports even when a function body contains errors.
+
+The snapshot exposes its import graph and a cancellable dependency-first order.
+Cycle diagnostics identify imports within the cyclic component; an importer of
+that component is rejected without itself being labelled cyclic. Unrelated cycles
+do not prevent compilation of an independent root. Lifecycle semantics belong to
+[module-activation.md](module-activation.md).
+
+Current implementation boundary: source imports support graph and definition
+queries. Cross-source signature checking and executable bundle linking remain
+pending. Single-module code generation reports `KG_COMPILE_MODULE_LINK_REQUIRED`
+for source imports, including unused imports whose initialization would otherwise
+be lost. Host and standard imports remain executable.
+
+### Module contents
+
 Each module has:
 
 - declarations such as functions, structs, and enums
