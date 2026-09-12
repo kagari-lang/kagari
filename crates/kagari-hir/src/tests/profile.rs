@@ -6,6 +6,23 @@ use crate::{
 };
 
 #[test]
+fn generic_type_binding_does_not_acquire_same_named_trait_permissions() {
+    let module = kagari_common::SourceFile::new(
+        "profile.kgr",
+        "trait Show { fn value(self) -> i32; } fn identity<Show>(value: Show) -> Show { value }",
+    );
+    analyze_source(
+        &module,
+        LanguageFeatureProfile {
+            allow_interface_values: false,
+            ..Default::default()
+        },
+    )
+    .into_codegen()
+    .expect("generic binding shadows trait spelling in type scope");
+}
+
+#[test]
 fn same_named_user_functions_are_not_reflection_helpers() {
     let module = kagari_common::SourceFile::new(
         "profile.kgr",

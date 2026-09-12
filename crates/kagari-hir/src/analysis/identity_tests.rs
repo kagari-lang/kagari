@@ -356,6 +356,155 @@ fn named_field_identity_survives_slot_reordering_and_remains_module_owned() {
 }
 
 #[test]
+fn type_navigation_retains_later_tuple_members_and_local_annotations() {
+    let text = "struct P { val n: i32 } fn bad() -> (Missing, P) {} fn good(p: P) -> P { val result: P = p; result }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("types.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(!analysis.result().diagnostics().is_empty());
+    let missing = text.find("Missing").unwrap();
+    assert_eq!(analysis.type_at(missing), Some(TypeId::Error));
+    assert!(analysis.definition_at(missing).is_none());
+    let later = text.find(", P)").unwrap() + 2;
+    let declaration = analysis.definition_at(later).unwrap();
+    assert_eq!(declaration.name, "P");
+    assert_eq!(analysis.type_at(later), Some(TypeId::Struct("P".into())));
+    let annotation = text.find("result: P").unwrap() + "result: ".len();
+    assert_eq!(analysis.definition_at(annotation), Some(declaration));
+    assert_eq!(
+        analysis.type_at(annotation),
+        Some(TypeId::Struct("P".into()))
+    );
+}
+
+#[test]
+fn generic_parameter_identity_is_owner_and_position_based() {
+    let text = "fn first<T>(value: T) -> T { val copy: T = value; copy } fn second<T>(value: T) -> T { value }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("generic.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let first = snapshot(&mut db, &sources);
+    let analysis = first.file(file).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let parameter = analysis
+        .definition_at(text.find("value: T").unwrap() + 7)
+        .unwrap();
+    let other = analysis
+        .definition_at(text.rfind("value: T").unwrap() + 7)
+        .unwrap();
+    assert_ne!(parameter.id, other.id);
+    assert_eq!(
+        parameter.location.range.start,
+        text.find("<T>").unwrap() + 1
+    );
+    assert_eq!(
+        analysis.definition_at(text.find("copy: T").unwrap() + 6),
+        Some(parameter)
+    );
+    let DeclarationId::GenericParameter { owner, position } = &parameter.id else {
+        panic!("generic parameter")
+    };
+    assert_eq!(*position, 0);
+    assert_eq!(owner.path.last().unwrap().name, "first");
+    let renamed = text.replacen(
+        "first<T>(value: T) -> T { val copy: T",
+        "first<U>(value: U) -> U { val copy: U",
+        1,
+    );
+    sources
+        .set("generic.kgr", renamed, SourceLayer::Overlay)
+        .unwrap();
+    let second = snapshot(&mut db, &sources);
+    assert_eq!(second.declaration(&parameter.id).unwrap().name, "U");
+    assert_eq!(first.declaration(&parameter.id).unwrap().name, "T");
+}
+
+#[test]
+fn inherited_generic_parameters_keep_the_trait_or_impl_owner() {
+    let text = "struct P { val n: i32 } trait Source<T> { fn map<U>(self, value: T, other: U) -> T; } impl<T> P { fn apply<U>(self, value: T, other: U) -> T { value } }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("owners.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let inherited = analysis
+        .definition_at(text.find("value: T").unwrap() + 7)
+        .unwrap();
+    let method = analysis
+        .definition_at(text.find("other: U").unwrap() + 7)
+        .unwrap();
+    let implementation = analysis
+        .definition_at(text.rfind("value: T").unwrap() + 7)
+        .unwrap();
+    let own = analysis
+        .definition_at(text.rfind("other: U").unwrap() + 7)
+        .unwrap();
+    for (declaration, kind, position) in [
+        (inherited, DefinitionKind::Trait, 0),
+        (method, DefinitionKind::Method, 0),
+        (implementation, DefinitionKind::Impl, 0),
+        (own, DefinitionKind::Method, 0),
+    ] {
+        let DeclarationId::GenericParameter {
+            owner,
+            position: actual,
+        } = &declaration.id
+        else {
+            panic!("generic owner")
+        };
+        assert_eq!(owner.path.last().unwrap().kind, kind);
+        assert_eq!(*actual, position);
+    }
+    assert_ne!(method.id, own.id);
+}
+
+#[test]
+fn implicit_receiver_keeps_impl_type_context_when_method_shadows_a_generic() {
+    let text = "impl<T> [T] { fn apply<T>(self, value: T) -> T { value } }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("impl-context.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let target = analysis
+        .definition_at(text.find("[T]").unwrap() + 1)
+        .unwrap();
+    let argument = analysis
+        .definition_at(text.find("value: T").unwrap() + 7)
+        .unwrap();
+    assert_ne!(target.id, argument.id);
+    assert_eq!(
+        target.location.range.start,
+        text.find("impl<T").unwrap() + 5
+    );
+    assert_eq!(
+        argument.location.range.start,
+        text.find("apply<T").unwrap() + 6
+    );
+}
+
+#[test]
 fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
     let text = "struct Same { val n: i32 } fn Same() -> i32 { 1 } fn Same() -> i32 { 2 } trait A { fn get(self) -> i32; } trait B { fn get(self) -> i32; } impl A for Same { fn get(self) -> i32 { self.n } }";
     let source = SourceFile::new("definitions.kgr", text);

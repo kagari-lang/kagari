@@ -46,6 +46,11 @@ fn main() -> kagari_embed::CompileResult<()> {
         .definition_at(text.rfind("p.x").expect("field access") + 2)
         .expect("resolved field");
     println!("field {} -> {:?}", field.name, field.id);
+    let annotation = text.find("p: Point").expect("type annotation") + 3;
+    let point_type = analysis
+        .definition_at(annotation)
+        .expect("resolved annotation");
+    println!("type {} -> {:?}", point_type.name, point_type.id);
 
     engine.set_source(
         source_name,

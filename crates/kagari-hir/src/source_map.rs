@@ -7,6 +7,7 @@ use crate::hir::{
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
+    generic_param_spans: Vec<Span>,
     field_spans: std::collections::HashMap<crate::hir::FieldId, Span>,
     function_spans: Vec<Span>,
     const_spans: Vec<Span>,
@@ -27,6 +28,17 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    pub(crate) fn push_generic_param(&mut self, span: Span) -> crate::hir::GenericParamId {
+        let id = crate::hir::GenericParamId::new(self.generic_param_spans.len());
+        self.generic_param_spans.push(span);
+        id
+    }
+    pub fn generic_param_span(&self, id: crate::hir::GenericParamId) -> Span {
+        self.generic_param_spans[id.index()]
+    }
+    pub(crate) fn type_spans(&self) -> &[Span] {
+        &self.type_spans
+    }
     pub(crate) fn insert_field(&mut self, id: crate::hir::FieldId, span: Span) {
         self.field_spans.insert(id, span);
     }

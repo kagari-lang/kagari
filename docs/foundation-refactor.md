@@ -63,7 +63,7 @@ Implemented foundation slices:
   same snapshots; disk loading, host text and overlays use one ingestion path.
   Relative paths resolve against a captured root; virtual URI schemes survive
   normalization. Embedding diagnostics carry file/revision ranges. Cross-module
-  resolution and concrete type/member identity integration remain outstanding.
+  resolution, complete HIR body scoping and concrete type identity remain outstanding.
   Logical package/module bindings now belong to source documents and survive
   overlays. Rebinding invalidates analysis; duplicate source bindings are rejected.
   Source-based HIR carries its origin through IR, bytecode and artifact metadata.
@@ -72,6 +72,8 @@ Implemented foundation slices:
   Parameter/local identities include their body and analysis instance; stale local
   IDs cannot resolve in a new analysis. Definition navigation returns file/revision
   ranges and distinguishes same-spelled declarations in separate modules.
+  Generic parameters now have owner/position identities and declaration ranges;
+  inherited trait/impl parameters keep their original owner in method signatures.
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
   represented explicitly, and codegen requires a sealed CheckedAnalysis. More
   semantic-target and source-owner integration remains outstanding.
@@ -88,7 +90,12 @@ Implemented foundation slices:
   Name resolution now owns lexical scopes, binding introduction points and match
   arm bindings. Tool scope queries consume these facts instead of reconstructing
   scopes from HIR blocks. Navigation uses resolved expression and assignment names;
-  type-reference navigation and cross-module imports remain pending.
+  cross-module imports remain pending. Type references now retain checked types and
+  declaration targets in signatures, field/const/local annotations and impl headers.
+  Unknown composite members do not discard later members. Type navigation and
+  interface permission checks use these facts; IR no longer formats impl type syntax.
+  Generic navigation identity is distinct from the still string-based TypeId generic
+  representation, which must be replaced at the nominal type boundary in R07.
   Struct fields have owner/slot HIR identities and module-owned declaration paths.
   Field types, read/write targets and initializer targets are retained as HIR facts;
   IR field operations and field ABI metadata consume them. Invalid field types retain
@@ -116,6 +123,8 @@ Implemented foundation slices:
   Call facts remap their receiver IDs on body reuse and share this artifact check.
   Field access, assignment and initializer facts also remap on body reuse; signature
   changes invalidate field slot reuse while named field identity survives reordering.
+  Body-local type-reference facts are remapped too, including after preceding edits
+  shift type arenas. Shared implicit receiver references retain their impl context.
   Stable named declarations can be located in a new snapshot, while local binding
   handles remain scoped to their original analysis, including on profile changes.
   `cargo run -p kagari-embed --example source_queries` exercises these tool APIs.

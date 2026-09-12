@@ -142,8 +142,10 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
         };
         let for_type = impl_block
             .for_type
-            .map(|ty| display_type_ref(hir_module, ty))
-            .unwrap_or_else(|| "<missing>".to_owned());
+            .and_then(|ty| module.typed.type_table.type_ref(ty))
+            .expect("checked impl target must exist")
+            .ty
+            .display_name();
         let name = format!("{for_type} as {trait_name}");
         public_items.push(PublicAbiItem::InterfaceTable(InterfaceTableAbi {
             name,
@@ -228,27 +230,4 @@ fn trait_bound_abi(bounds: &[hir::TraitBound]) -> Vec<String> {
             )
         })
         .collect()
-}
-
-fn display_type_ref(module: &hir::Module, ty: hir::TypeRefId) -> String {
-    match &module.type_ref(ty).kind {
-        hir::TypeKind::Named(name) => name.clone(),
-        hir::TypeKind::Generic { name, args } => {
-            let args = args
-                .iter()
-                .map(|arg| display_type_ref(module, *arg))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{name}<{args}>")
-        }
-        hir::TypeKind::Tuple(elements) => {
-            let elements = elements
-                .iter()
-                .map(|element| display_type_ref(module, *element))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("({elements})")
-        }
-        hir::TypeKind::Array(element) => format!("[{}]", display_type_ref(module, *element)),
-    }
 }

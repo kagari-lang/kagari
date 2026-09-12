@@ -58,6 +58,7 @@ pub struct ImplMethod {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericParam {
+    pub id: crate::hir::GenericParamId,
     pub name: String,
     pub bounds: TraitRefBuffer,
 }

@@ -44,8 +44,11 @@ including when argument checking reports an error. Field reads and assignment
 targets navigate through the checked field identity, even when the assignment is
 rejected as read-only or the field's type annotation is invalid. Field declarations
 have module/struct-owned identities; their names survive slot reordering while
-their source locations remain revision-specific. Type-reference navigation is not
-implemented by these queries yet.
+their source locations remain revision-specific. Type references in signatures,
+field/const/local annotations and impl headers also provide type and definition
+queries. If a tuple or generic argument is unknown, later arguments still have
+their own facts and navigation targets. Builtin types have types but no source
+declaration target. Bound names and import paths still need dedicated navigation.
 
 `TypeTable::call_resolution` owns each recognized call's target and optional receiver.
 IR generation and reflection permission checks consume this semantic fact. A user
@@ -61,6 +64,15 @@ retaining a target across revisions. Initializer fields retain source order and
 unknown fields remain explicit holes in an erroneous analysis. Field ABI generation
 uses checked types. Executable field layout/linking remains a separate boundary;
 the current bytecode field table still carries owner and field names.
+
+`TypeTable::type_ref` returns a checked type plus an optional declaration target.
+Generic parameter declarations are identified by owner and parameter position;
+renaming a parameter preserves this identity. Inherited parameters keep their
+trait/impl owner, and method parameters have their method owner. An implicit impl
+receiver uses the impl header's context even when a method shadows a generic name.
+These navigation identities do not yet replace the remaining string-based nominal
+and generic TypeId representation. Impl ABI types and interface permission checks
+consume type-reference facts instead of reinterpreting HIR type syntax.
 
 Declaration identity consists of the logical module plus typed owner/name path
 segments. A same-kind, same-name occurrence distinguishes duplicate declarations;

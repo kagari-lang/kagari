@@ -18,7 +18,9 @@ pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 
 pub use check::check_module;
 pub(crate) use check::check_module_controlled;
-pub use table::{CallTarget, ResolvedCall, ResolvedStructInit, TypeTable};
+pub use table::{
+    CallTarget, ResolvedCall, ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,
+};
 
 #[derive(Debug, Clone)]
 pub struct TypedModule {
@@ -69,6 +71,6 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) locals: HashMap<LocalId, TypeId>,
     pub(crate) local_writeability: HashMap<LocalId, Writeability>,
     pub(crate) exprs: HashMap<ExprId, TypeId>,
-    pub(crate) generics: Vec<String>,
+    pub(crate) generics: Vec<crate::hir::GenericParam>,
     pub(crate) generic_bounds: HashMap<String, Vec<String>>,
 }

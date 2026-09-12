@@ -31,6 +31,10 @@ pub struct BindingId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DeclarationId {
     Definition(DefinitionId),
+    GenericParameter {
+        owner: DefinitionId,
+        position: usize,
+    },
     Binding(BindingId),
 }
 
@@ -52,6 +56,7 @@ pub struct Declarations {
 enum DeclarationKey {
     Name(ResolvedName),
     Field(crate::hir::FieldId),
+    GenericParameter(crate::hir::GenericParamId),
 }
 
 impl From<ResolvedName> for DeclarationKey {
@@ -71,6 +76,9 @@ impl Declarations {
 
     pub fn field(&self, field: crate::hir::FieldId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Field(field))
+    }
+    pub fn generic_parameter(&self, id: crate::hir::GenericParamId) -> Option<&Declaration> {
+        self.targets.get(&DeclarationKey::GenericParameter(id))
     }
 
     /// A binding from another analysis is rejected, even if its arena slot coincides.
@@ -97,6 +105,7 @@ impl Declarations {
         );
         let mut builder = Builder {
             source,
+            cancel,
             result: Self {
                 analysis,
                 targets: HashMap::new(),
@@ -115,13 +124,14 @@ impl Declarations {
                 FunctionKind::ModuleInit => DefinitionKind::ModuleInit,
                 FunctionKind::TraitMethod | FunctionKind::ImplMethod => continue,
             };
-            builder.definition(
+            let owner = builder.definition(
                 ResolvedName::Function(item.id),
                 &[],
                 kind,
                 &item.name,
                 map.function_span(item.id),
             );
+            builder.generic_params(&owner, &item.generic_params, map);
         }
         for item in &module.consts {
             if cancel.check().is_err() {
@@ -194,17 +204,24 @@ impl Declarations {
                 &item.name,
                 map.trait_span(item.id),
             );
+            builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
                 if cancel.check().is_err() {
                     return builder.result;
                 }
-                builder.definition(
+                let method_owner = builder.definition(
                     ResolvedName::Function(method.function),
                     &owner.path,
                     DefinitionKind::Method,
                     &method.name,
                     map.function_span(method.function),
                 );
+                let function = module
+                    .functions
+                    .iter()
+                    .find(|function| function.id == method.function)
+                    .expect("trait method function");
+                builder.generic_params(&method_owner, &function.generic_params, map);
             }
         }
         for item in &module.impls {
@@ -212,17 +229,24 @@ impl Declarations {
                 return builder.result;
             }
             let owner = builder.identity(&[], DefinitionKind::Impl, "");
+            builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
                 if cancel.check().is_err() {
                     return builder.result;
                 }
-                builder.definition(
+                let method_owner = builder.definition(
                     ResolvedName::Function(method.function),
                     &owner.path,
                     DefinitionKind::Method,
                     &method.name,
                     map.function_span(method.function),
                 );
+                let function = module
+                    .functions
+                    .iter()
+                    .find(|function| function.id == method.function)
+                    .expect("impl method function");
+                builder.generic_params(&method_owner, &function.generic_params, map);
             }
         }
         for scope in names.scopes() {
@@ -264,11 +288,40 @@ impl Declarations {
 
 struct Builder<'a> {
     source: &'a SourceFile,
+    cancel: &'a kagari_common::cancellation::CancellationToken,
     result: Declarations,
     occurrences: HashMap<(Vec<DefinitionPathSegment>, DefinitionKind, String), u32>,
 }
 
 impl Builder<'_> {
+    fn generic_params(
+        &mut self,
+        owner: &DefinitionId,
+        params: &[crate::hir::GenericParam],
+        map: &crate::source_map::SourceMap,
+    ) {
+        let mut position = 0;
+        for param in params {
+            if self.cancel.check().is_err() {
+                break;
+            }
+            let key = DeclarationKey::GenericParameter(param.id);
+            // Inherited parameters keep the identity of their trait/impl declaration.
+            if self.result.targets.contains_key(&key) {
+                continue;
+            }
+            self.insert(
+                key,
+                DeclarationId::GenericParameter {
+                    owner: owner.clone(),
+                    position,
+                },
+                &param.name,
+                map.generic_param_span(param.id),
+            );
+            position += 1;
+        }
+    }
     fn identity(
         &mut self,
         parent: &[DefinitionPathSegment],

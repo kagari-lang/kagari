@@ -70,7 +70,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
 fn reused_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     let engine = KagariEngine::default();
     let token = CancellationToken::default();
-    let unchanged = "struct P { var n: i32 } fn b() -> i32 { val p = P { n: a() }; p.n += 1; val xs = [p.n]; xs.push(2); match 2147483647 { 2147483647 => -2147483648, _ => xs[0] } }";
+    let unchanged = "struct P { var n: i32 } fn b() -> i32 { val p: P = P { n: a() }; p.n += 1; val xs: [i32] = [p.n]; xs.push(2); match 2147483647 { 2147483647 => -2147483648, _ => xs[0] } }";
     let id = engine
         .set_source(
             "memory://reuse.kgr",
@@ -81,7 +81,9 @@ fn reused_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     engine
         .analyze(engine.source_snapshot(), Default::default(), &token)
         .unwrap();
-    let edited = format!("fn a() -> i32 {{ 10 + 20 + 30 }} {unchanged}");
+    let edited = format!(
+        "fn a() -> i32 {{ val shifted: (i32, [i32]) = (10, [20]); shifted[0] + shifted[1][0] + 30 }} {unchanged}"
+    );
     engine
         .set_source("memory://reuse.kgr", edited.clone(), SourceLayer::Overlay)
         .unwrap();

@@ -1,11 +1,8 @@
-use std::collections::HashSet;
-
 use kagari_common::{Diagnostic, DiagnosticKind};
 
 use crate::{
     AnalyzedModule, DiagnosticBuffer,
     builtin::BuiltinFunction,
-    hir::TypeKind,
     typeck::{CallTarget, ResolvedCall},
 };
 
@@ -95,27 +92,13 @@ fn validate_interface_values(
         return;
     }
 
-    let trait_names = module
-        .lowered
-        .module
-        .traits
-        .iter()
-        .map(|trait_def| trait_def.name.as_str())
-        .collect::<HashSet<_>>();
-    if trait_names.is_empty() {
-        return;
-    }
-
-    for (index, ty) in module.lowered.module.body.types.iter().enumerate() {
-        let interface_name = match &ty.kind {
-            TypeKind::Named(name) | TypeKind::Generic { name, .. }
-                if trait_names.contains(name.as_str()) =>
-            {
-                Some(name.as_str())
-            }
-            _ => None,
-        };
-        if interface_name.is_some() {
+    for (index, _) in module.lowered.module.body.types.iter().enumerate() {
+        if module
+            .typed
+            .type_table
+            .type_ref(crate::hir::TypeRefId::new(index))
+            .is_some_and(|resolved| matches!(resolved.ty, crate::types::TypeId::Trait(_)))
+        {
             diagnostics.push(profile_error(
                 "interface values",
                 module

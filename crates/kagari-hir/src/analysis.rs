@@ -41,7 +41,7 @@ impl FileAnalysis {
 
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
         let facts = self.result.facts();
-        facts
+        let expressions = facts
             .lowered
             .module
             .body
@@ -57,7 +57,25 @@ impl FileAnalysis {
                             .map(|ty| (span.end - span.start, ty))
                     })
                     .flatten()
-            })
+            });
+        let types = facts
+            .lowered
+            .source_map
+            .type_spans()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, span)| {
+                if !(span.start <= offset && offset < span.end) {
+                    return None;
+                }
+                facts
+                    .typed
+                    .type_table
+                    .type_ref(crate::hir::TypeRefId::new(index))
+                    .map(|resolved| (span.end - span.start, resolved.ty.clone()))
+            });
+        expressions
+            .chain(types)
             .min_by_key(|(len, _)| *len)
             .map(|(_, ty)| ty)
     }
@@ -151,9 +169,38 @@ impl FileAnalysis {
                     _ => None,
                 }
             });
+        let types = facts
+            .lowered
+            .source_map
+            .type_spans()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, span)| {
+                let target = facts
+                    .typed
+                    .type_table
+                    .type_ref(crate::hir::TypeRefId::new(index))?
+                    .target?;
+                let declaration = match target {
+                    crate::typeck::TypeTarget::Struct(id) => facts
+                        .declarations
+                        .target(crate::resolver::ResolvedName::Struct(id)),
+                    crate::typeck::TypeTarget::Enum(id) => facts
+                        .declarations
+                        .target(crate::resolver::ResolvedName::Enum(id)),
+                    crate::typeck::TypeTarget::Trait(id) => facts
+                        .declarations
+                        .target(crate::resolver::ResolvedName::Trait(id)),
+                    crate::typeck::TypeTarget::Generic(id) => {
+                        facts.declarations.generic_parameter(id)
+                    }
+                }?;
+                Some((*span, declaration))
+            });
         expressions
             .chain(places)
             .chain(calls)
+            .chain(types)
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .min_by_key(|(span, _)| span.end - span.start)
             .map(|(_, target)| target)

@@ -95,7 +95,10 @@ impl<'a> BodyChecker<'a> {
                             ty,
                             TypeContext {
                                 generics: &env.generics,
+                                self_type: None,
                             },
+                            self.type_table,
+                            self.cancel,
                         )
                         .unwrap_or_else(|| {
                             self.diagnostics.push(

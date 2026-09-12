@@ -434,6 +434,12 @@ impl Lowerer {
         params
             .params()
             .map(|param| GenericParam {
+                id: self.source_map.push_generic_param(
+                    param
+                        .name()
+                        .map(|name| syntax_span(&name))
+                        .unwrap_or_else(|| syntax_span(&param)),
+                ),
                 name: param.name_text().unwrap_or_default(),
                 bounds: param
                     .bounds()

@@ -6,6 +6,20 @@ use crate::hir::{ExprId, FieldId, FunctionId, LocalId, PatternId, PlaceId, Struc
 use crate::types::TypeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeTarget {
+    Struct(crate::hir::StructId),
+    Enum(crate::hir::EnumId),
+    Trait(crate::hir::TraitId),
+    Generic(crate::hir::GenericParamId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedTypeRef {
+    pub ty: TypeId,
+    pub target: Option<TypeTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallTarget {
     Function(FunctionId),
     StandardIntrinsic(StandardIntrinsic),
@@ -29,6 +43,7 @@ pub struct ResolvedStructInit {
 
 #[derive(Debug, Clone, Default)]
 pub struct TypeTable {
+    type_refs: HashMap<crate::hir::TypeRefId, ResolvedTypeRef>,
     field_types: HashMap<FieldId, TypeId>,
     expr_fields: HashMap<ExprId, FieldId>,
     place_fields: HashMap<PlaceId, FieldId>,
@@ -42,6 +57,12 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
+    pub(crate) fn insert_type_ref(&mut self, id: crate::hir::TypeRefId, resolved: ResolvedTypeRef) {
+        self.type_refs.insert(id, resolved);
+    }
+    pub fn type_ref(&self, id: crate::hir::TypeRefId) -> Option<&ResolvedTypeRef> {
+        self.type_refs.get(&id)
+    }
     pub(crate) fn insert_field_type(&mut self, field: FieldId, ty: TypeId) {
         self.field_types.insert(field, ty);
     }
@@ -130,6 +151,14 @@ impl TypeTable {
         ) else {
             return false;
         };
+        let Some(types) = remap(
+            old_map.type_spans(),
+            new_map.type_spans(),
+            old_span,
+            new_span,
+        ) else {
+            return false;
+        };
         let expr_ids = exprs
             .iter()
             .map(|(a, b)| (ExprId::new(*a), ExprId::new(*b)))
@@ -156,6 +185,12 @@ impl TypeTable {
             }
         }
         self.calls.extend(calls);
+        for (a, b) in types {
+            if let Some(ty) = old.type_refs.get(&crate::hir::TypeRefId::new(a)) {
+                self.type_refs
+                    .insert(crate::hir::TypeRefId::new(b), ty.clone());
+            }
+        }
         for (a, b) in patterns {
             if let Some(value) = old.pattern_scalars.get(&PatternId::new(a)) {
                 self.pattern_scalars
