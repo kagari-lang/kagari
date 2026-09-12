@@ -18,6 +18,8 @@ mod types;
 pub(crate) use types::TypeCatalog;
 pub use types::{ImportedType, ImportedTypes, SourceTypeId};
 #[cfg(test)]
+mod aggregate_tests;
+#[cfg(test)]
 mod signature_tests;
 #[cfg(test)]
 mod tests;
@@ -78,6 +80,12 @@ pub struct ModuleNode {
     pub imports: Arc<ModuleImports>,
     dependencies: Vec<ModuleIdentity>,
     cycle: Option<Arc<[ModuleIdentity]>>,
+}
+
+impl ModuleNode {
+    pub fn dependencies(&self) -> &[ModuleIdentity] {
+        &self.dependencies
+    }
 }
 
 #[derive(Debug, Clone, Default)]

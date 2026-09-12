@@ -78,11 +78,18 @@ pub(crate) struct TopLevelTypeIndex {
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeIndexes<'a> {
+    pub(crate) aggregates: &'a crate::aggregates::AggregateCatalog,
     pub(crate) imported_functions: &'a crate::imports::ImportedFunctions,
     pub(crate) declarations: &'a crate::declarations::Declarations,
     pub(crate) cancel: &'a kagari_common::cancellation::CancellationToken,
     pub(crate) function_index: &'a FunctionTypeIndex,
     pub(crate) top_level_index: &'a TopLevelTypeIndex,
+}
+
+pub(crate) struct BodyInputs<'a> {
+    pub signatures: &'a crate::AnalysisResult<ModuleSignatures>,
+    pub imported_functions: &'a crate::imports::ImportedFunctions,
+    pub aggregates: &'a crate::aggregates::AggregateCatalog,
 }
 
 #[derive(Debug, Clone, Default)]

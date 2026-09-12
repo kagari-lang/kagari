@@ -1,3 +1,4 @@
+pub mod aggregates;
 pub mod analysis;
 pub mod builtin;
 pub mod declarations;
@@ -21,6 +22,7 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
 #[derive(Debug, Clone)]
 pub struct AnalyzedModule {
+    pub aggregates: aggregates::AggregateCatalog,
     pub lowered: lower::LoweredModule,
     pub names: resolver::ResolvedNames,
     pub declarations: declarations::Declarations,
@@ -163,6 +165,7 @@ fn declare_analysis(
 fn analyze_prepared(
     prepared: PreparedAnalysis,
     imported_functions: imports::ImportedFunctions,
+    aggregates: aggregates::AggregateCatalog,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
@@ -186,8 +189,11 @@ fn analyze_prepared(
         &lowered,
         &names.facts,
         &declarations,
-        &signatures,
-        &imported_functions,
+        typeck::BodyInputs {
+            signatures: &signatures,
+            imported_functions: &imported_functions,
+            aggregates: &aggregates,
+        },
         reuse,
         cancel,
     );
@@ -195,6 +201,7 @@ fn analyze_prepared(
     diagnostics.extend(typed.diagnostics);
     AnalysisResult {
         facts: AnalyzedModule {
+            aggregates,
             lowered,
             names: names.facts,
             declarations,
@@ -233,11 +240,21 @@ pub fn analyze_source(
     let imported_functions = imports::FunctionCatalog::new(&graph, [&prepared])
         .bindings(&prepared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
+    let mut aggregates = aggregates::AggregateCatalog::default();
+    aggregates
+        .add_module(
+            &prepared.lowered,
+            &prepared.declarations,
+            prepared.signatures.facts(),
+            &Default::default(),
+        )
+        .expect("uncancelled source analysis");
     analyze_parsed(
         prepared,
         &parsed,
         profile,
         imported_functions,
+        aggregates,
         None,
         &Default::default(),
     )
@@ -248,10 +265,11 @@ pub(crate) fn analyze_parsed(
     parsed: &kagari_syntax::Parse,
     profile: LanguageFeatureProfile,
     imported_functions: imports::ImportedFunctions,
+    aggregates: aggregates::AggregateCatalog,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_prepared(prepared, imported_functions, reuse, cancel);
+    let mut analyzed = analyze_prepared(prepared, imported_functions, aggregates, reuse, cancel);
     if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, profile) {
         analyzed.diagnostics.extend(*diagnostics);
     }

@@ -17,7 +17,7 @@ fn main() {
         ("right", "use demo::shared;"),
         (
             "root",
-            "use demo::left; use demo::right; use demo::shared::value; use demo::shared::Data; fn pass(x: Data) -> Data { x } fn main() -> i32 { value() }",
+            "use demo::left; use demo::right; use demo::shared::value; use demo::shared::Data; fn pass(x: Data) -> i32 { x.number } fn make() -> Data { Data { number: 42 } } fn main() -> i32 { value() }",
         ),
     ] {
         let source = format!("memory://{name}");

@@ -332,7 +332,12 @@ impl FunctionLowerer<'_, '_> {
                 "checked initializer field count",
             ));
         }
-        let path = self.analyzed.lowered.module.structs[target.structure.index()]
+        let path = self
+            .analyzed
+            .aggregates
+            .structure(&target.structure)
+            .ok_or(IrLoweringError::MissingBinding("checked struct contract"))?
+            .declaration
             .name
             .clone();
         let fields = fields
@@ -342,7 +347,13 @@ impl FunctionLowerer<'_, '_> {
                 let target =
                     target.ok_or(IrLoweringError::MissingBinding("checked initializer field"))?;
                 Ok(StructFieldInit {
-                    name: self.analyzed.lowered.module.field(target).name.clone(),
+                    name: self
+                        .analyzed
+                        .aggregates
+                        .field(&target)
+                        .ok_or(IrLoweringError::MissingBinding("checked field contract"))?
+                        .name
+                        .clone(),
                     value: self.lower_expr(field.value)?,
                 })
             })

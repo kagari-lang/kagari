@@ -99,11 +99,25 @@ impl FunctionLowerer<'_, '_> {
             .ok_or(IrLoweringError::UnresolvedPlace(place_id))
     }
 
-    pub(crate) fn aggregate_field_ref(&self, field: hir::FieldId) -> AggregateFieldRef {
-        let module = &self.analyzed.lowered.module;
+    pub(crate) fn aggregate_field_ref(
+        &self,
+        field: &kagari_common::identity::DefinitionId,
+    ) -> AggregateFieldRef {
+        let field = self
+            .analyzed
+            .aggregates
+            .field(field)
+            .expect("checked field contract");
         AggregateFieldRef {
-            owner: module.structs[field.owner.index()].name.clone(),
-            name: module.field(field).name.clone(),
+            owner: self
+                .analyzed
+                .aggregates
+                .structure(&field.owner)
+                .expect("checked field owner")
+                .declaration
+                .name
+                .clone(),
+            name: field.name.clone(),
         }
     }
     pub(crate) fn place_root(&self, place_id: hir::PlaceId) -> hir::PlaceId {

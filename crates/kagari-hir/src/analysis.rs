@@ -187,11 +187,12 @@ impl FileAnalysis {
                     .expr_resolution(id)
                     .and_then(|target| facts.declarations.target(target))
                     .or_else(|| {
-                        facts
-                            .typed
-                            .type_table
-                            .expr_field(id)
-                            .and_then(|field| facts.declarations.field(field))
+                        facts.typed.type_table.expr_field(id).and_then(|field| {
+                            facts
+                                .aggregates
+                                .field(field)
+                                .map(|field| &field.declaration)
+                        })
                     })?;
                 Some((span, target))
             });
@@ -211,7 +212,12 @@ impl FileAnalysis {
                             .typed
                             .type_table
                             .place_field(crate::hir::PlaceId::new(index))
-                            .and_then(|field| facts.declarations.field(field))
+                            .and_then(|field| {
+                                facts
+                                    .aggregates
+                                    .field(field)
+                                    .map(|field| &field.declaration)
+                            })
                     })?;
                 Some((*span, target))
             });
@@ -410,10 +416,21 @@ impl AnalysisDatabase {
                 catalog.bindings(&prepared.names.facts.imports, cancel)?,
             );
         }
+        let mut aggregate_catalog = crate::aggregates::AggregateCatalog::default();
+        for (_, _, prepared) in signatures.values() {
+            aggregate_catalog.add_module(
+                &prepared.lowered,
+                &prepared.declarations,
+                prepared.signatures.facts(),
+                cancel,
+            )?;
+        }
         let mut files = HashMap::new();
         for (id, (file, parsed, prepared)) in signatures {
             cancel.check()?;
             let imported_functions = bindings.remove(&id).expect("prepared import bindings");
+            let aggregates =
+                aggregate_catalog.for_module(file.module_identity(), &graph, cancel)?;
             let imports = prepared.names.facts.imports.clone();
             let analysis = match self.files.get(&id) {
                 Some(previous)
@@ -423,6 +440,7 @@ impl AnalysisDatabase {
                             == self.hosts.revision()
                         && previous.result.facts().names.imports == imports
                         && previous.result.facts().imported_functions == imported_functions
+                        && previous.result.facts().aggregates == aggregates
                         && previous.result.facts().declarations.imported_types
                             == prepared.declarations.imported_types =>
                 {
@@ -438,6 +456,7 @@ impl AnalysisDatabase {
                                     == self.hosts.revision()
                                 && old.result.facts().names.imports.same_bindings(&imports)
                                 && old.result.facts().imported_functions == imported_functions
+                                && old.result.facts().aggregates.same_contracts(&aggregates)
                                 && old.result.facts().declarations.imported_types
                                     == prepared.declarations.imported_types
                                 && old.source.module_identity() == file.module_identity()
@@ -452,6 +471,7 @@ impl AnalysisDatabase {
                         &parsed,
                         profile,
                         imported_functions,
+                        aggregates,
                         reuse.as_ref(),
                         cancel,
                     );

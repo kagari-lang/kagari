@@ -243,11 +243,15 @@ pub(crate) fn check_module_controlled(
     lowered: &LoweredModule,
     names: &ResolvedNames,
     declarations: &crate::declarations::Declarations,
-    signatures: &AnalysisResult<super::ModuleSignatures>,
-    imported_functions: &crate::imports::ImportedFunctions,
+    inputs: super::BodyInputs<'_>,
     reuse: Option<&super::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<TypedModule> {
+    let super::BodyInputs {
+        signatures,
+        imported_functions,
+        aggregates,
+    } = inputs;
     let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
     let mut checked_bodies = 0;
     let mut reused_bodies = 0;
@@ -296,6 +300,7 @@ pub(crate) fn check_module_controlled(
                         lowered,
                         names,
                         TypeIndexes {
+                            aggregates,
                             imported_functions,
                             declarations,
                             cancel,
@@ -316,6 +321,7 @@ pub(crate) fn check_module_controlled(
                     lowered,
                     names,
                     TypeIndexes {
+                        aggregates,
                         imported_functions,
                         declarations,
                         cancel,
@@ -377,6 +383,7 @@ pub(crate) fn check_module_controlled(
                     lowered,
                     names,
                     TypeIndexes {
+                        aggregates,
                         imported_functions,
                         declarations,
                         cancel,

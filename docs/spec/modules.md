@@ -56,10 +56,19 @@ nominal declaration identity, including when two modules declare the same name.
 Signature queries retain errors independently of body and constant diagnostics.
 An invalid dependency body does not erase its usable function signatures.
 
+Struct construction and field access use a checked aggregate catalog for the root's
+reachable modules. Both local and imported targets carry nominal declaration IDs;
+field contracts include their declaring struct, declaration-order slot, type,
+writeability and source location. Nested imported fields obey the same `val`/`var`
+and initializer checks as local fields. A field change invalidates dependent bodies
+even when exported function signatures still name the same nominal type. Incomplete
+member access retains the receiver type for queries. These semantic slots are not
+yet linked runtime layouts; bytecode field operands still await R07/R08 conversion.
+
 Current implementation boundary: source imports support graph, definition and
 function signature queries, imported type annotations and call checking. Applied
 user types, namespace-facade calls, foreign trait constraints/implementations,
-cross-module aggregate/member operations and executable bundle linking remain pending.
+cross-module method/enum operations and executable bundle linking remain pending.
 Single-module code generation reports `KG_COMPILE_MODULE_LINK_REQUIRED`
 for source imports, including unused imports whose initialization would otherwise
 be lost. Host and standard imports remain executable.

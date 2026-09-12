@@ -112,6 +112,11 @@ Implemented foundation slices:
   Field types, read/write targets and initializer targets are retained as HIR facts;
   IR field operations and field ABI metadata consume them. Invalid field types retain
   navigation targets without unknown-member cascades; duplicate fields reject codegen.
+  Resolved field and struct-initializer targets now use nominal declaration IDs
+  instead of file-local struct/field IDs. A checked aggregate catalog supplies field
+  types, declaration order, writeability and source locations for local and imported
+  accesses. Nested imported struct construction/read/write uses the same checks;
+  IR consumes the catalog instead of looking fields up in the current HIR module.
   Runtime field records still encode names pending concrete layouts and linking in
   R07/R08; this slice does not claim runtime field lookup has become slot-only.
   Calls now carry one HIR target and an explicit receiver. IR and reflection
@@ -164,7 +169,11 @@ Implemented foundation slices:
   Function exports may use types imported from another source module. Public facade
   target traversal is shared by type imports, imported calls and definition queries;
   cyclic or stale targets cannot escape their snapshot. Applied user types, foreign
-  field/member operations and imported trait implementation contracts remain pending.
+  method/enum operations and imported trait implementation contracts remain pending.
+  Aggregate contracts from reachable dependencies participate in body invalidation,
+  including when a function's nominal return type stays unchanged but its fields
+  change. Unrelated module results remain shared. Local body edits can reuse nominal
+  field targets while navigation uses the new catalog's declaration positions.
 - R03/R14: an immutable import graph detects strongly connected components with
   explicit stacks and rejects reachable cycles before compilation. Its deterministic
   dependency-first order visits diamond dependencies once and ignores unrelated

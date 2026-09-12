@@ -35,12 +35,25 @@ pub fn check_module(
         names,
         &Default::default(),
     );
+    let signatures = crate::typeck::check_signatures(lowered, &declarations, &Default::default());
+    let mut aggregates = crate::aggregates::AggregateCatalog::default();
+    aggregates
+        .add_module(
+            lowered,
+            &declarations,
+            signatures.facts(),
+            &Default::default(),
+        )
+        .unwrap();
     crate::typeck::check_module_controlled(
         lowered,
         names,
         &declarations,
-        &crate::typeck::check_signatures(lowered, &declarations, &Default::default()),
-        &Default::default(),
+        crate::typeck::BodyInputs {
+            signatures: &signatures,
+            imported_functions: &Default::default(),
+            aggregates: &aggregates,
+        },
         reuse,
         &Default::default(),
     )

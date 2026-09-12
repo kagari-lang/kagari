@@ -22,6 +22,7 @@ use crate::{
 };
 
 pub(crate) struct BodyChecker<'a> {
+    aggregates: &'a crate::aggregates::AggregateCatalog,
     imported_functions: &'a crate::imports::ImportedFunctions,
     declarations: &'a crate::declarations::Declarations,
     cancel: &'a kagari_common::cancellation::CancellationToken,
@@ -48,6 +49,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Self {
         Self {
             imported_functions: indexes.imported_functions,
+            aggregates: indexes.aggregates,
             declarations: indexes.declarations,
             cancel: indexes.cancel,
             lowered,
@@ -266,10 +268,11 @@ impl<'a> BodyChecker<'a> {
             PlaceKind::Field { base, name } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
                 let field = self.resolve_field(&base_ty, name)?;
-                let id = field.id;
+                let id = field.id.clone();
+                let ty = field.ty.clone();
                 let writable = field.writeability.is_var();
                 self.type_table.insert_place_field(place_id, id);
-                writable.then(|| self.type_table.field_type(id)).flatten()
+                writable.then_some(ty)
             }
             PlaceKind::Index { base, index } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
@@ -316,9 +319,10 @@ impl<'a> BodyChecker<'a> {
             }
             PlaceKind::Field { base, name } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
-                let field = self.resolve_field(&base_ty, name)?.id;
-                self.type_table.insert_place_field(place_id, field);
-                self.type_table.field_type(field)
+                let field = self.resolve_field(&base_ty, name)?;
+                let (id, ty) = (field.id.clone(), field.ty.clone());
+                self.type_table.insert_place_field(place_id, id);
+                Some(ty)
             }
             PlaceKind::Index { base, index } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
@@ -546,9 +550,12 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Field { receiver, name } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
-                if let Some(field) = self.resolve_field(&receiver_ty, name).map(|field| field.id) {
+                if let Some((field, ty)) = self
+                    .resolve_field(&receiver_ty, name)
+                    .map(|field| (field.id.clone(), field.ty.clone()))
+                {
                     self.type_table.insert_expr_field(expr_id, field);
-                    self.type_table.field_type(field).unwrap_or(TypeId::Error)
+                    ty
                 } else {
                     if !receiver_ty.is_unresolved() || name.is_empty() {
                         self.diagnostics.push(
@@ -1569,22 +1576,41 @@ impl<'a> BodyChecker<'a> {
 
     fn resolve_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
         self.resolve_field(receiver, field_name)
-            .and_then(|field| self.type_table.field_type(field.id))
+            .map(|field| field.ty.clone())
     }
 
-    fn resolve_field(&self, receiver: &TypeId, field_name: &str) -> Option<&crate::hir::Field> {
-        match receiver {
-            TypeId::Struct(name) => self
-                .lowered
-                .module
-                .structs
-                .iter()
-                .find(|item| {
-                    self.declarations.definition(ResolvedName::Struct(item.id)) == Some(name)
-                })
-                .and_then(|item| item.fields.iter().find(|field| field.name == field_name)),
-            _ => None,
+    fn resolve_field(
+        &self,
+        receiver: &TypeId,
+        field_name: &str,
+    ) -> Option<&crate::aggregates::FieldSignature> {
+        let TypeId::Struct(id) = receiver else {
+            return None;
+        };
+        self.aggregates
+            .structure(id)?
+            .fields
+            .iter()
+            .find(|field| field.name == field_name)
+    }
+
+    fn resolve_struct_id(&self, path: &str) -> Option<kagari_common::identity::DefinitionId> {
+        if let Some(local) = self
+            .lowered
+            .module
+            .structs
+            .iter()
+            .find(|item| item.name == path)
+        {
+            return self
+                .declarations
+                .definition(ResolvedName::Struct(local.id))
+                .cloned();
         }
+        let TypeId::Struct(id) = &self.declarations.imported_types().get(path)?.ty else {
+            return None;
+        };
+        Some(id.clone())
     }
 
     fn infer_binary_type(
@@ -1732,11 +1758,9 @@ impl<'a> BodyChecker<'a> {
             .collect::<Vec<_>>();
 
         let Some(struct_def) = self
-            .lowered
-            .module
-            .structs
-            .iter()
-            .find(|item| item.name == path)
+            .resolve_struct_id(path)
+            .and_then(|id| self.aggregates.structure(&id))
+            .cloned()
         else {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
@@ -1750,7 +1774,7 @@ impl<'a> BodyChecker<'a> {
 
         let mut seen = HashSet::new();
         let resolved = super::ResolvedStructInit {
-            structure: struct_def.id,
+            structure: struct_def.id.clone(),
             fields: fields
                 .iter()
                 .map(|init| {
@@ -1758,7 +1782,7 @@ impl<'a> BodyChecker<'a> {
                         .fields
                         .iter()
                         .find(|field| field.name == init.name)
-                        .map(|field| field.id)
+                        .map(|field| field.id.clone())
                 })
                 .collect(),
         };
@@ -1785,13 +1809,13 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
 
-            let Some(expected) = self.type_table.field_type(*field) else {
+            let Some(expected) = self.aggregates.field(field).map(|field| &field.ty) else {
                 continue;
             };
             if expected.conflicts_with(value_ty) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                        expected: display_type_id(&expected),
+                        expected: display_type_id(expected),
                         found: display_type_id(value_ty),
                     })
                     .with_span(self.lowered.source_map.expr_span(*value_expr)),
@@ -1812,11 +1836,7 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        self.declarations
-            .definition(ResolvedName::Struct(struct_def.id))
-            .cloned()
-            .map(TypeId::Struct)
-            .unwrap_or(TypeId::Error)
+        TypeId::Struct(struct_def.id)
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {
