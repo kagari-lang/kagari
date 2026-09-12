@@ -156,6 +156,10 @@ It preserves enough root and path identity for later reads and writes to be chec
 
 ## Script Semantics
 
+[Value semantics](value-semantics.md) defines evaluation order, including reading
+the current target after RHS evaluation. [Failure semantics](failure-semantics.md)
+defines preparation and commit of field updates and dirty records.
+
 Field and index syntax has one of two semantic meanings depending on the base value:
 
 1. For script-owned Kagari values, it accesses ordinary script fields or elements according to the script object model.

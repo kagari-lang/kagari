@@ -280,15 +280,9 @@ If a module is already `Initialized`, imports return the cached instance without
 
 ## Circular Imports
 
-Circular imports are handled through module state, not by banning module execution.
-
-If module `A` imports `B` while `B` imports `A`:
-
-- the second access sees that `A` is already `Initializing`
-- the runtime returns the in-progress module instance
-- reads of bindings that are not yet initialized trap or observe an explicitly uninitialized state according to the runtime's partial-initialization policy
-
-The runtime model reserves an explicit partial-initialization state for this case.
+V1 rejects cyclic imports before initialization. No partially initialized module
+is exposed. [Module activation](module-activation.md) defines dependency ordering,
+failure caching, explicit retries, and candidate isolation.
 
 ## Relationship to `main`
 
@@ -362,8 +356,10 @@ Hot reload creates a new module instance or a new module epoch.
 Rule:
 
 - imports are cached per module instance or per epoch
-- reloading a module invalidates the prior initialized instance
-- the new instance runs its initialization function again
+- reload initializes isolated candidates before publishing, as defined in
+  [module activation](module-activation.md)
+- old initialized instances remain valid while reachable
+- failed initialization is cached; ordinary imports never implicitly retry it
 
 This keeps module execution predictable across reloads.
 

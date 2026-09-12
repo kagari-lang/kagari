@@ -249,6 +249,9 @@ These checks prevent front-end omissions from turning into Rust undefined behavi
 
 ## Failure Classification
 
+[Failure semantics](failure-semantics.md) is authoritative for cleanup, resource
+termination, partial business effects, and runtime reuse.
+
 Violations of host-borrow rules are not normally handled with `panic!`.
 
 Failure model:

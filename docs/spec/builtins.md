@@ -149,13 +149,10 @@ Baseline numeric support includes:
 - unary negation for signed numeric types
 - explicit casts where the language defines them
 
-Overflow behavior must be specified by the implementation mode:
-
-- checked traps
-- wrapping operations through explicit functions
-- host-selected debug/release policy only if it is not observable as undefined behavior
-
-The production baseline should prefer checked traps for ordinary arithmetic unless a later numeric spec defines a different rule.
+Ordinary integer arithmetic traps on overflow in every build mode and backend.
+Explicit wrapping operations are the only exception. Equality, copying, iteration,
+and evaluation order follow [value semantics](value-semantics.md). Standard
+mutation failures follow [failure semantics](failure-semantics.md).
 
 ## Boolean and Control Helpers
 
