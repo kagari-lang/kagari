@@ -17,8 +17,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         },
     )?;
     // An erroneous neighbor does not prevent navigation in the correct function.
-    let text =
-        "fn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }";
+    let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }";
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
     let snapshot = engine.analyze(
         engine.source_snapshot(),
@@ -43,6 +42,10 @@ fn main() -> kagari_embed::CompileResult<()> {
     for binding in analysis.visible_bindings(offset) {
         println!("{}: {:?}", binding.declaration.name, binding.ty);
     }
+    let field = analysis
+        .definition_at(text.rfind("p.x").expect("field access") + 2)
+        .expect("resolved field");
+    println!("field {} -> {:?}", field.name, field.id);
 
     engine.set_source(
         source_name,
@@ -55,6 +58,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         &Default::default(),
     )?;
     assert!(edited.declaration(&target.id).is_none());
+    assert!(edited.declaration(&field.id).is_some());
     assert_eq!(snapshot.declaration(&target.id), Some(target));
     Ok(())
 }

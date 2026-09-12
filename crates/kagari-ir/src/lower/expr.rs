@@ -62,12 +62,10 @@ impl FunctionLowerer<'_> {
                 then_branch,
                 else_branch,
             } => self.lower_if(expr_id, condition, then_branch, else_branch),
-            hir::ExprKind::Field { receiver, name } => self.lower_field(expr_id, receiver, name),
+            hir::ExprKind::Field { receiver, .. } => self.lower_field(expr_id, receiver),
             hir::ExprKind::Index { receiver, index } => self.lower_index(expr_id, receiver, index),
             hir::ExprKind::Match { scrutinee, arms } => self.lower_match(expr_id, scrutinee, arms),
-            hir::ExprKind::StructInit { path, fields } => {
-                self.lower_struct_init(expr_id, path, fields)
-            }
+            hir::ExprKind::StructInit { fields, .. } => self.lower_struct_init(expr_id, fields),
             hir::ExprKind::Tuple(elements) => self.lower_tuple(expr_id, elements),
             hir::ExprKind::Array(elements) => self.lower_array(expr_id, elements),
         }
@@ -316,14 +314,33 @@ impl FunctionLowerer<'_> {
     fn lower_struct_init(
         &mut self,
         expr_id: hir::ExprId,
-        path: String,
         fields: hir::FieldInitBuffer,
     ) -> Result<IrValue, IrLoweringError> {
+        let target = self
+            .analyzed
+            .typed
+            .type_table
+            .struct_init(expr_id)
+            .cloned()
+            .ok_or(IrLoweringError::MissingBinding(
+                "checked struct initializer",
+            ))?;
+        if fields.len() != target.fields.len() {
+            return Err(IrLoweringError::MissingBinding(
+                "checked initializer field count",
+            ));
+        }
+        let path = self.analyzed.lowered.module.structs[target.structure.index()]
+            .name
+            .clone();
         let fields = fields
             .iter()
-            .map(|field| {
+            .zip(target.fields)
+            .map(|(field, target)| {
+                let target =
+                    target.ok_or(IrLoweringError::MissingBinding("checked initializer field"))?;
                 Ok(StructFieldInit {
-                    name: field.name.clone(),
+                    name: self.analyzed.lowered.module.field(target).name.clone(),
                     value: self.lower_expr(field.value)?,
                 })
             })
@@ -341,9 +358,14 @@ impl FunctionLowerer<'_> {
         &mut self,
         expr_id: hir::ExprId,
         receiver: hir::ExprId,
-        name: String,
     ) -> Result<IrValue, IrLoweringError> {
-        let field = self.aggregate_field_ref_for_expr(receiver, name)?;
+        let field = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_field(expr_id)
+            .ok_or(IrLoweringError::MissingBinding("checked field read"))?;
+        let field = self.aggregate_field_ref(field);
         let base = self.lower_expr(receiver)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadAggregateField { dst, base, field });

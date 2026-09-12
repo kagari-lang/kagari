@@ -97,7 +97,18 @@ impl FileAnalysis {
             .expressions()
             .filter_map(|(id, _)| {
                 let span = facts.lowered.source_map.expr_span(id);
-                facts.names.expr_resolution(id).map(|target| (span, target))
+                let target = facts
+                    .names
+                    .expr_resolution(id)
+                    .and_then(|target| facts.declarations.target(target))
+                    .or_else(|| {
+                        facts
+                            .typed
+                            .type_table
+                            .expr_field(id)
+                            .and_then(|field| facts.declarations.field(field))
+                    })?;
+                Some((span, target))
             });
         let places = facts
             .lowered
@@ -106,10 +117,18 @@ impl FileAnalysis {
             .iter()
             .enumerate()
             .filter_map(|(index, span)| {
-                facts
+                let target = facts
                     .names
                     .place_resolution(crate::hir::PlaceId::new(index))
-                    .map(|target| (*span, target))
+                    .and_then(|target| facts.declarations.target(target))
+                    .or_else(|| {
+                        facts
+                            .typed
+                            .type_table
+                            .place_field(crate::hir::PlaceId::new(index))
+                            .and_then(|field| facts.declarations.field(field))
+                    })?;
+                Some((*span, target))
             });
         let calls = facts
             .lowered
@@ -125,7 +144,9 @@ impl FileAnalysis {
                     crate::typeck::CallTarget::Function(function)
                     | crate::typeck::CallTarget::TraitMethod(function) => Some((
                         facts.lowered.source_map.expr_span(*callee),
-                        crate::resolver::ResolvedName::Function(function),
+                        facts
+                            .declarations
+                            .target(crate::resolver::ResolvedName::Function(function))?,
                     )),
                     _ => None,
                 }
@@ -135,7 +156,7 @@ impl FileAnalysis {
             .chain(calls)
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .min_by_key(|(span, _)| span.end - span.start)
-            .and_then(|(_, target)| facts.declarations.target(target))
+            .map(|(_, target)| target)
     }
 
     pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {

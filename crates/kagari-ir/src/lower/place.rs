@@ -67,10 +67,16 @@ impl FunctionLowerer<'_> {
                 root: Root::Value(self.lower_expr(expr)?),
                 projections: Vec::new(),
             }),
-            hir::PlaceKind::Field { base, name } => {
+            hir::PlaceKind::Field { base, .. } => {
+                let field = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .place_field(id)
+                    .ok_or(IrLoweringError::MissingBinding("checked field assignment"))?;
                 let mut place = self.prepare_place_inner(base, true)?;
                 place.projections.push(Projection {
-                    kind: ProjectionKind::Field(self.aggregate_field_ref_for_place(base, name)?),
+                    kind: ProjectionKind::Field(self.aggregate_field_ref(field)),
                     ty: self.place_type(id)?,
                     tuple_base: false,
                 });

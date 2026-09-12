@@ -244,6 +244,118 @@ fn trait_call_navigation_consumes_checked_method_target_even_with_bad_arguments(
 }
 
 #[test]
+fn field_navigation_distinguishes_owners_and_retains_rejected_write_targets() {
+    let text = "struct A { val x: i32 } struct B { var x: i32 } fn bad(a: A) { a.x = 2; } fn good(b: B) -> i32 { b.x += 1; b.x }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("fields.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(!analysis.result().diagnostics().is_empty());
+    let readonly = analysis
+        .definition_at(text.find("a.x =").unwrap() + 2)
+        .unwrap();
+    let writable = analysis
+        .definition_at(text.find("b.x +=").unwrap() + 2)
+        .unwrap();
+    let read = analysis
+        .definition_at(text.rfind("b.x }").unwrap() + 2)
+        .unwrap();
+    assert_ne!(readonly.id, writable.id);
+    assert_eq!(writable, read);
+    assert_eq!(
+        readonly.location.range.start,
+        text.find("val x").unwrap() + 4
+    );
+    assert_eq!(
+        writable.location.range.start,
+        text.find("var x").unwrap() + 4
+    );
+    assert_eq!(
+        &text[writable.location.range.start..writable.location.range.end],
+        "x"
+    );
+    let DeclarationId::Definition(id) = &writable.id else {
+        panic!("field definition")
+    };
+    assert_eq!(id.path[0].name, "B");
+    assert_eq!(id.path[1].kind, DefinitionKind::Field);
+    assert_eq!(
+        analysis
+            .definition_at(text.rfind("b.x }").unwrap())
+            .unwrap()
+            .name,
+        "b"
+    );
+}
+
+#[test]
+fn erroneous_field_type_keeps_its_identity_without_unknown_member_cascades() {
+    let text = "struct P { val broken: Missing, val good: i32 } fn bad(p: P) { p.broken } fn good(p: P) -> i32 { p.good }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("field-type.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert_eq!(
+        analysis.result().diagnostics().len(),
+        1,
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let offset = text.find("p.broken").unwrap() + 2;
+    assert_eq!(analysis.definition_at(offset).unwrap().name, "broken");
+    assert_eq!(analysis.type_at(offset), Some(TypeId::Error));
+    assert_eq!(
+        analysis.type_at(text.find("p.good").unwrap() + 2),
+        Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+    );
+}
+
+#[test]
+fn named_field_identity_survives_slot_reordering_and_remains_module_owned() {
+    let first_text = "struct P { val x: i32, val y: i32 } fn read(p: P) -> i32 { p.x }";
+    let second_text = "struct P { val y: i32, val x: i32 } fn read(p: P) -> i32 { p.x }";
+    let mut sources = SourceDatabase::default();
+    let a = sources
+        .set("field-a.kgr", first_text.into(), SourceLayer::Base)
+        .unwrap();
+    let b = sources
+        .set("field-b.kgr", first_text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let first = snapshot(&mut db, &sources);
+    let x = first
+        .file(a)
+        .unwrap()
+        .definition_at(first_text.find("p.x").unwrap() + 2)
+        .unwrap();
+    let other = first
+        .file(b)
+        .unwrap()
+        .definition_at(first_text.find("p.x").unwrap() + 2)
+        .unwrap();
+    assert_ne!(x.id, other.id);
+    sources
+        .set("field-a.kgr", second_text.into(), SourceLayer::Overlay)
+        .unwrap();
+    let second = snapshot(&mut db, &sources);
+    let current = second.declaration(&x.id).unwrap();
+    assert_ne!(current.location, x.location);
+    assert_eq!(
+        current.location.range.start,
+        second_text.find("val x").unwrap() + 4
+    );
+    assert_eq!(
+        second.file(a).unwrap().result().facts().typed.reused_bodies,
+        0
+    );
+    assert_eq!(first.declaration(&x.id), Some(x));
+}
+
+#[test]
 fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
     let text = "struct Same { val n: i32 } fn Same() -> i32 { 1 } fn Same() -> i32 { 2 } trait A { fn get(self) -> i32; } trait B { fn get(self) -> i32; } impl A for Same { fn get(self) -> i32 { self.n } }";
     let source = SourceFile::new("definitions.kgr", text);

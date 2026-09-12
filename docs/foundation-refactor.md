@@ -88,7 +88,13 @@ Implemented foundation slices:
   Name resolution now owns lexical scopes, binding introduction points and match
   arm bindings. Tool scope queries consume these facts instead of reconstructing
   scopes from HIR blocks. Navigation uses resolved expression and assignment names;
-  field targets, type-reference navigation and cross-module imports remain pending.
+  type-reference navigation and cross-module imports remain pending.
+  Struct fields have owner/slot HIR identities and module-owned declaration paths.
+  Field types, read/write targets and initializer targets are retained as HIR facts;
+  IR field operations and field ABI metadata consume them. Invalid field types retain
+  navigation targets without unknown-member cascades; duplicate fields reject codegen.
+  Runtime field records still encode names pending concrete layouts and linking in
+  R07/R08; this slice does not claim runtime field lookup has become slot-only.
   Calls now carry one HIR target and an explicit receiver. IR and reflection
   permission checks consume that target; duplicate Array/String method checking,
   backend builtin-name classification and fallback call dispatch were removed.
@@ -108,6 +114,8 @@ Implemented foundation slices:
   Reused bodies remap scalar expression and pattern facts; emitted artifacts are
   checked against fresh analysis after preceding code changes shift arena IDs.
   Call facts remap their receiver IDs on body reuse and share this artifact check.
+  Field access, assignment and initializer facts also remap on body reuse; signature
+  changes invalidate field slot reuse while named field identity survives reordering.
   Stable named declarations can be located in a new snapshot, while local binding
   handles remain scoped to their original analysis, including on profile changes.
   `cargo run -p kagari-embed --example source_queries` exercises these tool APIs.

@@ -40,6 +40,10 @@ pub struct Module {
 }
 
 impl Module {
+    pub fn field(&self, id: crate::hir::FieldId) -> &Field {
+        &self.structs[id.owner.index()].fields[id.slot]
+    }
+
     pub fn block(&self, id: BlockId) -> &BlockData {
         self.body.block(id)
     }

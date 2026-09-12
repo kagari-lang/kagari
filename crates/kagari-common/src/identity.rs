@@ -65,6 +65,7 @@ pub enum DefinitionKind {
     Const,
     Module,
     Struct,
+    Field,
     Enum,
     Trait,
     Impl,

@@ -7,6 +7,7 @@ use crate::hir::{
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
+    field_spans: std::collections::HashMap<crate::hir::FieldId, Span>,
     function_spans: Vec<Span>,
     const_spans: Vec<Span>,
     module_spans: Vec<Span>,
@@ -26,6 +27,14 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    pub(crate) fn insert_field(&mut self, id: crate::hir::FieldId, span: Span) {
+        self.field_spans.insert(id, span);
+    }
+
+    pub fn field_span(&self, id: crate::hir::FieldId) -> Span {
+        self.field_spans[&id]
+    }
+
     pub fn item_span(&self, item: crate::hir::Item) -> Span {
         use crate::hir::Item;
         match item {

@@ -14,8 +14,8 @@ pub use expr::{
     MatchArm, MatchArmBuffer, PrefixOp,
 };
 pub use ids::{
-    BlockId, ConstId, EnumId, ExprId, FunctionId, ImplId, LocalId, MethodId, ModuleId, ParamId,
-    PatternId, PlaceId, StmtId, StructId, TraitId, TraitMethodId, TypeRefId,
+    BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, ImplId, LocalId, MethodId, ModuleId,
+    ParamId, PatternId, PlaceId, StmtId, StructId, TraitId, TraitMethodId, TypeRefId,
 };
 pub use item::{
     ConstBuffer, ConstItem, Enum, EnumBuffer, Export, ExportBuffer, ExportItem, Field, FieldBuffer,

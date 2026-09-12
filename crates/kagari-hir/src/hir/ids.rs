@@ -32,3 +32,10 @@ id_newtype!(PlaceId);
 id_newtype!(StmtId);
 id_newtype!(PatternId);
 id_newtype!(TypeRefId);
+
+/// A field slot within its declaring struct in this analysis's HIR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FieldId {
+    pub owner: StructId,
+    pub slot: usize,
+}

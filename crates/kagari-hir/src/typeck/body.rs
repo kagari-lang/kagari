@@ -14,7 +14,7 @@ use crate::{
     },
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
-    typeck::ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
+    typeck::ty::{TypeContext, display_type, display_type_id, resolve_type_in},
     typeck::{
         BodyTypeEnv, CallTarget, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable,
     },
@@ -253,7 +253,11 @@ impl<'a> BodyChecker<'a> {
             }
             PlaceKind::Field { base, name } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
-                self.resolve_writable_field_type(&base_ty, name)
+                let field = self.resolve_field(&base_ty, name)?;
+                let id = field.id;
+                let writable = field.writeability.is_var();
+                self.type_table.insert_place_field(place_id, id);
+                writable.then(|| self.type_table.field_type(id)).flatten()
             }
             PlaceKind::Index { base, index } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
@@ -296,7 +300,9 @@ impl<'a> BodyChecker<'a> {
             }
             PlaceKind::Field { base, name } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
-                self.resolve_field_type(&base_ty, name)
+                let field = self.resolve_field(&base_ty, name)?.id;
+                self.type_table.insert_place_field(place_id, field);
+                self.type_table.field_type(field)
             }
             PlaceKind::Index { base, index } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
@@ -513,8 +519,11 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Field { receiver, name } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
-                self.resolve_field_type(&receiver_ty, name)
-                    .unwrap_or_else(|| {
+                if let Some(field) = self.resolve_field(&receiver_ty, name).map(|field| field.id) {
+                    self.type_table.insert_expr_field(expr_id, field);
+                    self.type_table.field_type(field).unwrap_or(TypeId::Error)
+                } else {
+                    if !receiver_ty.is_unresolved() || name.is_empty() {
                         self.diagnostics.push(
                             Diagnostic::error(if name.is_empty() {
                                 DiagnosticKind::ExpectedFieldName
@@ -523,8 +532,9 @@ impl<'a> BodyChecker<'a> {
                             })
                             .with_span(self.lowered.source_map.expr_span(expr_id)),
                         );
-                        TypeId::Error
-                    })
+                    }
+                    TypeId::Error
+                }
             }
             ExprKind::Index { receiver, index } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
@@ -1360,13 +1370,7 @@ impl<'a> BodyChecker<'a> {
 
     fn resolve_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
         self.resolve_field(receiver, field_name)
-            .and_then(|field| resolve_type(&self.lowered.module, field.ty))
-    }
-
-    fn resolve_writable_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
-        self.resolve_field(receiver, field_name)
-            .filter(|field| field.writeability.is_var())
-            .and_then(|field| resolve_type(&self.lowered.module, field.ty))
+            .and_then(|field| self.type_table.field_type(field.id))
     }
 
     fn resolve_field(&self, receiver: &TypeId, field_name: &str) -> Option<&crate::hir::Field> {
@@ -1537,7 +1541,20 @@ impl<'a> BodyChecker<'a> {
         };
 
         let mut seen = HashSet::new();
-        for (name, value_expr, value_ty) in &field_tys {
+        let resolved = super::ResolvedStructInit {
+            structure: struct_def.id,
+            fields: fields
+                .iter()
+                .map(|init| {
+                    struct_def
+                        .fields
+                        .iter()
+                        .find(|field| field.name == init.name)
+                        .map(|field| field.id)
+                })
+                .collect(),
+        };
+        for ((name, value_expr, value_ty), target) in field_tys.iter().zip(&resolved.fields) {
             if !seen.insert((*name).to_owned()) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
@@ -1549,7 +1566,7 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
 
-            let Some(field) = struct_def.fields.iter().find(|field| field.name == *name) else {
+            let Some(field) = target else {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
                         struct_name: path.to_owned(),
@@ -1560,7 +1577,7 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
 
-            let Some(expected) = resolve_type(&self.lowered.module, field.ty) else {
+            let Some(expected) = self.type_table.field_type(*field) else {
                 continue;
             };
             if expected.conflicts_with(value_ty) {
@@ -1574,6 +1591,7 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
+        self.type_table.insert_struct_init(expr_id, resolved);
         for field in &struct_def.fields {
             if !seen.contains(&field.name) {
                 self.diagnostics.push(

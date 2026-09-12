@@ -44,8 +44,20 @@ pub struct Declaration {
 #[derive(Debug, Clone)]
 pub struct Declarations {
     analysis: AnalysisId,
-    targets: HashMap<ResolvedName, Declaration>,
-    identities: HashMap<DeclarationId, ResolvedName>,
+    targets: HashMap<DeclarationKey, Declaration>,
+    identities: HashMap<DeclarationId, DeclarationKey>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum DeclarationKey {
+    Name(ResolvedName),
+    Field(crate::hir::FieldId),
+}
+
+impl From<ResolvedName> for DeclarationKey {
+    fn from(value: ResolvedName) -> Self {
+        Self::Name(value)
+    }
 }
 
 impl Declarations {
@@ -54,7 +66,11 @@ impl Declarations {
     }
 
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
-        self.targets.get(&name)
+        self.targets.get(&DeclarationKey::Name(name))
+    }
+
+    pub fn field(&self, field: crate::hir::FieldId) -> Option<&Declaration> {
+        self.targets.get(&DeclarationKey::Field(field))
     }
 
     /// A binding from another analysis is rejected, even if its arena slot coincides.
@@ -135,13 +151,25 @@ impl Declarations {
             if cancel.check().is_err() {
                 return builder.result;
             }
-            builder.definition(
+            let owner = builder.definition(
                 ResolvedName::Struct(item.id),
                 &[],
                 DefinitionKind::Struct,
                 &item.name,
                 map.struct_span(item.id),
             );
+            for field in &item.fields {
+                if cancel.check().is_err() {
+                    return builder.result;
+                }
+                let id = builder.identity(&owner.path, DefinitionKind::Field, &field.name);
+                builder.insert(
+                    DeclarationKey::Field(field.id),
+                    DeclarationId::Definition(id),
+                    &field.name,
+                    map.field_span(field.id),
+                );
+            }
         }
         for item in &module.enums {
             if cancel.check().is_err() {
@@ -205,7 +233,8 @@ impl Declarations {
                 BodyOwner::Function(id) => ResolvedName::Function(id),
                 BodyOwner::Const(id) => ResolvedName::Const(id),
             };
-            let DeclarationId::Definition(body) = builder.result.targets[&owner].id.clone() else {
+            let DeclarationId::Definition(body) = builder.result.targets[&owner.into()].id.clone()
+            else {
                 unreachable!("body owner is a definition")
             };
             for binding in &scope.bindings {
@@ -278,7 +307,14 @@ impl Builder<'_> {
         id
     }
 
-    fn insert(&mut self, key: ResolvedName, id: DeclarationId, name: &str, range: Span) {
+    fn insert(
+        &mut self,
+        key: impl Into<DeclarationKey>,
+        id: DeclarationId,
+        name: &str,
+        range: Span,
+    ) {
+        let key = key.into();
         self.result.identities.insert(id.clone(), key);
         self.result.targets.insert(
             key,

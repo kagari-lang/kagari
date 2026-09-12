@@ -40,8 +40,12 @@ typed declarations from the resolver's lexical scope facts, including match arm
 bindings and declaration-order shadowing. Neither query executes script or host code.
 Unresolved names have no navigation target; other functions remain queryable.
 Resolved trait method calls also navigate to their checked method declaration,
-including when argument checking reports an error. Field and type-reference
-navigation are not implemented by these queries yet.
+including when argument checking reports an error. Field reads and assignment
+targets navigate through the checked field identity, even when the assignment is
+rejected as read-only or the field's type annotation is invalid. Field declarations
+have module/struct-owned identities; their names survive slot reordering while
+their source locations remain revision-specific. Type-reference navigation is not
+implemented by these queries yet.
 
 `TypeTable::call_resolution` owns each recognized call's target and optional receiver.
 IR generation and reflection permission checks consume this semantic fact. A user
@@ -49,6 +53,14 @@ binding with a helper's spelling is resolved as that binding; it does not acquir
 the helper's behavior or permission requirements. An unresolved or invalid call
 still prevents code generation. Trait-call analysis does not yet imply executable
 interface dispatch, which requires the planned linked implementation tables.
+
+`TypeTable::field_type`, `expr_field`, `place_field` and `struct_init` provide the
+checked field facts. A HIR field slot is qualified by its declaring struct within
+the analysis; tools use the corresponding `Declarations::field` identity when
+retaining a target across revisions. Initializer fields retain source order and
+unknown fields remain explicit holes in an erroneous analysis. Field ABI generation
+uses checked types. Executable field layout/linking remains a separate boundary;
+the current bytecode field table still carries owner and field names.
 
 Declaration identity consists of the logical module plus typed owner/name path
 segments. A same-kind, same-name occurrence distinguishes duplicate declarations;

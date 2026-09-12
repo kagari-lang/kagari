@@ -487,17 +487,29 @@ impl Lowerer {
             .map(|field_list| {
                 field_list
                     .fields()
-                    .map(|field| Field {
-                        writeability: if field.is_var() {
-                            Writeability::Var
-                        } else {
-                            Writeability::Val
-                        },
-                        name: field.name_text().unwrap_or_default(),
-                        ty: field
-                            .ty()
-                            .map(|ty| self.lower_type(&ty))
-                            .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                    .enumerate()
+                    .map(|(slot, field)| {
+                        let field_id = crate::hir::FieldId { owner: id, slot };
+                        self.source_map.insert_field(
+                            field_id,
+                            field
+                                .name()
+                                .map(|name| syntax_span(&name))
+                                .unwrap_or_else(|| syntax_span(&field)),
+                        );
+                        Field {
+                            id: field_id,
+                            writeability: if field.is_var() {
+                                Writeability::Var
+                            } else {
+                                Writeability::Val
+                            },
+                            name: field.name_text().unwrap_or_default(),
+                            ty: field
+                                .ty()
+                                .map(|ty| self.lower_type(&ty))
+                                .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                        }
                     })
                     .collect::<Vec<_>>()
             })

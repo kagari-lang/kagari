@@ -39,10 +39,25 @@ pub(crate) fn check_module_controlled(
     let mut functions: TypedFunctionBuffer = SmallVec::new();
     let mut function_index = FunctionTypeIndex::default();
     let mut top_level_index = TopLevelTypeIndex::default();
+    let mut type_table = TypeTable::default();
 
     for structure in &lowered.module.structs {
+        let mut field_names = HashSet::new();
         for field in &structure.fields {
-            if resolve_type(&lowered.module, field.ty).is_none() {
+            if cancel.check().is_err() {
+                break;
+            }
+            if !field_names.insert(&field.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateField {
+                        struct_name: structure.name.clone(),
+                        name: field.name.clone(),
+                    })
+                    .with_span(lowered.source_map.field_span(field.id)),
+                );
+            }
+            let ty = resolve_type(&lowered.module, field.ty);
+            if ty.is_none() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                         type_name: display_type(&lowered.module, field.ty),
@@ -50,6 +65,7 @@ pub(crate) fn check_module_controlled(
                     .with_span(lowered.source_map.type_span(field.ty)),
                 );
             }
+            type_table.insert_field_type(field.id, ty.unwrap_or(TypeId::Error));
         }
     }
 
@@ -147,7 +163,6 @@ pub(crate) fn check_module_controlled(
     }
 
     {
-        let mut type_table = TypeTable::default();
         for const_item in &lowered.module.consts {
             let ty = match const_item.ty {
                 Some(ty_ref) => match resolve_type(&lowered.module, ty_ref) {

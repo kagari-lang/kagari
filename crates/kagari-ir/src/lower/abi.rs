@@ -77,7 +77,12 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         .iter()
                         .map(|field| FieldAbi {
                             name: field.name.clone(),
-                            ty: display_type_ref(hir_module, field.ty),
+                            ty: module
+                                .typed
+                                .type_table
+                                .field_type(field.id)
+                                .expect("checked field type must exist")
+                                .display_name(),
                             mutable: field.writeability.is_var(),
                         })
                         .collect(),

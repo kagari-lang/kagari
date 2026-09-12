@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::ScalarValue;
 use crate::builtin::{BuiltinFunction, surface::StandardIntrinsic};
-use crate::hir::{ExprId, FunctionId, LocalId, PatternId, PlaceId};
+use crate::hir::{ExprId, FieldId, FunctionId, LocalId, PatternId, PlaceId, StructId};
 use crate::types::TypeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,8 +20,19 @@ pub struct ResolvedCall {
     pub receiver: Option<ExprId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedStructInit {
+    pub structure: StructId,
+    /// Source order, including holes for unknown initializer fields.
+    pub fields: Vec<Option<FieldId>>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TypeTable {
+    field_types: HashMap<FieldId, TypeId>,
+    expr_fields: HashMap<ExprId, FieldId>,
+    place_fields: HashMap<PlaceId, FieldId>,
+    struct_inits: HashMap<ExprId, ResolvedStructInit>,
     exprs: HashMap<ExprId, TypeId>,
     locals: HashMap<LocalId, TypeId>,
     places: HashMap<PlaceId, TypeId>,
@@ -31,6 +42,30 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
+    pub(crate) fn insert_field_type(&mut self, field: FieldId, ty: TypeId) {
+        self.field_types.insert(field, ty);
+    }
+    pub(crate) fn insert_expr_field(&mut self, expr: ExprId, field: FieldId) {
+        self.expr_fields.insert(expr, field);
+    }
+    pub(crate) fn insert_place_field(&mut self, place: PlaceId, field: FieldId) {
+        self.place_fields.insert(place, field);
+    }
+    pub(crate) fn insert_struct_init(&mut self, expr: ExprId, target: ResolvedStructInit) {
+        self.struct_inits.insert(expr, target);
+    }
+    pub fn field_type(&self, field: FieldId) -> Option<TypeId> {
+        self.field_types.get(&field).cloned()
+    }
+    pub fn expr_field(&self, expr: ExprId) -> Option<FieldId> {
+        self.expr_fields.get(&expr).copied()
+    }
+    pub fn place_field(&self, place: PlaceId) -> Option<FieldId> {
+        self.place_fields.get(&place).copied()
+    }
+    pub fn struct_init(&self, expr: ExprId) -> Option<&ResolvedStructInit> {
+        self.struct_inits.get(&expr)
+    }
     pub(crate) fn restore_function(
         &mut self,
         old: &Self,
@@ -128,6 +163,12 @@ impl TypeTable {
             }
         }
         for (a, b) in exprs {
+            if let Some(field) = old.expr_fields.get(&ExprId::new(a)) {
+                self.expr_fields.insert(ExprId::new(b), *field);
+            }
+            if let Some(target) = old.struct_inits.get(&ExprId::new(a)) {
+                self.struct_inits.insert(ExprId::new(b), target.clone());
+            }
             if let Some(value) = old.scalars.get(&ExprId::new(a)) {
                 self.scalars.insert(ExprId::new(b), value.clone());
             }
@@ -141,6 +182,9 @@ impl TypeTable {
             }
         }
         for (a, b) in places {
+            if let Some(field) = old.place_fields.get(&PlaceId::new(a)) {
+                self.place_fields.insert(PlaceId::new(b), *field);
+            }
             if let Some(ty) = old.places.get(&PlaceId::new(a)) {
                 self.places.insert(PlaceId::new(b), ty.clone());
             }
