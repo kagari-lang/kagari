@@ -6,29 +6,24 @@ use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken}
 use smallvec::SmallVec;
 
 use crate::{
-    hir::{BinaryOp, ConstId, ExprId, ExprKind, LiteralKind, PrefixOp},
+    hir::{BinaryOp, ConstId, ExprId, ExprKind, PrefixOp},
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
 };
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConstValue {
-    Unit,
-    Bool(bool),
-    I32(i32),
-    F32(f32),
-    String(String),
-}
+use super::{ScalarValue, TypeTable};
 
 pub(super) fn evaluate_constants(
     lowered: &LoweredModule,
     names: &ResolvedNames,
+    type_table: &TypeTable,
     cancel: &CancellationToken,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) -> HashMap<ConstId, ConstValue> {
+) -> HashMap<ConstId, ScalarValue> {
     let mut evaluator = Evaluator {
         lowered,
         names,
+        type_table,
         cancel,
         diagnostics,
         cache: HashMap::new(),
@@ -49,14 +44,15 @@ pub(super) fn evaluate_constants(
 struct Evaluator<'a> {
     lowered: &'a LoweredModule,
     names: &'a ResolvedNames,
+    type_table: &'a TypeTable,
     cancel: &'a CancellationToken,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
     // None also breaks cycles, which the const capability validator diagnoses.
-    cache: HashMap<ConstId, Option<ConstValue>>,
+    cache: HashMap<ConstId, Option<ScalarValue>>,
 }
 
 impl Evaluator<'_> {
-    fn constant(&mut self, id: ConstId) -> Option<ConstValue> {
+    fn constant(&mut self, id: ConstId) -> Option<ScalarValue> {
         if let Some(value) = self.cache.get(&id) {
             return value.clone();
         }
@@ -73,48 +69,31 @@ impl Evaluator<'_> {
         value
     }
 
-    fn expression(&mut self, owner: ConstId, id: ExprId) -> Option<ConstValue> {
+    fn expression(&mut self, owner: ConstId, id: ExprId) -> Option<ScalarValue> {
         self.cancel.check().ok()?;
+        if let Some(value) = self.type_table.scalar_value(id) {
+            return Some(value.clone());
+        }
         let value = match &self.lowered.module.expr(id).kind {
-            ExprKind::Tuple(elements) if elements.is_empty() => Ok(ConstValue::Unit),
-            ExprKind::Literal(literal) => match literal.kind {
-                LiteralKind::Number => literal
-                    .text
-                    .parse()
-                    .map(ConstValue::I32)
-                    .map_err(|_| "integer literal is outside the i32 range"),
-                LiteralKind::Float => literal
-                    .text
-                    .parse()
-                    .map(ConstValue::F32)
-                    .map_err(|_| "invalid f32 literal"),
-                LiteralKind::Bool => Ok(ConstValue::Bool(literal.text == "true")),
-                LiteralKind::String => Ok(ConstValue::String(
-                    literal
-                        .text
-                        .strip_prefix('"')
-                        .and_then(|text| text.strip_suffix('"'))
-                        .unwrap_or(&literal.text)
-                        .to_owned(),
-                )),
-            },
+            ExprKind::Tuple(elements) if elements.is_empty() => Ok(ScalarValue::Unit),
+            ExprKind::Literal(_) => return None, // Invalid literals were diagnosed during checking.
             ExprKind::Name(_) => match self.names.expr_resolution(id)? {
                 ResolvedName::Const(id) => return self.constant(id),
                 _ => return None,
             },
             ExprKind::Prefix { op, expr } => match (op, self.expression(owner, *expr)?) {
-                (PrefixOp::Neg, ConstValue::I32(value)) => arithmetic::i32_neg(value)
-                    .map(ConstValue::I32)
+                (PrefixOp::Neg, ScalarValue::I32(value)) => arithmetic::i32_neg(value)
+                    .map(ScalarValue::I32)
                     .map_err(|error| error.message()),
-                (PrefixOp::Neg, ConstValue::F32(value)) => Ok(ConstValue::F32(-value)),
-                (PrefixOp::Not, ConstValue::Bool(value)) => Ok(ConstValue::Bool(!value)),
+                (PrefixOp::Neg, ScalarValue::F32(value)) => Ok(ScalarValue::F32(-value)),
+                (PrefixOp::Not, ScalarValue::Bool(value)) => Ok(ScalarValue::Bool(!value)),
                 _ => return None,
             },
             ExprKind::Binary { lhs, op, rhs } => {
                 let lhs = self.expression(owner, *lhs)?;
                 match (op, &lhs) {
-                    (BinaryOp::AndAnd, ConstValue::Bool(false)) => return Some(lhs),
-                    (BinaryOp::OrOr, ConstValue::Bool(true)) => return Some(lhs),
+                    (BinaryOp::AndAnd, ScalarValue::Bool(false)) => return Some(lhs),
+                    (BinaryOp::OrOr, ScalarValue::Bool(true)) => return Some(lhs),
                     _ => {}
                 }
                 let rhs = self.expression(owner, *rhs)?;
@@ -145,10 +124,10 @@ impl Evaluator<'_> {
 
 fn binary(
     op: BinaryOp,
-    lhs: ConstValue,
-    rhs: ConstValue,
-) -> Option<Result<ConstValue, &'static str>> {
-    use ConstValue::*;
+    lhs: ScalarValue,
+    rhs: ScalarValue,
+) -> Option<Result<ScalarValue, &'static str>> {
+    use ScalarValue::*;
     let arithmetic_op = match op {
         BinaryOp::Add => Some(IntegerBinaryOp::Add),
         BinaryOp::Sub => Some(IntegerBinaryOp::Sub),

@@ -218,8 +218,13 @@ pub(crate) fn check_module_controlled(
             &mut diagnostics,
         );
         validate_trait_surface(lowered, &function_index, &mut diagnostics);
-        let const_values =
-            super::const_eval::evaluate_constants(lowered, names, cancel, &mut diagnostics);
+        let const_values = super::const_eval::evaluate_constants(
+            lowered,
+            names,
+            &type_table,
+            cancel,
+            &mut diagnostics,
+        );
 
         for function in &lowered.module.functions {
             if cancel.check().is_err() {

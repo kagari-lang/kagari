@@ -6,6 +6,63 @@ use kagari_hir::analysis::CancellationToken;
 use kagari_runtime::LanguageProfile;
 
 #[test]
+fn reused_literal_and_pattern_facts_emit_the_same_artifact_as_fresh_analysis() {
+    let engine = KagariEngine::default();
+    let token = CancellationToken::default();
+    let unchanged = "fn b() -> i32 { match 2147483647 { 2147483647 => -2147483648, _ => 0 } }";
+    let id = engine
+        .set_source(
+            "memory://reuse.kgr",
+            format!("fn a() -> i32 {{ 1 }} {unchanged}"),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    engine
+        .analyze(engine.source_snapshot(), Default::default(), &token)
+        .unwrap();
+    let edited = format!("fn a() -> i32 {{ 10 + 20 + 30 }} {unchanged}");
+    engine
+        .set_source("memory://reuse.kgr", edited.clone(), SourceLayer::Overlay)
+        .unwrap();
+    let snapshot = engine.source_snapshot();
+    let analysis = engine
+        .analyze(snapshot.clone(), Default::default(), &token)
+        .unwrap();
+    assert_eq!(
+        analysis
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .typed
+            .reused_bodies,
+        1
+    );
+    let reused = engine
+        .compile_snapshot(snapshot, id, Default::default(), &token)
+        .unwrap();
+    let fresh_engine = KagariEngine::default();
+    let fresh = fresh_engine
+        .compile_source(
+            SourceFile::new("memory://reuse.kgr", edited),
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine
+            .emit_bytecode(&reused, Default::default())
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+        fresh_engine
+            .emit_bytecode(&fresh, Default::default())
+            .unwrap()
+            .to_bytes()
+            .unwrap()
+    );
+}
+
+#[test]
 fn compilation_and_tools_share_overlay_revision_and_profile() {
     let engine = KagariEngine::default();
     let token = CancellationToken::default();

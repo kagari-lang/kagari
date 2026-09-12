@@ -5,14 +5,14 @@ use kagari_hir::{
 };
 
 // Versioned scalar encoding; float bits and UTF-8 byte length are explicit.
-fn const_abi_value(value: &kagari_hir::typeck::ConstValue) -> String {
-    use kagari_hir::typeck::ConstValue;
+fn const_abi_value(value: &kagari_hir::typeck::ScalarValue) -> String {
+    use kagari_hir::typeck::ScalarValue;
     match value {
-        ConstValue::Unit => "const-v1:unit".to_owned(),
-        ConstValue::Bool(value) => format!("const-v1:bool:{}", u8::from(*value)),
-        ConstValue::I32(value) => format!("const-v1:i32:{value}"),
-        ConstValue::F32(value) => format!("const-v1:f32:{:08x}", value.to_bits()),
-        ConstValue::String(value) => format!("const-v1:str:{}:{value}", value.len()),
+        ScalarValue::Unit => "const-v1:unit".to_owned(),
+        ScalarValue::Bool(value) => format!("const-v1:bool:{}", u8::from(*value)),
+        ScalarValue::I32(value) => format!("const-v1:i32:{value}"),
+        ScalarValue::F32(value) => format!("const-v1:f32:{:08x}", value.to_bits()),
+        ScalarValue::String(value) => format!("const-v1:str:{}:{value}", value.len()),
     }
 }
 

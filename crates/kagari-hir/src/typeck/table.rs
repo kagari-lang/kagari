@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
+use super::ScalarValue;
 use crate::builtin::surface::StandardIntrinsic;
-use crate::hir::{ExprId, LocalId, PlaceId};
+use crate::hir::{ExprId, LocalId, PatternId, PlaceId};
 use crate::types::TypeId;
 
 #[derive(Debug, Clone, Default)]
@@ -10,6 +11,8 @@ pub struct TypeTable {
     locals: HashMap<LocalId, TypeId>,
     places: HashMap<PlaceId, TypeId>,
     standard_calls: HashMap<ExprId, StandardIntrinsic>,
+    scalars: HashMap<ExprId, ScalarValue>,
+    pattern_scalars: HashMap<PatternId, ScalarValue>,
 }
 
 impl TypeTable {
@@ -69,7 +72,24 @@ impl TypeTable {
         ) else {
             return false;
         };
+        let Some(patterns) = remap(
+            old_map.pattern_spans(),
+            new_map.pattern_spans(),
+            old_span,
+            new_span,
+        ) else {
+            return false;
+        };
+        for (a, b) in patterns {
+            if let Some(value) = old.pattern_scalars.get(&PatternId::new(a)) {
+                self.pattern_scalars
+                    .insert(PatternId::new(b), value.clone());
+            }
+        }
         for (a, b) in exprs {
+            if let Some(value) = old.scalars.get(&ExprId::new(a)) {
+                self.scalars.insert(ExprId::new(b), value.clone());
+            }
             if let Some(ty) = old.exprs.get(&ExprId::new(a)) {
                 self.exprs.insert(ExprId::new(b), ty.clone());
             }
@@ -91,6 +111,19 @@ impl TypeTable {
     }
     pub(crate) fn insert_expr(&mut self, id: ExprId, ty: TypeId) {
         self.exprs.insert(id, ty);
+    }
+
+    pub(crate) fn insert_scalar(&mut self, id: ExprId, value: ScalarValue) {
+        self.scalars.insert(id, value);
+    }
+    pub(crate) fn insert_pattern_scalar(&mut self, id: PatternId, value: ScalarValue) {
+        self.pattern_scalars.insert(id, value);
+    }
+    pub fn scalar_value(&self, id: ExprId) -> Option<&ScalarValue> {
+        self.scalars.get(&id)
+    }
+    pub fn pattern_scalar_value(&self, id: PatternId) -> Option<&ScalarValue> {
+        self.pattern_scalars.get(&id)
     }
 
     pub(crate) fn insert_local(&mut self, id: LocalId, ty: TypeId) {

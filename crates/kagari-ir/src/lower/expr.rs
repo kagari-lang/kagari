@@ -14,26 +14,20 @@ use crate::module::types::ValueType;
 
 impl FunctionLowerer<'_> {
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
+        if let Some(value) = self
+            .analyzed
+            .typed
+            .type_table
+            .scalar_value(expr_id)
+            .cloned()
+        {
+            return Ok(self.lower_constant(value.into(), self.expr_type(expr_id)?));
+        }
         let expr = self.analyzed.lowered.module.expr(expr_id).clone();
         match expr.kind {
             hir::ExprKind::Missing => Err(IrLoweringError::UnresolvedExpr(expr_id)),
             hir::ExprKind::Name(_) => self.lower_name_expr(expr_id),
-            hir::ExprKind::Literal(literal) => match literal.kind {
-                hir::LiteralKind::Number => {
-                    let value = literal.text.parse::<i32>().unwrap_or_default();
-                    Ok(self.lower_constant(Constant::I32(value), ValueType::I32))
-                }
-                hir::LiteralKind::Float => {
-                    let value = literal.text.parse::<f32>().unwrap_or_default();
-                    Ok(self.lower_constant(Constant::F32(value), ValueType::F32))
-                }
-                hir::LiteralKind::String => Ok(self
-                    .lower_constant(Constant::Str(unquote_string(&literal.text)), ValueType::Str)),
-                hir::LiteralKind::Bool => {
-                    let value = literal.text == "true";
-                    Ok(self.lower_constant(Constant::Bool(value), ValueType::Bool))
-                }
-            },
+            hir::ExprKind::Literal(_) => Err(IrLoweringError::MissingBinding("checked literal")),
             hir::ExprKind::Prefix { op, expr } => {
                 let operand = self.lower_expr(expr)?;
                 let dst = self.alloc_temp(self.expr_type(expr_id)?);
@@ -244,8 +238,16 @@ impl FunctionLowerer<'_> {
                 hir::PatternKind::Wildcard => {
                     self.set_terminator(Terminator::Jump(arm_block));
                 }
-                hir::PatternKind::Literal(literal) => {
-                    let literal_temp = self.lower_literal_value(literal);
+                hir::PatternKind::Literal(_) => {
+                    let value = self
+                        .analyzed
+                        .typed
+                        .type_table
+                        .pattern_scalar_value(arm.pattern)
+                        .cloned()
+                        .ok_or(IrLoweringError::MissingBinding("checked pattern literal"))?;
+                    let ty = ValueType::from_type_id(&value.ty());
+                    let literal_temp = self.lower_constant(value.into(), ty);
                     let cond = self.alloc_temp(ValueType::Bool);
                     self.emit(Instruction::Binary {
                         dst: cond,
@@ -316,26 +318,6 @@ impl FunctionLowerer<'_> {
 
         self.switch_to_block(exit_block);
         Ok(result)
-    }
-
-    fn lower_literal_value(&mut self, literal: &hir::Literal) -> IrValue {
-        match literal.kind {
-            hir::LiteralKind::Number => {
-                let value = literal.text.parse::<i32>().unwrap_or_default();
-                self.lower_constant(Constant::I32(value), ValueType::I32)
-            }
-            hir::LiteralKind::Float => {
-                let value = literal.text.parse::<f32>().unwrap_or_default();
-                self.lower_constant(Constant::F32(value), ValueType::F32)
-            }
-            hir::LiteralKind::String => {
-                self.lower_constant(Constant::Str(unquote_string(&literal.text)), ValueType::Str)
-            }
-            hir::LiteralKind::Bool => {
-                let value = literal.text == "true";
-                self.lower_constant(Constant::Bool(value), ValueType::Bool)
-            }
-        }
     }
 
     fn lower_tuple(
@@ -587,24 +569,9 @@ impl FunctionLowerer<'_> {
     }
 
     fn string_literal_value(&self, expr_id: hir::ExprId) -> Option<String> {
-        let expr = self.analyzed.lowered.module.expr(expr_id);
-        let hir::ExprKind::Literal(literal) = &expr.kind else {
-            return None;
-        };
-        if literal.kind != hir::LiteralKind::String {
-            return None;
+        match self.analyzed.typed.type_table.scalar_value(expr_id)? {
+            kagari_hir::typeck::ScalarValue::String(value) => Some(value.clone()),
+            _ => None,
         }
-        Some(literal_string_value(&literal.text))
     }
-}
-
-fn literal_string_value(text: &str) -> String {
-    text.strip_prefix('"')
-        .and_then(|text| text.strip_suffix('"'))
-        .unwrap_or(text)
-        .to_owned()
-}
-
-fn unquote_string(text: &str) -> String {
-    literal_string_value(text)
 }

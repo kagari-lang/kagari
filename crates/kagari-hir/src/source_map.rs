@@ -26,6 +26,9 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    pub(crate) fn pattern_spans(&self) -> &[Span] {
+        &self.pattern_spans
+    }
     pub(crate) fn expr_spans(&self) -> &[Span] {
         &self.expr_spans
     }

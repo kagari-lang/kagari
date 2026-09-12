@@ -71,6 +71,9 @@ Implemented foundation slices:
   Scalar const values are now HIR facts. Arithmetic failures and annotation
   mismatches reject code generation while retaining unrelated facts. IR no longer
   evaluates const syntax or rebuilds legacy aggregate const objects.
+  Literal expressions and match patterns now carry checked scalar facts, including
+  the i32 minimum spelling. Invalid literal ranges and pattern type mismatches
+  are source diagnostics. IR consumes these facts without reparsing literal text.
 - R05: unchanged files share parse/analysis results; identical function bodies
   reuse remapped type facts, while declaration changes invalidate that reuse.
   Scope/type/member-receiver queries work on erroneous files. Shared cancellation
@@ -79,6 +82,8 @@ Implemented foundation slices:
   Remaining work includes dependency-query ownership and compile-time limits.
   Language profiles participate in cache reuse; old queries cannot publish over
   a newer revision. Engine snapshot compilation exposes cancellation explicitly.
+  Reused bodies remap scalar expression and pattern facts; emitted artifacts are
+  checked against fresh analysis after preceding code changes shift arena IDs.
 - R09: format v3 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
@@ -97,8 +102,8 @@ Implemented foundation slices:
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
   and JIT helper ABI fingerprints are v2. Path arithmetic failure produces no
   write callback or dirty record. Const evaluation shares checked arithmetic and
-  honors short circuit, with cancellation checks. General literal validation,
-  mutation resource commit, narrower integer layouts and the other backend/
+  honors short circuit, with cancellation checks. Mutation resource commit,
+  narrower integer layouts and the other backend/
   debugger contracts remain open; compile-time quotas are still pending R15.
 
 Validation: workspace tests pass after the source/analysis changes. Workspace

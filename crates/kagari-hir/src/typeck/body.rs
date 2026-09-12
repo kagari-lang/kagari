@@ -406,13 +406,37 @@ impl<'a> BodyChecker<'a> {
                     );
                     TypeId::Error
                 }),
-            ExprKind::Literal(literal) => match literal.kind {
-                LiteralKind::Number => TypeId::Builtin(BuiltinType::I32),
-                LiteralKind::Float => TypeId::Builtin(BuiltinType::F32),
-                LiteralKind::String => TypeId::Builtin(BuiltinType::String),
-                LiteralKind::Bool => TypeId::Builtin(BuiltinType::Bool),
+            ExprKind::Literal(literal) => match super::ScalarValue::parse(literal) {
+                Ok(value) => {
+                    let ty = value.ty();
+                    self.type_table.insert_scalar(expr_id, value);
+                    ty
+                }
+                Err(reason) => {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidLiteral {
+                            reason: reason.to_owned(),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                    TypeId::Error
+                }
             },
             ExprKind::Prefix { op, expr } => {
+                // The magnitude of MIN is not a positive i32 expression on its own.
+                if matches!(op, PrefixOp::Neg)
+                    && let ExprKind::Literal(literal) = &self.lowered.module.expr(*expr).kind
+                    && literal.kind == LiteralKind::Number
+                    && literal.text.parse::<u64>().ok() == Some(2147483648)
+                {
+                    let ty = TypeId::Builtin(BuiltinType::I32);
+                    self.type_table
+                        .insert_scalar(expr_id, super::ScalarValue::I32(i32::MIN));
+                    self.type_table.insert_expr(*expr, ty.clone());
+                    self.type_table.insert_expr(expr_id, ty.clone());
+                    env.exprs.insert(expr_id, ty.clone());
+                    return ty;
+                }
                 let inner = self.infer_expr_type(*expr, env);
                 match op {
                     PrefixOp::Neg => {
@@ -608,6 +632,29 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> TypeId {
         let mut arm_env = env.clone();
+        if let PatternKind::Literal(literal) = &self.lowered.module.pattern(arm.pattern).kind {
+            let span = self.lowered.source_map.pattern_span(arm.pattern);
+            match super::ScalarValue::parse(literal) {
+                Ok(value) => {
+                    if value.ty().conflicts_with(scrutinee_ty) {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                                expected: display_type_id(scrutinee_ty),
+                                found: display_type_id(&value.ty()),
+                            })
+                            .with_span(span),
+                        );
+                    }
+                    self.type_table.insert_pattern_scalar(arm.pattern, value);
+                }
+                Err(reason) => self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidLiteral {
+                        reason: reason.to_owned(),
+                    })
+                    .with_span(span),
+                ),
+            }
+        }
         if let PatternKind::Name { local, .. } = self.lowered.module.pattern(arm.pattern).kind {
             arm_env.locals.insert(local, scrutinee_ty.clone());
             self.type_table.insert_local(local, scrutinee_ty.clone());

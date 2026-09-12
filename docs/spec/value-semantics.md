@@ -33,6 +33,13 @@ Unicode scalar counting is a separately named operation. Integer arithmetic is
 checked in every backend and build mode. Explicit wrapping operations are the
 only exception. Floating-point optimization must preserve specified results.
 
+Current unsuffixed numeric literals are i32 and f32. Integer magnitudes must fit
+i32, except that the magnitude in `-2147483648` forms the i32 minimum value.
+Negating that value again traps. Float literal conversion must produce a finite
+f32; runtime floating-point operations retain their IEEE behavior. Invalid
+literal ranges are diagnosed during analysis, including in const initializers
+and match patterns. A literal pattern must have the scrutinee's type.
+
 ## Evaluation and assignment
 
 Operands, receivers, arguments, and dynamic indexes evaluate left to right,

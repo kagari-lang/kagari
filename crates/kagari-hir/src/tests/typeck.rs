@@ -19,7 +19,6 @@ fn const_arithmetic_failures_preserve_other_semantic_facts() {
         ("-(-2147483647 - 1)", "integer overflow"),
         ("(-2147483647 - 1) / -1", "integer overflow"),
         ("1 / 0", "integer division by zero"),
-        ("2147483648", "integer literal is outside the i32 range"),
         ("(2147483647 + 1) - 1", "integer overflow"),
     ] {
         let source = SourceFile::new(
@@ -40,7 +39,7 @@ fn const_arithmetic_failures_preserve_other_semantic_facts() {
         assert_eq!(facts.typed.const_values.len(), 1);
         assert_eq!(
             facts.typed.const_values.values().next(),
-            Some(&crate::typeck::ConstValue::I32(42))
+            Some(&crate::typeck::ScalarValue::I32(42))
         );
         assert_eq!(
             facts.typed.functions[0].return_type,
@@ -48,6 +47,53 @@ fn const_arithmetic_failures_preserve_other_semantic_facts() {
         );
         assert!(result.into_codegen().is_err());
     }
+}
+
+#[test]
+fn invalid_literals_and_patterns_retain_neighbor_types() {
+    for source in [
+        "fn bad() -> i32 { 2147483648 }",
+        "fn bad() -> i32 { -2147483649 }",
+        "fn bad() -> i32 { 99999999999999999999999999999999999999999 }",
+        "fn bad() -> f32 { 99999999999999999999999999999999999999999.0 }",
+        "fn bad() -> i32 { match 1 { 2147483648 => 1, _ => 2 } }",
+        "const BAD: i32 = 2147483648;",
+    ] {
+        let source = SourceFile::new("literal.kgr", format!("{source} fn good() -> i32 {{ 42 }}"));
+        let result = crate::analyze_source(&source, Default::default());
+        assert!(
+            result
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::InvalidLiteral { .. })),
+            "{:?}",
+            result.diagnostics()
+        );
+        assert_eq!(
+            result
+                .facts()
+                .typed
+                .functions
+                .iter()
+                .find(|function| function.name == "good")
+                .unwrap()
+                .return_type,
+            TypeId::Builtin(BuiltinType::I32)
+        );
+        assert!(result.into_codegen().is_err());
+    }
+    let source = SourceFile::new(
+        "literal.kgr",
+        "fn main() -> i32 { match true { 1 => 1, _ => 2 } }",
+    );
+    let result = crate::analyze_source(&source, Default::default());
+    assert!(
+        result.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            DiagnosticKind::PatternTypeMismatch { .. }
+        ))
+    );
+    assert!(result.into_codegen().is_err());
 }
 
 #[test]

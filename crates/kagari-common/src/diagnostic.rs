@@ -97,6 +97,13 @@ pub enum DiagnosticKind {
         const_name: String,
         reason: String,
     },
+    InvalidLiteral {
+        reason: String,
+    },
+    PatternTypeMismatch {
+        expected: String,
+        found: String,
+    },
     ConstCycle {
         const_name: String,
     },
@@ -288,6 +295,8 @@ impl DiagnosticKind {
             Self::UnknownType { .. } => "KG_TYPE_UNKNOWN_TYPE",
             Self::UnknownConstType { .. } => "KG_TYPE_UNKNOWN_CONST_TYPE",
             Self::InvalidConstInitializer { .. } => "KG_TYPE_INVALID_CONST_INITIALIZER",
+            Self::InvalidLiteral { .. } => "KG_TYPE_INVALID_LITERAL",
+            Self::PatternTypeMismatch { .. } => "KG_TYPE_PATTERN_MISMATCH",
             Self::ConstCycle { .. } => "KG_TYPE_CONST_CYCLE",
             Self::ConstWriteNotAllowed { .. } => "KG_TYPE_CONST_WRITE_NOT_ALLOWED",
             Self::CallArityMismatch { .. } => "KG_TYPE_CALL_ARITY_MISMATCH",
@@ -433,6 +442,11 @@ impl Display for DiagnosticKind {
             } => write!(
                 f,
                 "unknown const type `{type_name}` in const `{const_name}`"
+            ),
+            Self::InvalidLiteral { reason } => write!(f, "invalid literal: {reason}"),
+            Self::PatternTypeMismatch { expected, found } => write!(
+                f,
+                "pattern type mismatch: expected `{expected}`, found `{found}`"
             ),
             Self::InvalidConstInitializer { const_name, reason } => {
                 write!(

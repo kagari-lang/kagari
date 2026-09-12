@@ -331,6 +331,14 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     .effects(&["init"], &["init"]);
     cached_init_failure.repeat = 2;
     let cases = [
+        Case::new("min-literal", "fn main() -> i32 { -2147483648 }", Expected::Value(Value::I32(i32::MIN))).native(),
+        Case::new("const-min-literal", "const MIN: i32 = -2147483648; fn main() -> i32 { MIN }", Expected::Value(Value::I32(i32::MIN))).native(),
+        Case::new("negate-min-literal", "fn main() -> i32 { -(-2147483648) }", Expected::ScriptTrap("integer overflow")).native(),
+        Case::new("invalid-positive-literal", "fn main() -> i32 { 2147483648 }", Expected::Diagnostic("KG_TYPE_INVALID_LITERAL")),
+        Case::new("invalid-negative-literal", "fn main() -> i32 { -2147483649 }", Expected::Diagnostic("KG_TYPE_INVALID_LITERAL")),
+        Case::new("invalid-pattern-literal", "fn main() -> i32 { match 1 { 2147483648 => 10, _ => 20 } }", Expected::Diagnostic("KG_TYPE_INVALID_LITERAL")),
+        Case::new("mismatched-pattern", "fn main() -> i32 { match true { 1 => 10, _ => 20 } }", Expected::Diagnostic("KG_TYPE_PATTERN_MISMATCH")),
+        Case::new("checked-pattern-literal", "fn main() -> i32 { match 2147483647 { 2147483647 => 42, _ => 0 } }", Expected::Value(Value::I32(42))),
         Case::new("const-short-circuit",
             "const A: bool = false && (1 / 0 == 0); const B: bool = true || (2147483647 + 1 == 0); fn main() -> bool { !A && B }",
             Expected::Value(Value::Bool(true))),

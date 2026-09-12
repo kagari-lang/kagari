@@ -7,16 +7,16 @@ use crate::module::instruction::{
     AggregateFieldRef, BinaryOp, CallTarget, Constant, Instruction, IrValue, UnaryOp,
 };
 use crate::module::types::ValueType;
-use kagari_hir::typeck::ConstValue;
+use kagari_hir::typeck::ScalarValue;
 
-impl From<ConstValue> for Constant {
-    fn from(value: ConstValue) -> Self {
+impl From<ScalarValue> for Constant {
+    fn from(value: ScalarValue) -> Self {
         match value {
-            ConstValue::Unit => Self::Unit,
-            ConstValue::Bool(value) => Self::Bool(value),
-            ConstValue::I32(value) => Self::I32(value),
-            ConstValue::F32(value) => Self::F32(value),
-            ConstValue::String(value) => Self::Str(value),
+            ScalarValue::Unit => Self::Unit,
+            ScalarValue::Bool(value) => Self::Bool(value),
+            ScalarValue::I32(value) => Self::I32(value),
+            ScalarValue::F32(value) => Self::F32(value),
+            ScalarValue::String(value) => Self::Str(value),
         }
     }
 }
