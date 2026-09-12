@@ -214,9 +214,12 @@ pub(crate) fn check_module_controlled(
             names,
             &top_level_index,
             &type_table,
+            cancel,
             &mut diagnostics,
         );
         validate_trait_surface(lowered, &function_index, &mut diagnostics);
+        let const_values =
+            super::const_eval::evaluate_constants(lowered, names, cancel, &mut diagnostics);
 
         for function in &lowered.module.functions {
             if cancel.check().is_err() {
@@ -282,6 +285,7 @@ pub(crate) fn check_module_controlled(
                 reused_bodies,
                 functions,
                 consts: top_level_index.consts,
+                const_values,
                 type_table,
             },
             diagnostics,
@@ -801,6 +805,7 @@ fn validate_const_initializers(
     names: &ResolvedNames,
     top_level_index: &TopLevelTypeIndex,
     type_table: &TypeTable,
+    cancel: &kagari_common::cancellation::CancellationToken,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
     struct ConstValidator<'a> {
@@ -808,12 +813,16 @@ fn validate_const_initializers(
         names: &'a ResolvedNames,
         top_level_index: &'a TopLevelTypeIndex,
         type_table: &'a TypeTable,
+        cancel: &'a kagari_common::cancellation::CancellationToken,
         diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
         states: HashMap<ConstId, ConstVisitState>,
     }
 
     impl ConstValidator<'_> {
         fn validate_const(&mut self, const_id: ConstId) {
+            if self.cancel.check().is_err() {
+                return;
+            }
             match self.states.get(&const_id) {
                 Some(ConstVisitState::Done) => return,
                 Some(ConstVisitState::Visiting) => {
@@ -849,10 +858,31 @@ fn validate_const_initializers(
             }
 
             self.validate_const_expr(const_item.id, const_item.initializer);
+            let const_item = self.const_item(const_id);
+            if let (Some(declared), Some(actual)) = (
+                self.top_level_index.consts.get(&const_id),
+                self.type_table.expr_type(const_item.initializer),
+            ) && declared.conflicts_with(&actual)
+            {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidConstInitializer {
+                        const_name: const_item.name.clone(),
+                        reason: format!(
+                            "expected `{}`, found `{}`",
+                            display_type_id(declared),
+                            display_type_id(&actual)
+                        ),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(const_item.initializer)),
+                );
+            }
             self.states.insert(const_id, ConstVisitState::Done);
         }
 
         fn validate_const_expr(&mut self, owner: ConstId, expr_id: ExprId) {
+            if self.cancel.check().is_err() {
+                return;
+            }
             let expr = self.lowered.module.expr(expr_id);
             match &expr.kind {
                 ExprKind::Literal(_) => {}
@@ -992,6 +1022,7 @@ fn validate_const_initializers(
         names,
         top_level_index,
         type_table,
+        cancel,
         diagnostics,
         states: HashMap::new(),
     };

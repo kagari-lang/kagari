@@ -2,13 +2,24 @@ use kagari_hir::{hir, resolver::ResolvedName, types::TypeId};
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
-use crate::lower::{EvaluatedConst, EvaluatedConstField};
 use crate::module::ids::LocalId;
 use crate::module::instruction::{
-    AggregateFieldRef, BinaryOp, CallTarget, Constant, Instruction, IrValue, StructFieldInit,
-    UnaryOp,
+    AggregateFieldRef, BinaryOp, CallTarget, Constant, Instruction, IrValue, UnaryOp,
 };
 use crate::module::types::ValueType;
+use kagari_hir::typeck::ConstValue;
+
+impl From<ConstValue> for Constant {
+    fn from(value: ConstValue) -> Self {
+        match value {
+            ConstValue::Unit => Self::Unit,
+            ConstValue::Bool(value) => Self::Bool(value),
+            ConstValue::I32(value) => Self::I32(value),
+            ConstValue::F32(value) => Self::F32(value),
+            ConstValue::String(value) => Self::Str(value),
+        }
+    }
+}
 
 impl FunctionLowerer<'_> {
     pub(crate) fn bind_local(
@@ -143,57 +154,6 @@ impl FunctionLowerer<'_> {
         self.lower_constant(Constant::Unit, ValueType::Unit)
     }
 
-    pub(crate) fn lower_evaluated_const(
-        &mut self,
-        value: &EvaluatedConst,
-        ty: ValueType,
-    ) -> Result<IrValue, IrLoweringError> {
-        match value {
-            EvaluatedConst::Scalar(constant) => Ok(self.lower_constant(constant.clone(), ty)),
-            EvaluatedConst::Tuple(elements) => {
-                let elements = elements
-                    .iter()
-                    .map(|element| self.lower_evaluated_const(element, ValueType::HeapObject))
-                    .collect::<Result<_, _>>()?;
-                let dst = self.alloc_temp(ty);
-                self.emit(Instruction::MakeTuple { dst, elements });
-                Ok(dst)
-            }
-            EvaluatedConst::Array(elements) => {
-                let elements = elements
-                    .iter()
-                    .map(|element| self.lower_evaluated_const(element, ValueType::HeapObject))
-                    .collect::<Result<_, _>>()?;
-                let dst = self.alloc_temp(ty);
-                self.emit(Instruction::MakeArray { dst, elements });
-                Ok(dst)
-            }
-            EvaluatedConst::Struct { name, fields } => {
-                let fields = fields
-                    .iter()
-                    .map(|field| self.lower_const_field(field))
-                    .collect::<Result<_, _>>()?;
-                let dst = self.alloc_temp(ty);
-                self.emit(Instruction::MakeStruct {
-                    dst,
-                    name: name.clone(),
-                    fields,
-                });
-                Ok(dst)
-            }
-        }
-    }
-
-    fn lower_const_field(
-        &mut self,
-        field: &EvaluatedConstField,
-    ) -> Result<StructFieldInit, IrLoweringError> {
-        Ok(StructFieldInit {
-            name: field.name.clone(),
-            value: self.lower_evaluated_const(&field.value, ValueType::HeapObject)?,
-        })
-    }
-
     pub(crate) fn lower_name_expr(
         &mut self,
         expr_id: hir::ExprId,
@@ -213,11 +173,13 @@ impl FunctionLowerer<'_> {
             }
             ResolvedName::Const(id) => {
                 let constant = self
+                    .analyzed
+                    .typed
                     .const_values
                     .get(&id)
                     .cloned()
                     .ok_or(IrLoweringError::MissingBinding("const value"))?;
-                self.lower_evaluated_const(&constant, self.expr_type(expr_id)?)
+                Ok(self.lower_constant(constant.into(), self.expr_type(expr_id)?))
             }
             ResolvedName::Function(_) => Err(IrLoweringError::UnsupportedExpr(
                 "bare function values are not lowered yet",

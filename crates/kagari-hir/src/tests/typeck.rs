@@ -11,6 +11,60 @@ use crate::{
 };
 
 #[test]
+fn const_arithmetic_failures_preserve_other_semantic_facts() {
+    for (expression, reason) in [
+        ("2147483647 + 1", "integer overflow"),
+        ("(-2147483647 - 1) - 1", "integer overflow"),
+        ("50000 * 50000", "integer overflow"),
+        ("-(-2147483647 - 1)", "integer overflow"),
+        ("(-2147483647 - 1) / -1", "integer overflow"),
+        ("1 / 0", "integer division by zero"),
+        ("2147483648", "integer literal is outside the i32 range"),
+        ("(2147483647 + 1) - 1", "integer overflow"),
+    ] {
+        let source = SourceFile::new(
+            "const.kgr",
+            format!(
+                "const BAD: i32 = {expression}; const GOOD: i32 = 6 * 7; fn good() -> i32 {{ GOOD }}"
+            ),
+        );
+        let result = crate::analyze_source(&source, Default::default());
+        let diagnostic = result.diagnostics().iter().find(|diagnostic| matches!(
+            &diagnostic.kind, DiagnosticKind::InvalidConstInitializer { const_name, reason: actual }
+                if const_name == "BAD" && actual == reason
+        )).unwrap_or_else(|| panic!("{expression}: {:?}", result.diagnostics()));
+        let span = diagnostic.span.unwrap();
+        assert!(span.start >= "const BAD: i32 = ".len());
+        assert!(span.end <= "const BAD: i32 = ".len() + expression.len());
+        let facts = result.facts();
+        assert_eq!(facts.typed.const_values.len(), 1);
+        assert_eq!(
+            facts.typed.const_values.values().next(),
+            Some(&crate::typeck::ConstValue::I32(42))
+        );
+        assert_eq!(
+            facts.typed.functions[0].return_type,
+            TypeId::Builtin(BuiltinType::I32)
+        );
+        assert!(result.into_codegen().is_err());
+    }
+}
+
+#[test]
+fn const_type_mismatch_is_rejected_before_codegen() {
+    let source = SourceFile::new(
+        "const.kgr",
+        "const BAD: i32 = true; fn main() -> i32 { BAD }",
+    );
+    let result = crate::analyze_source(&source, Default::default());
+    assert!(result.diagnostics().iter().any(|diagnostic| matches!(
+        &diagnostic.kind, DiagnosticKind::InvalidConstInitializer { reason, .. }
+            if reason == "expected `i32`, found `bool`"
+    )));
+    assert!(result.into_codegen().is_err());
+}
+
+#[test]
 fn reports_unknown_parameter_type() {
     let lowered = common::lower_ok("fn foo(value: number) {}");
     let names = resolve_names(&lowered)

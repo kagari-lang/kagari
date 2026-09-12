@@ -149,6 +149,14 @@ V1 `const-safe` types:
 
 - builtin scalar types such as `()`, `bool`, `i32`, `i64`, `f32`, `f64`, and `String`
 
+The current scalar evaluator handles the implemented literal types (`bool`,
+`i32`, `f32`, and `String`). Analysis owns evaluated const facts; code generation
+does not evaluate initializers again. Arithmetic follows [value semantics](value-semantics.md):
+overflow or integer division by zero produces a source diagnostic and prevents
+code generation. Short-circuit branches are evaluated only when selected, but
+all branches must still satisfy const-safe syntax and type rules. Invalid
+constants do not discard unrelated function/type facts.
+
 V1 exclusions:
 
 - tuples
@@ -158,7 +166,8 @@ V1 exclusions:
 - any future type lowered as a GC handle or other heap-backed runtime object
 
 This keeps `const` aligned with Kagari's ordinary runtime value model.
-Kagari currently treats heap-backed values as identity-bearing runtime objects, so allowing them in `const` would require a separate frozen-object model.
+Physical heap allocation does not determine value semantics. Aggregate consts
+remain outside this scalar evaluator even when the aggregate has value semantics.
 
 In other words, `const` in v1 is a compile-time by-value constant, not a shared read-only object.
 

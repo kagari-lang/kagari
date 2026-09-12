@@ -1,5 +1,7 @@
 mod body;
 mod check;
+mod const_eval;
+pub use const_eval::ConstValue;
 mod reuse;
 mod table;
 mod ty;
@@ -23,6 +25,7 @@ pub struct TypedModule {
     pub reused_bodies: usize,
     pub functions: TypedFunctionBuffer,
     pub consts: HashMap<ConstId, TypeId>,
+    pub const_values: HashMap<ConstId, ConstValue>,
     pub type_table: TypeTable,
 }
 

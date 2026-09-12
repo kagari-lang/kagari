@@ -4,7 +4,6 @@ use kagari_common::Span;
 use kagari_hir::typeck::TypedFunction;
 use kagari_hir::{AnalyzedModule, hir};
 
-use crate::lower::EvaluatedConst;
 use crate::module::{
     function::{
         BasicBlock, IrFunction, IrFunctionDebugMetadata, IrLocal, IrLocalDebugInfo, IrParameter,
@@ -25,7 +24,7 @@ pub(crate) struct FunctionLowerer<'a> {
     pub(crate) analyzed: &'a AnalyzedModule,
     pub(crate) function: IrFunction,
     pub(crate) current_block: BlockId,
-    pub(crate) const_values: &'a HashMap<hir::ConstId, EvaluatedConst>,
+
     pub(crate) params: HashMap<hir::ParamId, LocalId>,
     pub(crate) locals: HashMap<hir::LocalId, LocalId>,
     pub(crate) loops: Vec<LoopScope>,
@@ -38,7 +37,6 @@ impl<'a> FunctionLowerer<'a> {
         analyzed: &'a AnalyzedModule,
         hir_function: &'a hir::Function,
         typed_function: &'a TypedFunction,
-        const_values: &'a HashMap<hir::ConstId, EvaluatedConst>,
     ) -> Self {
         let entry = BlockId::new(0);
         let mut function = IrFunction {
@@ -89,7 +87,7 @@ impl<'a> FunctionLowerer<'a> {
             analyzed,
             function,
             current_block: entry,
-            const_values,
+
             params,
             locals: HashMap::new(),
             loops: Vec::new(),

@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 2 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 3 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Version 1 is rejected; no migration or compatibility decoder exists.
+format version. Versions 1 and 2 are rejected; no migration or compatibility decoder exists.
 `from_bytes()` checks magic and the current version before decoding, imposes a
 64 MiB encoded-size and decoding budget, and rejects trailing data. Decoding alone
 does not establish trust: header, content, dependency, and bytecode checks still
@@ -54,6 +54,12 @@ the `kagari-canonical-v2` domain prefix. Rust `Debug` output is never fingerprin
 input. The artifact content fingerprint includes the header (with its content
 fingerprint zeroed) and every payload section. This is a compatibility checksum,
 not cryptographic authentication; signature policy is a separate host concern.
+
+Public scalar const values use the `const-v1:` encoding followed by the type and
+value: bool is `0` or `1`, i32 is decimal, f32 is eight lowercase hexadecimal
+digits of IEEE bits, and String is its decimal UTF-8 byte length, a colon, and
+the UTF-8 contents. Unit has tag `unit` and no payload. This preserves signed
+zero and string boundaries without relying on Rust formatting traits for values.
 
 ## Header
 

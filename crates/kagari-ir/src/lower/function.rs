@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use kagari_hir::AnalyzedModule;
 use kagari_hir::hir;
 
-use crate::lower::EvaluatedConst;
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
 use crate::module::{function::IrFunction, instruction::Terminator};
@@ -11,7 +10,6 @@ use crate::module::{function::IrFunction, instruction::Terminator};
 pub(crate) fn lower_function(
     module: &AnalyzedModule,
     function: &hir::Function,
-    const_values: &HashMap<hir::ConstId, EvaluatedConst>,
 ) -> Result<IrFunction, IrLoweringError> {
     let typed_by_id = module
         .typed
@@ -25,7 +23,7 @@ pub(crate) fn lower_function(
         .copied()
         .ok_or(IrLoweringError::MissingTypedFunction(function.id))?;
 
-    let mut lowerer = FunctionLowerer::new(module, function, typed, const_values);
+    let mut lowerer = FunctionLowerer::new(module, function, typed);
     let tail = lowerer.lower_block(function.body)?;
     if !lowerer.current_block_terminated() {
         let value = match tail {

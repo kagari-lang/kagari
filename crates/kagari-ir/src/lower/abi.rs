@@ -1,23 +1,27 @@
-use std::collections::HashMap;
-
 use kagari_hir::{
     AnalyzedModule,
-    hir::{self, ConstId, FunctionKind, Item, Visibility},
+    hir::{self, FunctionKind, Item, Visibility},
     types::TypeId,
 };
 
-use crate::{
-    lower::EvaluatedConst,
-    module::{
-        ConstAbi, FieldAbi, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem,
-        TraitAbi, TypeAbi, TypeAbiKind, VariantAbi,
-    },
+// Versioned scalar encoding; float bits and UTF-8 byte length are explicit.
+fn const_abi_value(value: &kagari_hir::typeck::ConstValue) -> String {
+    use kagari_hir::typeck::ConstValue;
+    match value {
+        ConstValue::Unit => "const-v1:unit".to_owned(),
+        ConstValue::Bool(value) => format!("const-v1:bool:{}", u8::from(*value)),
+        ConstValue::I32(value) => format!("const-v1:i32:{value}"),
+        ConstValue::F32(value) => format!("const-v1:f32:{:08x}", value.to_bits()),
+        ConstValue::String(value) => format!("const-v1:str:{}:{value}", value.len()),
+    }
+}
+
+use crate::module::{
+    ConstAbi, FieldAbi, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem,
+    TraitAbi, TypeAbi, TypeAbiKind, VariantAbi,
 };
 
-pub(crate) fn collect_module_abi(
-    module: &AnalyzedModule,
-    const_values: &HashMap<ConstId, EvaluatedConst>,
-) -> ModuleAbi {
+pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
     let hir_module = &module.lowered.module;
     let mut public_items = Vec::new();
 
@@ -46,11 +50,13 @@ pub(crate) fn collect_module_abi(
                     .consts
                     .get(&id)
                     .map(TypeId::display_name)
-                    .unwrap_or_else(|| "<unknown>".to_owned());
-                let value = const_values
+                    .expect("checked const fact must exist");
+                let value = module
+                    .typed
+                    .const_values
                     .get(&id)
                     .map(const_abi_value)
-                    .unwrap_or_else(|| "<unknown>".to_owned());
+                    .expect("checked const fact must exist");
                 public_items.push(PublicAbiItem::Const(ConstAbi {
                     name: const_item.name.clone(),
                     ty,
@@ -239,35 +245,5 @@ fn display_type_ref(module: &hir::Module, ty: hir::TypeRefId) -> String {
             format!("({elements})")
         }
         hir::TypeKind::Array(element) => format!("[{}]", display_type_ref(module, *element)),
-    }
-}
-
-fn const_abi_value(value: &EvaluatedConst) -> String {
-    match value {
-        EvaluatedConst::Scalar(constant) => format!("{constant:?}"),
-        EvaluatedConst::Tuple(elements) => format!(
-            "({})",
-            elements
-                .iter()
-                .map(const_abi_value)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        EvaluatedConst::Array(elements) => format!(
-            "[{}]",
-            elements
-                .iter()
-                .map(const_abi_value)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        EvaluatedConst::Struct { name, fields } => format!(
-            "{name} {{ {} }}",
-            fields
-                .iter()
-                .map(|field| format!("{}: {}", field.name, const_abi_value(&field.value)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
     }
 }

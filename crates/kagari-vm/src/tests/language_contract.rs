@@ -331,6 +331,19 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     .effects(&["init"], &["init"]);
     cached_init_failure.repeat = 2;
     let cases = [
+        Case::new("const-short-circuit",
+            "const A: bool = false && (1 / 0 == 0); const B: bool = true || (2147483647 + 1 == 0); fn main() -> bool { !A && B }",
+            Expected::Value(Value::Bool(true))),
+        Case::new("const-dependency",
+            "const BASE: i32 = 6 * 7; const NEXT: i32 = BASE + 1; fn main() -> i32 { NEXT }",
+            Expected::Value(Value::I32(43))).native(),
+        Case::new("const-overflow", "const BAD: i32 = 2147483647 + 1; fn main() -> i32 { BAD }",
+            Expected::Diagnostic("KG_TYPE_INVALID_CONST_INITIALIZER")),
+        Case::new("const-divide-zero", "const BAD: i32 = 1 / 0; fn main() -> i32 { BAD }",
+            Expected::Diagnostic("KG_TYPE_INVALID_CONST_INITIALIZER")),
+        Case::new("const-short-circuit-still-requires-const-safe-code",
+            "const BAD: bool = true || effect(); fn effect() -> bool { print(\"no\"); true } fn main() -> bool { BAD }",
+            Expected::Diagnostic("KG_TYPE_INVALID_CONST_INITIALIZER")),
         Case::new("add_overflow", "fn main() -> i32 { 2147483647 + 1 }", Expected::ScriptTrap("integer overflow")).native(),
         Case::new("temporary_overflow", "fn main() -> i32 { (2147483647 + 1) - 1 }", Expected::ScriptTrap("integer overflow")).native(),
         Case::new("sub_overflow", "fn main() -> i32 { (-2147483647 - 1) - 1 }", Expected::ScriptTrap("integer overflow")).native(),

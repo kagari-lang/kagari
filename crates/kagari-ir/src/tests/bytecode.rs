@@ -12,6 +12,36 @@ use crate::{
 };
 
 #[test]
+fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
+    let artifact =
+        |source: &str| KbcArtifact::from_module(common::bytecode_ok(source), Default::default());
+    let expression = artifact("pub const VALUE: i32 = 6 * 7;");
+    let literal = artifact("pub const VALUE: i32 = 42;");
+    assert_eq!(
+        expression.verification.public_abi_fingerprints,
+        literal.verification.public_abi_fingerprints
+    );
+    let positive_zero = artifact("pub const VALUE: f32 = 0.0;");
+    let negative_zero = artifact("pub const VALUE: f32 = -0.0;");
+    assert_ne!(
+        positive_zero.verification.public_abi_fingerprints,
+        negative_zero.verification.public_abi_fingerprints
+    );
+    for version in [1u16, 2] {
+        let mut old = literal.clone();
+        old.header.format_version = version;
+        assert!(KbcArtifact::from_bytes(&old.to_bytes().unwrap()).is_err());
+        assert!(matches!(
+            old.validate_for_loader(&ArtifactCompatibility {
+                format_version: version,
+                ..Default::default()
+            }),
+            Err(ArtifactValidationError::FormatVersionMismatch { .. })
+        ));
+    }
+}
+
+#[test]
 fn lowers_function_metadata_into_bytecode() {
     let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }");
     let function = &bytecode.functions[0];
@@ -242,7 +272,7 @@ pub fn greet(player: Player) -> String {
     assert!(module.public_items.iter().any(|item| matches!(
         item,
         PublicAbiItem::Const(item)
-            if item.name == "VERSION" && item.ty == "i32" && item.value == "I32(1)"
+            if item.name == "VERSION" && item.ty == "i32" && item.value == "const-v1:i32:1"
     )));
     assert!(module.public_items.iter().any(|item| matches!(
         item,

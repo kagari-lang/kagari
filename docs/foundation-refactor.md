@@ -68,6 +68,9 @@ Implemented foundation slices:
   annotations, call targets and indices produce diagnostics; unresolved operands
   suppress dependent mismatch diagnostics. Empty Map/Set constructors retain
   concrete parameters inferred from binding annotations.
+  Scalar const values are now HIR facts. Arithmetic failures and annotation
+  mismatches reject code generation while retaining unrelated facts. IR no longer
+  evaluates const syntax or rebuilds legacy aggregate const objects.
 - R05: unchanged files share parse/analysis results; identical function bodies
   reuse remapped type facts, while declaration changes invalidate that reuse.
   Scope/type/member-receiver queries work on erroneous files. Shared cancellation
@@ -76,11 +79,13 @@ Implemented foundation slices:
   Remaining work includes dependency-query ownership and compile-time limits.
   Language profiles participate in cache reuse; old queries cannot publish over
   a newer revision. Engine snapshot compilation exposes cancellation explicitly.
-- R09: format v2 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v3 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked
   identity integration and per-table count/depth limits remain outstanding.
+  Public const ABI values use tagged scalar encoding with explicit float bits and
+  UTF-8 string lengths; older Debug-based const ABI artifacts are rejected.
 - R11 prerequisite for R02: the VM and standard equality assertion now call one
   script equality operation instead of Rust Value::PartialEq. Tuples/enums compare
   members, mutable objects compare identity, and unsupported categories trap.
@@ -91,8 +96,10 @@ Implemented foundation slices:
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
   and JIT helper ABI fingerprints are v2. Path arithmetic failure produces no
-  write callback or dirty record. Constant evaluation, mutation resource commit,
-  narrower integer layouts and the other backend/debugger contracts remain open.
+  write callback or dirty record. Const evaluation shares checked arithmetic and
+  honors short circuit, with cancellation checks. General literal validation,
+  mutation resource commit, narrower integer layouts and the other backend/
+  debugger contracts remain open; compile-time quotas are still pending R15.
 
 Validation: workspace tests pass after the source/analysis changes. Workspace
 clippy with `-D warnings` passes after correcting baseline lints and marking the

@@ -1,3 +1,5 @@
+const EXPECTED_MAX: i32 = 6 * 2;
+
 fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
@@ -9,6 +11,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert_eq(first.pop(), second.pop(), "Option compares its payload by value");
     // Integer arithmetic and abs trap on overflow, including intermediate results.
     std::debug::assert_eq(std::math::abs(-2147483647), 2147483647, "checked abs boundary");
+    std::debug::assert_eq(std::math::max(10, 12), EXPECTED_MAX, "const uses checked arithmetic");
 
     val scores: Map<String, i32> = std::map::new();
     scores.insert("alice", 10);

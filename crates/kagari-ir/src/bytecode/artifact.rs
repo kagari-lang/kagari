@@ -8,7 +8,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 2;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 3;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 
 fn codec() -> impl Options {
