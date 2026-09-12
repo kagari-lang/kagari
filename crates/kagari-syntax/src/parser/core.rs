@@ -111,6 +111,11 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn current_kind(&self) -> Option<TokenKind> {
+        // Grammar loops terminate on EOF, including module/trait bodies that
+        // have no `None` recovery arm. Cancellation must follow that path.
+        if self.cancel.check().is_err() {
+            return Some(TokenKind::Eof);
+        }
         self.peek().map(|token| token.kind.clone())
     }
 
