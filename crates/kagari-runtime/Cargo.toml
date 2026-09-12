@@ -9,5 +9,6 @@ default = []
 jit = []
 
 [dependencies]
+kagari-common.workspace = true
 kagari-ir.workspace = true
 indexmap.workspace = true

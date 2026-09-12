@@ -4,7 +4,7 @@ use kagari_ir::bytecode::{
     BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef, verify_module,
 };
 use kagari_runtime::{
-    BackendDiagnostic, BackendFunctionInput, BackendId, BackendInvocationErrorKind, CodegenBackend,
+    BackendDiagnostic, BackendFunctionInput, BackendId, BackendInvocationError, CodegenBackend,
     ExecutionArtifactId, LoadedModule, ModuleEpochRetention, ModuleInitializationState, ModuleKey,
     ModuleStore, ReloadDependencySnapshot, Runtime, value::Value,
 };
@@ -326,15 +326,16 @@ impl Vm {
                     diagnostics: Vec::new(),
                 },
             }),
-            Err(error) if error.kind == BackendInvocationErrorKind::UnsupportedArtifact => {
+            Err(BackendInvocationError::UnsupportedArtifact(message)) => {
                 Ok(JitEntryResult::Fallback(JitExecutionReport {
                     backend: backend_id,
                     function: entry,
                     status: JitExecutionStatus::InterpreterFallback,
                     artifact: Some(artifact_id),
-                    diagnostics: vec![BackendDiagnostic::unsupported(error.message)],
+                    diagnostics: vec![BackendDiagnostic::unsupported(message)],
                 }))
             }
+            Err(BackendInvocationError::RuntimeFailure(error)) => Err(VmError::RuntimeError(error)),
             Err(error) => Err(VmError::JitInvocation(error)),
         }
     }

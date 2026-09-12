@@ -1,3 +1,4 @@
+pub mod arithmetic;
 pub mod cancellation;
 pub mod diagnostic;
 pub mod identity;

@@ -230,34 +230,27 @@ impl BackendCompileError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BackendInvocationErrorKind {
-    UnsupportedArtifact,
-    RuntimeFailure,
-    InternalError,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackendInvocationError {
-    pub kind: BackendInvocationErrorKind,
-    pub message: String,
+pub enum BackendInvocationError {
+    UnsupportedArtifact(String),
+    RuntimeFailure(crate::RuntimeError),
+    InternalError(String),
 }
 
 impl BackendInvocationError {
-    pub fn unsupported_artifact(message: impl Into<String>) -> Self {
-        Self {
-            kind: BackendInvocationErrorKind::UnsupportedArtifact,
-            message: message.into(),
-        }
-    }
-
-    pub fn runtime_failure(message: impl Into<String>) -> Self {
-        Self {
-            kind: BackendInvocationErrorKind::RuntimeFailure,
-            message: message.into(),
+    pub fn message(&self) -> &str {
+        match self {
+            Self::UnsupportedArtifact(message) | Self::InternalError(message) => message,
+            Self::RuntimeFailure(error) => error.message(),
         }
     }
 }
 
+impl fmt::Display for BackendInvocationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.message())
+    }
+}
+impl std::error::Error for BackendInvocationError {}
 pub trait CodegenBackend {
     fn backend_id(&self) -> BackendId;
 
@@ -274,7 +267,7 @@ pub trait CodegenBackend {
         runtime: &Runtime,
     ) -> Result<Value, BackendInvocationError> {
         let _ = (artifact, runtime);
-        Err(BackendInvocationError::unsupported_artifact(format!(
+        Err(BackendInvocationError::UnsupportedArtifact(format!(
             "backend `{}` cannot invoke executable artifacts directly",
             self.backend_id()
         )))

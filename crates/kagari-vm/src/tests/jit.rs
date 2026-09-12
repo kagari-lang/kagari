@@ -140,7 +140,7 @@ impl CodegenBackend for NativeBackend {
         assert_eq!(artifact.function, FunctionRef::new(0));
         runtime
             .consume_instruction_step()
-            .map_err(|error| BackendInvocationError::runtime_failure(error.to_string()))?;
+            .map_err(BackendInvocationError::RuntimeFailure)?;
         Ok(Value::I32(11))
     }
 }

@@ -1,6 +1,9 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
-use std::sync::{Arc, Mutex};
+use std::{
+    cell::Cell,
+    sync::{Arc, Mutex},
+};
 
 use kagari_common::SourceFile;
 use kagari_hir::{LanguageFeatureProfile, analyze_source};
@@ -17,6 +20,34 @@ use kagari_runtime::{
 
 use crate::{Vm, VmError};
 
+struct RecordingBackend {
+    inner: CraneliftBackend,
+    invocations: Cell<usize>,
+}
+impl kagari_runtime::CodegenBackend for RecordingBackend {
+    fn backend_id(&self) -> kagari_runtime::BackendId {
+        self.inner.backend_id()
+    }
+    fn target(&self) -> kagari_runtime::BackendTarget {
+        self.inner.target()
+    }
+    fn compile_function(
+        &mut self,
+        input: kagari_runtime::BackendFunctionInput<'_>,
+    ) -> Result<kagari_runtime::ExecutableFunctionArtifact, kagari_runtime::BackendCompileError>
+    {
+        self.inner.compile_function(input)
+    }
+    fn invoke_function(
+        &self,
+        artifact: &kagari_runtime::ExecutableFunctionArtifact,
+        runtime: &Runtime,
+    ) -> Result<Value, kagari_runtime::BackendInvocationError> {
+        self.invocations.set(self.invocations.get() + 1);
+        self.inner.invoke_function(artifact, runtime)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Route {
     Source,
@@ -30,6 +61,8 @@ enum Expected {
     Diagnostic(&'static str),
     IndexTrap,
     HostFailure,
+    ScriptTrap(&'static str),
+    ResourceLimit,
 }
 
 #[derive(Debug, PartialEq)]
@@ -62,6 +95,8 @@ struct Case {
     committed: &'static [&'static str],
     reject_call: Option<usize>,
     repeat: usize,
+    require_native: bool,
+    max_steps: Option<u64>,
 }
 
 impl Case {
@@ -74,6 +109,8 @@ impl Case {
             committed: &[],
             reject_call: None,
             repeat: 1,
+            require_native: false,
+            max_steps: None,
         }
     }
     fn effects(
@@ -83,6 +120,11 @@ impl Case {
     ) -> Self {
         self.calls = calls;
         self.committed = committed;
+        self
+    }
+
+    fn native(mut self) -> Self {
+        self.require_native = true;
         self
     }
 }
@@ -127,6 +169,10 @@ fn run(case: &Case, route: Route) {
         }
     };
     let mut runtime = Runtime::new(RuntimeConfig {
+        resources: kagari_runtime::ResourcePolicy {
+            max_instruction_steps: case.max_steps,
+            ..Default::default()
+        },
         security: SecurityContext {
             profile: LanguageProfile {
                 allow_jit: true,
@@ -182,11 +228,13 @@ fn run(case: &Case, route: Route) {
         .unwrap();
     let loaded = runtime.load_module(case.name, module).unwrap();
     let mut vm = Vm::new(runtime);
+    let mut backend = RecordingBackend {
+        inner: CraneliftBackend::for_host().unwrap(),
+        invocations: Cell::new(0),
+    };
     for attempt in 0..case.repeat {
         let outcome = match route {
-            Route::Jit => {
-                vm.execute_with_backend(&loaded, "main", &mut CraneliftBackend::for_host().unwrap())
-            }
+            Route::Jit => vm.execute_with_backend(&loaded, "main", &mut backend),
             _ => vm.execute(&loaded, "main"),
         };
         match (&case.expected, outcome) {
@@ -198,12 +246,31 @@ fn run(case: &Case, route: Route) {
             (Expected::IndexTrap, Err(VmError::InvalidIndex(_))) => {}
             (Expected::HostFailure, Err(VmError::RuntimeError(error)))
                 if error.kind() == kagari_runtime::RuntimeErrorKind::HostCallFailure => {}
+            (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
+                if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
+                    && error.message() == *message => {}
+            (Expected::ResourceLimit, Err(VmError::RuntimeError(error)))
+                if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded => {}
             (expected, actual) => panic!(
                 "{} ({route:?}, attempt {attempt}): expected {expected:?}, got {actual:?}",
                 case.name
             ),
         }
     }
+    if matches!(route, Route::Jit) && case.require_native {
+        assert_eq!(
+            backend.invocations.get(),
+            case.repeat,
+            "{} must actually invoke native code",
+            case.name
+        );
+    }
+    assert_eq!(
+        vm.runtime().resources().counters().current_call_depth,
+        0,
+        "{} ({route:?}): call resources must be released after success or failure",
+        case.name
+    );
     let host = host.lock().unwrap();
     let expected_calls = case
         .calls
@@ -242,6 +309,13 @@ fn run(case: &Case, route: Route) {
 
 #[test]
 fn language_contract_routes_preserve_values_diagnostics_and_effects() {
+    let mut budget_before_overflow = Case::new(
+        "budget_before_overflow",
+        "fn main() -> i32 { 2147483647 + 1 }",
+        Expected::ResourceLimit,
+    )
+    .native();
+    budget_before_overflow.max_steps = Some(2);
     let mut reject = Case::new(
         "host_reject",
         "fn main() { print(\"first\"); print(\"rejected\"); print(\"unreachable\"); }",
@@ -257,6 +331,15 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     .effects(&["init"], &["init"]);
     cached_init_failure.repeat = 2;
     let cases = [
+        Case::new("add_overflow", "fn main() -> i32 { 2147483647 + 1 }", Expected::ScriptTrap("integer overflow")).native(),
+        Case::new("temporary_overflow", "fn main() -> i32 { (2147483647 + 1) - 1 }", Expected::ScriptTrap("integer overflow")).native(),
+        Case::new("sub_overflow", "fn main() -> i32 { (-2147483647 - 1) - 1 }", Expected::ScriptTrap("integer overflow")).native(),
+        Case::new("mul_overflow", "fn main() -> i32 { 50000 * 50000 }", Expected::ScriptTrap("integer overflow")).native(),
+        Case::new("neg_overflow", "fn main() -> i32 { -(-2147483647 - 1) }", Expected::ScriptTrap("integer overflow")).native(),
+        Case::new("div_overflow", "fn main() -> i32 { (-2147483647 - 1) / -1 }", Expected::ScriptTrap("integer overflow")),
+        Case::new("division_by_zero", "fn main() -> i32 { 1 / 0 }", Expected::ScriptTrap("integer division by zero")),
+        Case::new("overflow_effects", "fn left() -> i32 { print(\"left\"); 2147483647 } fn right() -> i32 { print(\"right\"); 1 } fn main() -> i32 { left() + right() }", Expected::ScriptTrap("integer overflow")).effects(&["left", "right"], &["left", "right"]),
+        budget_before_overflow,
         Case::new("scalar", "fn main() -> i32 { (2 + 3) * 4 }", Expected::Value(Value::I32(20))),
         Case::new("alias", "struct P { var n: i32 } fn main() -> i32 { val a = P { n: 1 }; val b = a; b.n = 7; a.n }", Expected::Value(Value::I32(7))),
         Case::new("object_identity", "struct P { var n: i32 } fn main() -> bool { val a = P { n: 1 }; val b = P { n: 1 }; a == b }", Expected::Value(Value::Bool(false))),

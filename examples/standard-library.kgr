@@ -7,6 +7,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val first = [1];
     val second = [1];
     std::debug::assert_eq(first.pop(), second.pop(), "Option compares its payload by value");
+    // Integer arithmetic and abs trap on overflow, including intermediate results.
+    std::debug::assert_eq(std::math::abs(-2147483647), 2147483647, "checked abs boundary");
 
     val scores: Map<String, i32> = std::map::new();
     scores.insert("alice", 10);

@@ -47,6 +47,21 @@ fn normalizes_ir_operands_as_typed_values() {
 }
 
 #[test]
+fn integer_operations_expose_traps_to_downstream_backends() {
+    for expression in ["value + 1", "value - 1", "value * 2", "value / 2", "-value"] {
+        let analyzed =
+            common::analyze_ok(&format!("fn main(value: i32) -> i32 {{ {expression} }}"));
+        let ir = lower_to_ir(&analyzed).unwrap();
+        assert!(ir.functions[0].effects.may_trap, "{expression}");
+        let bytecode = crate::bytecode::lower_to_bytecode(&ir).unwrap();
+        assert!(
+            bytecode.functions[0].metadata.effects.may_trap,
+            "{expression}"
+        );
+    }
+}
+
+#[test]
 fn records_ir_function_effect_summary() {
     let analyzed = common::analyze_ok(
         r#"

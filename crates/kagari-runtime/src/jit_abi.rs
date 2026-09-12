@@ -3,7 +3,9 @@ use crate::{Runtime, value::Value};
 pub const JIT_CONSUME_INSTRUCTION_STEP_SYMBOL: &str = "kagari_runtime.consume_instruction_step";
 
 pub const JIT_STATUS_OK: i32 = 0;
-pub const JIT_STATUS_RUNTIME_ERROR: i32 = 1;
+pub const JIT_STATUS_RESOURCE_LIMIT: i32 = 1;
+pub const JIT_STATUS_INTEGER_OVERFLOW: i32 = 2;
+pub const JIT_STATUS_INVALID_RUNTIME: i32 = 3;
 pub const JIT_VALUE_TAG_UNIT: u8 = 0;
 pub const JIT_VALUE_TAG_BOOL: u8 = 1;
 pub const JIT_VALUE_TAG_I32: u8 = 2;
@@ -67,10 +69,10 @@ impl Default for JitValue {
 /// Generated code must obey that runtime's single-threaded execution ownership.
 pub unsafe extern "C" fn jit_consume_instruction_step(runtime: *const Runtime) -> i32 {
     let Some(runtime) = (unsafe { runtime.as_ref() }) else {
-        return JIT_STATUS_RUNTIME_ERROR;
+        return JIT_STATUS_INVALID_RUNTIME;
     };
     match runtime.consume_instruction_step() {
         Ok(()) => JIT_STATUS_OK,
-        Err(_) => JIT_STATUS_RUNTIME_ERROR,
+        Err(_) => JIT_STATUS_RESOURCE_LIMIT,
     }
 }

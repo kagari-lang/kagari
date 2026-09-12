@@ -53,6 +53,8 @@ Implemented foundation slices:
   need implementation and fixtures before R02 can be checked off.
   Enum payload equality, distinct mutable enum members, shallow container copies,
   and rejection of interface equality now run through these same routes.
+  Integer arithmetic traps, retained pre-trap host effects and budget precedence
+  now use these routes too; selected fixtures require actual native invocation.
 - R03: source IDs/revisions, immutable snapshots, base/overlay precedence and
   checked UTF-8/UTF-16/CRLF coordinates. The engine now compiles and queries the
   same snapshots; disk loading, host text and overlays use one ingestion path.
@@ -84,6 +86,13 @@ Implemented foundation slices:
   members, mutable objects compare identity, and unsupported categories trap.
   Enum nominal identity still uses the current representation pending R07; owned
   heap handles, rooted host handles and collecting GC remain outstanding.
+- R13/R17 prerequisite for R02: interpreter arithmetic, typed-path arithmetic and
+  integer abs use checked operations. Existing native i32 add/subtract/multiply/
+  negate check each operation, including intermediate overflow, and preserve
+  structured resource/trap errors. IR records trapping arithmetic effects. Runtime
+  and JIT helper ABI fingerprints are v2. Path arithmetic failure produces no
+  write callback or dirty record. Constant evaluation, mutation resource commit,
+  narrower integer layouts and the other backend/debugger contracts remain open.
 
 Validation: workspace tests pass after the source/analysis changes. Workspace
 clippy with `-D warnings` passes after correcting baseline lints and marking the

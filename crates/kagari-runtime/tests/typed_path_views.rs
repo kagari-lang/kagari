@@ -530,6 +530,60 @@ fn path_execution_classifies_validation_failures() {
 }
 
 #[test]
+fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
+    for (initial, op, rhs, message) in [
+        (i32::MAX, BinaryOp::Add, 1, "integer overflow"),
+        (i32::MIN, BinaryOp::Sub, 1, "integer overflow"),
+        (50_000, BinaryOp::Mul, 50_000, "integer overflow"),
+        (i32::MIN, BinaryOp::Div, -1, "integer overflow"),
+        (7, BinaryOp::Div, 0, "integer division by zero"),
+    ] {
+        let mut runtime = path_mutation_runtime();
+        let i32_id = register_i32(&runtime);
+        let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+        let root = runtime
+            .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+            .unwrap();
+        let descriptor =
+            register_hp_descriptor(&mut runtime, player_id, i32_id, PathAccess::ReadWrite);
+        let value = Arc::new(Mutex::new(initial));
+        let read_value = value.clone();
+        let write_value = value.clone();
+        let writes = Arc::new(Mutex::new(0));
+        let write_count = writes.clone();
+        runtime
+            .register_host_path_adapter(
+                descriptor,
+                HostPathAdapter::new()
+                    .with_read(move |_| Ok(Value::I32(*read_value.lock().unwrap())))
+                    .with_write(move |_, value| {
+                        let Value::I32(value) = value else {
+                            return Err(HostError::new("expected i32"));
+                        };
+                        *write_count.lock().unwrap() += 1;
+                        *write_value.lock().unwrap() = value;
+                        Ok(())
+                    }),
+            )
+            .unwrap();
+        let error = runtime
+            .modify_host_path(
+                &Value::HostRoot(root),
+                descriptor,
+                vec![],
+                op,
+                Value::I32(rhs),
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+        assert_eq!(error.message(), message);
+        assert_eq!(*value.lock().unwrap(), initial);
+        assert_eq!(*writes.lock().unwrap(), 0);
+        assert!(runtime.host_dirty_paths().is_empty());
+    }
+}
+
+#[test]
 fn path_execution_enforces_descriptor_capabilities() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);

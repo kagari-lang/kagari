@@ -282,10 +282,25 @@ impl EffectSet {
 impl Instruction {
     pub fn effects(&self) -> EffectSet {
         match self {
-            Self::LoadConst { .. }
-            | Self::Move { .. }
-            | Self::Unary { .. }
-            | Self::Binary { .. } => EffectSet::default(),
+            Self::LoadConst { .. } | Self::Move { .. } => EffectSet::default(),
+            Self::Unary { op, operand, .. } => EffectSet {
+                may_trap: matches!(op, UnaryOp::Neg)
+                    && matches!(operand.ty, ValueType::I32 | ValueType::I64),
+                ..EffectSet::default()
+            },
+            Self::Binary { op, lhs, .. } => {
+                let heap_comparison =
+                    matches!(op, BinaryOp::Eq | BinaryOp::NotEq) && lhs.ty == ValueType::HeapObject;
+                EffectSet {
+                    reads_aggregate: heap_comparison,
+                    may_trap: heap_comparison
+                        || (matches!(
+                            op,
+                            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
+                        ) && matches!(lhs.ty, ValueType::I32 | ValueType::I64)),
+                    ..EffectSet::default()
+                }
+            }
             Self::LoadLocal { .. } => EffectSet::local_read(),
             Self::StoreLocal { .. } => EffectSet::local_write(),
             Self::LoadModule { .. } => EffectSet::module_read(),
@@ -309,7 +324,10 @@ impl Instruction {
 
 impl Terminator {
     pub fn effects(&self) -> EffectSet {
-        EffectSet::default()
+        EffectSet {
+            may_trap: matches!(self, Self::Unreachable),
+            ..EffectSet::default()
+        }
     }
 }
 

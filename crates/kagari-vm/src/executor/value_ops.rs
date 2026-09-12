@@ -16,13 +16,7 @@ impl Executor<'_> {
     }
 
     pub(crate) fn apply_unary(op: UnaryOp, value: Value) -> Result<Value, VmError> {
-        match (op, value) {
-            (UnaryOp::Neg, Value::I32(value)) => Ok(Value::I32(-value)),
-            (UnaryOp::Neg, Value::F32(value)) => Ok(Value::F32(-value)),
-            (UnaryOp::Not, Value::Bool(value)) => Ok(Value::Bool(!value)),
-            (UnaryOp::Neg, _) => Err(VmError::TypeMismatch("unary neg expects numeric value")),
-            (UnaryOp::Not, _) => Err(VmError::TypeMismatch("unary not expects bool value")),
-        }
+        kagari_runtime::numeric::unary(op, value).map_err(VmError::RuntimeError)
     }
 
     pub(crate) fn apply_binary(
@@ -32,34 +26,9 @@ impl Executor<'_> {
         rhs: Value,
     ) -> Result<Value, VmError> {
         match op {
-            BinaryOp::Add => match (lhs, rhs) {
-                (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs + rhs)),
-                (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs + rhs)),
-                _ => Err(VmError::TypeMismatch(
-                    "add expects matching numeric operands",
-                )),
-            },
-            BinaryOp::Sub => match (lhs, rhs) {
-                (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs - rhs)),
-                (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs - rhs)),
-                _ => Err(VmError::TypeMismatch(
-                    "sub expects matching numeric operands",
-                )),
-            },
-            BinaryOp::Mul => match (lhs, rhs) {
-                (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs * rhs)),
-                (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs * rhs)),
-                _ => Err(VmError::TypeMismatch(
-                    "mul expects matching numeric operands",
-                )),
-            },
-            BinaryOp::Div => match (lhs, rhs) {
-                (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs / rhs)),
-                (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs / rhs)),
-                _ => Err(VmError::TypeMismatch(
-                    "div expects matching numeric operands",
-                )),
-            },
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                kagari_runtime::numeric::binary(op, lhs, rhs).map_err(VmError::RuntimeError)
+            }
             BinaryOp::Eq | BinaryOp::NotEq => {
                 let equal =
                     kagari_runtime::value_semantics::script_equal(self.runtime.gc(), &lhs, &rhs)

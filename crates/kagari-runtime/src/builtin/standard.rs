@@ -711,14 +711,12 @@ fn math_abs(args: &[Value]) -> Result<Value, BuiltinError> {
         return Err(BuiltinError::new("math.abs expects one value"));
     };
     match value {
-        Value::I32(value) => value
-            .checked_abs()
+        Value::I32(value) => kagari_common::arithmetic::i32_abs(*value)
             .map(Value::I32)
-            .ok_or_else(|| BuiltinError::new("math.abs overflow")),
-        Value::I64(value) => value
-            .checked_abs()
+            .map_err(|error| BuiltinError::new(error.message())),
+        Value::I64(value) => kagari_common::arithmetic::i64_abs(*value)
             .map(Value::I64)
-            .ok_or_else(|| BuiltinError::new("math.abs overflow")),
+            .map_err(|error| BuiltinError::new(error.message())),
         Value::F32(value) if value.is_finite() => Ok(Value::F32(value.abs())),
         Value::F64(value) if value.is_finite() => Ok(Value::F64(value.abs())),
         _ => Err(BuiltinError::new(

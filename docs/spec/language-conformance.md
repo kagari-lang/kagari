@@ -13,6 +13,13 @@ artifact loading, and the existing JIT. The JIT route permits its existing
 interpreter fallback; it does not imply every fixture is native code. Diagnostic
 fixtures must fail the checked-analysis boundary before any backend runs.
 
+Selected scalar overflow fixtures require a recorded native invocation. They
+cover add/subtract/multiply/negate, intermediate overflow, and budget exhaustion
+before arithmetic. Division uses the existing interpreter fallback. Runtime
+failures retain their structured category across the native ABI; they never
+trigger a second execution through fallback. Path arithmetic has focused tests
+for unchanged target state, zero write callbacks and zero dirty records on failure.
+
 The recording host exposes `host.log`, as used by the source `print` builtin.
 A call is recorded before its configured outcome. A successful append records
 the target, previous length, and appended value. A rejected append produces no

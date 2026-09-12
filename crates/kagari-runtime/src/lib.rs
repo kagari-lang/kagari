@@ -7,6 +7,7 @@ pub mod host;
 pub mod jit_abi;
 pub mod metadata;
 pub mod module;
+pub mod numeric;
 pub mod reflection;
 pub mod reload;
 pub mod resource;
@@ -21,9 +22,9 @@ use kagari_ir::{
 
 pub use backend::{
     BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,
-    BackendInvocationError, BackendInvocationErrorKind, BackendTarget, CodegenBackend,
-    ExecutableDebugInfo, ExecutableDebugPoint, ExecutableEntryPoint, ExecutableFunctionArtifact,
-    ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap, ExecutableStackMapLocation,
+    BackendInvocationError, BackendTarget, CodegenBackend, ExecutableDebugInfo,
+    ExecutableDebugPoint, ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint,
+    ExecutableSafepointKind, ExecutableStackMap, ExecutableStackMapLocation,
     ExecutableStackMapSlot, ExecutableStackValueKind, ExecutableTrap,
 };
 pub use cache::{

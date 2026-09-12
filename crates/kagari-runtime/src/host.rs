@@ -538,44 +538,7 @@ fn path_access_allows(available: PathAccess, required: PathAccess) -> bool {
 }
 
 fn apply_path_modify(op: BinaryOp, old_value: Value, rhs: Value) -> Result<Value, RuntimeError> {
-    match op {
-        BinaryOp::Add => match (old_value, rhs) {
-            (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs + rhs)),
-            (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs + rhs)),
-            _ => Err(RuntimeError::typed_path_validation(
-                "path add modify expects matching numeric values",
-            )),
-        },
-        BinaryOp::Sub => match (old_value, rhs) {
-            (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs - rhs)),
-            (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs - rhs)),
-            _ => Err(RuntimeError::typed_path_validation(
-                "path sub modify expects matching numeric values",
-            )),
-        },
-        BinaryOp::Mul => match (old_value, rhs) {
-            (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs * rhs)),
-            (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs * rhs)),
-            _ => Err(RuntimeError::typed_path_validation(
-                "path mul modify expects matching numeric values",
-            )),
-        },
-        BinaryOp::Div => match (old_value, rhs) {
-            (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs / rhs)),
-            (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::F32(lhs / rhs)),
-            _ => Err(RuntimeError::typed_path_validation(
-                "path div modify expects matching numeric values",
-            )),
-        },
-        BinaryOp::Eq
-        | BinaryOp::NotEq
-        | BinaryOp::Lt
-        | BinaryOp::Gt
-        | BinaryOp::Le
-        | BinaryOp::Ge => Err(RuntimeError::typed_path_validation(
-            "path modify expects an arithmetic assignment operator",
-        )),
-    }
+    crate::numeric::binary(op, old_value, rhs)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

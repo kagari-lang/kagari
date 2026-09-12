@@ -20,8 +20,9 @@ use kagari_runtime::{
     ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap,
     Runtime,
     jit_abi::{
-        JIT_CONSUME_INSTRUCTION_STEP_SYMBOL, JIT_STATUS_OK, JIT_STATUS_RUNTIME_ERROR,
-        JIT_VALUE_TAG_BOOL, JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitCompiledFunction, JitValue,
+        JIT_CONSUME_INSTRUCTION_STEP_SYMBOL, JIT_STATUS_INTEGER_OVERFLOW,
+        JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT, JIT_VALUE_TAG_BOOL,
+        JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitCompiledFunction, JitValue,
         jit_consume_instruction_step,
     },
     value::Value as RuntimeValue,
@@ -85,23 +86,44 @@ impl CraneliftBackend {
         &self,
         artifact: &ExecutableFunctionArtifact,
         runtime: &Runtime,
-    ) -> Result<RuntimeValue, CraneliftInvocationError> {
+    ) -> Result<RuntimeValue, BackendInvocationError> {
         let ExecutableEntryPoint::Native { address, .. } = artifact.entry else {
-            return Err(CraneliftInvocationError::new(
-                "artifact does not contain a native entry point",
+            return Err(BackendInvocationError::UnsupportedArtifact(
+                "artifact does not contain a native entry point".into(),
             ));
         };
         let function: JitCompiledFunction =
             unsafe { mem::transmute::<usize, JitCompiledFunction>(address) };
         let mut result = JitValue::default();
         let status = unsafe { function(runtime as *const Runtime, &mut result) };
-        if status != JIT_STATUS_OK {
-            return Err(CraneliftInvocationError::new(
-                "compiled function reported a runtime helper failure",
-            ));
+        match status {
+            JIT_STATUS_OK => {}
+            JIT_STATUS_RESOURCE_LIMIT => {
+                return Err(BackendInvocationError::RuntimeFailure(
+                    kagari_runtime::RuntimeError::resource_limit("instruction steps"),
+                ));
+            }
+            JIT_STATUS_INTEGER_OVERFLOW => {
+                return Err(BackendInvocationError::RuntimeFailure(
+                    kagari_runtime::RuntimeError::new(
+                        kagari_runtime::RuntimeErrorKind::ScriptTrap,
+                        "integer overflow",
+                    ),
+                ));
+            }
+            JIT_STATUS_INVALID_RUNTIME => {
+                return Err(BackendInvocationError::InternalError(
+                    "invalid runtime pointer".into(),
+                ));
+            }
+            _ => {
+                return Err(BackendInvocationError::InternalError(format!(
+                    "unknown compiled function status {status}"
+                )));
+            }
         }
         result.into_value().ok_or_else(|| {
-            CraneliftInvocationError::new("compiled function returned bad value tag")
+            BackendInvocationError::InternalError("compiled function returned bad value tag".into())
         })
     }
 
@@ -134,6 +156,28 @@ impl CraneliftBackend {
         );
         artifact.entry = ExecutableEntryPoint::Native { symbol, address };
         artifact.safepoints = safepoints;
+        artifact.traps = input
+            .function
+            .instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, instruction)| {
+                matches!(
+                    instruction,
+                    BytecodeInstruction::Unary {
+                        op: UnaryOp::Neg,
+                        ..
+                    } | BytecodeInstruction::Binary {
+                        op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul,
+                        ..
+                    }
+                )
+            })
+            .map(|(instruction_offset, _)| kagari_runtime::ExecutableTrap {
+                instruction_offset,
+                reason: "integer overflow".into(),
+            })
+            .collect();
         Ok(artifact)
     }
 
@@ -170,6 +214,8 @@ impl CraneliftBackend {
             let mut builder = FunctionBuilder::new(&mut context.func, &mut function_context);
             let entry_block = builder.create_block();
             let helper_error_block = builder.create_block();
+            builder.append_block_param(helper_error_block, types::I32);
+            let overflow_block = builder.create_block();
             builder.switch_to_block(entry_block);
             builder.append_block_params_for_function_params(entry_block);
             let runtime_ptr = builder.block_params(entry_block)[0];
@@ -193,13 +239,13 @@ impl CraneliftBackend {
                     }
                     BytecodeInstruction::Unary { dst, op, operand } => {
                         let operand = read_register(&registers, *operand)?;
-                        let value = emit_unary(&mut builder, *op, operand)?;
+                        let value = emit_unary(&mut builder, *op, operand, overflow_block)?;
                         write_register(&mut registers, *dst, value)?;
                     }
                     BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
                         let lhs = read_register(&registers, *lhs)?;
                         let rhs = read_register(&registers, *rhs)?;
-                        let value = emit_binary(&mut builder, *op, lhs, rhs)?;
+                        let value = emit_binary(&mut builder, *op, lhs, rhs, overflow_block)?;
                         write_register(&mut registers, *dst, value)?;
                     }
                     BytecodeInstruction::Return(value) => {
@@ -236,10 +282,13 @@ impl CraneliftBackend {
             }
 
             builder.switch_to_block(helper_error_block);
-            let error_status = builder
-                .ins()
-                .iconst(types::I32, i64::from(JIT_STATUS_RUNTIME_ERROR));
+            let error_status = builder.block_params(helper_error_block)[0];
             builder.ins().return_(&[error_status]);
+            builder.switch_to_block(overflow_block);
+            let overflow_status = builder
+                .ins()
+                .iconst(types::I32, i64::from(JIT_STATUS_INTEGER_OVERFLOW));
+            builder.ins().return_(&[overflow_status]);
             builder.seal_all_blocks();
             builder.finalize();
         }
@@ -277,7 +326,6 @@ impl CodegenBackend for CraneliftBackend {
         runtime: &Runtime,
     ) -> Result<RuntimeValue, BackendInvocationError> {
         self.invoke_compiled_scalar(artifact, runtime)
-            .map_err(|error| BackendInvocationError::runtime_failure(error.message()))
     }
 }
 
@@ -305,31 +353,6 @@ impl fmt::Display for CraneliftBackendError {
 }
 
 impl std::error::Error for CraneliftBackendError {}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CraneliftInvocationError {
-    message: String,
-}
-
-impl CraneliftInvocationError {
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-
-    pub fn message(&self) -> &str {
-        &self.message
-    }
-}
-
-impl fmt::Display for CraneliftInvocationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CraneliftInvocationError {}
 
 #[derive(Debug, Clone, Copy)]
 struct LoweredValue {
@@ -443,9 +466,13 @@ fn emit_resource_check(
         .ins()
         .icmp_imm(IntCC::Equal, status, i64::from(JIT_STATUS_OK));
     let continue_block = builder.create_block();
-    builder
-        .ins()
-        .brif(ok, continue_block, &[], helper_error_block, &[]);
+    builder.ins().brif(
+        ok,
+        continue_block,
+        &[],
+        helper_error_block,
+        &[status.into()],
+    );
     builder.switch_to_block(continue_block);
 }
 
@@ -486,13 +513,16 @@ fn emit_unary(
     builder: &mut FunctionBuilder<'_>,
     op: UnaryOp,
     operand: LoweredValue,
+    overflow_block: ir::Block,
 ) -> Result<LoweredValue, BackendCompileError> {
     match (op, operand.tag) {
         (UnaryOp::Neg, JIT_VALUE_TAG_I32) => {
             let zero = builder.ins().iconst(types::I64, 0);
+            let payload = builder.ins().isub(zero, operand.payload);
+            emit_i32_range_check(builder, payload, overflow_block);
             Ok(LoweredValue {
                 tag: JIT_VALUE_TAG_I32,
-                payload: builder.ins().isub(zero, operand.payload),
+                payload,
             })
         }
         (UnaryOp::Not, JIT_VALUE_TAG_BOOL) => {
@@ -514,6 +544,7 @@ fn emit_binary(
     op: BinaryOp,
     lhs: LoweredValue,
     rhs: LoweredValue,
+    overflow_block: ir::Block,
 ) -> Result<LoweredValue, BackendCompileError> {
     match op {
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul
@@ -525,6 +556,7 @@ fn emit_binary(
                 BinaryOp::Mul => builder.ins().imul(lhs.payload, rhs.payload),
                 _ => unreachable!(),
             };
+            emit_i32_range_check(builder, payload, overflow_block);
             Ok(LoweredValue {
                 tag: JIT_VALUE_TAG_I32,
                 payload,
@@ -565,6 +597,26 @@ fn emit_binary(
             lhs.tag, rhs.tag
         ))),
     }
+}
+
+fn emit_i32_range_check(
+    builder: &mut FunctionBuilder<'_>,
+    value: ir::Value,
+    overflow_block: ir::Block,
+) {
+    // Inputs are sign-extended i32. Their sum, difference, product and negation
+    // fit i64, so checking the widened result detects each i32 overflow before
+    // any later instruction can observe it or hide it through another operation.
+    let below = builder
+        .ins()
+        .icmp_imm(IntCC::SignedLessThan, value, i64::from(i32::MIN));
+    let above = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThan, value, i64::from(i32::MAX));
+    let overflow = builder.ins().bor(below, above);
+    let next = builder.create_block();
+    builder.ins().brif(overflow, overflow_block, &[], next, &[]);
+    builder.switch_to_block(next);
 }
 
 fn is_comparable_scalar_tag(tag: u8) -> bool {
@@ -739,7 +791,10 @@ mod tests {
             .invoke_compiled_scalar(&artifact, &runtime)
             .expect_err("resource helper failure should be visible to the ABI caller");
 
-        assert!(error.message().contains("runtime helper failure"));
+        assert!(
+            matches!(error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded)
+        );
+        assert!(error.message().contains("instruction steps"));
         assert_eq!(runtime.resources().counters().instruction_steps, 1);
     }
 
