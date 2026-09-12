@@ -40,6 +40,15 @@ that component is rejected without itself being labelled cyclic. Unrelated cycle
 do not prevent compilation of an independent root. Lifecycle semantics belong to
 [module-activation.md](module-activation.md).
 
+Declarations are collected for every module before signatures are checked.
+Public struct, enum and trait types can be used in parameter, return, field and
+local annotations via direct imports and qualified namespace aliases. Type
+facades and aliases of re-exported source modules retain the final declaration
+identity. Generic parameters shadow imported type names within their binder.
+Type navigation reports the defining file and revision, including inside array
+and tuple annotations. Import or visibility changes invalidate those targets and
+dependent signatures; an old snapshot retains its old declarations.
+
 Function signatures are checked for every module before any function body is
 checked. Imported calls use these signatures, including through public source
 facades; they do not reinterpret dependency syntax. Parameter/return types retain
@@ -48,8 +57,9 @@ Signature queries retain errors independently of body and constant diagnostics.
 An invalid dependency body does not erase its usable function signatures.
 
 Current implementation boundary: source imports support graph, definition and
-function signature queries and call checking. Imported type annotations, namespace
-facades, cross-module field access and executable bundle linking remain pending.
+function signature queries, imported type annotations and call checking. Applied
+user types, namespace-facade calls, foreign trait constraints/implementations,
+cross-module aggregate/member operations and executable bundle linking remain pending.
 Single-module code generation reports `KG_COMPILE_MODULE_LINK_REQUIRED`
 for source imports, including unused imports whose initialization would otherwise
 be lost. Host and standard imports remain executable.

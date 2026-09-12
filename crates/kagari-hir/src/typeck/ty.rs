@@ -83,6 +83,9 @@ pub(super) fn resolve_type_in(
                     .definition(crate::resolver::ResolvedName::Trait(item.id))
                     .cloned()
                     .map(TypeId::Trait)
+            } else if let Some(imported) = context.declarations.imported_types().get(name) {
+                target = Some(TypeTarget::Source(imported.id));
+                Some(imported.ty.clone())
             } else {
                 None
             }

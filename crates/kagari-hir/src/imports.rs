@@ -14,10 +14,15 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 mod functions;
+mod types;
+pub(crate) use types::TypeCatalog;
+pub use types::{ImportedType, ImportedTypes, SourceTypeId};
 #[cfg(test)]
 mod signature_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod type_tests;
 pub(crate) use functions::FunctionCatalog;
 pub use functions::{ImportedFunction, ImportedFunctions, SourceFunctionId};
 
@@ -69,6 +74,7 @@ impl ModuleImports {
 #[derive(Debug, Clone)]
 pub struct ModuleNode {
     pub file: FileId,
+    pub revision: Revision,
     pub imports: Arc<ModuleImports>,
     dependencies: Vec<ModuleIdentity>,
     cycle: Option<Arc<[ModuleIdentity]>>,
@@ -108,6 +114,7 @@ impl ModuleGraph {
                 identity.clone(),
                 ModuleNode {
                     file: module.source.id(),
+                    revision: module.source.revision(),
                     imports: Arc::new(imports),
                     dependencies,
                     cycle: None,
@@ -124,6 +131,39 @@ impl ModuleGraph {
     }
     pub fn modules(&self) -> impl Iterator<Item = (&ModuleIdentity, &ModuleNode)> {
         self.nodes.iter()
+    }
+
+    /// Follow public source re-exports in this graph, retaining the final source owner.
+    pub fn resolve_item(
+        &self,
+        mut target: SourceImport,
+        cancel: &CancellationToken,
+    ) -> Result<Option<SourceImport>, Cancelled> {
+        let mut visited = HashSet::new();
+        loop {
+            cancel.check()?;
+            let Some(node) = self.node(&target.module) else {
+                return Ok(None);
+            };
+            if node.file != target.file || node.revision != target.revision {
+                return Ok(None);
+            }
+            let Some(ExportItem::Import(index)) = target.item else {
+                return Ok(Some(target));
+            };
+            if !visited.insert((target.file, index)) {
+                return Ok(None);
+            }
+            let Some(ImportTarget::Source(next)) = node
+                .imports
+                .entries
+                .get(index)
+                .and_then(|import| import.target.as_ref())
+            else {
+                return Ok(None);
+            };
+            target = next.clone();
+        }
     }
 
     /// Dependency-first order of the root's reachable graph; unrelated cycles do not block it.

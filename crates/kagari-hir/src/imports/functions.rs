@@ -28,12 +28,17 @@ impl ImportedFunctions {
 }
 
 pub(crate) struct FunctionCatalog<'a> {
+    graph: &'a ModuleGraph,
     modules: HashMap<FileId, &'a PreparedAnalysis>,
 }
 
 impl<'a> FunctionCatalog<'a> {
-    pub(crate) fn new(modules: impl IntoIterator<Item = &'a PreparedAnalysis>) -> Self {
+    pub(crate) fn new(
+        graph: &'a ModuleGraph,
+        modules: impl IntoIterator<Item = &'a PreparedAnalysis>,
+    ) -> Self {
         Self {
+            graph,
             modules: modules
                 .into_iter()
                 .map(|m| (m.lowered.source.id(), m))
@@ -82,65 +87,41 @@ impl<'a> FunctionCatalog<'a> {
 
     fn resolve(
         &self,
-        mut target: SourceImport,
+        target: SourceImport,
         cancel: &CancellationToken,
     ) -> Result<Option<ImportedFunction>, Cancelled> {
-        let mut visited = HashSet::new();
-        loop {
-            cancel.check()?;
-            let Some(module) = self.modules.get(&target.file) else {
-                return Ok(None);
-            };
-            if module.lowered.source.revision() != target.revision
-                || module.lowered.source.module_identity() != &target.module
-            {
-                return Ok(None);
-            }
-            match target.item {
-                Some(ExportItem::Function(function)) => {
-                    let Some(signature) = module
-                        .signatures
-                        .facts
-                        .functions
-                        .iter()
-                        .find(|f| f.id == function)
-                    else {
-                        return Ok(None);
-                    };
-                    let Some(declaration) = module
-                        .declarations
-                        .definition(ResolvedName::Function(function))
-                    else {
-                        return Ok(None);
-                    };
-                    return Ok(Some(ImportedFunction {
-                        id: SourceFunctionId {
-                            file: target.file,
-                            revision: target.revision,
-                            function,
-                        },
-                        declaration: declaration.clone(),
-                        signature: signature.clone(),
-                    }));
-                }
-                Some(ExportItem::Import(index)) => {
-                    if !visited.insert((target.file, index)) {
-                        return Ok(None);
-                    }
-                    let Some(ImportTarget::Source(next)) = module
-                        .names
-                        .facts
-                        .imports
-                        .entries
-                        .get(index)
-                        .and_then(|i| i.target.as_ref())
-                    else {
-                        return Ok(None);
-                    };
-                    target = next.clone();
-                }
-                _ => return Ok(None),
-            }
-        }
+        let Some(target) = self.graph.resolve_item(target, cancel)? else {
+            return Ok(None);
+        };
+        let Some(module) = self.modules.get(&target.file) else {
+            return Ok(None);
+        };
+        let Some(ExportItem::Function(function)) = target.item else {
+            return Ok(None);
+        };
+        let Some(signature) = module
+            .signatures
+            .facts
+            .functions
+            .iter()
+            .find(|f| f.id == function)
+        else {
+            return Ok(None);
+        };
+        let Some(declaration) = module
+            .declarations
+            .definition(ResolvedName::Function(function))
+        else {
+            return Ok(None);
+        };
+        Ok(Some(ImportedFunction {
+            id: SourceFunctionId {
+                file: target.file,
+                revision: target.revision,
+                function,
+            },
+            declaration: declaration.clone(),
+            signature: signature.clone(),
+        }))
     }
 }

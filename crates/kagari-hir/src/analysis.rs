@@ -249,6 +249,11 @@ impl FileAnalysis {
                     .type_ref(crate::hir::TypeRefId::new(index))?
                     .target?;
                 let declaration = match target {
+                    crate::typeck::TypeTarget::Source(id) => facts
+                        .declarations
+                        .imported_types()
+                        .target(id)
+                        .map(|ty| &ty.declaration),
                     crate::typeck::TypeTarget::Struct(id) => facts
                         .declarations
                         .target(crate::resolver::ResolvedName::Struct(id)),
@@ -352,7 +357,7 @@ impl AnalysisDatabase {
             &self.hosts,
             cancel,
         )?);
-        let mut signatures = std::collections::BTreeMap::new();
+        let mut declarations = std::collections::BTreeMap::new();
         for (id, (file, parsed, lowered)) in prepared {
             cancel.check()?;
             let imports = graph
@@ -367,14 +372,35 @@ impl AnalysisDatabase {
                             == self.hosts.revision()
                         && previous.result.facts().names.imports == imports =>
                 {
-                    crate::PreparedAnalysis::from_cached(previous.result.facts())
+                    crate::DeclaredAnalysis::from_cached(previous.result.facts())
                 }
-                _ => crate::prepare_analysis(lowered, self.hosts.clone(), imports, cancel),
+                _ => crate::declare_analysis(lowered, self.hosts.clone(), imports, cancel),
             };
+            declarations.insert(id, (file, parsed, prepared));
+        }
+        let type_catalog = crate::imports::TypeCatalog::new(
+            &graph,
+            declarations.values().map(|(_, _, declared)| declared),
+        );
+        let mut imported_types = HashMap::new();
+        for (id, (_, _, declared)) in &declarations {
+            imported_types.insert(
+                *id,
+                type_catalog.bindings(&declared.names.facts.imports, cancel)?,
+            );
+        }
+        let mut signatures = std::collections::BTreeMap::new();
+        for (id, (file, parsed, declared)) in declarations {
+            cancel.check()?;
+            let prepared = declared.check_signatures(
+                imported_types.remove(&id).expect("declared type bindings"),
+                cancel,
+            );
             signatures.insert(id, (file, parsed, prepared));
         }
         // Every module signature is available before any function body is checked.
         let catalog = crate::imports::FunctionCatalog::new(
+            &graph,
             signatures.values().map(|(_, _, prepared)| prepared),
         );
         let mut bindings = HashMap::new();
@@ -396,7 +422,9 @@ impl AnalysisDatabase {
                         && previous.result.facts().names.hosts.revision()
                             == self.hosts.revision()
                         && previous.result.facts().names.imports == imports
-                        && previous.result.facts().imported_functions == imported_functions =>
+                        && previous.result.facts().imported_functions == imported_functions
+                        && previous.result.facts().declarations.imported_types
+                            == prepared.declarations.imported_types =>
                 {
                     previous.clone()
                 }
@@ -410,6 +438,8 @@ impl AnalysisDatabase {
                                     == self.hosts.revision()
                                 && old.result.facts().names.imports.same_bindings(&imports)
                                 && old.result.facts().imported_functions == imported_functions
+                                && old.result.facts().declarations.imported_types
+                                    == prepared.declarations.imported_types
                                 && old.source.module_identity() == file.module_identity()
                         })
                         .map(|old| crate::typeck::BodyReuse {
@@ -514,38 +544,22 @@ impl AnalysisSnapshot {
         if let Some(declaration) = self.file(file)?.definition_at(offset) {
             return Some(declaration);
         }
-        use crate::{hir::ExportItem, imports::ImportTarget, resolver::ResolvedName};
-        let mut target = self.source_import_at(file, offset)?;
-        let mut visited = std::collections::HashSet::new();
-        loop {
-            let file = self.file(target.file)?;
-            if file.source.revision() != target.revision
-                || file.source.module_identity() != &target.module
-            {
-                return None;
-            }
-            let resolved = match target.item? {
-                ExportItem::Function(id) => ResolvedName::Function(id),
-                ExportItem::Const(id) => ResolvedName::Const(id),
-                ExportItem::Module(id) => ResolvedName::Module(id),
-                ExportItem::Struct(id) => ResolvedName::Struct(id),
-                ExportItem::Enum(id) => ResolvedName::Enum(id),
-                ExportItem::Trait(id) => ResolvedName::Trait(id),
-                ExportItem::Import(index) => {
-                    if !visited.insert((target.file, index)) {
-                        return None;
-                    }
-                    let Some(ImportTarget::Source(next)) =
-                        &file.result.facts().names.imports.entries.get(index)?.target
-                    else {
-                        return None;
-                    };
-                    target = next.clone();
-                    continue;
-                }
-            };
-            return file.result.facts().declarations.target(resolved);
-        }
+        use crate::{hir::ExportItem, resolver::ResolvedName};
+        let target = self
+            .graph
+            .resolve_item(self.source_import_at(file, offset)?, &Default::default())
+            .ok()??;
+        let file = self.file(target.file)?;
+        let resolved = match target.item? {
+            ExportItem::Function(id) => ResolvedName::Function(id),
+            ExportItem::Const(id) => ResolvedName::Const(id),
+            ExportItem::Module(id) => ResolvedName::Module(id),
+            ExportItem::Struct(id) => ResolvedName::Struct(id),
+            ExportItem::Enum(id) => ResolvedName::Enum(id),
+            ExportItem::Trait(id) => ResolvedName::Trait(id),
+            ExportItem::Import(_) => return None,
+        };
+        file.result.facts().declarations.target(resolved)
     }
     pub fn module_graph(&self) -> &crate::imports::ModuleGraph {
         &self.graph

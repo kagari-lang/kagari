@@ -88,12 +88,18 @@ fn imported_nominal_signatures_distinguish_same_named_types() {
         insert(
             &mut db,
             module,
-            "pub struct Value { number: i32 } pub fn make() -> Value { Value { number: 1 } } pub fn accept(value: Value) -> i32 { value.number }",
+            "pub struct Value { val number: i32 } pub fn make() -> Value { Value { number: 1 } } pub fn accept(value: Value) -> i32 { value.number }",
         );
     }
     let text = "use pkg::left as l; use pkg::right as r; fn good() -> i32 { l::accept(l::make()) } fn bad() -> i32 { l::accept(r::make()) }";
     let root = insert(&mut db, "root", text);
     let snapshot = analyze(&db);
+    for (_, node) in snapshot.module_graph().modules() {
+        if node.file != root {
+            let diagnostics = snapshot.file(node.file).unwrap().result().diagnostics();
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        }
+    }
     let file = snapshot.file(root).unwrap();
     assert_eq!(
         file.result().diagnostics().len(),

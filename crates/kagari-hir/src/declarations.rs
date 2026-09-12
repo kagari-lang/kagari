@@ -47,6 +47,7 @@ pub struct Declaration {
 
 #[derive(Debug, Clone)]
 pub struct Declarations {
+    pub(crate) imported_types: crate::imports::ImportedTypes,
     analysis: AnalysisId,
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
@@ -66,6 +67,9 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    pub fn imported_types(&self) -> &crate::imports::ImportedTypes {
+        &self.imported_types
+    }
     pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
         match &self.target(name)?.id {
             DeclarationId::Definition(id) => Some(id),
@@ -136,6 +140,7 @@ impl Declarations {
             source,
             cancel,
             result: Self {
+                imported_types: Default::default(),
                 analysis,
                 targets: HashMap::new(),
                 identities: HashMap::new(),

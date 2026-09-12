@@ -63,7 +63,7 @@ Implemented foundation slices:
   same snapshots; disk loading, host text and overlays use one ingestion path.
   Relative paths resolve against a captured root; virtual URI schemes survive
   normalization. Embedding diagnostics carry file/revision ranges. Cross-module
-  type imports, executable linking and complete HIR body scoping remain outstanding.
+  aggregate/member linking and complete HIR body scoping remain outstanding.
   Logical package/module bindings now belong to source documents and survive
   overlays. Rebinding invalidates analysis; duplicate source bindings are rejected.
   Source-based HIR carries its origin through IR, bytecode and artifact metadata.
@@ -156,6 +156,15 @@ Implemented foundation slices:
   invalidate callers even when their direct import revisions did not change; unrelated
   file results and unchanged local signature results remain shared. Fully independent
   declaration/body queries and signature reuse across local body edits remain pending.
+  All module declarations are now available before signature checking. Public struct,
+  enum and trait type annotations resolve through direct imports, qualified module
+  aliases and source type facades. Parameter, return, field and local annotations
+  retain nominal identity and dependency-owned navigation targets. Type import changes
+  invalidate local signatures and bodies, including through unchanged facade files.
+  Function exports may use types imported from another source module. Public facade
+  target traversal is shared by type imports, imported calls and definition queries;
+  cyclic or stale targets cannot escape their snapshot. Applied user types, foreign
+  field/member operations and imported trait implementation contracts remain pending.
 - R03/R14: an immutable import graph detects strongly connected components with
   explicit stacks and rejects reachable cycles before compilation. Its deterministic
   dependency-first order visits diamond dependencies once and ignores unrelated

@@ -9,12 +9,15 @@ use kagari_embed::KagariEngine;
 fn main() {
     let engine = KagariEngine::default();
     for (name, text) in [
-        ("shared", "pub fn value() -> i32 { 42 }"),
+        (
+            "shared",
+            "pub struct Data { val number: i32 } pub fn value() -> i32 { 42 }",
+        ),
         ("left", "use demo::shared;"),
         ("right", "use demo::shared;"),
         (
             "root",
-            "use demo::left; use demo::right; use demo::shared::value; fn main() -> i32 { value() }",
+            "use demo::left; use demo::right; use demo::shared::value; use demo::shared::Data; fn pass(x: Data) -> Data { x } fn main() -> i32 { value() }",
         ),
     ] {
         let source = format!("memory://{name}");
@@ -47,6 +50,13 @@ fn main() {
         function.signature.return_type.display_name()
     );
     assert!(file.result().diagnostics().is_empty());
+    let type_offset = file.source().text().find("Data)").unwrap();
+    let declaration = snapshot.definition_at(root.file, type_offset).unwrap();
+    assert_ne!(declaration.location.file, root.file);
+    println!(
+        "imported type {} has a dependency-owned definition",
+        declaration.name
+    );
     // Source bundles still require cross-module linking before execution.
 }
 
