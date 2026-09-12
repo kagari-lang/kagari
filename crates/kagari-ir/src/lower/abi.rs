@@ -35,7 +35,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 }) else {
                     continue;
                 };
-                if let Some(abi) = function_abi(&module.typed.functions, function) {
+                if let Some(abi) = function_abi(module, function) {
                     public_items.push(PublicAbiItem::Function(abi));
                 }
             }
@@ -116,7 +116,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 };
                 public_items.push(PublicAbiItem::Trait(TraitAbi {
                     name: trait_item.name.clone(),
-                    generic_params: generic_param_abi(&trait_item.generic_params),
+                    generic_params: generic_param_abi(module, &trait_item.generic_params),
                     methods: trait_item
                         .methods
                         .iter()
@@ -125,9 +125,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                                 .functions
                                 .iter()
                                 .find(|function| function.id == method.function)
-                                .and_then(|function| {
-                                    function_abi(&module.typed.functions, function)
-                                })
+                                .and_then(|function| function_abi(module, function))
                         })
                         .collect(),
                 }));
@@ -159,7 +157,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         .functions
                         .iter()
                         .find(|function| function.id == method.function)
-                        .and_then(|function| function_abi(&module.typed.functions, function))
+                        .and_then(|function| function_abi(module, function))
                 })
                 .collect(),
         }));
@@ -168,17 +166,16 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
     ModuleAbi { public_items }
 }
 
-fn function_abi(
-    typed_functions: &[kagari_hir::typeck::TypedFunction],
-    function: &hir::Function,
-) -> Option<FunctionAbi> {
-    let typed = typed_functions
+fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<FunctionAbi> {
+    let typed = module
+        .typed
+        .functions
         .iter()
         .find(|typed| typed.id == function.id)?;
     Some(FunctionAbi {
         name: typed.name.clone(),
-        generic_params: generic_param_abi(&function.generic_params),
-        bounds: trait_bound_abi(&function.bounds),
+        generic_params: generic_param_abi(module, &function.generic_params),
+        bounds: trait_bound_abi(module, &function.bounds),
         params: typed
             .params
             .iter()
@@ -192,7 +189,7 @@ fn function_abi(
     })
 }
 
-fn generic_param_abi(params: &[hir::GenericParam]) -> Vec<String> {
+fn generic_param_abi(module: &AnalyzedModule, params: &[hir::GenericParam]) -> Vec<String> {
     params
         .iter()
         .map(|param| {
@@ -205,7 +202,7 @@ fn generic_param_abi(params: &[hir::GenericParam]) -> Vec<String> {
                     param
                         .bounds
                         .iter()
-                        .map(|bound| bound.name.as_str())
+                        .map(|bound| constraint_name(module, bound))
                         .collect::<Vec<_>>()
                         .join(" + ")
                 )
@@ -214,17 +211,46 @@ fn generic_param_abi(params: &[hir::GenericParam]) -> Vec<String> {
         .collect()
 }
 
-fn trait_bound_abi(bounds: &[hir::TraitBound]) -> Vec<String> {
+fn constraint_name<'a>(module: &'a AnalyzedModule, reference: &hir::TraitRef) -> &'a str {
+    match module
+        .typed
+        .type_table
+        .constraint(reference.ty)
+        .expect("checked constraint must exist")
+    {
+        kagari_hir::typeck::ConstraintTarget::Standard(constraint) => {
+            kagari_hir::builtin::surface::standard_constraint_name(constraint)
+        }
+        kagari_hir::typeck::ConstraintTarget::Trait(id) => {
+            &module
+                .lowered
+                .module
+                .traits
+                .iter()
+                .find(|item| item.id == id)
+                .expect("checked trait must exist")
+                .name
+        }
+    }
+}
+
+fn trait_bound_abi(module: &AnalyzedModule, bounds: &[hir::TraitBound]) -> Vec<String> {
     bounds
         .iter()
         .map(|bound| {
             format!(
                 "{}: {}",
-                bound.target,
+                module
+                    .typed
+                    .type_table
+                    .type_ref(bound.target_ref)
+                    .expect("checked bound target must exist")
+                    .ty
+                    .display_name(),
                 bound
                     .traits
                     .iter()
-                    .map(|trait_ref| trait_ref.name.as_str())
+                    .map(|trait_ref| constraint_name(module, trait_ref))
                     .collect::<Vec<_>>()
                     .join(" + ")
             )

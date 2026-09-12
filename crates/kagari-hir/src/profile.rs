@@ -96,6 +96,13 @@ fn validate_interface_values(
         if module
             .typed
             .type_table
+            .has_constraint(crate::hir::TypeRefId::new(index))
+        {
+            continue;
+        }
+        if module
+            .typed
+            .type_table
             .type_ref(crate::hir::TypeRefId::new(index))
             .is_some_and(|resolved| matches!(resolved.ty, crate::types::TypeId::Trait(_)))
         {

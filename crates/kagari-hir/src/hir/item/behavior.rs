@@ -66,12 +66,14 @@ pub struct GenericParam {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitBound {
     pub target: String,
+    pub target_ref: TypeRefId,
     pub traits: TraitRefBuffer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitRef {
     pub name: String,
+    pub ty: TypeRefId,
 }
 
 pub type MethodBuffer = Vec<Method>;

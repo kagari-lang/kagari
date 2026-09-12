@@ -96,6 +96,13 @@ Implemented foundation slices:
   interface permission checks use these facts; IR no longer formats impl type syntax.
   Generic navigation identity is distinct from the still string-based TypeId generic
   representation, which must be replaced at the nominal type boundary in R07.
+  Generic constraints now resolve once to standard or trait targets. `where`
+  targets must name generic parameters; impl constraints are inherited by methods
+  without leaking into shadowing parameters or sibling method scopes. Diagnostics
+  use individual bound ranges and inherited invalid references report once.
+  Navigation, generic checks, trait method selection and bound ABI metadata consume
+  these facts. Applied trait constraints reject codegen rather than discarding
+  arguments; concrete instantiation remains pending R07.
   Struct fields have owner/slot HIR identities and module-owned declaration paths.
   Field types, read/write targets and initializer targets are retained as HIR facts;
   IR field operations and field ABI metadata consume them. Invalid field types retain

@@ -92,6 +92,26 @@ fn main() -> Point {
 }
 
 #[test]
+fn static_trait_bounds_do_not_require_interface_value_permission() {
+    let module = kagari_common::SourceFile::new(
+        "bounds.kgr",
+        "trait Show { fn show(self) -> i32; } fn inline<T: Show>(value: T) -> i32 { value.show() } fn predicate<T>(value: T) -> i32 where T: Show { value.show() }",
+    );
+    let analysis = analyze_source(
+        &module,
+        LanguageFeatureProfile {
+            allow_interface_values: false,
+            ..LanguageFeatureProfile::default()
+        },
+    );
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+}
+
+#[test]
 fn profile_rejects_interface_value_types_when_disabled() {
     let module = kagari_common::SourceFile::new(
         "profile.kgr",

@@ -6,6 +6,12 @@ use crate::hir::{ExprId, FieldId, FunctionId, LocalId, PatternId, PlaceId, Struc
 use crate::types::TypeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstraintTarget {
+    Standard(crate::builtin::surface::StandardTypeConstraint),
+    Trait(crate::hir::TraitId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeTarget {
     Struct(crate::hir::StructId),
     Enum(crate::hir::EnumId),
@@ -43,6 +49,7 @@ pub struct ResolvedStructInit {
 
 #[derive(Debug, Clone, Default)]
 pub struct TypeTable {
+    constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
     type_refs: HashMap<crate::hir::TypeRefId, ResolvedTypeRef>,
     field_types: HashMap<FieldId, TypeId>,
     expr_fields: HashMap<ExprId, FieldId>,
@@ -57,6 +64,19 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
+    pub(crate) fn insert_constraint(
+        &mut self,
+        id: crate::hir::TypeRefId,
+        target: Option<ConstraintTarget>,
+    ) {
+        self.constraints.insert(id, target);
+    }
+    pub fn constraint(&self, id: crate::hir::TypeRefId) -> Option<ConstraintTarget> {
+        self.constraints.get(&id).copied().flatten()
+    }
+    pub(crate) fn has_constraint(&self, id: crate::hir::TypeRefId) -> bool {
+        self.constraints.contains_key(&id)
+    }
     pub(crate) fn insert_type_ref(&mut self, id: crate::hir::TypeRefId, resolved: ResolvedTypeRef) {
         self.type_refs.insert(id, resolved);
     }

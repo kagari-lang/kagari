@@ -114,6 +114,22 @@ pub(crate) fn syntax_span(node: &impl AstNode) -> Span {
     Span::new(range.start().into(), range.end().into())
 }
 
+pub(crate) fn token_span(node: &impl AstNode) -> Span {
+    let mut tokens = node
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|element| element.into_token())
+        .filter(|token| !token.kind().is_trivia());
+    let Some(first) = tokens.next() else {
+        return syntax_span(node);
+    };
+    let last = tokens.last().unwrap_or_else(|| first.clone());
+    Span::new(
+        first.text_range().start().into(),
+        last.text_range().end().into(),
+    )
+}
+
 pub(crate) fn lower_binary_op(kind: Option<SyntaxKind>) -> BinaryOp {
     match kind {
         Some(SyntaxKind::Minus) => BinaryOp::Sub,

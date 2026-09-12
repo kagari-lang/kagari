@@ -1218,24 +1218,31 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
-        let (trait_name, self_ty) = match &receiver_ty {
-            TypeId::Trait(name) => (name.clone(), receiver_ty.clone()),
+        let (trait_id, self_ty) = match &receiver_ty {
+            TypeId::Trait(name) => (
+                self.lowered
+                    .module
+                    .traits
+                    .iter()
+                    .find(|item| item.name == *name)?
+                    .id,
+                receiver_ty.clone(),
+            ),
             TypeId::Generic(generic_name) => {
-                let trait_name = env
-                    .generic_bounds
-                    .get(generic_name)
-                    .and_then(|bounds| {
-                        bounds.iter().find(|trait_name| {
-                            self.trait_method_function(trait_name, name).is_some()
-                        })
+                let trait_id = env.generic_bounds.get(generic_name).and_then(|bounds| {
+                    bounds.iter().find_map(|bound| {
+                        let super::ConstraintTarget::Trait(id) = bound else {
+                            return None;
+                        };
+                        self.trait_method_function(*id, name).map(|_| *id)
                     })
-                    .cloned()?;
-                (trait_name, receiver_ty.clone())
+                })?;
+                (trait_id, receiver_ty.clone())
             }
             _ => return None,
         };
 
-        let method_function = self.trait_method_function(&trait_name, name)?;
+        let method_function = self.trait_method_function(trait_id, name)?;
         self.type_table.insert_call(
             call_expr,
             CallTarget::TraitMethod(method_function),
@@ -1282,14 +1289,14 @@ impl<'a> BodyChecker<'a> {
 
     fn trait_method_function(
         &self,
-        trait_name: &str,
+        trait_id: crate::hir::TraitId,
         method_name: &str,
     ) -> Option<crate::hir::FunctionId> {
         self.lowered
             .module
             .traits
             .iter()
-            .find(|trait_def| trait_def.name == trait_name)
+            .find(|trait_def| trait_def.id == trait_id)
             .and_then(|trait_def| {
                 trait_def
                     .methods
@@ -1926,11 +1933,10 @@ fn type_satisfies_standard_constraint(
                 .iter()
                 .all(|ty| type_satisfies_standard_constraint(ty, constraint, env))
         }
-        TypeId::Generic(name) => env.generic_bounds.get(name).is_some_and(|bounds| {
-            bounds
-                .iter()
-                .any(|bound| surface::standard_constraint(bound) == Some(constraint))
-        }),
+        TypeId::Generic(name) => env
+            .generic_bounds
+            .get(name)
+            .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
         _ => match constraint {
             StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
             StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),

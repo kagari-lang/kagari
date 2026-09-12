@@ -40,6 +40,7 @@ pub(crate) fn check_module_controlled(
     let mut function_index = FunctionTypeIndex::default();
     let mut top_level_index = TopLevelTypeIndex::default();
     let mut type_table = TypeTable::default();
+    super::constraints::resolve_constraints(lowered, &mut type_table, &mut diagnostics, cancel);
 
     for structure in &lowered.module.structs {
         let mut field_names = HashSet::new();
@@ -123,7 +124,11 @@ pub(crate) fn check_module_controlled(
                 Some(ty) => {
                     validate_standard_type_constraints(
                         &ty,
-                        &function_bounds(function),
+                        &super::constraints::function_bounds(
+                            &lowered.module,
+                            function,
+                            &type_table,
+                        ),
                         lowered.source_map.type_span(param.ty),
                         &mut diagnostics,
                     );
@@ -159,7 +164,11 @@ pub(crate) fn check_module_controlled(
                     Some(ty) => {
                         validate_standard_type_constraints(
                             &ty,
-                            &function_bounds(function),
+                            &super::constraints::function_bounds(
+                                &lowered.module,
+                                function,
+                                &type_table,
+                            ),
                             lowered.source_map.type_span(*ty_ref),
                             &mut diagnostics,
                         );
@@ -290,7 +299,8 @@ pub(crate) fn check_module_controlled(
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
                 env.generics = function.generic_params.clone();
-                env.generic_bounds = function_bounds(function);
+                env.generic_bounds =
+                    super::constraints::function_bounds(&lowered.module, function, &type_table);
                 for param in &typed_function.params {
                     env.params.insert(param.id, param.ty.clone());
                 }
@@ -364,53 +374,12 @@ fn function_type_context<'a>(
             .map(|item| item.id),
     }
 }
-fn function_bounds(function: &crate::hir::Function) -> HashMap<String, Vec<String>> {
-    let mut bounds = HashMap::<String, Vec<String>>::new();
-    for param in &function.generic_params {
-        let entry = bounds.entry(param.name.clone()).or_default();
-        entry.extend(param.bounds.iter().map(|bound| bound.name.clone()));
-    }
-    for bound in &function.bounds {
-        let entry = bounds.entry(bound.target.clone()).or_default();
-        entry.extend(bound.traits.iter().map(|trait_ref| trait_ref.name.clone()));
-    }
-    bounds
-}
-
 fn validate_trait_surface(
     lowered: &LoweredModule,
     function_index: &FunctionTypeIndex,
     table: &TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
-    let trait_names = lowered
-        .module
-        .traits
-        .iter()
-        .map(|trait_def| trait_def.name.as_str())
-        .collect::<HashSet<_>>();
-
-    for function in &lowered.module.functions {
-        validate_trait_refs(
-            lowered,
-            &trait_names,
-            &function.generic_params,
-            &function.bounds,
-            lowered.source_map.function_span(function.id),
-            diagnostics,
-        );
-    }
-    for trait_def in &lowered.module.traits {
-        validate_trait_refs(
-            lowered,
-            &trait_names,
-            &trait_def.generic_params,
-            &[],
-            lowered.source_map.trait_span(trait_def.id),
-            diagnostics,
-        );
-    }
-
     for function in &lowered.module.functions {
         let Some(typed_function) = function_index.by_id.get(&function.id) else {
             continue;
@@ -433,15 +402,6 @@ fn validate_trait_surface(
 
     let mut seen_impls = HashSet::<(String, String)>::new();
     for impl_block in &lowered.module.impls {
-        validate_trait_refs(
-            lowered,
-            &trait_names,
-            &impl_block.generic_params,
-            &impl_block.bounds,
-            lowered.source_map.impl_span(impl_block.id),
-            diagnostics,
-        );
-
         let Some(trait_name) = impl_block.trait_ref.as_deref() else {
             continue;
         };
@@ -511,49 +471,9 @@ fn validate_trait_surface(
     }
 }
 
-fn validate_trait_refs(
-    _lowered: &LoweredModule,
-    trait_names: &HashSet<&str>,
-    generic_params: &[crate::hir::GenericParam],
-    bounds: &[crate::hir::TraitBound],
-    span: kagari_common::Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    for param in generic_params {
-        for trait_ref in &param.bounds {
-            if surface::standard_constraint(&trait_ref.name).is_some() {
-                continue;
-            }
-            if !trait_names.contains(trait_ref.name.as_str()) {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnknownTrait {
-                        trait_name: trait_ref.name.clone(),
-                    })
-                    .with_span(span),
-                );
-            }
-        }
-    }
-    for bound in bounds {
-        for trait_ref in &bound.traits {
-            if surface::standard_constraint(&trait_ref.name).is_some() {
-                continue;
-            }
-            if !trait_names.contains(trait_ref.name.as_str()) {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnknownTrait {
-                        trait_name: trait_ref.name.clone(),
-                    })
-                    .with_span(span),
-                );
-            }
-        }
-    }
-}
-
 fn validate_standard_type_constraints(
     ty: &TypeId,
-    generic_bounds: &HashMap<String, Vec<String>>,
+    generic_bounds: &HashMap<String, Vec<super::ConstraintTarget>>,
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
@@ -597,16 +517,14 @@ fn validate_standard_type_constraints(
 fn validate_standard_constraint_type(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
-    generic_bounds: &HashMap<String, Vec<String>>,
+    generic_bounds: &HashMap<String, Vec<super::ConstraintTarget>>,
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
     let ok = match ty {
-        TypeId::Generic(name) => generic_bounds.get(name).is_some_and(|bounds| {
-            bounds
-                .iter()
-                .any(|bound| surface::standard_constraint(bound) == Some(constraint))
-        }),
+        TypeId::Generic(name) => generic_bounds
+            .get(name)
+            .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
         _ => match constraint {
             StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
             StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),

@@ -163,6 +163,9 @@ pub enum DiagnosticKind {
     UnknownTrait {
         trait_name: String,
     },
+    InvalidBoundTarget {
+        name: String,
+    },
     InvalidTraitImpl {
         trait_name: String,
         type_name: String,
@@ -317,6 +320,7 @@ impl DiagnosticKind {
             Self::ArrayElementTypeMismatch { .. } => "KG_TYPE_ARRAY_ELEMENT_TYPE_MISMATCH",
             Self::InvalidStructInitializer { .. } => "KG_TYPE_INVALID_STRUCT_INITIALIZER",
             Self::UnknownTrait { .. } => "KG_TYPE_UNKNOWN_TRAIT",
+            Self::InvalidBoundTarget { .. } => "KG_TYPE_INVALID_BOUND_TARGET",
             Self::InvalidTraitImpl { .. } => "KG_TYPE_INVALID_TRAIT_IMPL",
             Self::InvalidInterfaceType { .. } => "KG_TYPE_INVALID_INTERFACE_TYPE",
             Self::TraitMethodMismatch { .. } => "KG_TYPE_TRAIT_METHOD_MISMATCH",
@@ -536,6 +540,9 @@ impl Display for DiagnosticKind {
                 "invalid struct initializer for `{struct_name}`: {reason}"
             ),
             Self::UnknownTrait { trait_name } => write!(f, "unknown trait `{trait_name}`"),
+            Self::InvalidBoundTarget { name } => {
+                write!(f, "bound target `{name}` must name a generic parameter")
+            }
             Self::InvalidTraitImpl {
                 trait_name,
                 type_name,

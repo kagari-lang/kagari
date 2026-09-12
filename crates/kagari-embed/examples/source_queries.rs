@@ -17,7 +17,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         },
     )?;
     // An erroneous neighbor does not prevent navigation in the correct function.
-    let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }";
+    let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }";
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
     let snapshot = engine.analyze(
         engine.source_snapshot(),
@@ -51,6 +51,10 @@ fn main() -> kagari_embed::CompileResult<()> {
         .definition_at(annotation)
         .expect("resolved annotation");
     println!("type {} -> {:?}", point_type.name, point_type.id);
+    let constraint = analysis
+        .definition_at(text.find("T: Show").expect("trait bound") + 3)
+        .expect("resolved trait constraint");
+    println!("constraint {} -> {:?}", constraint.name, constraint.id);
 
     engine.set_source(
         source_name,

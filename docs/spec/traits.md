@@ -82,6 +82,20 @@ The important properties are:
 - no runtime interface object is required in the common static generic case
 - no downcast is involved
 
+Bounds resolve in their declaring generic scope. A `where` predicate must name
+a generic parameter; an unknown name or a concrete type is an invalid target.
+Methods inherit their impl's inline and `where` constraints. A method's own
+constraints apply only within that method. If a method declares a parameter with
+the same name as an inherited parameter, its uses and bounds refer to the method
+parameter; the outer parameter's constraints are not combined with it.
+
+The current foundation implementation records standard constraint identities and
+user trait declaration targets in HIR. It retains navigation in invalid bounds
+and reports inherited invalid references once. Applied bounds such as `Show<i32>`
+are currently rejected, with their type argument facts retained; R07 must provide
+concrete instantiation before such bounds can compile. Generic code generation
+and executable interface dispatch still require the R07/R08 implementation tables.
+
 ## Interface Value Types
 
 A trait name used as a value type denotes an interface value.

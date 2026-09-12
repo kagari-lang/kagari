@@ -48,7 +48,8 @@ their source locations remain revision-specific. Type references in signatures,
 field/const/local annotations and impl headers also provide type and definition
 queries. If a tuple or generic argument is unknown, later arguments still have
 their own facts and navigation targets. Builtin types have types but no source
-declaration target. Bound names and import paths still need dedicated navigation.
+declaration target. User trait bounds and `where` targets also navigate through
+checked facts. Import paths still need dedicated navigation.
 
 `TypeTable::call_resolution` owns each recognized call's target and optional receiver.
 IR generation and reflection permission checks consume this semantic fact. A user
@@ -73,6 +74,18 @@ receiver uses the impl header's context even when a method shadows a generic nam
 These navigation identities do not yet replace the remaining string-based nominal
 and generic TypeId representation. Impl ABI types and interface permission checks
 consume type-reference facts instead of reinterpreting HIR type syntax.
+
+`TypeTable::constraint` distinguishes standard constraint identities from user
+trait identities. Bounds are resolved once in their declaring context; inherited
+copies share their reference and diagnostic. A `where` target must resolve to a
+generic parameter (`KG_TYPE_INVALID_BOUND_TARGET` otherwise). Impl bounds apply
+to methods, while a method's own bounds do not affect sibling methods. Shadowing
+an inherited parameter excludes that parameter's constraints from the method's
+generic environment. Type checking and bound ABI metadata consume these facts.
+Static trait constraints do not require interface-value permission.
+Unknown bounds retain precise reference diagnostics and do not remove nearby
+navigation targets. Applied trait constraints currently reject code generation;
+their arguments are retained for analysis pending R07 concrete instantiation.
 
 Declaration identity consists of the logical module plus typed owner/name path
 segments. A same-kind, same-name occurrence distinguishes duplicate declarations;

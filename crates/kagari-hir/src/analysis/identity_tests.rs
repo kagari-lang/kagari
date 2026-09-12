@@ -429,6 +429,59 @@ fn generic_parameter_identity_is_owner_and_position_based() {
 }
 
 #[test]
+fn bound_navigation_retains_valid_references_beside_unknown_constraints() {
+    let text = "trait Show { fn show(self) -> i32; } fn broken<T: Missing + Show>(value: T) -> i32 where T: Show { value.show() } fn good() -> i32 { 7 }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("bounds.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert_eq!(
+        analysis.result().diagnostics().len(),
+        1,
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let diagnostic = &analysis.result().diagnostics()[0];
+    assert_eq!(diagnostic.kind.code(), "KG_TYPE_UNKNOWN_TRAIT");
+    assert_eq!(
+        diagnostic.span,
+        Some(kagari_common::Span::new(
+            text.find("Missing").unwrap(),
+            text.find("Missing").unwrap() + 7
+        ))
+    );
+    assert_eq!(
+        analysis.type_at(text.find("Missing").unwrap()),
+        Some(TypeId::Error)
+    );
+    let inline = analysis
+        .definition_at(text.find("+ Show").unwrap() + 2)
+        .unwrap();
+    let predicate = analysis
+        .definition_at(text.find("where T").unwrap() + 6)
+        .unwrap();
+    let constraint = analysis
+        .definition_at(text.rfind("T: Show").unwrap() + 3)
+        .unwrap();
+    assert_eq!(inline.id, constraint.id);
+    assert_eq!(inline.name, "Show");
+    assert_eq!(predicate.location.range.start, text.find("<T").unwrap() + 1);
+    assert_eq!(
+        analysis
+            .definition_at(text.find("value.show").unwrap() + 6)
+            .unwrap()
+            .name,
+        "show"
+    );
+    assert_eq!(
+        analysis.type_at(text.find("7 }").unwrap()),
+        Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+    );
+}
+
+#[test]
 fn inherited_generic_parameters_keep_the_trait_or_impl_owner() {
     let text = "struct P { val n: i32 } trait Source<T> { fn map<U>(self, value: T, other: U) -> T; } impl<T> P { fn apply<U>(self, value: T, other: U) -> T { value } }";
     let mut sources = SourceDatabase::default();

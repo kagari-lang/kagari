@@ -1,6 +1,7 @@
 mod body;
 mod check;
 mod const_eval;
+mod constraints;
 mod scalar;
 pub use scalar::ScalarValue;
 mod reuse;
@@ -19,7 +20,8 @@ pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 pub use check::check_module;
 pub(crate) use check::check_module_controlled;
 pub use table::{
-    CallTarget, ResolvedCall, ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,
+    CallTarget, ConstraintTarget, ResolvedCall, ResolvedStructInit, ResolvedTypeRef, TypeTable,
+    TypeTarget,
 };
 
 #[derive(Debug, Clone)]
@@ -72,5 +74,5 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) local_writeability: HashMap<LocalId, Writeability>,
     pub(crate) exprs: HashMap<ExprId, TypeId>,
     pub(crate) generics: Vec<crate::hir::GenericParam>,
-    pub(crate) generic_bounds: HashMap<String, Vec<String>>,
+    pub(crate) generic_bounds: HashMap<String, Vec<ConstraintTarget>>,
 }

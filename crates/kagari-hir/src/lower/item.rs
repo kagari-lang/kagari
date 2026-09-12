@@ -454,6 +454,17 @@ impl Lowerer {
             .predicates()
             .map(|predicate| TraitBound {
                 target: predicate.name_text().unwrap_or_default(),
+                target_ref: self.alloc_type(
+                    predicate
+                        .name()
+                        .map(|name| syntax_span(&name))
+                        .unwrap_or_else(|| syntax_span(&predicate)),
+                    crate::hir::TypeData {
+                        kind: crate::hir::TypeKind::Named(
+                            predicate.name_text().unwrap_or_default(),
+                        ),
+                    },
+                ),
                 traits: predicate
                     .bounds()
                     .map(|bounds| self.lower_trait_refs(bounds.bounds()))
@@ -463,8 +474,27 @@ impl Lowerer {
     }
 
     fn lower_trait_refs(&mut self, refs: impl Iterator<Item = ast::TraitRef>) -> Vec<TraitRef> {
-        refs.map(|trait_ref| TraitRef {
-            name: trait_ref.path_text().unwrap_or_default(),
+        refs.map(|trait_ref| {
+            let name = trait_ref.path_text().unwrap_or_default();
+            let args: smallvec::SmallVec<[TypeRefId; 4]> = trait_ref
+                .generic_args()
+                .map(|args| args.args().map(|arg| self.lower_type(&arg)).collect())
+                .unwrap_or_default();
+            let kind = if args.is_empty() {
+                crate::hir::TypeKind::Named(name.clone())
+            } else {
+                crate::hir::TypeKind::Generic {
+                    name: name.clone(),
+                    args,
+                }
+            };
+            TraitRef {
+                name,
+                ty: self.alloc_type(
+                    crate::lower::context::token_span(&trait_ref),
+                    crate::hir::TypeData { kind },
+                ),
+            }
         })
         .collect::<Vec<_>>()
     }
