@@ -14,7 +14,7 @@ use crate::{
     },
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
-    typeck::ty::{TypeContext, display_type_id, resolve_type, resolve_type_in},
+    typeck::ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     typeck::{BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable},
     types::{BuiltinType, TypeId},
 };
@@ -77,9 +77,9 @@ impl<'a> BodyChecker<'a> {
                 initializer,
                 ..
             } => {
-                let initializer_ty = self.infer_expr_type(*initializer, env);
+                let mut initializer_ty = self.infer_expr_type(*initializer, env);
                 let local_ty = ty
-                    .and_then(|ty| {
+                    .map(|ty| {
                         resolve_type_in(
                             &self.lowered.module,
                             ty,
@@ -87,8 +87,43 @@ impl<'a> BodyChecker<'a> {
                                 generics: &env.generics,
                             },
                         )
+                        .unwrap_or_else(|| {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                                    type_name: display_type(&self.lowered.module, ty),
+                                })
+                                .with_span(self.lowered.source_map.type_span(ty)),
+                            );
+                            TypeId::Error
+                        })
                     })
-                    .unwrap_or(initializer_ty);
+                    .unwrap_or_else(|| initializer_ty.clone());
+                // Empty containers acquire their concrete parameters from the
+                // annotation; keep that fact on the constructor expression too.
+                if ty.is_some()
+                    && matches!(
+                        (
+                            self.type_table.standard_call_intrinsic(*initializer),
+                            &local_ty
+                        ),
+                        (Some(StandardIntrinsic::MapNew), TypeId::Map { .. })
+                            | (Some(StandardIntrinsic::SetNew), TypeId::Set(_))
+                    )
+                {
+                    initializer_ty = local_ty.clone();
+                    env.exprs.insert(*initializer, initializer_ty.clone());
+                    self.type_table
+                        .insert_expr(*initializer, initializer_ty.clone());
+                }
+                if local_ty.conflicts_with(&initializer_ty) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
+                            expected: display_type_id(&local_ty),
+                            found: display_type_id(&initializer_ty),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*initializer)),
+                    );
+                }
                 env.locals.insert(*local, local_ty.clone());
                 env.local_writeability.insert(*local, *writeability);
                 self.type_table.insert_local(*local, local_ty);
@@ -96,7 +131,7 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Assign { target, value } => {
                 let value_ty = self.infer_expr_type(*value, env);
                 match self.resolve_assignment_target_type(*target, env) {
-                    Some(expected) if expected != value_ty => self.diagnostics.push(
+                    Some(expected) if expected.conflicts_with(&value_ty) => self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
                             expected: display_type_id(&expected),
                             found: display_type_id(&value_ty),
@@ -117,7 +152,7 @@ impl<'a> BodyChecker<'a> {
                 let found = expr.map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
                     self.infer_expr_type(expr, env)
                 });
-                if found != self.expected_return {
+                if found.conflicts_with(&self.expected_return) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                             function_name: self.function_name.to_string(),
@@ -370,7 +405,7 @@ impl<'a> BodyChecker<'a> {
                 let inner = self.infer_expr_type(*expr, env);
                 match op {
                     PrefixOp::Neg => {
-                        if !surface::supports_unary_negation(&inner) {
+                        if !inner.is_unresolved() && !surface::supports_unary_negation(&inner) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                                     operator: "-",
@@ -383,7 +418,7 @@ impl<'a> BodyChecker<'a> {
                         inner
                     }
                     PrefixOp::Not => {
-                        if inner != TypeId::Builtin(BuiltinType::Bool) {
+                        if inner.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                                     operator: "!",
@@ -436,9 +471,38 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Index { receiver, index } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
-                self.infer_expr_type(*index, env);
-                self.resolve_index_type(*index, &receiver_ty)
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                let index_ty = self.infer_expr_type(*index, env);
+                if receiver_ty.is_unresolved() || index_ty.is_unresolved() {
+                    TypeId::Error
+                } else {
+                    let integer_index = matches!(
+                        index_ty,
+                        TypeId::Builtin(
+                            BuiltinType::I8
+                                | BuiltinType::I16
+                                | BuiltinType::I32
+                                | BuiltinType::I64
+                                | BuiltinType::ISize
+                                | BuiltinType::U8
+                                | BuiltinType::U16
+                                | BuiltinType::U32
+                                | BuiltinType::U64
+                                | BuiltinType::USize
+                        )
+                    );
+                    integer_index
+                        .then(|| self.resolve_index_type(*index, &receiver_ty))
+                        .flatten()
+                        .unwrap_or_else(|| {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::InvalidIndexTarget {
+                                    type_name: display_type_id(&receiver_ty),
+                                })
+                                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                            );
+                            TypeId::Error
+                        })
+                }
             }
             ExprKind::If {
                 condition,
@@ -450,7 +514,7 @@ impl<'a> BodyChecker<'a> {
                 match else_branch {
                     Some(else_expr) => {
                         let else_ty = self.infer_expr_type(*else_expr, env);
-                        if then_ty != else_ty {
+                        if then_ty.conflicts_with(&else_ty) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
                                     expected: display_type_id(&then_ty),
@@ -472,7 +536,7 @@ impl<'a> BodyChecker<'a> {
                         let expected = self.infer_match_arm_type(first_arm, &scrutinee_ty, env);
                         for arm in arm_iter {
                             let found = self.infer_match_arm_type(arm, &scrutinee_ty, env);
-                            if found != expected {
+                            if found.conflicts_with(&expected) {
                                 self.diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
                                         expected: display_type_id(&expected),
@@ -589,7 +653,7 @@ impl<'a> BodyChecker<'a> {
                 let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Array(element)) = array_ty else {
                     self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 match intrinsic {
                     ArrayLen => TypeId::Builtin(BuiltinType::USize),
@@ -603,7 +667,7 @@ impl<'a> BodyChecker<'a> {
                 let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Array(element)) = array_ty else {
                     self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_arg_type(
                     name,
@@ -618,7 +682,7 @@ impl<'a> BodyChecker<'a> {
                 let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Array(element)) = array_ty else {
                     self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_arg_type(name, "item", (*element).clone(), value_offset, &arg_tys);
                 TypeId::Array(element)
@@ -627,7 +691,7 @@ impl<'a> BodyChecker<'a> {
                 let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Array(element)) = array_ty else {
                     self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_arg_type(
                     name,
@@ -647,7 +711,7 @@ impl<'a> BodyChecker<'a> {
                 let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Map { key, value }) = map_ty else {
                     self.emit_standard_arg_error(name, "value", "Map<K, V>", callee, &map_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_standard_constraint(&key, StandardTypeConstraint::HashKey, env, callee);
                 match intrinsic {
@@ -664,7 +728,7 @@ impl<'a> BodyChecker<'a> {
                 let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Map { key, value }) = map_ty else {
                     self.emit_standard_arg_error(name, "value", "Map<K, V>", callee, &map_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_standard_constraint(&key, StandardTypeConstraint::HashKey, env, callee);
                 self.check_arg_type(name, "key", (*key).clone(), value_offset, &arg_tys);
@@ -689,7 +753,7 @@ impl<'a> BodyChecker<'a> {
                 let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Set(element)) = set_ty else {
                     self.emit_standard_arg_error(name, "value", "Set<T>", callee, &set_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_standard_constraint(
                     &element,
@@ -709,7 +773,7 @@ impl<'a> BodyChecker<'a> {
                 let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Set(element)) = set_ty else {
                     self.emit_standard_arg_error(name, "value", "Set<T>", callee, &set_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_standard_constraint(
                     &element,
@@ -728,7 +792,7 @@ impl<'a> BodyChecker<'a> {
                 let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Set(element)) = set_ty else {
                     self.emit_standard_arg_error(name, "lhs", "Set<T>", callee, &set_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_standard_constraint(
                     &element,
@@ -798,7 +862,7 @@ impl<'a> BodyChecker<'a> {
                 let option_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some((item_ty, _)) = standard_enum_args(&option_ty, "Option", 1) else {
                     self.emit_standard_arg_error(name, "value", "Option<T>", callee, &option_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 match intrinsic {
                     OptionIsSome | OptionIsNone => TypeId::Builtin(BuiltinType::Bool),
@@ -821,7 +885,7 @@ impl<'a> BodyChecker<'a> {
                 let result_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some((ok_ty, err_ty)) = standard_enum_args(&result_ty, "Result", 2) else {
                     self.emit_standard_arg_error(name, "value", "Result<T, E>", callee, &result_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 match intrinsic {
                     ResultIsOk | ResultIsErr => TypeId::Builtin(BuiltinType::Bool),
@@ -845,7 +909,7 @@ impl<'a> BodyChecker<'a> {
                 let iterable_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(item_ty) = iterable_item_type(&iterable_ty) else {
                     self.emit_standard_arg_error(name, "value", "Iterable", callee, &iterable_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 match intrinsic {
                     IterLen => TypeId::Builtin(BuiltinType::USize),
@@ -867,7 +931,7 @@ impl<'a> BodyChecker<'a> {
             }
             MathMin | MathMax | MathClamp => {
                 let Some((_, value_ty)) = arg_tys.first() else {
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_standard_constraint(
                     value_ty,
@@ -884,7 +948,7 @@ impl<'a> BodyChecker<'a> {
             }
             MathAbs => {
                 let Some((_, value_ty)) = arg_tys.first() else {
-                    return TypeId::Builtin(BuiltinType::Unit);
+                    return TypeId::Error;
                 };
                 self.check_standard_constraint(
                     value_ty,
@@ -960,6 +1024,16 @@ impl<'a> BodyChecker<'a> {
         }
 
         let builtin = self.builtin_function(callee)?;
+        let arity = match builtin {
+            BuiltinFunction::TypeOf | BuiltinFunction::Print => 1,
+            BuiltinFunction::GetField => 2,
+            BuiltinFunction::SetField | BuiltinFunction::SetIndex => 3,
+        };
+        if args.len() != arity {
+            self.infer_call_args(args, env);
+            self.check_builtin_arity("runtime helper", arity, args.len(), callee);
+            return Some(TypeId::Error);
+        }
         match builtin {
             BuiltinFunction::TypeOf => {
                 let _ = self.infer_call_args(args, env);
@@ -967,7 +1041,7 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinFunction::GetField => {
                 let [base, field_name_expr] = args else {
-                    return Some(TypeId::Builtin(BuiltinType::Unit));
+                    return Some(TypeId::Error);
                 };
                 let base_ty = self.infer_expr_type(*base, env);
                 let _ = self.infer_expr_type(*field_name_expr, env);
@@ -979,7 +1053,7 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinFunction::SetField => {
                 let [base, field_name_expr, value] = args else {
-                    return Some(TypeId::Builtin(BuiltinType::Unit));
+                    return Some(TypeId::Error);
                 };
                 let base_ty = self.infer_expr_type(*base, env);
                 self.check_const_write(*base);
@@ -1001,7 +1075,7 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinFunction::SetIndex => {
                 let [base, index, value] = args else {
-                    return Some(TypeId::Builtin(BuiltinType::Unit));
+                    return Some(TypeId::Error);
                 };
                 let base_ty = self.infer_expr_type(*base, env);
                 self.check_const_write(*base);
@@ -1076,7 +1150,7 @@ impl<'a> BodyChecker<'a> {
             }
             array::Method::Push => {
                 let TypeId::Array(element_ty) = receiver_ty else {
-                    return Some(TypeId::Builtin(BuiltinType::Unit));
+                    return Some(TypeId::Error);
                 };
                 self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
                 let value_ty = args
@@ -1159,7 +1233,7 @@ impl<'a> BodyChecker<'a> {
 
         let method_function = self.trait_method_function(&trait_name, name)?;
         let Some(method) = self.function_index.by_id.get(&method_function) else {
-            return Some(TypeId::Builtin(BuiltinType::Unit));
+            return Some(TypeId::Error);
         };
         let params = method
             .params
@@ -1224,7 +1298,16 @@ impl<'a> BodyChecker<'a> {
     ) -> TypeId {
         let arg_tys = self.infer_call_args(args, env);
         let Some(ResolvedName::Function(id)) = self.names.expr_resolution(callee) else {
-            return self.infer_expr_type(callee, env);
+            let callee_ty = self.infer_expr_type(callee, env);
+            if !callee_ty.is_unresolved() {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                        type_name: display_type_id(&callee_ty),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+                );
+            }
+            return TypeId::Error;
         };
         let Some(function) = self.function_index.by_id.get(&id) else {
             return self.infer_expr_type(callee, env);
@@ -1241,7 +1324,7 @@ impl<'a> BodyChecker<'a> {
         }
         for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
             if let Some(param) = function.params.get(index)
-                && param.ty != *arg_ty
+                && param.ty.conflicts_with(arg_ty)
             {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
@@ -1307,6 +1390,9 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: TypeId,
         rhs_ty: TypeId,
     ) -> TypeId {
+        if lhs_ty.is_unresolved() || rhs_ty.is_unresolved() {
+            return TypeId::Error;
+        }
         match op {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
                 if !self.matching_numeric_operands(&lhs_ty, &rhs_ty) {
@@ -1398,7 +1484,7 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) {
         let ty = self.infer_expr_type(expr_id, env);
-        if ty != TypeId::Builtin(BuiltinType::Bool) {
+        if ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {
                     context,
@@ -1441,7 +1527,7 @@ impl<'a> BodyChecker<'a> {
                 })
                 .with_span(self.lowered.source_map.expr_span(expr_id)),
             );
-            return TypeId::Builtin(BuiltinType::Unit);
+            return TypeId::Error;
         };
 
         let mut seen = HashSet::new();
@@ -1471,7 +1557,7 @@ impl<'a> BodyChecker<'a> {
             let Some(expected) = resolve_type(&self.lowered.module, field.ty) else {
                 continue;
             };
-            if expected != *value_ty {
+            if expected.conflicts_with(value_ty) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
                         expected: display_type_id(&expected),

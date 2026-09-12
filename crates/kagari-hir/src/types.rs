@@ -40,6 +40,23 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    /// Recovery types suppress dependent diagnostics but never authorize codegen.
+    pub fn is_unresolved(&self) -> bool {
+        match self {
+            Self::Unknown | Self::Error => true,
+            Self::Tuple(elements) | Self::StandardEnum { args: elements, .. } => {
+                elements.iter().any(Self::is_unresolved)
+            }
+            Self::Array(element) | Self::Set(element) => element.is_unresolved(),
+            Self::Map { key, value } => key.is_unresolved() || value.is_unresolved(),
+            _ => false,
+        }
+    }
+
+    pub fn conflicts_with(&self, other: &Self) -> bool {
+        !self.is_unresolved() && !other.is_unresolved() && self != other
+    }
+
     pub fn from_name(name: &str) -> Option<Self> {
         crate::builtin::surface::builtin_type(name).map(Self::Builtin)
     }

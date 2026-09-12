@@ -55,6 +55,10 @@ Implemented foundation slices:
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
   represented explicitly, and codegen requires a sealed CheckedAnalysis. More
   semantic-target and source-owner integration remains outstanding.
+  Erroneous signatures retain parameter slots with Error types. Invalid local
+  annotations, call targets and indices produce diagnostics; unresolved operands
+  suppress dependent mismatch diagnostics. Empty Map/Set constructors retain
+  concrete parameters inferred from binding annotations.
 - R05: unchanged files share parse/analysis results; identical function bodies
   reuse remapped type facts, while declaration changes invalidate that reuse.
   Scope/type/member-receiver queries work on erroneous files. Cancellation checks

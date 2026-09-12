@@ -31,6 +31,19 @@ pub fn check_module(
     let mut function_index = FunctionTypeIndex::default();
     let mut top_level_index = TopLevelTypeIndex::default();
 
+    for structure in &lowered.module.structs {
+        for field in &structure.fields {
+            if resolve_type(&lowered.module, field.ty).is_none() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                        type_name: display_type(&lowered.module, field.ty),
+                    })
+                    .with_span(lowered.source_map.type_span(field.ty)),
+                );
+            }
+        }
+    }
+
     for function in &lowered.module.functions {
         let mut params: TypedParameterBuffer = SmallVec::new();
         let generic_names = function_generic_names(function);
@@ -66,14 +79,22 @@ pub fn check_module(
                         ty,
                     });
                 }
-                None => diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnknownType {
-                        type_name: param_ty_name,
-                        function_name: function_name.clone(),
-                        position: TypePosition::Parameter,
-                    })
-                    .with_span(lowered.source_map.type_span(param.ty)),
-                ),
+                None => {
+                    params.push(TypedParameter {
+                        id: param.id,
+                        writeability: param.writeability,
+                        name: param_name,
+                        ty: TypeId::Error,
+                    });
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownType {
+                            type_name: param_ty_name,
+                            function_name: function_name.clone(),
+                            position: TypePosition::Parameter,
+                        })
+                        .with_span(lowered.source_map.type_span(param.ty)),
+                    );
+                }
             }
         }
 
@@ -98,7 +119,7 @@ pub fn check_module(
                         })
                         .with_span(lowered.source_map.type_span(*ty_ref)),
                     );
-                    TypeId::Builtin(BuiltinType::Unit)
+                    TypeId::Error
                 }
             },
             None => TypeId::Builtin(BuiltinType::Unit),
@@ -138,7 +159,7 @@ pub fn check_module(
                             })
                             .with_span(lowered.source_map.const_span(const_item.id)),
                         );
-                        TypeId::Builtin(BuiltinType::Unit)
+                        TypeId::Error
                     }
                 },
                 None => {
@@ -227,7 +248,7 @@ pub fn check_module(
                     }
                     continue;
                 }
-                if body_ty != typed_function.return_type {
+                if body_ty.conflicts_with(&typed_function.return_type) {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                             function_name: typed_function.name.clone(),

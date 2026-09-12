@@ -72,6 +72,15 @@ pub enum DiagnosticKind {
     UnknownName {
         name: String,
     },
+    UnknownTypeAnnotation {
+        type_name: String,
+    },
+    InvalidCallTarget {
+        type_name: String,
+    },
+    InvalidIndexTarget {
+        type_name: String,
+    },
     DuplicateFunction {
         name: String,
     },
@@ -272,6 +281,9 @@ impl DiagnosticKind {
             Self::ExpectedExpression => "KG_PARSE_EXPECTED_EXPRESSION",
             Self::MissingFunctionName => "KG_RESOLVE_MISSING_FUNCTION_NAME",
             Self::UnknownName { .. } => "KG_RESOLVE_UNKNOWN_NAME",
+            Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
+            Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
+            Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
             Self::DuplicateFunction { .. } => "KG_RESOLVE_DUPLICATE_FUNCTION",
             Self::UnknownType { .. } => "KG_TYPE_UNKNOWN_TYPE",
             Self::UnknownConstType { .. } => "KG_TYPE_UNKNOWN_CONST_TYPE",
@@ -389,6 +401,15 @@ impl Display for DiagnosticKind {
             Self::ExpectedExpression => write!(f, "expected expression"),
             Self::MissingFunctionName => write!(f, "missing function name"),
             Self::UnknownName { name } => write!(f, "unknown name `{name}`"),
+            Self::UnknownTypeAnnotation { type_name } => {
+                write!(f, "unknown type annotation `{type_name}`")
+            }
+            Self::InvalidCallTarget { type_name } => {
+                write!(f, "value of type `{type_name}` cannot be called")
+            }
+            Self::InvalidIndexTarget { type_name } => {
+                write!(f, "invalid index for type `{type_name}`")
+            }
             Self::DuplicateFunction { name } => write!(f, "duplicate function `{name}`"),
             Self::UnknownType {
                 type_name,
