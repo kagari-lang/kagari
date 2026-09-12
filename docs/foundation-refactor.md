@@ -51,6 +51,8 @@ Implemented foundation slices:
   host mutations and cached initialization failure. Run with `cargo test -p
   kagari-vm language_contract`. The remaining value/activation contracts still
   need implementation and fixtures before R02 can be checked off.
+  Enum payload equality, distinct mutable enum members, shallow container copies,
+  and rejection of interface equality now run through these same routes.
 - R03: source IDs/revisions, immutable snapshots, base/overlay precedence and
   checked UTF-8/UTF-16/CRLF coordinates. The engine now compiles and queries the
   same snapshots; disk loading, host text and overlays use one ingestion path.
@@ -77,6 +79,11 @@ Implemented foundation slices:
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked
   identity integration and per-table count/depth limits remain outstanding.
+- R11 prerequisite for R02: the VM and standard equality assertion now call one
+  script equality operation instead of Rust Value::PartialEq. Tuples/enums compare
+  members, mutable objects compare identity, and unsupported categories trap.
+  Enum nominal identity still uses the current representation pending R07; owned
+  heap handles, rooted host handles and collecting GC remain outstanding.
 
 Validation: workspace tests pass after the source/analysis changes. Workspace
 clippy with `-D warnings` passes after correcting baseline lints and marking the

@@ -556,7 +556,7 @@ fn validate_standard_constraint_type(
             StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
             StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
             StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
-            StandardTypeConstraint::Comparable => true,
+            StandardTypeConstraint::Comparable => ty.supports_equality(),
         },
     };
 

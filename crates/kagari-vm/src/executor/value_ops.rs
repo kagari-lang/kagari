@@ -25,7 +25,12 @@ impl Executor<'_> {
         }
     }
 
-    pub(crate) fn apply_binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, VmError> {
+    pub(crate) fn apply_binary(
+        &self,
+        op: BinaryOp,
+        lhs: Value,
+        rhs: Value,
+    ) -> Result<Value, VmError> {
         match op {
             BinaryOp::Add => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::I32(lhs + rhs)),
@@ -55,8 +60,12 @@ impl Executor<'_> {
                     "div expects matching numeric operands",
                 )),
             },
-            BinaryOp::Eq => Ok(Value::Bool(lhs == rhs)),
-            BinaryOp::NotEq => Ok(Value::Bool(lhs != rhs)),
+            BinaryOp::Eq | BinaryOp::NotEq => {
+                let equal =
+                    kagari_runtime::value_semantics::script_equal(self.runtime.gc(), &lhs, &rhs)
+                        .map_err(VmError::RuntimeError)?;
+                Ok(Value::Bool(if op == BinaryOp::Eq { equal } else { !equal }))
+            }
             BinaryOp::Lt => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs < rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs < rhs)),

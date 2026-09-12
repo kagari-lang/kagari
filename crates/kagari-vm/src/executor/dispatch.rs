@@ -63,7 +63,7 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
                 let lhs = self.current_frame()?.read_register(lhs)?;
                 let rhs = self.current_frame()?.read_register(rhs)?;
-                let result = Self::apply_binary(op, lhs, rhs)?;
+                let result = self.apply_binary(op, lhs, rhs)?;
                 self.current_frame_mut()?.write_register(dst, result)?;
             }
             BytecodeInstruction::Jump { target } => {

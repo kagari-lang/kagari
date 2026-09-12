@@ -104,7 +104,7 @@ pub fn invoke_with_callbacks(
         MathTan => math_unary_f64(args, "math.tan", f64::tan),
         DebugPrint => debug_print(args),
         DebugAssert => debug_assert(args),
-        DebugAssertEq => debug_assert_eq(args),
+        DebugAssertEq => debug_assert_eq(gc, args),
         DebugPanic => debug_panic(args),
     }
 }
@@ -777,13 +777,15 @@ fn debug_assert(args: &[Value]) -> Result<Value, BuiltinError> {
     }
 }
 
-fn debug_assert_eq(args: &[Value]) -> Result<Value, BuiltinError> {
+fn debug_assert_eq(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [lhs, rhs, Value::Str(message)] = args else {
         return Err(BuiltinError::new(
             "debug.assert_eq expects two values and string message",
         ));
     };
-    if lhs == rhs {
+    if crate::value_semantics::script_equal(gc, lhs, rhs)
+        .map_err(|error| BuiltinError::new(error.to_string()))?
+    {
         Ok(Value::Unit)
     } else {
         Err(BuiltinError::new(format!(

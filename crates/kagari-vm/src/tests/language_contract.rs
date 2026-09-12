@@ -266,6 +266,13 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("completed_effect_survives_trap", "fn main() { print(\"committed\"); val a = [1]; a[9] = 2; print(\"unreachable\"); }", Expected::IndexTrap).effects(&["committed"], &["committed"]),
         Case::new("const_rebind", "const N: i32 = 1; fn main() { N = 2; }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("missing_name", "fn main() { missing; }", Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME")),
+        Case::new("enum_value", "fn main() -> bool { val a = [1]; val b = [1]; a.pop() == b.pop() }", Expected::Value(Value::Bool(true))),
+        Case::new("enum_different_members", "fn main() -> bool { val a = [1, 2]; a.pop() != a.pop() }", Expected::Value(Value::Bool(true))),
+        Case::new("enum_object_identity", "fn main() -> bool { val a = [[1]]; val b = [[1]]; a.pop() != b.pop() }", Expected::Value(Value::Bool(true))),
+        Case::new("enum_assert_eq", "fn main() { val a = [1]; val b = [1]; std::debug::assert_eq(a.pop(), b.pop(), \"same enum\"); }", Expected::Value(Value::Unit)),
+        Case::new("shallow_copy", "struct P { var n: i32 } fn main() -> bool { val a = [P { n: 1 }]; val b = std::iter::to_array(a); b[0].n = 7; a != b && a[0].n == 7 }", Expected::Value(Value::Bool(true))),
+        Case::new("interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { a == b }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
+        Case::new("tuple_interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { (1, a) == (1, b) }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         reject,
         cached_init_failure,
     ];

@@ -40,6 +40,22 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    pub fn supports_equality(&self) -> bool {
+        match self {
+            Self::Unknown | Self::Error | Self::Trait(_) | Self::Generic(_) => false,
+            Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
+                members.iter().all(Self::supports_equality)
+            }
+            // The elements of mutable containers do not participate in identity equality.
+            Self::Builtin(_)
+            | Self::Struct(_)
+            | Self::Enum(_)
+            | Self::Array(_)
+            | Self::Map { .. }
+            | Self::Set(_) => true,
+        }
+    }
+
     /// Recovery types suppress dependent diagnostics but never authorize codegen.
     pub fn is_unresolved(&self) -> bool {
         match self {

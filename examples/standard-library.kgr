@@ -2,6 +2,12 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
 
+    val copied_values = std::iter::to_array(values);
+    std::debug::assert(values != copied_values, "copy has its own container identity");
+    val first = [1];
+    val second = [1];
+    std::debug::assert_eq(first.pop(), second.pop(), "Option compares its payload by value");
+
     val scores: Map<String, i32> = std::map::new();
     scores.insert("alice", 10);
     scores.insert("bob", 12);

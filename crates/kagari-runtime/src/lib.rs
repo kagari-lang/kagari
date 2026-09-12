@@ -12,6 +12,7 @@ pub mod reload;
 pub mod resource;
 pub mod security;
 pub mod value;
+pub mod value_semantics;
 
 use kagari_ir::{
     builtin::surface::StandardIntrinsic,

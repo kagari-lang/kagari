@@ -730,6 +730,7 @@ impl EmbeddingError {
                 RuntimeErrorKind::HostCallFailure => RuntimeFailureKind::HostCallFailure,
                 RuntimeErrorKind::ModuleValidation => RuntimeFailureKind::BytecodeVerification,
                 RuntimeErrorKind::InvalidReflectiveRead
+                | RuntimeErrorKind::ScriptTrap
                 | RuntimeErrorKind::InvalidReflectiveWrite
                 | RuntimeErrorKind::MetadataConflict => RuntimeFailureKind::ScriptTrap,
             },

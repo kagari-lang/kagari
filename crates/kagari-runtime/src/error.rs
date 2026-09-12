@@ -2,6 +2,7 @@ use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeErrorKind {
+    ScriptTrap,
     CapabilityDenied,
     InvalidReflectiveRead,
     InvalidReflectiveWrite,
@@ -19,6 +20,7 @@ pub enum RuntimeErrorKind {
 impl RuntimeErrorKind {
     pub fn code(self) -> &'static str {
         match self {
+            Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",
             Self::CapabilityDenied => "KG_RUNTIME_CAPABILITY_DENIED",
             Self::InvalidReflectiveRead => "KG_RUNTIME_INVALID_REFLECTIVE_READ",
             Self::InvalidReflectiveWrite => "KG_RUNTIME_INVALID_REFLECTIVE_WRITE",

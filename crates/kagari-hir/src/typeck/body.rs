@@ -446,7 +446,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Binary { lhs, op, rhs } => {
                 let lhs_ty = self.infer_expr_type(*lhs, env);
                 let rhs_ty = self.infer_expr_type(*rhs, env);
-                self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty)
+                self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty, env)
             }
             ExprKind::Call { callee, args } => {
                 if let Some(standard_ty) =
@@ -1007,6 +1007,14 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Unit)
             }
             DebugAssertEq => {
+                if let Some((expr, lhs)) = arg_tys.first() {
+                    self.check_standard_constraint(
+                        lhs,
+                        StandardTypeConstraint::Comparable,
+                        env,
+                        *expr,
+                    );
+                }
                 if let (Some((_, lhs)), Some((_, rhs))) = (arg_tys.first(), arg_tys.get(1))
                     && lhs != rhs
                 {
@@ -1400,6 +1408,7 @@ impl<'a> BodyChecker<'a> {
         rhs_expr: ExprId,
         lhs_ty: TypeId,
         rhs_ty: TypeId,
+        env: &BodyTypeEnv,
     ) -> TypeId {
         if lhs_ty.is_unresolved() || rhs_ty.is_unresolved() {
             return TypeId::Error;
@@ -1418,7 +1427,13 @@ impl<'a> BodyChecker<'a> {
                 lhs_ty
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
-                if lhs_ty != rhs_ty {
+                if lhs_ty != rhs_ty
+                    || !type_satisfies_standard_constraint(
+                        &lhs_ty,
+                        StandardTypeConstraint::Comparable,
+                        env,
+                    )
+                {
                     self.emit_binary_operand_type_mismatch(
                         op, "matching", &lhs_ty, &rhs_ty, rhs_expr,
                     );
@@ -1926,6 +1941,13 @@ fn type_satisfies_standard_constraint(
     env: &BodyTypeEnv,
 ) -> bool {
     match ty {
+        TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. }
+            if constraint == StandardTypeConstraint::Comparable =>
+        {
+            members
+                .iter()
+                .all(|ty| type_satisfies_standard_constraint(ty, constraint, env))
+        }
         TypeId::Generic(name) => env.generic_bounds.get(name).is_some_and(|bounds| {
             bounds
                 .iter()
@@ -1936,14 +1958,7 @@ fn type_satisfies_standard_constraint(
             StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
             StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
             StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
-            StandardTypeConstraint::Comparable => !matches!(
-                ty,
-                TypeId::Array(_)
-                    | TypeId::Map { .. }
-                    | TypeId::Set(_)
-                    | TypeId::Trait(_)
-                    | TypeId::Generic(_)
-            ),
+            StandardTypeConstraint::Comparable => ty.supports_equality(),
         },
     }
 }
