@@ -17,7 +17,7 @@ pub mod value_semantics;
 
 use kagari_ir::{
     builtin::surface::StandardIntrinsic,
-    bytecode::{ArtifactCompatibility, BuiltinMethod, BytecodeModule, KbcArtifact},
+    bytecode::{ArtifactCompatibility, BytecodeModule, KbcArtifact},
 };
 
 pub use backend::{
@@ -786,16 +786,6 @@ impl Runtime {
         self.resources.consume_reflection_operation()?;
         reflection::set_index(&self.gc, value, index, next_value)
             .map_err(|error| RuntimeError::invalid_reflective_write(error.message()))
-    }
-
-    pub fn invoke_builtin(
-        &self,
-        method: BuiltinMethod,
-        args: &[value::Value],
-    ) -> Result<value::Value, BuiltinError> {
-        let value = builtin::invoke(&self.gc, method, args)?;
-        let _ = self.sync_heap_accounting();
-        Ok(value)
     }
 
     pub fn invoke_standard_builtin(

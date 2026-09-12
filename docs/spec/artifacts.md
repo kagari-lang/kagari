@@ -41,10 +41,12 @@ KbcArtifact {
 }
 ```
 
-Format version 5 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 6 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 4 are rejected; no migration or compatibility
-decoder exists. Version 5 also excludes artifacts produced by the old generic
+format version. Versions 1 through 5 are rejected; no migration or compatibility
+decoder exists. Version 6 removes the obsolete BuiltinMethod call operand;
+standard-library calls use StandardIntrinsic and its verified call contract.
+The current format also excludes artifacts produced by the old generic
 template lowering: current compilation emits concrete function instances and
 does not treat uninstantiated generic parameters as heap-object representations.
 `from_bytes()` checks magic and the current version before decoding, imposes a

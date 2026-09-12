@@ -873,7 +873,7 @@ Implementation tasks:
 - Use `indexmap` as the runtime backing for deterministic insertion-ordered maps and sets.
 - Implement complete `std::array`, `std::map`, `std::set`, `std::string`, `std::option`, `std::result`, `std::iter`, `std::math`, and `std::debug` typed metadata.
 - Resolve standard module imports and standard module function calls to stable intrinsic identifiers.
-- Lower standard library calls to IR and bytecode builtin method/runtime intrinsic calls.
+- Lower standard library calls to checked StandardIntrinsic IR and bytecode calls.
 - Execute standard intrinsics through VM/runtime helpers with resource accounting, GC tracing, deterministic errors, and profile/security checks where required.
 - Add `.kg` facade support only for pure helpers that compose native intrinsics.
 - Add conformance coverage for successful standard library programs and rejected invalid key, arity, type, capability, and resource-limit cases.

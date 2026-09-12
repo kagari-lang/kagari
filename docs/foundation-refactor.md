@@ -113,8 +113,11 @@ Implemented foundation slices:
   permission checks consume that target; duplicate Array/String method checking,
   backend builtin-name classification and fallback call dispatch were removed.
   Source String length uses the specified len_bytes/len_chars intrinsics; the old
-  String.len source entry is rejected. Legacy manually constructed builtin-method
-  bytecode operands still need removal at the linked-only R08 boundary.
+  String.len source entry is rejected. The old BuiltinMethod declaration tables,
+  IR/bytecode operands and runtime dispatch API are removed. StandardIntrinsic is
+  the sole standard-library execution path, including manually built bytecode.
+  Array/string iteration and empty pop now have source/artifact/JIT fallback
+  fixtures covering Option results, Unicode indexing and shared-array mutation.
   Trait-call targets support navigation even with argument errors; executable
   interface dispatch still awaits linked implementation tables in R07/R08.
 - R05: unchanged files share parse/analysis results; identical function bodies
@@ -164,7 +167,7 @@ Implemented foundation slices:
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this
   does not claim native compilation of parameterized generic instances.
-- R09: format v5 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v6 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked

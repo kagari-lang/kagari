@@ -324,7 +324,7 @@ Calls distinguish:
 - indirect register-based calls
 - host function calls
 - runtime helper calls
-- builtin method calls
+- standard intrinsic calls with verified argument and result representations
 - interface dispatch helper calls
 
 The `CallTarget` model records this distinction.

@@ -1,4 +1,4 @@
-use kagari_hir::builtin::{BuiltinMethod, surface::StandardIntrinsic};
+use kagari_hir::builtin::surface::StandardIntrinsic;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -144,7 +144,6 @@ pub enum Terminator {
 pub enum CallTarget {
     Function(crate::module::ids::InstanceId),
     Value(IrValue),
-    BuiltinMethod(BuiltinMethod),
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
 }
@@ -332,17 +331,6 @@ impl CallTarget {
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::Function(_) | Self::Value(_) => EffectSet::call(),
-            Self::BuiltinMethod(method) => match method {
-                BuiltinMethod::Array(kagari_hir::builtin::array::Method::Push)
-                | BuiltinMethod::Array(kagari_hir::builtin::array::Method::Pop) => {
-                    EffectSet::runtime_call().union(EffectSet::aggregate_write())
-                }
-                BuiltinMethod::Array(kagari_hir::builtin::array::Method::Len)
-                | BuiltinMethod::Iterable(_)
-                | BuiltinMethod::String(kagari_hir::builtin::StringMethod::Len) => {
-                    EffectSet::runtime_call().union(EffectSet::aggregate_read())
-                }
-            },
             Self::StandardIntrinsic(intrinsic) => standard_intrinsic_effects(*intrinsic),
             Self::RuntimeHelper(helper) => helper.effects(),
         }

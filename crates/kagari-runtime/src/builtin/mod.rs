@@ -1,9 +1,6 @@
-pub mod array;
-pub mod iterable;
 pub mod standard;
-pub mod string;
 
-use kagari_ir::builtin::{BuiltinMethod, surface::StandardIntrinsic};
+use kagari_ir::builtin::surface::StandardIntrinsic;
 
 use crate::{gc::GcHeap, value::Value};
 
@@ -21,37 +18,6 @@ impl BuiltinError {
 
     pub fn message(&self) -> &str {
         &self.message
-    }
-}
-
-pub fn invoke(gc: &GcHeap, method: BuiltinMethod, args: &[Value]) -> Result<Value, BuiltinError> {
-    let spec = method.spec();
-
-    match method {
-        BuiltinMethod::Array(_) => array::invoke_method(gc, method, args).map_err(|err| {
-            BuiltinError::new(format!(
-                "{}.{}: {}",
-                method.owner_name(),
-                spec.name,
-                err.message()
-            ))
-        }),
-        BuiltinMethod::Iterable(_) => iterable::invoke_method(gc, method, args).map_err(|err| {
-            BuiltinError::new(format!(
-                "{}.{}: {}",
-                method.owner_name(),
-                spec.name,
-                err.message()
-            ))
-        }),
-        BuiltinMethod::String(_) => string::invoke_method(gc, method, args).map_err(|err| {
-            BuiltinError::new(format!(
-                "{}.{}: {}",
-                method.owner_name(),
-                spec.name,
-                err.message()
-            ))
-        }),
     }
 }
 

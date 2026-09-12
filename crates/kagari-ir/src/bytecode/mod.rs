@@ -1,4 +1,4 @@
-pub use kagari_hir::builtin::{BuiltinMethod, surface::StandardIntrinsic};
+pub use kagari_hir::builtin::surface::StandardIntrinsic;
 
 mod artifact;
 mod instruction;

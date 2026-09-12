@@ -22,6 +22,10 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val first = [1];
     val second = [1];
     std::debug::assert_eq(first.pop(), second.pop(), "Option compares its payload by value");
+    std::debug::assert(first.pop().is_none(), "empty pop returns None");
+    val text = "中😀";
+    std::debug::assert_eq(std::iter::get(text, "a".len_bytes()).unwrap_or("missing"), "😀", "iteration indexes Unicode scalars");
+    std::debug::assert(std::iter::get(text, text.len_chars()).is_none(), "out-of-range get returns None");
     // Integer arithmetic and abs trap on overflow, including intermediate results.
     std::debug::assert_eq(std::math::abs(-2147483647), 2147483647, "checked abs boundary");
     std::debug::assert_eq(std::math::max(10, 12), EXPECTED_MAX, "const uses checked arithmetic");

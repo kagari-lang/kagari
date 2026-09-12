@@ -13,6 +13,61 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
+fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
+    let module = common::bytecode_ok(
+        "fn main() -> bool { val a = [7]; std::iter::get(a, a.len()).is_none() }",
+    );
+    let mut scalar_result = module.clone();
+    let function = &mut scalar_result.functions[0];
+    let dst = function
+        .instructions
+        .iter()
+        .find_map(|instruction| {
+            if let BytecodeInstruction::Call {
+                dst,
+                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::IterGet),
+                ..
+            } = instruction
+            {
+                *dst
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    function.metadata.registers[dst.index()] = ValueType::I32;
+    assert!(matches!(
+        verify_module(&scalar_result),
+        Err(BytecodeVerificationError::TypeMismatch {
+            expected: ValueType::HeapObject,
+            found: ValueType::I32,
+            ..
+        })
+    ));
+
+    let mut wrong_arity = module;
+    for instruction in &mut wrong_arity.functions[0].instructions {
+        if let BytecodeInstruction::Call {
+            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::IterGet),
+            args,
+            ..
+        } = instruction
+        {
+            args.pop();
+        }
+    }
+    assert!(matches!(
+        verify_module(&wrong_arity),
+        Err(
+            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
+                intrinsic: StandardIntrinsic::IterGet,
+                ..
+            }
+        )
+    ));
+}
+
+#[test]
 fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
     let artifact =
         |source: &str| KbcArtifact::from_module(common::bytecode_ok(source), Default::default());

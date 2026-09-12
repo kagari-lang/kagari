@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::module::ids::InstanceId;
 use kagari_common::Span;
-use kagari_hir::builtin::BuiltinMethod;
 
 use crate::bytecode::instruction::{
     BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldId, FunctionRef, JumpTarget,
@@ -487,9 +486,6 @@ fn lower_instruction(
                         .expect("bytecode lowering should resolve direct call targets"),
                 ),
                 IrCallTarget::Value(value) => CallTarget::Register(lower_value(*value)),
-                IrCallTarget::BuiltinMethod(method) => {
-                    CallTarget::BuiltinMethod(lower_builtin_method(*method))
-                }
                 IrCallTarget::StandardIntrinsic(intrinsic) => {
                     CallTarget::StandardIntrinsic(*intrinsic)
                 }
@@ -633,10 +629,6 @@ fn lower_constant(constant: &Constant) -> ConstantOperand {
         Constant::F32(value) => ConstantOperand::F32(*value),
         Constant::Str(value) => ConstantOperand::Str(value.clone()),
     }
-}
-
-fn lower_builtin_method(method: BuiltinMethod) -> BuiltinMethod {
-    method
 }
 
 fn lower_binary_op(op: IrBinaryOp) -> BinaryOp {

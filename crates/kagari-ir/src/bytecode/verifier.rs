@@ -588,7 +588,7 @@ fn verify_call(
         CallTarget::StandardIntrinsic(intrinsic) => {
             verify_standard_intrinsic_call(function, dst, *intrinsic, args)?;
         }
-        CallTarget::BuiltinMethod(_) | CallTarget::RuntimeHelper(_) => {
+        CallTarget::RuntimeHelper(_) => {
             for arg in args {
                 let _ = register_ty(function, *arg)?;
             }
