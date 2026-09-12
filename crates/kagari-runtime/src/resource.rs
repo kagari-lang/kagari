@@ -71,6 +71,10 @@ impl ResourceState {
         self.execution.is_quarantined()
     }
 
+    pub(crate) fn quarantine(&self, reason: &'static str) -> RuntimeError {
+        self.execution.quarantine(reason)
+    }
+
     pub(crate) fn commit_host_write(&self, commit: impl FnOnce()) -> Result<(), RuntimeError> {
         self.execution.commit(commit)
     }

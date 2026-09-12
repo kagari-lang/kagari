@@ -17,6 +17,11 @@ temporary roots, and reentry state. Cleanup does not consume script fuel or invo
 arbitrary user code. The runtime may be reused after cleanup; completed business
 mutations are still present. Rust panic recovery is not a transaction mechanism.
 
+Initialization cleanup retains its authority after execution is quarantined.
+An unfinished initialization transitions to Failed and releases its version
+retention through its lifecycle guard; it does not request a new execution or
+ordinary module-write permission while handling the original failure.
+
 ## Modification guarantees
 
 Standard container and typed-path mutations validate the target, types,

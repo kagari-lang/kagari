@@ -13,8 +13,10 @@ importer in deterministic module order. Functions within a module may recurse.
 The implemented analysis graph provides this order for registered sources: among
 modules whose dependencies are ready, select the smallest package/path identity.
 Each reachable dependency occurs once. Cycle analysis uses explicit stacks and
-supports cancellation. This graph is a compilation prerequisite; runtime bundle
-initialization and dependency-version retention are still pending R10/R14 work.
+supports cancellation. The linked execution program preserves this dependency
+order and pins member versions for cross-module calls. Ordinary runtime
+initialization follows the program graph; isolated candidate initialization and
+publication remain R14 work.
 
 Each runtime owns an independent instance for each executable generation.
 Initialization runs at most once per instance, following:
@@ -26,6 +28,17 @@ Failed returns the recorded failure without rerunning initialization. A host may
 explicitly start a new attempt with a fresh candidate instance. Ordinary import
 does not silently retry prior effects. Public execution requires initialization
 of the entry and its dependencies to have succeeded.
+
+Runtime initialization owns a `ModuleInitializationGuard`, which retains the
+execution generation without holding a mutable module-store borrow across script
+execution. Finishing validates and caches the result as a persistent GC root.
+Dropping an unfinished guard records failure and releases version retention.
+This cleanup remains permitted after quarantine: an initializer's EngineFault
+must return without a second panic from an ordinary state-access permission check.
+Failure cleanup cannot downgrade an already initialized instance. It neither
+reopens execution nor retries initialization. Root-call sessions and cancellation
+are still pending R12; the lifecycle guard establishes their initialization cleanup
+boundary.
 
 Top-level val/var remain private initialization bindings, not durable globals.
 Existing scalar const-safe restrictions remain in force. Persistent state and

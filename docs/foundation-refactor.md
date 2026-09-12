@@ -338,6 +338,13 @@ Implemented foundation slices:
   and existing JIT fallback cover commit faults and subsequent execution rejection.
   Full engine-invariant coverage outside path commits and unified termination/session
   cleanup remain open; this does not complete R13.
+  Initialization now owns a lifecycle guard and version retention with no long
+  module-state borrow. Success validates the stored result; every unfinished exit
+  records failure and releases retention. Failure cleanup is allowed after runtime
+  quarantine, so an initializer commit fault cannot trigger a second panic while
+  attempting an ordinary module-state write. Direct/encoded interpreter and JIT
+  fallback fixtures cover both entry and initializer faults. Cancellation, root-call
+  budgets and synchronous reentry still require the R12 execution session.
   Const evaluation shares checked arithmetic and
   honors short circuit, with cancellation checks. Unified termination handling,
   narrower integer layouts and the other backend/

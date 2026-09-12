@@ -18,6 +18,10 @@ enum Phase {
 pub(crate) struct ExecutionState(Cell<Phase>);
 
 impl ExecutionState {
+    pub(crate) fn quarantine(&self, reason: &'static str) -> RuntimeError {
+        self.0.set(Phase::Quarantined(reason));
+        RuntimeError::new(RuntimeErrorKind::EngineFault, reason)
+    }
     pub(crate) fn ensure_allowed(&self) -> Result<(), RuntimeError> {
         match self.0.get() {
             Phase::Ready => Ok(()),

@@ -199,9 +199,8 @@ impl Vm {
         {
             if let Err(error) = self.initialize_one(&member) {
                 self.runtime
-                    .module_instance_mut(module)
-                    .expect("loaded root instance")
-                    .fail_initialization();
+                    .fail_module_initialization(module)
+                    .map_err(VmError::RuntimeError)?;
                 self.module_failures.insert(module.key(), error.clone());
                 return Err(error);
             }
@@ -248,21 +247,13 @@ impl Vm {
             }
         }
 
-        {
-            let mut module_instance = self
-                .runtime
-                .module_instance_mut(module)
-                .expect("loaded module should have a runtime module instance");
-            module_instance.begin_initialization();
-        }
+        let initialization = self
+            .runtime
+            .begin_module_initialization(module)
+            .map_err(VmError::RuntimeError)?;
 
         let result = match module.bytecode.module_init {
             Some(module_init) => {
-                let _epoch_guard = ModuleEpochGuard::new(
-                    self.runtime.modules(),
-                    module.key(),
-                    ModuleEpochRetention::ActiveCall,
-                );
                 let mut executor = Executor::new(
                     &self.runtime,
                     module,
@@ -277,25 +268,17 @@ impl Vm {
             None => Ok(Value::Unit),
         };
 
-        match result {
-            Ok(result) => {
-                let mut module_instance = self
-                    .runtime
-                    .module_instance_mut(module)
-                    .expect("loaded module should have a runtime module instance");
-                module_instance.finish_initialization(result.clone());
-                Ok(result)
-            }
+        let result = match result {
+            Ok(value) => initialization.finish(value).map_err(VmError::RuntimeError),
             Err(error) => {
-                let mut module_instance = self
-                    .runtime
-                    .module_instance_mut(module)
-                    .expect("loaded module should have a runtime module instance");
-                module_instance.fail_initialization();
-                self.module_failures.insert(key, error.clone());
+                drop(initialization);
                 Err(error)
             }
+        };
+        if let Err(error) = &result {
+            self.module_failures.insert(key, error.clone());
         }
+        result
     }
 
     fn try_execute_jit_entry<B: CodegenBackend>(

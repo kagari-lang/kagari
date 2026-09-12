@@ -79,6 +79,53 @@ pub struct RuntimeConfig {
     pub resources: ResourcePolicy,
 }
 
+/// Owns initialization state and version retention without holding a store borrow.
+/// Dropping an unfinished initialization records failure, even after quarantine.
+#[must_use]
+pub struct ModuleInitializationGuard<'a> {
+    runtime: &'a Runtime,
+    module: LoadedModule,
+    finished: bool,
+}
+
+impl ModuleInitializationGuard<'_> {
+    pub fn finish(mut self, value: Value) -> Result<Value, RuntimeError> {
+        self.runtime
+            .validate_heap_payloads(std::slice::from_ref(&value))?;
+        let result = value.clone();
+        let mut instance = self
+            .runtime
+            .modules
+            .instance_mut(self.module.key())
+            .ok_or_else(|| {
+                self.runtime
+                    .resources
+                    .quarantine("initializing module instance disappeared")
+            })?;
+        if instance.state != ModuleInitializationState::Initializing {
+            return Err(self
+                .runtime
+                .resources
+                .quarantine("module initialization state changed before completion"));
+        }
+        instance.finish_initialization(result);
+        self.finished = true;
+        Ok(value)
+    }
+}
+
+impl Drop for ModuleInitializationGuard<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            // Failure cleanup is permitted after execution has been disabled.
+            let _ = self.runtime.fail_module_initialization(&self.module);
+        }
+        self.runtime
+            .modules
+            .release_epoch(self.module.key(), ModuleEpochRetention::ActiveCall);
+    }
+}
+
 #[derive(Debug)]
 pub struct Runtime {
     gc: GcHeap,
@@ -757,6 +804,52 @@ impl Runtime {
     pub fn module_instance_snapshot(&self, module: &LoadedModule) -> Option<ModuleInstance> {
         self.validate_loaded_module(module).ok()?;
         self.modules.instance_snapshot(module.key())
+    }
+
+    pub fn begin_module_initialization(
+        &self,
+        module: &LoadedModule,
+    ) -> Result<ModuleInitializationGuard<'_>, RuntimeError> {
+        self.validate_loaded_module(module)?;
+        {
+            let mut instance = self.modules.instance_mut(module.key()).ok_or_else(|| {
+                self.resources
+                    .quarantine("loaded module instance disappeared")
+            })?;
+            if instance.state != ModuleInitializationState::Uninitialized {
+                return Err(RuntimeError::module_validation(
+                    "module initialization can only begin once",
+                ));
+            }
+            instance.begin_initialization();
+        }
+        self.modules
+            .retain_epoch(module.key(), ModuleEpochRetention::ActiveCall);
+        Ok(ModuleInitializationGuard {
+            runtime: self,
+            module: module.clone(),
+            finished: false,
+        })
+    }
+
+    /// Records failed initialization during unwinding, without reopening execution.
+    pub fn fail_module_initialization(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
+        if !module.belongs_to(self.host.owner()) {
+            return Err(RuntimeError::module_validation(
+                "module belongs to another runtime",
+            ));
+        }
+        let mut instance = self.modules.instance_mut(module.key()).ok_or_else(|| {
+            self.resources
+                .quarantine("failed module instance disappeared during cleanup")
+        })?;
+        if instance.state == ModuleInitializationState::Initialized {
+            return Err(RuntimeError::module_validation(
+                "completed initialization cannot be failed by cleanup",
+            ));
+        }
+        instance.fail_initialization();
+        Ok(())
     }
 
     pub fn module_instance_mut(
