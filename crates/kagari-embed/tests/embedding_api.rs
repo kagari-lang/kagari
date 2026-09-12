@@ -80,9 +80,11 @@ fn register_embedding_host_path_runtime(
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            "host.player",
-            vec![],
-            "Player",
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.player",
+                vec![],
+                kagari_common::host_interface::HostValueType::opaque("game.Player"),
+            ),
             move |_| Ok(Value::HostRoot(root)),
         ))
         .unwrap();

@@ -107,9 +107,11 @@ fn register_vm_host_path_runtime_with_capabilities(
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            "host.player",
-            vec![],
-            "Player",
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.player",
+                vec![],
+                kagari_common::host_interface::HostValueType::opaque("game.Player"),
+            ),
             move |_| Ok(Value::HostRoot(root)),
         ))
         .unwrap();
@@ -215,9 +217,11 @@ fn executes_runtime_host_helper_call() {
     let mut runtime = host_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            "host.add_i32",
-            vec![],
-            "i32",
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.add_i32",
+                vec![],
+                kagari_common::host_interface::HostValueType::I32,
+            ),
             |args| match args {
                 [Value::I32(lhs), Value::I32(rhs)] => Ok(Value::I32(lhs + rhs)),
                 _ => Err(HostError::new("host.add_i32 expects two i32 arguments")),
@@ -803,15 +807,18 @@ fn executes_source_lowered_print_builtin() {
 
     let mut runtime = host_runtime();
     runtime
-        .register_host_function(HostFunction::new("host.log", vec![], "()", move |args| {
-            let Some(Value::Str(message)) = args.first() else {
-                return Err(HostError::new("host.log expects one string argument"));
-            };
-            sink.lock()
-                .expect("message sink should lock")
-                .push(message.clone());
-            Ok(Value::Unit)
-        }))
+        .register_host_function(HostFunction::new(
+            kagari_common::host_interface::standard_log(),
+            move |args| {
+                let Some(Value::Str(message)) = args.first() else {
+                    return Err(HostError::new("host.log expects one string argument"));
+                };
+                sink.lock()
+                    .expect("message sink should lock")
+                    .push(message.clone());
+                Ok(Value::Unit)
+            },
+        ))
         .expect("host function should register");
     let bytecode = compile_test_bytecode(r#"fn main() { print("hello"); }"#);
     let loaded = runtime

@@ -14,7 +14,7 @@ use kagari_ir::{
 use kagari_jit_cranelift::CraneliftBackend;
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
-    host::{HostError, HostFunction, HostParameter, HostPassingStyle},
+    host::{HostError, HostFunction},
     value::Value,
 };
 
@@ -197,13 +197,7 @@ fn run(case: &Case, route: Route) {
     let reject_call = case.reject_call;
     runtime
         .register_host_function(HostFunction::new(
-            "host.log",
-            vec![HostParameter {
-                name: "message",
-                type_name: "String",
-                passing: HostPassingStyle::SharedBorrow,
-            }],
-            "()",
+            kagari_common::host_interface::standard_log(),
             move |args| {
                 let mut state = capture.lock().unwrap();
                 state.calls.push(HostCall {

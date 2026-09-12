@@ -504,7 +504,7 @@ impl FunctionLowerer<'_, '_> {
                 ],
             ),
             (BuiltinFunction::Print, [message]) => (
-                RuntimeHelper::HostFunction("host.log".into()),
+                RuntimeHelper::HostFunction(kagari_common::host_interface::standard_log().symbol),
                 smallvec::smallvec![self.lower_expr(*message)?],
             ),
             _ => {

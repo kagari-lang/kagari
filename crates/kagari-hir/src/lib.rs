@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod builtin;
 pub mod declarations;
 pub mod hir;
+pub mod host;
 pub mod lower;
 pub mod profile;
 pub mod resolver;

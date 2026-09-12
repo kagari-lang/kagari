@@ -7,7 +7,7 @@ use kagari_ir::bytecode::{
     InstructionSourceSpan, ModuleSlot, Register, RuntimeHelper, SafeDebugPoint, SafeDebugPointKind,
 };
 use kagari_ir::module::ValueType;
-use kagari_runtime::host::{HostFunction, HostFunctionMetadata};
+use kagari_runtime::host::{HostFunction, HostFunctionDeclaration};
 use kagari_runtime::value::{StructValueField, Value};
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention,
@@ -942,7 +942,11 @@ fn rejects_reentrant_module_result_access_while_initializing() {
 fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
-    let mut metadata = HostFunctionMetadata::new("host.secure", vec![], "i32");
+    let mut metadata = HostFunctionDeclaration::new(
+        "host.secure",
+        vec![],
+        kagari_common::host_interface::HostValueType::I32,
+    );
     metadata.capability_requirements = CapabilitySet {
         fs_read: true,
         ..CapabilitySet::default()
@@ -950,7 +954,7 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
 
     let mut runtime = host_call_runtime();
     runtime
-        .register_host_function(HostFunction::with_metadata(metadata, move |_| {
+        .register_host_function(HostFunction::new(metadata, move |_| {
             *calls_for_host
                 .lock()
                 .expect("host call counter should lock") += 1;
@@ -1000,7 +1004,11 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
 fn host_runtime_helpers_charge_resource_cost_before_invocation() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
-    let mut metadata = HostFunctionMetadata::new("host.costly", vec![], "i32");
+    let mut metadata = HostFunctionDeclaration::new(
+        "host.costly",
+        vec![],
+        kagari_common::host_interface::HostValueType::I32,
+    );
     metadata.resource_cost_hint = Some(2);
 
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -1025,7 +1033,7 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
         ..RuntimeConfig::default()
     });
     runtime
-        .register_host_function(HostFunction::with_metadata(metadata, move |_| {
+        .register_host_function(HostFunction::new(metadata, move |_| {
             *calls_for_host
                 .lock()
                 .expect("host call counter should lock") += 1;
@@ -1098,9 +1106,11 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
     });
     runtime
         .register_host_function(HostFunction::new(
-            "host.limited",
-            vec![],
-            "i32",
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.limited",
+                vec![],
+                kagari_common::host_interface::HostValueType::I32,
+            ),
             move |_| {
                 *calls_for_host
                     .lock()
@@ -1157,9 +1167,11 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
     let mut runtime = host_call_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            "host.bump_init",
-            vec![],
-            "()",
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.bump_init",
+                vec![],
+                kagari_common::host_interface::HostValueType::Unit,
+            ),
             move |_| {
                 let mut count = counter.lock().expect("counter lock should succeed");
                 *count += 1;
@@ -1229,9 +1241,11 @@ fn reruns_module_init_for_new_module_epoch() {
     let mut runtime = host_call_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            "host.bump_init",
-            vec![],
-            "()",
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.bump_init",
+                vec![],
+                kagari_common::host_interface::HostValueType::Unit,
+            ),
             move |_| {
                 let mut count = counter.lock().expect("counter lock should succeed");
                 *count += 1;
@@ -1390,9 +1404,11 @@ fn caches_failed_module_init_without_retrying() {
     let mut runtime = host_call_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            "host.fail_init",
-            vec![],
-            "()",
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.fail_init",
+                vec![],
+                kagari_common::host_interface::HostValueType::Unit,
+            ),
             move |_| {
                 let mut count = counter.lock().expect("counter lock should succeed");
                 *count += 1;

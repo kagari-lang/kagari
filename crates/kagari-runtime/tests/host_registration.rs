@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, HostExposurePolicy,
-    HostFunctionEffects, HostFunctionMetadata, HostReflectionPolicy, HostTypeOwnership,
+    HostFunctionDeclaration, HostFunctionEffects, HostReflectionPolicy, HostTypeOwnership,
     HostTypeRegistration, LanguageProfile, MethodInfo, MethodMetadataId, MethodOrigin,
     ParameterInfo, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
     TypeKind, TypeRegistration, Visibility,
@@ -70,21 +70,19 @@ fn registers_host_function_metadata_and_invokes_handler() {
             ..TypeRegistration::new("i32", TypeKind::Primitive)
         })
         .unwrap();
-    let metadata = HostFunctionMetadata {
-        symbol: "game.heal",
+    let metadata = HostFunctionDeclaration {
         params: vec![
             HostParameter {
-                name: "player",
-                type_name: "game.Player",
+                name: "player".into(),
+                ty: kagari_common::host_interface::HostValueType::opaque("game.Player"),
                 passing: HostPassingStyle::UniqueBorrow,
             },
             HostParameter {
-                name: "hp",
-                type_name: "i32",
+                name: "hp".into(),
+                ty: kagari_common::host_interface::HostValueType::I32,
                 passing: HostPassingStyle::Owned,
             },
         ],
-        return_type: "i32",
         capability_requirements: CapabilitySet {
             reflection_read: true,
             ..CapabilitySet::default()
@@ -95,30 +93,32 @@ fn registers_host_function_metadata_and_invokes_handler() {
             may_trap: true,
             ..HostFunctionEffects::default()
         },
-        abi_fingerprint: AbiFingerprint(55),
+        ..HostFunctionDeclaration::new(
+            "game.heal",
+            vec![],
+            kagari_common::host_interface::HostValueType::I32,
+        )
     };
+    let fingerprint = metadata.fingerprint().unwrap();
 
     let function_id = runtime
-        .register_host_function(HostFunction::with_metadata(
-            metadata,
-            move |args| match args {
-                [Value::HostRoot(_), Value::I32(hp)] => Ok(Value::I32(hp + i32_id.index() as i32)),
-                _ => Err(HostError::new("game.heal expects host root and i32")),
-            },
-        ))
+        .register_host_function(HostFunction::new(metadata, move |args| match args {
+            [Value::HostRoot(_), Value::I32(hp)] => Ok(Value::I32(hp + i32_id.index() as i32)),
+            _ => Err(HostError::new("game.heal expects host root and i32")),
+        }))
         .unwrap();
 
     let registered = runtime.host().function("game.heal").unwrap();
     assert_eq!(function_id.index(), 0);
     assert_eq!(registered.id(), Some(function_id));
-    assert_eq!(registered.metadata().symbol, "game.heal");
+    assert_eq!(registered.declaration().symbol, "game.heal");
     assert_eq!(
-        registered.metadata().params[0].passing,
+        registered.declaration().params[0].passing,
         HostPassingStyle::UniqueBorrow
     );
-    assert_eq!(registered.metadata().resource_cost_hint, Some(5));
-    assert!(registered.metadata().effects.may_mutate_host_state);
-    assert_eq!(registered.metadata().abi_fingerprint, AbiFingerprint(55));
+    assert_eq!(registered.declaration().resource_cost_hint, Some(5));
+    assert!(registered.declaration().effects.may_mutate_host_state);
+    assert_eq!(registered.declaration().fingerprint().unwrap(), fingerprint);
     assert_eq!(
         runtime
             .invoke_host("game.heal", &[host_root_value(1), Value::I32(7)])
@@ -133,10 +133,17 @@ fn host_functions_are_unavailable_until_exposed() {
     let calls_for_host = Arc::clone(&calls);
     let mut runtime = host_call_enabled_runtime();
     runtime
-        .register_host_function(HostFunction::new("game.tick", vec![], "()", move |_| {
-            *calls_for_host.lock().expect("counter should lock") += 1;
-            Ok(Value::Unit)
-        }))
+        .register_host_function(HostFunction::new(
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "game.tick",
+                vec![],
+                kagari_common::host_interface::HostValueType::Unit,
+            ),
+            move |_| {
+                *calls_for_host.lock().expect("counter should lock") += 1;
+                Ok(Value::Unit)
+            },
+        ))
         .unwrap();
 
     let error = runtime.invoke_host("game.tick", &[]).unwrap_err();
@@ -156,15 +163,25 @@ fn host_functions_are_unavailable_until_exposed() {
 fn rejects_duplicate_host_function_symbols() {
     let mut runtime = Runtime::default();
     runtime
-        .register_host_function(HostFunction::new("game.tick", vec![], "()", |_| {
-            Ok(Value::Unit)
-        }))
+        .register_host_function(HostFunction::new(
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "game.tick",
+                vec![],
+                kagari_common::host_interface::HostValueType::Unit,
+            ),
+            |_| Ok(Value::Unit),
+        ))
         .unwrap();
 
     let error = runtime
-        .register_host_function(HostFunction::new("game.tick", vec![], "()", |_| {
-            Ok(Value::Unit)
-        }))
+        .register_host_function(HostFunction::new(
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "game.tick",
+                vec![],
+                kagari_common::host_interface::HostValueType::Unit,
+            ),
+            |_| Ok(Value::Unit),
+        ))
         .unwrap_err();
 
     assert_eq!(error.kind(), RuntimeErrorKind::MetadataConflict);

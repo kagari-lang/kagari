@@ -1,3 +1,7 @@
+pub use kagari_common::host_interface::{
+    HostFunctionDeclaration, HostFunctionEffects, HostInterface, HostParameter, HostPassingStyle,
+    HostValueType,
+};
 use std::{cell::RefCell, collections::HashMap, fmt, sync::Arc};
 
 use kagari_ir::bytecode::BinaryOp;
@@ -922,20 +926,6 @@ impl HostFunctionId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostPassingStyle {
-    Owned,
-    SharedBorrow,
-    UniqueBorrow,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostParameter {
-    pub name: &'static str,
-    pub type_name: &'static str,
-    pub passing: HostPassingStyle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostTypeOwnership {
     Opaque,
     Owned,
@@ -1022,44 +1012,6 @@ impl HostTypeInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct HostFunctionEffects {
-    pub may_allocate: bool,
-    pub may_trap: bool,
-    pub may_call_host_services: bool,
-    pub may_mutate_host_state: bool,
-    pub may_suspend: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostFunctionMetadata {
-    pub symbol: &'static str,
-    pub params: Vec<HostParameter>,
-    pub return_type: &'static str,
-    pub capability_requirements: CapabilitySet,
-    pub resource_cost_hint: Option<u64>,
-    pub effects: HostFunctionEffects,
-    pub abi_fingerprint: AbiFingerprint,
-}
-
-impl HostFunctionMetadata {
-    pub fn new(
-        symbol: &'static str,
-        params: Vec<HostParameter>,
-        return_type: &'static str,
-    ) -> Self {
-        Self {
-            symbol,
-            params,
-            return_type,
-            capability_requirements: CapabilitySet::default(),
-            resource_cost_hint: None,
-            effects: HostFunctionEffects::default(),
-            abi_fingerprint: AbiFingerprint::default(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostError {
     message: String,
@@ -1082,62 +1034,49 @@ pub type HostCallback = dyn Fn(&[Value]) -> Result<Value, HostError> + Send + Sy
 #[derive(Clone)]
 pub struct HostFunction {
     id: Option<HostFunctionId>,
-    metadata: HostFunctionMetadata,
+    declaration: HostFunctionDeclaration,
     handler: Arc<HostCallback>,
 }
 
 impl fmt::Debug for HostFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HostFunction")
-            .field("symbol", &self.metadata.symbol)
+            .field("symbol", &self.declaration.symbol)
             .field("id", &self.id)
-            .field("params", &self.metadata.params)
-            .field("return_type", &self.metadata.return_type)
+            .field("params", &self.declaration.params)
+            .field("return_type", &self.declaration.return_type)
             .field(
                 "capability_requirements",
-                &self.metadata.capability_requirements,
+                &self.declaration.capability_requirements,
             )
-            .field("resource_cost_hint", &self.metadata.resource_cost_hint)
-            .field("effects", &self.metadata.effects)
-            .field("abi_fingerprint", &self.metadata.abi_fingerprint)
+            .field("resource_cost_hint", &self.declaration.resource_cost_hint)
+            .field("effects", &self.declaration.effects)
+            .field("declaration_id", &self.declaration.id)
             .finish_non_exhaustive()
     }
 }
 
 impl HostFunction {
     pub fn new(
-        symbol: &'static str,
-        params: Vec<HostParameter>,
-        return_type: &'static str,
-        handler: impl Fn(&[Value]) -> Result<Value, HostError> + Send + Sync + 'static,
-    ) -> Self {
-        Self::with_metadata(
-            HostFunctionMetadata::new(symbol, params, return_type),
-            handler,
-        )
-    }
-
-    pub fn with_metadata(
-        metadata: HostFunctionMetadata,
+        declaration: HostFunctionDeclaration,
         handler: impl Fn(&[Value]) -> Result<Value, HostError> + Send + Sync + 'static,
     ) -> Self {
         Self {
             id: None,
-            metadata,
+            declaration,
             handler: Arc::new(handler),
         }
     }
-
     pub fn id(&self) -> Option<HostFunctionId> {
         self.id
     }
 
-    pub fn metadata(&self) -> &HostFunctionMetadata {
-        &self.metadata
+    pub fn declaration(&self) -> &HostFunctionDeclaration {
+        &self.declaration
     }
 
     pub fn symbol(&self) -> &str {
-        self.metadata.symbol
+        &self.declaration.symbol
     }
 
     pub fn invoke(&self, args: &[Value]) -> Result<Value, HostError> {
@@ -1164,8 +1103,17 @@ pub struct HostRegistry {
 
 impl HostRegistry {
     pub fn register(&mut self, mut function: HostFunction) -> Result<HostFunctionId, RuntimeError> {
-        let symbol = function.metadata.symbol.to_owned();
-        if self.functions.contains_key(&symbol) {
+        function
+            .declaration
+            .validate()
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let symbol = function.declaration.symbol.to_owned();
+        if self.functions.contains_key(&symbol)
+            || self
+                .functions
+                .values()
+                .any(|existing| existing.declaration.id == function.declaration.id)
+        {
             return Err(RuntimeError::metadata_conflict(symbol));
         }
         let id = HostFunctionId::new(self.next_function_id);
@@ -1173,6 +1121,47 @@ impl HostRegistry {
         function.assign_id(id);
         self.functions.insert(symbol, function);
         Ok(id)
+    }
+
+    pub fn interface(&self) -> HostInterface {
+        let mut functions = self
+            .functions
+            .values()
+            .map(|f| f.declaration.clone())
+            .collect::<Vec<_>>();
+        functions.sort_by(|a, b| a.id.cmp(&b.id));
+        HostInterface { functions }
+    }
+
+    /// Checks declarations without invoking any callback or changing registry state.
+    pub fn link_interface(
+        &self,
+        interface: &HostInterface,
+    ) -> Result<Vec<HostFunctionId>, RuntimeError> {
+        interface
+            .validate()
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        interface
+            .functions
+            .iter()
+            .map(|required| {
+                let bound = self.functions.get(&required.symbol).ok_or_else(|| {
+                    RuntimeError::metadata_conflict(format!(
+                        "missing host binding `{}`",
+                        required.symbol
+                    ))
+                })?;
+                if !required.matches_binding(&bound.declaration) {
+                    return Err(RuntimeError::metadata_conflict(format!(
+                        "host binding `{}` differs from its declaration",
+                        required.symbol
+                    )));
+                }
+                bound
+                    .id
+                    .ok_or_else(|| RuntimeError::metadata_conflict("unregistered host binding"))
+            })
+            .collect()
     }
 
     pub fn register_type(&mut self, info: HostTypeInfo) -> Result<(), RuntimeError> {

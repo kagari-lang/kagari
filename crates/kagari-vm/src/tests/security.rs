@@ -275,9 +275,14 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
         ..RuntimeConfig::default()
     });
     host_call_limited
-        .register_host_function(HostFunction::new("host.limited", vec![], "i32", |_| {
-            Ok(Value::I32(1))
-        }))
+        .register_host_function(HostFunction::new(
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.limited",
+                vec![],
+                kagari_common::host_interface::HostValueType::I32,
+            ),
+            |_| Ok(Value::I32(1)),
+        ))
         .expect("host function should register");
     let host_module = host_call_limited
         .load_module(

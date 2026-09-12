@@ -102,6 +102,13 @@ requires this handle; editing its `into_unverified()` result requires `verify_ir
 again. The verification boundary and its remaining linking limits are defined in
 [bytecode.md](bytecode.md#verified-ir-boundary).
 
+Host function registration takes `HostFunction::new(HostFunctionDeclaration,
+callback)`. The declaration can be read, encoded and compared offline without
+creating a runtime; see [host-interop.md](host-interop.md#function-registration).
+`runtime.host().link_interface(...)` checks it against installed bindings without
+executing callbacks. General host imports and mandatory artifact host-interface
+linking remain R06/R08 work.
+
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated

@@ -11,7 +11,7 @@ use kagari_embed::{
 };
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, LanguageProfile,
-    host::{HostError, HostFunction, HostParameter, HostPassingStyle},
+    host::{HostError, HostFunction},
     value::Value,
 };
 use kagari_syntax::parse_module;
@@ -511,13 +511,7 @@ fn register_default_host_functions(
     runtime: &mut kagari_embed::KagariRuntime,
 ) -> Result<(), kagari_runtime::RuntimeError> {
     runtime.register_host_function(HostFunction::new(
-        "host.log",
-        vec![HostParameter {
-            name: "message",
-            type_name: "String",
-            passing: HostPassingStyle::SharedBorrow,
-        }],
-        "()",
+        kagari_common::host_interface::standard_log(),
         |args| {
             let Some(Value::Str(message)) = args.first() else {
                 return Err(HostError::new("host.log expects one string argument"));

@@ -35,7 +35,7 @@ pub use error::{RuntimeError, RuntimeErrorKind};
 pub use host::{
     BorrowEpoch, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
     DynamicPathParameter, FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallGuard,
-    HostFrameId, HostFunctionEffects, HostFunctionId, HostFunctionMetadata, HostObjectId,
+    HostFrameId, HostFunctionDeclaration, HostFunctionEffects, HostFunctionId, HostObjectId,
     HostPathAdapter, HostPathContext, HostPathDescriptor, HostPathDescriptorId,
     HostPathDescriptorRegistration, HostPathMutationRecord, HostPathOperation, HostPathSegment,
     HostPathViewHandle, HostReflectionPolicy, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
@@ -443,7 +443,7 @@ impl Runtime {
         let Some(function) = self.host.function(symbol) else {
             return Ok(());
         };
-        let metadata = function.metadata();
+        let metadata = function.declaration();
         self.validate_capabilities(metadata.capability_requirements)?;
         self.resources.consume_host_call()?;
         if let Some(cost) = metadata.resource_cost_hint {

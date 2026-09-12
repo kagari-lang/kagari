@@ -1123,7 +1123,8 @@ impl<'a> BodyChecker<'a> {
         self.type_table
             .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
         let arity = match builtin {
-            BuiltinFunction::TypeOf | BuiltinFunction::Print => 1,
+            BuiltinFunction::TypeOf => 1,
+            BuiltinFunction::Print => kagari_common::host_interface::standard_log().params.len(),
             BuiltinFunction::GetField => 2,
             BuiltinFunction::SetField | BuiltinFunction::SetIndex => 3,
         };
@@ -1193,22 +1194,24 @@ impl<'a> BodyChecker<'a> {
                 Some(base_ty)
             }
             BuiltinFunction::Print => {
-                self.check_builtin_arity("print", 1, args.len(), callee);
+                let declaration = kagari_common::host_interface::standard_log();
                 let arg_tys = self.infer_call_args(args, env);
-                if let Some((arg, ty)) = arg_tys.first()
-                    && *ty != TypeId::Builtin(BuiltinType::String)
-                {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                            function_name: "print".to_owned(),
-                            parameter_name: "message".to_owned(),
-                            expected: "String".to_owned(),
-                            found: display_type_id(ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*arg)),
-                    );
+                for ((arg, ty), parameter) in arg_tys.iter().zip(&declaration.params) {
+                    let expected = crate::host::scalar_type(&parameter.ty)
+                        .expect("standard log has a scalar signature");
+                    if *ty != expected {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
+                                function_name: "print".to_owned(),
+                                parameter_name: parameter.name.clone(),
+                                expected: display_type_id(&expected),
+                                found: display_type_id(ty),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(*arg)),
+                        );
+                    }
                 }
-                Some(TypeId::Builtin(BuiltinType::Unit))
+                crate::host::scalar_type(&declaration.return_type)
             }
         }
     }

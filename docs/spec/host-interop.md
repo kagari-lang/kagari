@@ -31,12 +31,13 @@ The interop scope excludes:
 
 Host interop is split into two concerns:
 
-1. registration of types and functions
-2. borrow-boundary management
+1. offline declarations of types and functions
+2. runtime bindings checked against those declarations
+3. borrow-boundary management
 
 These concerns are related, but they are not collapsed into one mechanism.
 
-Registration decides what the script can name and call.
+Declarations decide what the script can name and call; runtime bindings supply implementations.
 Borrow-boundary management decides how Rust-owned data may be accessed safely during execution.
 
 ## Type Registration
@@ -59,6 +60,38 @@ Registration attaches at least:
 - host access policy
 
 ## Function Registration
+
+The current function API is `HostFunction::new(declaration, callback)`. Its
+`HostFunctionDeclaration` comes from `kagari_common::host_interface`, which has no
+runtime dependency. It carries a `DefinitionId`, export label, typed parameters
+and result, passing styles, capabilities, effects, resource cost and documentation.
+`HostValueType` currently covers the registered scalar representations and opaque
+nominal types. Opaque references use declaration identities, not runtime type slots.
+The old callback-owned metadata model, arbitrary ABI fingerprint field, static
+string type names and `with_metadata` constructor have been removed.
+
+One declaration can be cloned into a `HostInterface` for offline tooling and into
+the runtime binding. `HostRegistry::link_interface` checks required declarations
+against installed bindings without calling them. It rejects missing bindings,
+identity/signature/borrow/effect/capability/cost mismatches. Documentation changes
+do not change the call contract. Registration rejects duplicate identities and
+labels, and invalid declarations leave the registry unchanged.
+
+Interface encoding uses the `KHI\0` magic and version 1, fixed-width little-endian
+fields and a 4 MiB limit. Functions are sorted by declaration identity. Decoding
+rejects other versions, malformed input, duplicates and trailing data. Function
+fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
+documentation is excluded. Binding checks compare the complete contract rather
+than treating a matching fingerprint as sufficient evidence.
+
+The source `print` entry and CLI log binding use the same `standard_log`
+declaration. Run `cargo run -p kagari-runtime --example offline_host` for an
+offline export/decode/bind/check example.
+
+R06 is not complete: arbitrary host-module imports, composite declaration types,
+host type/member declarations and revision-aware analysis inputs still need
+integration. Bytecode currently retains host symbols; required interfaces and
+mandatory binding checks must still be connected to artifact loading in R08/R09.
 
 Rust functions are also registered explicitly.
 

@@ -140,6 +140,15 @@ Implemented foundation slices:
   Stable named declarations can be located in a new snapshot, while local binding
   handles remain scoped to their original analysis, including on profile changes.
   `cargo run -p kagari-embed --example source_queries` exercises these tool APIs.
+- R06: host functions now take a separate declaration containing nominal identity,
+  typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
+  The old metadata API, string type names and caller-chosen function fingerprints
+  were removed. Offline KHI encoding is canonical and bounded; explicit registry
+  linking checks complete contracts without executing callbacks. HIR print checking
+  and CLI logging share the same declaration. The offline_host example exercises
+  export, decode, binding verification and invocation. General host imports,
+  composite and type/member declarations, analysis input revisions and mandatory
+  artifact linking remain outstanding; this does not mark R06 complete.
 - R07: semantic Struct/Enum/Trait types use DefinitionId, and generic parameters
   use their declaring owner and position. Same-spelled cross-module types and
   shadowed generic parameters are distinct. Implicit Self types belong to a trait;
