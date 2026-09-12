@@ -1,5 +1,5 @@
 use kagari_common::SourceFile;
-use kagari_hir::analyze_module;
+use kagari_hir::analyze_source;
 use kagari_ir::{
     bytecode::{
         BytecodeFunction, BytecodeInstruction, BytecodeModule, ConstantOperand, FunctionMetadata,
@@ -9,7 +9,6 @@ use kagari_ir::{
     module::ValueType,
 };
 use kagari_runtime::{LoadedModule, Runtime};
-use kagari_syntax::parse_module;
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
     load_bytecode_module_with_runtime(Runtime::default(), name, bytecode)
@@ -33,10 +32,18 @@ pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
 
 pub fn compile_test_bytecode(source_text: &str) -> BytecodeModule {
     let source = SourceFile::new("test.kgr", source_text);
-    let ast = parse_module(&source).expect("source should parse");
-    let analyzed = analyze_module(&ast)
-        .into_codegen()
-        .expect("analysis should succeed");
+
+    let analyzed = analyze_source(
+        &source,
+        kagari_hir::LanguageFeatureProfile {
+            allow_host_calls: true,
+            allow_reflection: true,
+            allow_reflection_write: true,
+            ..Default::default()
+        },
+    )
+    .into_codegen()
+    .expect("analysis should succeed");
     let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
     lower_to_bytecode(&ir).expect("bytecode lowering should succeed")
 }

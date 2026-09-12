@@ -198,13 +198,17 @@ impl AnalysisDatabase {
                     let reuse = self
                         .files
                         .get(&file.id())
-                        .filter(|old| old.result.diagnostics().is_empty())
+                        .filter(|old| {
+                            old.result.diagnostics().is_empty()
+                                && old.source.module_identity() == file.module_identity()
+                        })
                         .map(|old| crate::typeck::BodyReuse {
                             previous: old.result.facts(),
                             old_text: old.source.text(),
                             new_text: file.text(),
                         });
-                    let result = analyze_parsed(&parsed, profile, reuse.as_ref(), cancel);
+                    let result =
+                        analyze_parsed(file.clone(), &parsed, profile, reuse.as_ref(), cancel);
                     Arc::new(FileAnalysis {
                         source: file.clone(),
                         profile,

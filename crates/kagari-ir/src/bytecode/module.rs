@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BytecodeModule {
+    pub identity: kagari_common::identity::ModuleIdentity,
+    pub source_name: String,
     pub module_init: Option<FunctionRef>,
     pub module_slots: BytecodeModuleSlotBuffer,
     pub constants: ConstantPool,

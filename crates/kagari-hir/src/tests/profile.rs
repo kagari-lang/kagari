@@ -1,16 +1,15 @@
 use kagari_common::DiagnosticKind;
 
 use crate::{
-    analyze_module_with_profile,
+    analyze_source,
     profile::{LanguageFeatureProfile, validate_profile},
 };
 
-use super::common;
-
 #[test]
 fn profile_rejects_script_visible_reflection_when_disabled() {
-    let module = common::parse_ok("fn main() -> String { type_of(7) }");
-    let diagnostics = analyze_module_with_profile(&module, LanguageFeatureProfile::default())
+    let module =
+        kagari_common::SourceFile::new("profile.kgr", "fn main() -> String { type_of(7) }");
+    let diagnostics = analyze_source(&module, LanguageFeatureProfile::default())
         .into_codegen()
         .expect_err("profile should reject reflection");
 
@@ -24,7 +23,8 @@ fn profile_rejects_script_visible_reflection_when_disabled() {
 
 #[test]
 fn profile_requires_separate_reflection_write_feature() {
-    let module = common::parse_ok(
+    let module = kagari_common::SourceFile::new(
+        "profile.kgr",
         r#"
 struct Point { var x: i32 }
 fn main() -> Point {
@@ -33,7 +33,7 @@ fn main() -> Point {
 }
 "#,
     );
-    let diagnostics = analyze_module_with_profile(
+    let diagnostics = analyze_source(
         &module,
         LanguageFeatureProfile {
             allow_reflection: true,
@@ -54,13 +54,14 @@ fn main() -> Point {
 
 #[test]
 fn profile_rejects_interface_value_types_when_disabled() {
-    let module = common::parse_ok(
+    let module = kagari_common::SourceFile::new(
+        "profile.kgr",
         r#"
 trait Show { fn show(self) -> String; }
 fn render(value: Show) -> String { value.show() }
 "#,
     );
-    let analyzed = crate::analyze_module(&module)
+    let analyzed = crate::analyze_source(&module, Default::default())
         .into_codegen()
         .expect("interface value should analyze");
     let diagnostics = validate_profile(

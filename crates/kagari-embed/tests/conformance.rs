@@ -1,16 +1,17 @@
 use kagari_common::SourceFile;
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_embed::{
     ArtifactOptions, CompileOptions, EmbeddingError, ExecutionContext, KagariEngine, LoadOptions,
 };
 use kagari_ir::bytecode::{
-    ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
-    ArtifactValidationError, DependencyFingerprint,
+    ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError,
+    DependencyFingerprint,
 };
 use kagari_runtime::{ResourcePolicy, value::Value};
 
 fn exact_compatibility(
     artifact: &kagari_embed::BytecodeArtifact,
-    identity: ArtifactModuleIdentity,
+    identity: ModuleIdentity,
 ) -> ArtifactCompatibility {
     ArtifactCompatibility {
         module_identity: Some(identity),
@@ -24,23 +25,20 @@ fn exact_compatibility(
 #[test]
 fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
     let engine = KagariEngine::default();
-    let identity = ArtifactModuleIdentity {
-        package_id: "gameplay".to_owned(),
-        module_path: "combat::main".to_owned(),
-        source_uri: "pkg://gameplay/combat/main.kgr".to_owned(),
-        module_id: "gameplay/combat/main".to_owned(),
+    let identity = ModuleIdentity {
+        package: PackageId("gameplay".into()),
+        path: vec!["combat".into(), "main".into()],
     };
+    let source_name = "pkg://gameplay/combat/main.kgr";
+    engine.bind_module(source_name, identity.clone()).unwrap();
     let dependency = DependencyFingerprint {
         module_id: "gameplay/math".to_owned(),
         fingerprint: ArtifactFingerprint::of_str("math-v1"),
     };
     let checked = engine
         .compile_source(
-            SourceFile::new("combat/main.kgr", "fn main() -> i32 { 7 }"),
-            CompileOptions {
-                module_identity: Some(identity.clone()),
-                ..CompileOptions::default()
-            },
+            SourceFile::new(source_name, "fn main() -> i32 { 7 }"),
+            CompileOptions::default(),
         )
         .expect("source should compile");
 
@@ -54,12 +52,11 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
                     security_profile: Some("dev".to_owned()),
                     ..ArtifactBuildOptions::default()
                 },
-                use_checked_module_identity: true,
             },
         )
         .expect("checked module should emit bytecode");
 
-    assert_eq!(checked.module_identity, identity);
+    assert_eq!(checked.module_identity(), &identity);
     assert_eq!(artifact.header.module_identity, identity);
     assert_eq!(artifact.verification.loader.module_identity, identity);
     assert_eq!(
@@ -92,13 +89,13 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         )
         .expect("compatible artifact should load");
 
-    assert_eq!(loaded.name, identity.source_uri);
+    assert_eq!(loaded.name, source_name);
     assert_eq!(loaded.epoch.0, 1);
     assert_eq!(
         runtime
             .runtime()
             .modules()
-            .latest(&identity.source_uri)
+            .latest(source_name)
             .expect("loaded module should be visible by source uri")
             .id,
         loaded.id

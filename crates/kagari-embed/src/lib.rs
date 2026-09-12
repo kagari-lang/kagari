@@ -10,9 +10,9 @@ use kagari_hir::{
 use kagari_ir::{
     IrLoweringError,
     bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, ArtifactModuleIdentity,
-        ArtifactValidationError, BytecodeInstruction, BytecodeLoweringError, BytecodeModule,
-        CallTarget, KbcArtifact, RuntimeHelper, lower_to_bytecode,
+        ArtifactBuildOptions, ArtifactCompatibility, ArtifactValidationError, BytecodeInstruction,
+        BytecodeLoweringError, BytecodeModule, CallTarget, KbcArtifact, RuntimeHelper,
+        lower_to_bytecode,
     },
     lower_to_ir,
 };
@@ -100,6 +100,17 @@ impl KagariEngine {
             .map_err(|message| EmbeddingError::Source { message })
     }
 
+    pub fn bind_module(
+        &self,
+        name: &str,
+        module: kagari_common::identity::ModuleIdentity,
+    ) -> CompileResult<FileId> {
+        self.sources
+            .borrow_mut()
+            .bind_module(name, module)
+            .map_err(|message| EmbeddingError::Source { message })
+    }
+
     pub fn close_overlay(&self, name: &str) -> CompileResult<()> {
         self.sources
             .borrow_mut()
@@ -139,9 +150,6 @@ impl KagariEngine {
             message: "file is absent from this source snapshot".into(),
         })?;
         let source = analysis.source();
-        let module_identity = options
-            .module_identity
-            .unwrap_or_else(|| ArtifactModuleIdentity::single_file(source.name()));
         let analyzed = analysis
             .result()
             .clone()
@@ -149,7 +157,6 @@ impl KagariEngine {
             .map_err(|diagnostics| EmbeddingError::diagnostics(diagnostics, source))?;
         Ok(CheckedModule {
             source_name: source.name().to_owned(),
-            module_identity,
             analyzed,
         })
     }
@@ -161,11 +168,7 @@ impl KagariEngine {
     ) -> CompileResult<BytecodeArtifact> {
         let ir = lower_to_ir(&checked.analyzed).map_err(EmbeddingError::ir_lowering)?;
         let module = lower_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
-        let mut build = options.build;
-        if options.use_checked_module_identity {
-            build.module_identity = checked.module_identity.clone();
-        }
-        Ok(KbcArtifact::from_module(module, build))
+        Ok(KbcArtifact::from_module(module, options.build))
     }
 
     pub fn compile_to_artifact(
@@ -229,7 +232,7 @@ impl KagariRuntime {
             .map_err(EmbeddingError::artifact_validation)?;
         let module_name = options
             .module_name
-            .unwrap_or_else(|| artifact.header.module_identity.source_uri.clone());
+            .unwrap_or_else(|| artifact.module.source_name.clone());
         self.vm
             .runtime_mut()
             .load_module(module_name, artifact.module)
@@ -244,7 +247,7 @@ impl KagariRuntime {
     ) -> ReloadResult<LoadedModule> {
         let module_name = options
             .module_name
-            .unwrap_or_else(|| artifact.header.module_identity.source_uri.clone());
+            .unwrap_or_else(|| artifact.module.source_name.clone());
         self.vm
             .runtime_mut()
             .reload_artifact(previous, module_name, artifact, &options.compatibility)
@@ -325,11 +328,13 @@ impl KagariRuntime {
 #[derive(Debug)]
 pub struct CheckedModule {
     pub source_name: String,
-    pub module_identity: ArtifactModuleIdentity,
     analyzed: CheckedAnalysis,
 }
 
 impl CheckedModule {
+    pub fn module_identity(&self) -> &kagari_common::identity::ModuleIdentity {
+        self.analyzed.source.module_identity()
+    }
     pub fn analyzed(&self) -> &CheckedAnalysis {
         &self.analyzed
     }
@@ -337,7 +342,6 @@ impl CheckedModule {
 
 #[derive(Debug, Clone, Default)]
 pub struct CompileOptions {
-    pub module_identity: Option<ArtifactModuleIdentity>,
     pub language_profile: LanguageProfile,
 }
 
@@ -355,19 +359,9 @@ fn language_feature_profile_from_runtime(profile: LanguageProfile) -> LanguageFe
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ArtifactOptions {
     pub build: ArtifactBuildOptions,
-    pub use_checked_module_identity: bool,
-}
-
-impl Default for ArtifactOptions {
-    fn default() -> Self {
-        Self {
-            build: ArtifactBuildOptions::default(),
-            use_checked_module_identity: true,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]

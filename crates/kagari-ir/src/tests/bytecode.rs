@@ -1,15 +1,16 @@
 use crate::{
     bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactModuleIdentity,
-        ArtifactSectionId, ArtifactValidationError, BinaryOp, BytecodeFunction,
-        BytecodeInstruction, BytecodeModule, BytecodeVerificationError, CallTarget, DebugMetadata,
-        DependencyFingerprint, FieldId, FieldRecord, FunctionMetadata, FunctionRef, JumpTarget,
-        KBC_MAGIC, KbcArtifact, LocalSlot, PathId, PathRecord, Register, RuntimeHelper,
-        SafeDebugPointKind, StandardIntrinsic, UnaryOp, verify_module,
+        ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactSectionId,
+        ArtifactValidationError, BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule,
+        BytecodeVerificationError, CallTarget, DebugMetadata, DependencyFingerprint, FieldId,
+        FieldRecord, FunctionMetadata, FunctionRef, JumpTarget, KBC_MAGIC, KbcArtifact, LocalSlot,
+        PathId, PathRecord, Register, RuntimeHelper, SafeDebugPointKind, StandardIntrinsic,
+        UnaryOp, verify_module,
     },
     module::{PublicAbiItem, TypeAbiKind, ValueType},
     tests::common,
 };
+use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
 fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
@@ -27,7 +28,7 @@ fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
         positive_zero.verification.public_abi_fingerprints,
         negative_zero.verification.public_abi_fingerprints
     );
-    for version in [1u16, 2] {
+    for version in 1..crate::bytecode::KBC_ARTIFACT_FORMAT_VERSION {
         let mut old = literal.clone();
         old.header.format_version = version;
         assert!(KbcArtifact::from_bytes(&old.to_bytes().unwrap()).is_err());
@@ -159,24 +160,22 @@ fn main() -> i32 {
 
 #[test]
 fn builds_versioned_kbc_artifact_metadata() {
-    let module = common::bytecode_ok(
+    let mut module = common::bytecode_ok(
         r#"
 fn add(a: i32, b: i32) -> i32 { a + b }
 fn main() -> i32 { add(1, 2) }
 "#,
     );
-    let identity = ArtifactModuleIdentity {
-        package_id: "pkg".to_owned(),
-        module_path: "main".to_owned(),
-        source_uri: "pkg://main.kg".to_owned(),
-        module_id: "pkg/main".to_owned(),
+    let identity = ModuleIdentity {
+        package: PackageId("pkg".into()),
+        path: vec!["main".into()],
     };
+    module.identity = identity.clone();
     let dependency = DependencyFingerprint {
         module_id: "pkg/math".to_owned(),
         fingerprint: ArtifactFingerprint::of_str("math-v1"),
     };
     let options = ArtifactBuildOptions {
-        module_identity: identity.clone(),
         dependency_fingerprints: vec![dependency.clone()],
         host_registry_fingerprint: ArtifactFingerprint::of_str("host-v1"),
         security_profile: Some("dev".to_owned()),

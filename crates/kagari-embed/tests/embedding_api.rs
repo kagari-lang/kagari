@@ -147,6 +147,8 @@ fn host_path_artifact(
     };
     KbcArtifact::from_module(
         BytecodeModule {
+            identity: kagari_common::identity::ModuleIdentity::single_file(source_name),
+            source_name: source_name.to_owned(),
             module_init: None,
             module_slots: vec![],
             constants,
@@ -176,10 +178,7 @@ fn host_path_artifact(
             }],
             ..BytecodeModule::default()
         },
-        ArtifactBuildOptions {
-            module_identity: kagari_ir::bytecode::ArtifactModuleIdentity::single_file(source_name),
-            ..ArtifactBuildOptions::default()
-        },
+        ArtifactBuildOptions::default(),
     )
 }
 
@@ -571,7 +570,6 @@ fn execution_context_denies_host_and_reflection_helpers() {
                     allow_reflection: true,
                     ..LanguageProfile::default()
                 },
-                ..CompileOptions::default()
             },
             ArtifactOptions::default(),
         )

@@ -64,6 +64,10 @@ Implemented foundation slices:
   Relative paths resolve against a captured root; virtual URI schemes survive
   normalization. Embedding diagnostics carry file/revision ranges. Cross-module
   resolution and semantic definition identity integration remain outstanding.
+  Logical package/module bindings now belong to source documents and survive
+  overlays. Rebinding invalidates analysis; duplicate source bindings are rejected.
+  Source-based HIR carries its origin through IR, bytecode and artifact metadata.
+  The AST-only analysis entry and post-analysis identity overrides were removed.
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
   represented explicitly, and codegen requires a sealed CheckedAnalysis. More
   semantic-target and source-owner integration remains outstanding.
@@ -87,7 +91,7 @@ Implemented foundation slices:
   a newer revision. Engine snapshot compilation exposes cancellation explicitly.
   Reused bodies remap scalar expression and pattern facts; emitted artifacts are
   checked against fresh analysis after preceding code changes shift arena IDs.
-- R09: format v3 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v4 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked
@@ -96,6 +100,9 @@ Implemented foundation slices:
   UTF-8 string lengths; older Debug-based const ABI artifacts are rejected.
   Language semantics now has its own `kagari-language-v1` identity, independent
   of Rust crate versions. Legacy language identities cannot be opted into at load.
+  The artifact-only module identity type was removed. Bytecode, artifact headers
+  and loader metadata share the source ModuleIdentity and must agree before load.
+  Runtime lookup names remain separate display/entry labels pending R10.
 - R11 prerequisite for R02: the VM and standard equality assertion now call one
   script equality operation instead of Rust Value::PartialEq. Tuples/enums compare
   members, mutable objects compare identity, and unsupported categories trap.

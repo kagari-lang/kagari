@@ -232,7 +232,6 @@ impl CliProfile {
     fn compile_options(self) -> CompileOptions {
         CompileOptions {
             language_profile: self.language_profile(false),
-            ..CompileOptions::default()
         }
     }
 

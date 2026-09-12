@@ -11,6 +11,18 @@ disk text, `set_source` supplies host text or an editor overlay, and
 against the database's captured absolute root. File URIs and local paths share
 identity; virtual source URIs retain their scheme.
 
+Use `engine.bind_module(source_name, ModuleIdentity { package, path })` to bind a
+logical module before compilation. A second source cannot claim the same module.
+Rebinding creates a new revision and invalidates analysis, even when text is
+unchanged. Without an explicit binding, the normalized source name identifies a
+single-file module in the `source` package. `SourceSnapshot::module` resolves the
+binding to its effective source, including an overlay.
+
+HIR analysis accepts source input so facts retain file/revision/module ownership.
+`CheckedModule::module_identity()` reports that identity; neither compile nor
+artifact options can replace it. Bytecode, artifact header and loader identity
+must agree. Runtime load names remain labels for the current runtime module store.
+
 `source_snapshot` captures immutable inputs. `analyze` returns partial semantic
 facts and diagnostics for tools; `compile_snapshot` selects a file and requires
 checked facts before code generation. Both accept a cancellation token.

@@ -31,6 +31,28 @@ pub struct ModuleIdentity {
     pub path: Vec<String>,
 }
 
+impl ModuleIdentity {
+    /// An unnamed package uses the complete source name as its module path.
+    pub fn single_file(source_name: impl Into<String>) -> Self {
+        Self {
+            package: PackageId("source".into()),
+            path: vec![source_name.into()],
+        }
+    }
+}
+
+impl Default for ModuleIdentity {
+    fn default() -> Self {
+        Self::single_file("<anonymous>")
+    }
+}
+
+impl std::fmt::Display for ModuleIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}::{}", self.package.0, self.path.join("::"))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DefinitionId {
     pub module: ModuleIdentity,

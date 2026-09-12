@@ -6,6 +6,67 @@ use kagari_hir::analysis::CancellationToken;
 use kagari_runtime::LanguageProfile;
 
 #[test]
+fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
+    use kagari_common::identity::{ModuleIdentity, PackageId};
+    let engine = KagariEngine::default();
+    let first = ModuleIdentity {
+        package: PackageId("a".into()),
+        path: vec!["main".into()],
+    };
+    let second = ModuleIdentity {
+        package: PackageId("b".into()),
+        path: vec!["main".into()],
+    };
+    let name = "memory://identity.kgr";
+    let token = CancellationToken::default();
+    engine.bind_module(name, first.clone()).unwrap();
+    let id = engine
+        .set_source(name, "fn main() -> i32 { 42 }".into(), SourceLayer::Base)
+        .unwrap();
+    let old_source = engine.source_snapshot();
+    let old = engine
+        .compile_snapshot(old_source.clone(), id, Default::default(), &token)
+        .unwrap();
+    engine.bind_module(name, second.clone()).unwrap();
+    let current_source = engine.source_snapshot();
+    let new = engine
+        .compile_snapshot(current_source.clone(), id, Default::default(), &token)
+        .unwrap();
+    assert_eq!(old.module_identity(), &first);
+    assert_eq!(new.module_identity(), &second);
+    let artifact = engine.emit_bytecode(&new, Default::default()).unwrap();
+    assert_eq!(artifact.module.identity, second);
+    assert_eq!(artifact.header.module_identity, artifact.module.identity);
+    let old_again = engine
+        .compile_snapshot(old_source, id, Default::default(), &token)
+        .unwrap();
+    assert_eq!(old_again.module_identity(), &first);
+    let current_again = engine
+        .analyze(current_source, Default::default(), &token)
+        .unwrap();
+    assert_eq!(
+        current_again
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .source
+            .module_identity(),
+        &second
+    );
+    assert_eq!(
+        current_again
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .typed
+            .reused_bodies,
+        0
+    );
+}
+
+#[test]
 fn reused_literal_and_pattern_facts_emit_the_same_artifact_as_fresh_analysis() {
     let engine = KagariEngine::default();
     let token = CancellationToken::default();

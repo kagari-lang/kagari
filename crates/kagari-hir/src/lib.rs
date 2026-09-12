@@ -19,6 +19,7 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
 #[derive(Debug, Clone)]
 pub struct AnalyzedModule {
+    pub source: std::sync::Arc<kagari_common::SourceFile>,
     pub lowered: lower::LoweredModule,
     pub names: resolver::ResolvedNames,
     pub typed: typeck::TypedModule,
@@ -68,11 +69,8 @@ impl AnalysisResult<AnalyzedModule> {
     }
 }
 
-pub fn analyze_module(module: &ast::SourceFile) -> AnalysisResult<AnalyzedModule> {
-    analyze_syntax(module, None, &Default::default())
-}
-
 fn analyze_syntax(
+    source: std::sync::Arc<kagari_common::SourceFile>,
     module: &ast::SourceFile,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
@@ -84,6 +82,7 @@ fn analyze_syntax(
     diagnostics.extend(typed.diagnostics);
     AnalysisResult {
         facts: AnalyzedModule {
+            source,
             lowered,
             names: names.facts,
             typed: typed.facts,
@@ -92,32 +91,28 @@ fn analyze_syntax(
     }
 }
 
-pub fn analyze_module_with_profile(
-    module: &ast::SourceFile,
-    profile: LanguageFeatureProfile,
-) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_module(module);
-    if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, profile) {
-        analyzed.diagnostics.extend(*diagnostics);
-    }
-    analyzed
-}
-
 pub fn analyze_source(
     source: &kagari_common::SourceFile,
     profile: LanguageFeatureProfile,
 ) -> AnalysisResult<AnalyzedModule> {
     let parsed = kagari_syntax::parse(source);
-    analyze_parsed(&parsed, profile, None, &Default::default())
+    analyze_parsed(
+        std::sync::Arc::new(source.clone()),
+        &parsed,
+        profile,
+        None,
+        &Default::default(),
+    )
 }
 
 pub(crate) fn analyze_parsed(
+    source: std::sync::Arc<kagari_common::SourceFile>,
     parsed: &kagari_syntax::Parse,
     profile: LanguageFeatureProfile,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_syntax(&parsed.syntax(), reuse, cancel);
+    let mut analyzed = analyze_syntax(source, &parsed.syntax(), reuse, cancel);
     if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, profile) {
         analyzed.diagnostics.extend(*diagnostics);
     }

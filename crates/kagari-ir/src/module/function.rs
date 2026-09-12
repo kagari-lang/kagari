@@ -10,6 +10,8 @@ use crate::module::{
 
 #[derive(Debug, Clone)]
 pub struct IrModule {
+    pub identity: kagari_common::identity::ModuleIdentity,
+    pub source_name: String,
     pub module_init: Option<hir::FunctionId>,
     pub module_slots: ModuleSlotBuffer,
     pub abi: ModuleAbi,

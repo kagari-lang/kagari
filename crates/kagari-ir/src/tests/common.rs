@@ -3,16 +3,23 @@ use crate::{
     lower_to_ir,
 };
 use kagari_common::SourceFile;
-use kagari_hir::{CheckedAnalysis, analyze_module};
-use kagari_syntax::parse_module;
+use kagari_hir::{CheckedAnalysis, analyze_source};
 
 pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
     let source = SourceFile::new("test.kg", text);
-    let ast = parse_module(&source).expect("source should parse");
+
     Box::new(
-        analyze_module(&ast)
-            .into_codegen()
-            .expect("analysis should succeed"),
+        analyze_source(
+            &source,
+            kagari_hir::LanguageFeatureProfile {
+                allow_host_calls: true,
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        )
+        .into_codegen()
+        .expect("analysis should succeed"),
     )
 }
 

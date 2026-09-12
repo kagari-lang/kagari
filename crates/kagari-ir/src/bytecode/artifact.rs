@@ -1,4 +1,5 @@
 use bincode::Options;
+use kagari_common::identity::ModuleIdentity;
 use std::fmt::{self, Display, Formatter};
 
 use crate::{
@@ -8,7 +9,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 3;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 4;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 
 fn codec() -> impl Options {
@@ -64,7 +65,7 @@ impl KbcArtifact {
                 runtime_abi_version: options.runtime_abi_version,
                 runtime_helper_abi_version: options.runtime_helper_abi_version,
                 encoding: ArtifactEncoding::CanonicalLittleEndian,
-                module_identity: options.module_identity,
+                module_identity: module.identity.clone(),
                 module_epoch: options.module_epoch,
                 content_hash: ArtifactFingerprint::empty(),
             },
@@ -98,6 +99,12 @@ impl KbcArtifact {
             return Err(ArtifactValidationError::ModuleIdentityMismatch {
                 expected: Box::new(self.header.module_identity.clone()),
                 found: Box::new(self.verification.loader.module_identity.clone()),
+            });
+        }
+        if self.module.identity != self.header.module_identity {
+            return Err(ArtifactValidationError::ModuleIdentityMismatch {
+                expected: Box::new(self.header.module_identity.clone()),
+                found: Box::new(self.module.identity.clone()),
             });
         }
         if self.verification.loader.runtime_abi_version != self.header.runtime_abi_version {
@@ -230,7 +237,7 @@ pub struct ArtifactHeader {
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
     pub encoding: ArtifactEncoding,
-    pub module_identity: ArtifactModuleIdentity,
+    pub module_identity: ModuleIdentity,
     pub module_epoch: Option<ModuleEpoch>,
     pub content_hash: ArtifactFingerprint,
 }
@@ -238,26 +245,6 @@ pub struct ArtifactHeader {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArtifactEncoding {
     CanonicalLittleEndian,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ArtifactModuleIdentity {
-    pub package_id: String,
-    pub module_path: String,
-    pub source_uri: String,
-    pub module_id: String,
-}
-
-impl ArtifactModuleIdentity {
-    pub fn single_file(source_uri: impl Into<String>) -> Self {
-        let source_uri = source_uri.into();
-        Self {
-            package_id: "root".to_owned(),
-            module_path: "main".to_owned(),
-            module_id: ArtifactFingerprint::of_str(&source_uri).to_hex(),
-            source_uri,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -476,7 +463,7 @@ impl VerificationMetadata {
             host_registry_fingerprint: options.host_registry_fingerprint,
             security_profile_requirements: options.security_profile.clone().into_iter().collect(),
             loader: LoaderValidationMetadata {
-                module_identity: options.module_identity.clone(),
+                module_identity: module.identity.clone(),
                 runtime_abi_version: options.runtime_abi_version.clone(),
                 runtime_helper_abi_version: options.runtime_helper_abi_version.clone(),
                 dependency_fingerprints: options.dependency_fingerprints.clone(),
@@ -530,7 +517,7 @@ pub struct DependencyFingerprint {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoaderValidationMetadata {
-    pub module_identity: ArtifactModuleIdentity,
+    pub module_identity: ModuleIdentity,
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
     pub dependency_fingerprints: DependencyFingerprintBuffer,
@@ -542,7 +529,6 @@ pub struct LoaderValidationMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactBuildOptions {
-    pub module_identity: ArtifactModuleIdentity,
     pub module_epoch: Option<ModuleEpoch>,
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
@@ -553,16 +539,9 @@ pub struct ArtifactBuildOptions {
     pub signatures: Option<ArtifactSignatures>,
 }
 
-impl Default for ArtifactModuleIdentity {
-    fn default() -> Self {
-        Self::single_file("memory://main.kg")
-    }
-}
-
 impl Default for ArtifactBuildOptions {
     fn default() -> Self {
         Self {
-            module_identity: ArtifactModuleIdentity::default(),
             module_epoch: None,
             runtime_abi_version: KAGARI_RUNTIME_ABI_VERSION.to_owned(),
             runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
@@ -581,7 +560,7 @@ pub struct ArtifactCompatibility {
     pub language_version: String,
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
-    pub module_identity: Option<ArtifactModuleIdentity>,
+    pub module_identity: Option<ModuleIdentity>,
     pub dependency_fingerprints: DependencyFingerprintBuffer,
     pub host_registry_fingerprint: ArtifactFingerprint,
     pub security_profile: Option<String>,
@@ -660,8 +639,8 @@ pub enum ArtifactValidationError {
         found: String,
     },
     ModuleIdentityMismatch {
-        expected: Box<ArtifactModuleIdentity>,
-        found: Box<ArtifactModuleIdentity>,
+        expected: Box<ModuleIdentity>,
+        found: Box<ModuleIdentity>,
     },
     ContentHashMismatch,
     UnverifiedBytecode,
@@ -752,7 +731,7 @@ impl Display for ArtifactValidationError {
             Self::ModuleIdentityMismatch { expected, found } => write!(
                 f,
                 "artifact module identity mismatch: expected `{}`, found `{}`",
-                expected.module_id, found.module_id
+                expected, found
             ),
             Self::ContentHashMismatch => write!(f, "artifact content hash mismatch"),
             Self::UnverifiedBytecode => write!(f, "artifact bytecode was not verified"),
@@ -796,6 +775,17 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn bytecode_cannot_claim_a_different_identity_from_its_header() {
+        let mut artifact = KbcArtifact::from_module(BytecodeModule::default(), Default::default());
+        artifact.module.identity = ModuleIdentity::single_file("forged.kgr");
+        artifact.header.content_hash = artifact.compute_content_hash();
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default()),
+            Err(ArtifactValidationError::ModuleIdentityMismatch { .. })
+        ));
+    }
 
     #[test]
     fn legacy_language_semantics_cannot_be_opted_into() {
@@ -851,7 +841,8 @@ mod canonical_tests {
         artifact
             .header
             .module_identity
-            .source_uri
+            .package
+            .0
             .push_str("changed");
         assert!(matches!(
             artifact.validate_for_loader(&ArtifactCompatibility::default()),

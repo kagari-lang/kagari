@@ -14,6 +14,7 @@ pub enum SourceLayer {
 #[derive(Debug, Clone)]
 struct Document {
     id: FileId,
+    module: crate::identity::ModuleIdentity,
     base: Option<String>,
     overlay: Option<String>,
 }
@@ -33,6 +34,12 @@ impl SourceSnapshot {
     }
     pub fn files(&self) -> impl Iterator<Item = &Arc<SourceFile>> {
         self.files.values()
+    }
+
+    pub fn module(&self, identity: &crate::identity::ModuleIdentity) -> Option<&Arc<SourceFile>> {
+        self.files
+            .values()
+            .find(|file| file.module_identity() == identity)
     }
     pub fn contains(&self, span: crate::identity::FileSpan) -> bool {
         self.file(span.file)
@@ -98,11 +105,19 @@ impl SourceDatabase {
 
     pub fn set(&mut self, name: &str, text: String, layer: SourceLayer) -> Result<FileId, String> {
         let name = self.source_name(name)?;
+        if !self.documents.contains_key(&name)
+            && self.documents.values().any(|document| {
+                document.module == crate::identity::ModuleIdentity::single_file(name.clone())
+            })
+        {
+            return Err("source module identity is already bound to another source".into());
+        }
         let document = self
             .documents
             .entry(name.clone())
             .or_insert_with(|| Document {
                 id: FileId::fresh(),
+                module: crate::identity::ModuleIdentity::single_file(name.clone()),
                 base: None,
                 overlay: None,
             });
@@ -124,6 +139,43 @@ impl SourceDatabase {
         Ok(())
     }
 
+    /// Bind a logical package/module before analysis. An overlay shares this binding.
+    pub fn bind_module(
+        &mut self,
+        name: &str,
+        module: crate::identity::ModuleIdentity,
+    ) -> Result<FileId, String> {
+        let name = self.source_name(name)?;
+        if module.package.0.is_empty()
+            || module.path.is_empty()
+            || module.path.iter().any(String::is_empty)
+        {
+            return Err("module identity requires a package and nonempty path components".into());
+        }
+        if self
+            .documents
+            .iter()
+            .any(|(other, document)| other != &name && document.module == module)
+        {
+            return Err(format!(
+                "module `{module}` is already bound to another source"
+            ));
+        }
+        let document = self
+            .documents
+            .entry(name.clone())
+            .or_insert_with(|| Document {
+                id: FileId::fresh(),
+                module: module.clone(),
+                base: None,
+                overlay: None,
+            });
+        document.module = module;
+        let id = document.id;
+        self.refresh(&name);
+        Ok(id)
+    }
+
     pub fn file_id(&self, name: &str) -> Option<FileId> {
         self.documents
             .get(&self.source_name(name).ok()?)
@@ -139,8 +191,8 @@ impl SourceDatabase {
             .snapshot
             .files
             .get(&document.id)
-            .map(|file| file.text())
-            == text.map(String::as_str)
+            .map(|file| (file.text(), file.module_identity()))
+            == text.map(|text| (text.as_str(), &document.module))
         {
             return;
         }
@@ -154,9 +206,11 @@ impl SourceDatabase {
         if let Some(text) = text {
             files.insert(
                 document.id,
-                Arc::new(
-                    SourceFile::new(name, text).with_identity(document.id, self.snapshot.revision),
-                ),
+                Arc::new(SourceFile::new(name, text).with_identity(
+                    document.id,
+                    self.snapshot.revision,
+                    document.module.clone(),
+                )),
             );
         } else {
             files.remove(&document.id);
@@ -265,6 +319,43 @@ mod tests {
         Span,
         line_index::{Position, PositionEncoding},
     };
+
+    #[test]
+    fn logical_module_bindings_survive_overlays_and_invalidate_old_revisions() {
+        use crate::identity::{ModuleIdentity, PackageId};
+        let mut db = SourceDatabase::new("C:/project").unwrap();
+        let identity = ModuleIdentity {
+            package: PackageId("game".into()),
+            path: vec!["combat".into()],
+        };
+        let id = db.bind_module("src/combat.kgr", identity.clone()).unwrap();
+        assert_eq!(
+            db.set("src/combat.kgr", "base".into(), SourceLayer::Base)
+                .unwrap(),
+            id
+        );
+        let old = db.snapshot();
+        db.set("src/combat.kgr", "overlay".into(), SourceLayer::Overlay)
+            .unwrap();
+        assert_eq!(db.snapshot().module(&identity).unwrap().text(), "overlay");
+        assert!(db.bind_module("different.kgr", identity.clone()).is_err());
+        let renamed = ModuleIdentity {
+            package: PackageId("game".into()),
+            path: vec!["battle".into()],
+        };
+        db.bind_module("src/combat.kgr", renamed.clone()).unwrap();
+        assert_eq!(old.module(&identity).unwrap().id(), id);
+        assert!(db.snapshot().module(&identity).is_none());
+        assert!(db.snapshot().file(id).unwrap().revision() > old.file(id).unwrap().revision());
+        db.close_overlay("src/combat.kgr").unwrap();
+        assert_eq!(db.snapshot().module(&renamed).unwrap().text(), "base");
+        let collision = ModuleIdentity::single_file(db.source_name("reserved.kgr").unwrap());
+        db.bind_module("other.kgr", collision).unwrap();
+        assert!(
+            db.set("reserved.kgr", "base".into(), SourceLayer::Base)
+                .is_err()
+        );
+    }
 
     #[test]
     fn project_paths_and_virtual_uris_have_unambiguous_identity() {

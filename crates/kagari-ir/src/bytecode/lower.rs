@@ -46,6 +46,8 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
         .map(|function| lower_function(function, &function_refs, &mut context))
         .collect::<Result<Vec<_>, _>>()?;
     let mut module = BytecodeModule {
+        identity: ir.identity.clone(),
+        source_name: ir.source_name.clone(),
         module_init: ir
             .module_init
             .and_then(|id| function_refs.get(&id).copied()),

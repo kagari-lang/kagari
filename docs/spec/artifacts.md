@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 3 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 4 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 and 2 are rejected; no migration or compatibility decoder exists.
+format version. Versions 1 through 3 are rejected; no migration or compatibility decoder exists.
 `from_bytes()` checks magic and the current version before decoding, imposes a
 64 MiB encoded-size and decoding budget, and rejects trailing data. Decoding alone
 does not establish trust: header, content, dependency, and bytecode checks still
@@ -53,6 +53,11 @@ The language contract version is `kagari-language-v1`, independent of Rust crate
 versions and the binary format version. Artifacts carrying the former crate-based
 language version are rejected before execution; they may encode older assignment
 evaluation rules even when their binary layout is readable.
+
+Source analysis, IR and bytecode carry the same `ModuleIdentity { package, path }`.
+Artifact header and loader copies must equal the identity carried by the bytecode.
+Physical source names are diagnostic metadata, separate from logical identity.
+Artifact build options cannot override identity after analysis.
 
 Compatibility fingerprints use FNV-1a-64 over this canonical serialization with
 the `kagari-canonical-v2` domain prefix. Rust `Debug` output is never fingerprint
