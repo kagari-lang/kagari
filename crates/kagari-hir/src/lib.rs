@@ -74,11 +74,12 @@ impl AnalysisResult<AnalyzedModule> {
 fn analyze_syntax(
     source: std::sync::Arc<kagari_common::SourceFile>,
     module: &ast::SourceFile,
+    hosts: std::sync::Arc<host::HostDeclarations>,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
     let lowered = lower::lower_module_controlled(source.clone(), module, cancel);
-    let names = resolver::resolve_names_controlled(&lowered, cancel);
+    let names = resolver::resolve_names_controlled(&lowered, hosts, cancel);
     let declarations = declarations::Declarations::collect(&source, &lowered, &names.facts, cancel);
     let typed =
         typeck::check_module_controlled(&lowered, &names.facts, &declarations, reuse, cancel);
@@ -104,6 +105,7 @@ pub fn analyze_source(
         std::sync::Arc::new(source.clone()),
         &parsed,
         profile,
+        host::HostDeclarations::empty(),
         None,
         &Default::default(),
     )
@@ -113,10 +115,11 @@ pub(crate) fn analyze_parsed(
     source: std::sync::Arc<kagari_common::SourceFile>,
     parsed: &kagari_syntax::Parse,
     profile: LanguageFeatureProfile,
+    hosts: std::sync::Arc<host::HostDeclarations>,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_syntax(source, &parsed.syntax(), reuse, cancel);
+    let mut analyzed = analyze_syntax(source, &parsed.syntax(), hosts, reuse, cancel);
     if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, profile) {
         analyzed.diagnostics.extend(*diagnostics);
     }

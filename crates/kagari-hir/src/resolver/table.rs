@@ -5,6 +5,8 @@ use crate::hir::{ConstId, EnumId, FunctionId, ImplId, ModuleId, StructId, TraitI
 
 #[derive(Debug, Clone, Default)]
 pub struct NameTable {
+    pub(crate) host_modules: HashMap<String, crate::host::HostModuleId>,
+    pub(crate) host_functions: HashMap<String, crate::host::HostFunctionId>,
     pub(crate) functions: HashMap<String, FunctionId>,
     pub(crate) consts: HashMap<String, ConstId>,
     pub(crate) modules: HashMap<String, ModuleId>,

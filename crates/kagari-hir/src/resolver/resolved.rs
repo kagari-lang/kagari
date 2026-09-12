@@ -33,6 +33,8 @@ pub struct LexicalScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
+    HostModule(crate::host::HostModuleId),
+    HostFunction(crate::host::HostFunctionId),
     Function(FunctionId),
     Const(ConstId),
     Param(ParamId),
@@ -47,6 +49,7 @@ pub enum ResolvedName {
 
 #[derive(Debug, Clone)]
 pub struct ResolvedNames {
+    pub hosts: std::sync::Arc<crate::host::HostDeclarations>,
     pub items: NameTable,
     pub(crate) scopes: Vec<LexicalScope>,
     exprs: HashMap<ExprId, ResolvedName>,
@@ -54,8 +57,12 @@ pub struct ResolvedNames {
 }
 
 impl ResolvedNames {
-    pub(crate) fn new(items: NameTable) -> Self {
+    pub(crate) fn new(
+        items: NameTable,
+        hosts: std::sync::Arc<crate::host::HostDeclarations>,
+    ) -> Self {
         Self {
+            hosts,
             items,
             scopes: Vec::new(),
             exprs: HashMap::new(),

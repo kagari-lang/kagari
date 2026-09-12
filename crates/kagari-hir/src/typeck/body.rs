@@ -249,8 +249,10 @@ impl<'a> BodyChecker<'a> {
                             .cloned(),
                         ResolvedName::Const(_)
                         | ResolvedName::Function(_)
+                        | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::StandardModule(_)
+                        | ResolvedName::HostFunction(_)
                         | ResolvedName::StandardFunction(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
@@ -296,8 +298,10 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                         ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
                         ResolvedName::Function(_)
+                        | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::StandardModule(_)
+                        | ResolvedName::HostFunction(_)
                         | ResolvedName::StandardFunction(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
@@ -346,8 +350,12 @@ impl<'a> BodyChecker<'a> {
                         None => "unresolved assignment target".to_string(),
                     },
                     ResolvedName::Const(_) => "`const` item cannot be reassigned".to_string(),
-                    ResolvedName::Function(_) => "function item is not assignable".to_string(),
-                    ResolvedName::Module(_) => "module item is not assignable".to_string(),
+                    ResolvedName::HostFunction(_) | ResolvedName::Function(_) => {
+                        "function item is not assignable".to_string()
+                    }
+                    ResolvedName::HostModule(_) | ResolvedName::Module(_) => {
+                        "module item is not assignable".to_string()
+                    }
                     ResolvedName::StandardModule(_) => {
                         "standard module item is not assignable".to_string()
                     }
@@ -426,8 +434,10 @@ impl<'a> BodyChecker<'a> {
                         .by_id
                         .get(&id)
                         .map(|function| function.return_type.clone()),
-                    ResolvedName::Module(_)
+                    ResolvedName::HostModule(_)
+                    | ResolvedName::Module(_)
                     | ResolvedName::StandardModule(_)
+                    | ResolvedName::HostFunction(_)
                     | ResolvedName::StandardFunction(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
@@ -507,7 +517,9 @@ impl<'a> BodyChecker<'a> {
                 self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty, env)
             }
             ExprKind::Call { callee, args } => {
-                if let Some(standard_ty) =
+                if let Some(ty) = self.infer_host_call_type(expr_id, *callee, args, env) {
+                    ty
+                } else if let Some(standard_ty) =
                     self.infer_standard_call_type(expr_id, *callee, args, env)
                 {
                     standard_ty
@@ -1112,6 +1124,61 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn infer_host_call_type(
+        &mut self,
+        call: ExprId,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let ResolvedName::HostFunction(id) = self.names.expr_resolution(callee)? else {
+            return None;
+        };
+        let declaration = self.names.hosts.function(id)?.clone();
+        self.type_table
+            .insert_call(call, CallTarget::HostFunction(id), None);
+        Some(self.infer_host_signature(&declaration, &declaration.symbol, callee, args, env))
+    }
+
+    fn infer_host_signature(
+        &mut self,
+        declaration: &kagari_common::host_interface::HostFunctionDeclaration,
+        name: &str,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> TypeId {
+        let args = self.infer_call_args(args, env);
+        if args.len() != declaration.params.len() {
+            self.check_builtin_arity(name, declaration.params.len(), args.len(), callee);
+            return TypeId::Error;
+        }
+        for ((arg, found), parameter) in args.iter().zip(&declaration.params) {
+            let Some(expected) = crate::host::scalar_type(&parameter.ty) else {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnsupportedHostType {
+                        function: declaration.symbol.clone(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+                );
+                return TypeId::Error;
+            };
+            if found.conflicts_with(&expected) {
+                self.emit_arg_mismatch(name, &parameter.name, &expected, found, *arg);
+            }
+        }
+        let result = crate::host::scalar_type(&declaration.return_type);
+        if result.is_none() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnsupportedHostType {
+                    function: declaration.symbol.clone(),
+                })
+                .with_span(self.lowered.source_map.expr_span(callee)),
+            );
+        }
+        result.unwrap_or(TypeId::Error)
+    }
+
     fn infer_runtime_helper_call_type(
         &mut self,
         call_expr: ExprId,
@@ -1193,29 +1260,15 @@ impl<'a> BodyChecker<'a> {
                 }
                 Some(base_ty)
             }
-            BuiltinFunction::Print => {
-                let declaration = kagari_common::host_interface::standard_log();
-                let arg_tys = self.infer_call_args(args, env);
-                for ((arg, ty), parameter) in arg_tys.iter().zip(&declaration.params) {
-                    let expected = crate::host::scalar_type(&parameter.ty)
-                        .expect("standard log has a scalar signature");
-                    if *ty != expected {
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                                function_name: "print".to_owned(),
-                                parameter_name: parameter.name.clone(),
-                                expected: display_type_id(&expected),
-                                found: display_type_id(ty),
-                            })
-                            .with_span(self.lowered.source_map.expr_span(*arg)),
-                        );
-                    }
-                }
-                crate::host::scalar_type(&declaration.return_type)
-            }
+            BuiltinFunction::Print => Some(self.infer_host_signature(
+                &kagari_common::host_interface::standard_log(),
+                "print",
+                callee,
+                args,
+                env,
+            )),
         }
     }
-
     fn infer_trait_method_call_type(
         &mut self,
         call_expr: ExprId,

@@ -72,6 +72,15 @@ pub enum DiagnosticKind {
     UnknownName {
         name: String,
     },
+    DuplicateImport {
+        name: String,
+    },
+    UnsupportedHostType {
+        function: String,
+    },
+    UnsupportedHostReExport {
+        name: String,
+    },
     UnknownTypeAnnotation {
         type_name: String,
     },
@@ -313,6 +322,9 @@ impl DiagnosticKind {
             Self::ExpectedExpression => "KG_PARSE_EXPECTED_EXPRESSION",
             Self::MissingFunctionName => "KG_RESOLVE_MISSING_FUNCTION_NAME",
             Self::UnknownName { .. } => "KG_RESOLVE_UNKNOWN_NAME",
+            Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
+            Self::UnsupportedHostType { .. } => "KG_TYPE_UNSUPPORTED_HOST_TYPE",
+            Self::UnsupportedHostReExport { .. } => "KG_RESOLVE_UNSUPPORTED_HOST_REEXPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
@@ -442,6 +454,16 @@ impl Display for DiagnosticKind {
             Self::ExpectedExpression => write!(f, "expected expression"),
             Self::MissingFunctionName => write!(f, "missing function name"),
             Self::UnknownName { name } => write!(f, "unknown name `{name}`"),
+            Self::DuplicateImport { name } => {
+                write!(f, "import `{name}` conflicts with another declaration")
+            }
+            Self::UnsupportedHostType { function } => write!(
+                f,
+                "host function `{function}` uses a type unavailable in source signatures"
+            ),
+            Self::UnsupportedHostReExport { name } => {
+                write!(f, "host re-export `{name}` requires module export linking")
+            }
             Self::UnknownTypeAnnotation { type_name } => {
                 write!(f, "unknown type annotation `{type_name}`")
             }

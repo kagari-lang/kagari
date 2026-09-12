@@ -88,9 +88,36 @@ The source `print` entry and CLI log binding use the same `standard_log`
 declaration. Run `cargo run -p kagari-runtime --example offline_host` for an
 offline export/decode/bind/check example.
 
-R06 is not complete: arbitrary host-module imports, composite declaration types,
-host type/member declarations and revision-aware analysis inputs still need
-integration. Required bytecode declarations now link mandatorily before module
+The compiler consumes an immutable HostDeclarations input. KagariEngine's
+set_host_interface accepts decoded declarations and performs no runtime
+registration. Source may call demo::echo directly, import demo::echo with an
+optional alias, use a nested import group, or import demo as a module alias.
+Function declarations use dotted export labels; source paths use double colons.
+Labels select the exposed source path; DefinitionId remains the binding identity.
+The std namespace is reserved. Ambiguous function/module paths and unspellable
+declaration paths are rejected. Unknown imports and duplicate import aliases
+produce source diagnostics instead of disappearing during lowering.
+
+Host declaration revisions participate in analysis caching and body reuse.
+Snapshots retain their declaration catalog, signatures, documentation and scoped
+host IDs; a host ID from another catalog cannot resolve by coincident index.
+AnalysisSnapshot exposes both source revision and host revision. FileAnalysis's
+host_function_at query returns the declaration at a callee without executing code.
+Changing the catalog invalidates semantic reuse while unchanged source can reuse
+its parsed CST. Correct neighboring functions remain queryable after import or
+call errors. Host calls require the host-call language profile and are excluded
+from scalar constant evaluation.
+
+The source call boundary currently supports scalar host signatures. Opaque host
+types remain declared offline but their use in source calls is rejected with
+KG_TYPE_UNSUPPORTED_HOST_TYPE. Composite declarations, nominal host type/member
+integration and facade re-export linking still require the remaining R06/R07 work.
+Public host re-exports currently return KG_RESOLVE_UNSUPPORTED_HOST_REEXPORT;
+they cannot silently compile into an artifact lacking the advertised export.
+Run cargo run -p kagari-embed --example offline_compile to compile an imported
+host call without any runtime or callback registration.
+
+Required bytecode declarations now link mandatorily before module
 publication, including artifact reloads. Compiled host calls use registry-owned
 slots; labels remain declaration and policy metadata. A wrong runtime cannot
 reuse a coincident slot. Loading executes no callbacks. See [bytecode.md](bytecode.md)

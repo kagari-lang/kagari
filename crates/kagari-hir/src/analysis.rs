@@ -29,6 +29,31 @@ pub struct BindingInfo {
 }
 
 impl FileAnalysis {
+    pub fn host_function_at(
+        &self,
+        offset: usize,
+    ) -> Option<&kagari_common::host_interface::HostFunctionDeclaration> {
+        let facts = self.result.facts();
+        facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter_map(|(id, _)| {
+                let span = facts.lowered.source_map.expr_span(id);
+                if !(span.start <= offset && offset < span.end) {
+                    return None;
+                }
+                let crate::resolver::ResolvedName::HostFunction(host) =
+                    facts.names.expr_resolution(id)?
+                else {
+                    return None;
+                };
+                Some((span.end - span.start, host))
+            })
+            .min_by_key(|(len, _)| *len)
+            .and_then(|(_, host)| facts.names.hosts.function(host))
+    }
     pub fn syntax(&self) -> kagari_syntax::ast::SourceFile {
         self.parsed.syntax()
     }
@@ -234,13 +259,27 @@ impl FileAnalysis {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AnalysisDatabase {
     files: HashMap<FileId, Arc<FileAnalysis>>,
     latest_revision: Revision,
+    hosts: Arc<crate::host::HostDeclarations>,
+}
+
+impl Default for AnalysisDatabase {
+    fn default() -> Self {
+        Self {
+            files: HashMap::new(),
+            latest_revision: Revision::default(),
+            hosts: crate::host::HostDeclarations::empty(),
+        }
+    }
 }
 
 impl AnalysisDatabase {
+    pub fn set_host_declarations(&mut self, hosts: Arc<crate::host::HostDeclarations>) {
+        self.hosts = hosts;
+    }
     pub fn snapshot(
         &mut self,
         source: SourceSnapshot,
@@ -254,7 +293,9 @@ impl AnalysisDatabase {
             let analysis = match self.files.get(&file.id()) {
                 Some(previous)
                     if previous.source.revision() == file.revision()
-                        && previous.profile == profile =>
+                        && previous.profile == profile
+                        && previous.result.facts().names.hosts.revision()
+                            == self.hosts.revision() =>
                 {
                     previous.clone()
                 }
@@ -273,6 +314,8 @@ impl AnalysisDatabase {
                         .get(&file.id())
                         .filter(|old| {
                             old.result.diagnostics().is_empty()
+                                && old.result.facts().names.hosts.revision()
+                                    == self.hosts.revision()
                                 && old.source.module_identity() == file.module_identity()
                         })
                         .map(|old| crate::typeck::BodyReuse {
@@ -280,8 +323,14 @@ impl AnalysisDatabase {
                             old_text: old.source.text(),
                             new_text: file.text(),
                         });
-                    let result =
-                        analyze_parsed(file.clone(), &parsed, profile, reuse.as_ref(), cancel);
+                    let result = analyze_parsed(
+                        file.clone(),
+                        &parsed,
+                        profile,
+                        self.hosts.clone(),
+                        reuse.as_ref(),
+                        cancel,
+                    );
                     Arc::new(FileAnalysis {
                         source: file.clone(),
                         profile,
@@ -299,6 +348,7 @@ impl AnalysisDatabase {
         }
         Ok(AnalysisSnapshot {
             revision: source.revision(),
+            host_revision: self.hosts.revision(),
             files: Arc::new(files),
         })
     }
@@ -307,10 +357,14 @@ impl AnalysisDatabase {
 #[derive(Debug, Clone)]
 pub struct AnalysisSnapshot {
     revision: Revision,
+    host_revision: u64,
     files: Arc<HashMap<FileId, Arc<FileAnalysis>>>,
 }
 
 impl AnalysisSnapshot {
+    pub fn host_revision(&self) -> u64 {
+        self.host_revision
+    }
     pub fn revision(&self) -> Revision {
         self.revision
     }

@@ -455,6 +455,14 @@ impl FunctionLowerer<'_, '_> {
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         CallTarget::StandardIntrinsic(intrinsic)
                     }
+                    SemanticCallTarget::HostFunction(id) => CallTarget::HostFunction(Box::new(
+                        self.analyzed
+                            .names
+                            .hosts
+                            .function(id)
+                            .ok_or(IrLoweringError::MissingBinding("host declaration"))?
+                            .clone(),
+                    )),
                     SemanticCallTarget::RuntimeHelper(_) | SemanticCallTarget::TraitMethod(_) => {
                         unreachable!()
                     }

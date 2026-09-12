@@ -1,10 +1,9 @@
 use kagari_syntax::ast;
 
-use crate::builtin::surface;
 use crate::hir::{
     BlockData, ConstItem, Enum, Export, ExportItem, Field, Function, FunctionKind, GenericParam,
-    Impl, ImplMethod, Item, ModuleDecl, Param, StandardImport, StandardImportTarget, Struct,
-    TraitBound, TraitDef, TraitMethod, TraitRef, TypeRefId, Variant, Visibility, Writeability,
+    Impl, ImplMethod, Import, Item, ModuleDecl, Param, Struct, TraitBound, TraitDef, TraitMethod,
+    TraitRef, TypeRefId, Variant, Visibility, Writeability,
 };
 use crate::lower::context::{Lowerer, syntax_span};
 
@@ -159,9 +158,10 @@ impl Lowerer {
 
         let nested = tree.nested_trees().collect::<Vec<_>>();
         if nested.is_empty() {
-            self.lower_standard_import(
+            self.lower_import(
                 visibility,
                 &path,
+                syntax_span(tree),
                 tree.alias().and_then(|alias| alias.text()),
             );
             return;
@@ -172,35 +172,28 @@ impl Lowerer {
         }
     }
 
-    fn lower_standard_import(&mut self, visibility: Visibility, path: &str, alias: Option<String>) {
-        let Some(target) = standard_import_target(path) else {
-            return;
-        };
-        let Some(default_alias) = path.rsplit("::").next() else {
-            return;
-        };
-        let alias = alias.unwrap_or_else(|| default_alias.to_owned());
-        if alias.is_empty() {
-            return;
-        }
+    fn lower_import(
+        &mut self,
+        visibility: Visibility,
+        path: &str,
+        span: kagari_common::Span,
+        alias: Option<String>,
+    ) {
+        let alias =
+            alias.unwrap_or_else(|| path.rsplit("::").next().unwrap_or_default().to_owned());
         if visibility == Visibility::Public {
             self.module.exports.push(Export {
                 name: alias.clone(),
-                item: match target {
-                    StandardImportTarget::Module(module) => ExportItem::StandardModule(module),
-                    StandardImportTarget::Function(intrinsic) => {
-                        ExportItem::StandardFunction(intrinsic)
-                    }
-                },
+                item: ExportItem::Import(self.module.imports.len()),
             });
         }
-        self.module.standard_imports.push(StandardImport {
+        self.module.imports.push(Import {
             visibility,
             alias,
-            target,
+            path: path.to_owned(),
+            span,
         });
     }
-
     fn lower_trait(&mut self, trait_def: &ast::TraitDef) -> TraitDef {
         let id = self.source_map.push_trait(syntax_span(trait_def));
         let generic_params = trait_def
@@ -592,15 +585,4 @@ impl Lowerer {
             impls: Vec::new(),
         }
     }
-}
-
-fn standard_import_target(path: &str) -> Option<StandardImportTarget> {
-    if let Some(module) = surface::standard_module(path).map(|spec| spec.kind) {
-        return Some(StandardImportTarget::Module(module));
-    }
-
-    let (module_path, function_name) = path.rsplit_once("::")?;
-    let module = surface::standard_module(module_path)?.kind;
-    surface::standard_function(module, function_name)
-        .map(|function| StandardImportTarget::Function(function.intrinsic))
 }

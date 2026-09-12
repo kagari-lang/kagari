@@ -47,6 +47,16 @@ pub struct KagariEngine {
 }
 
 impl KagariEngine {
+    pub fn set_host_interface(
+        &self,
+        interface: kagari_common::host_interface::HostInterface,
+    ) -> Result<(), kagari_common::host_interface::HostInterfaceError> {
+        let declarations = kagari_hir::host::HostDeclarations::new(interface)?;
+        self.analysis
+            .borrow_mut()
+            .set_host_declarations(declarations);
+        Ok(())
+    }
     pub fn new(config: EngineConfig) -> Self {
         Self {
             config,

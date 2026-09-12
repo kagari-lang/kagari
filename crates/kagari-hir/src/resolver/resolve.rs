@@ -28,6 +28,7 @@ impl<'a> BodyResolver<'a> {
         names: &'a NameTable,
         module: &'a Module,
         source_map: &'a SourceMap,
+        hosts: std::sync::Arc<crate::host::HostDeclarations>,
         cancel: kagari_common::cancellation::CancellationToken,
     ) -> Self {
         Self {
@@ -35,7 +36,7 @@ impl<'a> BodyResolver<'a> {
             names,
             module,
             source_map,
-            resolved: ResolvedNames::new(names.clone()),
+            resolved: ResolvedNames::new(names.clone(), hosts),
             scopes: Vec::new(),
         }
     }
@@ -229,6 +230,21 @@ impl<'a> BodyResolver<'a> {
 
         if let Some(id) = self.names.function(name) {
             return Some(ResolvedName::Function(id));
+        }
+        if let Some(id) = self.names.host_functions.get(name) {
+            return Some(ResolvedName::HostFunction(*id));
+        }
+        if let Some(id) = self.names.host_modules.get(name) {
+            return Some(ResolvedName::HostModule(*id));
+        }
+        if let Some((alias, suffix)) = name.split_once("::")
+            && let Some(module) = self.names.host_modules.get(alias)
+            && let Some(id) = self.resolved.hosts.resolve_in(*module, suffix)
+        {
+            return Some(ResolvedName::HostFunction(id));
+        }
+        if let Some(id) = self.resolved.hosts.resolve(name) {
+            return Some(ResolvedName::HostFunction(id));
         }
         if let Some(id) = self.names.const_(name) {
             return Some(ResolvedName::Const(id));

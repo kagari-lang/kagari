@@ -146,9 +146,17 @@ Implemented foundation slices:
   were removed. Offline KHI encoding is canonical and bounded; explicit registry
   linking checks complete contracts without executing callbacks. HIR print checking
   and CLI logging share the same declaration. The offline_host example exercises
-  export, decode, binding verification and invocation. General host imports,
-  composite and type/member declarations and analysis input revisions remain
-  outstanding; this does not mark R06 complete.
+  export, decode, binding verification and invocation. Scalar host function and
+  module imports, aliases and qualified calls now compile from immutable offline
+  declaration inputs. Lowering retains all import paths and source spans; name
+  resolution diagnoses unknown paths and conflicts instead of silently discarding
+  nonstandard imports. Host revisions invalidate semantic/body caches and old
+  snapshots retain their original declarations, types and docs. Protocol-neutral
+  callee queries return offline declarations. The offline_compile embedding
+  example needs no runtime registration. Host calls require the language profile
+  and cannot execute in scalar constants. Composite declarations, nominal host
+  type/member integration and facade re-export linking remain outstanding; this
+  does not mark R06 complete.
   Required host declarations now link at bytecode/artifact load and reload before
   publication, resource counters or initialization. Calls carry HostImportId and
   resolve to registry-owned slots; execution has no host-symbol fallback.

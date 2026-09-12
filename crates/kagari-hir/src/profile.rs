@@ -56,6 +56,19 @@ fn validate_reflection_calls(
     diagnostics: &mut DiagnosticBuffer,
 ) {
     for (expr_id, _) in module.lowered.module.body.expressions() {
+        if matches!(
+            module.typed.type_table.call_resolution(expr_id),
+            Some(ResolvedCall {
+                target: CallTarget::HostFunction(_),
+                ..
+            })
+        ) && !profile.allow_host_calls
+        {
+            diagnostics.push(profile_error(
+                "host calls",
+                module.lowered.source_map.expr_span(expr_id),
+            ));
+        }
         let Some(ResolvedCall {
             target: CallTarget::RuntimeHelper(builtin),
             ..

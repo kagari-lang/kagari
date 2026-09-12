@@ -640,20 +640,18 @@ fn clamp(value: i32) -> i32 {
 }
 "#,
     );
-    assert!(lowered.module.standard_imports.iter().any(|import| {
-        import.alias == "math"
-            && matches!(
-                import.target,
-                crate::hir::StandardImportTarget::Module(surface::StandardModule::Math)
-            )
-    }));
-    assert!(lowered.module.exports.iter().any(|export| {
-        export.name == "math"
-            && matches!(
-                export.item,
-                ExportItem::StandardModule(surface::StandardModule::Math)
-            )
-    }));
+    assert!(
+        lowered
+            .module
+            .imports
+            .iter()
+            .any(|import| { import.alias == "math" && import.path == "std::math" })
+    );
+    assert!(
+        lowered.module.exports.iter().any(|export| {
+            export.name == "math" && matches!(export.item, ExportItem::Import(_))
+        })
+    );
 
     let names = resolve_names(&lowered)
         .into_checked()

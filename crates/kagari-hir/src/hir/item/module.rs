@@ -1,4 +1,4 @@
-use crate::{builtin::surface, hir::ModuleId};
+use crate::hir::ModuleId;
 
 use super::Visibility;
 
@@ -10,18 +10,13 @@ pub struct ModuleDecl {
     pub inline: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StandardImportTarget {
-    Module(surface::StandardModule),
-    Function(surface::StandardIntrinsic),
-}
-
 #[derive(Debug, Clone)]
-pub struct StandardImport {
+pub struct Import {
     pub visibility: Visibility,
     pub alias: String,
-    pub target: StandardImportTarget,
+    pub path: String,
+    pub span: kagari_common::Span,
 }
 
 pub type ModuleDeclBuffer = Vec<ModuleDecl>;
-pub type StandardImportBuffer = Vec<StandardImport>;
+pub type ImportBuffer = Vec<Import>;
