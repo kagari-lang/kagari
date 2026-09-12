@@ -56,6 +56,11 @@ Implemented foundation slices:
   reuse remapped type facts, while declaration changes invalidate that reuse.
   Scope/type/member-receiver queries work on erroneous files. Cancellation checks
   currently cover file/parse/analysis boundaries; intra-pass checks remain.
+- R09: format v2 uses fixed little-endian encoding, bounded decoding and strict
+  trailing-data rejection. Compatibility fingerprints use canonical serialization
+  and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
+  Old formats are rejected even if callers request their version. Full linked
+  identity integration and per-table count/depth limits remain outstanding.
 
 Validation: workspace tests pass after the source/analysis changes. Workspace
 clippy with `-D warnings` passes after correcting baseline lints and marking the

@@ -153,7 +153,7 @@ pub fn public_abi_fingerprints_for_module(module: &BytecodeModule) -> Vec<Public
         .iter()
         .map(|item| PublicAbiFingerprint {
             name: item.fingerprint_name(),
-            fingerprint: ArtifactFingerprint::of_debug(item),
+            fingerprint: ArtifactFingerprint::of_serialized(item),
         })
         .collect()
 }
@@ -164,7 +164,7 @@ pub fn path_fingerprints_for_module(module: &BytecodeModule) -> Vec<PathDescript
         .iter()
         .map(|path| PathDescriptorFingerprint {
             path: path.id,
-            fingerprint: ArtifactFingerprint::of_debug(path),
+            fingerprint: ArtifactFingerprint::of_serialized(path),
         })
         .collect()
 }

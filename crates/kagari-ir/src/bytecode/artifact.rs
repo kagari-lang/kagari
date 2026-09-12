@@ -1,3 +1,4 @@
+use bincode::Options;
 use std::fmt::{self, Display, Formatter};
 
 use crate::{
@@ -7,7 +8,16 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 1;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 2;
+pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
+
+fn codec() -> impl Options {
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .with_little_endian()
+        .reject_trailing_bytes()
+        .with_limit(MAX_ARTIFACT_BYTES)
+}
 pub const KAGARI_LANGUAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
 pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v1";
@@ -140,11 +150,23 @@ impl KbcArtifact {
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, ArtifactCodecError> {
-        bincode::serialize(self).map_err(ArtifactCodecError::from)
+        codec().serialize(self).map_err(ArtifactCodecError::from)
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ArtifactCodecError> {
-        bincode::deserialize(bytes).map_err(ArtifactCodecError::from)
+        if bytes.len() as u64 > MAX_ARTIFACT_BYTES {
+            return Err(ArtifactCodecError {
+                message: "artifact exceeds size limit".into(),
+            });
+        }
+        if bytes.get(..4) != Some(KBC_MAGIC.as_slice())
+            || bytes.get(4..6) != Some(KBC_ARTIFACT_FORMAT_VERSION.to_le_bytes().as_slice())
+        {
+            return Err(ArtifactCodecError {
+                message: "unsupported artifact magic or format version".into(),
+            });
+        }
+        codec().deserialize(bytes).map_err(ArtifactCodecError::from)
     }
 
     fn validate_header(
@@ -154,9 +176,11 @@ impl KbcArtifact {
         if self.header.magic != KBC_MAGIC {
             return Err(ArtifactValidationError::InvalidMagic(self.header.magic));
         }
-        if self.header.format_version != requirements.format_version {
+        if self.header.format_version != KBC_ARTIFACT_FORMAT_VERSION
+            || self.header.format_version != requirements.format_version
+        {
             return Err(ArtifactValidationError::FormatVersionMismatch {
-                expected: requirements.format_version,
+                expected: KBC_ARTIFACT_FORMAT_VERSION,
                 found: self.header.format_version,
             });
         }
@@ -182,7 +206,10 @@ impl KbcArtifact {
     }
 
     fn compute_content_hash(&self) -> ArtifactFingerprint {
-        ArtifactFingerprint::of_debug(&(
+        let mut header = self.header.clone();
+        header.content_hash = ArtifactFingerprint::empty();
+        ArtifactFingerprint::of_serialized(&(
+            &header,
             &self.module,
             &self.tables,
             &self.verification,
@@ -242,8 +269,28 @@ impl ArtifactFingerprint {
         Self(0)
     }
 
-    pub fn of_debug(value: &impl std::fmt::Debug) -> Self {
-        Self::of_str(&format!("{value:#?}"))
+    /// FNV-1a/64 over domain-separated fixed-width little-endian bincode v1.
+    /// This is a compatibility fingerprint, not authentication or a signature.
+    pub fn of_serialized(value: &impl Serialize) -> Self {
+        struct Sink(u64);
+        impl std::io::Write for Sink {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                for byte in bytes {
+                    self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
+                }
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut sink = Sink(Self::of_str("kagari-canonical-v2").0);
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize_into(&mut sink, value)
+            .expect("canonical metadata serialization must succeed");
+        Self(sink.0)
     }
 
     pub fn of_str(value: &str) -> Self {
@@ -327,7 +374,7 @@ fn push_section(sections: &mut Vec<ArtifactSection>, id: ArtifactSectionId, reco
     sections.push(ArtifactSection {
         id,
         record_count,
-        fingerprint: ArtifactFingerprint::of_debug(&(id, record_count)),
+        fingerprint: ArtifactFingerprint::of_serialized(&(id, record_count)),
     });
 }
 
@@ -380,7 +427,7 @@ impl VerificationMetadata {
             .iter()
             .map(|path| PathDescriptorFingerprint {
                 path: path.id,
-                fingerprint: ArtifactFingerprint::of_debug(path),
+                fingerprint: ArtifactFingerprint::of_serialized(path),
             })
             .collect::<Vec<_>>();
         let public_abi_fingerprints = module
@@ -388,7 +435,7 @@ impl VerificationMetadata {
             .iter()
             .map(|item| PublicAbiFingerprint {
                 name: item.fingerprint_name(),
-                fingerprint: ArtifactFingerprint::of_debug(item),
+                fingerprint: ArtifactFingerprint::of_serialized(item),
             })
             .collect::<Vec<_>>();
 
@@ -743,3 +790,65 @@ pub type ControlFlowTargetMetadataBuffer = Vec<ControlFlowTargetMetadata>;
 pub type PathFingerprintBuffer = Vec<PathDescriptorFingerprint>;
 pub type PublicAbiFingerprintBuffer = Vec<PublicAbiFingerprint>;
 pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
+
+#[cfg(test)]
+mod canonical_tests {
+    use super::*;
+
+    #[test]
+    fn fingerprints_depend_on_serialized_values_not_rust_debug_names() {
+        #[derive(Debug, Serialize)]
+        struct First(u32);
+        #[derive(Debug, Serialize)]
+        struct Renamed(u32);
+        assert_eq!(
+            ArtifactFingerprint::of_serialized(&First(42)),
+            ArtifactFingerprint::of_serialized(&Renamed(42))
+        );
+        assert_ne!(
+            ArtifactFingerprint::of_serialized(&First(42)),
+            ArtifactFingerprint::of_serialized(&First(43))
+        );
+    }
+
+    #[test]
+    fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
+        let artifact =
+            KbcArtifact::from_module(BytecodeModule::default(), ArtifactBuildOptions::default());
+        let bytes = artifact.to_bytes().unwrap();
+        assert!(KbcArtifact::from_bytes(&bytes).is_ok());
+        let mut old = bytes.clone();
+        old[4..6].copy_from_slice(&1u16.to_le_bytes());
+        assert!(KbcArtifact::from_bytes(&old).is_err());
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(KbcArtifact::from_bytes(&trailing).is_err());
+        let mut enormous_string = bytes;
+        enormous_string[6..14].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(KbcArtifact::from_bytes(&enormous_string).is_err());
+    }
+
+    #[test]
+    fn header_metadata_is_covered_and_old_format_cannot_be_opted_into() {
+        let mut artifact =
+            KbcArtifact::from_module(BytecodeModule::default(), ArtifactBuildOptions::default());
+        artifact
+            .header
+            .module_identity
+            .source_uri
+            .push_str("changed");
+        assert!(matches!(
+            artifact.validate_for_loader(&ArtifactCompatibility::default()),
+            Err(ArtifactValidationError::ContentHashMismatch)
+        ));
+        artifact.header.format_version = 1;
+        let requirements = ArtifactCompatibility {
+            format_version: 1,
+            ..ArtifactCompatibility::default()
+        };
+        assert!(matches!(
+            artifact.validate_for_loader(&requirements),
+            Err(ArtifactValidationError::FormatVersionMismatch { .. })
+        ));
+    }
+}

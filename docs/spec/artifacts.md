@@ -41,9 +41,19 @@ KbcArtifact {
 }
 ```
 
-The exact binary encoding is an implementation detail as long as the logical sections remain versioned and validated.
-The current Rust implementation serializes `KbcArtifact` with `bincode` through `to_bytes()` and `from_bytes()`.
-That helper is the implemented `.kbc` exchange format for this repository snapshot, while the logical sections and validation rules remain the compatibility contract.
+Format version 2 uses `bincode` with fixed-width integers, little-endian byte order,
+and declaration-order fields. Any change to this representation requires a new
+format version. Version 1 is rejected; no migration or compatibility decoder exists.
+`from_bytes()` checks magic and the current version before decoding, imposes a
+64 MiB encoded-size and decoding budget, and rejects trailing data. Decoding alone
+does not establish trust: header, content, dependency, and bytecode checks still
+run before execution.
+
+Compatibility fingerprints use FNV-1a-64 over this canonical serialization with
+the `kagari-canonical-v2` domain prefix. Rust `Debug` output is never fingerprint
+input. The artifact content fingerprint includes the header (with its content
+fingerprint zeroed) and every payload section. This is a compatibility checksum,
+not cryptographic authentication; signature policy is a separate host concern.
 
 ## Header
 

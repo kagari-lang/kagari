@@ -40,7 +40,7 @@ pub struct ReloadDependencySnapshot {
 impl ReloadDependencySnapshot {
     pub fn from_bytecode(module: &BytecodeModule) -> Self {
         Self {
-            module_fingerprint: ArtifactFingerprint::of_debug(module),
+            module_fingerprint: ArtifactFingerprint::of_serialized(module),
             public_abi_fingerprints: public_abi_fingerprints_for_module(module),
             typed_path_fingerprints: path_fingerprints_for_module(module),
             dependency_fingerprints: Vec::new(),
