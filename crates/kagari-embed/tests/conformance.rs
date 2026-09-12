@@ -16,7 +16,6 @@ fn exact_compatibility(
     ArtifactCompatibility {
         module_identity: Some(identity),
         dependency_fingerprints: artifact.verification.loader.dependency_fingerprints.clone(),
-        host_registry_fingerprint: artifact.verification.loader.host_registry_fingerprint,
         security_profile: artifact.verification.loader.security_profile.clone(),
         ..ArtifactCompatibility::default()
     }
@@ -49,7 +48,6 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
                 lowering: Default::default(),
                 build: ArtifactBuildOptions {
                     dependency_fingerprints: vec![dependency.clone()],
-                    host_registry_fingerprint: ArtifactFingerprint::of_str("host-v1"),
                     security_profile: Some("dev".to_owned()),
                     ..ArtifactBuildOptions::default()
                 },
@@ -65,8 +63,8 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         vec![dependency]
     );
     assert_eq!(
-        artifact.verification.loader.host_registry_fingerprint,
-        ArtifactFingerprint::of_str("host-v1")
+        artifact.verification.host_interface_fingerprint,
+        ArtifactFingerprint::of_host_interface(&artifact.module.host_interface)
     );
     assert_eq!(
         artifact.verification.loader.security_profile.as_deref(),

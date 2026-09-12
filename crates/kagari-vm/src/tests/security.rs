@@ -47,23 +47,40 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
         },
         ..RuntimeConfig::default()
     });
+    host_runtime
+        .register_host_function(HostFunction::new(
+            kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.hidden",
+                vec![],
+                kagari_common::host_interface::HostValueType::I32,
+            ),
+            |_| unreachable!("hidden callback must not run"),
+        ))
+        .unwrap();
     let host_module = host_runtime
         .load_module(
             "security_host_denied.kbc",
-            test_function_module(
-                "main",
-                vec![
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(0)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                            "host.hidden".to_owned(),
-                        )),
-                        args: vec![],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(0))),
-                ],
-                ValueType::I32,
-                vec![ValueType::I32],
+            crate::tests::common::with_host_imports(
+                test_function_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::HostFunction(
+                                kagari_ir::bytecode::HostImportId::new(0),
+                            ),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(0))),
+                    ],
+                    ValueType::I32,
+                    vec![ValueType::I32],
+                ),
+                vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                    "host.hidden",
+                    vec![],
+                    kagari_common::host_interface::HostValueType::I32,
+                )],
             ),
         )
         .expect("module should load");
@@ -287,20 +304,27 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let host_module = host_call_limited
         .load_module(
             "security_host_call_limit.kbc",
-            test_function_module(
-                "main",
-                vec![
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(0)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                            "host.limited".to_owned(),
-                        )),
-                        args: vec![],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(0))),
-                ],
-                ValueType::I32,
-                vec![ValueType::I32],
+            crate::tests::common::with_host_imports(
+                test_function_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::HostFunction(
+                                kagari_ir::bytecode::HostImportId::new(0),
+                            ),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(0))),
+                    ],
+                    ValueType::I32,
+                    vec![ValueType::I32],
+                ),
+                vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                    "host.limited",
+                    vec![],
+                    kagari_common::host_interface::HostValueType::I32,
+                )],
             ),
         )
         .expect("module should load");

@@ -11,6 +11,11 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BytecodeVerificationError {
+    InvalidHostInterface(String),
+    InvalidHostImport {
+        function: FunctionRef,
+        import: super::HostImportId,
+    },
     InvalidOperation {
         function: FunctionRef,
         reason: &'static str,
@@ -90,6 +95,8 @@ pub enum BytecodeVerificationError {
 impl BytecodeVerificationError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::InvalidHostInterface(_) => "KG_BYTECODE_INVALID_HOST_INTERFACE",
+            Self::InvalidHostImport { .. } => "KG_BYTECODE_INVALID_HOST_IMPORT",
             Self::InvalidOperation { .. } => "KG_BYTECODE_INVALID_OPERATION",
             Self::InvalidModuleInit(_) => "KG_BYTECODE_INVALID_MODULE_INIT",
             Self::FunctionTableLengthMismatch { .. } => {
@@ -119,6 +126,10 @@ impl BytecodeVerificationError {
 impl Display for BytecodeVerificationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidHostInterface(reason) => write!(f, "invalid host interface: {reason}"),
+            Self::InvalidHostImport { function, import } => {
+                write!(f, "invalid host import {import:?} in {function:?}")
+            }
             Self::InvalidOperation { function, reason } => {
                 write!(f, "invalid operation in {function:?}: {reason}")
             }
@@ -211,6 +222,10 @@ impl Display for BytecodeVerificationError {
 impl std::error::Error for BytecodeVerificationError {}
 
 pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
+    module
+        .host_interface
+        .validate()
+        .map_err(|error| BytecodeVerificationError::InvalidHostInterface(error.to_string()))?;
     if module.function_table.len() != module.functions.len() {
         return Err(BytecodeVerificationError::FunctionTableLengthMismatch {
             functions: module.functions.len(),
@@ -588,6 +603,21 @@ fn verify_call(
                 expect_register_ty(function, *arg, *expected, "call argument")?;
             }
             verify_call_dst(function, dst, record.return_type)?;
+        }
+        CallTarget::HostFunction(import) => {
+            let declaration = module.host_interface.functions.get(import.index()).ok_or(
+                BytecodeVerificationError::InvalidHostImport {
+                    function: function.id,
+                    import: *import,
+                },
+            )?;
+            let args = args
+                .iter()
+                .map(|arg| register_ty(function, *arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
+            crate::module::contracts::verify_host_call(dst, declaration, &args)
+                .map_err(|error| contract_error(function, error))?;
         }
         CallTarget::Register(register) => {
             let _ = register_ty(function, *register)?;

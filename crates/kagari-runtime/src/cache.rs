@@ -33,7 +33,7 @@ pub struct ReloadDependencySnapshot {
     pub public_abi_fingerprints: Vec<PublicAbiFingerprint>,
     pub typed_path_fingerprints: Vec<PathDescriptorFingerprint>,
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
-    pub host_registry_fingerprint: ArtifactFingerprint,
+    pub host_interface_fingerprint: ArtifactFingerprint,
     pub runtime_helper_abi_version: String,
 }
 
@@ -44,7 +44,9 @@ impl ReloadDependencySnapshot {
             public_abi_fingerprints: public_abi_fingerprints_for_module(module),
             typed_path_fingerprints: path_fingerprints_for_module(module),
             dependency_fingerprints: Vec::new(),
-            host_registry_fingerprint: ArtifactFingerprint::empty(),
+            host_interface_fingerprint: ArtifactFingerprint::of_host_interface(
+                &module.host_interface,
+            ),
             runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
         }
     }
@@ -55,7 +57,7 @@ impl ReloadDependencySnapshot {
             public_abi_fingerprints: artifact.verification.public_abi_fingerprints.clone(),
             typed_path_fingerprints: artifact.verification.typed_path_fingerprints.clone(),
             dependency_fingerprints: artifact.verification.dependency_fingerprints.clone(),
-            host_registry_fingerprint: artifact.verification.host_registry_fingerprint,
+            host_interface_fingerprint: artifact.verification.host_interface_fingerprint,
             runtime_helper_abi_version: artifact.header.runtime_helper_abi_version.clone(),
         }
     }

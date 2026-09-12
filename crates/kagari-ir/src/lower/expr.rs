@@ -503,10 +503,14 @@ impl FunctionLowerer<'_, '_> {
                     self.lower_expr(*value)?
                 ],
             ),
-            (BuiltinFunction::Print, [message]) => (
-                RuntimeHelper::HostFunction(kagari_common::host_interface::standard_log().symbol),
-                smallvec::smallvec![self.lower_expr(*message)?],
-            ),
+            (BuiltinFunction::Print, [message]) => {
+                return Ok((
+                    CallTarget::HostFunction(Box::new(
+                        kagari_common::host_interface::standard_log(),
+                    )),
+                    smallvec::smallvec![self.lower_expr(*message)?],
+                ));
+            }
             _ => {
                 return Err(IrLoweringError::MissingBinding(
                     "checked runtime helper arguments",

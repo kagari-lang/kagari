@@ -41,10 +41,13 @@ KbcArtifact {
 }
 ```
 
-Format version 6 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 7 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 5 are rejected; no migration or compatibility
-decoder exists. Version 6 removes the obsolete BuiltinMethod call operand;
+format version. Versions 1 through 6 are rejected; no migration or compatibility
+decoder exists. Version 7 replaces host call symbols with HostImportId operands
+and a required HostInterface declaration table. There is no arbitrary host-registry
+fingerprint option or duplicate string dependency table. The obsolete BuiltinMethod
+call operand is also absent;
 standard-library calls use StandardIntrinsic and its verified call contract.
 The current format also excludes artifacts produced by the old generic
 template lowering: current compilation emits concrete function instances and
@@ -104,7 +107,7 @@ Artifact tables include:
 - module slot table
 - path descriptor table
 - interface table
-- host dependency table
+- required host declarations in BytecodeModule.host_interface
 - string table
 - source file table
 - debug name table
@@ -124,7 +127,7 @@ Verification metadata includes:
 - typed path descriptor fingerprints
 - public ABI fingerprints
 - dependency fingerprints
-- host registry fingerprints
+- required host-interface fingerprints
 - security profile requirements
 
 The loader may re-run verification even when metadata is present.
@@ -170,7 +173,7 @@ An artifact is compatible only when all required versions and fingerprints match
 - compiler compatibility version
 - runtime ABI version
 - runtime helper ABI version
-- host registry fingerprint
+- required host-interface fingerprint
 - dependency module fingerprints
 - public ABI fingerprints
 - typed path descriptor fingerprints
@@ -191,7 +194,7 @@ read bytes
   -> decode tables
   -> validate module identity
   -> verify bytecode
-  -> validate dependencies and host registry fingerprints
+  -> validate dependencies and required host-interface fingerprints
   -> register loaded module candidate
   -> publish only after module/reload validation succeeds
 ```
@@ -220,3 +223,11 @@ The artifact format is complete when:
 - debug metadata can be preserved or stripped without semantic changes
 - artifacts carry enough metadata for hot reload, GC safepoints, typed path validation, and JIT compilation
 - source loading and artifact loading produce the same module identity model
+
+The required host-interface fingerprint is derived from the identity-sorted
+declaration contracts, excluding documentation. Import slot order is irrelevant
+to this ABI fingerprint; the content checksum still covers the exact module.
+Loading checks the derived fingerprint and resolves every required declaration
+against the actual runtime registry by nominal identity. Signature, borrow,
+effect, permission and cost differences reject the module before publication or
+initialization. Unrelated installed host functions do not affect compatibility.

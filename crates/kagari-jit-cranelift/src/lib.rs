@@ -691,8 +691,8 @@ mod tests {
         module::ValueType,
     };
     use kagari_runtime::{
-        BackendDiagnosticKind, BackendFunctionInput, LoadedModule, ModuleId,
-        ReloadDependencySnapshot, ResourcePolicy, RuntimeConfig,
+        BackendDiagnosticKind, BackendFunctionInput, LoadedModule, ReloadDependencySnapshot,
+        ResourcePolicy, RuntimeConfig,
     };
 
     #[test]
@@ -808,13 +808,16 @@ mod tests {
             ValueType::Unit,
             Vec::new(),
         ));
-        let mut unsupported = loaded.clone();
-        unsupported.bytecode.functions[0].instructions.insert(
+        let mut bytecode = loaded.bytecode.clone();
+        bytecode.functions[0].instructions.insert(
             0,
             BytecodeInstruction::Jump {
                 target: JumpTarget::new(1),
             },
         );
+        let unsupported = Runtime::default()
+            .load_module("unsupported", bytecode)
+            .unwrap();
         let dependencies = ReloadDependencySnapshot::from_bytecode(&unsupported.bytecode);
 
         let error = backend
@@ -887,12 +890,7 @@ mod tests {
             effects: function.metadata.effects,
         });
         module.functions.push(function);
-        LoadedModule {
-            id: ModuleId::new(0),
-            name: "jit_test".to_owned(),
-            epoch: kagari_runtime::reload::ModuleEpoch(0),
-            bytecode: module,
-        }
+        Runtime::default().load_module("jit_test", module).unwrap()
     }
 
     fn function(

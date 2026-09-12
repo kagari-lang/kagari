@@ -147,8 +147,20 @@ Implemented foundation slices:
   linking checks complete contracts without executing callbacks. HIR print checking
   and CLI logging share the same declaration. The offline_host example exercises
   export, decode, binding verification and invocation. General host imports,
-  composite and type/member declarations, analysis input revisions and mandatory
-  artifact linking remain outstanding; this does not mark R06 complete.
+  composite and type/member declarations and analysis input revisions remain
+  outstanding; this does not mark R06 complete.
+  Required host declarations now link at bytecode/artifact load and reload before
+  publication, resource counters or initialization. Calls carry HostImportId and
+  resolve to registry-owned slots; execution has no host-symbol fallback.
+  IR/bytecode checks verify call representations and reject conflicting imports.
+  Runtime scalar callback arguments/results are also checked. Nominal opaque
+  object validation remains open.
+- R08/R09/R10: LoadedModule is an immutable shared Arc handle; public raw store
+  loading and post-load bytecode mutation were removed. Module queries share code.
+  Loaded handles and host slots reject cross-runtime use. Format v7 rejects v1–v6;
+  required host fingerprints derive from declarations rather than caller options.
+  The empty string host-dependency side table was removed. Full version-owned
+  layouts, dependency pinning, roots and lifecycle reclamation remain open.
 - R07: semantic Struct/Enum/Trait types use DefinitionId, and generic parameters
   use their declaring owner and position. Same-spelled cross-module types and
   shadowed generic parameters are distinct. Implicit Self types belong to a trait;
@@ -186,7 +198,7 @@ Implemented foundation slices:
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this
   does not claim native compilation of parameterized generic instances.
-- R09: format v6 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v7 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked

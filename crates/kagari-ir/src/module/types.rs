@@ -18,6 +18,19 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    pub fn from_host_type(ty: &kagari_common::host_interface::HostValueType) -> Self {
+        use kagari_common::host_interface::HostValueType as Host;
+        match ty {
+            Host::Unit => Self::Unit,
+            Host::Bool => Self::Bool,
+            Host::I32 => Self::I32,
+            Host::I64 => Self::I64,
+            Host::F32 => Self::F32,
+            Host::F64 => Self::F64,
+            Host::String => Self::Str,
+            Host::Opaque(_) => Self::HeapObject,
+        }
+    }
     pub fn from_type_id(type_id: &TypeId) -> Self {
         match type_id {
             TypeId::Unknown | TypeId::Error | TypeId::Generic(_) | TypeId::SelfType(_) => {

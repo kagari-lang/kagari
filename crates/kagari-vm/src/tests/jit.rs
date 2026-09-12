@@ -18,6 +18,82 @@ use kagari_runtime::{
 
 use crate::{DebugSession, JitExecutionStatus, Vm, tests::common};
 
+#[test]
+fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
+    use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType, standard_log};
+    use kagari_ir::bytecode::{
+        ArtifactBuildOptions, ArtifactCompatibility, HostImportId, KbcArtifact,
+    };
+    use kagari_runtime::{HostExposurePolicy, host::HostFunction};
+    use std::sync::{Arc, Mutex};
+    let bytecode = common::compile_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
+    for artifact in [false, true] {
+        for jit in [false, true] {
+            let module = if artifact {
+                let encoded =
+                    KbcArtifact::from_module(bytecode.clone(), ArtifactBuildOptions::default())
+                        .to_bytes()
+                        .unwrap();
+                let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
+                decoded
+                    .validate_for_loader(&ArtifactCompatibility::default())
+                    .unwrap();
+                decoded.module
+            } else {
+                bytecode.clone()
+            };
+            let mut runtime = Runtime::new(RuntimeConfig {
+                security: SecurityContext {
+                    profile: LanguageProfile {
+                        allow_host_calls: true,
+                        allow_jit: true,
+                        ..Default::default()
+                    },
+                    capabilities: CapabilitySet {
+                        host_calls: true,
+                        jit: true,
+                        ..Default::default()
+                    },
+                },
+                host_exposure: HostExposurePolicy {
+                    allowed_host_functions: vec!["host.log".into()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            runtime
+                .register_host_function(HostFunction::new(
+                    HostFunctionDeclaration::new("host.unrelated", vec![], HostValueType::Unit),
+                    |_| panic!("import 0 must not invoke registry slot 0"),
+                ))
+                .unwrap();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let called = calls.clone();
+            let binding = runtime
+                .register_host_function(HostFunction::new(standard_log(), move |args| {
+                    called.lock().unwrap().push(args.to_vec());
+                    Ok(Value::Unit)
+                }))
+                .unwrap();
+            let loaded = runtime.load_module("linked", module).unwrap();
+            assert_eq!(loaded.host_binding(HostImportId::new(0)), Some(binding));
+            assert_eq!(binding.index(), 1);
+            let mut vm = Vm::new(runtime);
+            let report = if jit {
+                vm.execute_with_backend(&loaded, "main", &mut CraneliftBackend::for_host().unwrap())
+                    .unwrap()
+            } else {
+                vm.execute(&loaded, "main").unwrap()
+            };
+            assert_eq!(report.return_value, Value::I32(7));
+            assert_eq!(
+                *calls.lock().unwrap(),
+                vec![vec![Value::Str("linked".into())]]
+            );
+        }
+    }
+}
+
 #[derive(Debug)]
 struct UnsupportedBackend {
     backend: BackendId,

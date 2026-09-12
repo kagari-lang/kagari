@@ -56,6 +56,17 @@ impl JumpTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FunctionRef(u32);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct HostImportId(u32);
+impl HostImportId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 impl FunctionRef {
     pub fn new(index: usize) -> Self {
         Self(index as u32)
@@ -110,6 +121,7 @@ pub enum ConstantOperand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallTarget {
     Function(FunctionRef),
+    HostFunction(HostImportId),
     Register(Register),
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
@@ -117,7 +129,6 @@ pub enum CallTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RuntimeHelper {
-    HostFunction(String),
     ReflectTypeOf,
     ReflectGetField(String),
     ReflectSetField(String),

@@ -178,7 +178,39 @@ pub fn verify_ir(
             return Err(context.error(IrVerificationErrorKind::InvalidInitializer));
         }
     }
+    let mut host_declarations = std::collections::HashMap::new();
+    let mut host_symbols = std::collections::HashMap::new();
     for function in &module.functions {
+        for block in &function.blocks {
+            for instruction in &block.instructions {
+                context.check_cancel()?;
+                let Instruction::Call {
+                    callee: super::CallTarget::HostFunction(declaration),
+                    ..
+                } = instruction
+                else {
+                    continue;
+                };
+                let declaration = declaration.as_ref();
+                if host_declarations
+                    .insert(&declaration.id, declaration)
+                    .is_some_and(
+                        |previous: &kagari_common::host_interface::HostFunctionDeclaration| {
+                            !previous.matches_binding(declaration)
+                        },
+                    )
+                    || host_symbols
+                        .insert(&declaration.symbol, &declaration.id)
+                        .is_some_and(|previous| previous != &declaration.id)
+                {
+                    return Err(context.error(IrVerificationErrorKind::Contract(
+                        ContractError::InvalidOperation {
+                            reason: "conflicting host declarations",
+                        },
+                    )));
+                }
+            }
+        }
         verify_function(
             &module,
             function,

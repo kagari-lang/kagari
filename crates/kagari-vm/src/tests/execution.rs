@@ -18,6 +18,28 @@ use kagari_runtime::{
 use crate::tests::common::{compile_test_bytecode, load_test_module};
 use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
 
+#[test]
+fn foreign_loaded_module_is_rejected_before_initialization() {
+    let bytecode = compile_test_bytecode("fn main() -> i32 { 7 }");
+    let mut first = Runtime::default();
+    let mut second = Runtime::default();
+    let foreign = first.load_module("same", bytecode.clone()).unwrap();
+    let local = second.load_module("same", bytecode).unwrap();
+    assert_eq!(foreign.key(), local.key());
+    let mut vm = Vm::new(second);
+    assert!(
+        matches!(vm.execute(&foreign, "main"), Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::ModuleValidation)
+    );
+    assert_eq!(
+        vm.runtime().module_instance_snapshot(&local).unwrap().state,
+        ModuleInitializationState::Uninitialized
+    );
+    assert_eq!(
+        vm.execute(&local, "main").unwrap().return_value,
+        Value::I32(7)
+    );
+}
+
 fn test_function(
     id: usize,
     name: &str,
@@ -954,7 +976,7 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
 
     let mut runtime = host_call_runtime();
     runtime
-        .register_host_function(HostFunction::new(metadata, move |_| {
+        .register_host_function(HostFunction::new(metadata.clone(), move |_| {
             *calls_for_host
                 .lock()
                 .expect("host call counter should lock") += 1;
@@ -964,24 +986,27 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
     let loaded = runtime
         .load_module(
             "host_capability.kbc",
-            verified_module(
-                None,
-                vec![test_function(
-                    0,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.secure".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(0))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32],
-                )],
+            crate::tests::common::with_host_imports(
+                verified_module(
+                    None,
+                    vec![test_function(
+                        0,
+                        "main",
+                        vec![
+                            BytecodeInstruction::Call {
+                                dst: Some(Register::new(0)),
+                                callee: CallTarget::HostFunction(
+                                    kagari_ir::bytecode::HostImportId::new(0),
+                                ),
+                                args: vec![],
+                            },
+                            BytecodeInstruction::Return(Some(Register::new(0))),
+                        ],
+                        ValueType::I32,
+                        vec![ValueType::I32],
+                    )],
+                ),
+                vec![metadata.clone()],
             ),
         )
         .expect("module should load");
@@ -1033,7 +1058,7 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
         ..RuntimeConfig::default()
     });
     runtime
-        .register_host_function(HostFunction::new(metadata, move |_| {
+        .register_host_function(HostFunction::new(metadata.clone(), move |_| {
             *calls_for_host
                 .lock()
                 .expect("host call counter should lock") += 1;
@@ -1043,24 +1068,27 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
     let loaded = runtime
         .load_module(
             "host_cost.kbc",
-            verified_module(
-                None,
-                vec![test_function(
-                    0,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.costly".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(0))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32],
-                )],
+            crate::tests::common::with_host_imports(
+                verified_module(
+                    None,
+                    vec![test_function(
+                        0,
+                        "main",
+                        vec![
+                            BytecodeInstruction::Call {
+                                dst: Some(Register::new(0)),
+                                callee: CallTarget::HostFunction(
+                                    kagari_ir::bytecode::HostImportId::new(0),
+                                ),
+                                args: vec![],
+                            },
+                            BytecodeInstruction::Return(Some(Register::new(0))),
+                        ],
+                        ValueType::I32,
+                        vec![ValueType::I32],
+                    )],
+                ),
+                vec![metadata.clone()],
             ),
         )
         .expect("module should load");
@@ -1122,23 +1150,30 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
     let loaded = runtime
         .load_module(
             "host_call_limit.kbc",
-            verified_module(
-                None,
-                vec![test_function(
-                    0,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.limited".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(0))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32],
+            crate::tests::common::with_host_imports(
+                verified_module(
+                    None,
+                    vec![test_function(
+                        0,
+                        "main",
+                        vec![
+                            BytecodeInstruction::Call {
+                                dst: Some(Register::new(0)),
+                                callee: CallTarget::HostFunction(
+                                    kagari_ir::bytecode::HostImportId::new(0),
+                                ),
+                                args: vec![],
+                            },
+                            BytecodeInstruction::Return(Some(Register::new(0))),
+                        ],
+                        ValueType::I32,
+                        vec![ValueType::I32],
+                    )],
+                ),
+                vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                    "host.limited",
+                    vec![],
+                    kagari_common::host_interface::HostValueType::I32,
                 )],
             ),
         )
@@ -1183,39 +1218,46 @@ fn executes_module_init_before_entry_only_once_per_module_epoch() {
     let loaded = runtime
         .load_module(
             "module_init_once.kgr",
-            verified_module(
-                Some(FunctionRef::new(0)),
-                vec![
-                    test_function(
-                        0,
-                        "__module_init__",
-                        vec![
-                            BytecodeInstruction::Call {
-                                dst: None,
-                                callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                    "host.bump_init".to_owned(),
-                                )),
-                                args: vec![],
-                            },
-                            BytecodeInstruction::Return(None),
-                        ],
-                        ValueType::Unit,
-                        vec![],
-                    ),
-                    test_function(
-                        1,
-                        "main",
-                        vec![
-                            BytecodeInstruction::LoadConst {
-                                dst: Register::new(0),
-                                constant: ConstantOperand::I32(7),
-                            },
-                            BytecodeInstruction::Return(Some(Register::new(0))),
-                        ],
-                        ValueType::I32,
-                        vec![ValueType::I32],
-                    ),
-                ],
+            crate::tests::common::with_host_imports(
+                verified_module(
+                    Some(FunctionRef::new(0)),
+                    vec![
+                        test_function(
+                            0,
+                            "__module_init__",
+                            vec![
+                                BytecodeInstruction::Call {
+                                    dst: None,
+                                    callee: CallTarget::HostFunction(
+                                        kagari_ir::bytecode::HostImportId::new(0),
+                                    ),
+                                    args: vec![],
+                                },
+                                BytecodeInstruction::Return(None),
+                            ],
+                            ValueType::Unit,
+                            vec![],
+                        ),
+                        test_function(
+                            1,
+                            "main",
+                            vec![
+                                BytecodeInstruction::LoadConst {
+                                    dst: Register::new(0),
+                                    constant: ConstantOperand::I32(7),
+                                },
+                                BytecodeInstruction::Return(Some(Register::new(0))),
+                            ],
+                            ValueType::I32,
+                            vec![ValueType::I32],
+                        ),
+                    ],
+                ),
+                vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                    "host.bump_init",
+                    vec![],
+                    kagari_common::host_interface::HostValueType::Unit,
+                )],
             ),
         )
         .expect("module should load");
@@ -1254,23 +1296,28 @@ fn reruns_module_init_for_new_module_epoch() {
         ))
         .expect("host function should register");
 
-    let bytecode = verified_module(
-        Some(FunctionRef::new(0)),
-        vec![test_function(
-            0,
-            "__module_init__",
-            vec![
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                        "host.bump_init".to_owned(),
-                    )),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
+    let bytecode = crate::tests::common::with_host_imports(
+        verified_module(
+            Some(FunctionRef::new(0)),
+            vec![test_function(
+                0,
+                "__module_init__",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: None,
+                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::Return(None),
+                ],
+                ValueType::Unit,
+                vec![],
+            )],
+        ),
+        vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+            "host.bump_init",
             vec![],
+            kagari_common::host_interface::HostValueType::Unit,
         )],
     );
     let first_loaded = runtime
@@ -1420,23 +1467,30 @@ fn caches_failed_module_init_without_retrying() {
     let loaded = runtime
         .load_module(
             "module_init_failed.kgr",
-            verified_module(
-                Some(FunctionRef::new(0)),
-                vec![test_function(
-                    0,
-                    "__module_init__",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: None,
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.fail_init".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(None),
-                    ],
-                    ValueType::Unit,
+            crate::tests::common::with_host_imports(
+                verified_module(
+                    Some(FunctionRef::new(0)),
+                    vec![test_function(
+                        0,
+                        "__module_init__",
+                        vec![
+                            BytecodeInstruction::Call {
+                                dst: None,
+                                callee: CallTarget::HostFunction(
+                                    kagari_ir::bytecode::HostImportId::new(0),
+                                ),
+                                args: vec![],
+                            },
+                            BytecodeInstruction::Return(None),
+                        ],
+                        ValueType::Unit,
+                        vec![],
+                    )],
+                ),
+                vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                    "host.fail_init",
                     vec![],
+                    kagari_common::host_interface::HostValueType::Unit,
                 )],
             ),
         )

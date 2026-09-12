@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use kagari_common::Span;
 
 use crate::bytecode::instruction::{
-    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldId, FunctionRef, JumpTarget,
-    LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructFieldInit, UnaryOp,
+    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldId, FunctionRef, HostImportId,
+    JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructFieldInit, UnaryOp,
 };
 use crate::bytecode::module::{
     BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, BytecodeModuleSlot,
@@ -38,6 +38,7 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
         .map(|function| lower_function(function, &mut context))
         .collect::<Result<Vec<_>, _>>()?;
     let mut module = BytecodeModule {
+        host_interface: context.host_interface,
         identity: ir.identity.clone(),
         source_name: ir.source_name.clone(),
         module_init: ir.module_init.map(|id| FunctionRef::new(id.index())),
@@ -67,11 +68,28 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
 
 #[derive(Debug, Default)]
 struct BytecodeLoweringContext {
+    host_interface: kagari_common::host_interface::HostInterface,
     fields: Vec<FieldRecord>,
     paths: Vec<PathRecord>,
 }
 
 impl BytecodeLoweringContext {
+    fn host_import(
+        &mut self,
+        declaration: &kagari_common::host_interface::HostFunctionDeclaration,
+    ) -> HostImportId {
+        if let Some(index) = self
+            .host_interface
+            .functions
+            .iter()
+            .position(|entry| entry.id == declaration.id)
+        {
+            return HostImportId::new(index);
+        }
+        let id = HostImportId::new(self.host_interface.functions.len());
+        self.host_interface.functions.push(declaration.clone());
+        id
+    }
     fn field_id(&mut self, field: &AggregateFieldRef, ty: ValueType) -> FieldId {
         if let Some(record) = self.fields.iter().find(|record| {
             record.owner == field.owner && record.name == field.name && record.ty == ty
@@ -466,6 +484,9 @@ fn lower_instruction(
             dst: dst.map(lower_value),
             callee: match callee {
                 IrCallTarget::Function(id) => CallTarget::Function(FunctionRef::new(id.index())),
+                IrCallTarget::HostFunction(declaration) => {
+                    CallTarget::HostFunction(context.host_import(declaration))
+                }
                 IrCallTarget::Value(value) => CallTarget::Register(lower_value(*value)),
                 IrCallTarget::StandardIntrinsic(intrinsic) => {
                     CallTarget::StandardIntrinsic(*intrinsic)
@@ -632,7 +653,6 @@ fn lower_binary_op(op: IrBinaryOp) -> BinaryOp {
 
 fn lower_runtime_helper(helper: &IrRuntimeHelper) -> RuntimeHelper {
     match helper {
-        IrRuntimeHelper::HostFunction(symbol) => RuntimeHelper::HostFunction(symbol.clone()),
         IrRuntimeHelper::ReflectTypeOf => RuntimeHelper::ReflectTypeOf,
         IrRuntimeHelper::ReflectGetField(name) => RuntimeHelper::ReflectGetField(name.clone()),
         IrRuntimeHelper::ReflectSetField(name) => RuntimeHelper::ReflectSetField(name.clone()),

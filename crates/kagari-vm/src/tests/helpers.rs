@@ -181,6 +181,13 @@ fn path_module(
         ..Default::default()
     };
     BytecodeModule {
+        host_interface: kagari_common::host_interface::HostInterface {
+            functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                "host.player",
+                vec![],
+                kagari_common::host_interface::HostValueType::opaque("game.Player"),
+            )],
+        },
         module_init: None,
         module_slots: vec![],
         constants: instructions_constants,
@@ -219,7 +226,18 @@ fn executes_runtime_host_helper_call() {
         .register_host_function(HostFunction::new(
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.add_i32",
-                vec![],
+                vec![
+                    kagari_common::host_interface::HostParameter {
+                        name: "lhs".into(),
+                        ty: kagari_common::host_interface::HostValueType::I32,
+                        passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                    },
+                    kagari_common::host_interface::HostParameter {
+                        name: "rhs".into(),
+                        ty: kagari_common::host_interface::HostValueType::I32,
+                        passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                    },
+                ],
                 kagari_common::host_interface::HostValueType::I32,
             ),
             |args| match args {
@@ -232,28 +250,46 @@ fn executes_runtime_host_helper_call() {
     let loaded = runtime
         .load_module(
             "helper.kbc",
-            test_function_module(
-                "main",
-                vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(40),
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(1),
-                        constant: ConstantOperand::I32(2),
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(2)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                            "host.add_i32".to_owned(),
-                        )),
-                        args: vec![Register::new(0), Register::new(1)],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(2))),
-                ],
-                ValueType::I32,
-                vec![ValueType::I32, ValueType::I32, ValueType::I32],
+            crate::tests::common::with_host_imports(
+                test_function_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(0),
+                            constant: ConstantOperand::I32(40),
+                        },
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(1),
+                            constant: ConstantOperand::I32(2),
+                        },
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(2)),
+                            callee: CallTarget::HostFunction(
+                                kagari_ir::bytecode::HostImportId::new(0),
+                            ),
+                            args: vec![Register::new(0), Register::new(1)],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(2))),
+                    ],
+                    ValueType::I32,
+                    vec![ValueType::I32, ValueType::I32, ValueType::I32],
+                ),
+                vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                    "host.add_i32",
+                    vec![
+                        kagari_common::host_interface::HostParameter {
+                            name: "lhs".into(),
+                            ty: kagari_common::host_interface::HostValueType::I32,
+                            passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                        },
+                        kagari_common::host_interface::HostParameter {
+                            name: "rhs".into(),
+                            ty: kagari_common::host_interface::HostValueType::I32,
+                            passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                        },
+                    ],
+                    kagari_common::host_interface::HostValueType::I32,
+                )],
             ),
         )
         .expect("helper module should load");
@@ -275,9 +311,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                            "host.player".to_owned(),
-                        )),
+                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
                         args: vec![],
                     },
                     BytecodeInstruction::ReadPath {
@@ -340,9 +374,7 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                            "host.player".to_owned(),
-                        )),
+                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
                         args: vec![],
                     },
                     BytecodeInstruction::LoadConst {
@@ -389,9 +421,7 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                            "host.player".to_owned(),
-                        )),
+                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
                         args: vec![],
                     },
                     BytecodeInstruction::ReadPath {

@@ -5,7 +5,7 @@ mod value_ops;
 use std::cell::RefMut;
 
 use kagari_ir::bytecode::{BytecodeInstruction, BytecodeModule, FunctionRef};
-use kagari_runtime::{ModuleInstance, Runtime, value::Value};
+use kagari_runtime::{LoadedModule, ModuleInstance, Runtime, value::Value};
 
 use crate::debug::DebugSession;
 use crate::error::VmError;
@@ -15,6 +15,7 @@ use crate::frame::Frame;
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
     module: &'a BytecodeModule,
+    loaded: &'a LoadedModule,
     module_instance: RefMut<'a, ModuleInstance>,
     frames: Vec<Frame<'a>>,
     debug_session: Option<&'a mut DebugSession>,
@@ -23,11 +24,12 @@ pub(crate) struct Executor<'a> {
 impl<'a> Executor<'a> {
     pub(crate) fn new(
         runtime: &'a Runtime,
-        module: &'a BytecodeModule,
+        loaded: &'a LoadedModule,
         module_instance: RefMut<'a, ModuleInstance>,
         entry: FunctionRef,
         debug_session: Option<&'a mut DebugSession>,
     ) -> Result<Self, VmError> {
+        let module = &loaded.bytecode;
         let function = module
             .functions
             .get(entry.index())
@@ -36,6 +38,7 @@ impl<'a> Executor<'a> {
         let mut executor = Self {
             runtime,
             module,
+            loaded,
             module_instance,
             frames: Vec::new(),
             debug_session,

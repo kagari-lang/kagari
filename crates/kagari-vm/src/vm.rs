@@ -82,6 +82,9 @@ impl Vm {
         module: &LoadedModule,
         entry: &str,
     ) -> Result<ExecutionReport, VmError> {
+        self.runtime
+            .validate_loaded_module(module)
+            .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
         self.execute_module(module)?;
         if let Some(debug_session) = self.debug_session.as_mut() {
@@ -107,7 +110,7 @@ impl Vm {
             .expect("module instance should exist after module initialization");
         let mut executor = Executor::new(
             &self.runtime,
-            &module.bytecode,
+            module,
             module_instance,
             entry,
             self.debug_session.as_mut(),
@@ -129,6 +132,9 @@ impl Vm {
         entry: &str,
         backend: &mut B,
     ) -> Result<ExecutionReport, VmError> {
+        self.runtime
+            .validate_loaded_module(module)
+            .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
         self.execute_module(module)?;
         if let Some(debug_session) = self.debug_session.as_mut() {
@@ -166,6 +172,9 @@ impl Vm {
     }
 
     pub fn execute_module(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
+        self.runtime
+            .validate_loaded_module(module)
+            .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
         if let Some(debug_session) = self.debug_session.as_mut() {
             debug_session.resolve_module(
@@ -217,7 +226,7 @@ impl Vm {
                     .expect("loaded module should have a runtime module instance");
                 let mut executor = Executor::new(
                     &self.runtime,
-                    &module.bytecode,
+                    module,
                     module_instance,
                     module_init,
                     self.debug_session.as_mut(),
@@ -380,7 +389,7 @@ impl Vm {
             .expect("module instance should exist after module initialization");
         let mut executor = Executor::new(
             &self.runtime,
-            &module.bytecode,
+            module,
             module_instance,
             entry,
             self.debug_session.as_mut(),
@@ -466,7 +475,8 @@ fn validate_executable_bytecode(module: &BytecodeModule) -> Result<(), VmError> 
                 CallTarget::Register(_) => {
                     return Err(VmError::UnsupportedCallTarget(callee.clone()));
                 }
-                CallTarget::Function(_)
+                CallTarget::HostFunction(_)
+                | CallTarget::Function(_)
                 | CallTarget::StandardIntrinsic(_)
                 | CallTarget::RuntimeHelper(_) => {}
             }

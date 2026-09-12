@@ -86,6 +86,14 @@ pub fn test_function_module(
     }
 }
 
+pub fn with_host_imports(
+    mut module: BytecodeModule,
+    functions: Vec<kagari_common::host_interface::HostFunctionDeclaration>,
+) -> BytecodeModule {
+    module.host_interface = kagari_common::host_interface::HostInterface { functions };
+    module
+}
+
 pub fn constants_for_instructions(instructions: &[BytecodeInstruction]) -> Vec<ConstantOperand> {
     let mut constants = Vec::new();
     for instruction in instructions {

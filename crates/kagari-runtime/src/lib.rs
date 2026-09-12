@@ -432,6 +432,15 @@ impl Runtime {
     }
 
     pub fn validate_host_function_boundary(&self, symbol: &str) -> Result<(), RuntimeError> {
+        let function = self.host.function(symbol);
+        self.validate_bound_host_boundary(symbol, function)
+    }
+
+    fn validate_bound_host_boundary(
+        &self,
+        symbol: &str,
+        function: Option<&HostFunction>,
+    ) -> Result<(), RuntimeError> {
         if !self.host_exposure.exposes_host_function(symbol) {
             return Err(RuntimeError::capability_denied(format!(
                 "host function `{symbol}`"
@@ -440,7 +449,7 @@ impl Runtime {
         if !self.security.allows_host_calls() {
             return Err(RuntimeError::capability_denied("host_calls"));
         }
-        let Some(function) = self.host.function(symbol) else {
+        let Some(function) = function else {
             return Ok(());
         };
         let metadata = function.declaration();
@@ -688,6 +697,7 @@ impl Runtime {
     }
 
     pub fn module_instance_snapshot(&self, module: &LoadedModule) -> Option<ModuleInstance> {
+        self.validate_loaded_module(module).ok()?;
         self.modules.instance_snapshot(module.key())
     }
 
@@ -695,6 +705,7 @@ impl Runtime {
         &self,
         module: &LoadedModule,
     ) -> Option<std::cell::RefMut<'_, ModuleInstance>> {
+        self.validate_loaded_module(module).ok()?;
         self.modules.instance_mut(module.key())
     }
 
@@ -741,9 +752,28 @@ impl Runtime {
         symbol: &str,
         args: &[value::Value],
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_host_function_boundary(symbol)?;
-        self.host
-            .invoke(symbol, args)
+        let function = self.host.function(symbol).ok_or_else(|| {
+            RuntimeError::host_call_failure(format!("unknown host function `{symbol}`"))
+        })?;
+        self.invoke_bound_host(
+            function.id().expect("registered function has an identity"),
+            args,
+        )
+    }
+
+    pub fn invoke_bound_host(
+        &self,
+        id: HostFunctionId,
+        args: &[value::Value],
+    ) -> Result<value::Value, RuntimeError> {
+        let function = self.host.bound_function(id).ok_or_else(|| {
+            RuntimeError::module_validation(
+                "host binding belongs to another registry or is missing",
+            )
+        })?;
+        self.validate_bound_host_boundary(function.symbol(), Some(function))?;
+        function
+            .invoke(args)
             .map_err(|error| RuntimeError::host_call_failure(error.message()))
     }
 
@@ -798,6 +828,15 @@ impl Runtime {
         Ok(value)
     }
 
+    pub fn validate_loaded_module(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
+        if !module.belongs_to(self.host.owner()) || self.modules.loaded(module.key()).is_none() {
+            return Err(RuntimeError::module_validation(
+                "loaded module belongs to another runtime or has been released",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn load_module(
         &mut self,
         name: impl Into<String>,
@@ -811,10 +850,13 @@ impl Runtime {
             }
             error => RuntimeError::module_validation(error.to_string()),
         })?;
+        let bindings = self.host.link_interface(&bytecode.host_interface)?;
         self.resources
             .record_loaded_modules(self.modules.loaded_count() + 1)?;
         let epoch = self.reloads.publish(&name);
-        let module = self.modules.load(name, epoch, bytecode);
+        let module = self
+            .modules
+            .load(name, epoch, bytecode, self.host.owner(), bindings);
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         self.resources
             .record_loaded_modules(self.modules.loaded_count())?;
@@ -828,6 +870,8 @@ impl Runtime {
         bytecode: BytecodeModule,
     ) -> Result<LoadedModule, ReloadValidationError> {
         let name = name.into();
+        self.validate_loaded_module(active)
+            .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&active.name);
         validate_reload_candidate(active, &name, &bytecode, latest.as_ref())?;
         let dependencies = ReloadDependencySnapshot::from_bytecode(&bytecode);
@@ -842,6 +886,8 @@ impl Runtime {
         compatibility: &ArtifactCompatibility,
     ) -> Result<LoadedModule, ReloadValidationError> {
         let name = name.into();
+        self.validate_loaded_module(active)
+            .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&active.name);
         validate_reload_artifact_candidate(
             active,
@@ -860,11 +906,17 @@ impl Runtime {
         bytecode: BytecodeModule,
         dependencies: ReloadDependencySnapshot,
     ) -> Result<LoadedModule, ReloadValidationError> {
+        let bindings = self
+            .host
+            .link_interface(&bytecode.host_interface)
+            .map_err(ReloadValidationError::Runtime)?;
         self.resources
             .record_loaded_modules(self.modules.loaded_count() + 1)
             .map_err(ReloadValidationError::Runtime)?;
         let epoch = self.reloads.publish(&name);
-        let module = self.modules.load(name, epoch, bytecode);
+        let module = self
+            .modules
+            .load(name, epoch, bytecode, self.host.owner(), bindings);
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         self.resources
             .record_loaded_modules(self.modules.loaded_count())
@@ -978,7 +1030,6 @@ mod tests {
                     module_id: "pkg/dependency".to_owned(),
                     fingerprint: ArtifactFingerprint::of_str("dependency-v1"),
                 }],
-                host_registry_fingerprint: ArtifactFingerprint::of_str("host-v1"),
                 security_profile: Some("dev".to_owned()),
                 ..ArtifactBuildOptions::default()
             },
@@ -989,7 +1040,6 @@ mod tests {
         ArtifactCompatibility {
             module_identity: Some(artifact.header.module_identity.clone()),
             dependency_fingerprints: artifact.verification.loader.dependency_fingerprints.clone(),
-            host_registry_fingerprint: artifact.verification.loader.host_registry_fingerprint,
             security_profile: artifact.verification.loader.security_profile.clone(),
             ..ArtifactCompatibility::default()
         }

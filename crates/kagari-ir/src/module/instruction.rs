@@ -143,6 +143,7 @@ pub enum Terminator {
 #[derive(Debug, Clone)]
 pub enum CallTarget {
     Function(crate::module::ids::InstanceId),
+    HostFunction(Box<kagari_common::host_interface::HostFunctionDeclaration>),
     Value(IrValue),
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
@@ -331,6 +332,10 @@ impl CallTarget {
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::Function(_) | Self::Value(_) => EffectSet::call(),
+            Self::HostFunction(declaration) => EffectSet {
+                allocates: declaration.effects.may_allocate,
+                ..EffectSet::runtime_call()
+            },
             Self::StandardIntrinsic(intrinsic) => standard_intrinsic_effects(*intrinsic),
             Self::RuntimeHelper(helper) => helper.effects(),
         }
@@ -399,7 +404,7 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
 impl RuntimeHelper {
     pub fn effects(&self) -> EffectSet {
         match self {
-            Self::HostFunction(_) | Self::DynamicCall => EffectSet::runtime_call(),
+            Self::DynamicCall => EffectSet::runtime_call(),
             Self::ReflectTypeOf | Self::ReflectGetField(_) => {
                 EffectSet::runtime_call().union(EffectSet::aggregate_read())
             }
@@ -412,7 +417,6 @@ impl RuntimeHelper {
 
 #[derive(Debug, Clone)]
 pub enum RuntimeHelper {
-    HostFunction(String),
     ReflectTypeOf,
     ReflectGetField(String),
     ReflectSetField(String),

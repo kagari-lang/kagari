@@ -17,6 +17,35 @@ fn raw(source: &str) -> IrModule {
         .into_unverified()
 }
 
+#[test]
+fn conflicting_host_contracts_cannot_be_hidden_by_import_interning() {
+    let mut module = raw(r#"fn main() { print("one"); print("two"); }"#);
+    let mut calls = module
+        .functions
+        .iter_mut()
+        .flat_map(|f| &mut f.blocks)
+        .flat_map(|b| &mut b.instructions)
+        .filter_map(|i| {
+            if let Instruction::Call {
+                callee: CallTarget::HostFunction(declaration),
+                ..
+            } = i
+            {
+                Some(declaration)
+            } else {
+                None
+            }
+        });
+    calls.next().unwrap();
+    calls.next().unwrap().effects.may_mutate_host_state = false;
+    assert!(matches!(
+        reject(module),
+        Error::Contract(ContractError::InvalidOperation {
+            reason: "conflicting host declarations"
+        })
+    ));
+}
+
 fn reject(module: IrModule) -> Error {
     verify_ir(module, &Default::default()).unwrap_err().kind
 }

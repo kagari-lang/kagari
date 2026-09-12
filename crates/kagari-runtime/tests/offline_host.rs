@@ -22,6 +22,101 @@ fn declaration() -> HostFunctionDeclaration {
 }
 
 #[test]
+fn module_load_and_reload_require_matching_bindings_before_publication() {
+    use kagari_ir::bytecode::{
+        ArtifactBuildOptions, ArtifactCompatibility, BytecodeModule, KbcArtifact,
+    };
+    let mut runtime = Runtime::default();
+    let required = declaration();
+    let bytecode = BytecodeModule {
+        host_interface: HostInterface {
+            functions: vec![required.clone()],
+        },
+        ..Default::default()
+    };
+    assert!(runtime.load_module("host", bytecode.clone()).is_err());
+    assert_eq!(runtime.modules().loaded_count(), 0);
+    assert_eq!(runtime.resources().counters().loaded_modules, 0);
+    runtime
+        .register_host_function(HostFunction::new(required, |_| {
+            panic!("linking must not invoke host")
+        }))
+        .unwrap();
+    let loaded = runtime.load_module("host", bytecode.clone()).unwrap();
+    let shared = runtime.modules().latest("host").unwrap();
+    assert!(std::ptr::eq(&loaded.bytecode, &shared.bytecode));
+    assert!(std::ptr::eq(&loaded.bytecode, &loaded.clone().bytecode));
+    let before = runtime.resources().counters();
+    let mut mismatch = bytecode;
+    mismatch.host_interface.functions[0]
+        .effects
+        .may_mutate_host_state = true;
+    assert!(
+        runtime
+            .reload_module(&loaded, "host", mismatch.clone())
+            .is_err()
+    );
+    let artifact = KbcArtifact::from_module(mismatch, ArtifactBuildOptions::default());
+    assert!(
+        runtime
+            .reload_artifact(&loaded, "host", artifact, &ArtifactCompatibility::default())
+            .is_err()
+    );
+    assert_eq!(
+        runtime.modules().latest("host").unwrap().key(),
+        loaded.key()
+    );
+    assert_eq!(runtime.resources().counters(), before);
+}
+
+#[test]
+fn bound_slots_and_loaded_handles_reject_another_runtime() {
+    use kagari_ir::bytecode::BytecodeModule;
+    let mut first = Runtime::default();
+    let mut second = Runtime::default();
+    let a = first
+        .register_host_function(HostFunction::new(declaration(), |_| unreachable!()))
+        .unwrap();
+    let b = second
+        .register_host_function(HostFunction::new(declaration(), |_| unreachable!()))
+        .unwrap();
+    assert_eq!(a.index(), b.index());
+    assert_ne!(a, b);
+    assert!(second.invoke_bound_host(a, &[Value::I32(1)]).is_err());
+    let a = first
+        .load_module("same", BytecodeModule::default())
+        .unwrap();
+    let b = second
+        .load_module("same", BytecodeModule::default())
+        .unwrap();
+    assert_eq!(a.key(), b.key());
+    assert!(second.validate_loaded_module(&a).is_err());
+    assert!(second.module_instance_snapshot(&a).is_none());
+    assert!(second.module_instance_mut(&a).is_none());
+    assert!(
+        second
+            .reload_module(&a, "same", BytecodeModule::default())
+            .is_err()
+    );
+    assert!(second.validate_loaded_module(&b).is_ok());
+}
+
+#[test]
+fn callback_arguments_and_result_obey_the_declared_representation() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let called = calls.clone();
+    let function = HostFunction::new(declaration(), move |_| {
+        called.fetch_add(1, Ordering::SeqCst);
+        Ok(Value::Bool(true))
+    });
+    assert!(function.invoke(&[]).is_err());
+    assert!(function.invoke(&[Value::Bool(true)]).is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(function.invoke(&[Value::I32(1)]).is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     let declaration = declaration();
     let interface = HostInterface {

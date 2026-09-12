@@ -16,6 +16,31 @@ pub enum ContractError {
     },
 }
 
+pub(crate) fn verify_host_call(
+    dst: Option<ValueType>,
+    declaration: &kagari_common::host_interface::HostFunctionDeclaration,
+    args: &[ValueType],
+) -> Result<(), ContractError> {
+    declaration
+        .validate()
+        .map_err(|_| ContractError::InvalidOperation {
+            reason: "invalid host declaration",
+        })?;
+    if args.len() != declaration.params.len() {
+        return Err(ContractError::InvalidOperation {
+            reason: "host call arity mismatch",
+        });
+    }
+    for (arg, param) in args.iter().zip(&declaration.params) {
+        expect_type(
+            *arg,
+            ValueType::from_host_type(&param.ty),
+            "host call argument",
+        )?;
+    }
+    verify_call_dst(dst, ValueType::from_host_type(&declaration.return_type))
+}
+
 pub(crate) fn expect_type(
     found: ValueType,
     expected: ValueType,

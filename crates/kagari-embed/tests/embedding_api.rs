@@ -8,7 +8,7 @@ use kagari_ir::{
     bytecode::{
         ArtifactBuildOptions, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
         ConstantOperand, FunctionMetadata, FunctionRecord, FunctionRef, KbcArtifact, PathId,
-        PathRecord, Register, RuntimeHelper,
+        PathRecord, Register,
     },
     module::ValueType,
 };
@@ -149,6 +149,25 @@ fn host_path_artifact(
     };
     KbcArtifact::from_module(
         BytecodeModule {
+            host_interface: kagari_common::host_interface::HostInterface {
+                functions: if instructions.iter().any(|instruction| {
+                    matches!(
+                        instruction,
+                        BytecodeInstruction::Call {
+                            callee: CallTarget::HostFunction(_),
+                            ..
+                        }
+                    )
+                }) {
+                    vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                        "host.player",
+                        vec![],
+                        kagari_common::host_interface::HostValueType::opaque("game.Player"),
+                    )]
+                } else {
+                    vec![]
+                },
+            },
             identity: kagari_common::identity::ModuleIdentity::single_file(source_name),
             source_name: source_name.to_owned(),
             module_init: None,
@@ -451,9 +470,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                    "host.player".to_owned(),
-                )),
+                callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
                 args: vec![],
             },
             BytecodeInstruction::LoadConst {
@@ -511,9 +528,7 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                    "host.player".to_owned(),
-                )),
+                callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
                 args: vec![],
             },
             BytecodeInstruction::ReadPath {
@@ -577,6 +592,12 @@ fn execution_context_denies_host_and_reflection_helpers() {
         )
         .expect("reflection source should compile with reflection profile");
     let mut runtime = engine.runtime(ExecutionContext::default());
+    runtime
+        .register_host_function(HostFunction::new(
+            kagari_common::host_interface::standard_log(),
+            |_| unreachable!("denied callback must not run"),
+        ))
+        .unwrap();
     let print_module = runtime
         .load_module(
             print_artifact,

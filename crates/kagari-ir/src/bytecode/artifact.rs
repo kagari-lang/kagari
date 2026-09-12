@@ -9,7 +9,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 6;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 7;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 
 fn codec() -> impl Options {
@@ -129,12 +129,12 @@ impl KbcArtifact {
         {
             return Err(ArtifactValidationError::DependencyFingerprintMismatch);
         }
-        if self.verification.loader.host_registry_fingerprint
-            != requirements.host_registry_fingerprint
+        if self.verification.host_interface_fingerprint
+            != ArtifactFingerprint::of_host_interface(&self.module.host_interface)
         {
-            return Err(ArtifactValidationError::HostRegistryFingerprintMismatch {
-                expected: requirements.host_registry_fingerprint,
-                found: self.verification.loader.host_registry_fingerprint,
+            return Err(ArtifactValidationError::HostInterfaceFingerprintMismatch {
+                expected: ArtifactFingerprint::of_host_interface(&self.module.host_interface),
+                found: self.verification.host_interface_fingerprint,
             });
         }
         if self.verification.loader.security_profile != requirements.security_profile {
@@ -254,6 +254,16 @@ pub struct ModuleEpoch(pub u64);
 pub struct ArtifactFingerprint(pub u64);
 
 impl ArtifactFingerprint {
+    /// Canonical required ABI set; documentation and import slot order do not affect it.
+    pub fn of_host_interface(interface: &kagari_common::host_interface::HostInterface) -> Self {
+        let mut functions = interface.functions.clone();
+        for function in &mut functions {
+            function.documentation.clear();
+        }
+        functions.sort_by(|a, b| a.id.cmp(&b.id));
+        Self::of_serialized(&("kagari-required-host-interface-v1", functions))
+    }
+
     pub fn empty() -> Self {
         Self(0)
     }
@@ -299,7 +309,6 @@ impl ArtifactFingerprint {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactTables {
     pub sections: ArtifactSectionBuffer,
-    pub host_dependencies: HostDependencyTable,
     pub source_files: SourceFileTable,
     pub debug_names: DebugNameTable,
 }
@@ -352,7 +361,6 @@ impl ArtifactTables {
 
         Self {
             sections,
-            host_dependencies: Vec::new(),
             source_files: Vec::new(),
             debug_names: Vec::new(),
         }
@@ -403,7 +411,7 @@ pub struct VerificationMetadata {
     pub typed_path_fingerprints: PathFingerprintBuffer,
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
     pub dependency_fingerprints: DependencyFingerprintBuffer,
-    pub host_registry_fingerprint: ArtifactFingerprint,
+    pub host_interface_fingerprint: ArtifactFingerprint,
     pub security_profile_requirements: Vec<String>,
     pub loader: LoaderValidationMetadata,
 }
@@ -460,14 +468,15 @@ impl VerificationMetadata {
             typed_path_fingerprints: typed_path_fingerprints.clone(),
             public_abi_fingerprints: public_abi_fingerprints.clone(),
             dependency_fingerprints: options.dependency_fingerprints.clone(),
-            host_registry_fingerprint: options.host_registry_fingerprint,
+            host_interface_fingerprint: ArtifactFingerprint::of_host_interface(
+                &module.host_interface,
+            ),
             security_profile_requirements: options.security_profile.clone().into_iter().collect(),
             loader: LoaderValidationMetadata {
                 module_identity: module.identity.clone(),
                 runtime_abi_version: options.runtime_abi_version.clone(),
                 runtime_helper_abi_version: options.runtime_helper_abi_version.clone(),
                 dependency_fingerprints: options.dependency_fingerprints.clone(),
-                host_registry_fingerprint: options.host_registry_fingerprint,
                 typed_path_fingerprints,
                 public_abi_fingerprints,
                 security_profile: options.security_profile.clone(),
@@ -521,7 +530,6 @@ pub struct LoaderValidationMetadata {
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
     pub dependency_fingerprints: DependencyFingerprintBuffer,
-    pub host_registry_fingerprint: ArtifactFingerprint,
     pub typed_path_fingerprints: PathFingerprintBuffer,
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
     pub security_profile: Option<String>,
@@ -533,7 +541,6 @@ pub struct ArtifactBuildOptions {
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
     pub dependency_fingerprints: DependencyFingerprintBuffer,
-    pub host_registry_fingerprint: ArtifactFingerprint,
     pub security_profile: Option<String>,
     pub debug: Option<DebugMetadata>,
     pub signatures: Option<ArtifactSignatures>,
@@ -546,7 +553,6 @@ impl Default for ArtifactBuildOptions {
             runtime_abi_version: KAGARI_RUNTIME_ABI_VERSION.to_owned(),
             runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
             dependency_fingerprints: Vec::new(),
-            host_registry_fingerprint: ArtifactFingerprint::empty(),
             security_profile: None,
             debug: None,
             signatures: None,
@@ -562,7 +568,6 @@ pub struct ArtifactCompatibility {
     pub runtime_helper_abi_version: String,
     pub module_identity: Option<ModuleIdentity>,
     pub dependency_fingerprints: DependencyFingerprintBuffer,
-    pub host_registry_fingerprint: ArtifactFingerprint,
     pub security_profile: Option<String>,
 }
 
@@ -575,7 +580,6 @@ impl Default for ArtifactCompatibility {
             runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
             module_identity: None,
             dependency_fingerprints: Vec::new(),
-            host_registry_fingerprint: ArtifactFingerprint::empty(),
             security_profile: None,
         }
     }
@@ -645,7 +649,7 @@ pub enum ArtifactValidationError {
     ContentHashMismatch,
     UnverifiedBytecode,
     DependencyFingerprintMismatch,
-    HostRegistryFingerprintMismatch {
+    HostInterfaceFingerprintMismatch {
         expected: ArtifactFingerprint,
         found: ArtifactFingerprint,
     },
@@ -697,8 +701,8 @@ impl ArtifactValidationError {
             Self::ContentHashMismatch => "KG_ARTIFACT_CONTENT_HASH_MISMATCH",
             Self::UnverifiedBytecode => "KG_ARTIFACT_UNVERIFIED_BYTECODE",
             Self::DependencyFingerprintMismatch => "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH",
-            Self::HostRegistryFingerprintMismatch { .. } => {
-                "KG_ARTIFACT_HOST_REGISTRY_FINGERPRINT_MISMATCH"
+            Self::HostInterfaceFingerprintMismatch { .. } => {
+                "KG_ARTIFACT_HOST_INTERFACE_FINGERPRINT_MISMATCH"
             }
             Self::SecurityProfileMismatch { .. } => "KG_ARTIFACT_SECURITY_PROFILE_MISMATCH",
             Self::PathFingerprintMismatch => "KG_ARTIFACT_PATH_FINGERPRINT_MISMATCH",
@@ -738,9 +742,9 @@ impl Display for ArtifactValidationError {
             Self::DependencyFingerprintMismatch => {
                 write!(f, "artifact dependency fingerprints mismatch")
             }
-            Self::HostRegistryFingerprintMismatch { expected, found } => write!(
+            Self::HostInterfaceFingerprintMismatch { expected, found } => write!(
                 f,
-                "artifact host registry fingerprint mismatch: expected {}, found {}",
+                "artifact host interface fingerprint mismatch: expected {}, found {}",
                 expected.to_hex(),
                 found.to_hex()
             ),
@@ -762,7 +766,6 @@ impl Display for ArtifactValidationError {
 impl std::error::Error for ArtifactValidationError {}
 
 pub type ArtifactSectionBuffer = Vec<ArtifactSection>;
-pub type HostDependencyTable = Vec<String>;
 pub type SourceFileTable = Vec<String>;
 pub type DebugNameTable = Vec<String>;
 pub type FunctionLayoutBuffer = Vec<FunctionLayoutMetadata>;
@@ -823,15 +826,60 @@ mod canonical_tests {
             KbcArtifact::from_module(BytecodeModule::default(), ArtifactBuildOptions::default());
         let bytes = artifact.to_bytes().unwrap();
         assert!(KbcArtifact::from_bytes(&bytes).is_ok());
-        let mut old = bytes.clone();
-        old[4..6].copy_from_slice(&1u16.to_le_bytes());
-        assert!(KbcArtifact::from_bytes(&old).is_err());
+        for version in 1..KBC_ARTIFACT_FORMAT_VERSION {
+            let mut old = bytes.clone();
+            old[4..6].copy_from_slice(&version.to_le_bytes());
+            assert!(KbcArtifact::from_bytes(&old).is_err());
+        }
         let mut trailing = bytes.clone();
         trailing.push(0);
         assert!(KbcArtifact::from_bytes(&trailing).is_err());
         let mut enormous_string = bytes;
         enormous_string[6..14].copy_from_slice(&u64::MAX.to_le_bytes());
         assert!(KbcArtifact::from_bytes(&enormous_string).is_err());
+    }
+
+    #[test]
+    fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
+        use kagari_common::host_interface::{
+            HostFunctionDeclaration, HostInterface, HostValueType, standard_log,
+        };
+        let interface = HostInterface {
+            functions: vec![
+                standard_log(),
+                HostFunctionDeclaration::new("host.other", vec![], HostValueType::Unit),
+            ],
+        };
+        let fingerprint = ArtifactFingerprint::of_host_interface(&interface);
+        let mut reordered = interface.clone();
+        reordered.functions.reverse();
+        reordered.functions[0].documentation = "different docs".into();
+        assert_eq!(
+            fingerprint,
+            ArtifactFingerprint::of_host_interface(&reordered)
+        );
+        reordered.functions[0].effects.may_trap = true;
+        assert_ne!(
+            fingerprint,
+            ArtifactFingerprint::of_host_interface(&reordered)
+        );
+        let mut artifact = KbcArtifact::from_module(
+            BytecodeModule {
+                host_interface: interface,
+                ..Default::default()
+            },
+            ArtifactBuildOptions::default(),
+        );
+        assert_eq!(
+            artifact.verification.host_interface_fingerprint,
+            fingerprint
+        );
+        artifact.verification.host_interface_fingerprint = ArtifactFingerprint::empty();
+        artifact.header.content_hash = artifact.compute_content_hash();
+        assert!(matches!(
+            artifact.validate_for_loader(&ArtifactCompatibility::default()),
+            Err(ArtifactValidationError::HostInterfaceFingerprintMismatch { .. })
+        ));
     }
 
     #[test]

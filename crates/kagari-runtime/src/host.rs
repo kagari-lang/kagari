@@ -913,18 +913,33 @@ impl Drop for HostCallGuard<'_> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HostFunctionId(u64);
+pub struct HostFunctionId {
+    owner: HostRegistryId,
+    slot: usize,
+}
 
-impl HostFunctionId {
-    pub fn new(index: usize) -> Self {
-        Self(index as u64)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct HostRegistryId(u64);
 
-    pub fn index(self) -> usize {
-        self.0 as usize
+impl Default for HostRegistryId {
+    fn default() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(
+            NEXT.fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |id| id.checked_add(1),
+            )
+            .expect("host registry identity exhausted"),
+        )
     }
 }
 
+impl HostFunctionId {
+    pub fn index(self) -> usize {
+        self.slot
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostTypeOwnership {
     Opaque,
@@ -1080,7 +1095,23 @@ impl HostFunction {
     }
 
     pub fn invoke(&self, args: &[Value]) -> Result<Value, HostError> {
-        (self.handler)(args)
+        if args.len() != self.declaration.params.len()
+            || args
+                .iter()
+                .zip(&self.declaration.params)
+                .any(|(value, parameter)| !host_value_matches(value, &parameter.ty))
+        {
+            return Err(HostError::new(
+                "host arguments do not match the declared signature",
+            ));
+        }
+        let result = (self.handler)(args)?;
+        if !host_value_matches(&result, &self.declaration.return_type) {
+            return Err(HostError::new(
+                "host result does not match the declared signature",
+            ));
+        }
+        Ok(result)
     }
 
     fn assign_id(&mut self, id: HostFunctionId) {
@@ -1088,11 +1119,28 @@ impl HostFunction {
     }
 }
 
+fn host_value_matches(value: &Value, ty: &HostValueType) -> bool {
+    matches!(
+        (value, ty),
+        (Value::Unit, HostValueType::Unit)
+            | (Value::Bool(_), HostValueType::Bool)
+            | (Value::I32(_), HostValueType::I32)
+            | (Value::I64(_), HostValueType::I64)
+            | (Value::F32(_), HostValueType::F32)
+            | (Value::F64(_), HostValueType::F64)
+            | (Value::Str(_), HostValueType::String)
+            | (Value::HostRoot(_), HostValueType::Opaque(_))
+            | (Value::Ephemeral(_), HostValueType::Opaque(_))
+    )
+}
+
 #[derive(Debug, Default)]
 pub struct HostRegistry {
-    next_function_id: usize,
+    owner: HostRegistryId,
     next_path_descriptor_id: usize,
-    functions: HashMap<String, HostFunction>,
+    functions: Vec<HostFunction>,
+    function_names: HashMap<String, HostFunctionId>,
+    function_declarations: HashMap<kagari_common::identity::DefinitionId, HostFunctionId>,
     types: HashMap<TypeId, HostTypeInfo>,
     type_names: HashMap<String, TypeId>,
     roots: HashMap<HostObjectId, HostRootHandle>,
@@ -1102,31 +1150,46 @@ pub struct HostRegistry {
 }
 
 impl HostRegistry {
+    pub(crate) fn owner(&self) -> HostRegistryId {
+        self.owner
+    }
+
+    pub fn bound_function(&self, id: HostFunctionId) -> Option<&HostFunction> {
+        (id.owner == self.owner)
+            .then(|| self.functions.get(id.slot))
+            .flatten()
+    }
+
     pub fn register(&mut self, mut function: HostFunction) -> Result<HostFunctionId, RuntimeError> {
         function
             .declaration
             .validate()
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let symbol = function.declaration.symbol.to_owned();
-        if self.functions.contains_key(&symbol)
+        if self.function_names.contains_key(&symbol)
             || self
                 .functions
-                .values()
+                .iter()
                 .any(|existing| existing.declaration.id == function.declaration.id)
         {
             return Err(RuntimeError::metadata_conflict(symbol));
         }
-        let id = HostFunctionId::new(self.next_function_id);
-        self.next_function_id += 1;
+        let id = HostFunctionId {
+            owner: self.owner,
+            slot: self.functions.len(),
+        };
         function.assign_id(id);
-        self.functions.insert(symbol, function);
+        self.function_names.insert(symbol, id);
+        self.function_declarations
+            .insert(function.declaration.id.clone(), id);
+        self.functions.push(function);
         Ok(id)
     }
 
     pub fn interface(&self) -> HostInterface {
         let mut functions = self
             .functions
-            .values()
+            .iter()
             .map(|f| f.declaration.clone())
             .collect::<Vec<_>>();
         functions.sort_by(|a, b| a.id.cmp(&b.id));
@@ -1145,12 +1208,16 @@ impl HostRegistry {
             .functions
             .iter()
             .map(|required| {
-                let bound = self.functions.get(&required.symbol).ok_or_else(|| {
-                    RuntimeError::metadata_conflict(format!(
-                        "missing host binding `{}`",
-                        required.symbol
-                    ))
-                })?;
+                let bound = self
+                    .function_declarations
+                    .get(&required.id)
+                    .and_then(|id| self.bound_function(*id))
+                    .ok_or_else(|| {
+                        RuntimeError::metadata_conflict(format!(
+                            "missing host binding `{}`",
+                            required.symbol
+                        ))
+                    })?;
                 if !required.matches_binding(&bound.declaration) {
                     return Err(RuntimeError::metadata_conflict(format!(
                         "host binding `{}` differs from its declaration",
@@ -1571,11 +1638,13 @@ impl HostRegistry {
     }
 
     pub fn function(&self, symbol: &str) -> Option<&HostFunction> {
-        self.functions.get(symbol)
+        self.function_names
+            .get(symbol)
+            .and_then(|id| self.bound_function(*id))
     }
 
     pub fn functions(&self) -> impl Iterator<Item = &HostFunction> {
-        self.functions.values()
+        self.functions.iter()
     }
 
     pub fn host_type(&self, type_id: TypeId) -> Option<&HostTypeInfo> {
@@ -1593,8 +1662,7 @@ impl HostRegistry {
 
     pub fn invoke(&self, symbol: &str, args: &[Value]) -> Result<Value, HostError> {
         let function = self
-            .functions
-            .get(symbol)
+            .function(symbol)
             .ok_or_else(|| HostError::new(format!("unknown host function `{symbol}`")))?;
         function.invoke(args)
     }

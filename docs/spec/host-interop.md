@@ -90,8 +90,11 @@ offline export/decode/bind/check example.
 
 R06 is not complete: arbitrary host-module imports, composite declaration types,
 host type/member declarations and revision-aware analysis inputs still need
-integration. Bytecode currently retains host symbols; required interfaces and
-mandatory binding checks must still be connected to artifact loading in R08/R09.
+integration. Required bytecode declarations now link mandatorily before module
+publication, including artifact reloads. Compiled host calls use registry-owned
+slots; labels remain declaration and policy metadata. A wrong runtime cannot
+reuse a coincident slot. Loading executes no callbacks. See [bytecode.md](bytecode.md)
+and [artifacts.md](artifacts.md) for the executable and encoding contracts.
 
 Rust functions are also registered explicitly.
 

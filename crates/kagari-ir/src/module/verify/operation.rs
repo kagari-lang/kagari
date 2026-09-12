@@ -55,57 +55,60 @@ pub(super) fn verify(
             contracts::binary_result(*op, lhs.ty, rhs.ty).map_err(contract)?,
             "binary destination",
         )?,
-        Call { dst, callee, args } => {
-            match callee {
-                CallTarget::Function(target) => {
-                    let callee = module
-                        .functions
-                        .get(target.index())
-                        .ok_or_else(|| context.error(Error::InvalidCall(*target)))?;
-                    if args.len() != callee.params.len() {
+        Call { dst, callee, args } => match callee {
+            CallTarget::Function(target) => {
+                let callee = module
+                    .functions
+                    .get(target.index())
+                    .ok_or_else(|| context.error(Error::InvalidCall(*target)))?;
+                if args.len() != callee.params.len() {
+                    return Err(context.error(Error::CallArity {
+                        expected: callee.params.len(),
+                        found: args.len(),
+                    }));
+                }
+                for (arg, param) in args.iter().zip(&callee.params) {
+                    context.expect(arg.ty, param.ty, "call argument")?;
+                }
+                contracts::verify_call_dst(dst.map(|v| v.ty), callee.return_type)
+                    .map_err(contract)?;
+            }
+            CallTarget::StandardIntrinsic(intrinsic) => contracts::verify_intrinsic(
+                dst.map(|v| v.ty),
+                *intrinsic,
+                &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
+            )
+            .map_err(contract)?,
+            CallTarget::HostFunction(declaration) => contracts::verify_host_call(
+                dst.map(|v| v.ty),
+                declaration,
+                &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
+            )
+            .map_err(contract)?,
+            CallTarget::Value(_) | CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
+                return Err(context.error(Error::UnsupportedCall));
+            }
+            CallTarget::RuntimeHelper(helper) => {
+                let arity = match helper {
+                    RuntimeHelper::ReflectTypeOf | RuntimeHelper::ReflectGetField(_) => Some(1),
+                    RuntimeHelper::ReflectSetField(_) => Some(2),
+                    RuntimeHelper::ReflectSetIndex => Some(3),
+                    RuntimeHelper::DynamicCall => unreachable!(),
+                };
+                if let Some(expected) = arity {
+                    if args.len() != expected {
                         return Err(context.error(Error::CallArity {
-                            expected: callee.params.len(),
+                            expected,
                             found: args.len(),
                         }));
                     }
-                    for (arg, param) in args.iter().zip(&callee.params) {
-                        context.expect(arg.ty, param.ty, "call argument")?;
-                    }
-                    contracts::verify_call_dst(dst.map(|v| v.ty), callee.return_type)
-                        .map_err(contract)?;
-                }
-                CallTarget::StandardIntrinsic(intrinsic) => contracts::verify_intrinsic(
-                    dst.map(|v| v.ty),
-                    *intrinsic,
-                    &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
-                )
-                .map_err(contract)?,
-                CallTarget::Value(_) | CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
-                    return Err(context.error(Error::UnsupportedCall));
-                }
-                CallTarget::RuntimeHelper(helper) => {
-                    let arity = match helper {
-                        RuntimeHelper::HostFunction(_) => None, // R06 links the offline declaration signature.
-                        RuntimeHelper::ReflectTypeOf | RuntimeHelper::ReflectGetField(_) => Some(1),
-                        RuntimeHelper::ReflectSetField(_) => Some(2),
-                        RuntimeHelper::ReflectSetIndex => Some(3),
-                        RuntimeHelper::DynamicCall => unreachable!(),
-                    };
-                    if let Some(expected) = arity {
-                        if args.len() != expected {
-                            return Err(context.error(Error::CallArity {
-                                expected,
-                                found: args.len(),
-                            }));
-                        }
-                        if matches!(helper, RuntimeHelper::ReflectTypeOf) {
-                            contracts::verify_call_dst(dst.map(|v| v.ty), ValueType::Str)
-                                .map_err(contract)?;
-                        }
+                    if matches!(helper, RuntimeHelper::ReflectTypeOf) {
+                        contracts::verify_call_dst(dst.map(|v| v.ty), ValueType::Str)
+                            .map_err(contract)?;
                     }
                 }
             }
-        }
+        },
         MakeTuple { dst, .. } | MakeArray { dst, .. } | MakeStruct { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "aggregate destination")?
         }

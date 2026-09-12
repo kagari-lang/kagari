@@ -13,6 +13,45 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
+fn host_imports_are_interned_and_checked_before_execution() {
+    let module = common::bytecode_ok(r#"fn main() { print("one"); print("two"); }"#);
+    assert_eq!(
+        module.host_interface.functions,
+        vec![kagari_common::host_interface::standard_log()]
+    );
+    let mut absent = module.clone();
+    absent.host_interface.functions.clear();
+    assert!(matches!(
+        verify_module(&absent),
+        Err(BytecodeVerificationError::InvalidHostImport { .. })
+    ));
+    let mut wrong_parameter = module.clone();
+    wrong_parameter.host_interface.functions[0].params[0].ty =
+        kagari_common::host_interface::HostValueType::Bool;
+    wrong_parameter.host_interface.functions[0].params[0].passing =
+        kagari_common::host_interface::HostPassingStyle::Owned;
+    assert!(matches!(
+        verify_module(&wrong_parameter),
+        Err(BytecodeVerificationError::TypeMismatch { .. })
+    ));
+    let mut wrong_arity = module.clone();
+    wrong_arity.host_interface.functions[0].params.clear();
+    assert!(matches!(
+        verify_module(&wrong_arity),
+        Err(BytecodeVerificationError::InvalidOperation { .. })
+    ));
+    let mut duplicate = module;
+    duplicate
+        .host_interface
+        .functions
+        .push(duplicate.host_interface.functions[0].clone());
+    assert!(matches!(
+        verify_module(&duplicate),
+        Err(BytecodeVerificationError::InvalidHostInterface(_))
+    ));
+}
+
+#[test]
 fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok(
         "fn main() -> bool { val a = [7]; std::iter::get(a, a.len()).is_none() }",
@@ -232,7 +271,6 @@ fn main() -> i32 { add(1, 2) }
     };
     let options = ArtifactBuildOptions {
         dependency_fingerprints: vec![dependency.clone()],
-        host_registry_fingerprint: ArtifactFingerprint::of_str("host-v1"),
         security_profile: Some("dev".to_owned()),
         ..Default::default()
     };
@@ -266,7 +304,6 @@ fn main() -> i32 { add(1, 2) }
     let requirements = ArtifactCompatibility {
         module_identity: Some(identity),
         dependency_fingerprints: artifact.verification.loader.dependency_fingerprints.clone(),
-        host_registry_fingerprint: artifact.verification.loader.host_registry_fingerprint,
         security_profile: Some("dev".to_owned()),
         ..Default::default()
     };

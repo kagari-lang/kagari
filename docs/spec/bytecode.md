@@ -80,7 +80,7 @@ spans. During source compilation, encoding or verification-state limits become
 `KG_COMPILE_LIMIT_EXCEEDED` diagnostics.
 
 This boundary does not yet prove nominal field layout, dynamic interface dispatch,
-host binding signatures or GC root maps. Those require the R06–R11 linking and
+host nominal object types or GC root maps. Those require the R06–R11 linking and
 ownership work. The artifact loader still runs bytecode verification independently;
 the IR handle is neither serialized nor a substitute for artifact validation.
 
@@ -721,3 +721,19 @@ The following artifact and implementation details are not fixed by this document
 - debug metadata and source mapping for bytecode instructions
 
 These details are finalized as the typed IR, host path metadata, VM frame model, and module reload model stabilize.
+
+Host calls use CallTarget::HostFunction(HostImportId). Each import indexes a
+complete offline declaration in BytecodeModule.host_interface. IR and bytecode
+verification check declaration validity, argument count and physical argument and
+result types; conflicting IR contracts cannot collapse into one import. The
+loader resolves identities to registry-owned function slots. Execution does not
+look up a host call by its diagnostic label and still checks current permissions
+and budget at the call boundary. Scalar callback arguments/results are checked
+against the declaration; nominal opaque-object type validation remains pending.
+
+LoadedModule is an immutable Arc-backed handle constructed by Runtime loading.
+Clone and module queries share executable data. Public raw ModuleStore loading
+and mutation of loaded bytecode are unavailable. Handles and linked host slots
+carry registry ownership and reject another runtime, even when numeric module
+keys or slots coincide. Complete dependency pinning and state reclamation still
+belong to the remaining R10/R14 work.

@@ -442,6 +442,19 @@ impl ExecutionContext {
     }
 
     fn validate_bytecode_policy(&self, module: &BytecodeModule) -> RunResult<()> {
+        for declaration in &module.host_interface.functions {
+            if !self.host_policy.exposes_host_function(&declaration.symbol)
+                || !self.security_context().allows_host_calls()
+            {
+                return Err(EmbeddingError::runtime(
+                    RuntimeFailureKind::CapabilityDenied,
+                    format!(
+                        "host function '{}' is denied by execution context",
+                        declaration.symbol
+                    ),
+                ));
+            }
+        }
         let security = self.security_context();
         for function in &module.functions {
             for instruction in &function.instructions {
@@ -450,22 +463,6 @@ impl ExecutionContext {
                         callee: CallTarget::RuntimeHelper(helper),
                         ..
                     } => match helper {
-                        RuntimeHelper::HostFunction(symbol)
-                            if !self.host_policy.exposes_host_function(symbol) =>
-                        {
-                            return Err(EmbeddingError::runtime(
-                                RuntimeFailureKind::CapabilityDenied,
-                                format!("host function `{symbol}` is denied by execution context"),
-                            ));
-                        }
-                        RuntimeHelper::HostFunction(symbol) if !security.allows_host_calls() => {
-                            return Err(EmbeddingError::runtime(
-                                RuntimeFailureKind::CapabilityDenied,
-                                format!(
-                                    "host function `{symbol}` is denied by runtime capabilities"
-                                ),
-                            ));
-                        }
                         RuntimeHelper::ReflectTypeOf if !security.allows_reflection_metadata() => {
                             return Err(EmbeddingError::runtime(
                                 RuntimeFailureKind::CapabilityDenied,

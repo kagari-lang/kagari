@@ -219,6 +219,20 @@ impl<'a> Executor<'a> {
                     .ok_or(VmError::InvalidFunctionRef(id))?;
                 self.push_frame(function, &arg_values, dst)
             }
+            CallTarget::HostFunction(import) => {
+                let binding = self
+                    .loaded
+                    .host_binding(import)
+                    .ok_or(VmError::UnsupportedInstruction("unlinked host import"))?;
+                let value = self
+                    .runtime
+                    .invoke_bound_host(binding, &arg_values)
+                    .map_err(VmError::RuntimeError)?;
+                if let Some(dst) = dst {
+                    self.current_frame_mut()?.write_register(dst, value)?;
+                }
+                Ok(())
+            }
             CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(callee)),
             CallTarget::StandardIntrinsic(intrinsic) => {
                 self.dispatch_standard_intrinsic(intrinsic, dst, arg_values)
@@ -252,16 +266,6 @@ impl<'a> Executor<'a> {
         args: Vec<Value>,
     ) -> Result<(), VmError> {
         match helper {
-            RuntimeHelper::HostFunction(symbol) => {
-                let value = self
-                    .runtime
-                    .invoke_host(&symbol, &args)
-                    .map_err(VmError::RuntimeError)?;
-                if let Some(dst) = dst {
-                    self.current_frame_mut()?.write_register(dst, value)?;
-                }
-                Ok(())
-            }
             RuntimeHelper::ReflectTypeOf => {
                 let Some(value) = args.first() else {
                     return Err(VmError::TypeMismatch(

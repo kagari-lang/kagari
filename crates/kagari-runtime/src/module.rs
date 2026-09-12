@@ -1,6 +1,8 @@
 use std::{
     cell::{RefCell, RefMut},
     collections::HashMap,
+    ops::Deref,
+    sync::Arc,
 };
 
 use kagari_ir::bytecode::BytecodeModule;
@@ -79,15 +81,47 @@ pub enum ModuleInitializationState {
     Failed,
 }
 
+/// A verified, linked module with immutable shared executable data.
+///
+/// ```compile_fail
+/// fn mutate(module: &mut kagari_runtime::LoadedModule) {
+///     module.bytecode.functions.clear();
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct LoadedModule {
+    linked: Arc<LinkedModule>,
+}
+
+/// Immutable executable data, exposed only through a shared loaded handle.
+#[derive(Debug)]
+pub struct LinkedModule {
     pub id: ModuleId,
     pub name: String,
     pub epoch: ModuleEpoch,
     pub bytecode: BytecodeModule,
+    registry_owner: crate::host::HostRegistryId,
+    host_bindings: Vec<crate::host::HostFunctionId>,
+}
+
+impl Deref for LoadedModule {
+    type Target = LinkedModule;
+    fn deref(&self) -> &LinkedModule {
+        &self.linked
+    }
 }
 
 impl LoadedModule {
+    pub fn host_binding(
+        &self,
+        import: kagari_ir::bytecode::HostImportId,
+    ) -> Option<crate::host::HostFunctionId> {
+        self.host_bindings.get(import.index()).copied()
+    }
+
+    pub(crate) fn belongs_to(&self, owner: crate::host::HostRegistryId) -> bool {
+        self.registry_owner == owner
+    }
     pub fn key(&self) -> ModuleKey {
         ModuleKey {
             id: self.id,
@@ -153,11 +187,13 @@ struct ModuleStoreInner {
 }
 
 impl ModuleStore {
-    pub fn load(
+    pub(crate) fn load(
         &self,
         name: impl Into<String>,
         epoch: ModuleEpoch,
         bytecode: BytecodeModule,
+        registry_owner: crate::host::HostRegistryId,
+        host_bindings: Vec<crate::host::HostFunctionId>,
     ) -> LoadedModule {
         let name = name.into();
         let mut inner = self.inner.borrow_mut();
@@ -171,10 +207,14 @@ impl ModuleStore {
         };
 
         let module = LoadedModule {
-            id,
-            name: name.clone(),
-            epoch,
-            bytecode,
+            linked: Arc::new(LinkedModule {
+                id,
+                name: name.clone(),
+                epoch,
+                bytecode,
+                registry_owner,
+                host_bindings,
+            }),
         };
         let key = module.key();
         inner.latest_by_name.insert(name, key);
@@ -282,9 +322,27 @@ mod tests {
     #[test]
     fn assigns_stable_module_ids_across_epochs() {
         let store = ModuleStore::default();
-        let first = store.load("game.player", ModuleEpoch(1), BytecodeModule::default());
-        let second = store.load("game.player", ModuleEpoch(2), BytecodeModule::default());
-        let other = store.load("game.world", ModuleEpoch(1), BytecodeModule::default());
+        let first = store.load(
+            "game.player",
+            ModuleEpoch(1),
+            BytecodeModule::default(),
+            crate::host::HostRegistryId::default(),
+            vec![],
+        );
+        let second = store.load(
+            "game.player",
+            ModuleEpoch(2),
+            BytecodeModule::default(),
+            crate::host::HostRegistryId::default(),
+            vec![],
+        );
+        let other = store.load(
+            "game.world",
+            ModuleEpoch(1),
+            BytecodeModule::default(),
+            crate::host::HostRegistryId::default(),
+            vec![],
+        );
 
         assert_eq!(first.id, second.id);
         assert_ne!(first.id, other.id);
@@ -297,7 +355,13 @@ mod tests {
     #[test]
     fn creates_module_instances_with_explicit_initialization_state() {
         let store = ModuleStore::default();
-        let module = store.load("game.init", ModuleEpoch(1), BytecodeModule::default());
+        let module = store.load(
+            "game.init",
+            ModuleEpoch(1),
+            BytecodeModule::default(),
+            crate::host::HostRegistryId::default(),
+            vec![],
+        );
 
         let instance = store.instance_snapshot(module.key()).unwrap();
         assert_eq!(instance.id, module.id);
@@ -310,7 +374,13 @@ mod tests {
     #[test]
     fn records_initialization_result_and_failure_state() {
         let store = ModuleStore::default();
-        let module = store.load("game.init", ModuleEpoch(1), BytecodeModule::default());
+        let module = store.load(
+            "game.init",
+            ModuleEpoch(1),
+            BytecodeModule::default(),
+            crate::host::HostRegistryId::default(),
+            vec![],
+        );
 
         {
             let mut instance = store.instance_mut(module.key()).unwrap();
@@ -323,7 +393,13 @@ mod tests {
             Some(Value::I32(7))
         );
 
-        let next = store.load("game.init", ModuleEpoch(2), BytecodeModule::default());
+        let next = store.load(
+            "game.init",
+            ModuleEpoch(2),
+            BytecodeModule::default(),
+            crate::host::HostRegistryId::default(),
+            vec![],
+        );
         {
             let mut instance = store.instance_mut(next.key()).unwrap();
             instance.begin_initialization();
@@ -337,8 +413,20 @@ mod tests {
     #[test]
     fn keeps_latest_and_retained_old_epochs_reachable() {
         let store = ModuleStore::default();
-        let first = store.load("game.player", ModuleEpoch(1), BytecodeModule::default());
-        let second = store.load("game.player", ModuleEpoch(2), BytecodeModule::default());
+        let first = store.load(
+            "game.player",
+            ModuleEpoch(1),
+            BytecodeModule::default(),
+            crate::host::HostRegistryId::default(),
+            vec![],
+        );
+        let second = store.load(
+            "game.player",
+            ModuleEpoch(2),
+            BytecodeModule::default(),
+            crate::host::HostRegistryId::default(),
+            vec![],
+        );
 
         assert!(store.is_reachable(second.key()));
         assert!(!store.is_reachable(first.key()));
