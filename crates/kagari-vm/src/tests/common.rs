@@ -44,7 +44,7 @@ pub fn compile_test_bytecode(source_text: &str) -> BytecodeModule {
     )
     .into_codegen()
     .expect("analysis should succeed");
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     lower_to_bytecode(&ir).expect("bytecode lowering should succeed")
 }
 

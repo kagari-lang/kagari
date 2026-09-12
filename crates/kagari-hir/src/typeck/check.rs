@@ -100,6 +100,16 @@ pub(crate) fn check_module_controlled(
     }
 
     for function in &lowered.module.functions {
+        if function.visibility == crate::hir::Visibility::Public
+            && !function.generic_params.is_empty()
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::PublicGenericFunction {
+                    name: function.name.clone(),
+                })
+                .with_span(lowered.source_map.function_span(function.id)),
+            );
+        }
         let mut params: TypedParameterBuffer = SmallVec::new();
         let context = function_type_context(&lowered.module, function, declarations);
         let function_name = if function.name.is_empty() {
@@ -200,6 +210,11 @@ pub(crate) fn check_module_controlled(
         };
 
         let typed_function = TypedFunction {
+            generic_params: function
+                .generic_params
+                .iter()
+                .filter_map(|parameter| declarations.generic_type(parameter.id))
+                .collect(),
             id: function.id,
             name: function_name,
             params,
@@ -295,7 +310,7 @@ pub(crate) fn check_module_controlled(
             lowered,
             declarations,
             &function_index,
-            &type_table,
+            &mut type_table,
             &mut diagnostics,
         );
         let const_values = super::const_eval::evaluate_constants(
@@ -407,7 +422,7 @@ fn validate_trait_surface(
     lowered: &LoweredModule,
     declarations: &crate::declarations::Declarations,
     function_index: &FunctionTypeIndex,
-    table: &TypeTable,
+    table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
     for function in &lowered.module.functions {
@@ -504,6 +519,18 @@ fn validate_trait_surface(
             ),
             diagnostics,
         );
+        let methods = trait_def
+            .methods
+            .iter()
+            .filter_map(|method| {
+                impl_block
+                    .methods
+                    .iter()
+                    .find(|implementation| implementation.name == method.name)
+                    .map(|implementation| (method.function, implementation.function))
+            })
+            .collect();
+        table.insert_implementation(trait_def.id, for_ty, methods);
     }
 }
 

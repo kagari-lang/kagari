@@ -20,8 +20,10 @@ pub(crate) struct LoopScope {
     pub(crate) continue_block: BlockId,
 }
 
-pub(crate) struct FunctionLowerer<'a> {
+pub(crate) struct FunctionLowerer<'a, 'p> {
     pub(crate) analyzed: &'a AnalyzedModule,
+    pub(crate) instance: super::instances::Instance,
+    pub(crate) planner: &'p mut super::instances::InstancePlanner<'a>,
     pub(crate) function: IrFunction,
     pub(crate) current_block: BlockId,
 
@@ -32,18 +34,27 @@ pub(crate) struct FunctionLowerer<'a> {
     current_debug_span: Option<Span>,
 }
 
-impl<'a> FunctionLowerer<'a> {
+impl<'a, 'p> FunctionLowerer<'a, 'p> {
     pub(crate) fn new(
         analyzed: &'a AnalyzedModule,
-        hir_function: &'a hir::Function,
-        typed_function: &'a TypedFunction,
-    ) -> Self {
+        hir_function: &hir::Function,
+        typed_function: &TypedFunction,
+        instance: super::instances::Instance,
+        planner: &'p mut super::instances::InstancePlanner<'a>,
+    ) -> Result<Self, super::IrLoweringError> {
         let entry = BlockId::new(0);
+        let span = analyzed.lowered.source_map.function_span(hir_function.id);
+        let value_type = |ty| planner.value_type(ty, &instance.substitution, span);
         let mut function = IrFunction {
-            hir_id: hir_function.id,
-            name: hir_function.name.clone(),
+            id: instance.id,
+            instance: instance.key.clone(),
+            name: if instance.key.arguments.is_empty() {
+                hir_function.name.clone()
+            } else {
+                format!("{}#{}", hir_function.name, instance.id.index())
+            },
             params: ParameterBuffer::new(),
-            return_type: ValueType::from_type_id(&typed_function.return_type),
+            return_type: value_type(&typed_function.return_type)?,
             locals: Vec::new(),
             temps: Vec::new(),
             blocks: vec![BasicBlock {
@@ -66,25 +77,27 @@ impl<'a> FunctionLowerer<'a> {
             let local = LocalId::new(function.locals.len());
             function.locals.push(IrLocal {
                 name: param.name.clone(),
-                ty: ValueType::from_type_id(&param.ty),
+                ty: value_type(&param.ty)?,
             });
             function.debug.locals.push(IrLocalDebugInfo {
                 local,
                 name: param.name.clone(),
                 span: analyzed.lowered.source_map.param_span(param.id),
-                ty: ValueType::from_type_id(&param.ty),
+                ty: value_type(&param.ty)?,
                 is_parameter: true,
             });
             function.params.push(IrParameter {
                 name: param.name.clone(),
-                ty: ValueType::from_type_id(&param.ty),
+                ty: value_type(&param.ty)?,
                 local,
             });
             params.insert(param.id, local);
         }
 
-        Self {
+        Ok(Self {
             analyzed,
+            instance,
+            planner,
             function,
             current_block: entry,
 
@@ -93,7 +106,7 @@ impl<'a> FunctionLowerer<'a> {
             loops: Vec::new(),
             effects: EffectSet::default(),
             current_debug_span: None,
-        }
+        })
     }
 
     pub(crate) fn finish(mut self) -> IrFunction {
@@ -123,6 +136,13 @@ impl<'a> FunctionLowerer<'a> {
     }
 
     pub(crate) fn emit(&mut self, instruction: Instruction) {
+        self.planner.charge_instruction(
+            self.current_debug_span
+                .unwrap_or(self.function.debug.source_span),
+        );
+        if self.planner.check().is_err() {
+            return;
+        }
         self.effects = self.effects.union(instruction.effects());
         let block = &mut self.function.blocks[self.current_block.index()];
         block
@@ -132,6 +152,13 @@ impl<'a> FunctionLowerer<'a> {
     }
 
     pub(crate) fn set_terminator(&mut self, terminator: Terminator) {
+        self.planner.charge_instruction(
+            self.current_debug_span
+                .unwrap_or(self.function.debug.source_span),
+        );
+        if self.planner.check().is_err() {
+            return;
+        }
         self.effects = self.effects.union(terminator.effects());
         let block = &mut self.function.blocks[self.current_block.index()];
         block.terminator = Some(terminator);
@@ -171,5 +198,17 @@ impl<'a> FunctionLowerer<'a> {
         let result = f(self);
         self.current_debug_span = previous;
         result
+    }
+
+    pub(crate) fn value_type(
+        &self,
+        ty: &kagari_hir::types::TypeId,
+    ) -> Result<ValueType, super::IrLoweringError> {
+        self.planner.value_type(
+            ty,
+            &self.instance.substitution,
+            self.current_debug_span
+                .unwrap_or(self.function.debug.source_span),
+        )
     }
 }

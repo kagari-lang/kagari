@@ -98,8 +98,12 @@ The current foundation implementation records standard constraint identities and
 user trait declaration targets in HIR. It retains navigation in invalid bounds
 and reports inherited invalid references once. Applied bounds such as `Show<i32>`
 are currently rejected, with their type argument facts retained; R07 must provide
-concrete instantiation before such bounds can compile. Generic code generation
-and executable interface dispatch still require the R07/R08 implementation tables.
+concrete trait instantiation before such bounds can compile. Private generic
+functions now infer argument types and compile reachable concrete instances,
+including calls through existing concrete trait implementations. Instances are
+deduplicated by declaration and arguments, with configurable growth limits.
+Public functions require concrete signatures. Generic impl specialization and
+dynamic interface dispatch still require the remaining R07/R08 work.
 
 ## Interface Value Types
 

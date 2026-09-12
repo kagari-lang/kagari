@@ -46,6 +46,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         .emit_bytecode(
             &checked,
             ArtifactOptions {
+                lowering: Default::default(),
                 build: ArtifactBuildOptions {
                     dependency_fingerprints: vec![dependency.clone()],
                     host_registry_fingerprint: ArtifactFingerprint::of_str("host-v1"),

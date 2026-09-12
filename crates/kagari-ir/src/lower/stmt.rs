@@ -4,16 +4,23 @@ use crate::lower::IrLoweringError;
 use crate::lower::state::{FunctionLowerer, LoopScope};
 use crate::module::instruction::{Instruction, IrValue, Terminator};
 
-impl FunctionLowerer<'_> {
+impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_block(
         &mut self,
         block_id: hir::BlockId,
     ) -> Result<Option<IrValue>, IrLoweringError> {
+        self.planner.check()?;
         let block = self.analyzed.lowered.module.block(block_id).clone();
         for stmt in &block.statements {
+            if self.current_block_terminated() {
+                return Ok(None);
+            }
             self.lower_stmt(*stmt)?;
         }
 
+        if self.current_block_terminated() {
+            return Ok(None);
+        }
         if let Some(expr) = block.tail_expr {
             let span = self.analyzed.lowered.source_map.expr_span(expr);
             self.with_debug_span(span, |this| this.lower_expr(expr).map(Some))
@@ -23,6 +30,7 @@ impl FunctionLowerer<'_> {
     }
 
     fn lower_stmt(&mut self, stmt_id: hir::StmtId) -> Result<(), IrLoweringError> {
+        self.planner.check()?;
         let span = self.analyzed.lowered.source_map.stmt_span(stmt_id);
         self.with_debug_span(span, |this| this.lower_stmt_inner(stmt_id))
     }

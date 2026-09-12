@@ -74,7 +74,7 @@ The standard library may use builtin type constraints in signatures:
 - `HashKey`: values accepted as `Map` keys and `Set` members
 - `Iterable`: values accepted by the iterable protocol
 - `Item<I>`: the element type yielded by an iterable value
-- `OrderedNumber`: numeric values accepted by ordering helpers
+- `OrderedNumber`: numeric values accepted by ordering helpers and generic arithmetic/comparison operators
 - `SignedNumber`: signed integer and floating-point numeric values
 - `Comparable`: values with standard equality semantics
 

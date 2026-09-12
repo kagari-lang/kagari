@@ -1,9 +1,8 @@
 use kagari_common::Span;
-use kagari_hir::hir;
 
 use crate::module::{
     ModuleAbi,
-    ids::{BlockId, LocalId, ModuleSlotId},
+    ids::{BlockId, InstanceId, LocalId, ModuleSlotId},
     instruction::{EffectSet, InstructionBuffer, Terminator},
     types::ValueType,
 };
@@ -12,7 +11,7 @@ use crate::module::{
 pub struct IrModule {
     pub identity: kagari_common::identity::ModuleIdentity,
     pub source_name: String,
-    pub module_init: Option<hir::FunctionId>,
+    pub module_init: Option<InstanceId>,
     pub module_slots: ModuleSlotBuffer,
     pub abi: ModuleAbi,
     pub functions: FunctionBuffer,
@@ -20,7 +19,8 @@ pub struct IrModule {
 
 #[derive(Debug, Clone)]
 pub struct IrFunction {
-    pub hir_id: hir::FunctionId,
+    pub id: InstanceId,
+    pub instance: FunctionInstance,
     pub name: String,
     pub params: ParameterBuffer,
     pub return_type: ValueType,
@@ -30,6 +30,12 @@ pub struct IrFunction {
     pub entry: BlockId,
     pub effects: EffectSet,
     pub debug: IrFunctionDebugMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionInstance {
+    pub declaration: kagari_common::identity::DefinitionId,
+    pub arguments: Vec<kagari_hir::types::TypeId>,
 }
 
 #[derive(Debug, Clone)]

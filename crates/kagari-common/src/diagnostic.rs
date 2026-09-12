@@ -166,6 +166,24 @@ pub enum DiagnosticKind {
     InvalidBoundTarget {
         name: String,
     },
+    CannotInferGenericArgument {
+        function_name: String,
+        parameter: String,
+    },
+    GenericBoundNotSatisfied {
+        type_name: String,
+        trait_name: String,
+    },
+    PublicGenericFunction {
+        name: String,
+    },
+    CompileLimitExceeded {
+        resource: &'static str,
+        limit: usize,
+    },
+    UnresolvedConcreteType {
+        type_name: String,
+    },
     InvalidTraitImpl {
         trait_name: String,
         type_name: String,
@@ -321,6 +339,11 @@ impl DiagnosticKind {
             Self::InvalidStructInitializer { .. } => "KG_TYPE_INVALID_STRUCT_INITIALIZER",
             Self::UnknownTrait { .. } => "KG_TYPE_UNKNOWN_TRAIT",
             Self::InvalidBoundTarget { .. } => "KG_TYPE_INVALID_BOUND_TARGET",
+            Self::CannotInferGenericArgument { .. } => "KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT",
+            Self::GenericBoundNotSatisfied { .. } => "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
+            Self::PublicGenericFunction { .. } => "KG_TYPE_PUBLIC_GENERIC_FUNCTION",
+            Self::CompileLimitExceeded { .. } => "KG_COMPILE_LIMIT_EXCEEDED",
+            Self::UnresolvedConcreteType { .. } => "KG_COMPILE_UNRESOLVED_TYPE",
             Self::InvalidTraitImpl { .. } => "KG_TYPE_INVALID_TRAIT_IMPL",
             Self::InvalidInterfaceType { .. } => "KG_TYPE_INVALID_INTERFACE_TYPE",
             Self::TraitMethodMismatch { .. } => "KG_TYPE_TRAIT_METHOD_MISMATCH",
@@ -540,6 +563,27 @@ impl Display for DiagnosticKind {
                 "invalid struct initializer for `{struct_name}`: {reason}"
             ),
             Self::UnknownTrait { trait_name } => write!(f, "unknown trait `{trait_name}`"),
+            Self::UnresolvedConcreteType { type_name } => write!(
+                f,
+                "code generation requires a concrete type, found `{type_name}`"
+            ),
+            Self::CannotInferGenericArgument {
+                function_name,
+                parameter,
+            } => write!(
+                f,
+                "cannot infer generic argument `{parameter}` for `{function_name}`"
+            ),
+            Self::GenericBoundNotSatisfied {
+                type_name,
+                trait_name,
+            } => write!(f, "type `{type_name}` does not satisfy `{trait_name}`"),
+            Self::PublicGenericFunction { name } => {
+                write!(f, "public function `{name}` must have a concrete signature")
+            }
+            Self::CompileLimitExceeded { resource, limit } => {
+                write!(f, "compile limit exceeded: {resource} (limit {limit})")
+            }
             Self::InvalidBoundTarget { name } => {
                 write!(f, "bound target `{name}` must name a generic parameter")
             }

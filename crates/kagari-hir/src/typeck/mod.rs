@@ -2,6 +2,7 @@ mod body;
 mod check;
 mod const_eval;
 mod constraints;
+mod inference;
 mod scalar;
 pub use scalar::ScalarValue;
 mod reuse;
@@ -35,6 +36,7 @@ pub struct TypedModule {
 
 #[derive(Debug, Clone)]
 pub struct TypedFunction {
+    pub generic_params: Vec<crate::types::GenericParameterType>,
     pub id: FunctionId,
     pub name: String,
     pub params: TypedParameterBuffer,

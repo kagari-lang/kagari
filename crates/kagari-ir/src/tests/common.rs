@@ -25,6 +25,6 @@ pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
 
 pub fn bytecode_ok(text: &str) -> BytecodeModule {
     let analyzed = analyze_ok(text);
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     lower_to_bytecode(&ir).expect("bytecode lowering should succeed")
 }

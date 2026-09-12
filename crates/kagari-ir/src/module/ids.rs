@@ -16,6 +16,7 @@ macro_rules! id_newtype {
 }
 
 id_newtype!(BlockId);
+id_newtype!(InstanceId);
 id_newtype!(LocalId);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModuleSlotId(u32);

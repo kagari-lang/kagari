@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
+use crate::module::ids::InstanceId;
 use kagari_common::Span;
 use kagari_hir::builtin::BuiltinMethod;
-use kagari_hir::hir::FunctionId;
 
 use crate::bytecode::instruction::{
     BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldId, FunctionRef, JumpTarget,
@@ -38,7 +38,7 @@ pub fn lower_to_bytecode(ir: &IrModule) -> Result<BytecodeModule, BytecodeLoweri
         .functions
         .iter()
         .enumerate()
-        .map(|(index, function)| (function.hir_id, FunctionRef::new(index)))
+        .map(|(index, function)| (function.id, FunctionRef::new(index)))
         .collect::<HashMap<_, _>>();
     let functions = ir
         .functions
@@ -121,7 +121,7 @@ impl BytecodeLoweringContext {
 
 fn lower_function(
     function: &IrFunction,
-    function_refs: &HashMap<FunctionId, FunctionRef>,
+    function_refs: &HashMap<InstanceId, FunctionRef>,
     context: &mut BytecodeLoweringContext,
 ) -> Result<BytecodeFunction, BytecodeLoweringError> {
     let block_offsets = compute_block_offsets(function);
@@ -157,7 +157,7 @@ fn lower_function(
 
     Ok(BytecodeFunction {
         id: *function_refs
-            .get(&function.hir_id)
+            .get(&function.id)
             .expect("bytecode lowering should have a function ref for every IR function"),
         name: function.name.clone(),
         parameter_count: function.params.len() as u16,
@@ -410,7 +410,7 @@ fn compute_block_offsets(function: &IrFunction) -> HashMap<BlockId, JumpTarget> 
 fn lower_block(
     block: &BasicBlock,
     block_offsets: &HashMap<BlockId, JumpTarget>,
-    function_refs: &HashMap<FunctionId, FunctionRef>,
+    function_refs: &HashMap<InstanceId, FunctionRef>,
     context: &mut BytecodeLoweringContext,
     out: &mut Vec<BytecodeInstruction>,
     spans: &mut Vec<Span>,
@@ -436,7 +436,7 @@ fn lower_block(
 
 fn lower_instruction(
     instruction: &Instruction,
-    function_refs: &HashMap<FunctionId, FunctionRef>,
+    function_refs: &HashMap<InstanceId, FunctionRef>,
     context: &mut BytecodeLoweringContext,
 ) -> BytecodeInstruction {
     match instruction {

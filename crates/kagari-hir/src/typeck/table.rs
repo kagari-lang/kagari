@@ -33,11 +33,13 @@ pub enum CallTarget {
     TraitMethod(FunctionId),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedCall {
     pub target: CallTarget,
     /// Evaluated before explicit arguments, exactly once.
     pub receiver: Option<ExprId>,
+    /// Declaration parameter order; arguments may refer to an enclosing binder.
+    pub type_arguments: Vec<TypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +51,7 @@ pub struct ResolvedStructInit {
 
 #[derive(Debug, Clone, Default)]
 pub struct TypeTable {
+    implementations: HashMap<(crate::hir::TraitId, TypeId), HashMap<FunctionId, FunctionId>>,
     constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
     type_refs: HashMap<crate::hir::TypeRefId, ResolvedTypeRef>,
     field_types: HashMap<FieldId, TypeId>,
@@ -64,6 +67,25 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
+    pub(crate) fn insert_implementation(
+        &mut self,
+        trait_id: crate::hir::TraitId,
+        ty: TypeId,
+        methods: HashMap<FunctionId, FunctionId>,
+    ) {
+        self.implementations
+            .entry((trait_id, ty))
+            .or_insert(methods);
+    }
+    pub fn implements(&self, trait_id: crate::hir::TraitId, ty: &TypeId) -> bool {
+        self.implementations.contains_key(&(trait_id, ty.clone()))
+    }
+    pub fn implementation_method(&self, method: FunctionId, ty: &TypeId) -> Option<FunctionId> {
+        self.implementations
+            .iter()
+            .filter(|((_, target), _)| target == ty)
+            .find_map(|(_, methods)| methods.get(&method).copied())
+    }
     pub(crate) fn insert_constraint(
         &mut self,
         id: crate::hir::TypeRefId,
@@ -200,6 +222,7 @@ impl TypeTable {
                     ResolvedCall {
                         target: call.target,
                         receiver,
+                        type_arguments: call.type_arguments.clone(),
                     },
                 ));
             }
@@ -272,7 +295,21 @@ impl TypeTable {
     }
 
     pub(crate) fn insert_call(&mut self, id: ExprId, target: CallTarget, receiver: Option<ExprId>) {
-        self.calls.insert(id, ResolvedCall { target, receiver });
+        self.calls.insert(
+            id,
+            ResolvedCall {
+                target,
+                receiver,
+                type_arguments: Vec::new(),
+            },
+        );
+    }
+
+    pub(crate) fn insert_type_arguments(&mut self, id: ExprId, arguments: Vec<TypeId>) {
+        self.calls
+            .get_mut(&id)
+            .expect("resolved generic call")
+            .type_arguments = arguments;
     }
 
     pub fn expr_type(&self, id: ExprId) -> Option<TypeId> {
@@ -288,6 +325,6 @@ impl TypeTable {
     }
 
     pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall> {
-        self.calls.get(&id).copied()
+        self.calls.get(&id).cloned()
     }
 }

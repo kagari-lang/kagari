@@ -128,6 +128,8 @@ Implemented foundation slices:
   Reused bodies remap scalar expression and pattern facts; emitted artifacts are
   checked against fresh analysis after preceding code changes shift arena IDs.
   Call facts remap their receiver IDs on body reuse and share this artifact check.
+  Inferred generic call arguments are retained on reuse; the cache/fresh artifact
+  comparison now includes a reused generic template and a call to its i32 instance.
   Field access, assignment and initializer facts also remap on body reuse; signature
   changes invalidate field slot reuse while named field identity survives reordering.
   Body-local type-reference facts are remapped too, including after preceding edits
@@ -143,10 +145,26 @@ Implemented foundation slices:
   Empty constructor inference uses Unknown instead of invented generic names.
   Declaration collection precedes checking, and lowering retains the source origin;
   the origin-free AST lowering and standalone type-check API were removed. Body
-  reuse checks module identity as well as declaration text. Concrete type arguments,
-  bounded reachable monomorphization, layouts and executable implementation tables
-  remain outstanding; current ABI labels/runtime fields still need linked identities.
-- R09: format v4 uses fixed little-endian encoding, bounded decoding and strict
+  reuse checks module identity as well as declaration text. Calls infer function
+  arguments structurally and check bounds; public generic functions are rejected.
+  Private function templates now emit reachable concrete instances, deduplicated
+  by declaration plus arguments. IR InstanceId replaces HIR IDs as execution call
+  targets, and signatures/locals/temporaries use instantiated types. Static trait
+  calls on existing concrete implementations use HIR implementation targets.
+  Return/break/continue terminate block lowering, preventing later effects and
+  unreachable generic calls from being emitted. Generic impl specialization,
+  applied trait/type arguments, concrete layouts and dynamic implementation tables
+  remain outstanding; ABI labels/runtime fields still need linked identities.
+- R15: IR generation has configurable instance, type-node, type-depth and generated
+  instruction limits plus cancellation. Expansion counts nodes while copying,
+  including replacement trees. Embedding returns revision-owned structured
+  diagnostics and keeps checked analysis usable after failure. Parser, const
+  evaluation and diagnostic-count limits remain outstanding. Source/artifact/JIT
+  fallback fixtures cover generic values, recursion, numeric overflow, effects,
+  constraints and distinct concrete types sharing a runtime representation.
+  The existing native JIT still only supports zero-argument scalar entries; this
+  does not claim native compilation of parameterized generic instances.
+- R09: format v5 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked

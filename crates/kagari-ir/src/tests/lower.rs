@@ -8,9 +8,153 @@ use crate::{
 };
 
 #[test]
+fn monomorphizes_reachable_arguments_and_deduplicates_instances() {
+    let analyzed = common::analyze_ok(
+        "fn unused<T>(x: T) -> T { x } fn echo<T>(x: T) -> T { x } fn wrap<U>(x: U) -> U { echo(x) } fn main() -> (i32, i32, String) { (wrap(7), echo(8), echo(\"ok\")) }",
+    );
+    let ir = lower_to_ir(&analyzed, &Default::default()).unwrap();
+    assert_eq!(ir.functions.len(), 4);
+    assert!(
+        !ir.functions.iter().any(|function| function
+            .instance
+            .declaration
+            .path
+            .last()
+            .unwrap()
+            .name
+            == "unused")
+    );
+    let echo = ir
+        .functions
+        .iter()
+        .filter(|function| function.instance.declaration.path.last().unwrap().name == "echo")
+        .collect::<Vec<_>>();
+    assert_eq!(echo.len(), 2);
+    assert_eq!(echo[0].instance.declaration, echo[1].instance.declaration);
+    assert_ne!(echo[0].instance.arguments, echo[1].instance.arguments);
+    assert_ne!(echo[0].id, echo[1].id);
+    let representations = echo
+        .iter()
+        .map(|function| function.params[0].ty)
+        .collect::<Vec<_>>();
+    assert!(representations.contains(&crate::module::ValueType::I32));
+    assert!(representations.contains(&crate::module::ValueType::Str));
+    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+}
+
+#[test]
+fn unreachable_calls_after_return_do_not_create_instances() {
+    let analyzed =
+        common::analyze_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { return; grow(1); }");
+    let ir = lower_to_ir(
+        &analyzed,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ir.functions.len(), 1);
+    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+}
+
+#[test]
+fn recursive_instantiation_reuses_the_current_instance() {
+    let analyzed = common::analyze_ok(
+        "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }",
+    );
+    let ir = lower_to_ir(
+        &analyzed,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ir.functions.len(), 2);
+    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+}
+
+#[test]
+fn recursive_type_growth_is_bounded_before_execution() {
+    let analyzed = common::analyze_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { grow(1); }");
+    for (options, resource, limit) in [
+        (
+            crate::IrLoweringOptions {
+                max_generic_instances: 2,
+                ..Default::default()
+            },
+            "generic instances",
+            2,
+        ),
+        (
+            crate::IrLoweringOptions {
+                max_type_nodes: 31,
+                ..Default::default()
+            },
+            "instantiated type nodes",
+            31,
+        ),
+        (
+            crate::IrLoweringOptions {
+                max_type_depth: 2,
+                ..Default::default()
+            },
+            "instantiated type depth",
+            2,
+        ),
+    ] {
+        let Err(crate::IrLoweringError::Diagnostic(diagnostic)) = lower_to_ir(&analyzed, &options)
+        else {
+            panic!("growth must be rejected");
+        };
+        assert_eq!(
+            diagnostic.kind,
+            kagari_common::DiagnosticKind::CompileLimitExceeded { resource, limit }
+        );
+        assert!(diagnostic.span.is_some());
+    }
+}
+
+#[test]
+fn lowering_honors_instruction_limits_and_cancellation() {
+    let analyzed = common::analyze_ok("fn main() -> i32 { 7 }");
+    assert!(matches!(
+        lower_to_ir(
+            &analyzed,
+            &crate::IrLoweringOptions {
+                max_instructions: 1,
+                ..Default::default()
+            }
+        ),
+        Err(crate::IrLoweringError::Diagnostic(_))
+    ));
+    lower_to_ir(
+        &analyzed,
+        &crate::IrLoweringOptions {
+            max_instructions: 2,
+            max_generic_instances: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let options = crate::IrLoweringOptions::default();
+    options.cancel.cancel();
+    assert!(matches!(
+        lower_to_ir(&analyzed, &options),
+        Err(crate::IrLoweringError::Cancelled)
+    ));
+    let empty = common::analyze_ok("");
+    assert!(matches!(
+        lower_to_ir(&empty, &options),
+        Err(crate::IrLoweringError::Cancelled)
+    ));
+}
+
+#[test]
 fn lowers_function_into_cfg_shaped_ir() {
     let analyzed = common::analyze_ok("fn main() -> i32 { 0 }");
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
 
     assert_eq!(ir.functions.len(), 1);
     let function = &ir.functions[0];
@@ -25,7 +169,7 @@ fn lowers_function_into_cfg_shaped_ir() {
 #[test]
 fn normalizes_ir_operands_as_typed_values() {
     let analyzed = common::analyze_ok("fn main(value: i32) -> i32 { val next = value + 1; next }");
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert_eq!(
@@ -51,7 +195,7 @@ fn integer_operations_expose_traps_to_downstream_backends() {
     for expression in ["value + 1", "value - 1", "value * 2", "value / 2", "-value"] {
         let analyzed =
             common::analyze_ok(&format!("fn main(value: i32) -> i32 {{ {expression} }}"));
-        let ir = lower_to_ir(&analyzed).unwrap();
+        let ir = lower_to_ir(&analyzed, &Default::default()).unwrap();
         assert!(ir.functions[0].effects.may_trap, "{expression}");
         let bytecode = crate::bytecode::lower_to_bytecode(&ir).unwrap();
         assert!(
@@ -73,7 +217,7 @@ fn main() -> usize {
 }
 "#,
     );
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let effects = ir.functions[0].effects;
 
     assert!(effects.reads_local);
@@ -96,7 +240,7 @@ fn main(value: i32) -> i32 {
 }
 "#,
     );
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(function.debug.source_span.end > function.debug.source_span.start);
@@ -129,7 +273,7 @@ fn main(value: i32) -> i32 {
 #[test]
 fn lowers_if_expression_into_branching_blocks() {
     let analyzed = common::analyze_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(function.blocks.len() >= 4);
@@ -149,7 +293,7 @@ fn lowers_if_expression_into_branching_blocks() {
 #[test]
 fn lowers_short_circuit_boolean_operators_into_branches() {
     let analyzed = common::analyze_ok("fn main() -> bool { true && false || true }");
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     let branch_count = function
@@ -179,7 +323,7 @@ fn lowers_short_circuit_boolean_operators_into_branches() {
 #[test]
 fn lowers_match_expression_into_decision_chain() {
     let analyzed = common::analyze_ok("fn main() -> i32 { match 1 { 0 => 10, _ => 20 } }");
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(function.blocks.len() >= 5);
@@ -202,7 +346,7 @@ fn lowers_match_expression_into_decision_chain() {
 fn lowers_named_match_pattern_binding() {
     let analyzed =
         common::analyze_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(
@@ -231,7 +375,7 @@ const VALUE: i32 = BASE + 2;
 fn main() -> i32 { VALUE }
 "#,
     );
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = ir
         .functions
         .iter()
@@ -271,7 +415,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     let instructions = function
@@ -312,7 +456,7 @@ fn main() -> usize {
 }
 "#,
     );
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(
@@ -372,7 +516,7 @@ fn main() -> () {
 }
 "#,
     );
-    let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
+    let ir = lower_to_ir(&analyzed, &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(

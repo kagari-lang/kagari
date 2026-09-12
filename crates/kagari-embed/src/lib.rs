@@ -166,7 +166,9 @@ impl KagariEngine {
         checked: &CheckedModule,
         options: ArtifactOptions,
     ) -> CompileResult<BytecodeArtifact> {
-        let ir = lower_to_ir(&checked.analyzed).map_err(EmbeddingError::ir_lowering)?;
+        let ir = lower_to_ir(&checked.analyzed, &options.lowering).map_err(|error| {
+            EmbeddingError::ir_lowering(error, &checked.analyzed.lowered.source)
+        })?;
         let module = lower_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
         Ok(KbcArtifact::from_module(module, options.build))
     }
@@ -362,6 +364,7 @@ fn language_feature_profile_from_runtime(profile: LanguageProfile) -> LanguageFe
 #[derive(Debug, Clone, Default)]
 pub struct ArtifactOptions {
     pub build: ArtifactBuildOptions,
+    pub lowering: kagari_ir::IrLoweringOptions,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -671,7 +674,13 @@ impl EmbeddingError {
         }
     }
 
-    fn ir_lowering(error: IrLoweringError) -> Self {
+    fn ir_lowering(error: IrLoweringError, source: &SourceFile) -> Self {
+        if let IrLoweringError::Cancelled = error {
+            return Self::Cancelled;
+        }
+        if let IrLoweringError::Diagnostic(diagnostic) = error {
+            return Self::diagnostics(Box::new(smallvec::smallvec![*diagnostic]), source);
+        }
         Self::Compilation {
             phase: CompilationPhase::IrLowering,
             message: format!("{error:?}"),

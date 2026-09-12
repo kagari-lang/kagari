@@ -1,5 +1,7 @@
 use kagari_common::identity::DefinitionId;
 
+pub type TypeSubstitution = std::collections::HashMap<GenericParameterType, TypeId>;
+
 /// Names are diagnostic metadata; owner and position determine equality.
 #[derive(Debug, Clone)]
 pub struct GenericParameterType {
@@ -64,6 +66,44 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    /// Substitute one binder layer; replacements can contain the caller's parameters.
+    pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
+        match self {
+            Self::Generic(parameter) => substitution
+                .get(parameter)
+                .cloned()
+                .unwrap_or_else(|| self.clone()),
+            Self::Tuple(elements) => Self::Tuple(
+                elements
+                    .iter()
+                    .map(|ty| ty.instantiate(substitution))
+                    .collect(),
+            ),
+            Self::Array(element) => Self::Array(Box::new(element.instantiate(substitution))),
+            Self::Map { key, value } => Self::Map {
+                key: Box::new(key.instantiate(substitution)),
+                value: Box::new(value.instantiate(substitution)),
+            },
+            Self::Set(element) => Self::Set(Box::new(element.instantiate(substitution))),
+            Self::StandardEnum { kind, args } => Self::StandardEnum {
+                kind: *kind,
+                args: args.iter().map(|ty| ty.instantiate(substitution)).collect(),
+            },
+            _ => self.clone(),
+        }
+    }
+
+    pub fn is_concrete(&self) -> bool {
+        match self {
+            Self::Unknown | Self::Error | Self::Generic(_) | Self::SelfType(_) => false,
+            Self::Tuple(elements) | Self::StandardEnum { args: elements, .. } => {
+                elements.iter().all(Self::is_concrete)
+            }
+            Self::Array(element) | Self::Set(element) => element.is_concrete(),
+            Self::Map { key, value } => key.is_concrete() && value.is_concrete(),
+            _ => true,
+        }
+    }
     pub(crate) fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
         match self {
             Self::SelfType(id) if id == owner => replacement.clone(),

@@ -20,7 +20,7 @@ pub enum ValueType {
 impl ValueType {
     pub fn from_type_id(type_id: &TypeId) -> Self {
         match type_id {
-            TypeId::Unknown | TypeId::Error => {
+            TypeId::Unknown | TypeId::Error | TypeId::Generic(_) | TypeId::SelfType(_) => {
                 unreachable!("unchecked type reached code generation")
             }
             TypeId::Builtin(BuiltinType::Unit) => Self::Unit,
@@ -45,8 +45,6 @@ impl ValueType {
             | TypeId::Struct(_)
             | TypeId::Enum(_)
             | TypeId::Trait(_)
-            | TypeId::Generic(_)
-            | TypeId::SelfType(_)
             | TypeId::StandardEnum { .. } => Self::HeapObject,
         }
     }

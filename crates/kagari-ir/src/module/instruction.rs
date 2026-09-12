@@ -1,7 +1,4 @@
-use kagari_hir::{
-    builtin::{BuiltinMethod, surface::StandardIntrinsic},
-    hir,
-};
+use kagari_hir::builtin::{BuiltinMethod, surface::StandardIntrinsic};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -145,7 +142,7 @@ pub enum Terminator {
 
 #[derive(Debug, Clone)]
 pub enum CallTarget {
-    Function(hir::FunctionId),
+    Function(crate::module::ids::InstanceId),
     Value(IrValue),
     BuiltinMethod(BuiltinMethod),
     StandardIntrinsic(StandardIntrinsic),

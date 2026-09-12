@@ -4,8 +4,14 @@ const MIN_I32: i32 = -2147483648;
 // Declared functions take precedence over unqualified helper names.
 fn type_of(value: i32) -> i32 { value + 1 }
 
+// Private generic templates become concrete reachable instances at compilation.
+fn add<T: OrderedNumber>(lhs: T, rhs: T) -> T { lhs + rhs }
+pub fn add_i32(lhs: i32, rhs: i32) -> i32 { add(lhs, rhs) }
+
 fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
+    std::debug::assert_eq(add_i32(20, 22), 42, "concrete public entry");
+    std::debug::assert_eq(add(1.5, 2.5), 4.0, "separate f32 instance");
     std::debug::assert_eq(type_of(41), 42, "resolved user function");
     std::debug::assert_eq("中😀".len_bytes(), "1234567".len_bytes(), "UTF-8 byte length");
     std::debug::assert_eq("中😀".len_chars(), "ab".len_chars(), "Unicode scalar count");

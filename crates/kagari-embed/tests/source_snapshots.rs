@@ -71,7 +71,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
 fn reused_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     let engine = KagariEngine::default();
     let token = CancellationToken::default();
-    let unchanged = "struct P { var n: i32 } fn b() -> i32 { val p: P = P { n: a() }; p.n += 1; val xs: [i32] = [p.n]; xs.push(2); match 2147483647 { 2147483647 => -2147483648, _ => xs[0] } }";
+    let unchanged = "fn echo<T>(value: T) -> T { value } struct P { var n: i32 } fn b() -> i32 { val p: P = P { n: echo(a()) }; p.n += 1; val xs: [i32] = [p.n]; xs.push(2); match 2147483647 { 2147483647 => -2147483648, _ => xs[0] } }";
     let id = engine
         .set_source(
             "memory://reuse.kgr",
@@ -100,7 +100,7 @@ fn reused_body_facts_emit_the_same_artifact_as_fresh_analysis() {
             .facts()
             .typed
             .reused_bodies,
-        1
+        2
     );
     let reused = engine
         .compile_snapshot(snapshot, id, Default::default(), &token)

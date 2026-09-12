@@ -154,7 +154,8 @@ fn run(case: &Case, route: Route) {
     let analyzed = analyzed
         .into_codegen()
         .unwrap_or_else(|d| panic!("{}: {d:?}", case.name));
-    let compiled = lower_to_bytecode(&lower_to_ir(&analyzed).unwrap()).unwrap();
+    let compiled =
+        lower_to_bytecode(&lower_to_ir(&analyzed, &Default::default()).unwrap()).unwrap();
     let module = match route {
         Route::Source | Route::Jit => compiled,
         Route::Artifact => {
@@ -334,6 +335,20 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("unknown-inherent-impl-target", "impl Missing {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
         Case::new("unknown-where-target", "fn bad<T>(value: T) where Missing: Comparable {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_BOUND_TARGET")),
         Case::new("shadowed-generic-return", "impl<T> [T] { fn wrong<T>(self, value: T) -> T { self[0] } } fn main() {}", Expected::Diagnostic("KG_TYPE_RETURN_TYPE_MISMATCH")),
+        Case::new("generic-values", "fn echo<T>(x: T) -> T { x } fn pass<U>(x: U) -> U { echo(x) } fn main() -> (i32, bool, String) { (pass(7), pass(true), echo(\"ok\")) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::Str("ok".into())]))),
+        Case::new("generic-recursion", "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }", Expected::Value(Value::I32(7))),
+        Case::new("generic-array-elements", "fn first<T>(xs: [T]) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Str("ok".into())]))),
+        Case::new("generic-equality", "fn same<T: Comparable>(a: T, b: T) -> bool { a == b } fn main() -> (bool, bool) { (same(1, 1), same(\"a\", \"b\")) }", Expected::Value(Value::Tuple(vec![Value::Bool(true), Value::Bool(false)]))),
+        Case::new("generic-static-trait", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } fn read<T: Get>(value: T) -> i32 { value.get() } fn wrap<U: Get>(value: U) -> i32 { read(value) } fn main() -> i32 { wrap(P { n: 42 }) }", Expected::Value(Value::I32(42))),
+        Case::new("generic-conflicting-arguments", "fn choose<T>(a: T, b: T) -> T { a } fn main() -> i32 { choose(1, true) }", Expected::Diagnostic("KG_TYPE_ARGUMENT_TYPE_MISMATCH")),
+        Case::new("generic-missing-argument", "fn unused<T>() {} fn main() { unused(); }", Expected::Diagnostic("KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT")),
+        Case::new("generic-public-entry", "pub fn echo<T>(value: T) -> T { value } fn main() {}", Expected::Diagnostic("KG_TYPE_PUBLIC_GENERIC_FUNCTION")),
+        Case::new("generic-parameter-order", "fn reverse<T, U>(first: U, second: T) -> (T, U) { (second, first) } fn main() -> (i32, bool) { reverse(true, 7) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true)]))),
+        Case::new("return-discards-following-effects", "fn main() -> i32 { return 7; print(\"unreachable\"); 42 }", Expected::Value(Value::I32(7))),
+        Case::new("generic-numeric-instances", "fn add<T: OrderedNumber>(a: T, b: T) -> T { a + b } fn main() -> (i32, f32) { (add(1, 2), add(1.5, 2.5)) }", Expected::Value(Value::Tuple(vec![Value::I32(3), Value::F32(4.0)]))),
+        Case::new("generic-same-storage-distinct-types", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } struct Q { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } impl Get for Q { fn get(self) -> i32 { self.n + 1 } } fn read<T: Get>(value: T) -> i32 { value.get() } fn main() -> (i32, i32) { (read(P { n: 42 }), read(Q { n: 42 })) }", Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(43)]))),
+        Case::new("generic-numeric-overflow", "fn add<T: OrderedNumber>(a: T, b: T) -> T { a + b } fn main() -> i32 { print(\"before\"); add(2147483647, 1) }", Expected::ScriptTrap("integer overflow")).effects(&["before"], &["before"]),
+        Case::new("generic-missing-bound", "trait Get { fn get(self) -> i32; } fn read<T: Get>(value: T) -> i32 { value.get() } fn main() -> i32 { read(1) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("duplicate-field-declarations", "struct P { val x: i32, var x: i32 } fn main() {}", Expected::Diagnostic("KG_RESOLVE_DUPLICATE_FIELD")),
         Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(Value::I32(32))).effects(&["right", "left"], &["right", "left"]),
         Case::new("explicit-string-lengths", "fn main() -> (usize, usize) { (\"中😀\".len_bytes(), \"中😀\".len_chars()) }", Expected::Value(Value::Tuple(vec![Value::I64(7), Value::I64(2)]))),

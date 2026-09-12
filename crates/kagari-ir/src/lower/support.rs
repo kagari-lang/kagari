@@ -21,7 +21,7 @@ impl From<ScalarValue> for Constant {
     }
 }
 
-impl FunctionLowerer<'_> {
+impl FunctionLowerer<'_, '_> {
     pub(crate) fn bind_local(
         &mut self,
         hir_local: hir::LocalId,
@@ -33,7 +33,8 @@ impl FunctionLowerer<'_> {
             .type_table
             .local_type(hir_local)
             .as_ref()
-            .map(ValueType::from_type_id)
+            .map(|ty| self.value_type(ty))
+            .transpose()?
             .ok_or(IrLoweringError::MissingLocalType(hir_local))?;
         let local = self.alloc_local(
             name,
@@ -78,7 +79,8 @@ impl FunctionLowerer<'_> {
             .type_table
             .expr_type(expr_id)
             .as_ref()
-            .map(ValueType::from_type_id)
+            .map(|ty| self.value_type(ty))
+            .transpose()?
             .ok_or(IrLoweringError::MissingExprType(expr_id))
     }
 
@@ -88,7 +90,8 @@ impl FunctionLowerer<'_> {
             .type_table
             .place_type(place_id)
             .as_ref()
-            .map(ValueType::from_type_id)
+            .map(|ty| self.value_type(ty))
+            .transpose()?
             .ok_or(IrLoweringError::UnresolvedPlace(place_id))
     }
 

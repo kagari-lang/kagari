@@ -23,7 +23,7 @@ enum ProjectionKind {
     Index(IrValue),
 }
 
-impl FunctionLowerer<'_> {
+impl FunctionLowerer<'_, '_> {
     /// Capture identity-bearing roots and dynamic indexes once, before RHS code.
     pub(super) fn prepare_place(
         &mut self,

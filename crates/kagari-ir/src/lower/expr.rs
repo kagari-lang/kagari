@@ -8,8 +8,9 @@ use crate::module::instruction::{
 };
 use crate::module::types::ValueType;
 
-impl FunctionLowerer<'_> {
+impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
+        self.planner.check()?;
         if let Some(value) = self
             .analyzed
             .typed
@@ -231,7 +232,8 @@ impl FunctionLowerer<'_> {
                         .type_table
                         .local_type(*local)
                         .as_ref()
-                        .map(ValueType::from_type_id)
+                        .map(|ty| self.value_type(ty))
+                        .transpose()?
                         .ok_or(IrLoweringError::MissingLocalType(*local))?;
                     let ir_local = self.alloc_local(
                         name.clone(),
@@ -397,7 +399,34 @@ impl FunctionLowerer<'_> {
             .type_table
             .call_resolution(expr)
             .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
-        let (callee, args) = match call.target {
+        let span = self.analyzed.lowered.source_map.expr_span(expr);
+        let target = if let SemanticCallTarget::TraitMethod(method) = call.target {
+            let receiver = call
+                .receiver
+                .ok_or(IrLoweringError::MissingBinding("trait receiver"))?;
+            let ty = self
+                .analyzed
+                .typed
+                .type_table
+                .expr_type(receiver)
+                .ok_or(IrLoweringError::MissingExprType(receiver))?;
+            let mut types = self
+                .planner
+                .arguments(&[ty], &self.instance.substitution, span)?;
+            let ty = types.pop().expect("receiver type");
+            let implementation = self
+                .analyzed
+                .typed
+                .type_table
+                .implementation_method(method, &ty)
+                .ok_or(IrLoweringError::UnsupportedExpr(
+                    "interface dispatch requires linked implementation tables",
+                ))?;
+            SemanticCallTarget::Function(implementation)
+        } else {
+            call.target
+        };
+        let (callee, args) = match target {
             SemanticCallTarget::RuntimeHelper(helper) => {
                 self.lower_runtime_helper_call(helper, args)?
             }
@@ -415,7 +444,14 @@ impl FunctionLowerer<'_> {
                     lowered.push(self.lower_expr(*arg)?);
                 }
                 let target = match target {
-                    SemanticCallTarget::Function(id) => CallTarget::Function(id),
+                    SemanticCallTarget::Function(id) => {
+                        let arguments = self.planner.arguments(
+                            &call.type_arguments,
+                            &self.instance.substitution,
+                            span,
+                        )?;
+                        CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
+                    }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         CallTarget::StandardIntrinsic(intrinsic)
                     }

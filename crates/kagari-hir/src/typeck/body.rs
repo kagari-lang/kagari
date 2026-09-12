@@ -1339,6 +1339,88 @@ impl<'a> BodyChecker<'a> {
         };
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
+        let mut substitution = crate::types::TypeSubstitution::new();
+        for (parameter, (_, actual)) in function.params.iter().zip(&arg_tys) {
+            super::inference::infer(
+                &parameter.ty,
+                actual,
+                &function.generic_params,
+                &mut substitution,
+            );
+        }
+        let type_arguments = function
+            .generic_params
+            .iter()
+            .map(|parameter| {
+                substitution.get(parameter).cloned().unwrap_or_else(|| {
+                    if !arg_tys.iter().any(|(_, ty)| ty.is_unresolved()) {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                                function_name: function.name.clone(),
+                                parameter: parameter.name.clone(),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(callee)),
+                        );
+                    }
+                    TypeId::Error
+                })
+            })
+            .collect::<Vec<_>>();
+        self.type_table
+            .insert_type_arguments(call_expr, type_arguments);
+        let declaration = self
+            .lowered
+            .module
+            .functions
+            .iter()
+            .find(|function| function.id == id)
+            .expect("resolved function declaration");
+        let bounds = super::constraints::function_bounds(
+            &self.lowered.module,
+            declaration,
+            self.declarations,
+            self.type_table,
+        );
+        for parameter in &function.generic_params {
+            let Some(actual) = substitution.get(parameter) else {
+                continue;
+            };
+            for constraint in bounds.get(parameter).into_iter().flatten().copied() {
+                match constraint {
+                    super::ConstraintTarget::Standard(constraint) => {
+                        self.check_standard_constraint(actual, constraint, env, callee)
+                    }
+                    super::ConstraintTarget::Trait(trait_id) => {
+                        let satisfied = match actual {
+                            TypeId::Generic(parameter) => {
+                                env.generic_bounds.get(parameter).is_some_and(|bounds| {
+                                    bounds.contains(&super::ConstraintTarget::Trait(trait_id))
+                                })
+                            }
+                            _ => self.type_table.implements(trait_id, actual),
+                        };
+                        if !satisfied && !actual.is_unresolved() {
+                            let trait_name = self
+                                .lowered
+                                .module
+                                .traits
+                                .iter()
+                                .find(|item| item.id == trait_id)
+                                .expect("resolved trait")
+                                .name
+                                .clone();
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
+                                    type_name: actual.display_name(),
+                                    trait_name,
+                                })
+                                .with_span(self.lowered.source_map.expr_span(callee)),
+                            );
+                        }
+                    }
+                }
+            }
+        }
         if function.params.len() != arg_tys.len() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CallArityMismatch {
@@ -1351,20 +1433,20 @@ impl<'a> BodyChecker<'a> {
         }
         for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
             if let Some(param) = function.params.get(index)
-                && param.ty.conflicts_with(arg_ty)
+                && param.ty.instantiate(&substitution).conflicts_with(arg_ty)
             {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                         function_name: function.name.clone(),
                         parameter_name: param.name.clone(),
-                        expected: display_type_id(&param.ty),
+                        expected: display_type_id(&param.ty.instantiate(&substitution)),
                         found: display_type_id(arg_ty),
                     })
                     .with_span(self.lowered.source_map.expr_span(*arg_expr)),
                 );
             }
         }
-        function.return_type.clone()
+        function.return_type.instantiate(&substitution)
     }
 
     fn const_root_name(&self, expr_id: ExprId) -> Option<String> {
@@ -1419,7 +1501,7 @@ impl<'a> BodyChecker<'a> {
         }
         match op {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty) {
+                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty, env) {
                     self.emit_binary_operand_type_mismatch(
                         op,
                         "matching numeric",
@@ -1445,7 +1527,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Bool)
             }
             BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => {
-                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty) {
+                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty, env) {
                     self.emit_binary_operand_type_mismatch(
                         op,
                         "matching numeric",
@@ -1467,8 +1549,15 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn matching_numeric_operands(&self, lhs: &TypeId, rhs: &TypeId) -> bool {
+    fn matching_numeric_operands(&self, lhs: &TypeId, rhs: &TypeId, env: &BodyTypeEnv) -> bool {
         surface::supports_arithmetic(lhs, rhs)
+            || (lhs == rhs
+                && matches!(lhs, TypeId::Generic(_))
+                && type_satisfies_standard_constraint(
+                    lhs,
+                    StandardTypeConstraint::OrderedNumber,
+                    env,
+                ))
     }
 
     fn emit_binary_operand_type_mismatch(

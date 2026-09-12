@@ -41,9 +41,12 @@ KbcArtifact {
 }
 ```
 
-Format version 4 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 5 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 3 are rejected; no migration or compatibility decoder exists.
+format version. Versions 1 through 4 are rejected; no migration or compatibility
+decoder exists. Version 5 also excludes artifacts produced by the old generic
+template lowering: current compilation emits concrete function instances and
+does not treat uninstantiated generic parameters as heap-object representations.
 `from_bytes()` checks magic and the current version before decoding, imposes a
 64 MiB encoded-size and decoding budget, and rejects trailing data. Decoding alone
 does not establish trust: header, content, dependency, and bytecode checks still

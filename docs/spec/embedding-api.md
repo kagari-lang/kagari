@@ -51,7 +51,9 @@ their own facts and navigation targets. Builtin types have types but no source
 declaration target. User trait bounds and `where` targets also navigate through
 checked facts. Import paths still need dedicated navigation.
 
-`TypeTable::call_resolution` owns each recognized call's target and optional receiver.
+`TypeTable::call_resolution` owns each recognized call's target, optional receiver,
+and inferred type arguments in declaration parameter order. Arguments can refer
+to enclosing generic parameters while a template is being analyzed.
 IR generation and reflection permission checks consume this semantic fact. A user
 binding with a helper's spelling is resolved as that binding; it does not acquire
 the helper's behavior or permission requirements. An unresolved or invalid call
@@ -80,8 +82,30 @@ consume type-reference facts instead of reinterpreting HIR type syntax.
 
 LoweredModule owns its source origin. Lowering accepts SourceFile; the origin-free
 AST lowering and standalone type-check entry were removed. Analysis collects
-declarations before checking types. Concrete generic instantiation, executable
-type layouts and linked ABI identities remain separate unfinished R07/R08 work.
+declarations before checking types. Executable type layouts and linked ABI
+identities remain separate unfinished R07/R08 work.
+
+Private generic functions are templates. Calls infer their parameters structurally
+from argument types and check declared bounds. Missing arguments produce
+`KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT`; public generic functions are rejected with
+`KG_TYPE_PUBLIC_GENERIC_FUNCTION`. Expose concrete wrappers as public entry points.
+IR compilation starts from module initialization and the currently callable
+non-generic functions, enqueues called instances, and deduplicates by declaration
+identity plus concrete arguments. IR InstanceId is separate from HIR FunctionId.
+Signatures, locals, temporaries and direct calls use the selected instance.
+Static trait calls on a concrete type use checked implementation targets; generic
+impl specialization, applied traits and dynamic interface tables remain pending.
+
+`lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
+same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
+instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated
+instructions including terminators. Type expansion checks limits while copying,
+so recursive growth fails before constructing an unbounded replacement. The
+options also carry a cancellation token. Limit failures produce
+`KG_COMPILE_LIMIT_EXCEEDED` with the originating source revision, and cancellation
+returns `EmbeddingError::Cancelled`. An unresolved type at code generation gives
+`KG_COMPILE_UNRESOLVED_TYPE`. These failures leave checked analysis reusable.
+Parser depth, const-evaluation and diagnostic-count limits remain R15 work.
 
 `TypeTable::constraint` distinguishes standard constraint identities from user
 trait identities. Bounds are resolved once in their declaring context; inherited
