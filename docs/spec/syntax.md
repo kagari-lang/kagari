@@ -628,6 +628,7 @@ For example, an assignment target must name a storage location rather than a tem
 
 ```ebnf
 place_expr      ::= path place_suffix*
+                  | postfix_expr place_suffix+
                   | parenthesized_place_expr ;
 
 parenthesized_place_expr

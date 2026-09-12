@@ -331,6 +331,43 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     .effects(&["init"], &["init"]);
     cached_init_failure.repeat = 2;
     let cases = [
+        Case::new("compound-reads-current-local", "fn main() -> i32 { var n = 1; n += if true { n = 10; 2 } else { 0 }; n }", Expected::Value(Value::I32(12))),
+        Case::new("compound-captures-index", "fn main() -> i32 { val a = [1, 2]; var i = 0; a[i] += if true { i = 1; 2 } else { 0 }; a[0] * 10 + a[1] }", Expected::Value(Value::I32(32))),
+        Case::new("compound-keeps-root-identity", "fn main() -> i32 { var a = [1]; val old = a; a[0] += if true { a = [100]; 2 } else { 0 }; old[0] * 1000 + a[0] }", Expected::Value(Value::I32(3100))),
+        Case::new("compound-reads-current-tuple", "fn main() -> i32 { var t = (1, 2); t[0] += if true { t = (10, 20); 2 } else { 0 }; t[0] + t[1] }", Expected::Value(Value::I32(32))),
+        Case::new("local-compound-overflow", "fn main() -> i32 { var n = 2147483647; n += 1; n }", Expected::ScriptTrap("integer overflow")),
+        Case::new("reject-assignment-index-type", "fn main() -> i32 { val a = [1]; a[true] += 1; a[0] }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
+        Case::new("compound-scalars", "fn main() -> i32 { var n = 10; n += 5; n -= 3; n *= 2; n /= 4; n }", Expected::Value(Value::I32(6))),
+        Case::new("assignment-evaluates-target-first", r#"
+            fn root(a: [i32]) -> [i32] { print("root"); a }
+            fn index() -> i32 { print("index"); 0 }
+            fn rhs(a: [i32]) -> i32 { print("rhs"); a[0] = 20; 2 }
+            fn main() -> i32 { val a = [1]; root(a)[index()] += rhs(a); a[0] }
+        "#, Expected::Value(Value::I32(22))).effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
+        Case::new("plain-assignment-evaluates-target-first", r#"
+            fn root(a: [i32]) -> [i32] { print("root"); a }
+            fn index() -> i32 { print("index"); 0 }
+            fn rhs() -> i32 { print("rhs"); 42 }
+            fn main() -> i32 { val a = [1]; root(a)[index()] = rhs(); a[0] }
+        "#, Expected::Value(Value::I32(42))).effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
+        Case::new("nested-location-evaluated-once", r#"
+            struct Point { var x: i32 }
+            fn index() -> i32 { print("index"); 0 }
+            fn rhs(a: [Point]) -> i32 { print("rhs"); a[0] = Point { x: 20 }; 2 }
+            fn main() -> i32 { val a = [Point { x: 1 }]; a[index()].x += rhs(a); a[0].x }
+        "#, Expected::Value(Value::I32(22))).effects(&["index", "rhs"], &["index", "rhs"]),
+        Case::new("rhs-removes-compound-target", r#"
+            fn rhs(a: [i32]) -> i32 { a.pop(); print("removed"); 2 }
+            fn main() -> i32 { val a = [1]; a[0] += rhs(a); print("written"); 0 }
+        "#, Expected::IndexTrap).effects(&["removed"], &["removed"]),
+        Case::new("rhs-repairs-missing-target", "fn rhs(a: [i32]) -> i32 { a.push(20); 2 } fn main() -> i32 { val a = [1]; a[1] += rhs(a); a[1] }", Expected::Value(Value::I32(22))),
+        Case::new("compound-overflow", "fn main() -> i32 { val a = [2147483647]; a[0] += 1; a[0] }", Expected::ScriptTrap("integer overflow")),
+        Case::new("tuple-copy-commit", "fn main() -> i32 { var t = ((1, 2), 3); val old = t; t[0][1] += 40; t[0][1] + old[0][1] }", Expected::Value(Value::I32(44))),
+        Case::new("tuple-in-array-commit", "fn main() -> i32 { val a = [(1, 2)]; a[0][1] += 40; a[0][1] }", Expected::Value(Value::I32(42))),
+        Case::new("rebind-array-slot", "fn main() -> i32 { var a = [1]; val old = a; a = [42]; a[0] + old[0] }", Expected::Value(Value::I32(43))),
+        Case::new("reject-compound-val", "fn main() -> i32 { val n = 1; n += 1; n }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
+        Case::new("reject-val-tuple-write", "fn main() -> i32 { val t = (1, 2); t[0] += 1; t[0] }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
+        Case::new("reject-compound-bool", "fn main() -> bool { var n = true; n += false; n }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         Case::new("min-literal", "fn main() -> i32 { -2147483648 }", Expected::Value(Value::I32(i32::MIN))).native(),
         Case::new("const-min-literal", "const MIN: i32 = -2147483648; fn main() -> i32 { MIN }", Expected::Value(Value::I32(i32::MIN))).native(),
         Case::new("negate-min-literal", "fn main() -> i32 { -(-2147483648) }", Expected::ScriptTrap("integer overflow")).native(),

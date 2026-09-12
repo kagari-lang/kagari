@@ -83,7 +83,7 @@ impl<'a> BodyResolver<'a> {
                     self.bind_name(name, ResolvedName::Local(*local));
                 }
             }
-            StmtKind::Assign { target, value } => {
+            StmtKind::Assign { target, value, .. } => {
                 self.resolve_place(*target);
                 self.resolve_expr(*value);
             }
@@ -179,6 +179,7 @@ impl<'a> BodyResolver<'a> {
                     self.resolved.insert_place(place_id, resolved);
                 }
             }
+            PlaceKind::Expr(expr) => self.resolve_expr(*expr),
             PlaceKind::Field { base, .. } => self.resolve_place(*base),
             PlaceKind::Index { base, index } => {
                 self.resolve_place(*base);

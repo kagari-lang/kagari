@@ -6,6 +6,28 @@ use crate::{
 };
 
 #[test]
+fn compound_assignments_preserve_lossless_computed_targets() {
+    use crate::ast::AstNode;
+    for op in ["=", "+=", "-=", "*=", "/="] {
+        let source = format!("fn main() {{ (root())[index()].field {op} // rhs\n value(); }}");
+        let parsed = crate::parse(&common::source(&source));
+        assert!(
+            parsed.diagnostics().is_empty(),
+            "{:?}",
+            parsed.diagnostics()
+        );
+        let syntax = parsed.syntax();
+        assert_eq!(syntax.syntax().text().to_string(), source);
+        let body = common::first_function(&syntax).body().unwrap();
+        let Some(Stmt::AssignStmt(statement)) = body.statements().next() else {
+            panic!("expected assignment")
+        };
+        assert!(matches!(statement.target(), Some(Expr::FieldExpr(_))));
+        assert!(statement.operator().is_some());
+    }
+}
+
+#[test]
 fn parses_let_return_and_tail_expr_in_block() {
     let module =
         common::parse_ok("fn main() -> i32 { var value: i32 = 1; value = 2; return; value }");

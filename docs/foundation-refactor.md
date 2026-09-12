@@ -55,6 +55,9 @@ Implemented foundation slices:
   and rejection of interface equality now run through these same routes.
   Integer arithmetic traps, retained pre-trap host effects and budget precedence
   now use these routes too; selected fixtures require actual native invocation.
+  Plain and compound assignment fixtures cover computed roots, single index
+  evaluation, RHS replacement/removal/creation of a target, current-slot reads,
+  root identity retention, tuple copy updates and arithmetic failure.
 - R03: source IDs/revisions, immutable snapshots, base/overlay precedence and
   checked UTF-8/UTF-16/CRLF coordinates. The engine now compiles and queries the
   same snapshots; disk loading, host text and overlays use one ingestion path.
@@ -91,6 +94,8 @@ Implemented foundation slices:
   identity integration and per-table count/depth limits remain outstanding.
   Public const ABI values use tagged scalar encoding with explicit float bits and
   UTF-8 string lengths; older Debug-based const ABI artifacts are rejected.
+  Language semantics now has its own `kagari-language-v1` identity, independent
+  of Rust crate versions. Legacy language identities cannot be opted into at load.
 - R11 prerequisite for R02: the VM and standard equality assertion now call one
   script equality operation instead of Rust Value::PartialEq. Tuples/enums compare
   members, mutable objects compare identity, and unsupported categories trap.
@@ -105,6 +110,14 @@ Implemented foundation slices:
   honors short circuit, with cancellation checks. Mutation resource commit,
   narrower integer layouts and the other backend/
   debugger contracts remain open; compile-time quotas are still pending R15.
+  Assignment lowering now retains a location before RHS execution and resolves
+  its projections afterwards. Tuple updates prepare temporary values before one
+  enclosing object/slot commit; shared-object ancestors are not rewritten.
+  Source syntax supports `+=`, `-=`, `*=`, `/=` and computed receivers. Tuple
+  member replacement requires a writable enclosing slot. Runtime mutation records,
+  commit resource accounting and full failure-state observation remain pending.
+  Line comments are retained as CST trivia, with Unicode/CRLF coverage. The
+  standard-library example now runs through the CLI as part of this validation.
 
 Validation: workspace tests pass after the source/analysis changes. Workspace
 clippy with `-D warnings` passes after correcting baseline lints and marking the

@@ -49,6 +49,11 @@ format version. Versions 1 and 2 are rejected; no migration or compatibility dec
 does not establish trust: header, content, dependency, and bytecode checks still
 run before execution.
 
+The language contract version is `kagari-language-v1`, independent of Rust crate
+versions and the binary format version. Artifacts carrying the former crate-based
+language version are rejected before execution; they may encode older assignment
+evaluation rules even when their binary layout is readable.
+
 Compatibility fingerprints use FNV-1a-64 over this canonical serialization with
 the `kagari-canonical-v2` domain prefix. Rust `Debug` output is never fingerprint
 input. The artifact content fingerprint includes the header (with its content

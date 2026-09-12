@@ -30,5 +30,10 @@ barrier or a transaction/replay facility.
 The authority for expected behavior remains [value semantics](value-semantics.md),
 [failure semantics](failure-semantics.md), and [module activation](module-activation.md).
 New contract behavior extends this suite alongside focused subsystem tests.
+Assignment fixtures check target/index/RHS call order, reading RHS-updated values,
+rejected removed locations, captured root identity, and tuple value updates. These
+use the existing JIT fallback for local and aggregate operations. Heap mutation
+records and post-trap heap-state observation remain pending runtime ownership and
+mutation work; host call records alone do not establish those guarantees.
 Unimplemented contract cases are tracked in the foundation roadmap; no ignored
 test is evidence of conformance.

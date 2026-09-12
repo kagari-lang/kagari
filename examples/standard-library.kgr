@@ -14,6 +14,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert_eq(std::math::abs(-2147483647), 2147483647, "checked abs boundary");
     std::debug::assert_eq(std::math::max(10, 12), EXPECTED_MAX, "const uses checked arithmetic");
     std::debug::assert_eq(MIN_I32 + 1, -2147483647, "minimum i32 literal");
+    values[0] += 9;
+    std::debug::assert_eq(values[0], 10, "compound assignment commits once");
 
     val scores: Map<String, i32> = std::map::new();
     scores.insert("alice", 10);

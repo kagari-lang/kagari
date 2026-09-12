@@ -24,6 +24,7 @@ pub enum StmtKind {
     },
     Assign {
         target: PlaceId,
+        op: Option<crate::hir::BinaryOp>,
         value: ExprId,
     },
     Return {

@@ -40,6 +40,23 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            Self::Builtin(
+                BuiltinType::I8
+                    | BuiltinType::I16
+                    | BuiltinType::I32
+                    | BuiltinType::I64
+                    | BuiltinType::ISize
+                    | BuiltinType::U8
+                    | BuiltinType::U16
+                    | BuiltinType::U32
+                    | BuiltinType::U64
+                    | BuiltinType::USize
+            )
+        )
+    }
     pub fn supports_equality(&self) -> bool {
         match self {
             Self::Unknown | Self::Error | Self::Trait(_) | Self::Generic(_) => false,

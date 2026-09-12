@@ -5,6 +5,7 @@ use crate::kind::SyntaxKind;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
     Whitespace,
+    LineComment,
     AsKw,
     CrateKw,
     ForKw,
@@ -49,9 +50,13 @@ pub enum TokenKind {
     Dot,
     Eq,
     Plus,
+    PlusEq,
     Minus,
+    MinusEq,
     Star,
+    StarEq,
     Slash,
+    SlashEq,
     Bang,
     EqEq,
     NotEq,
@@ -75,12 +80,13 @@ pub struct Token {
 
 impl TokenKind {
     pub fn is_trivia(&self) -> bool {
-        matches!(self, Self::Whitespace)
+        matches!(self, Self::Whitespace | Self::LineComment)
     }
 
     pub fn to_syntax_kind(&self) -> SyntaxKind {
         match self {
             Self::Whitespace => SyntaxKind::Whitespace,
+            Self::LineComment => SyntaxKind::LineComment,
             Self::AsKw => SyntaxKind::AsKw,
             Self::CrateKw => SyntaxKind::CrateKw,
             Self::ForKw => SyntaxKind::ForKw,
@@ -125,9 +131,13 @@ impl TokenKind {
             Self::Dot => SyntaxKind::Dot,
             Self::Eq => SyntaxKind::Eq,
             Self::Plus => SyntaxKind::Plus,
+            Self::PlusEq => SyntaxKind::PlusEq,
             Self::Minus => SyntaxKind::Minus,
+            Self::MinusEq => SyntaxKind::MinusEq,
             Self::Star => SyntaxKind::Star,
+            Self::StarEq => SyntaxKind::StarEq,
             Self::Slash => SyntaxKind::Slash,
+            Self::SlashEq => SyntaxKind::SlashEq,
             Self::Bang => SyntaxKind::Bang,
             Self::EqEq => SyntaxKind::EqEq,
             Self::NotEq => SyntaxKind::NotEq,

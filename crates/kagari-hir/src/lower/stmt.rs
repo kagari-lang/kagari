@@ -46,6 +46,21 @@ impl Lowerer {
                     .unwrap_or_else(|| self.missing_expr()),
             },
             ast::Stmt::AssignStmt(stmt) => StmtKind::Assign {
+                op: match stmt.operator() {
+                    Some(kagari_syntax::kind::SyntaxKind::PlusEq) => {
+                        Some(crate::hir::BinaryOp::Add)
+                    }
+                    Some(kagari_syntax::kind::SyntaxKind::MinusEq) => {
+                        Some(crate::hir::BinaryOp::Sub)
+                    }
+                    Some(kagari_syntax::kind::SyntaxKind::StarEq) => {
+                        Some(crate::hir::BinaryOp::Mul)
+                    }
+                    Some(kagari_syntax::kind::SyntaxKind::SlashEq) => {
+                        Some(crate::hir::BinaryOp::Div)
+                    }
+                    _ => None,
+                },
                 target: stmt
                     .target()
                     .map(|expr| self.lower_place(&expr))
@@ -137,7 +152,19 @@ impl Lowerer {
                     },
                 )
             }
-            _ => self.synthetic_name_place("<missing>"),
+            ast::Expr::ParenExpr(paren) => paren
+                .expr()
+                .map(|expr| self.lower_place(&expr))
+                .unwrap_or_else(|| self.synthetic_name_place("<missing>")),
+            _ => {
+                let value = self.lower_expr(expr);
+                self.alloc_place(
+                    syntax_span(expr),
+                    PlaceData {
+                        kind: PlaceKind::Expr(value),
+                    },
+                )
+            }
         }
     }
 }

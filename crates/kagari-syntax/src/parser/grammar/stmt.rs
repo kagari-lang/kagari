@@ -22,9 +22,6 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
                 Some(TokenKind::BreakKw) => self.parse_break_stmt(),
                 Some(TokenKind::ContinueKw) => self.parse_continue_stmt(),
-                Some(TokenKind::Ident) if self.expr_followed_by_assignment() => {
-                    self.parse_assign_stmt()
-                }
                 Some(_) if self.expr_starts() => {
                     if self.parse_expr_stmt_or_tail() {
                         break;
@@ -96,14 +93,23 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    pub(crate) fn parse_assign_stmt(&mut self) {
-        self.start_node(SyntaxKind::AssignStmt);
-        self.parse_place_expr();
-        self.expect(TokenKind::Eq, DiagnosticKind::ExpectedAssignmentOperator);
+    pub(crate) fn finish_assignment(&mut self, checkpoint: Checkpoint) -> bool {
+        if !self.at_any(&[
+            TokenKind::Eq,
+            TokenKind::PlusEq,
+            TokenKind::MinusEq,
+            TokenKind::StarEq,
+            TokenKind::SlashEq,
+        ]) {
+            return false;
+        }
+        self.start_node_at(checkpoint, SyntaxKind::AssignStmt);
+        self.bump();
         self.parse_expr();
         self.bump_trivia();
         self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
         self.finish_node();
+        true
     }
 
     pub(crate) fn parse_while_stmt(&mut self) {
@@ -146,6 +152,10 @@ impl<'a> Parser<'a> {
         let checkpoint = self.checkpoint();
         self.parse_expr();
         self.bump_trivia();
+
+        if self.finish_assignment(checkpoint) {
+            return false;
+        }
 
         if self.at(TokenKind::Semi) {
             self.finish_expr_stmt(checkpoint);

@@ -18,7 +18,7 @@ fn codec() -> impl Options {
         .reject_trailing_bytes()
         .with_limit(MAX_ARTIFACT_BYTES)
 }
-pub const KAGARI_LANGUAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
 pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v2";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v2";
@@ -184,9 +184,11 @@ impl KbcArtifact {
                 found: self.header.format_version,
             });
         }
-        if self.header.language_version != requirements.language_version {
+        if self.header.language_version != KAGARI_LANGUAGE_VERSION
+            || self.header.language_version != requirements.language_version
+        {
             return Err(ArtifactValidationError::LanguageVersionMismatch {
-                expected: requirements.language_version.clone(),
+                expected: KAGARI_LANGUAGE_VERSION.to_owned(),
                 found: self.header.language_version.clone(),
             });
         }
@@ -794,6 +796,20 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn legacy_language_semantics_cannot_be_opted_into() {
+        let mut artifact = KbcArtifact::from_module(BytecodeModule::default(), Default::default());
+        artifact.header.language_version = "0.1.0".into();
+        let requirements = ArtifactCompatibility {
+            language_version: "0.1.0".into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            artifact.validate_for_loader(&requirements),
+            Err(ArtifactValidationError::LanguageVersionMismatch { .. })
+        ));
+    }
 
     #[test]
     fn fingerprints_depend_on_serialized_values_not_rust_debug_names() {

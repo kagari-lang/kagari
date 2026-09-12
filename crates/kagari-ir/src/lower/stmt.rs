@@ -1,5 +1,4 @@
 use kagari_hir::hir;
-use kagari_hir::resolver::ResolvedName;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::{FunctionLowerer, LoopScope};
@@ -42,9 +41,10 @@ impl FunctionLowerer<'_> {
                 self.emit(Instruction::StoreLocal { local: dst, src });
                 Ok(())
             }
-            hir::StmtKind::Assign { target, value } => {
+            hir::StmtKind::Assign { target, value, op } => {
+                let location = self.prepare_place(target)?;
                 let src = self.lower_expr(value)?;
-                self.lower_place_assignment(target, src)?;
+                self.commit_place(location, op, src)?;
                 Ok(())
             }
             hir::StmtKind::Return { expr } => {
@@ -131,98 +131,5 @@ impl FunctionLowerer<'_> {
 
         self.switch_to_block(exit_block);
         Ok(())
-    }
-
-    fn lower_place_assignment(
-        &mut self,
-        place_id: hir::PlaceId,
-        src: IrValue,
-    ) -> Result<(), IrLoweringError> {
-        let place = self.analyzed.lowered.module.place(place_id).clone();
-        match place.kind {
-            hir::PlaceKind::Name(_) => {
-                let resolved = self.place_root_resolution(place_id)?;
-                match resolved {
-                    ResolvedName::Param(_) | ResolvedName::Local(_) => {
-                        let local = self.lookup_binding(resolved)?;
-                        self.emit(Instruction::StoreLocal { local, src });
-                    }
-                    ResolvedName::Const(_)
-                    | ResolvedName::Function(_)
-                    | ResolvedName::Module(_)
-                    | ResolvedName::StandardModule(_)
-                    | ResolvedName::StandardFunction(_)
-                    | ResolvedName::Struct(_)
-                    | ResolvedName::Enum(_)
-                    | ResolvedName::Trait(_) => {
-                        return Err(IrLoweringError::UnsupportedStatement(
-                            "invalid assignment target during lowering",
-                        ));
-                    }
-                }
-                Ok(())
-            }
-            hir::PlaceKind::Field { base, name } => {
-                let field = self.aggregate_field_ref_for_place(base, name)?;
-                let base_value = self.lower_place_value(base)?;
-                self.emit(Instruction::WriteAggregateField {
-                    base: base_value,
-                    field,
-                    value: src,
-                });
-                self.lower_place_assignment(base, base_value)
-            }
-            hir::PlaceKind::Index { base, index } => {
-                let base_value = self.lower_place_value(base)?;
-                let index = self.lower_expr(index)?;
-                self.emit(Instruction::WriteAggregateIndex {
-                    base: base_value,
-                    index,
-                    value: src,
-                });
-                self.lower_place_assignment(base, base_value)
-            }
-        }
-    }
-
-    fn lower_place_value(&mut self, place_id: hir::PlaceId) -> Result<IrValue, IrLoweringError> {
-        let place = self.analyzed.lowered.module.place(place_id).clone();
-        match place.kind {
-            hir::PlaceKind::Name(_) => {
-                let resolved = self.place_root_resolution(place_id)?;
-                match resolved {
-                    ResolvedName::Param(_) | ResolvedName::Local(_) => {
-                        let local = self.lookup_binding(resolved)?;
-                        let dst = self.alloc_temp(self.place_type(place_id)?);
-                        self.emit(Instruction::LoadLocal { dst, local });
-                        Ok(dst)
-                    }
-                    ResolvedName::Const(_)
-                    | ResolvedName::Function(_)
-                    | ResolvedName::Module(_)
-                    | ResolvedName::StandardModule(_)
-                    | ResolvedName::StandardFunction(_)
-                    | ResolvedName::Struct(_)
-                    | ResolvedName::Enum(_)
-                    | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedStatement(
-                        "invalid assignment target during lowering",
-                    )),
-                }
-            }
-            hir::PlaceKind::Field { base, name } => {
-                let field = self.aggregate_field_ref_for_place(base, name)?;
-                let base = self.lower_place_value(base)?;
-                let dst = self.alloc_temp(self.place_type(place_id)?);
-                self.emit(Instruction::ReadAggregateField { dst, base, field });
-                Ok(dst)
-            }
-            hir::PlaceKind::Index { base, index } => {
-                let base = self.lower_place_value(base)?;
-                let index = self.lower_expr(index)?;
-                let dst = self.alloc_temp(self.place_type(place_id)?);
-                self.emit(Instruction::ReadAggregateIndex { dst, base, index });
-                Ok(dst)
-            }
-        }
     }
 }

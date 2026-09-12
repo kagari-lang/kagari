@@ -82,7 +82,12 @@ pub fn lex_with_cancellation(
             }
             '+' => {
                 chars.next();
-                tokens.push(token(TokenKind::Plus, index, index + 1));
+                if let Some((end, '=')) = chars.peek().copied() {
+                    chars.next();
+                    tokens.push(token(TokenKind::PlusEq, index, end + 1));
+                } else {
+                    tokens.push(token(TokenKind::Plus, index, index + 1));
+                }
             }
             '=' => {
                 chars.next();
@@ -106,16 +111,43 @@ pub fn lex_with_cancellation(
                     chars.next();
                     tokens.push(token(TokenKind::Arrow, index, end + 1));
                 } else {
-                    tokens.push(token(TokenKind::Minus, index, index + 1));
+                    if let Some((end, '=')) = chars.peek().copied() {
+                        chars.next();
+                        tokens.push(token(TokenKind::MinusEq, index, end + 1));
+                    } else {
+                        tokens.push(token(TokenKind::Minus, index, index + 1));
+                    }
                 }
             }
             '*' => {
                 chars.next();
-                tokens.push(token(TokenKind::Star, index, index + 1));
+                if let Some((end, '=')) = chars.peek().copied() {
+                    chars.next();
+                    tokens.push(token(TokenKind::StarEq, index, end + 1));
+                } else {
+                    tokens.push(token(TokenKind::Star, index, index + 1));
+                }
             }
             '/' => {
                 chars.next();
-                tokens.push(token(TokenKind::Slash, index, index + 1));
+                if chars.peek().is_some_and(|(_, ch)| *ch == '/') {
+                    let mut end = index + 1;
+                    while let Some((next_index, next)) = chars.peek().copied() {
+                        if matches!(next, '\r' | '\n') {
+                            break;
+                        }
+                        end = next_index + next.len_utf8();
+                        chars.next();
+                    }
+                    tokens.push(token(TokenKind::LineComment, index, end));
+                    continue;
+                }
+                if let Some((end, '=')) = chars.peek().copied() {
+                    chars.next();
+                    tokens.push(token(TokenKind::SlashEq, index, end + 1));
+                } else {
+                    tokens.push(token(TokenKind::Slash, index, index + 1));
+                }
             }
             '!' => {
                 chars.next();

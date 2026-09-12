@@ -118,6 +118,22 @@ impl ReturnStmt {
 }
 
 impl AssignStmt {
+    pub fn operator(&self) -> Option<SyntaxKind> {
+        self.syntax()
+            .children_with_tokens()
+            .filter_map(|element| element.into_token())
+            .map(|token| token.kind())
+            .find(|kind| {
+                matches!(
+                    kind,
+                    SyntaxKind::Eq
+                        | SyntaxKind::PlusEq
+                        | SyntaxKind::MinusEq
+                        | SyntaxKind::StarEq
+                        | SyntaxKind::SlashEq
+                )
+            })
+    }
     pub fn target(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }

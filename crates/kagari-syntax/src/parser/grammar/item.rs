@@ -47,9 +47,6 @@ impl<'a> Parser<'a> {
                 }
                 self.finish_node();
             }
-            Some(TokenKind::Ident) if self.expr_followed_by_assignment() => {
-                self.parse_assign_stmt()
-            }
             Some(_) if self.expr_starts() => return self.parse_top_level_expr_stmt_or_tail(),
             Some(TokenKind::Unknown) => {
                 self.error_here(DiagnosticKind::UnexpectedToken);
@@ -779,6 +776,10 @@ impl<'a> Parser<'a> {
         let checkpoint = self.checkpoint();
         self.parse_expr();
         self.bump_trivia();
+
+        if self.finish_assignment(checkpoint) {
+            return false;
+        }
 
         if self.at(TokenKind::Semi) {
             self.finish_expr_stmt(checkpoint);

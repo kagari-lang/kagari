@@ -1,6 +1,25 @@
 use crate::{lexer::lex, tests::common, token::TokenKind};
 
 #[test]
+fn line_comments_keep_unicode_ranges_and_crlf_trivia() {
+    let text = "a /= 2; // 中文😀\r\n// end";
+    let tokens = lex(text);
+    let comments: Vec<_> = tokens
+        .iter()
+        .filter(|token| token.kind == TokenKind::LineComment)
+        .map(|token| &text[token.span.start..token.span.end])
+        .collect();
+    assert_eq!(comments, ["// 中文😀", "// end"]);
+    assert!(tokens.iter().any(|token| token.kind == TokenKind::SlashEq));
+    assert!(
+        tokens
+            .iter()
+            .any(|token| token.kind == TokenKind::Whitespace
+                && &text[token.span.start..token.span.end] == "\r\n")
+    );
+}
+
+#[test]
 fn lexes_function_signature_tokens() {
     let source = common::source("fn add(lhs: int) -> int {}");
     let tokens = lex(source.text());

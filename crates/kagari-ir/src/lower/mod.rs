@@ -1,6 +1,7 @@
 mod abi;
 mod expr;
 mod function;
+mod place;
 mod state;
 mod stmt;
 mod support;

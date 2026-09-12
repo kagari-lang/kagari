@@ -136,9 +136,13 @@ impl<'a> BodyChecker<'a> {
                 env.local_writeability.insert(*local, *writeability);
                 self.type_table.insert_local(*local, local_ty);
             }
-            StmtKind::Assign { target, value } => {
+            StmtKind::Assign { target, value, op } => {
+                let target_ty = self.resolve_assignment_target_type(*target, env);
                 let value_ty = self.infer_expr_type(*value, env);
-                match self.resolve_assignment_target_type(*target, env) {
+                if let (Some(op), Some(expected)) = (op, &target_ty) {
+                    self.infer_binary_type(*op, *value, expected.clone(), value_ty.clone(), env);
+                }
+                match target_ty {
                     Some(expected) if expected.conflicts_with(&value_ty) => self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
                             expected: display_type_id(&expected),
@@ -210,6 +214,10 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
         let ty = match &self.lowered.module.place(place_id).kind {
+            PlaceKind::Expr(expr) => {
+                self.infer_expr_type(*expr, env);
+                None
+            }
             PlaceKind::Name(_) => {
                 self.place_root_resolution(place_id)
                     .and_then(|resolved| match resolved {
@@ -241,6 +249,9 @@ impl<'a> BodyChecker<'a> {
             PlaceKind::Index { base, index } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
                 self.infer_expr_type(*index, env);
+                if matches!(base_ty, TypeId::Tuple(_)) {
+                    self.resolve_assignment_target_type(*base, env)?;
+                }
                 self.resolve_index_type(*index, &base_ty)
             }
         };
@@ -258,6 +269,7 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
         let ty = match &self.lowered.module.place(place_id).kind {
+            PlaceKind::Expr(expr) => Some(self.infer_expr_type(*expr, env)),
             PlaceKind::Name(_) => {
                 self.place_root_resolution(place_id)
                     .and_then(|resolved| match resolved {
@@ -297,6 +309,7 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> String {
         match &self.lowered.module.place(place_id).kind {
+            PlaceKind::Expr(_) => "temporary value cannot be reassigned".to_owned(),
             PlaceKind::Name(_) => self
                 .place_root_resolution(place_id)
                 .map(|resolved| match resolved {
@@ -358,7 +371,7 @@ impl<'a> BodyChecker<'a> {
 
     fn place_root(&self, place_id: PlaceId) -> PlaceId {
         match &self.lowered.module.place(place_id).kind {
-            PlaceKind::Name(_) => place_id,
+            PlaceKind::Name(_) | PlaceKind::Expr(_) => place_id,
             PlaceKind::Field { base, .. } | PlaceKind::Index { base, .. } => self.place_root(*base),
         }
     }
@@ -510,21 +523,7 @@ impl<'a> BodyChecker<'a> {
                 if receiver_ty.is_unresolved() || index_ty.is_unresolved() {
                     TypeId::Error
                 } else {
-                    let integer_index = matches!(
-                        index_ty,
-                        TypeId::Builtin(
-                            BuiltinType::I8
-                                | BuiltinType::I16
-                                | BuiltinType::I32
-                                | BuiltinType::I64
-                                | BuiltinType::ISize
-                                | BuiltinType::U8
-                                | BuiltinType::U16
-                                | BuiltinType::U32
-                                | BuiltinType::U64
-                                | BuiltinType::USize
-                        )
-                    );
+                    let integer_index = index_ty.is_integer();
                     integer_index
                         .then(|| self.resolve_index_type(*index, &receiver_ty))
                         .flatten()
@@ -1657,6 +1656,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {
+        if !self.type_table.expr_type(index_expr)?.is_integer() {
+            return None;
+        }
         match receiver {
             TypeId::Array(element) => Some((**element).clone()),
             TypeId::Tuple(elements) => self
@@ -1667,16 +1669,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn tuple_index(&self, index_expr: ExprId) -> Option<usize> {
-        let expr = self.lowered.module.expr(index_expr);
-        let ExprKind::Literal(literal) = &expr.kind else {
-            return None;
-        };
-        if literal.kind != LiteralKind::Number {
-            return None;
+        match self.type_table.scalar_value(index_expr)? {
+            super::ScalarValue::I32(value) => usize::try_from(*value).ok(),
+            _ => None,
         }
-        literal.text.parse::<usize>().ok()
     }
-
     fn standard_function(&self, expr_id: ExprId) -> Option<StandardIntrinsic> {
         let expr = self.lowered.module.expr(expr_id);
         let ExprKind::Name(name) = &expr.kind else {

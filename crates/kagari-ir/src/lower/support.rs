@@ -126,7 +126,7 @@ impl FunctionLowerer<'_> {
 
     pub(crate) fn place_root(&self, place_id: hir::PlaceId) -> hir::PlaceId {
         match &self.analyzed.lowered.module.place(place_id).kind {
-            hir::PlaceKind::Name(_) => place_id,
+            hir::PlaceKind::Name(_) | hir::PlaceKind::Expr(_) => place_id,
             hir::PlaceKind::Field { base, .. } | hir::PlaceKind::Index { base, .. } => {
                 self.place_root(*base)
             }
