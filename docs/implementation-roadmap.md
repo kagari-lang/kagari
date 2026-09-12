@@ -389,7 +389,7 @@ Execution steps:
 - M5.4 Implement typed host roots, typed path descriptors, host path views, and dynamic path arguments.
   Commit: `feat(host): add typed path views`
   Trailer: `Roadmap-Step: M5.4`
-- M5.5 Execute path read, set, modify, and view operations with validation, dirty hooks, and failure classification.
+- M5.5 Execute path read, set, modify, and view operations with validation, prepared commits, a dirty-record ledger, and failure classification; R13 in the foundation track defines the current commit contract.
   Commit: `feat(host): execute typed path mutations`
   Trailer: `Roadmap-Step: M5.5`
 - M5.6 Add host interop and embedding API tests for path policy, stale roots, dynamic indexes, denied capabilities, structured errors, and reload fingerprints.

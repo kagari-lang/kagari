@@ -163,6 +163,17 @@ pub struct GcHeap {
 }
 
 impl GcHeap {
+    pub(crate) fn commit_host_write(&self, commit: impl FnOnce()) -> Result<(), RuntimeError> {
+        self.resources.commit_host_write(commit)
+    }
+
+    pub(crate) fn prepare_dirty_record(&self, current: usize) -> Result<(), RuntimeError> {
+        self.resources.prepare_dirty_record(current)
+    }
+
+    pub(crate) fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()
+    }
     pub fn new(config: GcHeapConfig, resources: Rc<crate::resource::ResourceState>) -> Self {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
         let owner = NEXT_OWNER
@@ -213,6 +224,7 @@ impl GcHeap {
     }
 
     pub fn alloc_array(&self, elements: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
         if !elements.iter().all(|value| self.valid_payload(value)) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -223,6 +235,7 @@ impl GcHeap {
     }
 
     pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
         let mut map = IndexMap::new();
         for (key, value) in entries {
             if !self.valid_payload(&value) {
@@ -242,6 +255,7 @@ impl GcHeap {
     }
 
     pub fn alloc_set(&self, values: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
         let mut set = IndexSet::new();
         for value in values {
             let key = MapKey::from_value(&value).ok_or_else(|| {
@@ -259,6 +273,7 @@ impl GcHeap {
         layout: crate::module::StructLayoutRef,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
         if fields.len() != layout.layout().fields.len()
             || !fields
                 .iter()
@@ -281,6 +296,7 @@ impl GcHeap {
         variant: String,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
         if !fields.iter().all(|value| self.valid_payload(value)) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -308,6 +324,7 @@ impl GcHeap {
     }
 
     pub fn array_push(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -327,6 +344,7 @@ impl GcHeap {
     }
 
     pub fn array_pop(&self, id: HeapObjectId) -> Option<Value> {
+        self.ensure_execution_allowed().ok()?;
         let value = self.with_array_mut(id, |elements| elements.pop()).flatten();
         if value.is_some() {
             self.release_heap_units(1);
@@ -340,6 +358,7 @@ impl GcHeap {
         index: usize,
         value: Value,
     ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -365,6 +384,7 @@ impl GcHeap {
     }
 
     pub fn array_remove(&self, id: HeapObjectId, index: usize) -> Option<Value> {
+        self.ensure_execution_allowed().ok()?;
         let value = self
             .with_array_mut(id, |elements| {
                 (index < elements.len()).then(|| elements.remove(index))
@@ -377,6 +397,7 @@ impl GcHeap {
     }
 
     pub fn array_clear(&self, id: HeapObjectId) -> Option<()> {
+        self.ensure_execution_allowed().ok()?;
         let removed = self.with_array_mut(id, |elements| {
             let removed = elements.len();
             elements.clear();
@@ -387,6 +408,7 @@ impl GcHeap {
     }
 
     pub fn array_set(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
+        self.ensure_execution_allowed().ok()?;
         if !self.valid_payload(&value) {
             return None;
         }
@@ -423,6 +445,7 @@ impl GcHeap {
         key: Value,
         value: Value,
     ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -445,6 +468,7 @@ impl GcHeap {
     }
 
     pub fn map_remove(&self, id: HeapObjectId, key: &Value) -> Option<Value> {
+        self.ensure_execution_allowed().ok()?;
         let key = MapKey::from_value(key)?;
         let value = self
             .with_map_mut(id, |entries| entries.shift_remove(&key))
@@ -456,6 +480,7 @@ impl GcHeap {
     }
 
     pub fn map_clear(&self, id: HeapObjectId) -> Option<()> {
+        self.ensure_execution_allowed().ok()?;
         let removed = self.with_map_mut(id, |entries| {
             let removed = entries.len();
             entries.clear();
@@ -479,6 +504,7 @@ impl GcHeap {
     }
 
     pub fn set_insert(&self, id: HeapObjectId, value: Value) -> Result<bool, RuntimeError> {
+        self.ensure_execution_allowed()?;
         let key = MapKey::from_value(&value)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         self.with_set_mut(id, |values| {
@@ -495,6 +521,7 @@ impl GcHeap {
     }
 
     pub fn set_remove(&self, id: HeapObjectId, value: &Value) -> Option<bool> {
+        self.ensure_execution_allowed().ok()?;
         let key = MapKey::from_value(value)?;
         let removed = self.with_set_mut(id, |values| values.shift_remove(&key))?;
         if removed {
@@ -504,6 +531,7 @@ impl GcHeap {
     }
 
     pub fn set_clear(&self, id: HeapObjectId) -> Option<()> {
+        self.ensure_execution_allowed().ok()?;
         let removed = self.with_set_mut(id, |values| {
             let removed = values.len();
             values.clear();
@@ -558,6 +586,7 @@ impl GcHeap {
         slot: usize,
         next_value: Value,
     ) -> Option<()> {
+        self.ensure_execution_allowed().ok()?;
         if !self.valid_payload(&next_value) {
             return None;
         }
@@ -596,6 +625,7 @@ impl GcHeap {
     }
 
     pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
+        self.ensure_execution_allowed().ok()?;
         if !values.iter().all(|value| self.validate_value(value)) {
             return None;
         }

@@ -3,6 +3,7 @@ use kagari_ir::bytecode::{
     FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StandardIntrinsic, StructId,
 };
 use kagari_ir::module::ValueType;
+use kagari_runtime::host::PreparedHostPathWrite;
 use std::sync::{Arc, Mutex};
 
 use kagari_runtime::{
@@ -143,12 +144,14 @@ fn register_vm_host_path_runtime_with_capabilities(
             descriptor_id,
             HostPathAdapter::new()
                 .with_read(move |_| Ok(Value::I32(*read_hp.lock().unwrap())))
-                .with_write(move |_, value| {
-                    let Value::I32(value) = value else {
+                .with_prepare_write(move |_, record| {
+                    let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
                     };
-                    *write_hp.lock().unwrap() = value;
-                    Ok(())
+                    let write_hp = write_hp.clone();
+                    Ok(PreparedHostPathWrite::new(move || {
+                        *write_hp.lock().unwrap() = value;
+                    }))
                 }),
         )
         .unwrap();
@@ -301,6 +304,122 @@ fn executes_runtime_host_helper_call() {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(42));
+}
+
+#[test]
+fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_execution() {
+    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    for encoded in [false, true] {
+        for jit in [false, true] {
+            let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
+            let mut security = runtime.security();
+            security.profile.allow_jit = true;
+            security.capabilities.jit = true;
+            runtime.set_security_context(security);
+            let write_hp = hp.clone();
+            runtime
+                .register_host_path_adapter(
+                    kagari_runtime::HostPathDescriptorId::new(0),
+                    HostPathAdapter::new()
+                        .with_read(|_| Ok(Value::I32(10)))
+                        .with_prepare_write(move |_, record| {
+                            let Value::I32(value) = record.new_value else {
+                                return Err(HostError::new("expected i32"));
+                            };
+                            let hp = write_hp.clone();
+                            Ok(PreparedHostPathWrite::new(move || {
+                                *hp.lock().unwrap() = value;
+                                panic!("host commit violated its contract");
+                            }))
+                        }),
+                )
+                .unwrap();
+            let scalar = runtime
+                .load_program(
+                    "scalar.kgr",
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![compile_test_bytecode("fn main() -> i32 { 42 }")],
+                    },
+                )
+                .unwrap();
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let native = kagari_runtime::CodegenBackend::compile_function(
+                &mut backend,
+                kagari_runtime::BackendFunctionInput::new(&scalar, FunctionRef::new(0)).unwrap(),
+            )
+            .unwrap();
+            let program = BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![path_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::HostFunction(
+                                kagari_ir::bytecode::HostImportId::new(0),
+                            ),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(1),
+                            constant: ConstantOperand::I32(20),
+                        },
+                        BytecodeInstruction::SetPath {
+                            root_or_view: Register::new(0),
+                            path: PathId::new(0),
+                            dynamic_args: vec![],
+                            value: Register::new(1),
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(1))),
+                    ],
+                    ValueType::I32,
+                )],
+            };
+            let program = if encoded {
+                let artifact = KbcArtifact::from_program(program, Default::default());
+                let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+                decoded.validate_for_loader(&Default::default()).unwrap();
+                decoded.program
+            } else {
+                program
+            };
+            let loaded = runtime.load_program("fault.kgr", program).unwrap();
+            let mut vm = Vm::new(runtime);
+            let error = if jit {
+                vm.execute_with_backend(&loaded, "main", &mut backend)
+                    .unwrap_err()
+            } else {
+                vm.execute(&loaded, "main").unwrap_err()
+            };
+            assert!(
+                matches!(error, crate::VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
+            );
+            assert!(vm.runtime().is_quarantined());
+            assert_eq!(*hp.lock().unwrap(), 20); // Internal faults do not promise business rollback.
+            assert_eq!(vm.runtime().gc().active_roots(), 0);
+            assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+            let before = vm.runtime().resources().counters();
+            for error in [
+                vm.execute(&scalar, "main").unwrap_err(),
+                vm.execute_with_backend(&scalar, "main", &mut backend)
+                    .unwrap_err(),
+            ] {
+                assert!(
+                    matches!(error, crate::VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
+                );
+            }
+            assert!(
+                matches!(backend.invoke_compiled_scalar(&native, vm.runtime()),
+                Err(kagari_runtime::BackendInvocationError::RuntimeFailure(ref error)) if error.kind() == RuntimeErrorKind::EngineFault)
+            );
+            assert_eq!(
+                unsafe { kagari_runtime::jit_abi::jit_consume_instruction_step(vm.runtime()) },
+                kagari_runtime::jit_abi::JIT_STATUS_ENGINE_FAULT
+            );
+            assert_eq!(vm.runtime().resources().counters(), before);
+        }
+    }
 }
 
 #[test]

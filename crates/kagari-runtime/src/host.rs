@@ -372,26 +372,40 @@ pub struct HostPathMutationRecord {
 }
 
 pub type HostPathReadCallback = dyn Fn(&HostPathContext) -> Result<Value, HostError> + 'static;
-pub type HostPathWriteCallback = dyn Fn(&HostPathContext, Value) -> Result<(), HostError> + 'static;
+/// Preparation validates and reserves host resources without changing the target.
+pub type HostPathPrepareWriteCallback = dyn Fn(&HostPathContext, &HostPathMutationRecord) -> Result<PreparedHostPathWrite, HostError>
+    + 'static;
+
+/// A prepared target update. The action must only commit prepared host state;
+/// it must not allocate fallibly, invoke scripts, or return a business failure.
+/// Panics and attempts to execute through the runtime quarantine that runtime.
+#[must_use = "prepared writes must be returned to the runtime or dropped to release reservations"]
+pub struct PreparedHostPathWrite(Box<dyn FnOnce()>);
+
+impl PreparedHostPathWrite {
+    pub fn new(commit: impl FnOnce() + 'static) -> Self {
+        Self(Box::new(commit))
+    }
+    fn commit(self) {
+        (self.0)()
+    }
+}
 pub type HostPathValidateCallback =
     dyn Fn(&HostPathContext, HostPathOperation, Option<&Value>) -> Result<(), HostError> + 'static;
-pub type HostPathDirtyCallback = dyn Fn(&HostPathMutationRecord) -> Result<(), HostError> + 'static;
 
 #[derive(Clone, Default)]
 pub struct HostPathAdapter {
     read: Option<Rc<HostPathReadCallback>>,
-    write: Option<Rc<HostPathWriteCallback>>,
+    prepare_write: Option<Rc<HostPathPrepareWriteCallback>>,
     validate: Option<Rc<HostPathValidateCallback>>,
-    dirty: Option<Rc<HostPathDirtyCallback>>,
 }
 
 impl fmt::Debug for HostPathAdapter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HostPathAdapter")
             .field("has_read", &self.read.is_some())
-            .field("has_write", &self.write.is_some())
+            .field("has_prepare_write", &self.prepare_write.is_some())
             .field("has_validate", &self.validate.is_some())
-            .field("has_dirty", &self.dirty.is_some())
             .finish()
     }
 }
@@ -409,11 +423,15 @@ impl HostPathAdapter {
         self
     }
 
-    pub fn with_write(
+    pub fn with_prepare_write(
         mut self,
-        write: impl Fn(&HostPathContext, Value) -> Result<(), HostError> + 'static,
+        prepare: impl Fn(
+            &HostPathContext,
+            &HostPathMutationRecord,
+        ) -> Result<PreparedHostPathWrite, HostError>
+        + 'static,
     ) -> Self {
-        self.write = Some(Rc::new(write));
+        self.prepare_write = Some(Rc::new(prepare));
         self
     }
 
@@ -423,14 +441,6 @@ impl HostPathAdapter {
         + 'static,
     ) -> Self {
         self.validate = Some(Rc::new(validate));
-        self
-    }
-
-    pub fn with_dirty(
-        mut self,
-        dirty: impl Fn(&HostPathMutationRecord) -> Result<(), HostError> + 'static,
-    ) -> Self {
-        self.dirty = Some(Rc::new(dirty));
         self
     }
 }
@@ -1400,6 +1410,7 @@ impl HostRegistry {
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
     ) -> Result<Value, RuntimeError> {
+        gc.ensure_execution_allowed()?;
         let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, None)?;
         let context = self.resolve_path_context(
             root_or_view,
@@ -1434,6 +1445,7 @@ impl HostRegistry {
         dynamic_args: Vec<Value>,
         value: Value,
     ) -> Result<(), RuntimeError> {
+        gc.ensure_execution_allowed()?;
         let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, Some(&value))?;
         let context = self.resolve_path_context(
             root_or_view,
@@ -1448,15 +1460,26 @@ impl HostRegistry {
         }
         let adapter = self.path_adapter(context.descriptor.id)?;
         self.validate_path_operation(&adapter, &context, HostPathOperation::Set, Some(&value))?;
-        let old_value = adapter.read.as_ref().and_then(|read| read(&context).ok());
+        let old_value = adapter
+            .read
+            .as_ref()
+            .map(|read| read(&context))
+            .transpose()
+            .map_err(|error| {
+                RuntimeError::typed_path_validation(format!(
+                    "host path previous-value read failed: {}",
+                    error.message()
+                ))
+            })?;
         let _old = gc
             .root_execution_values(old_value.iter().cloned().collect())
             .ok_or_else(|| {
                 RuntimeError::typed_path_validation("invalid heap reference in previous path value")
             })?;
-        self.write_path_value(&adapter, &context, value.clone())?;
-        self.mark_dirty(
+        self.commit_path_write(
+            gc,
             &adapter,
+            &context,
             HostPathMutationRecord {
                 root: context.root,
                 base_view: context.base_view.clone(),
@@ -1478,6 +1501,7 @@ impl HostRegistry {
         op: BinaryOp,
         value: Value,
     ) -> Result<Value, RuntimeError> {
+        gc.ensure_execution_allowed()?;
         let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, Some(&value))?;
         let context = self.resolve_path_context(
             root_or_view,
@@ -1512,9 +1536,10 @@ impl HostRegistry {
             .ok_or_else(|| {
                 RuntimeError::typed_path_validation("invalid heap reference in path modification")
             })?;
-        self.write_path_value(&adapter, &context, new_value.clone())?;
-        self.mark_dirty(
+        self.commit_path_write(
+            gc,
             &adapter,
+            &context,
             HostPathMutationRecord {
                 root: context.root,
                 base_view: context.base_view.clone(),
@@ -1650,38 +1675,43 @@ impl HostRegistry {
         Ok(())
     }
 
-    fn write_path_value(
+    fn commit_path_write(
         &self,
+        gc: &crate::gc::GcHeap,
         adapter: &HostPathAdapter,
         context: &HostPathContext,
-        value: Value,
-    ) -> Result<(), RuntimeError> {
-        let write = adapter.write.as_ref().ok_or_else(|| {
-            RuntimeError::typed_path_validation("path descriptor does not support writes")
-        })?;
-        write(context, value).map_err(|error| {
-            RuntimeError::typed_path_validation(format!(
-                "host path write failed: {}",
-                error.message()
-            ))
-        })
-    }
-
-    fn mark_dirty(
-        &self,
-        adapter: &HostPathAdapter,
         record: HostPathMutationRecord,
     ) -> Result<(), RuntimeError> {
-        if let Some(dirty) = &adapter.dirty {
-            dirty(&record).map_err(|error| {
-                RuntimeError::typed_path_validation(format!(
-                    "host path dirty hook failed: {}",
-                    error.message()
-                ))
-            })?;
+        if record
+            .old_value
+            .iter()
+            .any(|value| !value.is_default_heap_payload())
+        {
+            return Err(RuntimeError::typed_path_validation(
+                "previous path value cannot escape into a dirty record",
+            ));
         }
-        self.dirty_paths.borrow_mut().push(record);
-        Ok(())
+        let prepare = adapter.prepare_write.as_ref().ok_or_else(|| {
+            RuntimeError::typed_path_validation("path descriptor does not support writes")
+        })?;
+        // No registry or resource borrow spans preparation: it may collect GC.
+        let prepared = prepare(context, &record);
+        gc.ensure_execution_allowed()?;
+        let prepared = prepared.map_err(|error| {
+            RuntimeError::typed_path_validation(format!(
+                "host path preparation failed: {}",
+                error.message()
+            ))
+        })?;
+        let mut dirty = self.dirty_paths.borrow_mut();
+        gc.prepare_dirty_record(dirty.len())?;
+        dirty
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("dirty record capacity"))?;
+        gc.commit_host_write(move || {
+            prepared.commit();
+            dirty.push(record);
+        })
     }
 
     pub fn function(&self, symbol: &str) -> Option<&HostFunction> {

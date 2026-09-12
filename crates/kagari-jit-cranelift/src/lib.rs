@@ -86,6 +86,10 @@ impl CraneliftBackend {
         artifact: &ExecutableFunctionArtifact,
         runtime: &Runtime,
     ) -> Result<RuntimeValue, BackendInvocationError> {
+        runtime
+            .resources()
+            .ensure_execution_allowed()
+            .map_err(BackendInvocationError::RuntimeFailure)?;
         let ExecutableEntryPoint::Native { address, .. } = artifact.entry else {
             return Err(BackendInvocationError::UnsupportedArtifact(
                 "artifact does not contain a native entry point".into(),
@@ -96,6 +100,14 @@ impl CraneliftBackend {
         let mut result = JitValue::default();
         let status = unsafe { function(runtime as *const Runtime, &mut result) };
         match status {
+            kagari_runtime::jit_abi::JIT_STATUS_ENGINE_FAULT => {
+                return Err(BackendInvocationError::RuntimeFailure(
+                    kagari_runtime::RuntimeError::new(
+                        kagari_runtime::RuntimeErrorKind::EngineFault,
+                        "runtime is quarantined after a commit fault",
+                    ),
+                ));
+            }
             kagari_runtime::jit_abi::JIT_STATUS_INVALID_HEAP_REFERENCE => {
                 return Err(BackendInvocationError::RuntimeFailure(
                     kagari_runtime::RuntimeError::new(

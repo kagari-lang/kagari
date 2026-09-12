@@ -6,6 +6,15 @@ The main goal is to let Rust applications expose types and functions to Kagari w
 
 Runtime behavior is defined in [runtime.md](runtime.md).
 Execution behavior is defined in [execution.md](execution.md).
+
+Typed-path adapters provide `with_read`, `with_validate`, and `with_prepare_write`.
+The last callback returns a `PreparedHostPathWrite` containing a single commit
+action. The [failure contract](failure-semantics.md#modification-guarantees)
+defines preparation, reservation cleanup, ledger publication and fault isolation.
+Hosts inspect `Runtime::host_dirty_paths` after execution and clear consumed
+records explicitly. There is no synchronous dirty callback. A runnable example is
+`cargo run -p kagari-runtime --example atomic_host_path`; it demonstrates a full
+ledger rejecting the next update while preserving the preceding field change.
 Backend abstraction is defined in [codegen-backend.md](codegen-backend.md).
 Typed path mutation is defined in [typed-path-mutation.md](typed-path-mutation.md).
 

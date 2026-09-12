@@ -116,9 +116,9 @@ fn register_embedding_host_path_runtime(
             descriptor_id,
             HostPathAdapter::new()
                 .with_read(|_| Ok(Value::I32(10)))
-                .with_write(|_, value| {
-                    if matches!(value, Value::I32(_)) {
-                        Ok(())
+                .with_prepare_write(|_, record| {
+                    if matches!(record.new_value, Value::I32(_)) {
+                        Ok(kagari_runtime::host::PreparedHostPathWrite::new(|| {}))
                     } else {
                         Err(HostError::new("hp expects i32"))
                     }

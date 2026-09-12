@@ -791,6 +791,7 @@ impl EmbeddingError {
         let kind = match &error {
             VmError::HostError(_) => RuntimeFailureKind::HostCallFailure,
             VmError::RuntimeError(error) => match error.kind() {
+                RuntimeErrorKind::EngineFault => RuntimeFailureKind::EngineInvariant,
                 RuntimeErrorKind::CapabilityDenied => RuntimeFailureKind::CapabilityDenied,
                 RuntimeErrorKind::ResourceLimitExceeded => {
                     RuntimeFailureKind::ResourceLimitExceeded

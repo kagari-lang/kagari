@@ -4,6 +4,7 @@ pub mod backend;
 pub mod builtin;
 pub mod cache;
 pub mod error;
+mod execution_state;
 pub mod gc;
 pub mod host;
 pub mod jit_abi;
@@ -109,6 +110,10 @@ impl Runtime {
             modules: ModuleStore::default(),
             execution_artifacts: ExecutionArtifactRegistry::default(),
         }
+    }
+
+    pub fn is_quarantined(&self) -> bool {
+        self.resources.is_quarantined()
     }
 
     pub fn gc(&self) -> &GcHeap {
@@ -275,8 +280,11 @@ impl Runtime {
     ) -> Result<value::Value, RuntimeError> {
         self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Read)?;
         self.validate_host_path_capabilities(descriptor_id)?;
-        self.host
-            .read_path(&self.gc, root_or_view, descriptor_id, dynamic_args)
+        let result = self
+            .host
+            .read_path(&self.gc, root_or_view, descriptor_id, dynamic_args);
+        self.resources.ensure_execution_allowed()?;
+        result
     }
 
     pub fn set_host_path(
@@ -289,8 +297,11 @@ impl Runtime {
         self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Set)?;
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
-        self.host
-            .set_path(&self.gc, root_or_view, descriptor_id, dynamic_args, value)
+        let result = self
+            .host
+            .set_path(&self.gc, root_or_view, descriptor_id, dynamic_args, value);
+        self.resources.ensure_execution_allowed()?;
+        result
     }
 
     pub fn modify_host_path(
@@ -304,14 +315,16 @@ impl Runtime {
         self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Modify(op))?;
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
-        self.host.modify_path(
+        let result = self.host.modify_path(
             &self.gc,
             root_or_view,
             descriptor_id,
             dynamic_args,
             op,
             value,
-        )
+        );
+        self.resources.ensure_execution_allowed()?;
+        result
     }
 
     pub fn host_dirty_paths(&self) -> Vec<host::HostPathMutationRecord> {
@@ -327,6 +340,7 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         operation: host::HostPathOperation,
     ) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         let Some(descriptor) = self.host.path_descriptor(descriptor_id) else {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor is not registered",
@@ -360,6 +374,7 @@ impl Runtime {
         &self,
         descriptor_id: host::HostPathDescriptorId,
     ) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         let Some(descriptor) = self.host.path_descriptor(descriptor_id) else {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor is not registered",
@@ -369,6 +384,7 @@ impl Runtime {
     }
 
     fn validate_capabilities(&self, required: CapabilitySet) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         let granted = self.security.capabilities;
         if required.fs_read && !granted.fs_read {
             return Err(RuntimeError::capability_denied("fs_read"));
@@ -448,6 +464,7 @@ impl Runtime {
     }
 
     pub fn validate_host_function_boundary(&self, symbol: &str) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         let function = self.host.function(symbol);
         self.validate_bound_host_boundary(symbol, function)
     }
@@ -457,6 +474,7 @@ impl Runtime {
         symbol: &str,
         function: Option<&HostFunction>,
     ) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if !self.host_exposure.exposes_host_function(symbol) {
             return Err(RuntimeError::capability_denied(format!(
                 "host function `{symbol}`"
@@ -478,6 +496,7 @@ impl Runtime {
     }
 
     pub fn validate_reflection_metadata_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_reflection_metadata() {
             Ok(())
         } else {
@@ -486,6 +505,7 @@ impl Runtime {
     }
 
     pub fn validate_reflection_read_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_reflection_read() {
             Ok(())
         } else {
@@ -494,6 +514,7 @@ impl Runtime {
     }
 
     pub fn validate_reflection_write_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_reflection_write() {
             Ok(())
         } else {
@@ -502,6 +523,7 @@ impl Runtime {
     }
 
     pub fn validate_dynamic_invocation_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_dynamic_invocation() {
             Ok(())
         } else {
@@ -510,6 +532,7 @@ impl Runtime {
     }
 
     pub fn validate_downcast_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_downcast() {
             Ok(())
         } else {
@@ -518,6 +541,7 @@ impl Runtime {
     }
 
     pub fn validate_path_mutation_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_path_mutation() {
             Ok(())
         } else {
@@ -526,6 +550,7 @@ impl Runtime {
     }
 
     pub fn validate_module_loading_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_module_loading() {
             Ok(())
         } else {
@@ -534,6 +559,7 @@ impl Runtime {
     }
 
     pub fn validate_jit_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_jit() {
             Ok(())
         } else {
@@ -542,6 +568,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_attach_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_debug_attach() {
             Ok(())
         } else {
@@ -550,6 +577,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_breakpoint_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_debug_breakpoints() {
             Ok(())
         } else {
@@ -558,6 +586,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_pause_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_debug_pause() {
             Ok(())
         } else {
@@ -566,6 +595,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_stack_inspection_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_debug_stack_inspection() {
             Ok(())
         } else {
@@ -574,6 +604,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_value_inspection_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_debug_value_inspection() {
             Ok(())
         } else {
@@ -582,6 +613,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_host_value_inspection_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_debug_host_value_inspection()
             && self.debug_visibility.exposes_host_values()
         {
@@ -594,6 +626,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_watch_evaluation_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_debug_watch_evaluation() {
             Ok(())
         } else {
@@ -602,6 +635,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_side_effecting_evaluation_boundary(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.security.allows_debug_side_effecting_evaluation() {
             Ok(())
         } else {
@@ -612,6 +646,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_module_visible(&self, module_name: &str) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.debug_visibility.exposes_module(module_name) {
             Ok(())
         } else {
@@ -622,6 +657,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_value_visible(&self, value: &value::Value) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         self.validate_debug_value_inspection_boundary()?;
         if !self.gc.validate_value(value) {
             return Err(RuntimeError::new(
@@ -736,6 +772,7 @@ impl Runtime {
     }
 
     fn validate_heap_payloads(&self, values: &[Value]) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if !values
             .iter()
             .all(|value| value.is_default_heap_payload() && self.gc.validate_value(value))
@@ -753,6 +790,7 @@ impl Runtime {
     }
 
     pub fn collect_garbage(&self) -> Result<GcCollection, RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         let mut roots = self.modules.gc_roots();
         roots.extend(self.host.gc_roots());
         let result = self.gc.collect(&roots).ok_or_else(|| {
@@ -765,6 +803,7 @@ impl Runtime {
     }
 
     pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if self.gc.collection_due() {
             self.collect_garbage()?;
         }
@@ -814,9 +853,9 @@ impl Runtime {
             .ok_or_else(|| {
                 RuntimeError::host_call_failure("invalid heap reference in host arguments")
             })?;
-        let value = function
-            .invoke(args)
-            .map_err(|error| RuntimeError::host_call_failure(error.message()))?;
+        let result = function.invoke(args);
+        self.resources.ensure_execution_allowed()?;
+        let value = result.map_err(|error| RuntimeError::host_call_failure(error.message()))?;
         if !self.gc.validate_value(&value) {
             return Err(RuntimeError::host_call_failure(
                 "invalid heap reference in host result",
@@ -871,11 +910,13 @@ impl Runtime {
         intrinsic: StandardIntrinsic,
         args: &[value::Value],
     ) -> Result<value::Value, BuiltinError> {
+        self.resources.ensure_execution_allowed()?;
         let value = builtin::invoke_standard(&self.gc, intrinsic, args)?;
         Ok(value)
     }
 
     pub fn validate_loaded_module(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
         if !module.belongs_to(self.host.owner()) || self.modules.loaded(module.key()).is_none() {
             return Err(RuntimeError::module_validation(
                 "loaded module belongs to another runtime or has been released",

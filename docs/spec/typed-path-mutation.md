@@ -420,7 +420,7 @@ The host defines:
 - which fields are writable
 - which paths require capabilities
 - which paths are unavailable in restricted profiles
-- which validation hooks run before or after mutation
+- which validation and preparation callbacks run before mutation
 
 Path mutation must not bypass host API exposure, language profile checks, capability checks, or resource policy.
 
@@ -459,7 +459,7 @@ The first usable typed path mutation version includes:
 - read-only path rejection
 - dynamic index arguments for registered indexable fields
 - runtime capability and liveness checks
-- dirty path reporting hooks
+- an engine-owned dirty-record ledger, consumed by the host after execution
 
 ## V1 Exclusions
 

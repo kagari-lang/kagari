@@ -4,6 +4,7 @@ use crate::error::RuntimeError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ResourcePolicy {
+    pub max_dirty_records: Option<usize>,
     pub max_instruction_steps: Option<u64>,
     pub max_call_depth: Option<u32>,
     pub max_heap_units: Option<usize>,
@@ -30,6 +31,7 @@ pub struct ResourceCounters {
 
 #[derive(Debug)]
 pub struct ResourceState {
+    execution: crate::execution_state::ExecutionState,
     policy: ResourcePolicy,
     counters: RefCell<ResourceCounters>,
 }
@@ -51,6 +53,7 @@ impl HeapGrowth<'_> {
 impl ResourceState {
     pub fn new(policy: ResourcePolicy) -> Self {
         Self {
+            execution: Default::default(),
             policy,
             counters: RefCell::new(ResourceCounters::default()),
         }
@@ -58,6 +61,33 @@ impl ResourceState {
 
     pub fn policy(&self) -> ResourcePolicy {
         self.policy
+    }
+
+    pub fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
+        self.execution.ensure_allowed()
+    }
+
+    pub fn is_quarantined(&self) -> bool {
+        self.execution.is_quarantined()
+    }
+
+    pub(crate) fn commit_host_write(&self, commit: impl FnOnce()) -> Result<(), RuntimeError> {
+        self.execution.commit(commit)
+    }
+
+    pub(crate) fn prepare_dirty_record(&self, current: usize) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let next = current
+            .checked_add(1)
+            .ok_or_else(|| RuntimeError::resource_limit("dirty records"))?;
+        if self
+            .policy
+            .max_dirty_records
+            .is_some_and(|limit| next > limit)
+        {
+            return Err(RuntimeError::resource_limit("dirty records"));
+        }
+        Ok(())
     }
 
     pub fn counters(&self) -> ResourceCounters {
@@ -69,6 +99,7 @@ impl ResourceState {
     }
 
     pub fn consume_instruction_steps(&self, steps: u64) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         let mut counters = self.counters.borrow_mut();
         let next = counters.instruction_steps.saturating_add(steps);
         if let Some(max) = self.policy.max_instruction_steps
@@ -81,6 +112,7 @@ impl ResourceState {
     }
 
     pub fn enter_call(&self) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         let mut counters = self.counters.borrow_mut();
         let next = counters.current_call_depth.saturating_add(1);
         if let Some(max) = self.policy.max_call_depth
@@ -99,6 +131,7 @@ impl ResourceState {
     }
 
     pub(crate) fn prepare_heap_growth(&self, units: usize) -> Result<HeapGrowth<'_>, RuntimeError> {
+        self.ensure_execution_allowed()?;
         let counters = self.counters.borrow_mut();
         let live = counters
             .current_heap_units
@@ -134,6 +167,7 @@ impl ResourceState {
     }
 
     pub fn consume_host_call(&self) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         let mut counters = self.counters.borrow_mut();
         let next = counters.host_calls.saturating_add(1);
         if let Some(max) = self.policy.max_host_calls
@@ -146,6 +180,7 @@ impl ResourceState {
     }
 
     pub fn consume_reflection_operation(&self) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         let mut counters = self.counters.borrow_mut();
         let next = counters.reflection_operations.saturating_add(1);
         if let Some(max) = self.policy.max_reflection_operations
@@ -158,6 +193,7 @@ impl ResourceState {
     }
 
     pub fn record_loaded_modules(&self, loaded_modules: usize) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         if let Some(max) = self.policy.max_modules
             && loaded_modules > max
         {

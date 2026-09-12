@@ -42,6 +42,23 @@ commit. The commit does not allocate fallibly or invoke arbitrary script code.
 It cannot update the field and then report an ordinary failure because dirty
 record creation failed. Custom adapters must satisfy this same contract.
 
+HostPathAdapter uses a fallible `with_prepare_write` callback returning a
+`PreparedHostPathWrite` action. Preparation must not change the target. It resolves
+the stable host location, checks host invariants, and reserves anything the action
+needs. Dropping an uncommitted action releases those reservations. The runtime
+reserves ledger capacity and checks `ResourcePolicy::max_dirty_records` before
+running the action and appending the prepared record. There is no fallible write
+callback or synchronous dirty hook. The host consumes the ledger after execution.
+
+A provided old-value reader must succeed; its error cannot be ignored by Set.
+Old/new heap values and path arguments remain rooted through preparation and
+commit. Preparation may explicitly collect. Commit cannot execute script, mutate
+script heap storage, allocate through the runtime, or collect. Unwinding commit
+panics and attempts to enter execution quarantine the runtime, even when a host
+action swallows the rejected nested operation. These return EngineFault (embedding
+EngineInvariant), not a business Result or ordinary trap. There is no promise of
+target rollback after a broken commit invariant. Other completed effects remain.
+
 External database writes, network messages, and other irreversible effects belong
 to explicit host APIs or host transactions. Custom host functions may partially
 succeed only under an explicitly documented result contract. Whole-call atomicity

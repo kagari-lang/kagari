@@ -186,9 +186,15 @@ Runtime::collect_garbage includes registered host/frame/debug roots, module slot
 initializer results and pending host-path mutation records. Path-view dynamic arguments
 are traced; Rust host objects and borrowed resources remain host-owned. Path-operation
 arguments and old/new values are temporarily rooted across host
-read/write/dirty callbacks, including callbacks that explicitly collect. Register/local
+read/preparation callbacks, including preparation that explicitly collects. Commit
+actions only apply prepared host state; they cannot collect or execute scripts.
+Register/local
 slots stay conservatively rooted until overwritten or their frame is dropped. Trap and
 budget failure drop frame roots through the same frame cleanup path.
+Commit invariant failures use this cleanup path too, and quarantine the runtime.
+Execution, allocation, collection and mutation entry points then reject further
+work with EngineFault. There is no reset API; inspecting existing counters and
+discarding the runtime remain possible.
 
 GcHeapConfig.collection_threshold schedules automatic collection at instruction
 safepoints, including the current scalar JIT helper. Collection never runs in the

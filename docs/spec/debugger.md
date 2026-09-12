@@ -124,7 +124,7 @@ The baseline debugger supports:
 - capability denial breakpoints
 
 Data breakpoints and watchpoint-style field mutation breakpoints are not baseline requirements.
-They may be added later through typed path dirty hooks.
+They may be added later by observing the committed typed-path dirty-record ledger.
 
 ## Safe Debug Points
 

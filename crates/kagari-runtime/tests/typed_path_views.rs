@@ -1,3 +1,4 @@
+use kagari_runtime::host::PreparedHostPathWrite;
 use std::sync::{Arc, Mutex};
 
 use kagari_ir::bytecode::BinaryOp;
@@ -11,7 +12,11 @@ use kagari_runtime::{
 };
 
 fn path_mutation_runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
+    Runtime::new(path_mutation_config())
+}
+
+fn path_mutation_config() -> RuntimeConfig {
+    RuntimeConfig {
         security: SecurityContext {
             profile: LanguageProfile {
                 allow_path_mutation: true,
@@ -34,7 +39,285 @@ fn path_mutation_runtime() -> Runtime {
             ..HostExposurePolicy::default()
         },
         ..RuntimeConfig::default()
-    })
+    }
+}
+
+#[test]
+fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchanged() {
+    use std::{cell::Cell, rc::Rc};
+    for stage in ["read", "validation", "preparation"] {
+        let mut runtime = path_mutation_runtime();
+        let scalar = register_i32(&runtime);
+        let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+        let root = runtime
+            .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
+            .unwrap();
+        let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
+        let target = Rc::new(Cell::new(10));
+        let read_target = target.clone();
+        let prepare_target = target.clone();
+        let reject = Rc::new(Cell::new(true));
+        let read_reject = reject.clone();
+        let validate_reject = reject.clone();
+        let prepare_reject = reject.clone();
+        runtime
+            .register_host_path_adapter(
+                descriptor,
+                HostPathAdapter::new()
+                    .with_validate(move |_, _, _| {
+                        if stage == "validation" && validate_reject.get() {
+                            return Err(HostError::new("rejected validation"));
+                        }
+                        Ok(())
+                    })
+                    .with_read(move |_| {
+                        if stage == "read" && read_reject.get() {
+                            return Err(HostError::new("rejected read"));
+                        }
+                        Ok(Value::I32(read_target.get()))
+                    })
+                    .with_prepare_write(move |_, record| {
+                        if stage == "preparation" && prepare_reject.get() {
+                            return Err(HostError::new("rejected preparation"));
+                        }
+                        let Value::I32(next) = record.new_value else {
+                            return Err(HostError::new("expected i32"));
+                        };
+                        let target = prepare_target.clone();
+                        Ok(PreparedHostPathWrite::new(move || target.set(next)))
+                    }),
+            )
+            .unwrap();
+        for modifying in [false, true] {
+            let error = if modifying {
+                runtime
+                    .modify_host_path(
+                        &Value::HostRoot(root),
+                        descriptor,
+                        vec![],
+                        BinaryOp::Add,
+                        Value::I32(2),
+                    )
+                    .unwrap_err()
+            } else {
+                runtime
+                    .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+                    .unwrap_err()
+            };
+            assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
+            assert!(error.message().contains(stage));
+            assert_eq!(target.get(), 10);
+            assert!(runtime.host_dirty_paths().is_empty());
+            assert_eq!(runtime.gc().active_roots(), 0);
+            assert!(!runtime.is_quarantined());
+        }
+        reject.set(false);
+        runtime
+            .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+            .unwrap();
+        assert_eq!(target.get(), 20);
+        assert_eq!(runtime.host_dirty_paths().len(), 1);
+    }
+}
+
+#[test]
+fn nonstorable_previous_value_cannot_escape_through_the_dirty_ledger() {
+    let mut runtime = path_mutation_runtime();
+    let scalar = register_i32(&runtime);
+    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
+    runtime
+        .register_host_path_adapter(
+            descriptor,
+            HostPathAdapter::new()
+                .with_read(move |_| Ok(Value::HostRoot(root)))
+                .with_prepare_write(|_, _| {
+                    panic!("invalid dirty payload must reject before host preparation")
+                }),
+        )
+        .unwrap();
+    let error = runtime
+        .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
+    assert!(runtime.host_dirty_paths().is_empty());
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert!(!runtime.is_quarantined());
+}
+
+#[test]
+fn dirty_record_limit_discards_prepared_resources_without_committing_target() {
+    use std::{cell::Cell, rc::Rc};
+    struct Reservation(Rc<Cell<usize>>);
+    impl Drop for Reservation {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() - 1);
+        }
+    }
+    let mut config = path_mutation_config();
+    config.resources.max_dirty_records = Some(1);
+    let mut runtime = Runtime::new(config);
+    let scalar = register_i32(&runtime);
+    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
+    let target = Rc::new(Cell::new(10));
+    let read_target = target.clone();
+    let write_target = target.clone();
+    let reservations = Rc::new(Cell::new(0));
+    let prepare_reservations = reservations.clone();
+    runtime
+        .register_host_path_adapter(
+            descriptor,
+            HostPathAdapter::new()
+                .with_read(move |_| Ok(Value::I32(read_target.get())))
+                .with_prepare_write(move |_, record| {
+                    let Value::I32(next) = record.new_value else {
+                        return Err(HostError::new("expected i32"));
+                    };
+                    prepare_reservations.set(prepare_reservations.get() + 1);
+                    let reservation = Reservation(prepare_reservations.clone());
+                    let target = write_target.clone();
+                    Ok(PreparedHostPathWrite::new(move || {
+                        target.set(next);
+                        drop(reservation);
+                    }))
+                }),
+        )
+        .unwrap();
+    runtime
+        .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+        .unwrap();
+    let before = runtime.host_dirty_paths();
+    for modifying in [false, true] {
+        let error = if modifying {
+            runtime
+                .modify_host_path(
+                    &Value::HostRoot(root),
+                    descriptor,
+                    vec![],
+                    BinaryOp::Add,
+                    Value::I32(2),
+                )
+                .unwrap_err()
+        } else {
+            runtime
+                .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(30))
+                .unwrap_err()
+        };
+        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+        assert!(error.message().contains("dirty records"));
+        assert_eq!(target.get(), 20);
+        assert_eq!(runtime.host_dirty_paths(), before);
+        assert_eq!(reservations.get(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(!runtime.is_quarantined());
+    }
+    runtime.clear_host_dirty_paths();
+    runtime
+        .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(40))
+        .unwrap();
+    assert_eq!(target.get(), 40);
+    assert_eq!(
+        runtime.host_dirty_paths()[0].old_value,
+        Some(Value::I32(20))
+    );
+}
+
+#[test]
+fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
+    use std::{
+        cell::{Cell, RefCell},
+        rc::{Rc, Weak},
+    };
+    for fault in ["panic", "execute", "allocate", "mutate", "collect", "root"] {
+        let mut runtime = path_mutation_runtime();
+        let scalar = register_i32(&runtime);
+        let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+        let root = runtime
+            .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
+            .unwrap();
+        let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
+        let array = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
+        let access = Rc::new(RefCell::new(None::<Weak<Runtime>>));
+        let prepare_access = access.clone();
+        let committed = Rc::new(Cell::new(false));
+        let prepare_committed = committed.clone();
+        runtime
+            .register_host_path_adapter(
+                descriptor,
+                HostPathAdapter::new()
+                    .with_read(|_| Ok(Value::I32(10)))
+                    .with_prepare_write(move |_, _| {
+                        let access = prepare_access.clone();
+                        let committed = prepare_committed.clone();
+                        Ok(PreparedHostPathWrite::new(move || {
+                            committed.set(true);
+                            let runtime = access.borrow().as_ref().unwrap().upgrade().unwrap();
+                            let error = match fault {
+                                "panic" => panic!("broken host commit invariant"),
+                                "execute" => runtime.consume_instruction_step().unwrap_err(),
+                                "allocate" => runtime.alloc_array(vec![]).unwrap_err(),
+                                "collect" => runtime.collect_garbage().unwrap_err(),
+                                "root" => {
+                                    assert!(runtime.root_value(Value::Array(array)).is_none());
+                                    runtime.resources().ensure_execution_allowed().unwrap_err()
+                                }
+                                "mutate" => {
+                                    assert!(
+                                        runtime.gc().array_set(array, 0, Value::I32(2)).is_none()
+                                    );
+                                    runtime.resources().ensure_execution_allowed().unwrap_err()
+                                }
+                                _ => unreachable!(),
+                            };
+                            assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+                            // Swallowing the rejected nested operation cannot restore the runtime.
+                        }))
+                    }),
+            )
+            .unwrap();
+        let runtime = Rc::new(runtime);
+        *access.borrow_mut() = Some(Rc::downgrade(&runtime));
+        let error = runtime
+            .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+            .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+        assert!(committed.get());
+        assert!(runtime.is_quarantined());
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc().array_get(array, 0), Some(Value::I32(1)));
+        assert_eq!(runtime.resources().counters().instruction_steps, 0);
+        assert_eq!(runtime.resources().counters().allocation_units, 2);
+        assert_eq!(
+            runtime.enter_call().unwrap_err().kind(),
+            RuntimeErrorKind::EngineFault
+        );
+        assert_eq!(
+            runtime.alloc_array(vec![]).unwrap_err().kind(),
+            RuntimeErrorKind::EngineFault
+        );
+        assert_eq!(
+            runtime
+                .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::EngineFault
+        );
+        assert_eq!(
+            runtime
+                .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(30))
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::EngineFault
+        );
+        assert!(Runtime::default().alloc_array(vec![]).is_ok());
+    }
 }
 
 fn register_i32(runtime: &Runtime) -> TypeId {
@@ -83,7 +366,7 @@ fn register_hp_descriptor(
 }
 
 #[test]
-fn heap_path_temporaries_survive_collection_inside_write_and_dirty_callbacks() {
+fn heap_path_temporaries_survive_collection_during_write_preparation() {
     use std::{
         cell::{Cell, RefCell},
         rc::{Rc, Weak},
@@ -109,7 +392,6 @@ fn heap_path_temporaries_survive_collection_inside_write_and_dirty_callbacks() {
     let read_previous = previous.clone();
     let write_access = access.clone();
     let write_previous = previous.clone();
-    let dirty_access = access.clone();
     runtime
         .register_host_path_adapter(
             descriptor,
@@ -120,7 +402,8 @@ fn heap_path_temporaries_survive_collection_inside_write_and_dirty_callbacks() {
                     read_previous.set(Some(value));
                     Ok(Value::Array(value))
                 })
-                .with_write(move |_, value| {
+                .with_prepare_write(move |_, record| {
+                    let value = record.new_value.clone();
                     let runtime = write_access.borrow().as_ref().unwrap().upgrade().unwrap();
                     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
                     assert_eq!(
@@ -131,12 +414,7 @@ fn heap_path_temporaries_survive_collection_inside_write_and_dirty_callbacks() {
                         panic!("array path value")
                     };
                     assert_eq!(runtime.gc().array_get(next, 0), Some(Value::I32(2)));
-                    Ok(())
-                })
-                .with_dirty(move |_| {
-                    let runtime = dirty_access.borrow().as_ref().unwrap().upgrade().unwrap();
-                    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
-                    Ok(())
+                    Ok(PreparedHostPathWrite::new(|| {}))
                 }),
         )
         .unwrap();
@@ -499,7 +777,7 @@ fn rejects_stale_root_metadata_when_creating_views() {
 }
 
 #[test]
-fn executes_path_read_set_modify_and_dirty_hooks_in_order() {
+fn executes_path_read_prepare_commit_and_dirty_records_in_order() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
@@ -527,19 +805,25 @@ fn executes_path_read_set_modify_and_dirty_hooks_in_order() {
                     Ok(())
                 })
                 .with_read(move |_| Ok(Value::I32(*read_hp.lock().unwrap())))
-                .with_write(move |_, value| {
-                    let Value::I32(value) = value else {
+                .with_prepare_write(move |_, record| {
+                    let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
                     };
-                    *write_hp.lock().unwrap() = value;
-                    Ok(())
-                })
-                .with_dirty(move |record| {
-                    dirty_events.lock().unwrap().push(format!(
+                    let event = format!(
                         "dirty:{:?}:{:?}->{:?}",
                         record.operation, record.old_value, record.new_value
-                    ));
-                    Ok(())
+                    );
+                    dirty_events
+                        .lock()
+                        .unwrap()
+                        .try_reserve(1)
+                        .map_err(|_| HostError::new("event capacity"))?;
+                    let write_hp = write_hp.clone();
+                    let dirty_events = dirty_events.clone();
+                    Ok(PreparedHostPathWrite::new(move || {
+                        *write_hp.lock().unwrap() = value;
+                        dirty_events.lock().unwrap().push(event);
+                    }))
                 }),
         )
         .unwrap();
@@ -645,13 +929,16 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
                 descriptor,
                 HostPathAdapter::new()
                     .with_read(move |_| Ok(Value::I32(*read_value.lock().unwrap())))
-                    .with_write(move |_, value| {
-                        let Value::I32(value) = value else {
+                    .with_prepare_write(move |_, record| {
+                        let Value::I32(value) = record.new_value else {
                             return Err(HostError::new("expected i32"));
                         };
-                        *write_count.lock().unwrap() += 1;
-                        *write_value.lock().unwrap() = value;
-                        Ok(())
+                        let write_count = write_count.clone();
+                        let write_value = write_value.clone();
+                        Ok(PreparedHostPathWrite::new(move || {
+                            *write_count.lock().unwrap() += 1;
+                            *write_value.lock().unwrap() = value;
+                        }))
                     }),
             )
             .unwrap();
