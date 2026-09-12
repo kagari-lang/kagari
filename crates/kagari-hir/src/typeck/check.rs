@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    BoxedDiagnosticBuffer,
+    AnalysisResult,
     builtin::surface::{self, StandardTypeConstraint},
     hir::FunctionKind,
     hir::{BinaryOp, ConstId, ConstItem, ExprId, ExprKind, PrefixOp},
@@ -21,7 +21,11 @@ use crate::{
 pub fn check_module(
     lowered: &LoweredModule,
     names: &ResolvedNames,
-) -> Result<TypedModule, BoxedDiagnosticBuffer> {
+    reuse: Option<&super::BodyReuse<'_>>,
+) -> AnalysisResult<TypedModule> {
+    let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
+    let mut checked_bodies = 0;
+    let mut reused_bodies = 0;
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
     let mut function_index = FunctionTypeIndex::default();
@@ -112,9 +116,7 @@ pub fn check_module(
         functions.push(typed_function);
     }
 
-    if !diagnostics.is_empty() {
-        Err(Box::new(diagnostics))
-    } else {
+    {
         let mut type_table = TypeTable::default();
         for const_item in &lowered.module.consts {
             let ty = match const_item.ty {
@@ -188,6 +190,11 @@ pub fn check_module(
             if matches!(function.kind, FunctionKind::TraitMethod) {
                 continue;
             }
+            if reuse.is_some_and(|reuse| reuse.restore(lowered, function, &mut type_table)) {
+                reused_bodies += 1;
+                continue;
+            }
+            checked_bodies += 1;
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
                 env.generics = function_generic_names(function);
@@ -233,14 +240,15 @@ pub fn check_module(
             }
         }
 
-        if diagnostics.is_empty() {
-            Ok(TypedModule {
+        AnalysisResult {
+            facts: TypedModule {
+                checked_bodies,
+                reused_bodies,
                 functions,
                 consts: top_level_index.consts,
                 type_table,
-            })
-        } else {
-            Err(Box::new(diagnostics))
+            },
+            diagnostics,
         }
     }
 }

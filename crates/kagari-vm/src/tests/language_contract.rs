@@ -101,7 +101,7 @@ fn language_contract_routes_preserve_values_and_aliases() {
 fn language_contract_rejects_const_rebinding() {
     let source = SourceFile::new("const_write.kgr", "const N: i32 = 1; fn main() { N = 2; }");
     let ast = kagari_syntax::parse_module(&source).unwrap();
-    let diagnostics = kagari_hir::analyze_module(&ast).unwrap_err();
+    let diagnostics = kagari_hir::analyze_module(&ast).into_codegen().unwrap_err();
     assert!(
         diagnostics.iter().any(|d| matches!(d.kind,
         kagari_common::DiagnosticKind::InvalidAssignmentTarget { ref reason }

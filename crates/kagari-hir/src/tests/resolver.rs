@@ -15,7 +15,9 @@ fn foo() {}
 "#,
     );
 
-    let diagnostics = resolve_names(&lowered).expect_err("resolver should reject duplicates");
+    let diagnostics = resolve_names(&lowered)
+        .into_checked()
+        .expect_err("resolver should reject duplicates");
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
@@ -33,7 +35,9 @@ fn foo() {}
 #[test]
 fn resolves_params_and_locals_in_function_body() {
     let lowered = common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value; next }");
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
 
     let block = lowered.module.block(function.body);
@@ -60,7 +64,9 @@ fn resolves_params_and_locals_in_function_body() {
 #[test]
 fn resolves_named_match_pattern_bindings_inside_arm() {
     let lowered = common::lower_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
     let block = lowered.module.block(function.body);
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -92,7 +98,9 @@ const VERSION: i32 = 1;
 fn main() -> i32 { VERSION }
 "#,
     );
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
     let function = lowered
         .module
         .functions
@@ -131,7 +139,9 @@ impl Display for Player {
 fn main() -> i32 { 1 }
 "#,
     );
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
     assert!(resolved.items.contains_module("gameplay"));
     assert!(resolved.items.contains_trait("Display"));
@@ -148,7 +158,9 @@ val boot = 1;
 boot
 "#,
     );
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
     let module_init = lowered
         .module
         .module_init
@@ -180,7 +192,9 @@ val boot = 1;
 fn main() -> i32 { boot }
 "#,
     );
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
     let function = lowered
         .module
         .functions

@@ -48,7 +48,7 @@ pub enum IrLoweringError {
     InvalidLoopControl,
 }
 
-pub fn lower_to_ir(module: &AnalyzedModule) -> Result<IrModule, IrLoweringError> {
+pub fn lower_to_ir(module: &kagari_hir::CheckedAnalysis) -> Result<IrModule, IrLoweringError> {
     let const_values = lower_const_values(module)?;
 
     let functions = module

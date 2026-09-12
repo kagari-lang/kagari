@@ -16,6 +16,7 @@ impl FunctionLowerer<'_> {
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         let expr = self.analyzed.lowered.module.expr(expr_id).clone();
         match expr.kind {
+            hir::ExprKind::Missing => Err(IrLoweringError::UnresolvedExpr(expr_id)),
             hir::ExprKind::Name(_) => self.lower_name_expr(expr_id),
             hir::ExprKind::Literal(literal) => match literal.kind {
                 hir::LiteralKind::Number => {

@@ -13,6 +13,82 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
+    pub(crate) fn restore_function(
+        &mut self,
+        old: &Self,
+        old_map: &crate::source_map::SourceMap,
+        new_map: &crate::source_map::SourceMap,
+        old_span: kagari_common::Span,
+        new_span: kagari_common::Span,
+    ) -> bool {
+        fn remap(
+            old: &[kagari_common::Span],
+            new: &[kagari_common::Span],
+            old_span: kagari_common::Span,
+            new_span: kagari_common::Span,
+        ) -> Option<Vec<(usize, usize)>> {
+            let relative = |spans: &[kagari_common::Span], owner: kagari_common::Span| {
+                spans
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, span)| span.start >= owner.start && span.end <= owner.end)
+                    .map(|(id, span)| (id, span.start - owner.start, span.end - owner.start))
+                    .collect::<Vec<_>>()
+            };
+            let old = relative(old, old_span);
+            let new = relative(new, new_span);
+            if old.len() != new.len() {
+                return None;
+            }
+            old.into_iter()
+                .zip(new)
+                .map(|((a, start, end), (b, ns, ne))| (start == ns && end == ne).then_some((a, b)))
+                .collect()
+        }
+        let Some(exprs) = remap(
+            old_map.expr_spans(),
+            new_map.expr_spans(),
+            old_span,
+            new_span,
+        ) else {
+            return false;
+        };
+        let Some(locals) = remap(
+            old_map.local_spans(),
+            new_map.local_spans(),
+            old_span,
+            new_span,
+        ) else {
+            return false;
+        };
+        let Some(places) = remap(
+            old_map.place_spans(),
+            new_map.place_spans(),
+            old_span,
+            new_span,
+        ) else {
+            return false;
+        };
+        for (a, b) in exprs {
+            if let Some(ty) = old.exprs.get(&ExprId::new(a)) {
+                self.exprs.insert(ExprId::new(b), ty.clone());
+            }
+            if let Some(intrinsic) = old.standard_calls.get(&ExprId::new(a)) {
+                self.standard_calls.insert(ExprId::new(b), *intrinsic);
+            }
+        }
+        for (a, b) in locals {
+            if let Some(ty) = old.locals.get(&LocalId::new(a)) {
+                self.locals.insert(LocalId::new(b), ty.clone());
+            }
+        }
+        for (a, b) in places {
+            if let Some(ty) = old.places.get(&PlaceId::new(a)) {
+                self.places.insert(PlaceId::new(b), ty.clone());
+            }
+        }
+        true
+    }
     pub(crate) fn insert_expr(&mut self, id: ExprId, ty: TypeId) {
         self.exprs.insert(id, ty);
     }

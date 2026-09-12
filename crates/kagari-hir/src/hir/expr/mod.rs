@@ -15,6 +15,7 @@ pub struct ExprData {
 
 #[derive(Debug, Clone)]
 pub enum ExprKind {
+    Missing,
     Name(String),
     Literal(Literal),
     Prefix {

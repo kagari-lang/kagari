@@ -18,7 +18,7 @@ impl Lowerer {
                 return paren
                     .expr()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>"));
+                    .unwrap_or_else(|| self.missing_expr());
             }
             ast::Expr::PrefixExpr(prefix) => ExprKind::Prefix {
                 op: match prefix.operator() {
@@ -28,24 +28,24 @@ impl Lowerer {
                 expr: prefix
                     .expr()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             },
             ast::Expr::BinaryExpr(binary) => ExprKind::Binary {
                 lhs: binary
                     .lhs()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
                 op: lower_binary_op(binary.operator()),
                 rhs: binary
                     .rhs()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             },
             ast::Expr::CallExpr(call) => ExprKind::Call {
                 callee: call
                     .callee()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
                 args: call
                     .args()
                     .map(|arg| self.lower_expr(&arg))
@@ -55,24 +55,24 @@ impl Lowerer {
                 receiver: field
                     .receiver()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
                 name: field.name_text().unwrap_or_default(),
             },
             ast::Expr::IndexExpr(index) => ExprKind::Index {
                 receiver: index
                     .receiver()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
                 index: index
                     .index()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             },
             ast::Expr::IfExpr(if_expr) => ExprKind::If {
                 condition: if_expr
                     .condition()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
                 then_branch: match if_expr.then_branch() {
                     Some(block) => self.lower_block(&block),
                     None => self.alloc_block(
@@ -100,7 +100,7 @@ impl Lowerer {
                                 value: field
                                     .value()
                                     .map(|expr| self.lower_expr(&expr))
-                                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                                    .unwrap_or_else(|| self.missing_expr()),
                             })
                             .collect::<SmallVec<[_; 4]>>()
                     })
@@ -110,7 +110,7 @@ impl Lowerer {
                 scrutinee: match_expr
                     .scrutinee()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
                 arms: match_expr
                     .arms()
                     .map(|arms| {
@@ -123,7 +123,7 @@ impl Lowerer {
                                 expr: arm
                                     .expr()
                                     .map(|expr| self.lower_expr(&expr))
-                                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                                    .unwrap_or_else(|| self.missing_expr()),
                             })
                             .collect::<SmallVec<[_; 4]>>()
                     })

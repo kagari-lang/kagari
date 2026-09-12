@@ -1,7 +1,9 @@
 mod body;
 mod check;
+mod reuse;
 mod table;
 mod ty;
+pub use reuse::BodyReuse;
 
 use crate::types::TypeId;
 use std::collections::HashMap;
@@ -16,6 +18,8 @@ pub use table::TypeTable;
 
 #[derive(Debug, Clone)]
 pub struct TypedModule {
+    pub checked_bodies: usize,
+    pub reused_bodies: usize,
     pub functions: TypedFunctionBuffer,
     pub consts: HashMap<ConstId, TypeId>,
     pub type_table: TypeTable,

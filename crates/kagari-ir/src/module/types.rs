@@ -1,8 +1,9 @@
 use kagari_hir::types::{BuiltinType, TypeId};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValueType {
+    #[default]
     Unit,
     Bool,
     I32,
@@ -19,6 +20,9 @@ pub enum ValueType {
 impl ValueType {
     pub fn from_type_id(type_id: &TypeId) -> Self {
         match type_id {
+            TypeId::Unknown | TypeId::Error => {
+                unreachable!("unchecked type reached code generation")
+            }
             TypeId::Builtin(BuiltinType::Unit) => Self::Unit,
             TypeId::Builtin(BuiltinType::Bool) => Self::Bool,
             TypeId::Builtin(BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32) => Self::I32,
@@ -44,11 +48,5 @@ impl ValueType {
             | TypeId::Generic(_)
             | TypeId::StandardEnum { .. } => Self::HeapObject,
         }
-    }
-}
-
-impl Default for ValueType {
-    fn default() -> Self {
-        Self::Unit
     }
 }

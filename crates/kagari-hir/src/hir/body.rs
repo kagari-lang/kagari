@@ -14,6 +14,19 @@ pub struct Body {
 }
 
 impl Body {
+    pub fn expressions(&self) -> impl Iterator<Item = (ExprId, &ExprData)> {
+        self.exprs
+            .iter()
+            .enumerate()
+            .map(|(index, expr)| (ExprId::new(index), expr))
+    }
+
+    pub fn blocks(&self) -> impl Iterator<Item = (BlockId, &BlockData)> {
+        self.blocks
+            .iter()
+            .enumerate()
+            .map(|(index, block)| (BlockId::new(index), block))
+    }
     pub fn block(&self, id: BlockId) -> &BlockData {
         &self.blocks[id.index()]
     }

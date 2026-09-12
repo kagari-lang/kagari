@@ -66,11 +66,11 @@ impl Lowerer {
         id
     }
 
-    pub(crate) fn synthetic_name_expr(&mut self, name: &str) -> ExprId {
+    pub(crate) fn missing_expr(&mut self) -> ExprId {
         self.alloc_expr(
             Span::default(),
             ExprData {
-                kind: ExprKind::Name(name.to_string()),
+                kind: ExprKind::Missing,
             },
         )
     }

@@ -41,3 +41,22 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 R01 specifies target behavior. Remaining runtime behavior must not be described
 as conforming until its corresponding checkpoint and regression tests pass.
+
+Implemented foundation slices:
+
+- R02: shared source/artifact/JIT value, identity, alias, short-circuit and negative
+  diagnostic cases. Host effect trace fixtures remain to be connected.
+- R03: source IDs/revisions, immutable snapshots, base/overlay precedence and
+  checked UTF-8/UTF-16/CRLF coordinates. Project/module ingestion and semantic
+  definition identity integration remain outstanding.
+- R04: analysis retains facts and diagnostics; unknown/missing expressions are
+  represented explicitly, and codegen requires a sealed CheckedAnalysis. More
+  semantic-target and source-owner integration remains outstanding.
+- R05: unchanged files share parse/analysis results; identical function bodies
+  reuse remapped type facts, while declaration changes invalidate that reuse.
+  Scope/type/member-receiver queries work on erroneous files. Cancellation checks
+  currently cover file/parse/analysis boundaries; intra-pass checks remain.
+
+Validation: workspace tests pass after the source/analysis changes. Workspace
+clippy with `-D warnings` passes after correcting baseline lints and marking the
+raw-pointer JIT helper's caller contract unsafe. The complete track remains open.

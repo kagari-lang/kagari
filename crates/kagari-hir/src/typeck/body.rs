@@ -327,7 +327,14 @@ impl<'a> BodyChecker<'a> {
 
         let expr = self.lowered.module.expr(expr_id);
         let ty = match &expr.kind {
-            ExprKind::Name(_) => self
+            ExprKind::Missing => {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::ExpectedExpression)
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                );
+                TypeId::Unknown
+            }
+            ExprKind::Name(name) => self
                 .names
                 .expr_resolution(expr_id)
                 .and_then(|resolved| match resolved {
@@ -346,7 +353,13 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_) => None,
                 })
-                .unwrap_or(TypeId::Builtin(BuiltinType::Unit)),
+                .unwrap_or_else(|| {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownName { name: name.clone() })
+                            .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                    TypeId::Error
+                }),
             ExprKind::Literal(literal) => match literal.kind {
                 LiteralKind::Number => TypeId::Builtin(BuiltinType::I32),
                 LiteralKind::Float => TypeId::Builtin(BuiltinType::F32),
@@ -409,7 +422,17 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Field { receiver, name } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
                 self.resolve_field_type(&receiver_ty, name)
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                    .unwrap_or_else(|| {
+                        self.diagnostics.push(
+                            Diagnostic::error(if name.is_empty() {
+                                DiagnosticKind::ExpectedFieldName
+                            } else {
+                                DiagnosticKind::UnknownName { name: name.clone() }
+                            })
+                            .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        );
+                        TypeId::Error
+                    })
             }
             ExprKind::Index { receiver, index } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
@@ -1508,11 +1531,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn standard_function_path(&self, name: &str) -> Option<StandardIntrinsic> {
-        if let Some((module_alias, function_name)) = name.rsplit_once("::") {
-            if let Some(module) = self.standard_module_path(module_alias) {
-                return surface::standard_function(module, function_name)
-                    .map(|function| function.intrinsic);
-            }
+        if let Some((module_alias, function_name)) = name.rsplit_once("::")
+            && let Some(module) = self.standard_module_path(module_alias)
+        {
+            return surface::standard_function(module, function_name)
+                .map(|function| function.intrinsic);
         }
         None
     }

@@ -28,9 +28,13 @@ fn main() -> i32 {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    check_module(&lowered, &names).expect("spec-valid var field and index mutation should typeck");
+    check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("spec-valid var field and index mutation should typeck");
 }
 
 #[test]
@@ -86,9 +90,12 @@ fn main() -> i32 {
 
     for case in cases {
         let lowered = common::lower_ok(case.source);
-        let names = resolve_names(&lowered).expect("resolver should succeed");
-        let diagnostics =
-            check_module(&lowered, &names).expect_err("type checker should reject source");
+        let names = resolve_names(&lowered)
+            .into_checked()
+            .expect("resolver should succeed");
+        let diagnostics = check_module(&lowered, &names, None)
+            .into_checked()
+            .expect_err("type checker should reject source");
 
         assert!(
             diagnostics

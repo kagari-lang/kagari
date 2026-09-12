@@ -19,6 +19,8 @@ pub enum BuiltinType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeId {
+    Unknown,
+    Error,
     Builtin(BuiltinType),
     Tuple(Vec<TypeId>),
     Array(Box<TypeId>),
@@ -44,6 +46,8 @@ impl TypeId {
 
     pub fn display_name(&self) -> String {
         match self {
+            Self::Unknown => "<unknown>".to_owned(),
+            Self::Error => "<error>".to_owned(),
             Self::Builtin(ty) => crate::builtin::surface::builtin_type_spec(*ty)
                 .map(|spec| spec.name.to_owned())
                 .unwrap_or("<builtin>".to_owned()),
@@ -76,6 +80,7 @@ impl TypeId {
 
     pub fn is_heap_backed(&self) -> bool {
         match self {
+            Self::Unknown | Self::Error => false,
             Self::Builtin(ty) => {
                 crate::builtin::surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
             }

@@ -473,7 +473,7 @@ impl Lowerer {
             initializer: const_def
                 .initializer()
                 .map(|expr| self.lower_expr(&expr))
-                .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                .unwrap_or_else(|| self.missing_expr()),
         }
     }
 

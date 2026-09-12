@@ -11,6 +11,7 @@ use super::common;
 fn profile_rejects_script_visible_reflection_when_disabled() {
     let module = common::parse_ok("fn main() -> String { type_of(7) }");
     let diagnostics = analyze_module_with_profile(&module, LanguageFeatureProfile::default())
+        .into_codegen()
         .expect_err("profile should reject reflection");
 
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -40,6 +41,7 @@ fn main() -> Point {
             ..LanguageFeatureProfile::default()
         },
     )
+    .into_codegen()
     .expect_err("profile should reject reflective writes");
 
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -58,7 +60,9 @@ trait Show { fn show(self) -> String; }
 fn render(value: Show) -> String { value.show() }
 "#,
     );
-    let analyzed = crate::analyze_module(&module).expect("interface value should analyze");
+    let analyzed = crate::analyze_module(&module)
+        .into_codegen()
+        .expect("interface value should analyze");
     let diagnostics = validate_profile(
         &analyzed,
         LanguageFeatureProfile {

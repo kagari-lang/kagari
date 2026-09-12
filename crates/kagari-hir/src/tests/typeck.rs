@@ -13,9 +13,13 @@ use crate::{
 #[test]
 fn reports_unknown_parameter_type() {
     let lowered = common::lower_ok("fn foo(value: number) {}");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names).expect_err("type checker should reject type");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject type");
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
@@ -35,9 +39,13 @@ fn reports_unknown_parameter_type() {
 #[test]
 fn reports_unknown_return_type() {
     let lowered = common::lower_ok("fn foo() -> number {}");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names).expect_err("type checker should reject type");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject type");
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
@@ -57,10 +65,13 @@ fn reports_unknown_return_type() {
 #[test]
 fn reports_invalid_const_initializer_expression() {
     let lowered = common::lower_ok("const VALUE: i32 = type_of(1);");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject const initializer");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject const initializer");
 
     assert_eq!(
         diagnostics[0].kind,
@@ -82,9 +93,12 @@ const ROOT: Holder = Holder { inner: Point { x: 1 } };
 fn main() -> Point { set_field(ROOT.inner, "x", 2) }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names)
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
         .expect_err("type checker should reject reflection write on const");
 
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -103,9 +117,13 @@ const A: i32 = B;
 const B: i32 = A;
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names).expect_err("type checker should reject cycle");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject cycle");
 
     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind
         == DiagnosticKind::ConstCycle {
@@ -123,8 +141,11 @@ const VALUES: [i32] = [3, 4];
 const POINT: Point = Point { x: 5, y: 6 };
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names)
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
         .expect_err("type checker should reject heap-backed const types");
 
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -166,8 +187,12 @@ fn main(point: Point) -> Point {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should accept plain call");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should accept plain call");
     let function = lowered
         .module
         .functions
@@ -194,9 +219,12 @@ fn main() -> i32 {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject argument type");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject argument type");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -220,9 +248,12 @@ fn main() -> i32 {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject arity mismatch");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject arity mismatch");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -238,8 +269,12 @@ fn main() -> i32 {
 fn records_expression_types_for_resolved_body_expressions() {
     let lowered =
         common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value + 1; next }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
 
     let block = lowered.module.block(function.body);
@@ -271,8 +306,12 @@ fn main() -> usize {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
     let block = lowered.module.block(function.body);
 
@@ -301,8 +340,12 @@ fn main(value: String) -> usize {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
     let block = lowered.module.block(function.body);
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -436,8 +479,12 @@ fn unique(value: Set<String>) -> Set<String> { value }
 fn sized(value: usize) -> usize { value }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
 
     assert_eq!(
         typed.functions[0].return_type,
@@ -504,10 +551,14 @@ fn clamp(value: i32) -> i32 {
             )
     }));
 
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
     assert!(names.items.contains_standard_module("math"));
     assert!(names.items.contains_standard_function("map_len"));
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
 
     let size = &lowered.module.functions[0];
     let size_tail = lowered
@@ -557,8 +608,12 @@ fn popped(values: [i32]) -> Option<i32> {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
 
     let keys_tail = lowered
         .module
@@ -613,13 +668,21 @@ fn unique<T: HashKey>(values: Set<T>) -> usize {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    check_module(&lowered, &names).expect("hash-key constrained generics should type check");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("hash-key constrained generics should type check");
 
     let lowered =
         common::lower_ok("fn bad(values: Map<f64, i32>) -> usize { std::map::len(values) }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names).expect_err("f64 map keys should reject");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("f64 map keys should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         matches!(
             &diagnostic.kind,
@@ -630,9 +693,12 @@ fn unique<T: HashKey>(values: Set<T>) -> usize {
 
     let lowered =
         common::lower_ok("fn bad<K, V>(values: Map<K, V>) -> usize { std::map::len(values) }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("unconstrained generic map key should reject");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("unconstrained generic map key should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         matches!(
             &diagnostic.kind,
@@ -645,9 +711,12 @@ fn unique<T: HashKey>(values: Set<T>) -> usize {
 #[test]
 fn rejects_standard_library_invalid_arity_and_argument_types() {
     let lowered = common::lower_ok("fn bad() -> i32 { std::math::clamp(1, 2) }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("standard call arity should reject");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("standard call arity should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::CallArityMismatch {
@@ -664,9 +733,12 @@ fn bad(values: Map<String, i32>) -> bool {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("standard method key type should reject");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("standard method key type should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::ArgumentTypeMismatch {
@@ -687,12 +759,20 @@ fn unsigned(lhs: u64, rhs: u64) -> u64 { lhs + rhs }
 fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    check_module(&lowered, &names).expect("standard numeric types should check");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("standard numeric types should check");
 
     let lowered = common::lower_ok("fn bad(value: u32) -> u32 { -value }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names).expect_err("unsigned negation should reject");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("unsigned negation should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::UnaryOperandTypeMismatch {
@@ -706,13 +786,20 @@ fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 #[test]
 fn checks_print_builtin_signature() {
     let lowered = common::lower_ok(r#"fn main() { print("hello"); }"#);
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    check_module(&lowered, &names).expect("print should accept str");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("print should accept str");
 
     let lowered = common::lower_ok("fn main() { print(1); }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject print argument");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject print argument");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -728,10 +815,13 @@ fn checks_print_builtin_signature() {
 #[test]
 fn reports_return_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> i32 { true }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject return");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject return");
 
     assert_eq!(
         diagnostics[0].kind,
@@ -746,10 +836,13 @@ fn reports_return_type_mismatch() {
 #[test]
 fn reports_break_and_continue_outside_loop() {
     let lowered = common::lower_ok("fn foo() { break; continue; }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject control flow");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject control flow");
 
     assert_eq!(diagnostics.len(), 2);
     assert_eq!(diagnostics[0].kind, DiagnosticKind::BreakOutsideLoop);
@@ -759,10 +852,13 @@ fn reports_break_and_continue_outside_loop() {
 #[test]
 fn reports_invalid_assignment_target() {
     let lowered = common::lower_ok("fn foo() -> i32 { foo = 1; 0 }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject assignment target");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject assignment target");
 
     assert_eq!(
         diagnostics[0].kind,
@@ -775,10 +871,13 @@ fn reports_invalid_assignment_target() {
 #[test]
 fn reports_assignment_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> i32 { var x: i32 = 1; x = true; x }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject assignment");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject assignment");
 
     assert_eq!(
         diagnostics[0].kind,
@@ -792,10 +891,13 @@ fn reports_assignment_type_mismatch() {
 #[test]
 fn reports_condition_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> i32 { if 1 { 1 } else { 2 } }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject condition type");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject condition type");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -809,10 +911,13 @@ fn reports_condition_type_mismatch() {
 #[test]
 fn reports_binary_operand_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> i32 { 1 + true }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject operands");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject operands");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -828,10 +933,13 @@ fn reports_binary_operand_type_mismatch() {
 #[test]
 fn reports_array_element_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> [i32] { [1, true] }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject array elements");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject array elements");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -853,10 +961,13 @@ fn foo() -> Point {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject struct init");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject struct init");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -891,8 +1002,12 @@ fn foo() -> Point {
 #[test]
 fn allows_assignment_to_var_local_but_not_val_local_or_param() {
     let var_local = common::lower_ok("fn foo() -> i32 { var x: i32 = 1; x = 2; x }");
-    let names = resolve_names(&var_local).expect("resolver should succeed");
-    let typed = check_module(&var_local, &names).expect("type checker should succeed");
+    let names = resolve_names(&var_local)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&var_local, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
     let function = &var_local.module.functions[0];
     let block = var_local.module.block(function.body);
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -902,8 +1017,12 @@ fn allows_assignment_to_var_local_but_not_val_local_or_param() {
     );
 
     let val_local = common::lower_ok("fn foo() -> i32 { val x: i32 = 1; x = 2; x }");
-    let names = resolve_names(&val_local).expect("resolver should succeed");
-    let diagnostics = check_module(&val_local, &names).expect_err("val local should reject write");
+    let names = resolve_names(&val_local)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&val_local, &names, None)
+        .into_checked()
+        .expect_err("val local should reject write");
     assert_eq!(
         diagnostics[0].kind,
         DiagnosticKind::InvalidAssignmentTarget {
@@ -912,9 +1031,12 @@ fn allows_assignment_to_var_local_but_not_val_local_or_param() {
     );
 
     let param_assignment = common::lower_ok("fn foo(value: i32) -> i32 { value = 1; value }");
-    let names = resolve_names(&param_assignment).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&param_assignment, &names).expect_err("parameter should reject write");
+    let names = resolve_names(&param_assignment)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&param_assignment, &names, None)
+        .into_checked()
+        .expect_err("parameter should reject write");
     assert_eq!(
         diagnostics[0].kind,
         DiagnosticKind::InvalidAssignmentTarget {
@@ -937,9 +1059,12 @@ fn main() -> i32 {
 }
 "#,
     );
-    let names = resolve_names(&field_assignment).expect("resolver should succeed");
-    let typed =
-        check_module(&field_assignment, &names).expect("field assignment should type check");
+    let names = resolve_names(&field_assignment)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&field_assignment, &names, None)
+        .into_checked()
+        .expect("field assignment should type check");
     let function = &field_assignment.module.functions[0];
     let block = field_assignment.module.block(function.body);
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -958,8 +1083,11 @@ fn main(point: Point) -> i32 {
 }
 "#,
     );
-    let names = resolve_names(&param_field_assignment).expect("resolver should succeed");
-    let typed = check_module(&param_field_assignment, &names)
+    let names = resolve_names(&param_field_assignment)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&param_field_assignment, &names, None)
+        .into_checked()
         .expect("var field assignment through parameter should type check");
     let function = &param_field_assignment.module.functions[0];
     let block = param_field_assignment.module.block(function.body);
@@ -978,9 +1106,12 @@ fn main() -> i32 {
 }
 "#,
     );
-    let names = resolve_names(&index_assignment).expect("resolver should succeed");
-    let typed =
-        check_module(&index_assignment, &names).expect("index assignment should type check");
+    let names = resolve_names(&index_assignment)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&index_assignment, &names, None)
+        .into_checked()
+        .expect("index assignment should type check");
     let function = &index_assignment.module.functions[0];
     let block = index_assignment.module.block(function.body);
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -1003,9 +1134,12 @@ fn main() -> i32 {
 }
 "#,
     );
-    let names = resolve_names(&field_assignment).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&field_assignment, &names).expect_err("val field should reject write");
+    let names = resolve_names(&field_assignment)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&field_assignment, &names, None)
+        .into_checked()
+        .expect_err("val field should reject write");
 
     assert_eq!(
         diagnostics[0].kind,
@@ -1018,9 +1152,13 @@ fn main() -> i32 {
 #[test]
 fn reports_if_branch_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> i32 { if true { 1 } else { false } }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names).expect_err("type checker should reject if");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject if");
 
     assert_eq!(
         diagnostics[0].kind,
@@ -1034,9 +1172,13 @@ fn reports_if_branch_type_mismatch() {
 #[test]
 fn reports_match_arm_type_mismatch() {
     let lowered = common::lower_ok("fn foo() -> i32 { match 1 { 1 => 1, _ => false } }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names).expect_err("type checker should reject match");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject match");
 
     assert_eq!(
         diagnostics[0].kind,
@@ -1050,8 +1192,12 @@ fn reports_match_arm_type_mismatch() {
 #[test]
 fn records_named_match_pattern_binding_type() {
     let lowered = common::lower_ok("fn foo(value: i32) -> i32 { match value { bound => bound } }");
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
     let block = lowered.module.block(function.body);
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -1079,8 +1225,12 @@ const VERSION: i32 = 1;
 fn main() -> i32 { VERSION }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
     let function = lowered
         .module
         .functions
@@ -1108,9 +1258,12 @@ const VERSION: i32 = 1;
 fn main() -> i32 { VERSION = 2; 0 }
 "#,
     );
-    let names = resolve_names(&const_storage).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&const_storage, &names).expect_err("type checker should reject writes");
+    let names = resolve_names(&const_storage)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&const_storage, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject writes");
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
@@ -1168,8 +1321,12 @@ where T: Display
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let typed = check_module(&lowered, &names).expect("type checker should succeed");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("type checker should succeed");
 
     let show_interface = typed
         .functions
@@ -1197,9 +1354,12 @@ where T: Missing
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject unknown bound");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject unknown bound");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -1222,9 +1382,12 @@ fn use_mapper(value: Mapper) {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&lowered, &names).expect_err("type checker should reject interface type");
+    let names = resolve_names(&lowered)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject interface type");
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
@@ -1250,9 +1413,12 @@ struct Player {
 impl Display for Player {}
 "#,
     );
-    let names = resolve_names(&missing_method).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&missing_method, &names).expect_err("type checker should reject impl");
+    let names = resolve_names(&missing_method)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&missing_method, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::TraitMethodMismatch {
@@ -1279,9 +1445,12 @@ impl Display for Player {
 }
 "#,
     );
-    let names = resolve_names(&wrong_return).expect("resolver should succeed");
-    let diagnostics =
-        check_module(&wrong_return, &names).expect_err("type checker should reject impl");
+    let names = resolve_names(&wrong_return)
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&wrong_return, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::TraitMethodMismatch {

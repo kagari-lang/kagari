@@ -1,5 +1,5 @@
 use kagari_common::{Diagnostic, Severity, SourceFile, Span};
-use kagari_hir::{AnalyzedModule, LanguageFeatureProfile, analyze_module_with_profile};
+use kagari_hir::{CheckedAnalysis, LanguageFeatureProfile, analyze_source};
 use kagari_ir::{
     IrLoweringError,
     bytecode::{
@@ -15,7 +15,6 @@ use kagari_runtime::{
     RuntimeConfig, RuntimeError, RuntimeErrorKind, SecurityContext, TypeId, host::HostFunction,
     value::Value,
 };
-use kagari_syntax::parse_module;
 use kagari_vm::{ExecutionReport, Vm, VmError};
 
 pub use kagari_runtime::HostExposurePolicy;
@@ -62,11 +61,11 @@ impl KagariEngine {
         let module_identity = options
             .module_identity
             .unwrap_or_else(|| ArtifactModuleIdentity::single_file(source.name()));
-        let ast = parse_module(&source).map_err(EmbeddingError::diagnostics)?;
-        let analyzed = analyze_module_with_profile(
-            &ast,
+        let analyzed = analyze_source(
+            &source,
             language_feature_profile_from_runtime(options.language_profile),
         )
+        .into_codegen()
         .map_err(EmbeddingError::diagnostics)?;
         Ok(CheckedModule {
             source_name: source.name().to_owned(),
@@ -247,11 +246,11 @@ impl KagariRuntime {
 pub struct CheckedModule {
     pub source_name: String,
     pub module_identity: ArtifactModuleIdentity,
-    analyzed: AnalyzedModule,
+    analyzed: CheckedAnalysis,
 }
 
 impl CheckedModule {
-    pub fn analyzed(&self) -> &AnalyzedModule {
+    pub fn analyzed(&self) -> &CheckedAnalysis {
         &self.analyzed
     }
 }
@@ -303,8 +302,9 @@ pub struct ReloadOptions {
     pub compatibility: ArtifactCompatibility,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum JitPolicy {
+    #[default]
     Disabled,
     Enabled,
     CompileOnLoad,
@@ -312,25 +312,14 @@ pub enum JitPolicy {
     CompileAfterThreshold(u32),
 }
 
-impl Default for JitPolicy {
-    fn default() -> Self {
-        Self::Disabled
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PanicPolicy {
     Propagate,
+    #[default]
     ConvertToError,
 }
 
-impl Default for PanicPolicy {
-    fn default() -> Self {
-        Self::ConvertToError
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionContext {
     pub language_profile: LanguageProfile,
     pub capabilities: CapabilitySet,
@@ -460,20 +449,6 @@ impl ExecutionContext {
             }
         }
         Ok(())
-    }
-}
-
-impl Default for ExecutionContext {
-    fn default() -> Self {
-        Self {
-            language_profile: LanguageProfile::default(),
-            capabilities: CapabilitySet::default(),
-            resources: ResourcePolicy::default(),
-            host_policy: HostExposurePolicy::default(),
-            jit_policy: JitPolicy::default(),
-            tracing_enabled: false,
-            panic_policy: PanicPolicy::default(),
-        }
     }
 }
 

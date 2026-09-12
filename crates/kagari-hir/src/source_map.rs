@@ -26,6 +26,15 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    pub(crate) fn expr_spans(&self) -> &[Span] {
+        &self.expr_spans
+    }
+    pub(crate) fn local_spans(&self) -> &[Span] {
+        &self.local_spans
+    }
+    pub(crate) fn place_spans(&self) -> &[Span] {
+        &self.place_spans
+    }
     pub(crate) fn push_function(&mut self, span: Span) -> FunctionId {
         let id = FunctionId::new(self.function_spans.len());
         self.function_spans.push(span);

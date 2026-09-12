@@ -41,7 +41,7 @@ impl Lowerer {
                 initializer: stmt
                     .initializer()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             },
             ast::Stmt::AssignStmt(stmt) => StmtKind::Assign {
                 target: stmt
@@ -51,7 +51,7 @@ impl Lowerer {
                 value: stmt
                     .value()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             },
             ast::Stmt::ReturnStmt(stmt) => StmtKind::Return {
                 expr: stmt.expr().map(|expr| self.lower_expr(&expr)),
@@ -60,7 +60,7 @@ impl Lowerer {
                 condition: stmt
                     .condition()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
                     None => self.alloc_block(
@@ -89,7 +89,7 @@ impl Lowerer {
             ast::Stmt::ExprStmt(stmt) => StmtKind::Expr(
                 stmt.expr()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             ),
         };
 
@@ -127,7 +127,7 @@ impl Lowerer {
                 let index = index_expr
                     .index()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>"));
+                    .unwrap_or_else(|| self.missing_expr());
                 self.alloc_place(
                     syntax_span(index_expr),
                     PlaceData {

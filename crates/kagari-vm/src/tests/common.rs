@@ -34,7 +34,9 @@ pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
 pub fn compile_test_bytecode(source_text: &str) -> BytecodeModule {
     let source = SourceFile::new("test.kgr", source_text);
     let ast = parse_module(&source).expect("source should parse");
-    let analyzed = analyze_module(&ast).expect("analysis should succeed");
+    let analyzed = analyze_module(&ast)
+        .into_codegen()
+        .expect("analysis should succeed");
     let ir = lower_to_ir(&analyzed).expect("ir lowering should succeed");
     lower_to_bytecode(&ir).expect("bytecode lowering should succeed")
 }
