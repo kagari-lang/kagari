@@ -6,6 +6,7 @@ pub const JIT_STATUS_OK: i32 = 0;
 pub const JIT_STATUS_RESOURCE_LIMIT: i32 = 1;
 pub const JIT_STATUS_INTEGER_OVERFLOW: i32 = 2;
 pub const JIT_STATUS_INVALID_RUNTIME: i32 = 3;
+pub const JIT_STATUS_INVALID_HEAP_REFERENCE: i32 = 4;
 pub const JIT_VALUE_TAG_UNIT: u8 = 0;
 pub const JIT_VALUE_TAG_BOOL: u8 = 1;
 pub const JIT_VALUE_TAG_I32: u8 = 2;
@@ -71,6 +72,9 @@ pub unsafe extern "C" fn jit_consume_instruction_step(runtime: *const Runtime) -
     let Some(runtime) = (unsafe { runtime.as_ref() }) else {
         return JIT_STATUS_INVALID_RUNTIME;
     };
+    if runtime.gc_safepoint().is_err() {
+        return JIT_STATUS_INVALID_HEAP_REFERENCE;
+    }
     match runtime.consume_instruction_step() {
         Ok(()) => JIT_STATUS_OK,
         Err(_) => JIT_STATUS_RESOURCE_LIMIT,

@@ -216,6 +216,13 @@ The current Rust facade uses `KagariEngine` for compile and artifact emission an
 `KagariRuntime::execute` runs through the interpreter.
 `KagariRuntime::execute_with_backend` uses a host-supplied `CodegenBackend` after validating JIT capability and artifact policy.
 
+Execution reports contain raw Value results. Retain a heap result with
+`runtime.runtime().root_value(report.return_value)` before a subsequent execution
+or explicit collection. Keep the returned RootedValue in host state; cloning Value
+does not extend lifetime. RootedValue clones share retention and release it on last
+drop. Runtime callbacks are local to one thread and may capture this rooted state.
+The rooted_values runtime example demonstrates retention and collection pause reporting.
+
 ## Host Registry API
 
 The host registry supports explicit registration of:

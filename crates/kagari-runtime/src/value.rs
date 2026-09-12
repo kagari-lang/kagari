@@ -292,11 +292,21 @@ mod tests {
         assert_eq!(Value::Unit.category(), ValueCategory::Unit);
         assert_eq!(scalar.category(), ValueCategory::Primitive);
         assert_eq!(
-            Value::Map(HeapObjectId::new(1)).category(),
+            Value::Map(
+                crate::gc::GcHeap::new(Default::default())
+                    .alloc_map(Vec::new())
+                    .unwrap()
+            )
+            .category(),
             ValueCategory::ScriptOwned
         );
         assert_eq!(
-            Value::Set(HeapObjectId::new(2)).category(),
+            Value::Set(
+                crate::gc::GcHeap::new(Default::default())
+                    .alloc_set(Vec::new())
+                    .unwrap()
+            )
+            .category(),
             ValueCategory::ScriptOwned
         );
         assert_eq!(host_root.category(), ValueCategory::HostHandle);
@@ -317,8 +327,22 @@ mod tests {
     #[test]
     fn keeps_host_handles_out_of_default_heap_payloads() {
         assert!(Value::Tuple(vec![Value::Unit]).is_default_heap_payload());
-        assert!(Value::Map(HeapObjectId::new(1)).is_default_heap_payload());
-        assert!(Value::Set(HeapObjectId::new(2)).is_default_heap_payload());
+        assert!(
+            Value::Map(
+                crate::gc::GcHeap::new(Default::default())
+                    .alloc_map(Vec::new())
+                    .unwrap()
+            )
+            .is_default_heap_payload()
+        );
+        assert!(
+            Value::Set(
+                crate::gc::GcHeap::new(Default::default())
+                    .alloc_set(Vec::new())
+                    .unwrap()
+            )
+            .is_default_heap_payload()
+        );
         assert!(Value::Interface(InterfaceObjectId(1)).is_default_heap_payload());
         assert!(!Value::HostRoot(host_root(1)).is_default_heap_payload());
         assert!(!path_view_value(1).is_default_heap_payload());

@@ -42,6 +42,7 @@ impl<'a> Executor<'a> {
 
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
         loop {
+            self.runtime.gc_safepoint().map_err(VmError::RuntimeError)?;
             if let Some(debug_session) = self.debug_session.as_deref_mut() {
                 debug_session.before_instruction(self.runtime, self.loaded, &self.frames)?;
             }
@@ -119,7 +120,7 @@ impl<'a> Executor<'a> {
         return_dst: Option<kagari_ir::bytecode::Register>,
     ) -> Result<(), VmError> {
         self.runtime.enter_call().map_err(VmError::RuntimeError)?;
-        match Frame::new(module, function, args, return_dst) {
+        match Frame::new(self.runtime.gc(), module, function, args, return_dst) {
             Ok(frame) => {
                 self.frames.push(frame);
                 Ok(())

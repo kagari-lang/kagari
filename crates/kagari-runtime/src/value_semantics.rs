@@ -13,6 +13,9 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
             "invalid heap handle in equality",
         )
     };
+    if !gc.validate_value(lhs) || !gc.validate_value(rhs) {
+        return Err(invalid());
+    }
     Ok(match (lhs, rhs) {
         (Interface(_) | HostRoot(_) | HostPathView(_) | Ephemeral(_), _)
         | (_, Interface(_) | HostRoot(_) | HostPathView(_) | Ephemeral(_)) => {

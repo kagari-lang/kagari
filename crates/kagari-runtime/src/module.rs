@@ -251,6 +251,20 @@ struct ModuleStoreInner {
 }
 
 impl ModuleStore {
+    pub(crate) fn gc_roots(&self) -> Vec<Value> {
+        self.inner
+            .borrow()
+            .instances
+            .values()
+            .flat_map(|instance| {
+                instance
+                    .module_slots
+                    .iter()
+                    .chain(instance.init_result.iter())
+                    .cloned()
+            })
+            .collect()
+    }
     pub(crate) fn load_program(
         &self,
         name: impl Into<String>,

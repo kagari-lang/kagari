@@ -228,7 +228,7 @@ Implemented foundation slices:
   object validation remains open.
 - R08/R09/R10: LoadedModule is an immutable shared Arc handle; public raw store
   loading and post-load bytecode mutation were removed. Module queries share code.
-  Loaded handles and host slots reject cross-runtime use. Format v9 rejects v1–v8;
+  Loaded handles and host slots reject cross-runtime use. Format v10 rejects v1–v9;
   required host fingerprints derive from declarations rather than caller options.
   The empty string host-dependency side table was removed. Struct layout handles
   retain executable versions. LoadedModule members share an Arc-owned program;
@@ -273,7 +273,7 @@ Implemented foundation slices:
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this
   does not claim native compilation of parameterized generic instances.
-- R09: format v9 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v10 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked
@@ -294,8 +294,20 @@ Implemented foundation slices:
 - R11 prerequisite for R02: the VM and standard equality assertion now call one
   script equality operation instead of Rust Value::PartialEq. Tuples/enums compare
   members, mutable objects compare identity, and unsupported categories trap.
-  Enum nominal identity still uses the current representation pending R07; owned
-  heap handles, rooted host handles and collecting GC remain outstanding.
+  HeapObjectId now carries unique heap ownership, slot and generation. Collection
+  reclaims unreachable slots and increments generations on reuse; foreign/stale
+  handles and wrong value tags reject reads, writes, roots and script equality.
+  RootedValue replaces naked root IDs; clones share retention and last drop releases
+  it. Frames use registered RootSet storage with short accesses. The nonmoving
+  mark-sweep baseline traces cycles and deep heap chains with an explicit work stack.
+  Module state/results, debug bindings, path arguments and pending dirty records
+  participate in tracing. Interpreter and scalar-JIT safepoints schedule collection;
+  trap/budget exits release frame roots. Runtime callbacks are local to one thread
+  and can retain explicit rooted values. The rooted_values example records pause
+  data for a 10,000-object chain, recorded in [performance-baseline.md](performance-baseline.md).
+  Enum nominal identity, complete interface/capture
+  ownership, allocation/dirty-record transaction guarantees and host reentry remain
+  open; this does not mark R11/R12 complete.
 - R12/R17: execution frames now carry their owning program member, and module-state
   access uses short borrows. Debug frames and breakpoints distinguish member IDs
   even when local function IDs coincide. BackendFunctionInput can only select a
@@ -308,7 +320,7 @@ Implemented foundation slices:
   integer abs use checked operations. Existing native i32 add/subtract/multiply/
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
-  ABI is v4 and JIT helper ABI remains v2. Path arithmetic failure produces no
+  ABI is v5 and JIT helper ABI is v3. Path arithmetic failure produces no
   write callback or dirty record. Const evaluation shares checked arithmetic and
   honors short circuit, with cancellation checks. Mutation resource commit,
   narrower integer layouts and the other backend/

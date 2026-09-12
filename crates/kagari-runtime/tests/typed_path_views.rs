@@ -83,6 +83,95 @@ fn register_hp_descriptor(
 }
 
 #[test]
+fn heap_path_temporaries_survive_collection_inside_write_and_dirty_callbacks() {
+    use std::{
+        cell::{Cell, RefCell},
+        rc::{Rc, Weak},
+    };
+    let mut runtime = path_mutation_runtime();
+    let result_type = runtime
+        .types()
+        .register(TypeRegistration::new("[i32]", TypeKind::Array))
+        .unwrap();
+    let player_type = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), player_type, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = register_hp_descriptor(
+        &mut runtime,
+        player_type,
+        result_type,
+        PathAccess::ReadWrite,
+    );
+    let access = Rc::new(RefCell::new(None::<Weak<Runtime>>));
+    let previous = Rc::new(Cell::new(None));
+    let read_access = access.clone();
+    let read_previous = previous.clone();
+    let write_access = access.clone();
+    let write_previous = previous.clone();
+    let dirty_access = access.clone();
+    runtime
+        .register_host_path_adapter(
+            descriptor,
+            HostPathAdapter::new()
+                .with_read(move |_| {
+                    let runtime = read_access.borrow().as_ref().unwrap().upgrade().unwrap();
+                    let value = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
+                    read_previous.set(Some(value));
+                    Ok(Value::Array(value))
+                })
+                .with_write(move |_, value| {
+                    let runtime = write_access.borrow().as_ref().unwrap().upgrade().unwrap();
+                    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+                    assert_eq!(
+                        runtime.gc().array_get(write_previous.get().unwrap(), 0),
+                        Some(Value::I32(1))
+                    );
+                    let Value::Array(next) = value else {
+                        panic!("array path value")
+                    };
+                    assert_eq!(runtime.gc().array_get(next, 0), Some(Value::I32(2)));
+                    Ok(())
+                })
+                .with_dirty(move |_| {
+                    let runtime = dirty_access.borrow().as_ref().unwrap().upgrade().unwrap();
+                    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+                    Ok(())
+                }),
+        )
+        .unwrap();
+    let runtime = Rc::new(runtime);
+    *access.borrow_mut() = Some(Rc::downgrade(&runtime));
+    let next = runtime.alloc_array(vec![Value::I32(2)]).unwrap();
+    runtime
+        .set_host_path(
+            &Value::HostRoot(root),
+            descriptor,
+            vec![],
+            Value::Array(next),
+        )
+        .unwrap();
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+    runtime.clear_host_dirty_paths();
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    let foreign = Runtime::default();
+    let other = foreign.alloc_array(vec![]).unwrap();
+    assert!(
+        runtime
+            .set_host_path(
+                &Value::HostRoot(root),
+                descriptor,
+                vec![],
+                Value::Array(other)
+            )
+            .is_err()
+    );
+    assert!(runtime.host_dirty_paths().is_empty());
+    assert_eq!(runtime.gc().allocated_objects(), 0);
+}
+
+#[test]
 fn registers_typed_host_roots_and_simple_path_views() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);

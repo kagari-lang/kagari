@@ -96,6 +96,14 @@ impl CraneliftBackend {
         let mut result = JitValue::default();
         let status = unsafe { function(runtime as *const Runtime, &mut result) };
         match status {
+            kagari_runtime::jit_abi::JIT_STATUS_INVALID_HEAP_REFERENCE => {
+                return Err(BackendInvocationError::RuntimeFailure(
+                    kagari_runtime::RuntimeError::new(
+                        kagari_runtime::RuntimeErrorKind::ScriptTrap,
+                        "invalid heap reference at safepoint",
+                    ),
+                ));
+            }
             JIT_STATUS_OK => {}
             JIT_STATUS_RESOURCE_LIMIT => {
                 return Err(BackendInvocationError::RuntimeFailure(

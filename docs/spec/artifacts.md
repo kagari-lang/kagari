@@ -41,14 +41,14 @@ KbcArtifact {
 }
 ```
 
-Format version 9 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 10 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 8 are rejected; no migration or compatibility
-decoder exists. Version 9 stores a complete dependency-first BytecodeProgram, its
+format version. Versions 1 through 9 are rejected; no migration or compatibility
+decoder exists. Version 10 stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
-The runtime ABI identity is `kagari-runtime-abi-v4`; the runtime-helper ABI remains
-v2. Host calls use HostImportId operands and a required HostInterface declaration
+The runtime ABI identity is `kagari-runtime-abi-v5`; the runtime-helper ABI is
+v3. Host calls use HostImportId operands and a required HostInterface declaration
 table. There is no arbitrary host-registry
 fingerprint option or duplicate string dependency table. The obsolete BuiltinMethod
 call operand is also absent;

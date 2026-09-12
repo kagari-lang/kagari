@@ -2,7 +2,7 @@ pub use kagari_common::host_interface::{
     HostFunctionDeclaration, HostFunctionEffects, HostInterface, HostParameter, HostPassingStyle,
     HostValueType,
 };
-use std::{cell::RefCell, collections::HashMap, fmt, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use kagari_ir::bytecode::BinaryOp;
 
@@ -371,23 +371,18 @@ pub struct HostPathMutationRecord {
     pub new_value: Value,
 }
 
-pub type HostPathReadCallback =
-    dyn Fn(&HostPathContext) -> Result<Value, HostError> + Send + Sync + 'static;
-pub type HostPathWriteCallback =
-    dyn Fn(&HostPathContext, Value) -> Result<(), HostError> + Send + Sync + 'static;
-pub type HostPathValidateCallback = dyn Fn(&HostPathContext, HostPathOperation, Option<&Value>) -> Result<(), HostError>
-    + Send
-    + Sync
-    + 'static;
-pub type HostPathDirtyCallback =
-    dyn Fn(&HostPathMutationRecord) -> Result<(), HostError> + Send + Sync + 'static;
+pub type HostPathReadCallback = dyn Fn(&HostPathContext) -> Result<Value, HostError> + 'static;
+pub type HostPathWriteCallback = dyn Fn(&HostPathContext, Value) -> Result<(), HostError> + 'static;
+pub type HostPathValidateCallback =
+    dyn Fn(&HostPathContext, HostPathOperation, Option<&Value>) -> Result<(), HostError> + 'static;
+pub type HostPathDirtyCallback = dyn Fn(&HostPathMutationRecord) -> Result<(), HostError> + 'static;
 
 #[derive(Clone, Default)]
 pub struct HostPathAdapter {
-    read: Option<Arc<HostPathReadCallback>>,
-    write: Option<Arc<HostPathWriteCallback>>,
-    validate: Option<Arc<HostPathValidateCallback>>,
-    dirty: Option<Arc<HostPathDirtyCallback>>,
+    read: Option<Rc<HostPathReadCallback>>,
+    write: Option<Rc<HostPathWriteCallback>>,
+    validate: Option<Rc<HostPathValidateCallback>>,
+    dirty: Option<Rc<HostPathDirtyCallback>>,
 }
 
 impl fmt::Debug for HostPathAdapter {
@@ -408,36 +403,34 @@ impl HostPathAdapter {
 
     pub fn with_read(
         mut self,
-        read: impl Fn(&HostPathContext) -> Result<Value, HostError> + Send + Sync + 'static,
+        read: impl Fn(&HostPathContext) -> Result<Value, HostError> + 'static,
     ) -> Self {
-        self.read = Some(Arc::new(read));
+        self.read = Some(Rc::new(read));
         self
     }
 
     pub fn with_write(
         mut self,
-        write: impl Fn(&HostPathContext, Value) -> Result<(), HostError> + Send + Sync + 'static,
+        write: impl Fn(&HostPathContext, Value) -> Result<(), HostError> + 'static,
     ) -> Self {
-        self.write = Some(Arc::new(write));
+        self.write = Some(Rc::new(write));
         self
     }
 
     pub fn with_validate(
         mut self,
         validate: impl Fn(&HostPathContext, HostPathOperation, Option<&Value>) -> Result<(), HostError>
-        + Send
-        + Sync
         + 'static,
     ) -> Self {
-        self.validate = Some(Arc::new(validate));
+        self.validate = Some(Rc::new(validate));
         self
     }
 
     pub fn with_dirty(
         mut self,
-        dirty: impl Fn(&HostPathMutationRecord) -> Result<(), HostError> + Send + Sync + 'static,
+        dirty: impl Fn(&HostPathMutationRecord) -> Result<(), HostError> + 'static,
     ) -> Self {
-        self.dirty = Some(Arc::new(dirty));
+        self.dirty = Some(Rc::new(dirty));
         self
     }
 }
@@ -1044,13 +1037,13 @@ impl HostError {
     }
 }
 
-pub type HostCallback = dyn Fn(&[Value]) -> Result<Value, HostError> + Send + Sync + 'static;
+pub type HostCallback = dyn Fn(&[Value]) -> Result<Value, HostError> + 'static;
 
 #[derive(Clone)]
 pub struct HostFunction {
     id: Option<HostFunctionId>,
     declaration: HostFunctionDeclaration,
-    handler: Arc<HostCallback>,
+    handler: Rc<HostCallback>,
 }
 
 impl fmt::Debug for HostFunction {
@@ -1074,12 +1067,12 @@ impl fmt::Debug for HostFunction {
 impl HostFunction {
     pub fn new(
         declaration: HostFunctionDeclaration,
-        handler: impl Fn(&[Value]) -> Result<Value, HostError> + Send + Sync + 'static,
+        handler: impl Fn(&[Value]) -> Result<Value, HostError> + 'static,
     ) -> Self {
         Self {
             id: None,
             declaration,
-            handler: Arc::new(handler),
+            handler: Rc::new(handler),
         }
     }
     pub fn id(&self) -> Option<HostFunctionId> {
@@ -1150,6 +1143,22 @@ pub struct HostRegistry {
 }
 
 impl HostRegistry {
+    pub(crate) fn gc_roots(&self) -> Vec<Value> {
+        let mut roots = Vec::new();
+        for record in self.dirty_paths.borrow().iter() {
+            roots.extend(record.old_value.iter().cloned());
+            roots.push(record.new_value.clone());
+            roots.extend(
+                record
+                    .dynamic_args
+                    .as_slice()
+                    .iter()
+                    .map(|arg| arg.value.clone()),
+            );
+            roots.extend(record.base_view.iter().cloned().map(Value::HostPathView));
+        }
+        roots
+    }
     pub(crate) fn owner(&self) -> HostRegistryId {
         self.owner
     }
@@ -1384,12 +1393,14 @@ impl HostRegistry {
         ))
     }
 
-    pub fn read_path(
+    pub(crate) fn read_path(
         &self,
+        gc: &crate::gc::GcHeap,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
     ) -> Result<Value, RuntimeError> {
+        let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, None)?;
         let context = self.resolve_path_context(
             root_or_view,
             descriptor_id,
@@ -1401,21 +1412,29 @@ impl HostRegistry {
         let read = adapter.read.as_ref().ok_or_else(|| {
             RuntimeError::typed_path_validation("path descriptor does not support reads")
         })?;
-        read(&context).map_err(|error| {
+        let value = read(&context).map_err(|error| {
             RuntimeError::typed_path_validation(format!(
                 "host path read failed: {}",
                 error.message()
             ))
-        })
+        })?;
+        if !gc.validate_value(&value) {
+            return Err(RuntimeError::typed_path_validation(
+                "invalid heap reference in path result",
+            ));
+        }
+        Ok(value)
     }
 
-    pub fn set_path(
+    pub(crate) fn set_path(
         &self,
+        gc: &crate::gc::GcHeap,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
         value: Value,
     ) -> Result<(), RuntimeError> {
+        let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, Some(&value))?;
         let context = self.resolve_path_context(
             root_or_view,
             descriptor_id,
@@ -1430,6 +1449,11 @@ impl HostRegistry {
         let adapter = self.path_adapter(context.descriptor.id)?;
         self.validate_path_operation(&adapter, &context, HostPathOperation::Set, Some(&value))?;
         let old_value = adapter.read.as_ref().and_then(|read| read(&context).ok());
+        let _old = gc
+            .root_execution_values(old_value.iter().cloned().collect())
+            .ok_or_else(|| {
+                RuntimeError::typed_path_validation("invalid heap reference in previous path value")
+            })?;
         self.write_path_value(&adapter, &context, value.clone())?;
         self.mark_dirty(
             &adapter,
@@ -1445,14 +1469,16 @@ impl HostRegistry {
         )
     }
 
-    pub fn modify_path(
+    pub(crate) fn modify_path(
         &self,
+        gc: &crate::gc::GcHeap,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
         op: BinaryOp,
         value: Value,
     ) -> Result<Value, RuntimeError> {
+        let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, Some(&value))?;
         let context = self.resolve_path_context(
             root_or_view,
             descriptor_id,
@@ -1481,6 +1507,11 @@ impl HostRegistry {
             ))
         })?;
         let new_value = apply_path_modify(op, old_value.clone(), value)?;
+        let _values = gc
+            .root_execution_values(vec![old_value.clone(), new_value.clone()])
+            .ok_or_else(|| {
+                RuntimeError::typed_path_validation("invalid heap reference in path modification")
+            })?;
         self.write_path_value(&adapter, &context, new_value.clone())?;
         self.mark_dirty(
             &adapter,
@@ -1499,6 +1530,22 @@ impl HostRegistry {
 
     pub fn dirty_paths(&self) -> Vec<HostPathMutationRecord> {
         self.dirty_paths.borrow().clone()
+    }
+
+    fn path_roots(
+        gc: &crate::gc::GcHeap,
+        root: &Value,
+        args: &[Value],
+        value: Option<&Value>,
+    ) -> Result<crate::gc::RootSet, RuntimeError> {
+        let values = std::iter::once(root)
+            .chain(args)
+            .chain(value)
+            .cloned()
+            .collect();
+        gc.root_execution_values(values).ok_or_else(|| {
+            RuntimeError::typed_path_validation("invalid heap reference in path arguments")
+        })
     }
 
     pub fn clear_dirty_paths(&self) {

@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::HashSet};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashSet,
+    rc::{Rc, Weak},
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, Instant},
+};
 
 use indexmap::{IndexMap, IndexSet};
 
@@ -6,16 +12,15 @@ use crate::value::{EnumValueSnapshot, MapKey, StructValueField, Value};
 
 #[derive(Debug, Clone, Copy)]
 pub struct GcHeapConfig {
-    pub nursery_bytes: usize,
-    pub large_object_threshold: usize,
+    /// Minimum live-unit threshold for collection at execution safepoints.
+    pub collection_threshold: Option<usize>,
     pub max_heap_units: Option<usize>,
 }
 
 impl Default for GcHeapConfig {
     fn default() -> Self {
         Self {
-            nursery_bytes: 1024 * 1024,
-            large_object_threshold: 8 * 1024,
+            collection_threshold: Some(1024),
             max_heap_units: None,
         }
     }
@@ -26,32 +31,82 @@ pub struct GcHeapStats {
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
     pub allocated_objects: usize,
+    pub collections: u64,
+    pub reclaimed_objects: usize,
+    pub last_pause: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HeapObjectId(u64);
+pub struct HeapObjectId {
+    owner: u64,
+    slot: usize,
+    generation: u64,
+}
 
 impl HeapObjectId {
-    pub fn new(index: usize) -> Self {
-        Self(index as u64)
-    }
-
     pub fn index(self) -> usize {
-        self.0 as usize
+        self.slot
+    }
+    pub fn generation(self) -> u64 {
+        self.generation
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GcRootId(u64);
-
-impl GcRootId {
-    pub fn new(index: usize) -> Self {
-        Self(index as u64)
+/// Owning root for host retention. Clones share one root; the last drop releases it.
+#[must_use = "retain this handle for as long as the host needs the value"]
+#[derive(Debug, Clone)]
+pub struct RootedValue {
+    roots: RootSet,
+}
+impl RootedValue {
+    pub fn value(&self) -> Value {
+        self.roots.get(0).expect("single root")
     }
-
-    pub fn index(self) -> usize {
-        self.0 as usize
+    pub fn set(&self, heap: &GcHeap, value: Value) -> Option<()> {
+        if !value.is_storable() {
+            return None;
+        }
+        self.roots.set(heap, 0, value)
     }
+}
+
+/// A registered set of execution slots. Values in it remain live until last drop.
+#[must_use = "retain the registered slots until execution resources are released"]
+#[derive(Debug, Clone)]
+pub struct RootSet {
+    owner: u64,
+    values: Rc<RefCell<Vec<Value>>>,
+}
+impl PartialEq for RootSet {
+    fn eq(&self, other: &Self) -> bool {
+        self.owner == other.owner && Rc::ptr_eq(&self.values, &other.values)
+    }
+}
+impl RootSet {
+    pub fn get(&self, index: usize) -> Option<Value> {
+        self.values.borrow().get(index).cloned()
+    }
+    pub fn set(&self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {
+        if self.owner != heap.owner || !heap.validate_value(&value) {
+            return None;
+        }
+        *self.values.borrow_mut().get_mut(index)? = value;
+        Some(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GcCollection {
+    pub reclaimed_objects: usize,
+    pub reclaimed_units: usize,
+    pub live_objects: usize,
+    pub pause: Duration,
+}
+
+#[derive(Debug)]
+struct ObjectSlot {
+    generation: u64,
+    object: Option<HeapObject>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +118,7 @@ pub enum GcObjectKind {
     Struct,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum HeapObject {
     Array(Vec<Value>),
     Map(IndexMap<MapKey, Value>),
@@ -75,21 +130,45 @@ enum HeapObject {
     },
 }
 
+impl HeapObject {
+    fn units(&self) -> usize {
+        1 + match self {
+            Self::Array(values) => values.len(),
+            Self::Map(values) => values.len(),
+            Self::Set(values) => values.len(),
+            Self::Enum(value) => value.fields.len(),
+            Self::Struct { fields, .. } => fields.len(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct GcHeap {
+    owner: u64,
     config: GcHeapConfig,
-    objects: RefCell<Vec<HeapObject>>,
-    roots: RefCell<Vec<Option<Value>>>,
+    objects: RefCell<Vec<ObjectSlot>>,
+    free: RefCell<Vec<usize>>,
+    roots: RefCell<Vec<Weak<RefCell<Vec<Value>>>>>,
     stats: RefCell<GcHeapStats>,
+    next_collection: Cell<usize>,
 }
 
 impl GcHeap {
     pub fn new(config: GcHeapConfig) -> Self {
+        static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
+        let owner = NEXT_OWNER
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                next.checked_add(1)
+            })
+            .expect("heap identity exhausted");
         Self {
+            owner,
             config,
             objects: RefCell::new(Vec::new()),
+            free: RefCell::new(Vec::new()),
             roots: RefCell::new(Vec::new()),
             stats: RefCell::new(GcHeapStats::default()),
+            next_collection: Cell::new(config.collection_threshold.unwrap_or(usize::MAX).max(1)),
         }
     }
 
@@ -98,21 +177,23 @@ impl GcHeap {
     }
 
     pub fn allocated_objects(&self) -> usize {
-        self.objects.borrow().len()
+        self.stats.borrow().allocated_objects
     }
 
     pub fn stats(&self) -> GcHeapStats {
-        let mut stats = *self.stats.borrow();
-        stats.allocated_objects = self.allocated_objects();
-        stats
+        *self.stats.borrow()
     }
 
     pub fn active_roots(&self) -> usize {
-        self.roots.borrow().iter().flatten().count()
+        self.roots
+            .borrow()
+            .iter()
+            .filter(|root| root.strong_count() > 0)
+            .count()
     }
 
     pub fn alloc_array(&self, elements: Vec<Value>) -> Option<HeapObjectId> {
-        if !elements.iter().all(Value::is_default_heap_payload) {
+        if !elements.iter().all(|value| self.valid_payload(value)) {
             return None;
         }
         self.reserve_heap_units(1 + elements.len())?;
@@ -122,7 +203,7 @@ impl GcHeap {
     pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Option<HeapObjectId> {
         let mut map = IndexMap::new();
         for (key, value) in entries {
-            if !value.is_default_heap_payload() {
+            if !self.valid_payload(&value) {
                 return None;
             }
             let key = MapKey::from_value(&key)?;
@@ -152,7 +233,7 @@ impl GcHeap {
                 .iter()
                 .zip(&layout.layout().fields)
                 .all(|(value, field)| {
-                    value.is_default_heap_payload() && value.has_representation(field.ty)
+                    self.valid_payload(value) && value.has_representation(field.ty)
                 })
         {
             return None;
@@ -167,7 +248,7 @@ impl GcHeap {
         variant: String,
         fields: Vec<Value>,
     ) -> Option<HeapObjectId> {
-        if !fields.iter().all(Value::is_default_heap_payload) {
+        if !fields.iter().all(|value| self.valid_payload(value)) {
             return None;
         }
         self.reserve_heap_units(1 + fields.len())?;
@@ -192,9 +273,10 @@ impl GcHeap {
     }
 
     pub fn array_push(&self, id: HeapObjectId, value: Value) -> Option<()> {
-        if !value.is_default_heap_payload() {
+        if !self.valid_payload(&value) {
             return None;
         }
+        self.array_len(id)?;
         self.reserve_heap_units(1)?;
         self.with_array_mut(id, |elements| {
             elements.push(value);
@@ -210,7 +292,7 @@ impl GcHeap {
     }
 
     pub fn array_insert(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
-        if !value.is_default_heap_payload() {
+        if !self.valid_payload(&value) {
             return None;
         }
         let valid_index = self.with_array(id, |elements| index <= elements.len())?;
@@ -250,7 +332,7 @@ impl GcHeap {
     }
 
     pub fn array_set(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
-        if !value.is_default_heap_payload() {
+        if !self.valid_payload(&value) {
             return None;
         }
         self.with_array_mut(id, |elements| {
@@ -281,7 +363,7 @@ impl GcHeap {
     }
 
     pub fn map_insert(&self, id: HeapObjectId, key: Value, value: Value) -> Option<()> {
-        if !value.is_default_heap_payload() {
+        if !self.valid_payload(&value) {
             return None;
         }
         let key = MapKey::from_value(&key)?;
@@ -409,7 +491,7 @@ impl GcHeap {
         slot: usize,
         next_value: Value,
     ) -> Option<()> {
-        if !next_value.is_default_heap_payload() {
+        if !self.valid_payload(&next_value) {
             return None;
         }
         self.with_struct_mut(id, |layout, fields| {
@@ -428,7 +510,7 @@ impl GcHeap {
 
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
         let objects = self.objects.borrow();
-        match objects.get(id.index())? {
+        match self.object_ref(&objects, id)? {
             HeapObject::Array(_) => Some(GcObjectKind::Array),
             HeapObject::Map(_) => Some(GcObjectKind::Map),
             HeapObject::Set(_) => Some(GcObjectKind::Set),
@@ -437,57 +519,205 @@ impl GcHeap {
         }
     }
 
-    pub fn root_value(&self, value: Value) -> Option<GcRootId> {
+    pub fn root_value(&self, value: Value) -> Option<RootedValue> {
         if !value.is_storable() {
             return None;
         }
-
-        let mut roots = self.roots.borrow_mut();
-        let id = GcRootId::new(roots.len());
-        roots.push(Some(value));
-        Some(id)
+        Some(RootedValue {
+            roots: self.root_execution_values(vec![value])?,
+        })
     }
 
-    pub fn root_snapshot(&self, id: GcRootId) -> Option<Value> {
-        self.roots.borrow().get(id.index())?.clone()
-    }
-
-    pub fn update_root(&self, id: GcRootId, value: Value) -> Option<()> {
-        if !value.is_storable() {
+    pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
+        if !values.iter().all(|value| self.validate_value(value)) {
             return None;
         }
-
+        let values = Rc::new(RefCell::new(values));
         let mut roots = self.roots.borrow_mut();
-        let slot = roots.get_mut(id.index())?;
-        slot.as_ref()?;
-        *slot = Some(value);
-        Some(())
+        roots.retain(|root| root.strong_count() > 0);
+        roots.push(Rc::downgrade(&values));
+        Some(RootSet {
+            owner: self.owner,
+            values,
+        })
     }
 
-    pub fn release_root(&self, id: GcRootId) -> Option<Value> {
-        self.roots.borrow_mut().get_mut(id.index())?.take()
+    pub fn trace_roots(&self) -> Option<Vec<HeapObjectId>> {
+        self.trace_values(&self.root_snapshots())
     }
 
-    pub fn trace_roots(&self) -> Vec<HeapObjectId> {
-        let roots = self
-            .roots
+    pub fn trace_value(&self, value: &Value) -> Option<Vec<HeapObjectId>> {
+        self.trace_values(std::slice::from_ref(value))
+    }
+
+    fn root_snapshots(&self) -> Vec<Value> {
+        self.roots
             .borrow()
             .iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        self.trace_values(&roots)
+            .filter_map(Weak::upgrade)
+            .flat_map(|root| root.borrow().clone())
+            .collect()
     }
 
-    pub fn trace_value(&self, value: &Value) -> Vec<HeapObjectId> {
-        self.trace_values(std::slice::from_ref(value))
+    pub fn collection_due(&self) -> bool {
+        self.config.collection_threshold.is_some()
+            && self.stats.borrow().current_heap_units >= self.next_collection.get()
+    }
+
+    /// Stop-the-world, nonmoving collection. Additional roots belong to runtime
+    /// module state; registered host/frame roots are always included.
+    pub(crate) fn collect(&self, additional_roots: &[Value]) -> Option<GcCollection> {
+        let started = Instant::now();
+        let mut values = self.root_snapshots();
+        values.extend_from_slice(additional_roots);
+        let live = self
+            .trace_values(&values)?
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let mut reclaimed_objects = 0;
+        let mut reclaimed_units = 0;
+        let mut objects = self.objects.borrow_mut();
+        let mut free = self.free.borrow_mut();
+        for (index, slot) in objects.iter_mut().enumerate() {
+            let id = HeapObjectId {
+                owner: self.owner,
+                slot: index,
+                generation: slot.generation,
+            };
+            if !live.contains(&id)
+                && let Some(object) = slot.object.take()
+            {
+                reclaimed_objects += 1;
+                reclaimed_units += object.units();
+                if let Some(generation) = slot.generation.checked_add(1) {
+                    slot.generation = generation;
+                    free.push(index);
+                }
+            }
+        }
+        drop(objects);
+        self.release_heap_units(reclaimed_units);
+        self.roots
+            .borrow_mut()
+            .retain(|root| root.strong_count() > 0);
+        let pause = started.elapsed();
+        let mut stats = self.stats.borrow_mut();
+        stats.collections += 1;
+        stats.reclaimed_objects += reclaimed_objects;
+        stats.allocated_objects -= reclaimed_objects;
+        stats.last_pause = pause;
+        self.next_collection.set(
+            stats
+                .current_heap_units
+                .saturating_mul(2)
+                .max(self.config.collection_threshold.unwrap_or(usize::MAX))
+                .max(1),
+        );
+        Some(GcCollection {
+            reclaimed_objects,
+            reclaimed_units,
+            live_objects: live.len(),
+            pause,
+        })
+    }
+
+    pub fn validate_value(&self, value: &Value) -> bool {
+        if matches!(
+            value,
+            Value::Unit
+                | Value::Bool(_)
+                | Value::I32(_)
+                | Value::I64(_)
+                | Value::F32(_)
+                | Value::F64(_)
+                | Value::Str(_)
+                | Value::Interface(_)
+                | Value::HostRoot(_)
+                | Value::Ephemeral(_)
+        ) {
+            return true;
+        }
+        let mut pending = vec![value];
+        while let Some(value) = pending.pop() {
+            let expected = match value {
+                Value::HostPathView(view) => {
+                    pending.extend(view.dynamic_args().as_slice().iter().map(|arg| &arg.value));
+                    continue;
+                }
+                Value::Tuple(elements) => {
+                    pending.extend(elements);
+                    continue;
+                }
+                Value::Array(id) => (*id, Some(GcObjectKind::Array)),
+                Value::Map(id) => (*id, Some(GcObjectKind::Map)),
+                Value::Set(id) => (*id, Some(GcObjectKind::Set)),
+                Value::Enum(id) => (*id, Some(GcObjectKind::Enum)),
+                Value::Struct(id) => (*id, Some(GcObjectKind::Struct)),
+                Value::GcHandle(id) => (*id, None),
+                _ => continue,
+            };
+            let Some(actual) = self.object_kind(expected.0) else {
+                return false;
+            };
+            if expected.1.is_some_and(|kind| actual != kind) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn valid_payload(&self, value: &Value) -> bool {
+        value.is_default_heap_payload() && self.validate_value(value)
     }
 
     fn alloc_object(&self, object: HeapObject) -> HeapObjectId {
         let mut objects = self.objects.borrow_mut();
-        let id = HeapObjectId::new(objects.len());
-        objects.push(object);
-        id
+        let slot = if let Some(index) = self.free.borrow_mut().pop() {
+            objects[index].object = Some(object);
+            index
+        } else {
+            let index = objects.len();
+            objects.push(ObjectSlot {
+                generation: 0,
+                object: Some(object),
+            });
+            index
+        };
+        self.stats.borrow_mut().allocated_objects += 1;
+        HeapObjectId {
+            owner: self.owner,
+            slot,
+            generation: objects[slot].generation,
+        }
+    }
+
+    fn object_ref<'a>(
+        &self,
+        objects: &'a [ObjectSlot],
+        id: HeapObjectId,
+    ) -> Option<&'a HeapObject> {
+        if id.owner != self.owner {
+            return None;
+        }
+        let slot = objects.get(id.slot)?;
+        if slot.generation != id.generation {
+            return None;
+        }
+        slot.object.as_ref()
+    }
+    fn object_mut<'a>(
+        &self,
+        objects: &'a mut [ObjectSlot],
+        id: HeapObjectId,
+    ) -> Option<&'a mut HeapObject> {
+        if id.owner != self.owner {
+            return None;
+        }
+        let slot = objects.get_mut(id.slot)?;
+        if slot.generation != id.generation {
+            return None;
+        }
+        slot.object.as_mut()
     }
 
     fn reserve_heap_units(&self, units: usize) -> Option<()> {
@@ -508,91 +738,57 @@ impl GcHeap {
         stats.current_heap_units = stats.current_heap_units.saturating_sub(units);
     }
 
-    fn trace_values(&self, values: &[Value]) -> Vec<HeapObjectId> {
+    fn trace_values(&self, values: &[Value]) -> Option<Vec<HeapObjectId>> {
+        if !values.iter().all(|value| self.validate_value(value)) {
+            return None;
+        }
+        let objects = self.objects.borrow();
         let mut seen = HashSet::new();
         let mut traced = Vec::new();
-        for value in values {
-            self.trace_value_inner(value, &mut seen, &mut traced);
-        }
-        traced
-    }
-
-    fn trace_value_inner(
-        &self,
-        value: &Value,
-        seen: &mut HashSet<HeapObjectId>,
-        traced: &mut Vec<HeapObjectId>,
-    ) {
-        match value {
-            Value::Tuple(elements) => {
-                for element in elements {
-                    self.trace_value_inner(element, seen, traced);
+        let mut pending = values.iter().rev().collect::<Vec<_>>();
+        while let Some(value) = pending.pop() {
+            let id = match value {
+                Value::HostPathView(view) => {
+                    pending.extend(
+                        view.dynamic_args()
+                            .as_slice()
+                            .iter()
+                            .rev()
+                            .map(|arg| &arg.value),
+                    );
+                    continue;
                 }
-            }
-            Value::Array(id)
-            | Value::Map(id)
-            | Value::Set(id)
-            | Value::Enum(id)
-            | Value::Struct(id)
-            | Value::GcHandle(id) => {
-                self.trace_object(*id, seen, traced);
-            }
-            Value::Unit
-            | Value::Bool(_)
-            | Value::I32(_)
-            | Value::I64(_)
-            | Value::F32(_)
-            | Value::F64(_)
-            | Value::Str(_)
-            | Value::Interface(_)
-            | Value::HostRoot(_)
-            | Value::HostPathView(_)
-            | Value::Ephemeral(_) => {}
-        }
-    }
-
-    fn trace_object(
-        &self,
-        id: HeapObjectId,
-        seen: &mut HashSet<HeapObjectId>,
-        traced: &mut Vec<HeapObjectId>,
-    ) {
-        let Some(object) = self.objects.borrow().get(id.index()).cloned() else {
-            return;
-        };
-        if !seen.insert(id) {
-            return;
-        }
-        traced.push(id);
-
-        match object {
-            HeapObject::Array(elements) => {
-                for element in elements {
-                    self.trace_value_inner(&element, seen, traced);
+                Value::Tuple(elements) => {
+                    pending.extend(elements.iter().rev());
+                    continue;
                 }
+                Value::Array(id)
+                | Value::Map(id)
+                | Value::Set(id)
+                | Value::Enum(id)
+                | Value::Struct(id)
+                | Value::GcHandle(id) => *id,
+                _ => continue,
+            };
+            let object = self.object_ref(&objects, id)?;
+            if !seen.insert(id) {
+                continue;
             }
-            HeapObject::Map(entries) => {
-                for value in entries.values() {
-                    self.trace_value_inner(value, seen, traced);
-                }
-            }
-            HeapObject::Set(_) => {}
-            HeapObject::Enum(snapshot) => {
-                for field in snapshot.fields {
-                    self.trace_value_inner(&field, seen, traced);
-                }
-            }
-            HeapObject::Struct { fields, .. } => {
-                for field in fields {
-                    self.trace_value_inner(&field, seen, traced);
-                }
+            traced.push(id);
+            match object {
+                HeapObject::Array(elements) => pending.extend(elements.iter().rev()),
+                HeapObject::Map(entries) => pending.extend(entries.values().rev()),
+                HeapObject::Enum(snapshot) => pending.extend(snapshot.fields.iter().rev()),
+                HeapObject::Struct { fields, .. } => pending.extend(fields.iter().rev()),
+                HeapObject::Set(_) => {}
             }
         }
+        Some(traced)
     }
 
     fn with_array<R>(&self, id: HeapObjectId, f: impl FnOnce(&Vec<Value>) -> R) -> Option<R> {
         let objects = self.objects.borrow();
-        match objects.get(id.index())? {
+        match self.object_ref(&objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),
             HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
             HeapObject::Struct { .. } => None,
@@ -605,7 +801,7 @@ impl GcHeap {
         f: impl FnOnce(&mut Vec<Value>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
-        match objects.get_mut(id.index())? {
+        match self.object_mut(&mut objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),
             HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
             HeapObject::Struct { .. } => None,
@@ -618,7 +814,7 @@ impl GcHeap {
         f: impl FnOnce(&IndexMap<MapKey, Value>) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
-        match objects.get(id.index())? {
+        match self.object_ref(&objects, id)? {
             HeapObject::Map(entries) => Some(f(entries)),
             HeapObject::Array(_)
             | HeapObject::Set(_)
@@ -633,7 +829,7 @@ impl GcHeap {
         f: impl FnOnce(&mut IndexMap<MapKey, Value>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
-        match objects.get_mut(id.index())? {
+        match self.object_mut(&mut objects, id)? {
             HeapObject::Map(entries) => Some(f(entries)),
             HeapObject::Array(_)
             | HeapObject::Set(_)
@@ -644,7 +840,7 @@ impl GcHeap {
 
     fn with_set<R>(&self, id: HeapObjectId, f: impl FnOnce(&IndexSet<MapKey>) -> R) -> Option<R> {
         let objects = self.objects.borrow();
-        match objects.get(id.index())? {
+        match self.object_ref(&objects, id)? {
             HeapObject::Set(values) => Some(f(values)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
@@ -659,7 +855,7 @@ impl GcHeap {
         f: impl FnOnce(&mut IndexSet<MapKey>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
-        match objects.get_mut(id.index())? {
+        match self.object_mut(&mut objects, id)? {
             HeapObject::Set(values) => Some(f(values)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
@@ -670,7 +866,7 @@ impl GcHeap {
 
     fn with_enum<R>(&self, id: HeapObjectId, f: impl FnOnce(&EnumValueSnapshot) -> R) -> Option<R> {
         let objects = self.objects.borrow();
-        match objects.get(id.index())? {
+        match self.object_ref(&objects, id)? {
             HeapObject::Enum(snapshot) => Some(f(snapshot)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
@@ -685,7 +881,7 @@ impl GcHeap {
         f: impl FnOnce(&crate::module::StructLayoutRef, &Vec<Value>) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
-        match objects.get(id.index())? {
+        match self.object_ref(&objects, id)? {
             HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
@@ -700,7 +896,7 @@ impl GcHeap {
         f: impl FnOnce(&crate::module::StructLayoutRef, &mut Vec<Value>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
-        match objects.get_mut(id.index())? {
+        match self.object_mut(&mut objects, id)? {
             HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
@@ -983,10 +1179,9 @@ mod tests {
         let object = heap.alloc_array(vec![Value::I32(1)]).unwrap();
         let root = heap.root_value(Value::Array(object)).unwrap();
 
-        assert_eq!(root.index(), 0);
-        assert_eq!(heap.root_snapshot(root), Some(Value::Array(object)));
+        assert_eq!(root.value(), Value::Array(object));
         assert_eq!(heap.active_roots(), 1);
-        assert_eq!(heap.trace_roots(), vec![object]);
+        assert_eq!(heap.trace_roots().unwrap(), vec![object]);
 
         assert!(heap.root_value(host_root_value(1)).is_none());
         assert!(heap.root_value(path_view_value(1)).is_none());
@@ -1020,13 +1215,14 @@ mod tests {
             ]))
             .unwrap();
 
-        assert_eq!(heap.trace_roots(), vec![record, map, leaf, set]);
+        assert_eq!(heap.trace_roots().unwrap(), vec![record, map, leaf, set]);
 
-        heap.update_root(root, Value::GcHandle(leaf)).unwrap();
-        assert_eq!(heap.trace_roots(), vec![leaf]);
+        root.set(&heap, Value::GcHandle(leaf)).unwrap();
+        assert_eq!(heap.trace_roots().unwrap(), vec![leaf]);
 
-        assert_eq!(heap.release_root(root), Some(Value::GcHandle(leaf)));
-        assert_eq!(heap.trace_roots(), Vec::<HeapObjectId>::new());
+        assert_eq!(root.value(), Value::GcHandle(leaf));
+        drop(root);
+        assert_eq!(heap.trace_roots().unwrap(), Vec::<HeapObjectId>::new());
     }
 
     #[test]
@@ -1040,8 +1236,8 @@ mod tests {
             )
             .unwrap();
         heap.array_push(array, Value::Struct(record)).unwrap();
-        heap.root_value(Value::Array(array)).unwrap();
+        let _root = heap.root_value(Value::Array(array)).unwrap();
 
-        assert_eq!(heap.trace_roots(), vec![array, record]);
+        assert_eq!(heap.trace_roots().unwrap(), vec![array, record]);
     }
 }

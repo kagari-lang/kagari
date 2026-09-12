@@ -126,6 +126,7 @@ pub struct DebugBinding {
     pub local: LocalSlot,
     pub value: Value,
     pub is_parameter: bool,
+    roots: kagari_runtime::gc::RootSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -424,6 +425,12 @@ impl DebugSession {
                     .validate_debug_value_visible(&value)
                     .map_err(VmError::RuntimeError)?;
                 Ok(DebugBinding {
+                    roots: runtime
+                        .gc()
+                        .root_execution_values(vec![value.clone()])
+                        .ok_or(VmError::UnsupportedInstruction(
+                            "invalid heap reference in debug snapshot",
+                        ))?,
                     name: range.name.clone(),
                     local: range.local,
                     value,

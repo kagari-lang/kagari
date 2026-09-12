@@ -114,10 +114,10 @@ writable slot and matching value representation before changing the target.
 Layouts from the same executable generation compare by shared handle and index.
 Across generations, access requires the same runtime owner and equal nominal
 declaration, field identities, slot order, representations and permissions.
-Publication does not invalidate an object's retained layout. This does not yet
-pin module instance state or the root call's dependency graph. Heap-valued fields
-still have coarse representations, and runtime-owned generational heap handles
-remain pending R11.
+Publication does not invalidate an object's retained layout. Root calls now pin
+their executable dependency program. Heap-valued fields still have coarse nominal
+representations, while heap references carry a unique heap owner, slot and generation.
+Full reachability of interface/capture versions and module instance state remains open.
 
 Explicit reflection resolves a field name through the retained layout metadata
 and uses the same slot write checks. Reflection cannot bypass read-only fields
@@ -168,7 +168,35 @@ Its responsibilities include:
 
 The GC must not own Rust host borrows.
 
-This aligns with `gc.rs`.
+The implemented collector is nonmoving, stop-the-world mark-sweep. It traverses
+tuples, enum payloads, array/map values and struct fields with an explicit work stack,
+handles cycles, and reclaims unreachable slots. Reuse increments the slot generation;
+a saturated generation retires its slot. Reads, writes, root registration and script
+equality reject foreign, stale or incorrectly tagged references. Failed handle
+validation cannot consume heap growth units or change the target object.
+
+Runtime::collect_garbage includes registered host/frame/debug roots, module slots,
+initializer results and pending host-path mutation records. Path-view dynamic arguments
+are traced; Rust host objects and borrowed resources remain host-owned. Path-operation
+arguments and old/new values are temporarily rooted across host
+read/write/dirty callbacks, including callbacks that explicitly collect. Register/local
+slots stay conservatively rooted until overwritten or their frame is dropped. Trap and
+budget failure drop frame roots through the same frame cleanup path.
+
+GcHeapConfig.collection_threshold schedules automatic collection at instruction
+safepoints, including the current scalar JIT helper. Collection never runs in the
+middle of a standard mutation. The default minimum threshold is 1024 heap units;
+after collection it grows to twice the live units. None disables automatic collection,
+while explicit runtime collection remains available. Heap units are accounting units,
+not byte measurements. Stats report live/peak units, live objects, collection count,
+reclaimed object count and the last pause. Incremental and generational GC remain deferred.
+
+Host retention uses RootedValue, returned by Runtime::root_value. Its clones share a
+registered root and the last drop releases it. Value::clone only copies a script value;
+it does not keep heap objects alive. RootedValue::set checks the destination heap and
+replacement references. The former GcRootId/update/release APIs are removed. Frame
+storage uses RootSet with short validated accesses. Root handles and runtime callbacks
+are local to one thread; callbacks may capture rooted values without Send/Sync bounds.
 
 ## Type Registry
 

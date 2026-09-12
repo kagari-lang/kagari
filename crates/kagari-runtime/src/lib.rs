@@ -63,7 +63,7 @@ pub use security::{
 
 use crate::{
     builtin::BuiltinError,
-    gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
+    gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, RootedValue},
     host::{HostFunction, HostRegistry},
     reload::{HotReloadCoordinator, validate_reload_artifact_candidate, validate_reload_candidate},
 };
@@ -117,6 +117,7 @@ impl Runtime {
     }
 
     pub fn alloc_array(&self, elements: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
+        self.validate_heap_payloads(&elements)?;
         let units = 1 + elements.len();
         self.resources.consume_allocation_units(units)?;
         let handle = self
@@ -128,6 +129,10 @@ impl Runtime {
     }
 
     pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Result<HeapObjectId, RuntimeError> {
+        for (key, value) in &entries {
+            self.validate_heap_payloads(std::slice::from_ref(key))?;
+            self.validate_heap_payloads(std::slice::from_ref(value))?;
+        }
         let units = 1 + entries.len();
         self.resources.consume_allocation_units(units)?;
         let handle = self
@@ -139,6 +144,7 @@ impl Runtime {
     }
 
     pub fn alloc_set(&self, values: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
+        self.validate_heap_payloads(&values)?;
         let units = 1 + values.len();
         self.resources.consume_allocation_units(units)?;
         let handle = self
@@ -154,6 +160,7 @@ impl Runtime {
         layout: module::StructLayoutRef,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
+        self.validate_heap_payloads(&fields)?;
         // The layout retains a verified generation; allocation does not depend on
         // whether that generation remains a current module-store entry.
         if !layout.module().belongs_to(self.host.owner()) {
@@ -190,6 +197,7 @@ impl Runtime {
         variant: String,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
+        self.validate_heap_payloads(&fields)?;
         let units = 1 + fields.len();
         self.resources.consume_allocation_units(units)?;
         let handle = self
@@ -264,6 +272,15 @@ impl Runtime {
         dynamic_args: host::DynamicPathArguments,
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
         self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::MakeView)?;
+        if !dynamic_args
+            .as_slice()
+            .iter()
+            .all(|arg| self.gc.validate_value(&arg.value))
+        {
+            return Err(RuntimeError::typed_path_validation(
+                "invalid heap reference in path arguments",
+            ));
+        }
         self.host.make_path_view(root, descriptor_id, dynamic_args)
     }
 
@@ -275,6 +292,13 @@ impl Runtime {
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
         self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::MakeView)?;
         self.validate_host_path_capabilities(descriptor_id)?;
+        if !self.gc.validate_value(root_or_view)
+            || !dynamic_args.iter().all(|arg| self.gc.validate_value(arg))
+        {
+            return Err(RuntimeError::typed_path_validation(
+                "invalid heap reference in path arguments",
+            ));
+        }
         self.host
             .make_path_view_from_value(root_or_view, descriptor_id, dynamic_args)
     }
@@ -288,7 +312,7 @@ impl Runtime {
         self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Read)?;
         self.validate_host_path_capabilities(descriptor_id)?;
         self.host
-            .read_path(root_or_view, descriptor_id, dynamic_args)
+            .read_path(&self.gc, root_or_view, descriptor_id, dynamic_args)
     }
 
     pub fn set_host_path(
@@ -302,7 +326,7 @@ impl Runtime {
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
         self.host
-            .set_path(root_or_view, descriptor_id, dynamic_args, value)
+            .set_path(&self.gc, root_or_view, descriptor_id, dynamic_args, value)
     }
 
     pub fn modify_host_path(
@@ -316,8 +340,14 @@ impl Runtime {
         self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Modify(op))?;
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
-        self.host
-            .modify_path(root_or_view, descriptor_id, dynamic_args, op, value)
+        self.host.modify_path(
+            &self.gc,
+            root_or_view,
+            descriptor_id,
+            dynamic_args,
+            op,
+            value,
+        )
     }
 
     pub fn host_dirty_paths(&self) -> Vec<host::HostPathMutationRecord> {
@@ -629,6 +659,12 @@ impl Runtime {
 
     pub fn validate_debug_value_visible(&self, value: &value::Value) -> Result<(), RuntimeError> {
         self.validate_debug_value_inspection_boundary()?;
+        if !self.gc.validate_value(value) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap reference in debug value",
+            ));
+        }
         if value_contains_host_owned_data(value) {
             self.validate_debug_host_value_inspection_boundary()?;
         }
@@ -731,24 +767,45 @@ impl Runtime {
         self.modules.instance_mut(module.key())
     }
 
-    pub fn root_value(&self, value: value::Value) -> Option<GcRootId> {
+    pub fn root_value(&self, value: value::Value) -> Option<RootedValue> {
         self.gc.root_value(value)
     }
 
-    pub fn root_snapshot(&self, id: GcRootId) -> Option<value::Value> {
-        self.gc.root_snapshot(id)
+    fn validate_heap_payloads(&self, values: &[Value]) -> Result<(), RuntimeError> {
+        if !values
+            .iter()
+            .all(|value| value.is_default_heap_payload() && self.gc.validate_value(value))
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid or foreign heap payload",
+            ));
+        }
+        Ok(())
     }
 
-    pub fn update_root(&self, id: GcRootId, value: value::Value) -> Option<()> {
-        self.gc.update_root(id, value)
-    }
-
-    pub fn release_root(&self, id: GcRootId) -> Option<value::Value> {
-        self.gc.release_root(id)
-    }
-
-    pub fn trace_roots(&self) -> Vec<HeapObjectId> {
+    pub fn trace_roots(&self) -> Option<Vec<HeapObjectId>> {
         self.gc.trace_roots()
+    }
+
+    pub fn collect_garbage(&self) -> Result<GcCollection, RuntimeError> {
+        let mut roots = self.modules.gc_roots();
+        roots.extend(self.host.gc_roots());
+        let result = self.gc.collect(&roots).ok_or_else(|| {
+            RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap reference in collection roots",
+            )
+        })?;
+        self.sync_heap_accounting()?;
+        Ok(result)
+    }
+
+    pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {
+        if self.gc.collection_due() {
+            self.collect_garbage()?;
+        }
+        Ok(())
     }
 
     pub fn consume_instruction_step(&self) -> Result<(), RuntimeError> {
@@ -794,9 +851,21 @@ impl Runtime {
             )
         })?;
         self.validate_bound_host_boundary(function.symbol(), Some(function))?;
-        function
+        let _arguments = self
+            .gc
+            .root_execution_values(args.to_vec())
+            .ok_or_else(|| {
+                RuntimeError::host_call_failure("invalid heap reference in host arguments")
+            })?;
+        let value = function
             .invoke(args)
-            .map_err(|error| RuntimeError::host_call_failure(error.message()))
+            .map_err(|error| RuntimeError::host_call_failure(error.message()))?;
+        if !self.gc.validate_value(&value) {
+            return Err(RuntimeError::host_call_failure(
+                "invalid heap reference in host result",
+            ));
+        }
+        Ok(value)
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {

@@ -121,11 +121,12 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         .root_value(Value::Tuple(vec![Value::Struct(record), Value::Unit]))
         .unwrap();
 
-    assert_eq!(runtime.trace_roots(), vec![record, leaf]);
-    runtime.update_root(root, Value::GcHandle(leaf)).unwrap();
-    assert_eq!(runtime.trace_roots(), vec![leaf]);
-    assert_eq!(runtime.release_root(root), Some(Value::GcHandle(leaf)));
-    assert!(runtime.trace_roots().is_empty());
+    assert_eq!(runtime.trace_roots().unwrap(), vec![record, leaf]);
+    root.set(runtime.gc(), Value::GcHandle(leaf)).unwrap();
+    assert_eq!(runtime.trace_roots().unwrap(), vec![leaf]);
+    assert_eq!(root.value(), Value::GcHandle(leaf));
+    drop(root);
+    assert!(runtime.trace_roots().unwrap().is_empty());
 }
 
 #[test]
@@ -265,9 +266,9 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let script = runtime.gc().alloc_array(vec![Value::I32(1)]).unwrap();
     assert!(runtime.root_value(host_root_value(3)).is_none());
     assert!(runtime.root_value(path_view_value(4)).is_none());
-    runtime
+    let _root = runtime
         .root_value(Value::Tuple(vec![Value::Array(script), Value::Unit]))
         .unwrap();
 
-    assert_eq!(runtime.trace_roots(), vec![script]);
+    assert_eq!(runtime.trace_roots().unwrap(), vec![script]);
 }
