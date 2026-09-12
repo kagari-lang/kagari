@@ -39,6 +39,8 @@ pub fn check_module(
         lowered,
         names,
         &declarations,
+        &crate::typeck::check_signatures(lowered, &declarations, &Default::default()),
+        &Default::default(),
         reuse,
         &Default::default(),
     )

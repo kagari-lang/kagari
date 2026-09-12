@@ -18,20 +18,14 @@ use crate::{
     types::{BuiltinType, TypeId},
 };
 
-pub(crate) fn check_module_controlled(
+pub(crate) fn check_signatures(
     lowered: &LoweredModule,
-    names: &ResolvedNames,
     declarations: &crate::declarations::Declarations,
-    reuse: Option<&super::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
-) -> AnalysisResult<TypedModule> {
-    let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
-    let mut checked_bodies = 0;
-    let mut reused_bodies = 0;
+) -> AnalysisResult<super::ModuleSignatures> {
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
     let mut function_index = FunctionTypeIndex::default();
-    let mut top_level_index = TopLevelTypeIndex::default();
     let mut type_table = TypeTable::default();
     super::constraints::resolve_constraints(
         lowered,
@@ -100,6 +94,9 @@ pub(crate) fn check_module_controlled(
     }
 
     for function in &lowered.module.functions {
+        if cancel.check().is_err() {
+            break;
+        }
         if function.visibility == crate::hir::Visibility::Public
             && !function.generic_params.is_empty()
         {
@@ -226,6 +223,41 @@ pub(crate) fn check_module_controlled(
         functions.push(typed_function);
     }
 
+    validate_trait_surface(
+        lowered,
+        declarations,
+        &function_index,
+        &mut type_table,
+        &mut diagnostics,
+    );
+    AnalysisResult {
+        facts: super::ModuleSignatures {
+            functions,
+            type_table,
+        },
+        diagnostics,
+    }
+}
+
+pub(crate) fn check_module_controlled(
+    lowered: &LoweredModule,
+    names: &ResolvedNames,
+    declarations: &crate::declarations::Declarations,
+    signatures: &AnalysisResult<super::ModuleSignatures>,
+    imported_functions: &crate::imports::ImportedFunctions,
+    reuse: Option<&super::BodyReuse<'_>>,
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> AnalysisResult<TypedModule> {
+    let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
+    let mut checked_bodies = 0;
+    let mut reused_bodies = 0;
+    let mut diagnostics = signatures.diagnostics.clone();
+    let mut functions = signatures.facts.functions.clone();
+    let mut function_index = FunctionTypeIndex {
+        by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
+    };
+    let mut top_level_index = TopLevelTypeIndex::default();
+    let mut type_table = signatures.facts.type_table.clone();
     {
         for const_item in &lowered.module.consts {
             let ty = match const_item.ty {
@@ -264,6 +296,7 @@ pub(crate) fn check_module_controlled(
                         lowered,
                         names,
                         TypeIndexes {
+                            imported_functions,
                             declarations,
                             cancel,
                             function_index: &function_index,
@@ -283,6 +316,7 @@ pub(crate) fn check_module_controlled(
                     lowered,
                     names,
                     TypeIndexes {
+                        imported_functions,
                         declarations,
                         cancel,
                         function_index: &function_index,
@@ -306,13 +340,7 @@ pub(crate) fn check_module_controlled(
             cancel,
             &mut diagnostics,
         );
-        validate_trait_surface(
-            lowered,
-            declarations,
-            &function_index,
-            &mut type_table,
-            &mut diagnostics,
-        );
+
         let const_values = super::const_eval::evaluate_constants(
             lowered,
             names,
@@ -349,6 +377,7 @@ pub(crate) fn check_module_controlled(
                     lowered,
                     names,
                     TypeIndexes {
+                        imported_functions,
                         declarations,
                         cancel,
                         function_index: &function_index,

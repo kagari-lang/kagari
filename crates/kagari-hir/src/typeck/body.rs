@@ -22,6 +22,7 @@ use crate::{
 };
 
 pub(crate) struct BodyChecker<'a> {
+    imported_functions: &'a crate::imports::ImportedFunctions,
     declarations: &'a crate::declarations::Declarations,
     cancel: &'a kagari_common::cancellation::CancellationToken,
     lowered: &'a LoweredModule,
@@ -46,6 +47,7 @@ impl<'a> BodyChecker<'a> {
         expected_return: TypeId,
     ) -> Self {
         Self {
+            imported_functions: indexes.imported_functions,
             declarations: indexes.declarations,
             cancel: indexes.cancel,
             lowered,
@@ -1385,6 +1387,30 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> TypeId {
         let arg_tys = self.infer_call_args(args, env);
+        if let Some(imported) = self
+            .names
+            .expr_resolution(callee)
+            .and_then(|name| self.imported_functions.get(name))
+        {
+            self.type_table
+                .insert_call(call_expr, CallTarget::SourceFunction(imported.id), None);
+            if !imported.signature.generic_params.is_empty() {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::PublicGenericFunction {
+                        name: imported.signature.name.clone(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+                );
+                return TypeId::Error;
+            }
+            self.check_function_arguments(
+                &imported.signature,
+                &Default::default(),
+                callee,
+                &arg_tys,
+            );
+            return imported.signature.return_type.clone();
+        }
         let Some(ResolvedName::Function(id)) = self.names.expr_resolution(callee) else {
             let callee_ty = self.infer_expr_type(callee, env);
             if !callee_ty.is_unresolved() {
@@ -1484,6 +1510,17 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
+        self.check_function_arguments(function, &substitution, callee, &arg_tys);
+        function.return_type.instantiate(&substitution)
+    }
+
+    fn check_function_arguments(
+        &mut self,
+        function: &super::TypedFunction,
+        substitution: &crate::types::TypeSubstitution,
+        callee: ExprId,
+        arg_tys: &[(ExprId, TypeId)],
+    ) {
         if function.params.len() != arg_tys.len() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CallArityMismatch {
@@ -1496,20 +1533,19 @@ impl<'a> BodyChecker<'a> {
         }
         for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
             if let Some(param) = function.params.get(index)
-                && param.ty.instantiate(&substitution).conflicts_with(arg_ty)
+                && param.ty.instantiate(substitution).conflicts_with(arg_ty)
             {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                         function_name: function.name.clone(),
                         parameter_name: param.name.clone(),
-                        expected: display_type_id(&param.ty.instantiate(&substitution)),
+                        expected: display_type_id(&param.ty.instantiate(substitution)),
                         found: display_type_id(arg_ty),
                     })
                     .with_span(self.lowered.source_map.expr_span(*arg_expr)),
                 );
             }
         }
-        function.return_type.instantiate(&substitution)
     }
 
     fn const_root_name(&self, expr_id: ExprId) -> Option<String> {

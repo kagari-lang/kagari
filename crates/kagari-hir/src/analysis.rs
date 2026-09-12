@@ -29,6 +29,48 @@ pub struct BindingInfo {
 }
 
 impl FileAnalysis {
+    pub fn signatures(&self) -> &Arc<AnalysisResult<crate::typeck::ModuleSignatures>> {
+        &self.result.facts().signatures
+    }
+
+    pub fn source_function_at(&self, offset: usize) -> Option<&crate::imports::ImportedFunction> {
+        let facts = self.result.facts();
+        facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter_map(|(id, _)| {
+                let span = facts.lowered.source_map.expr_span(id);
+                if !(span.start <= offset && offset < span.end) {
+                    return None;
+                }
+                let function = facts
+                    .imported_functions
+                    .get(facts.names.expr_resolution(id)?)?;
+                Some((span.end - span.start, function))
+            })
+            .min_by_key(|(length, _)| *length)
+            .map(|(_, function)| function)
+            .or_else(|| {
+                facts
+                    .names
+                    .imports
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, import)| {
+                        (import.span.start <= offset && offset < import.span.end)
+                            .then(|| {
+                                facts
+                                    .imported_functions
+                                    .get(crate::resolver::ResolvedName::SourceImport(index))
+                            })
+                            .flatten()
+                    })
+            })
+    }
+
     pub fn host_function_at(
         &self,
         offset: usize,
@@ -310,7 +352,7 @@ impl AnalysisDatabase {
             &self.hosts,
             cancel,
         )?);
-        let mut files = HashMap::new();
+        let mut signatures = std::collections::BTreeMap::new();
         for (id, (file, parsed, lowered)) in prepared {
             cancel.check()?;
             let imports = graph
@@ -318,13 +360,43 @@ impl AnalysisDatabase {
                 .expect("prepared module is in graph")
                 .imports
                 .clone();
+            let prepared = match self.files.get(&id) {
+                Some(previous)
+                    if previous.source.revision() == file.revision()
+                        && previous.result.facts().names.hosts.revision()
+                            == self.hosts.revision()
+                        && previous.result.facts().names.imports == imports =>
+                {
+                    crate::PreparedAnalysis::from_cached(previous.result.facts())
+                }
+                _ => crate::prepare_analysis(lowered, self.hosts.clone(), imports, cancel),
+            };
+            signatures.insert(id, (file, parsed, prepared));
+        }
+        // Every module signature is available before any function body is checked.
+        let catalog = crate::imports::FunctionCatalog::new(
+            signatures.values().map(|(_, _, prepared)| prepared),
+        );
+        let mut bindings = HashMap::new();
+        for (id, (_, _, prepared)) in &signatures {
+            bindings.insert(
+                *id,
+                catalog.bindings(&prepared.names.facts.imports, cancel)?,
+            );
+        }
+        let mut files = HashMap::new();
+        for (id, (file, parsed, prepared)) in signatures {
+            cancel.check()?;
+            let imported_functions = bindings.remove(&id).expect("prepared import bindings");
+            let imports = prepared.names.facts.imports.clone();
             let analysis = match self.files.get(&id) {
                 Some(previous)
                     if previous.source.revision() == file.revision()
                         && previous.profile == profile
                         && previous.result.facts().names.hosts.revision()
                             == self.hosts.revision()
-                        && previous.result.facts().names.imports == imports =>
+                        && previous.result.facts().names.imports == imports
+                        && previous.result.facts().imported_functions == imported_functions =>
                 {
                     previous.clone()
                 }
@@ -337,6 +409,7 @@ impl AnalysisDatabase {
                                 && old.result.facts().names.hosts.revision()
                                     == self.hosts.revision()
                                 && old.result.facts().names.imports.same_bindings(&imports)
+                                && old.result.facts().imported_functions == imported_functions
                                 && old.source.module_identity() == file.module_identity()
                         })
                         .map(|old| crate::typeck::BodyReuse {
@@ -345,11 +418,10 @@ impl AnalysisDatabase {
                             new_text: file.text(),
                         });
                     let result = analyze_parsed(
-                        lowered,
+                        prepared,
                         &parsed,
                         profile,
-                        self.hosts.clone(),
-                        imports,
+                        imported_functions,
                         reuse.as_ref(),
                         cancel,
                     );

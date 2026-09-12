@@ -11,12 +11,12 @@ fn identity(name: &str) -> ModuleIdentity {
         path: name.split("::").map(str::to_owned).collect(),
     }
 }
-fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
+pub(super) fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     let path = format!("mem://{name}");
     db.bind_module(&path, identity(name)).unwrap();
     db.set(&path, text.into(), SourceLayer::Base).unwrap()
 }
-fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
+pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
     AnalysisDatabase::default()
         .snapshot(db.snapshot(), Default::default(), &Default::default())
         .unwrap()

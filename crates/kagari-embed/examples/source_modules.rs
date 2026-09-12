@@ -1,4 +1,4 @@
-//! Query a source dependency graph without running module initializers.
+//! Query source dependencies and imported signatures without running initializers.
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{ModuleIdentity, PackageId},
@@ -12,7 +12,10 @@ fn main() {
         ("shared", "pub fn value() -> i32 { 42 }"),
         ("left", "use demo::shared;"),
         ("right", "use demo::shared;"),
-        ("root", "use demo::left; use demo::right;"),
+        (
+            "root",
+            "use demo::left; use demo::right; use demo::shared::value; fn main() -> i32 { value() }",
+        ),
     ] {
         let source = format!("memory://{name}");
         engine.bind_module(&source, identity(name)).unwrap();
@@ -34,6 +37,16 @@ fn main() {
     {
         println!("{module}");
     }
+    let root = snapshot.module_graph().node(&identity("root")).unwrap();
+    let file = snapshot.file(root.file).unwrap();
+    let offset = file.source().text().rfind("value()").unwrap();
+    let function = file.source_function_at(offset).unwrap();
+    println!(
+        "imported {} -> {}",
+        function.signature.name,
+        function.signature.return_type.display_name()
+    );
+    assert!(file.result().diagnostics().is_empty());
     // Source bundles still require cross-module linking before execution.
 }
 

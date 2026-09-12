@@ -452,6 +452,11 @@ impl FunctionLowerer<'_, '_> {
                         )?;
                         CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
                     }
+                    SemanticCallTarget::SourceFunction(_) => {
+                        return Err(IrLoweringError::UnsupportedExpr(
+                            "source calls require module linking",
+                        ));
+                    }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         CallTarget::StandardIntrinsic(intrinsic)
                     }

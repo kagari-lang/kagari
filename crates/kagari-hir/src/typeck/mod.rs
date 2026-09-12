@@ -18,11 +18,26 @@ use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability};
 pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 
-pub(crate) use check::check_module_controlled;
+pub(crate) use check::{check_module_controlled, check_signatures};
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedCall, ResolvedStructInit, ResolvedTypeRef, TypeTable,
     TypeTarget,
 };
+
+#[derive(Debug, Clone)]
+pub struct ModuleSignatures {
+    pub(crate) functions: TypedFunctionBuffer,
+    pub(crate) type_table: TypeTable,
+}
+
+impl ModuleSignatures {
+    pub fn functions(&self) -> &[TypedFunction] {
+        &self.functions
+    }
+    pub fn type_table(&self) -> &TypeTable {
+        &self.type_table
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TypedModule {
@@ -34,7 +49,7 @@ pub struct TypedModule {
     pub type_table: TypeTable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedFunction {
     pub generic_params: Vec<crate::types::GenericParameterType>,
     pub id: FunctionId,
@@ -43,7 +58,7 @@ pub struct TypedFunction {
     pub return_type: TypeId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedParameter {
     pub id: ParamId,
     pub writeability: Writeability,
@@ -63,6 +78,7 @@ pub(crate) struct TopLevelTypeIndex {
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeIndexes<'a> {
+    pub(crate) imported_functions: &'a crate::imports::ImportedFunctions,
     pub(crate) declarations: &'a crate::declarations::Declarations,
     pub(crate) cancel: &'a kagari_common::cancellation::CancellationToken,
     pub(crate) function_index: &'a FunctionTypeIndex,

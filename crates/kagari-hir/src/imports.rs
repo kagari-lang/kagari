@@ -13,8 +13,13 @@ use kagari_common::{
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
+mod functions;
+#[cfg(test)]
+mod signature_tests;
 #[cfg(test)]
 mod tests;
+pub(crate) use functions::FunctionCatalog;
+pub use functions::{ImportedFunction, ImportedFunctions, SourceFunctionId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceImport {

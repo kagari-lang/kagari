@@ -40,9 +40,17 @@ that component is rejected without itself being labelled cyclic. Unrelated cycle
 do not prevent compilation of an independent root. Lifecycle semantics belong to
 [module-activation.md](module-activation.md).
 
-Current implementation boundary: source imports support graph and definition
-queries. Cross-source signature checking and executable bundle linking remain
-pending. Single-module code generation reports `KG_COMPILE_MODULE_LINK_REQUIRED`
+Function signatures are checked for every module before any function body is
+checked. Imported calls use these signatures, including through public source
+facades; they do not reinterpret dependency syntax. Parameter/return types retain
+nominal declaration identity, including when two modules declare the same name.
+Signature queries retain errors independently of body and constant diagnostics.
+An invalid dependency body does not erase its usable function signatures.
+
+Current implementation boundary: source imports support graph, definition and
+function signature queries and call checking. Imported type annotations, namespace
+facades, cross-module field access and executable bundle linking remain pending.
+Single-module code generation reports `KG_COMPILE_MODULE_LINK_REQUIRED`
 for source imports, including unused imports whose initialization would otherwise
 be lost. Host and standard imports remain executable.
 

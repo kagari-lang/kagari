@@ -27,6 +27,7 @@ pub struct ResolvedTypeRef {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallTarget {
+    SourceFunction(crate::imports::SourceFunctionId),
     HostFunction(crate::host::HostFunctionId),
     Function(FunctionId),
     StandardIntrinsic(StandardIntrinsic),
