@@ -47,8 +47,11 @@ Implemented foundation slices:
 - R02: shared source/artifact/JIT value, identity, alias, short-circuit and negative
   diagnostic cases. Host effect trace fixtures remain to be connected.
 - R03: source IDs/revisions, immutable snapshots, base/overlay precedence and
-  checked UTF-8/UTF-16/CRLF coordinates. Project/module ingestion and semantic
-  definition identity integration remain outstanding.
+  checked UTF-8/UTF-16/CRLF coordinates. The engine now compiles and queries the
+  same snapshots; disk loading, host text and overlays use one ingestion path.
+  Relative paths resolve against a captured root; virtual URI schemes survive
+  normalization. Embedding diagnostics carry file/revision ranges. Cross-module
+  resolution and semantic definition identity integration remain outstanding.
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
   represented explicitly, and codegen requires a sealed CheckedAnalysis. More
   semantic-target and source-owner integration remains outstanding.
@@ -56,6 +59,8 @@ Implemented foundation slices:
   reuse remapped type facts, while declaration changes invalidate that reuse.
   Scope/type/member-receiver queries work on erroneous files. Cancellation checks
   currently cover file/parse/analysis boundaries; intra-pass checks remain.
+  Language profiles participate in cache reuse; old queries cannot publish over
+  a newer revision. Engine snapshot compilation exposes cancellation explicitly.
 - R09: format v2 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.

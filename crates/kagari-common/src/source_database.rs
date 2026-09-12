@@ -40,19 +40,64 @@ impl SourceSnapshot {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SourceDatabase {
+    root: String,
     documents: BTreeMap<String, Document>,
     snapshot: SourceSnapshot,
 }
 
+impl Default for SourceDatabase {
+    fn default() -> Self {
+        Self::new(
+            std::env::current_dir()
+                .expect("working directory unavailable")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .expect("working directory is not a valid source root")
+    }
+}
+
 impl SourceDatabase {
+    /// Capture an absolute project root once; later working-directory changes
+    /// cannot change the meaning of relative source names in this database.
+    pub fn new(root: &str) -> Result<Self, String> {
+        let root = normalize_source_name(root)?;
+        if !is_absolute_path(&root) || root.contains("://") {
+            return Err("source root must be an absolute filesystem path".into());
+        }
+        Ok(Self {
+            root,
+            documents: BTreeMap::new(),
+            snapshot: SourceSnapshot::default(),
+        })
+    }
+
+    pub fn source_name(&self, name: &str) -> Result<String, String> {
+        let name = normalize_source_name(name)?;
+        if is_absolute_path(&name) || name.contains("://") {
+            Ok(name)
+        } else {
+            normalize_source_name(&format!("{}/{name}", self.root))
+        }
+    }
+
+    pub fn load_file(&mut self, path: &str) -> Result<FileId, String> {
+        let name = self.source_name(path)?;
+        if name.contains("://") {
+            return Err("virtual sources must be supplied by the host".into());
+        }
+        let text = std::fs::read_to_string(&name).map_err(|error| format!("{name}: {error}"))?;
+        self.set(&name, text, SourceLayer::Base)
+    }
+
     pub fn snapshot(&self) -> SourceSnapshot {
         self.snapshot.clone()
     }
 
     pub fn set(&mut self, name: &str, text: String, layer: SourceLayer) -> Result<FileId, String> {
-        let name = normalize_source_name(name)?;
+        let name = self.source_name(name)?;
         let document = self
             .documents
             .entry(name.clone())
@@ -71,7 +116,7 @@ impl SourceDatabase {
     }
 
     pub fn close_overlay(&mut self, name: &str) -> Result<(), String> {
-        let name = normalize_source_name(name)?;
+        let name = self.source_name(name)?;
         if let Some(document) = self.documents.get_mut(&name) {
             document.overlay = None;
         }
@@ -81,7 +126,7 @@ impl SourceDatabase {
 
     pub fn file_id(&self, name: &str) -> Option<FileId> {
         self.documents
-            .get(&normalize_source_name(name).ok()?)
+            .get(&self.source_name(name).ok()?)
             .map(|doc| doc.id)
     }
 
@@ -121,6 +166,22 @@ impl SourceDatabase {
 
 /// Lexical normalization only: virtual/unsaved sources need not exist on disk.
 pub fn normalize_source_name(name: &str) -> Result<String, String> {
+    if name.contains('\0') {
+        return Err("source name contains NUL".into());
+    }
+    if let Some((scheme, rest)) = name.split_once("://")
+        && scheme != "file"
+    {
+        if scheme.is_empty()
+            || rest.is_empty()
+            || !scheme
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+        {
+            return Err("invalid virtual source URI".into());
+        }
+        return Ok(format!("{}://{rest}", scheme.to_ascii_lowercase()));
+    }
     let mut path = if let Some(uri) = name.strip_prefix("file://") {
         let uri = uri
             .strip_prefix("localhost/")
@@ -156,7 +217,11 @@ pub fn normalize_source_name(name: &str) -> Result<String, String> {
     if path.starts_with('/') && path.as_bytes().get(2) == Some(&b':') {
         path.remove(0);
     }
-    if path.as_bytes().get(1) == Some(&b':') {
+    let drive = path.as_bytes().get(1) == Some(&b':');
+    if drive {
+        if !path.as_bytes()[0].is_ascii_alphabetic() || path.as_bytes().get(2) != Some(&b'/') {
+            return Err("drive-relative source paths are unsupported".into());
+        }
         path.replace_range(..1, &path[..1].to_ascii_lowercase());
     }
     let absolute = path.starts_with('/');
@@ -170,7 +235,7 @@ pub fn normalize_source_name(name: &str) -> Result<String, String> {
                     .is_some_and(|p: &&str| *p != ".." && !p.ends_with(':'))
                 {
                     components.pop();
-                } else if !absolute {
+                } else if !absolute && !drive {
                     components.push(part);
                 }
             }
@@ -188,6 +253,11 @@ pub fn normalize_source_name(name: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
+fn is_absolute_path(path: &str) -> bool {
+    path.starts_with('/')
+        || (path.as_bytes().get(1) == Some(&b':') && path.as_bytes().get(2) == Some(&b'/'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +265,26 @@ mod tests {
         Span,
         line_index::{Position, PositionEncoding},
     };
+
+    #[test]
+    fn project_paths_and_virtual_uris_have_unambiguous_identity() {
+        let mut db = SourceDatabase::new("C:/project").unwrap();
+        let file = db
+            .set("src/../main.kgr", "base".into(), SourceLayer::Base)
+            .unwrap();
+        assert_eq!(db.file_id("file:///c:/project/main.kgr"), Some(file));
+        assert_eq!(db.file_id("C:\\project\\main.kgr"), Some(file));
+        assert_eq!(db.source_name("C:/../../main.kgr").unwrap(), "c:/main.kgr");
+        assert!(db.source_name("C:relative.kgr").is_err());
+        let virtual_file = db
+            .set("memory://main.kgr", "virtual".into(), SourceLayer::Base)
+            .unwrap();
+        assert_eq!(
+            db.snapshot().file(virtual_file).unwrap().name(),
+            "memory://main.kgr"
+        );
+        assert_ne!(file, virtual_file);
+    }
 
     #[test]
     fn overlays_and_snapshots_preserve_identity_and_revisions() {

@@ -550,7 +550,7 @@ fn print_embedding_diagnostics(diagnostics: &[EmbeddingDiagnostic]) {
         match diagnostic.span {
             Some(span) => eprintln!(
                 "{}: {} at {}..{}",
-                diagnostic.code, diagnostic.message, span.start, span.end
+                diagnostic.code, diagnostic.message, span.range.start, span.range.end
             ),
             None => eprintln!("{}: {}", diagnostic.code, diagnostic.message),
         }

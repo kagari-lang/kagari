@@ -1,5 +1,12 @@
-use kagari_common::{Diagnostic, Severity, SourceFile, Span};
-use kagari_hir::{CheckedAnalysis, LanguageFeatureProfile, analyze_source};
+use kagari_common::{
+    Diagnostic, Severity, SourceFile,
+    identity::{FileId, FileSpan},
+    source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
+};
+use kagari_hir::{
+    CheckedAnalysis, LanguageFeatureProfile,
+    analysis::{AnalysisDatabase, AnalysisSnapshot, CancellationToken},
+};
 use kagari_ir::{
     IrLoweringError,
     bytecode::{
@@ -16,6 +23,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_vm::{ExecutionReport, Vm, VmError};
+use std::cell::RefCell;
 
 pub use kagari_runtime::HostExposurePolicy;
 
@@ -34,11 +42,17 @@ pub struct EngineConfig {
 #[derive(Debug, Default)]
 pub struct KagariEngine {
     config: EngineConfig,
+    sources: RefCell<SourceDatabase>,
+    analysis: RefCell<AnalysisDatabase>,
 }
 
 impl KagariEngine {
     pub fn new(config: EngineConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            sources: RefCell::default(),
+            analysis: RefCell::default(),
+        }
     }
 
     pub fn config(&self) -> &EngineConfig {
@@ -58,15 +72,81 @@ impl KagariEngine {
         source: SourceFile,
         options: CompileOptions,
     ) -> CompileResult<CheckedModule> {
+        let id = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
+        self.compile_snapshot(
+            self.source_snapshot(),
+            id,
+            options,
+            &CancellationToken::default(),
+        )
+    }
+
+    pub fn set_source(
+        &self,
+        name: &str,
+        text: String,
+        layer: SourceLayer,
+    ) -> CompileResult<FileId> {
+        self.sources
+            .borrow_mut()
+            .set(name, text, layer)
+            .map_err(|message| EmbeddingError::Source { message })
+    }
+
+    pub fn load_source(&self, path: &str) -> CompileResult<FileId> {
+        self.sources
+            .borrow_mut()
+            .load_file(path)
+            .map_err(|message| EmbeddingError::Source { message })
+    }
+
+    pub fn close_overlay(&self, name: &str) -> CompileResult<()> {
+        self.sources
+            .borrow_mut()
+            .close_overlay(name)
+            .map_err(|message| EmbeddingError::Source { message })
+    }
+
+    pub fn source_snapshot(&self) -> SourceSnapshot {
+        self.sources.borrow().snapshot()
+    }
+
+    pub fn analyze(
+        &self,
+        source: SourceSnapshot,
+        profile: LanguageProfile,
+        cancel: &CancellationToken,
+    ) -> CompileResult<AnalysisSnapshot> {
+        self.analysis
+            .borrow_mut()
+            .snapshot(
+                source,
+                language_feature_profile_from_runtime(profile),
+                cancel,
+            )
+            .map_err(|_| EmbeddingError::Cancelled)
+    }
+
+    pub fn compile_snapshot(
+        &self,
+        source: SourceSnapshot,
+        file: FileId,
+        options: CompileOptions,
+        cancel: &CancellationToken,
+    ) -> CompileResult<CheckedModule> {
+        let snapshot = self.analyze(source, options.language_profile, cancel)?;
+        let analysis = snapshot.file(file).ok_or_else(|| EmbeddingError::Source {
+            message: "file is absent from this source snapshot".into(),
+        })?;
+        let source = analysis.source();
         let module_identity = options
             .module_identity
             .unwrap_or_else(|| ArtifactModuleIdentity::single_file(source.name()));
-        let analyzed = analyze_source(
-            &source,
-            language_feature_profile_from_runtime(options.language_profile),
-        )
-        .into_codegen()
-        .map_err(EmbeddingError::diagnostics)?;
+        let analyzed = analysis
+            .result()
+            .clone()
+            .into_codegen()
+            .map_err(|diagnostics| EmbeddingError::diagnostics(diagnostics, source))?;
         Ok(CheckedModule {
             source_name: source.name().to_owned(),
             module_identity,
@@ -456,22 +536,22 @@ impl ExecutionContext {
 pub struct EmbeddingDiagnostic {
     pub severity: Severity,
     pub code: String,
-    pub span: Option<Span>,
+    pub span: Option<FileSpan>,
     pub message: String,
     pub notes: Vec<String>,
     pub labels: Vec<DiagnosticLabel>,
 }
 
 impl EmbeddingDiagnostic {
-    fn from_diagnostic(diagnostic: Diagnostic) -> Self {
+    fn from_diagnostic(diagnostic: Diagnostic, source: &SourceFile) -> Self {
+        let span = diagnostic.span.and_then(|span| source.span(span));
         Self {
             severity: diagnostic.severity,
             code: diagnostic.kind.code().to_owned(),
-            span: diagnostic.span,
+            span,
             message: diagnostic.kind.to_string(),
             notes: Vec::new(),
-            labels: diagnostic
-                .span
+            labels: span
                 .into_iter()
                 .map(|span| DiagnosticLabel {
                     span,
@@ -484,7 +564,7 @@ impl EmbeddingDiagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiagnosticLabel {
-    pub span: Span,
+    pub span: FileSpan,
     pub message: String,
 }
 
@@ -540,6 +620,10 @@ impl RuntimeFailureKind {
 
 #[derive(Debug)]
 pub enum EmbeddingError {
+    Source {
+        message: String,
+    },
+    Cancelled,
     Diagnostics {
         diagnostics: Vec<EmbeddingDiagnostic>,
     },
@@ -566,6 +650,8 @@ pub enum EmbeddingError {
 impl EmbeddingError {
     pub fn code(&self) -> String {
         match self {
+            Self::Source { .. } => "KG_SOURCE_INPUT".to_owned(),
+            Self::Cancelled => "KG_ANALYSIS_CANCELLED".to_owned(),
             Self::Diagnostics { diagnostics } => diagnostics
                 .first()
                 .map(|diagnostic| diagnostic.code.clone())
@@ -578,12 +664,15 @@ impl EmbeddingError {
         }
     }
 
-    fn diagnostics(diagnostics: Box<smallvec::SmallVec<[Diagnostic; 4]>>) -> Self {
+    fn diagnostics(
+        diagnostics: Box<smallvec::SmallVec<[Diagnostic; 4]>>,
+        source: &SourceFile,
+    ) -> Self {
         Self::Diagnostics {
             diagnostics: diagnostics
                 .into_vec()
                 .into_iter()
-                .map(EmbeddingDiagnostic::from_diagnostic)
+                .map(|diagnostic| EmbeddingDiagnostic::from_diagnostic(diagnostic, source))
                 .collect(),
         }
     }

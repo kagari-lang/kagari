@@ -3,6 +3,25 @@
 This document defines the Rust-facing API shape for embedding Kagari.
 It is a semantic API specification, not a commitment to exact Rust type names.
 
+## Source snapshots
+
+An engine owns one source database and one analysis cache. `load_source` reads
+disk text, `set_source` supplies host text or an editor overlay, and
+`close_overlay` exposes the latest base text again. Relative file paths resolve
+against the database's captured absolute root. File URIs and local paths share
+identity; virtual source URIs retain their scheme.
+
+`source_snapshot` captures immutable inputs. `analyze` returns partial semantic
+facts and diagnostics for tools; `compile_snapshot` selects a file and requires
+checked facts before code generation. Both accept a cancellation token.
+`compile_source` supplies base text through this same database, so an active
+overlay still takes precedence. Language profiles are analysis inputs: changing
+permissions cannot reuse a result accepted under another profile.
+
+Embedding diagnostic ranges contain file identity, document revision and byte
+range. Hosts must reject stale ranges before applying editor actions. UTF-8 and
+UTF-16 editor coordinates are checked conversions through the source line index.
+
 ## Design Goals
 
 - expose a small, stable host API for compiling, loading, running, and reloading scripts

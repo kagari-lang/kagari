@@ -41,6 +41,7 @@ pub struct Cancelled;
 #[derive(Debug)]
 pub struct FileAnalysis {
     source: Arc<SourceFile>,
+    profile: LanguageFeatureProfile,
     parsed: kagari_syntax::Parse,
     result: AnalysisResult<AnalyzedModule>,
 }
@@ -193,6 +194,7 @@ impl AnalysisDatabase {
     pub fn snapshot(
         &mut self,
         source: SourceSnapshot,
+        profile: LanguageFeatureProfile,
         cancel: &CancellationToken,
     ) -> Result<AnalysisSnapshot, Cancelled> {
         cancel.check()?;
@@ -200,9 +202,19 @@ impl AnalysisDatabase {
         for file in source.files() {
             cancel.check()?;
             let analysis = match self.files.get(&file.id()) {
-                Some(previous) if previous.source.revision() == file.revision() => previous.clone(),
+                Some(previous)
+                    if previous.source.revision() == file.revision()
+                        && previous.profile == profile =>
+                {
+                    previous.clone()
+                }
                 _ => {
-                    let parsed = kagari_syntax::parse(file);
+                    let parsed = self
+                        .files
+                        .get(&file.id())
+                        .filter(|old| old.source.revision() == file.revision())
+                        .map(|old| old.parsed.clone())
+                        .unwrap_or_else(|| kagari_syntax::parse(file));
                     cancel.check()?;
                     let reuse = self
                         .files
@@ -213,10 +225,10 @@ impl AnalysisDatabase {
                             old_text: old.source.text(),
                             new_text: file.text(),
                         });
-                    let result =
-                        analyze_parsed(&parsed, LanguageFeatureProfile::default(), reuse.as_ref());
+                    let result = analyze_parsed(&parsed, profile, reuse.as_ref());
                     Arc::new(FileAnalysis {
                         source: file.clone(),
+                        profile,
                         parsed,
                         result,
                     })
@@ -269,7 +281,13 @@ mod tests {
             .unwrap();
         let mut db = AnalysisDatabase::default();
         let token = CancellationToken::default();
-        let first = db.snapshot(sources.snapshot(), &token).unwrap();
+        let first = db
+            .snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile::default(),
+                &token,
+            )
+            .unwrap();
         assert_eq!(
             first
                 .file(file)
@@ -287,7 +305,13 @@ mod tests {
                 SourceLayer::Overlay,
             )
             .unwrap();
-        let second = db.snapshot(sources.snapshot(), &token).unwrap();
+        let second = db
+            .snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile::default(),
+                &token,
+            )
+            .unwrap();
         let result = &second.file(file).unwrap().result;
         assert_eq!(result.facts().typed.reused_bodies, 1);
         assert_eq!(result.facts().typed.checked_bodies, 1);
@@ -299,7 +323,13 @@ mod tests {
                 SourceLayer::Overlay,
             )
             .unwrap();
-        let third = db.snapshot(sources.snapshot(), &token).unwrap();
+        let third = db
+            .snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile::default(),
+                &token,
+            )
+            .unwrap();
         let result = &third.file(file).unwrap().result;
         assert_eq!(result.facts().typed.reused_bodies, 0);
         assert!(!result.diagnostics().is_empty());
@@ -313,7 +343,11 @@ mod tests {
             .set("a.kgr", text.into(), SourceLayer::Base)
             .unwrap();
         let snapshot = AnalysisDatabase::default()
-            .snapshot(sources.snapshot(), &CancellationToken::default())
+            .snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile::default(),
+                &CancellationToken::default(),
+            )
             .unwrap();
         let facts = snapshot.file(file).unwrap();
         assert!(!facts.result().diagnostics().is_empty());
@@ -348,13 +382,21 @@ mod tests {
             .unwrap();
         let mut db = AnalysisDatabase::default();
         let first = db
-            .snapshot(sources.snapshot(), &CancellationToken::default())
+            .snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile::default(),
+                &CancellationToken::default(),
+            )
             .unwrap();
         sources
             .set("b.kgr", "fn b() -> i32 { 3 }".into(), SourceLayer::Overlay)
             .unwrap();
         let second = db
-            .snapshot(sources.snapshot(), &CancellationToken::default())
+            .snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile::default(),
+                &CancellationToken::default(),
+            )
             .unwrap();
         assert!(Arc::ptr_eq(first.file(a).unwrap(), second.file(a).unwrap()));
         assert!(!Arc::ptr_eq(
@@ -363,7 +405,14 @@ mod tests {
         ));
         let cancel = CancellationToken::default();
         cancel.cancel();
-        assert!(db.snapshot(sources.snapshot(), &cancel).is_err());
+        assert!(
+            db.snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile::default(),
+                &cancel
+            )
+            .is_err()
+        );
         assert!(first.file(b).unwrap().source().text().contains("{ 2 }"));
     }
 }
