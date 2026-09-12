@@ -100,6 +100,14 @@ impl CraneliftBackend {
         let mut result = JitValue::default();
         let status = unsafe { function(runtime as *const Runtime, &mut result) };
         match status {
+            kagari_runtime::jit_abi::JIT_STATUS_CANCELLED => {
+                return Err(BackendInvocationError::RuntimeFailure(
+                    kagari_runtime::RuntimeError::new(
+                        kagari_runtime::RuntimeErrorKind::Cancelled,
+                        "execution cancelled",
+                    ),
+                ));
+            }
             kagari_runtime::jit_abi::JIT_STATUS_ENGINE_FAULT => {
                 return Err(BackendInvocationError::RuntimeFailure(
                     kagari_runtime::RuntimeError::new(
@@ -119,7 +127,9 @@ impl CraneliftBackend {
             JIT_STATUS_OK => {}
             JIT_STATUS_RESOURCE_LIMIT => {
                 return Err(BackendInvocationError::RuntimeFailure(
-                    kagari_runtime::RuntimeError::resource_limit("instruction steps"),
+                    runtime.resources().termination().unwrap_or_else(|| {
+                        kagari_runtime::RuntimeError::resource_limit("instruction steps")
+                    }),
                 ));
             }
             JIT_STATUS_INTEGER_OVERFLOW => {

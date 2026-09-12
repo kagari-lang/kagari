@@ -8,6 +8,7 @@ pub const JIT_STATUS_INTEGER_OVERFLOW: i32 = 2;
 pub const JIT_STATUS_INVALID_RUNTIME: i32 = 3;
 pub const JIT_STATUS_INVALID_HEAP_REFERENCE: i32 = 4;
 pub const JIT_STATUS_ENGINE_FAULT: i32 = 5;
+pub const JIT_STATUS_CANCELLED: i32 = 6;
 pub const JIT_VALUE_TAG_UNIT: u8 = 0;
 pub const JIT_VALUE_TAG_BOOL: u8 = 1;
 pub const JIT_VALUE_TAG_I32: u8 = 2;
@@ -74,14 +75,19 @@ pub unsafe extern "C" fn jit_consume_instruction_step(runtime: *const Runtime) -
         return JIT_STATUS_INVALID_RUNTIME;
     };
     if let Err(error) = runtime.gc_safepoint() {
-        return if error.kind() == crate::RuntimeErrorKind::EngineFault {
-            JIT_STATUS_ENGINE_FAULT
-        } else {
-            JIT_STATUS_INVALID_HEAP_REFERENCE
+        return match error.kind() {
+            crate::RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
+            crate::RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
+            crate::RuntimeErrorKind::ResourceLimitExceeded => JIT_STATUS_RESOURCE_LIMIT,
+            _ => JIT_STATUS_INVALID_HEAP_REFERENCE,
         };
     }
     match runtime.consume_instruction_step() {
         Ok(()) => JIT_STATUS_OK,
-        Err(_) => JIT_STATUS_RESOURCE_LIMIT,
+        Err(error) => match error.kind() {
+            crate::RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
+            crate::RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
+            _ => JIT_STATUS_RESOURCE_LIMIT,
+        },
     }
 }

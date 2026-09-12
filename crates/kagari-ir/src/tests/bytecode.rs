@@ -516,7 +516,11 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
 
 #[test]
 fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
-    for previous in ["kagari-runtime-abi-v5", "kagari-runtime-abi-v6"] {
+    for previous in [
+        "kagari-runtime-abi-v5",
+        "kagari-runtime-abi-v6",
+        "kagari-runtime-abi-v7",
+    ] {
         let artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {
                 root: crate::bytecode::ModuleRef::new(0),
@@ -542,28 +546,32 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
 }
 
 #[test]
-fn rejects_helper_abi_without_commit_fault_status() {
-    let previous = "kagari-runtime-helper-abi-v3";
-    let artifact = KbcArtifact::from_program(
-        crate::bytecode::BytecodeProgram {
-            root: crate::bytecode::ModuleRef::new(0),
-            modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
-        },
-        ArtifactBuildOptions {
-            runtime_helper_abi_version: previous.into(),
-            ..Default::default()
-        },
-    );
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    for version in [previous, crate::bytecode::KAGARI_RUNTIME_HELPER_ABI_VERSION] {
-        let requirements = ArtifactCompatibility {
-            runtime_helper_abi_version: version.into(),
-            ..Default::default()
-        };
-        assert!(matches!(
-            decoded.validate_for_loader(&requirements),
-            Err(ArtifactValidationError::RuntimeHelperAbiMismatch { .. })
-        ));
+fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
+    for previous in [
+        "kagari-runtime-helper-abi-v3",
+        "kagari-runtime-helper-abi-v4",
+    ] {
+        let artifact = KbcArtifact::from_program(
+            crate::bytecode::BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
+            },
+            ArtifactBuildOptions {
+                runtime_helper_abi_version: previous.into(),
+                ..Default::default()
+            },
+        );
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        for version in [previous, crate::bytecode::KAGARI_RUNTIME_HELPER_ABI_VERSION] {
+            let requirements = ArtifactCompatibility {
+                runtime_helper_abi_version: version.into(),
+                ..Default::default()
+            };
+            assert!(matches!(
+                decoded.validate_for_loader(&requirements),
+                Err(ArtifactValidationError::RuntimeHelperAbiMismatch { .. })
+            ));
+        }
     }
 }
 

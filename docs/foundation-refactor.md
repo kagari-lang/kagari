@@ -312,15 +312,23 @@ Implemented foundation slices:
   access uses short borrows. Debug frames and breakpoints distinguish member IDs
   even when local function IDs coincide. BackendFunctionInput can only select a
   function from an immutable linked version; cross-module calls pass through the
-  existing interpreter fallback. Synchronous host reentry, session-owned budgets/
-  roots and lexical debugger visibility remain pending. Tests cover direct/encoded
+  existing interpreter fallback. Root execution sessions now pin the dependency
+  program and immutable permissions/host policy. Initialization, entry and backend
+  fallback share root budgets and cancellation; nested scopes inherit them and the
+  last scope releases version retention. Context resource overrides now apply per
+  call without changing runtime defaults. Runtime counters remain cumulative while
+  ExecutionCounters reports root usage and peaks. Cooperative cancellation and
+  wall-time limits preserve completed effects and release frames; resource
+  termination stays recorded until the session ends. Synchronous callback reentry,
+  session-owned frames/borrows and lexical debugger visibility remain pending.
+  Tests cover direct/encoded
   programs, dependency-first initialization/failure caching, stale reloads, old
   dependency calls, malformed program rejection and interpreter/JIT fallback parity.
 - R13/R17 prerequisite for R02: interpreter arithmetic, typed-path arithmetic and
   integer abs use checked operations. Existing native i32 add/subtract/multiply/
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
-  ABI is v7 and JIT helper ABI is v4. Path arithmetic failure produces no
+  ABI is v8 and JIT helper ABI is v5. Path arithmetic failure produces no
   commit action or dirty record. Heap allocations and standard container growth
   now share resource counters: validation, budget checks and capacity preparation
   precede mutation and accounting commit. Failed operations charge no units;
@@ -336,17 +344,18 @@ Implemented foundation slices:
   attempts quarantine the runtime and preserve EngineFault through VM/embedding/JIT
   boundaries; cleanup releases frame roots and call depth. Direct/encoded programs
   and existing JIT fallback cover commit faults and subsequent execution rejection.
-  Full engine-invariant coverage outside path commits and unified termination/session
+  Full engine-invariant coverage outside path commits and unified frame/host-borrow
   cleanup remain open; this does not complete R13.
   Initialization now owns a lifecycle guard and version retention with no long
   module-state borrow. Success validates the stored result; every unfinished exit
   records failure and releases retention. Failure cleanup is allowed after runtime
   quarantine, so an initializer commit fault cannot trigger a second panic while
   attempting an ordinary module-state write. Direct/encoded interpreter and JIT
-  fallback fixtures cover both entry and initializer faults. Cancellation, root-call
-  budgets and synchronous reentry still require the R12 execution session.
+  fallback fixtures cover both entry and initializer faults. Root sessions provide
+  cancellation and shared budgets; synchronous callback reentry and session-owned
+  frames still require R12 work.
   Const evaluation shares checked arithmetic and
-  honors short circuit, with cancellation checks. Unified termination handling,
+  honors short circuit, with cancellation checks. Full execution-resource ownership,
   narrower integer layouts and the other backend/
   debugger contracts remain open; compile-time quotas are still pending R15.
   Assignment lowering now retains a location before RHS execution and resolves

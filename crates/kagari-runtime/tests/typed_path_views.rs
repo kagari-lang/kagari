@@ -121,6 +121,73 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
 }
 
 #[test]
+fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
+    use kagari_common::cancellation::CancellationToken;
+    use kagari_ir::bytecode::{BytecodeProgram, ModuleRef};
+    use std::{cell::Cell, rc::Rc};
+    let mut runtime = path_mutation_runtime();
+    let module = runtime
+        .load_program(
+            "commit.kgr",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![Default::default()],
+            },
+        )
+        .unwrap();
+    let scalar = register_i32(&runtime);
+    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
+    let target = Rc::new(Cell::new(10));
+    let read_target = target.clone();
+    let write_target = target.clone();
+    let token = CancellationToken::default();
+    let cancel = token.clone();
+    runtime
+        .register_host_path_adapter(
+            descriptor,
+            HostPathAdapter::new()
+                .with_read(move |_| Ok(Value::I32(read_target.get())))
+                .with_prepare_write(move |_, record| {
+                    let Value::I32(next) = record.new_value else {
+                        return Err(HostError::new("expected i32"));
+                    };
+                    let target = write_target.clone();
+                    let cancel = cancel.clone();
+                    Ok(PreparedHostPathWrite::new(move || {
+                        target.set(next);
+                        cancel.cancel();
+                    }))
+                }),
+        )
+        .unwrap();
+    let mut options = runtime.execution_options();
+    options.cancellation = token;
+    let session = runtime.begin_execution(&module, options).unwrap();
+    runtime
+        .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+        .unwrap();
+    assert_eq!(target.get(), 20);
+    assert_eq!(runtime.host_dirty_paths().len(), 1);
+    assert_eq!(
+        runtime.gc_safepoint().unwrap_err().kind(),
+        RuntimeErrorKind::Cancelled
+    );
+    assert_eq!(runtime.gc().active_roots(), 0);
+    drop(session);
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+            .unwrap(),
+        Value::I32(20)
+    );
+    assert!(!runtime.is_quarantined());
+}
+
+#[test]
 fn nonstorable_previous_value_cannot_escape_through_the_dirty_ledger() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);

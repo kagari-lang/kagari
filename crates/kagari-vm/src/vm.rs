@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use kagari_ir::bytecode::{BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef};
 use kagari_runtime::{
     BackendDiagnostic, BackendFunctionInput, BackendId, BackendInvocationError, CodegenBackend,
-    ExecutionArtifactId, LoadedModule, ModuleEpochRetention, ModuleInitializationState, ModuleKey,
-    ModuleStore, ReloadDependencySnapshot, Runtime, value::Value,
+    ExecutionArtifactId, LoadedModule, ModuleInitializationState, ModuleKey,
+    ReloadDependencySnapshot, Runtime, value::Value,
 };
 
 use crate::debug::DebugSession;
@@ -80,6 +80,10 @@ impl Vm {
         module: &LoadedModule,
         entry: &str,
     ) -> Result<ExecutionReport, VmError> {
+        let _session = self
+            .runtime
+            .begin_execution(module, self.runtime.execution_options())
+            .map_err(VmError::RuntimeError)?;
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
@@ -97,11 +101,6 @@ impl Vm {
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
-        let _epoch_guard = ModuleEpochGuard::new(
-            self.runtime.modules(),
-            module.key(),
-            ModuleEpochRetention::ActiveCall,
-        );
         let mut executor =
             Executor::new(&self.runtime, module, entry, self.debug_session.as_mut())?;
         let return_value = executor.run()?;
@@ -121,6 +120,10 @@ impl Vm {
         entry: &str,
         backend: &mut B,
     ) -> Result<ExecutionReport, VmError> {
+        let _session = self
+            .runtime
+            .begin_execution(module, self.runtime.execution_options())
+            .map_err(VmError::RuntimeError)?;
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
@@ -161,6 +164,10 @@ impl Vm {
     }
 
     pub fn execute_module(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
+        let _session = self
+            .runtime
+            .begin_execution(module, self.runtime.execution_options())
+            .map_err(VmError::RuntimeError)?;
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
@@ -335,11 +342,6 @@ impl Vm {
                     ),
                 }])
             })?;
-        let _epoch_guard = ModuleEpochGuard::new(
-            self.runtime.modules(),
-            module.key(),
-            ModuleEpochRetention::ActiveCall,
-        );
         let _call_guard = RuntimeCallGuard::new(&self.runtime)?;
         match backend.invoke_function(&artifact, &self.runtime) {
             Ok(value) => Ok(JitEntryResult::Native {
@@ -395,11 +397,6 @@ impl Vm {
         module: &LoadedModule,
         entry: FunctionRef,
     ) -> Result<Value, VmError> {
-        let _epoch_guard = ModuleEpochGuard::new(
-            self.runtime.modules(),
-            module.key(),
-            ModuleEpochRetention::ActiveCall,
-        );
         let mut executor =
             Executor::new(&self.runtime, module, entry, self.debug_session.as_mut())?;
         executor.run()
@@ -433,33 +430,6 @@ impl Drop for RuntimeCallGuard<'_> {
     fn drop(&mut self) {
         if self.entered {
             self.runtime.leave_call();
-        }
-    }
-}
-
-struct ModuleEpochGuard<'a> {
-    modules: &'a ModuleStore,
-    key: ModuleKey,
-    retention: ModuleEpochRetention,
-    retained: bool,
-}
-
-impl<'a> ModuleEpochGuard<'a> {
-    fn new(modules: &'a ModuleStore, key: ModuleKey, retention: ModuleEpochRetention) -> Self {
-        let retained = modules.retain_epoch(key, retention);
-        Self {
-            modules,
-            key,
-            retention,
-            retained,
-        }
-    }
-}
-
-impl Drop for ModuleEpochGuard<'_> {
-    fn drop(&mut self) {
-        if self.retained {
-            self.modules.release_epoch(self.key, self.retention);
         }
     }
 }

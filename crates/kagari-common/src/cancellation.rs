@@ -3,9 +3,16 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-/// Shared cooperative cancellation for lexer, parser and semantic passes.
+/// Shared cooperative cancellation for analysis and execution scopes.
 #[derive(Debug, Clone, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
+
+impl PartialEq for CancellationToken {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for CancellationToken {}
 
 impl CancellationToken {
     pub fn cancel(&self) {

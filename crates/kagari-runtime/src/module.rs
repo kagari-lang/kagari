@@ -235,9 +235,9 @@ impl ModuleInstance {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ModuleStore {
-    inner: RefCell<ModuleStoreInner>,
+    inner: std::rc::Rc<RefCell<ModuleStoreInner>>,
 }
 
 #[derive(Debug, Default)]

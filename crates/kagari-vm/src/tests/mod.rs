@@ -8,4 +8,5 @@ mod jit;
 mod language_contract;
 mod mutation_resources;
 mod security;
+mod sessions;
 mod source_programs;

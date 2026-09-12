@@ -163,6 +163,9 @@ pub struct GcHeap {
 }
 
 impl GcHeap {
+    pub(crate) fn resource_limit(&self, name: &'static str) -> RuntimeError {
+        self.resources.limit(name)
+    }
     pub(crate) fn commit_host_write(&self, commit: impl FnOnce()) -> Result<(), RuntimeError> {
         self.resources.commit_host_write(commit)
     }
@@ -248,7 +251,7 @@ impl GcHeap {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key")
             })?;
             map.try_reserve(usize::from(!map.contains_key(&key)))
-                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             map.insert(key, value);
         }
         self.alloc_object(HeapObject::Map(map))
@@ -262,7 +265,7 @@ impl GcHeap {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key")
             })?;
             set.try_reserve(usize::from(!set.contains(&key)))
-                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             set.insert(key);
         }
         self.alloc_object(HeapObject::Set(set))
@@ -335,7 +338,7 @@ impl GcHeap {
             let growth = self.resources.prepare_heap_growth(1)?;
             elements
                 .try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             elements.push(value);
             growth.commit();
             Ok(())
@@ -375,7 +378,7 @@ impl GcHeap {
             let growth = self.resources.prepare_heap_growth(1)?;
             elements
                 .try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             elements.insert(index, value);
             growth.commit();
             Ok(())
@@ -459,7 +462,7 @@ impl GcHeap {
             let growth = self.resources.prepare_heap_growth(units)?;
             entries
                 .try_reserve(units)
-                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             entries.insert(key, value);
             growth.commit();
             Ok(())
@@ -512,7 +515,7 @@ impl GcHeap {
             let growth = self.resources.prepare_heap_growth(units)?;
             values
                 .try_reserve(units)
-                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             let inserted = values.insert(key);
             growth.commit();
             Ok(inserted)
@@ -777,7 +780,7 @@ impl GcHeap {
         } else {
             objects
                 .try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             let index = objects.len();
             objects.push(ObjectSlot {
                 generation: 0,

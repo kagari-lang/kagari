@@ -18,6 +18,7 @@ pub mod reflection;
 pub mod reload;
 pub mod resource;
 pub mod security;
+pub mod session;
 pub mod value;
 pub mod value_semantics;
 
@@ -61,6 +62,7 @@ pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
 pub use security::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext,
 };
+pub use session::{ExecutionCounters, ExecutionOptions, ExecutionSession};
 
 use crate::{
     builtin::BuiltinError,
@@ -133,7 +135,7 @@ pub struct Runtime {
     host: HostRegistry,
     host_borrows: HostBorrowTable,
     security: SecurityContext,
-    host_exposure: HostExposurePolicy,
+    host_exposure: std::rc::Rc<HostExposurePolicy>,
     debug_visibility: DebugVisibilityPolicy,
     resources: std::rc::Rc<ResourceState>,
     reloads: HotReloadCoordinator,
@@ -150,7 +152,7 @@ impl Runtime {
             host: HostRegistry::default(),
             host_borrows: HostBorrowTable::default(),
             security: config.security,
-            host_exposure: config.host_exposure,
+            host_exposure: std::rc::Rc::new(config.host_exposure),
             debug_visibility: config.debug_visibility,
             resources,
             reloads: HotReloadCoordinator::default(),
@@ -161,6 +163,61 @@ impl Runtime {
 
     pub fn is_quarantined(&self) -> bool {
         self.resources.is_quarantined()
+    }
+
+    pub fn execution_options(&self) -> ExecutionOptions {
+        if let Some(session) = self.resources.active_session() {
+            return session.options.clone();
+        }
+        ExecutionOptions {
+            security: self.security,
+            host_exposure: self.host_exposure.clone(),
+            resources: self.resources.policy(),
+            cancellation: Default::default(),
+        }
+    }
+
+    pub fn begin_execution(
+        &self,
+        module: &LoadedModule,
+        options: ExecutionOptions,
+    ) -> Result<ExecutionSession, RuntimeError> {
+        self.validate_loaded_module(module)?;
+        let state = if let Some(session) = self.resources.active_session() {
+            if !session
+                .root
+                .members()
+                .any(|member| member.key() == module.key())
+            {
+                return Err(RuntimeError::module_validation(
+                    "nested execution must use the pinned dependency program",
+                ));
+            }
+            session
+        } else {
+            let session = std::rc::Rc::new(session::SessionState::new(
+                module.clone(),
+                options,
+                self.resources.counters(),
+            ));
+            self.modules
+                .retain_epoch(module.key(), ModuleEpochRetention::ActiveCall);
+            self.resources.start_execution(session.clone());
+            session
+        };
+        let scopes = state
+            .scopes
+            .get()
+            .checked_add(1)
+            .ok_or_else(|| self.resources.quarantine("execution scope count overflow"))?;
+        state.scopes.set(scopes);
+        let guard = ExecutionSession {
+            state,
+            resources: self.resources.clone(),
+            modules: self.modules.clone(),
+        };
+        self.resources.poll_execution()?;
+        Ok(guard)
     }
 
     pub fn gc(&self) -> &GcHeap {
@@ -398,19 +455,22 @@ impl Runtime {
                 "path descriptor root type is not registered",
             ));
         };
-        if !self.host_exposure.exposes_host_type(&root_type.script_name) {
+        if !self
+            .host_exposure()
+            .exposes_host_type(&root_type.script_name)
+        {
             return Err(RuntimeError::capability_denied(format!(
                 "host type `{}`",
                 root_type.script_name
             )));
         }
         if operation.writes() {
-            if self.host_exposure.exposes_host_path_mutation() {
+            if self.host_exposure().exposes_host_path_mutation() {
                 Ok(())
             } else {
                 Err(RuntimeError::capability_denied("host path mutation"))
             }
-        } else if self.host_exposure.exposes_host_path_read() {
+        } else if self.host_exposure().exposes_host_path_read() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("host path read"))
@@ -432,7 +492,7 @@ impl Runtime {
 
     fn validate_capabilities(&self, required: CapabilitySet) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        let granted = self.security.capabilities;
+        let granted = self.security().capabilities;
         if required.fs_read && !granted.fs_read {
             return Err(RuntimeError::capability_denied("fs_read"));
         }
@@ -448,60 +508,60 @@ impl Runtime {
         if required.random && !granted.random {
             return Err(RuntimeError::capability_denied("random"));
         }
-        if required.host_calls && !self.security.allows_host_calls() {
+        if required.host_calls && !self.security().allows_host_calls() {
             return Err(RuntimeError::capability_denied("host_calls"));
         }
-        if required.path_mutation && !self.security.allows_path_mutation() {
+        if required.path_mutation && !self.security().allows_path_mutation() {
             return Err(RuntimeError::capability_denied("path_mutation"));
         }
-        if required.reflection_metadata && !self.security.allows_reflection_metadata() {
+        if required.reflection_metadata && !self.security().allows_reflection_metadata() {
             return Err(RuntimeError::capability_denied("reflection_metadata"));
         }
-        if required.reflection_read && !self.security.allows_reflection_read() {
+        if required.reflection_read && !self.security().allows_reflection_read() {
             return Err(RuntimeError::capability_denied("reflection_read"));
         }
-        if required.reflection_write && !self.security.allows_reflection_write() {
+        if required.reflection_write && !self.security().allows_reflection_write() {
             return Err(RuntimeError::capability_denied("reflection_write"));
         }
-        if required.dynamic_invocation && !self.security.allows_dynamic_invocation() {
+        if required.dynamic_invocation && !self.security().allows_dynamic_invocation() {
             return Err(RuntimeError::capability_denied("dynamic_invocation"));
         }
-        if required.downcast && !self.security.allows_downcast() {
+        if required.downcast && !self.security().allows_downcast() {
             return Err(RuntimeError::capability_denied("downcast"));
         }
-        if required.module_loading && !self.security.allows_module_loading() {
+        if required.module_loading && !self.security().allows_module_loading() {
             return Err(RuntimeError::capability_denied("module_loading"));
         }
-        if required.jit && !self.security.allows_jit() {
+        if required.jit && !self.security().allows_jit() {
             return Err(RuntimeError::capability_denied("jit"));
         }
-        if required.debug_attach && !self.security.allows_debug_attach() {
+        if required.debug_attach && !self.security().allows_debug_attach() {
             return Err(RuntimeError::capability_denied("debug_attach"));
         }
-        if required.debug_breakpoints && !self.security.allows_debug_breakpoints() {
+        if required.debug_breakpoints && !self.security().allows_debug_breakpoints() {
             return Err(RuntimeError::capability_denied("debug_breakpoints"));
         }
-        if required.debug_pause && !self.security.allows_debug_pause() {
+        if required.debug_pause && !self.security().allows_debug_pause() {
             return Err(RuntimeError::capability_denied("debug_pause"));
         }
-        if required.debug_stack_inspection && !self.security.allows_debug_stack_inspection() {
+        if required.debug_stack_inspection && !self.security().allows_debug_stack_inspection() {
             return Err(RuntimeError::capability_denied("debug_stack_inspection"));
         }
-        if required.debug_value_inspection && !self.security.allows_debug_value_inspection() {
+        if required.debug_value_inspection && !self.security().allows_debug_value_inspection() {
             return Err(RuntimeError::capability_denied("debug_value_inspection"));
         }
         if required.debug_host_value_inspection
-            && !self.security.allows_debug_host_value_inspection()
+            && !self.security().allows_debug_host_value_inspection()
         {
             return Err(RuntimeError::capability_denied(
                 "debug_host_value_inspection",
             ));
         }
-        if required.debug_watch_evaluation && !self.security.allows_debug_watch_evaluation() {
+        if required.debug_watch_evaluation && !self.security().allows_debug_watch_evaluation() {
             return Err(RuntimeError::capability_denied("debug_watch_evaluation"));
         }
         if required.debug_side_effecting_evaluation
-            && !self.security.allows_debug_side_effecting_evaluation()
+            && !self.security().allows_debug_side_effecting_evaluation()
         {
             return Err(RuntimeError::capability_denied(
                 "debug_side_effecting_evaluation",
@@ -522,12 +582,12 @@ impl Runtime {
         function: Option<&HostFunction>,
     ) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if !self.host_exposure.exposes_host_function(symbol) {
+        if !self.host_exposure().exposes_host_function(symbol) {
             return Err(RuntimeError::capability_denied(format!(
                 "host function `{symbol}`"
             )));
         }
-        if !self.security.allows_host_calls() {
+        if !self.security().allows_host_calls() {
             return Err(RuntimeError::capability_denied("host_calls"));
         }
         let Some(function) = function else {
@@ -544,7 +604,7 @@ impl Runtime {
 
     pub fn validate_reflection_metadata_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_reflection_metadata() {
+        if self.security().allows_reflection_metadata() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("reflection_metadata"))
@@ -553,7 +613,7 @@ impl Runtime {
 
     pub fn validate_reflection_read_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_reflection_read() {
+        if self.security().allows_reflection_read() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("reflection_read"))
@@ -562,7 +622,7 @@ impl Runtime {
 
     pub fn validate_reflection_write_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_reflection_write() {
+        if self.security().allows_reflection_write() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("reflection_write"))
@@ -571,7 +631,7 @@ impl Runtime {
 
     pub fn validate_dynamic_invocation_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_dynamic_invocation() {
+        if self.security().allows_dynamic_invocation() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("dynamic_invocation"))
@@ -580,7 +640,7 @@ impl Runtime {
 
     pub fn validate_downcast_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_downcast() {
+        if self.security().allows_downcast() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("downcast"))
@@ -589,7 +649,7 @@ impl Runtime {
 
     pub fn validate_path_mutation_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_path_mutation() {
+        if self.security().allows_path_mutation() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("path_mutation"))
@@ -598,7 +658,7 @@ impl Runtime {
 
     pub fn validate_module_loading_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_module_loading() {
+        if self.security().allows_module_loading() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("module_loading"))
@@ -607,7 +667,7 @@ impl Runtime {
 
     pub fn validate_jit_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_jit() {
+        if self.security().allows_jit() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("jit"))
@@ -616,7 +676,7 @@ impl Runtime {
 
     pub fn validate_debug_attach_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_debug_attach() {
+        if self.security().allows_debug_attach() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("debug_attach"))
@@ -625,7 +685,7 @@ impl Runtime {
 
     pub fn validate_debug_breakpoint_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_debug_breakpoints() {
+        if self.security().allows_debug_breakpoints() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("debug_breakpoints"))
@@ -634,7 +694,7 @@ impl Runtime {
 
     pub fn validate_debug_pause_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_debug_pause() {
+        if self.security().allows_debug_pause() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("debug_pause"))
@@ -643,7 +703,7 @@ impl Runtime {
 
     pub fn validate_debug_stack_inspection_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_debug_stack_inspection() {
+        if self.security().allows_debug_stack_inspection() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("debug_stack_inspection"))
@@ -652,7 +712,7 @@ impl Runtime {
 
     pub fn validate_debug_value_inspection_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_debug_value_inspection() {
+        if self.security().allows_debug_value_inspection() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("debug_value_inspection"))
@@ -661,7 +721,7 @@ impl Runtime {
 
     pub fn validate_debug_host_value_inspection_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_debug_host_value_inspection()
+        if self.security().allows_debug_host_value_inspection()
             && self.debug_visibility.exposes_host_values()
         {
             Ok(())
@@ -674,7 +734,7 @@ impl Runtime {
 
     pub fn validate_debug_watch_evaluation_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_debug_watch_evaluation() {
+        if self.security().allows_debug_watch_evaluation() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied("debug_watch_evaluation"))
@@ -683,7 +743,7 @@ impl Runtime {
 
     pub fn validate_debug_side_effecting_evaluation_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if self.security.allows_debug_side_effecting_evaluation() {
+        if self.security().allows_debug_side_effecting_evaluation() {
             Ok(())
         } else {
             Err(RuntimeError::capability_denied(
@@ -723,19 +783,24 @@ impl Runtime {
     }
 
     pub fn security(&self) -> SecurityContext {
-        self.security
+        self.resources
+            .active_session()
+            .map_or(self.security, |session| session.options.security)
     }
 
     pub fn set_security_context(&mut self, security: SecurityContext) {
         self.security = security;
     }
 
-    pub fn host_exposure(&self) -> &HostExposurePolicy {
-        &self.host_exposure
+    pub fn host_exposure(&self) -> std::rc::Rc<HostExposurePolicy> {
+        self.resources.active_session().map_or_else(
+            || self.host_exposure.clone(),
+            |session| session.options.host_exposure.clone(),
+        )
     }
 
     pub fn set_host_exposure_policy(&mut self, policy: HostExposurePolicy) {
-        self.host_exposure = policy;
+        self.host_exposure = std::rc::Rc::new(policy);
     }
 
     pub fn debug_visibility(&self) -> &DebugVisibilityPolicy {
@@ -896,7 +961,7 @@ impl Runtime {
     }
 
     pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {
-        self.resources.ensure_execution_allowed()?;
+        self.resources.poll_execution()?;
         if self.gc.collection_due() {
             self.collect_garbage()?;
         }

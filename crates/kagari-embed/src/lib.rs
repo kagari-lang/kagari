@@ -342,12 +342,11 @@ impl KagariRuntime {
         for member in module.members() {
             context.validate_for_execute(entry, &member.bytecode)?;
         }
-        self.vm
-            .runtime_mut()
-            .set_security_context(context.security_context());
-        self.vm
-            .runtime_mut()
-            .set_host_exposure_policy(context.host_policy.clone());
+        let _session = self
+            .vm
+            .runtime()
+            .begin_execution(module, context.runtime_options())
+            .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm.execute(module, entry).map_err(EmbeddingError::vm)
     }
 
@@ -371,12 +370,11 @@ impl KagariRuntime {
         for member in module.members() {
             context.validate_for_backend_execute(entry, &member.bytecode)?;
         }
-        self.vm
-            .runtime_mut()
-            .set_security_context(context.security_context());
-        self.vm
-            .runtime_mut()
-            .set_host_exposure_policy(context.host_policy.clone());
+        let _session = self
+            .vm
+            .runtime()
+            .begin_execution(module, context.runtime_options())
+            .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm
             .execute_with_backend(module, entry, backend)
             .map_err(EmbeddingError::vm)
@@ -390,12 +388,11 @@ impl KagariRuntime {
         for member in module.members() {
             context.validate_for_execute("__module_init__", &member.bytecode)?;
         }
-        self.vm
-            .runtime_mut()
-            .set_security_context(context.security_context());
-        self.vm
-            .runtime_mut()
-            .set_host_exposure_policy(context.host_policy.clone());
+        let _session = self
+            .vm
+            .runtime()
+            .begin_execution(module, context.runtime_options())
+            .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm.execute_module(module).map_err(EmbeddingError::vm)
     }
 }
@@ -471,6 +468,7 @@ pub enum PanicPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionContext {
+    pub cancellation: CancellationToken,
     pub language_profile: LanguageProfile,
     pub capabilities: CapabilitySet,
     pub resources: ResourcePolicy,
@@ -481,6 +479,14 @@ pub struct ExecutionContext {
 }
 
 impl ExecutionContext {
+    fn runtime_options(&self) -> kagari_runtime::ExecutionOptions {
+        kagari_runtime::ExecutionOptions {
+            security: self.security_context(),
+            host_exposure: std::rc::Rc::new(self.host_policy.clone()),
+            resources: self.resources,
+            cancellation: self.cancellation.clone(),
+        }
+    }
     pub fn security_context(&self) -> SecurityContext {
         SecurityContext {
             profile: self.language_profile,
@@ -656,6 +662,7 @@ impl CompilationPhase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeFailureKind {
+    Cancelled,
     ScriptTrap,
     BytecodeVerification,
     CapabilityDenied,
@@ -671,6 +678,7 @@ pub enum RuntimeFailureKind {
 impl RuntimeFailureKind {
     pub fn code(self) -> &'static str {
         match self {
+            Self::Cancelled => "KG_RUNTIME_CANCELLED",
             Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",
             Self::BytecodeVerification => "KG_BYTECODE_VERIFICATION_FAILED",
             Self::CapabilityDenied => "KG_RUNTIME_CAPABILITY_DENIED",
@@ -791,6 +799,7 @@ impl EmbeddingError {
         let kind = match &error {
             VmError::HostError(_) => RuntimeFailureKind::HostCallFailure,
             VmError::RuntimeError(error) => match error.kind() {
+                RuntimeErrorKind::Cancelled => RuntimeFailureKind::Cancelled,
                 RuntimeErrorKind::EngineFault => RuntimeFailureKind::EngineInvariant,
                 RuntimeErrorKind::CapabilityDenied => RuntimeFailureKind::CapabilityDenied,
                 RuntimeErrorKind::ResourceLimitExceeded => {

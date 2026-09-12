@@ -216,6 +216,25 @@ The current Rust facade uses `KagariEngine` for compile and artifact emission an
 `KagariRuntime::execute` runs through the interpreter.
 `KagariRuntime::execute_with_backend` uses a host-supplied `CodegenBackend` after validating JIT capability and artifact policy.
 
+Each call applies that call's ExecutionContext resources, capabilities and host
+policy to an owned execution session, without replacing runtime defaults. Module
+initialization, the entry and interpreter/JIT fallback share this session. Its
+CancellationToken is cooperative and shared by context clones; once cancelled,
+use a fresh token for a new root call. Execution cancellation reports
+`KG_RUNTIME_CANCELLED`, separate from analysis cancellation and script traps.
+Completed host effects survive cancellation.
+
+At the lower-level API, Vm starts a session from Runtime defaults automatically.
+Hosts can select explicit ExecutionOptions with Runtime::begin_execution and keep
+the returned ExecutionSession alive while driving the VM. Nested scopes inherit
+the pinned dependency program, permissions, cancellation and remaining budget.
+Dropping the final scope releases the session; dropping an outer handle early does
+not reset a still-active nested scope. ExecutionSession::counters reports root-call
+usage and peaks; Runtime resource counters remain cumulative. Synchronous script
+reentry through host callbacks is still pending R12.
+The `scoped_execution` embedding example demonstrates independent budgets and
+cancellation: `cargo run -p kagari-embed --example scoped_execution`.
+
 Execution reports contain raw Value results. Retain a heap result with
 `runtime.runtime().root_value(report.return_value)` before a subsequent execution
 or explicit collection. Keep the returned RootedValue in host state; cloning Value

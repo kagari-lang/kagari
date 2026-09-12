@@ -1707,7 +1707,7 @@ impl HostRegistry {
         gc.prepare_dirty_record(dirty.len())?;
         dirty
             .try_reserve(1)
-            .map_err(|_| RuntimeError::resource_limit("dirty record capacity"))?;
+            .map_err(|_| gc.resource_limit("dirty record capacity"))?;
         gc.commit_host_write(move || {
             prepared.commit();
             dirty.push(record);

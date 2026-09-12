@@ -34,7 +34,9 @@ Validation, live-heap and cumulative-allocation limit checks, and capacity
 reservation precede the content and counter commit. Failure does not charge
 either counter. Replacing a map entry or adding an existing set key consumes no
 growth units; duplicate constructor keys count only once. Removal and GC reduce
-live occupancy, but do not refund the cumulative allocation budget.
+live occupancy, but do not refund allocation usage within the root call. Runtime
+allocation counters remain cumulative across roots; each root's limits apply to
+its own usage, shared by initialization, entry execution and nested scopes.
 
 Standard removals returning an Option prepare that result before removing the
 entry. Result allocation failure leaves the entry present. Peak heap occupancy
@@ -63,6 +65,12 @@ panics and attempts to enter execution quarantine the runtime, even when a host
 action swallows the rejected nested operation. These return EngineFault (embedding
 EngineInvariant), not a business Result or ordinary trap. There is no promise of
 target rollback after a broken commit invariant. Other completed effects remain.
+
+Cancellation and resource termination remain recorded for the active session and
+cannot be swallowed to continue executing that root. Releasing its final scope
+clears termination without quarantining the runtime. New root calls use new
+budgets; a reused cancelled token still rejects immediately. Commit actions do not
+poll cancellation, so termination cannot split a field write from its dirty record.
 
 External database writes, network messages, and other irreversible effects belong
 to explicit host APIs or host transactions. Custom host functions may partially

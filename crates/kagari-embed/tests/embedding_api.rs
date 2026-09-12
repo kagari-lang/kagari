@@ -335,6 +335,59 @@ fn execution_context_resource_limits_surface_as_runtime_failures() {
 }
 
 #[test]
+fn each_execute_applies_its_context_budget_and_cancellation_without_changing_runtime_defaults() {
+    let engine = KagariEngine::default();
+    let mut runtime = engine.runtime(ExecutionContext::default());
+    let artifact = compile_artifact(&engine, "scoped.kgr", "fn main() -> i32 { 42 }");
+    let loaded = runtime
+        .load_program(artifact, LoadOptions::default())
+        .unwrap();
+    let mut context = ExecutionContext::default();
+    context.resources.max_instruction_steps = Some(0);
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap_err()
+            .code(),
+        "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED"
+    );
+    context.resources.max_instruction_steps = Some(2);
+    for _ in 0..2 {
+        assert_eq!(
+            runtime
+                .execute(&loaded, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+    }
+    assert_eq!(
+        runtime.runtime().resources().counters().instruction_steps,
+        4
+    );
+    assert_eq!(
+        runtime.runtime().resources().policy().max_instruction_steps,
+        None
+    );
+    context.cancellation.cancel();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap_err()
+            .code(),
+        "KG_RUNTIME_CANCELLED"
+    );
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &ExecutionContext::default())
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+    assert!(!runtime.runtime().is_quarantined());
+}
+
+#[test]
 fn failed_reload_validation_does_not_publish_new_epoch() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();

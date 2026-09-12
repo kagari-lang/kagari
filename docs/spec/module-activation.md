@@ -36,9 +36,10 @@ Dropping an unfinished guard records failure and releases version retention.
 This cleanup remains permitted after quarantine: an initializer's EngineFault
 must return without a second panic from an ordinary state-access permission check.
 Failure cleanup cannot downgrade an already initialized instance. It neither
-reopens execution nor retries initialization. Root-call sessions and cancellation
-are still pending R12; the lifecycle guard establishes their initialization cleanup
-boundary.
+reopens execution nor retries initialization. Initialization shares the root-call
+session's budget and cancellation with the entry; its lifecycle guard establishes
+the failure cleanup boundary. Synchronous host reentry and full session ownership
+of frames and borrows remain R12 work.
 
 Top-level val/var remain private initialization bindings, not durable globals.
 Existing scalar const-safe restrictions remain in force. Persistent state and

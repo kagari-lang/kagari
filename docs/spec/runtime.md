@@ -392,6 +392,30 @@ The runtime maintains counters or budgets for:
 
 These counters are updated in runtime execution paths, not inferred after the fact.
 
+ExecutionSession owns a root program, immutable execution options, cancellation
+and budget baselines. Initializers, entry execution and backend fallback share
+these inputs. Instruction, allocation, host-call and reflection limits count usage
+since root entry; a subsequent independent call receives its own budget. Runtime
+counters remain cumulative. Live heap, dirty-ledger size and loaded-module limits
+apply to current occupancy, and collection does not refund root allocation usage.
+Host operations outside a session use RuntimeConfig resource defaults directly.
+
+Resource exhaustion remains recorded until the final session scope drops; nested
+entries cannot replace inputs or reset the remaining budget. Effective permissions
+and host policy come from the active session, even if runtime defaults change.
+Nested module entries must belong to its pinned dependency program. ModuleStore
+shares its interior state so owned scopes can retain/release versions without a
+mutable borrow spanning execution. Frames still use the explicit driver; callback
+reentry and unified frame/borrow ownership remain R12 work.
+
+Cancellation and an optional monotonic wall-time budget are checked cooperatively
+at instruction safepoints and before resource-consuming operations. They cannot
+preempt a blocking host callback. A prepared commit is uninterrupted: cancellation
+requested inside it is observed after its target and dirty record are committed.
+ExecutionCounters reports root activity, root peaks and elapsed wall time; the
+unused wall-time field in cumulative ResourceCounters is removed. These operational
+deadlines do not expose a script clock or complete the deterministic-context work.
+
 ## Module Store
 
 The runtime distinguishes loaded module code from the compilation pipeline.
