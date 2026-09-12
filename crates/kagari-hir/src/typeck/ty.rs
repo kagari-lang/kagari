@@ -2,8 +2,9 @@ use super::{ResolvedTypeRef, TypeTable, TypeTarget};
 use crate::{builtin::surface, hir, types::TypeId};
 use kagari_common::cancellation::CancellationToken;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {
+    pub declarations: &'a crate::declarations::Declarations,
     pub generics: &'a [hir::GenericParam],
     pub self_type: Option<hir::TraitId>,
 }
@@ -11,10 +12,21 @@ pub(super) struct TypeContext<'a> {
 pub(super) fn resolve_type(
     module: &hir::Module,
     ty: hir::TypeRefId,
+    declarations: &crate::declarations::Declarations,
     table: &mut TypeTable,
     cancel: &CancellationToken,
 ) -> Option<TypeId> {
-    resolve_type_in(module, ty, TypeContext::default(), table, cancel)
+    resolve_type_in(
+        module,
+        ty,
+        TypeContext {
+            declarations,
+            generics: &[],
+            self_type: None,
+        },
+        table,
+        cancel,
+    )
 }
 
 pub(super) fn resolve_type_in(
@@ -37,21 +49,40 @@ pub(super) fn resolve_type_in(
                 .find(|param| param.name == *name)
             {
                 target = Some(TypeTarget::Generic(param.id));
-                Some(TypeId::Generic(name.clone()))
+                context
+                    .declarations
+                    .generic_type(param.id)
+                    .map(TypeId::Generic)
             } else if name == "Self" && context.self_type.is_some() {
                 target = context.self_type.map(TypeTarget::Trait);
-                Some(TypeId::Generic(name.clone()))
+                context
+                    .declarations
+                    .definition(crate::resolver::ResolvedName::Trait(context.self_type?))
+                    .cloned()
+                    .map(TypeId::SelfType)
             } else if let Some(ty) = TypeId::from_name(name) {
                 Some(ty)
             } else if let Some(item) = module.structs.iter().find(|item| item.name == *name) {
                 target = Some(TypeTarget::Struct(item.id));
-                Some(TypeId::Struct(name.clone()))
+                context
+                    .declarations
+                    .definition(crate::resolver::ResolvedName::Struct(item.id))
+                    .cloned()
+                    .map(TypeId::Struct)
             } else if let Some(item) = module.enums.iter().find(|item| item.name == *name) {
                 target = Some(TypeTarget::Enum(item.id));
-                Some(TypeId::Enum(name.clone()))
+                context
+                    .declarations
+                    .definition(crate::resolver::ResolvedName::Enum(item.id))
+                    .cloned()
+                    .map(TypeId::Enum)
             } else if let Some(item) = module.traits.iter().find(|item| item.name == *name) {
                 target = Some(TypeTarget::Trait(item.id));
-                Some(TypeId::Trait(name.clone()))
+                context
+                    .declarations
+                    .definition(crate::resolver::ResolvedName::Trait(item.id))
+                    .cloned()
+                    .map(TypeId::Trait)
             } else {
                 None
             }

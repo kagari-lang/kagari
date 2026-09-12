@@ -22,6 +22,7 @@ use crate::{
 };
 
 pub(crate) struct BodyChecker<'a> {
+    declarations: &'a crate::declarations::Declarations,
     cancel: &'a kagari_common::cancellation::CancellationToken,
     lowered: &'a LoweredModule,
     names: &'a ResolvedNames,
@@ -45,6 +46,7 @@ impl<'a> BodyChecker<'a> {
         expected_return: TypeId,
     ) -> Self {
         Self {
+            declarations: indexes.declarations,
             cancel: indexes.cancel,
             lowered,
             names,
@@ -94,6 +96,7 @@ impl<'a> BodyChecker<'a> {
                             &self.lowered.module,
                             ty,
                             TypeContext {
+                                declarations: self.declarations,
                                 generics: &env.generics,
                                 self_type: None,
                             },
@@ -788,8 +791,8 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Array(element)
             }
             MapNew => TypeId::Map {
-                key: Box::new(TypeId::Generic("K".to_owned())),
-                value: Box::new(TypeId::Generic("V".to_owned())),
+                key: Box::new(TypeId::Unknown),
+                value: Box::new(TypeId::Unknown),
             },
             MapLen | MapIsEmpty | MapClear | MapKeys | MapValues | MapEntries => {
                 let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
@@ -832,7 +835,7 @@ impl<'a> BodyChecker<'a> {
                     _ => unreachable!(),
                 }
             }
-            SetNew => TypeId::Set(Box::new(TypeId::Generic("T".to_owned()))),
+            SetNew => TypeId::Set(Box::new(TypeId::Unknown)),
             SetLen | SetIsEmpty | SetClear | SetToArray => {
                 let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
                 let Some(TypeId::Set(element)) = set_ty else {
@@ -944,7 +947,9 @@ impl<'a> BodyChecker<'a> {
             }
             OptionIsSome | OptionIsNone | OptionUnwrapOr | OptionMap | OptionAndThen => {
                 let option_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some((item_ty, _)) = standard_enum_args(&option_ty, "Option", 1) else {
+                let Some((item_ty, _)) =
+                    standard_enum_args(&option_ty, surface::StandardEnum::Option)
+                else {
                     self.emit_standard_arg_error(name, "value", "Option<T>", callee, &option_ty);
                     return TypeId::Error;
                 };
@@ -960,14 +965,16 @@ impl<'a> BodyChecker<'a> {
                         );
                         item_ty
                     }
-                    OptionMap | OptionAndThen => option_type(TypeId::Generic("U".to_owned())),
+                    OptionMap | OptionAndThen => option_type(TypeId::Unknown),
                     _ => unreachable!(),
                 }
             }
             ResultIsOk | ResultIsErr | ResultUnwrapOr | ResultMap | ResultMapErr
             | ResultAndThen => {
                 let result_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some((ok_ty, err_ty)) = standard_enum_args(&result_ty, "Result", 2) else {
+                let Some((ok_ty, err_ty)) =
+                    standard_enum_args(&result_ty, surface::StandardEnum::Result)
+                else {
                     self.emit_standard_arg_error(name, "value", "Result<T, E>", callee, &result_ty);
                     return TypeId::Error;
                 };
@@ -983,9 +990,9 @@ impl<'a> BodyChecker<'a> {
                         );
                         ok_ty
                     }
-                    ResultMap => result_type(TypeId::Generic("U".to_owned()), err_ty),
-                    ResultMapErr => result_type(ok_ty, TypeId::Generic("F".to_owned())),
-                    ResultAndThen => result_type(TypeId::Generic("U".to_owned()), err_ty),
+                    ResultMap => result_type(TypeId::Unknown, err_ty),
+                    ResultMapErr => result_type(ok_ty, TypeId::Unknown),
+                    ResultAndThen => result_type(TypeId::Unknown, err_ty),
                     _ => unreachable!(),
                 }
             }
@@ -1219,15 +1226,13 @@ impl<'a> BodyChecker<'a> {
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
         let (trait_id, self_ty) = match &receiver_ty {
-            TypeId::Trait(name) => (
-                self.lowered
-                    .module
-                    .traits
-                    .iter()
-                    .find(|item| item.name == *name)?
-                    .id,
-                receiver_ty.clone(),
-            ),
+            TypeId::Trait(definition) => {
+                let ResolvedName::Trait(id) = self.declarations.definition_target(definition)?
+                else {
+                    return None;
+                };
+                (id, receiver_ty.clone())
+            }
             TypeId::Generic(generic_name) => {
                 let trait_id = env.generic_bounds.get(generic_name).and_then(|bounds| {
                     bounds.iter().find_map(|bound| {
@@ -1243,6 +1248,9 @@ impl<'a> BodyChecker<'a> {
         };
 
         let method_function = self.trait_method_function(trait_id, name)?;
+        let self_owner = self
+            .declarations
+            .definition(ResolvedName::Trait(trait_id))?;
         self.type_table.insert_call(
             call_expr,
             CallTarget::TraitMethod(method_function),
@@ -1269,7 +1277,7 @@ impl<'a> BodyChecker<'a> {
         }
         for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
             if let Some(param) = params.get(index) {
-                let expected = substitute_self_type(&param.ty, &self_ty);
+                let expected = param.ty.with_self(self_owner, &self_ty);
                 if expected != *arg_ty {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
@@ -1284,7 +1292,7 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        Some(substitute_self_type(&method.return_type, &self_ty))
+        Some(method.return_type.with_self(self_owner, &self_ty))
     }
 
     fn trait_method_function(
@@ -1390,7 +1398,9 @@ impl<'a> BodyChecker<'a> {
                 .module
                 .structs
                 .iter()
-                .find(|item| item.name == *name)
+                .find(|item| {
+                    self.declarations.definition(ResolvedName::Struct(item.id)) == Some(name)
+                })
                 .and_then(|item| item.fields.iter().find(|field| field.name == field_name)),
             _ => None,
         }
@@ -1614,7 +1624,11 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        TypeId::Struct(path.to_owned())
+        self.declarations
+            .definition(ResolvedName::Struct(struct_def.id))
+            .cloned()
+            .map(TypeId::Struct)
+            .unwrap_or(TypeId::Error)
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {
@@ -1835,44 +1849,20 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-fn substitute_self_type(ty: &TypeId, self_ty: &TypeId) -> TypeId {
-    match ty {
-        TypeId::Generic(name) if name == "Self" => self_ty.clone(),
-        TypeId::Tuple(elements) => TypeId::Tuple(
-            elements
-                .iter()
-                .map(|element| substitute_self_type(element, self_ty))
-                .collect::<Vec<_>>(),
-        ),
-        TypeId::Array(element) => TypeId::Array(Box::new(substitute_self_type(element, self_ty))),
-        TypeId::Map { key, value } => TypeId::Map {
-            key: Box::new(substitute_self_type(key, self_ty)),
-            value: Box::new(substitute_self_type(value, self_ty)),
-        },
-        TypeId::Set(element) => TypeId::Set(Box::new(substitute_self_type(element, self_ty))),
-        TypeId::StandardEnum { name, args } => TypeId::StandardEnum {
-            name: name.clone(),
-            args: args
-                .iter()
-                .map(|arg| substitute_self_type(arg, self_ty))
-                .collect::<Vec<_>>(),
-        },
-        _ => ty.clone(),
-    }
-}
-
 fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
     match ty {
         TypeId::Array(_) => Some(StandardMethodReceiver::Array),
         TypeId::Map { .. } => Some(StandardMethodReceiver::Map),
         TypeId::Set(_) => Some(StandardMethodReceiver::Set),
         TypeId::Builtin(BuiltinType::String) => Some(StandardMethodReceiver::String),
-        TypeId::StandardEnum { name, .. } if name == "Option" => {
-            Some(StandardMethodReceiver::Option)
-        }
-        TypeId::StandardEnum { name, .. } if name == "Result" => {
-            Some(StandardMethodReceiver::Result)
-        }
+        TypeId::StandardEnum {
+            kind: surface::StandardEnum::Option,
+            ..
+        } => Some(StandardMethodReceiver::Option),
+        TypeId::StandardEnum {
+            kind: surface::StandardEnum::Result,
+            ..
+        } => Some(StandardMethodReceiver::Result),
         _ if surface::iterable_protocol(ty).is_some() => Some(StandardMethodReceiver::Iterable),
         _ => None,
     }
@@ -1880,27 +1870,26 @@ fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
 
 fn option_type(item: TypeId) -> TypeId {
     TypeId::StandardEnum {
-        name: "Option".to_owned(),
+        kind: surface::StandardEnum::Option,
         args: vec![item],
     }
 }
 
 fn result_type(ok: TypeId, err: TypeId) -> TypeId {
     TypeId::StandardEnum {
-        name: "Result".to_owned(),
+        kind: surface::StandardEnum::Result,
         args: vec![ok, err],
     }
 }
 
 fn standard_enum_args(
     ty: &Option<TypeId>,
-    expected_name: &str,
-    expected_arity: usize,
+    expected: surface::StandardEnum,
 ) -> Option<(TypeId, TypeId)> {
-    let Some(TypeId::StandardEnum { name, args }) = ty else {
+    let Some(TypeId::StandardEnum { kind, args }) = ty else {
         return None;
     };
-    if name != expected_name || args.len() != expected_arity {
+    if *kind != expected || args.len() != expected.spec().arity {
         return None;
     }
     let first = args.first()?.clone();

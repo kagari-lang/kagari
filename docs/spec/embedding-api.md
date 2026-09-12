@@ -71,17 +71,26 @@ Generic parameter declarations are identified by owner and parameter position;
 renaming a parameter preserves this identity. Inherited parameters keep their
 trait/impl owner, and method parameters have their method owner. An implicit impl
 receiver uses the impl header's context even when a method shadows a generic name.
-These navigation identities do not yet replace the remaining string-based nominal
-and generic TypeId representation. Impl ABI types and interface permission checks
+Semantic Struct/Enum/Trait TypeId values now carry the same DefinitionId used by
+navigation. Generic TypeId equality and hashing use owner and parameter position;
+the retained parameter name is diagnostic metadata. Implicit Self has its own
+trait-owned type identity, distinct from an ordinary parameter named Self.
+Impl ABI types and interface permission checks
 consume type-reference facts instead of reinterpreting HIR type syntax.
+
+LoweredModule owns its source origin. Lowering accepts SourceFile; the origin-free
+AST lowering and standalone type-check entry were removed. Analysis collects
+declarations before checking types. Concrete generic instantiation, executable
+type layouts and linked ABI identities remain separate unfinished R07/R08 work.
 
 `TypeTable::constraint` distinguishes standard constraint identities from user
 trait identities. Bounds are resolved once in their declaring context; inherited
 copies share their reference and diagnostic. A `where` target must resolve to a
 generic parameter (`KG_TYPE_INVALID_BOUND_TARGET` otherwise). Impl bounds apply
 to methods, while a method's own bounds do not affect sibling methods. Shadowing
-an inherited parameter excludes that parameter's constraints from the method's
-generic environment. Type checking and bound ABI metadata consume these facts.
+an inherited parameter gives the method parameter its own identity and constraints;
+the implicit receiver can still contain and use the outer parameter's identity.
+Type checking and bound ABI metadata consume these facts.
 Static trait constraints do not require interface-value permission.
 Unknown bounds retain precise reference diagnostics and do not remove nearby
 navigation targets. Applied trait constraints currently reject code generation;

@@ -13,6 +13,7 @@ use super::{
 /// Resolve bounds once in their declaring context, before signatures and bodies.
 pub(super) fn resolve_constraints(
     lowered: &LoweredModule,
+    declarations: &crate::declarations::Declarations,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
@@ -22,6 +23,7 @@ pub(super) fn resolve_constraints(
             lowered,
             &item.generic_params,
             &[],
+            declarations,
             table,
             diagnostics,
             cancel,
@@ -32,6 +34,7 @@ pub(super) fn resolve_constraints(
             lowered,
             &item.generic_params,
             &item.bounds,
+            declarations,
             table,
             diagnostics,
             cancel,
@@ -42,6 +45,7 @@ pub(super) fn resolve_constraints(
             lowered,
             &item.generic_params,
             &item.bounds,
+            declarations,
             table,
             diagnostics,
             cancel,
@@ -53,11 +57,13 @@ fn resolve_owner(
     lowered: &LoweredModule,
     generics: &[hir::GenericParam],
     bounds: &[hir::TraitBound],
+    declarations: &crate::declarations::Declarations,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
     let context = TypeContext {
+        declarations,
         generics,
         self_type: None,
     };
@@ -129,7 +135,12 @@ fn resolve_constraint(
                 ty: if applied {
                     TypeId::Error
                 } else {
-                    TypeId::Trait(reference.name.clone())
+                    context
+                        .declarations
+                        .definition(crate::resolver::ResolvedName::Trait(id))
+                        .cloned()
+                        .map(TypeId::Trait)
+                        .unwrap_or(TypeId::Error)
                 },
                 target: Some(TypeTarget::Trait(id)),
             },
@@ -156,29 +167,26 @@ fn resolve_constraint(
     }
 }
 
-/// Select constraints by parameter identity before exposing the current type
-/// checker's name-keyed generic environment. Shadowed owners never contribute.
+/// Keep constraints attached to the declaring parameter, including when an
+/// implicit receiver still contains an outer parameter shadowed by the method.
 pub(super) fn function_bounds(
     module: &hir::Module,
     function: &hir::Function,
+    declarations: &crate::declarations::Declarations,
     table: &TypeTable,
-) -> HashMap<String, Vec<ConstraintTarget>> {
-    let visible = function
+) -> HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>> {
+    let mut result = function
         .generic_params
         .iter()
-        .map(|param| (param.name.as_str(), param))
-        .collect::<HashMap<_, _>>();
-    let mut result = visible
-        .iter()
-        .map(|(name, param)| {
-            (
-                (*name).to_owned(),
+        .filter_map(|param| {
+            Some((
+                declarations.generic_type(param.id)?,
                 param
                     .bounds
                     .iter()
                     .filter_map(|reference| table.constraint(reference.ty))
                     .collect::<Vec<_>>(),
-            )
+            ))
         })
         .collect::<HashMap<_, _>>();
     let inherited = module
@@ -198,13 +206,10 @@ pub(super) fn function_bounds(
         else {
             continue;
         };
-        let Some(param) = visible
-            .get(bound.target.as_str())
-            .filter(|param| param.id == id)
-        else {
+        let Some(param) = declarations.generic_type(id) else {
             continue;
         };
-        result.entry(param.name.clone()).or_default().extend(
+        result.entry(param).or_default().extend(
             bound
                 .traits
                 .iter()

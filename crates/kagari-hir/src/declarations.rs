@@ -66,6 +66,35 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
+        match &self.target(name)?.id {
+            DeclarationId::Definition(id) => Some(id),
+            _ => None,
+        }
+    }
+    pub(crate) fn definition_target(&self, id: &DefinitionId) -> Option<ResolvedName> {
+        match self
+            .identities
+            .get(&DeclarationId::Definition(id.clone()))?
+        {
+            DeclarationKey::Name(name) => Some(*name),
+            _ => None,
+        }
+    }
+    pub(crate) fn generic_type(
+        &self,
+        id: crate::hir::GenericParamId,
+    ) -> Option<crate::types::GenericParameterType> {
+        let declaration = self.generic_parameter(id)?;
+        let DeclarationId::GenericParameter { owner, position } = &declaration.id else {
+            return None;
+        };
+        Some(crate::types::GenericParameterType {
+            owner: owner.clone(),
+            position: *position,
+            name: declaration.name.clone(),
+        })
+    }
     pub fn analysis_id(&self) -> AnalysisId {
         self.analysis
     }

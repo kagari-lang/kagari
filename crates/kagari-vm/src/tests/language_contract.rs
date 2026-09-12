@@ -333,6 +333,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     let cases = [
         Case::new("unknown-inherent-impl-target", "impl Missing {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
         Case::new("unknown-where-target", "fn bad<T>(value: T) where Missing: Comparable {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_BOUND_TARGET")),
+        Case::new("shadowed-generic-return", "impl<T> [T] { fn wrong<T>(self, value: T) -> T { self[0] } } fn main() {}", Expected::Diagnostic("KG_TYPE_RETURN_TYPE_MISMATCH")),
         Case::new("duplicate-field-declarations", "struct P { val x: i32, var x: i32 } fn main() {}", Expected::Diagnostic("KG_RESOLVE_DUPLICATE_FIELD")),
         Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(Value::I32(32))).effects(&["right", "left"], &["right", "left"]),
         Case::new("explicit-string-lengths", "fn main() -> (usize, usize) { (\"中😀\".len_bytes(), \"中😀\".len_chars()) }", Expected::Value(Value::Tuple(vec![Value::I64(7), Value::I64(2)]))),

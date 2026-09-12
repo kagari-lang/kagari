@@ -88,6 +88,11 @@ Methods inherit their impl's inline and `where` constraints. A method's own
 constraints apply only within that method. If a method declares a parameter with
 the same name as an inherited parameter, its uses and bounds refer to the method
 parameter; the outer parameter's constraints are not combined with it.
+An implicit receiver can still contain the outer parameter and retains its bounds.
+Parameter equality uses the declaring owner and position, so same-spelled inner
+and outer parameters cannot exchange values merely because their names match.
+Implicit `Self` is identified by its trait; substitution in impl signatures and
+trait calls replaces only that trait's `Self` throughout composite types.
 
 The current foundation implementation records standard constraint identities and
 user trait declaration targets in HIR. It retains navigation in invalid bounds

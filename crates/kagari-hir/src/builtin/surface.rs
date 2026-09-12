@@ -20,10 +20,19 @@ pub struct BuiltinTypeSpec {
     pub heap_backed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardEnum {
     Option,
     Result,
+}
+
+impl StandardEnum {
+    pub fn spec(self) -> &'static StandardEnumSpec {
+        standard_enums()
+            .iter()
+            .find(|spec| spec.kind == self)
+            .expect("standard enum specification")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -748,8 +757,8 @@ pub fn standard_constraint_name(constraint: StandardTypeConstraint) -> &'static 
 
 pub fn standard_enum_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {
     let spec = standard_enum(name)?;
-    (args.len() == spec.arity).then(|| TypeId::StandardEnum {
-        name: spec.name.to_owned(),
+    (args.len() == spec.arity).then_some(TypeId::StandardEnum {
+        kind: spec.kind,
         args,
     })
 }

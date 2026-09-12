@@ -46,6 +46,7 @@ impl ValueType {
             | TypeId::Enum(_)
             | TypeId::Trait(_)
             | TypeId::Generic(_)
+            | TypeId::SelfType(_)
             | TypeId::StandardEnum { .. } => Self::HeapObject,
         }
     }

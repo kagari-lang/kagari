@@ -33,8 +33,8 @@ pub fn lower_to_ir(module: &kagari_hir::CheckedAnalysis) -> Result<IrModule, IrL
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(IrModule {
-        identity: module.source.module_identity().clone(),
-        source_name: module.source.name().to_owned(),
+        identity: module.lowered.source.module_identity().clone(),
+        source_name: module.lowered.source.name().to_owned(),
         module_init: module.lowered.module.module_init,
         module_slots: Vec::new(),
         abi: abi::collect_module_abi(module),

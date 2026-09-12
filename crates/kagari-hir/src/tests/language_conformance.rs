@@ -1,6 +1,6 @@
 use kagari_common::DiagnosticKind;
 
-use crate::{resolver::resolve_names, tests::common, typeck::check_module};
+use crate::{resolver::resolve_names, tests::common, tests::common::check_module};
 
 struct SemanticCase {
     spec_section: &'static str,

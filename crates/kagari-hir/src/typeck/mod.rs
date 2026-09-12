@@ -17,7 +17,6 @@ use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability};
 pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 
-pub use check::check_module;
 pub(crate) use check::check_module_controlled;
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedCall, ResolvedStructInit, ResolvedTypeRef, TypeTable,
@@ -62,6 +61,7 @@ pub(crate) struct TopLevelTypeIndex {
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeIndexes<'a> {
+    pub(crate) declarations: &'a crate::declarations::Declarations,
     pub(crate) cancel: &'a kagari_common::cancellation::CancellationToken,
     pub(crate) function_index: &'a FunctionTypeIndex,
     pub(crate) top_level_index: &'a TopLevelTypeIndex,
@@ -74,5 +74,5 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) local_writeability: HashMap<LocalId, Writeability>,
     pub(crate) exprs: HashMap<ExprId, TypeId>,
     pub(crate) generics: Vec<crate::hir::GenericParam>,
-    pub(crate) generic_bounds: HashMap<String, Vec<ConstraintTarget>>,
+    pub(crate) generic_bounds: HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>>,
 }

@@ -20,7 +20,6 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
 #[derive(Debug, Clone)]
 pub struct AnalyzedModule {
-    pub source: std::sync::Arc<kagari_common::SourceFile>,
     pub lowered: lower::LoweredModule,
     pub names: resolver::ResolvedNames,
     pub declarations: declarations::Declarations,
@@ -77,15 +76,15 @@ fn analyze_syntax(
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let lowered = lower::lower_module_controlled(module, cancel);
+    let lowered = lower::lower_module_controlled(source.clone(), module, cancel);
     let names = resolver::resolve_names_controlled(&lowered, cancel);
-    let typed = typeck::check_module_controlled(&lowered, &names.facts, reuse, cancel);
     let declarations = declarations::Declarations::collect(&source, &lowered, &names.facts, cancel);
+    let typed =
+        typeck::check_module_controlled(&lowered, &names.facts, &declarations, reuse, cancel);
     let mut diagnostics = names.diagnostics;
     diagnostics.extend(typed.diagnostics);
     AnalysisResult {
         facts: AnalyzedModule {
-            source,
             lowered,
             names: names.facts,
             declarations,

@@ -94,8 +94,8 @@ Implemented foundation slices:
   declaration targets in signatures, field/const/local annotations and impl headers.
   Unknown composite members do not discard later members. Type navigation and
   interface permission checks use these facts; IR no longer formats impl type syntax.
-  Generic navigation identity is distinct from the still string-based TypeId generic
-  representation, which must be replaced at the nominal type boundary in R07.
+  Semantic user types now carry declaration identities, and generic TypeId values
+  use owner/position identity; diagnostic names do not affect equality or hashing.
   Generic constraints now resolve once to standard or trait targets. `where`
   targets must name generic parameters; impl constraints are inherited by methods
   without leaking into shadowing parameters or sibling method scopes. Diagnostics
@@ -135,6 +135,17 @@ Implemented foundation slices:
   Stable named declarations can be located in a new snapshot, while local binding
   handles remain scoped to their original analysis, including on profile changes.
   `cargo run -p kagari-embed --example source_queries` exercises these tool APIs.
+- R07: semantic Struct/Enum/Trait types use DefinitionId, and generic parameters
+  use their declaring owner and position. Same-spelled cross-module types and
+  shadowed generic parameters are distinct. Implicit Self types belong to a trait;
+  impl checking and trait calls share one substitution operation that only replaces
+  that owner's Self. Standard Option/Result types use StandardEnum identities.
+  Empty constructor inference uses Unknown instead of invented generic names.
+  Declaration collection precedes checking, and lowering retains the source origin;
+  the origin-free AST lowering and standalone type-check API were removed. Body
+  reuse checks module identity as well as declaration text. Concrete type arguments,
+  bounded reachable monomorphization, layouts and executable implementation tables
+  remain outstanding; current ABI labels/runtime fields still need linked identities.
 - R09: format v4 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.

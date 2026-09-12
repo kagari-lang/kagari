@@ -371,12 +371,15 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
     let later = text.find(", P)").unwrap() + 2;
     let declaration = analysis.definition_at(later).unwrap();
     assert_eq!(declaration.name, "P");
-    assert_eq!(analysis.type_at(later), Some(TypeId::Struct("P".into())));
+    let DeclarationId::Definition(id) = &declaration.id else {
+        panic!("nominal declaration");
+    };
+    assert_eq!(analysis.type_at(later), Some(TypeId::Struct(id.clone())));
     let annotation = text.find("result: P").unwrap() + "result: ".len();
     assert_eq!(analysis.definition_at(annotation), Some(declaration));
     assert_eq!(
         analysis.type_at(annotation),
-        Some(TypeId::Struct("P".into()))
+        Some(TypeId::Struct(id.clone()))
     );
 }
 
@@ -478,6 +481,128 @@ fn bound_navigation_retains_valid_references_beside_unknown_constraints() {
     assert_eq!(
         analysis.type_at(text.find("7 }").unwrap()),
         Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+    );
+}
+
+#[test]
+fn same_spelled_nominal_types_in_different_modules_are_distinct() {
+    let text = "struct P { val n: i32 } enum E { A } trait Show { fn show(self) -> i32; } fn inspect(p: P, e: E, s: Show) {}";
+    let mut sources = SourceDatabase::default();
+    let left = sources
+        .set("left.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let right = sources
+        .set("right.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let left = snapshot.file(left).unwrap();
+    let right = snapshot.file(right).unwrap();
+    assert!(
+        left.result().diagnostics().is_empty(),
+        "{:?}",
+        left.result().diagnostics()
+    );
+    assert!(
+        right.result().diagnostics().is_empty(),
+        "{:?}",
+        right.result().diagnostics()
+    );
+    for annotation in ["p: P", "e: E", "s: Show"] {
+        let offset = text.find(annotation).unwrap() + 3;
+        let a = left.type_at(offset).unwrap();
+        let b = right.type_at(offset).unwrap();
+        assert_eq!(a.display_name(), b.display_name());
+        assert_ne!(a, b);
+        let definition = match &a {
+            TypeId::Struct(id) | TypeId::Enum(id) | TypeId::Trait(id) => id,
+            _ => panic!("nominal type"),
+        };
+        assert_eq!(
+            left.definition_at(offset).unwrap().id,
+            DeclarationId::Definition(definition.clone())
+        );
+    }
+}
+
+#[test]
+fn generic_type_equality_and_hash_use_owner_and_position() {
+    use std::hash::{Hash, Hasher};
+    let hash = |ty: &TypeId| {
+        let mut state = std::collections::hash_map::DefaultHasher::new();
+        ty.hash(&mut state);
+        state.finish()
+    };
+    let text = "fn first<T>(value: T) -> T { value } fn second<T>(value: T) -> T { value }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("generic-types.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut database = AnalysisDatabase::default();
+    let original = snapshot(&mut database, &sources);
+    let analysis = original.file(file).unwrap();
+    let first = analysis
+        .type_at(text.find("value: T").unwrap() + 7)
+        .unwrap();
+    let second = analysis
+        .type_at(text.rfind("value: T").unwrap() + 7)
+        .unwrap();
+    assert_ne!(first, second);
+    let renamed = text.replacen("first<T>(value: T) -> T", "first<U>(value: U) -> U", 1);
+    sources
+        .set("generic-types.kgr", renamed.clone(), SourceLayer::Overlay)
+        .unwrap();
+    let edited = snapshot(&mut database, &sources);
+    let updated = edited
+        .file(file)
+        .unwrap()
+        .type_at(renamed.find("value: U").unwrap() + 7)
+        .unwrap();
+    assert_eq!(first, updated);
+    assert_eq!(hash(&first), hash(&updated));
+    assert_eq!(first.display_name(), "T");
+    assert_eq!(updated.display_name(), "U");
+}
+
+#[test]
+fn implicit_self_types_belong_to_their_trait() {
+    let text = "trait A { fn copy(self) -> Self; } trait B { fn copy(self) -> Self; } fn identity<Self>(value: Self) -> Self { value }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("self-types.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let first = analysis.type_at(text.find("-> Self").unwrap() + 3).unwrap();
+    let second = analysis
+        .type_at(
+            text.find("trait B").unwrap()
+                + text[text.find("trait B").unwrap()..]
+                    .find("-> Self")
+                    .unwrap()
+                + 3,
+        )
+        .unwrap();
+    let generic = analysis
+        .type_at(text.find("value: Self").unwrap() + 7)
+        .unwrap();
+    assert!(matches!(first, TypeId::SelfType(_)));
+    assert!(matches!(second, TypeId::SelfType(_)));
+    assert!(matches!(generic, TypeId::Generic(_)));
+    assert_ne!(first, second);
+    assert_ne!(first, generic);
+    let TypeId::SelfType(owner) = &first else {
+        unreachable!();
+    };
+    let concrete = TypeId::Builtin(crate::types::BuiltinType::I32);
+    let nested = TypeId::Tuple(vec![first.clone(), second.clone(), generic.clone()]);
+    assert_eq!(
+        nested.with_self(owner, &concrete),
+        TypeId::Tuple(vec![concrete, second, generic])
     );
 }
 

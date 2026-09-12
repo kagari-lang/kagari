@@ -6,7 +6,7 @@ use crate::{
     hir::{ExportItem, ExprKind, PatternKind, StmtKind},
     resolver::resolve_names,
     tests::common,
-    typeck::check_module,
+    tests::common::check_module,
     types::{BuiltinType, TypeId},
 };
 
@@ -304,7 +304,11 @@ fn main(point: Point) -> Point {
 
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
-        Some(TypeId::Struct("Point".to_string()))
+        Some(TypeId::Struct(common::definition(
+            &lowered,
+            kagari_common::identity::DefinitionKind::Struct,
+            "Point"
+        )))
     );
 }
 
@@ -589,14 +593,14 @@ fn sized(value: usize) -> usize { value }
     assert_eq!(
         typed.functions[0].return_type,
         TypeId::StandardEnum {
-            name: "Option".to_string(),
+            kind: surface::StandardEnum::Option,
             args: vec![TypeId::Builtin(BuiltinType::I32)],
         }
     );
     assert_eq!(
         typed.functions[1].return_type,
         TypeId::StandardEnum {
-            name: "Result".to_string(),
+            kind: surface::StandardEnum::Result,
             args: vec![
                 TypeId::Builtin(BuiltinType::I32),
                 TypeId::Builtin(BuiltinType::String),
@@ -769,7 +773,7 @@ fn popped(values: [i32]) -> Option<i32> {
     assert_eq!(
         typed.type_table.expr_type(popped_tail),
         Some(TypeId::StandardEnum {
-            name: "Option".to_string(),
+            kind: surface::StandardEnum::Option,
             args: vec![TypeId::Builtin(BuiltinType::I32)],
         })
     );
@@ -1455,7 +1459,11 @@ where T: Display
         .expect("expected show_interface");
     assert_eq!(
         show_interface.params[0].ty,
-        TypeId::Trait("Display".to_string())
+        TypeId::Trait(common::definition(
+            &lowered,
+            kagari_common::identity::DefinitionKind::Trait,
+            "Display"
+        ))
     );
     assert_eq!(
         show_interface.return_type,

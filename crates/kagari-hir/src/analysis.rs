@@ -421,7 +421,17 @@ mod tests {
         assert!(!facts.result().diagnostics().is_empty());
         assert_eq!(
             facts.member_receiver_type(text.find("p. }").unwrap() + 2),
-            Some(TypeId::Struct("P".into()))
+            Some(TypeId::Struct(
+                facts
+                    .result()
+                    .facts()
+                    .declarations
+                    .definition(crate::resolver::ResolvedName::Struct(
+                        crate::hir::StructId::new(0)
+                    ))
+                    .unwrap()
+                    .clone()
+            ))
         );
         let offset = text.rfind("answer").unwrap();
         assert_eq!(

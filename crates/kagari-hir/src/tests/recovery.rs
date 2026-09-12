@@ -76,6 +76,55 @@ fn impl_where_constraints_are_inherited_without_leaking_through_shadowing() {
 }
 
 #[test]
+fn self_substitution_is_shared_by_impl_checks_and_static_trait_calls() {
+    let source = "trait Copy { fn copy(self) -> Self; } struct P { val n: i32 } impl Copy for P { fn copy(self) -> P { P { n: self.n } } } fn duplicate<T: Copy>(value: T) -> T { value.copy() }";
+    let analysis = analyze_source(
+        &SourceFile::new("self-substitution.kgr", source),
+        Default::default(),
+    );
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+}
+
+#[test]
+fn shadowed_generic_parameters_cannot_exchange_values_by_spelling() {
+    let source = "impl<T> [T] { fn wrong<T>(self, value: T) -> T { self[0] } }";
+    let analysis = analyze_source(
+        &SourceFile::new("shadow-types.kgr", source),
+        Default::default(),
+    );
+    assert!(!analysis.diagnostics().is_empty());
+    assert!(analysis.into_codegen().is_err());
+    let corrected = source.replace("self[0]", "value");
+    let analysis = analyze_source(
+        &SourceFile::new("shadow-types.kgr", corrected),
+        Default::default(),
+    );
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+}
+
+#[test]
+fn implicit_receiver_constraints_survive_method_parameter_shadowing() {
+    let source = "impl<T: HashKey> Set<T> { fn size<T>(self, value: T) -> usize { self.len() } }";
+    let analysis = analyze_source(
+        &SourceFile::new("receiver-bounds.kgr", source),
+        Default::default(),
+    );
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+}
+
+#[test]
 fn method_where_constraints_do_not_leak_to_sibling_methods() {
     let source = "struct P { val n: i32 } impl<T> P { fn allowed(self, values: Set<T>) -> usize where T: HashKey { values.len() } fn rejected(self, values: Set<T>) -> usize { values.len() } }";
     let analysis = analyze_source(&SourceFile::new("siblings.kgr", source), Default::default());

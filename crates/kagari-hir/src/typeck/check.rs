@@ -18,17 +18,10 @@ use crate::{
     types::{BuiltinType, TypeId},
 };
 
-pub fn check_module(
-    lowered: &LoweredModule,
-    names: &ResolvedNames,
-    reuse: Option<&super::BodyReuse<'_>>,
-) -> AnalysisResult<TypedModule> {
-    check_module_controlled(lowered, names, reuse, &Default::default())
-}
-
 pub(crate) fn check_module_controlled(
     lowered: &LoweredModule,
     names: &ResolvedNames,
+    declarations: &crate::declarations::Declarations,
     reuse: Option<&super::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<TypedModule> {
@@ -40,7 +33,13 @@ pub(crate) fn check_module_controlled(
     let mut function_index = FunctionTypeIndex::default();
     let mut top_level_index = TopLevelTypeIndex::default();
     let mut type_table = TypeTable::default();
-    super::constraints::resolve_constraints(lowered, &mut type_table, &mut diagnostics, cancel);
+    super::constraints::resolve_constraints(
+        lowered,
+        declarations,
+        &mut type_table,
+        &mut diagnostics,
+        cancel,
+    );
 
     for structure in &lowered.module.structs {
         let mut field_names = HashSet::new();
@@ -57,7 +56,13 @@ pub(crate) fn check_module_controlled(
                     .with_span(lowered.source_map.field_span(field.id)),
                 );
             }
-            let ty = resolve_type(&lowered.module, field.ty, &mut type_table, cancel);
+            let ty = resolve_type(
+                &lowered.module,
+                field.ty,
+                declarations,
+                &mut type_table,
+                cancel,
+            );
             if ty.is_none() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
@@ -76,6 +81,7 @@ pub(crate) fn check_module_controlled(
                 &lowered.module,
                 ty,
                 TypeContext {
+                    declarations,
                     generics: &implementation.generic_params,
                     self_type: None,
                 },
@@ -95,7 +101,7 @@ pub(crate) fn check_module_controlled(
 
     for function in &lowered.module.functions {
         let mut params: TypedParameterBuffer = SmallVec::new();
-        let context = function_type_context(&lowered.module, function);
+        let context = function_type_context(&lowered.module, function, declarations);
         let function_name = if function.name.is_empty() {
             "<missing>".to_string()
         } else {
@@ -127,6 +133,7 @@ pub(crate) fn check_module_controlled(
                         &super::constraints::function_bounds(
                             &lowered.module,
                             function,
+                            declarations,
                             &type_table,
                         ),
                         lowered.source_map.type_span(param.ty),
@@ -167,6 +174,7 @@ pub(crate) fn check_module_controlled(
                             &super::constraints::function_bounds(
                                 &lowered.module,
                                 function,
+                                declarations,
                                 &type_table,
                             ),
                             lowered.source_map.type_span(*ty_ref),
@@ -207,7 +215,13 @@ pub(crate) fn check_module_controlled(
         for const_item in &lowered.module.consts {
             let ty = match const_item.ty {
                 Some(ty_ref) => {
-                    match resolve_type(&lowered.module, ty_ref, &mut type_table, cancel) {
+                    match resolve_type(
+                        &lowered.module,
+                        ty_ref,
+                        declarations,
+                        &mut type_table,
+                        cancel,
+                    ) {
                         Some(ty) => {
                             validate_standard_type_constraints(
                                 &ty,
@@ -235,6 +249,7 @@ pub(crate) fn check_module_controlled(
                         lowered,
                         names,
                         TypeIndexes {
+                            declarations,
                             cancel,
                             function_index: &function_index,
                             top_level_index: &top_level_index,
@@ -253,6 +268,7 @@ pub(crate) fn check_module_controlled(
                     lowered,
                     names,
                     TypeIndexes {
+                        declarations,
                         cancel,
                         function_index: &function_index,
                         top_level_index: &top_level_index,
@@ -275,7 +291,13 @@ pub(crate) fn check_module_controlled(
             cancel,
             &mut diagnostics,
         );
-        validate_trait_surface(lowered, &function_index, &type_table, &mut diagnostics);
+        validate_trait_surface(
+            lowered,
+            declarations,
+            &function_index,
+            &type_table,
+            &mut diagnostics,
+        );
         let const_values = super::const_eval::evaluate_constants(
             lowered,
             names,
@@ -299,8 +321,12 @@ pub(crate) fn check_module_controlled(
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
                 env.generics = function.generic_params.clone();
-                env.generic_bounds =
-                    super::constraints::function_bounds(&lowered.module, function, &type_table);
+                env.generic_bounds = super::constraints::function_bounds(
+                    &lowered.module,
+                    function,
+                    declarations,
+                    &type_table,
+                );
                 for param in &typed_function.params {
                     env.params.insert(param.id, param.ty.clone());
                 }
@@ -308,6 +334,7 @@ pub(crate) fn check_module_controlled(
                     lowered,
                     names,
                     TypeIndexes {
+                        declarations,
                         cancel,
                         function_index: &function_index,
                         top_level_index: &top_level_index,
@@ -360,8 +387,10 @@ pub(crate) fn check_module_controlled(
 fn function_type_context<'a>(
     module: &'a crate::hir::Module,
     function: &'a crate::hir::Function,
+    declarations: &'a crate::declarations::Declarations,
 ) -> TypeContext<'a> {
     TypeContext {
+        declarations,
         generics: &function.generic_params,
         self_type: module
             .traits
@@ -376,6 +405,7 @@ fn function_type_context<'a>(
 }
 fn validate_trait_surface(
     lowered: &LoweredModule,
+    declarations: &crate::declarations::Declarations,
     function_index: &FunctionTypeIndex,
     table: &TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
@@ -392,6 +422,7 @@ fn validate_trait_surface(
         {
             validate_interface_type(
                 lowered,
+                declarations,
                 function_index,
                 ty,
                 lowered.source_map.function_span(function.id),
@@ -400,7 +431,7 @@ fn validate_trait_surface(
         }
     }
 
-    let mut seen_impls = HashSet::<(String, String)>::new();
+    let mut seen_impls = HashSet::new();
     for impl_block in &lowered.module.impls {
         let Some(trait_name) = impl_block.trait_ref.as_deref() else {
             continue;
@@ -449,7 +480,7 @@ fn validate_trait_surface(
             continue;
         }
 
-        if !seen_impls.insert((trait_name.to_string(), type_name.clone())) {
+        if !seen_impls.insert((trait_def.id, for_ty.clone())) {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                     trait_name: trait_name.to_string(),
@@ -465,7 +496,12 @@ fn validate_trait_surface(
             function_index,
             trait_def,
             impl_block,
-            &for_ty,
+            (
+                &for_ty,
+                declarations
+                    .definition(ResolvedName::Trait(trait_def.id))
+                    .expect("checked trait declaration"),
+            ),
             diagnostics,
         );
     }
@@ -473,7 +509,7 @@ fn validate_trait_surface(
 
 fn validate_standard_type_constraints(
     ty: &TypeId,
-    generic_bounds: &HashMap<String, Vec<super::ConstraintTarget>>,
+    generic_bounds: &HashMap<crate::types::GenericParameterType, Vec<super::ConstraintTarget>>,
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
@@ -517,7 +553,7 @@ fn validate_standard_type_constraints(
 fn validate_standard_constraint_type(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
-    generic_bounds: &HashMap<String, Vec<super::ConstraintTarget>>,
+    generic_bounds: &HashMap<crate::types::GenericParameterType, Vec<super::ConstraintTarget>>,
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
@@ -566,11 +602,12 @@ fn trait_method_interface_compatible(
     };
     hir_function.generic_params.is_empty()
         && function.params.iter().any(|param| param.name == "self")
-        && !matches!(function.return_type, TypeId::Generic(ref name) if name == "Self")
+        && !matches!(function.return_type, TypeId::SelfType(_))
 }
 
 fn validate_interface_type(
     lowered: &LoweredModule,
+    declarations: &crate::declarations::Declarations,
     function_index: &FunctionTypeIndex,
     ty: &TypeId,
     span: kagari_common::Span,
@@ -578,12 +615,9 @@ fn validate_interface_type(
 ) {
     match ty {
         TypeId::Trait(trait_name) => {
-            if let Some(trait_def) = lowered
-                .module
-                .traits
-                .iter()
-                .find(|trait_def| trait_def.name == *trait_name)
-            {
+            if let Some(trait_def) = lowered.module.traits.iter().find(|trait_def| {
+                declarations.definition(ResolvedName::Trait(trait_def.id)) == Some(trait_name)
+            }) {
                 for method in &trait_def.methods {
                     if !trait_method_interface_compatible(lowered, function_index, method.function)
                     {
@@ -603,22 +637,64 @@ fn validate_interface_type(
         }
         TypeId::Tuple(elements) => {
             for element in elements {
-                validate_interface_type(lowered, function_index, element, span, diagnostics);
+                validate_interface_type(
+                    lowered,
+                    declarations,
+                    function_index,
+                    element,
+                    span,
+                    diagnostics,
+                );
             }
         }
         TypeId::Array(element) => {
-            validate_interface_type(lowered, function_index, element, span, diagnostics);
+            validate_interface_type(
+                lowered,
+                declarations,
+                function_index,
+                element,
+                span,
+                diagnostics,
+            );
         }
         TypeId::Map { key, value } => {
-            validate_interface_type(lowered, function_index, key, span, diagnostics);
-            validate_interface_type(lowered, function_index, value, span, diagnostics);
+            validate_interface_type(
+                lowered,
+                declarations,
+                function_index,
+                key,
+                span,
+                diagnostics,
+            );
+            validate_interface_type(
+                lowered,
+                declarations,
+                function_index,
+                value,
+                span,
+                diagnostics,
+            );
         }
         TypeId::Set(element) => {
-            validate_interface_type(lowered, function_index, element, span, diagnostics);
+            validate_interface_type(
+                lowered,
+                declarations,
+                function_index,
+                element,
+                span,
+                diagnostics,
+            );
         }
         TypeId::StandardEnum { args, .. } => {
             for arg in args {
-                validate_interface_type(lowered, function_index, arg, span, diagnostics);
+                validate_interface_type(
+                    lowered,
+                    declarations,
+                    function_index,
+                    arg,
+                    span,
+                    diagnostics,
+                );
             }
         }
         _ => {}
@@ -630,7 +706,7 @@ fn validate_impl_methods(
     function_index: &FunctionTypeIndex,
     trait_def: &crate::hir::TraitDef,
     impl_block: &crate::hir::Impl,
-    for_ty: &TypeId,
+    receiver: (&TypeId, &kagari_common::identity::DefinitionId),
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
     for trait_method in &trait_def.methods {
@@ -654,7 +730,7 @@ fn validate_impl_methods(
             trait_def,
             trait_method,
             impl_method,
-            for_ty,
+            receiver,
             lowered.source_map.impl_span(impl_block.id),
             diagnostics,
         );
@@ -682,7 +758,7 @@ fn compare_impl_method_signature(
     trait_def: &crate::hir::TraitDef,
     trait_method: &crate::hir::TraitMethod,
     impl_method: &crate::hir::ImplMethod,
-    for_ty: &TypeId,
+    receiver: (&TypeId, &kagari_common::identity::DefinitionId),
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
@@ -704,7 +780,7 @@ fn compare_impl_method_signature(
         return;
     }
     for (trait_param, impl_param) in trait_function.params.iter().zip(&impl_function.params) {
-        let expected = substitute_self_type(&trait_param.ty, for_ty);
+        let expected = trait_param.ty.with_self(receiver.1, receiver.0);
         if expected != impl_param.ty {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
@@ -721,7 +797,7 @@ fn compare_impl_method_signature(
             );
         }
     }
-    let expected_return = substitute_self_type(&trait_function.return_type, for_ty);
+    let expected_return = trait_function.return_type.with_self(receiver.1, receiver.0);
     if expected_return != impl_function.return_type {
         diagnostics.push(
             Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
@@ -735,32 +811,6 @@ fn compare_impl_method_signature(
             })
             .with_span(span),
         );
-    }
-}
-
-fn substitute_self_type(ty: &TypeId, self_ty: &TypeId) -> TypeId {
-    match ty {
-        TypeId::Generic(name) if name == "Self" => self_ty.clone(),
-        TypeId::Tuple(elements) => TypeId::Tuple(
-            elements
-                .iter()
-                .map(|element| substitute_self_type(element, self_ty))
-                .collect::<Vec<_>>(),
-        ),
-        TypeId::Array(element) => TypeId::Array(Box::new(substitute_self_type(element, self_ty))),
-        TypeId::Map { key, value } => TypeId::Map {
-            key: Box::new(substitute_self_type(key, self_ty)),
-            value: Box::new(substitute_self_type(value, self_ty)),
-        },
-        TypeId::Set(element) => TypeId::Set(Box::new(substitute_self_type(element, self_ty))),
-        TypeId::StandardEnum { name, args } => TypeId::StandardEnum {
-            name: name.clone(),
-            args: args
-                .iter()
-                .map(|arg| substitute_self_type(arg, self_ty))
-                .collect::<Vec<_>>(),
-        },
-        _ => ty.clone(),
     }
 }
 

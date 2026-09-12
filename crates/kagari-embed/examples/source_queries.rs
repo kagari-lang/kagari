@@ -51,6 +51,15 @@ fn main() -> kagari_embed::CompileResult<()> {
         .definition_at(annotation)
         .expect("resolved annotation");
     println!("type {} -> {:?}", point_type.name, point_type.id);
+    let nominal = analysis.type_at(annotation).expect("nominal type fact");
+    let kagari_hir::types::TypeId::Struct(definition) = &nominal else {
+        panic!("Point has a struct identity");
+    };
+    assert_eq!(
+        point_type.id,
+        kagari_hir::declarations::DeclarationId::Definition(definition.clone())
+    );
+    println!("nominal type -> {nominal:?}");
     let constraint = analysis
         .definition_at(text.find("T: Show").expect("trait bound") + 3)
         .expect("resolved trait constraint");

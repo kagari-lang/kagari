@@ -1,3 +1,26 @@
+use kagari_common::identity::DefinitionId;
+
+/// Names are diagnostic metadata; owner and position determine equality.
+#[derive(Debug, Clone)]
+pub struct GenericParameterType {
+    pub owner: DefinitionId,
+    pub position: usize,
+    pub name: String,
+}
+
+impl PartialEq for GenericParameterType {
+    fn eq(&self, other: &Self) -> bool {
+        self.owner == other.owner && self.position == other.position
+    }
+}
+impl Eq for GenericParameterType {}
+impl std::hash::Hash for GenericParameterType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.owner.hash(state);
+        self.position.hash(state);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinType {
     Unit,
@@ -29,17 +52,43 @@ pub enum TypeId {
         value: Box<TypeId>,
     },
     Set(Box<TypeId>),
-    Struct(String),
-    Enum(String),
-    Trait(String),
-    Generic(String),
+    Struct(DefinitionId),
+    Enum(DefinitionId),
+    Trait(DefinitionId),
+    Generic(GenericParameterType),
+    SelfType(DefinitionId),
     StandardEnum {
-        name: String,
+        kind: crate::builtin::surface::StandardEnum,
         args: Vec<TypeId>,
     },
 }
 
 impl TypeId {
+    pub(crate) fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
+        match self {
+            Self::SelfType(id) if id == owner => replacement.clone(),
+            Self::Tuple(elements) => Self::Tuple(
+                elements
+                    .iter()
+                    .map(|ty| ty.with_self(owner, replacement))
+                    .collect(),
+            ),
+            Self::Array(element) => Self::Array(Box::new(element.with_self(owner, replacement))),
+            Self::Map { key, value } => Self::Map {
+                key: Box::new(key.with_self(owner, replacement)),
+                value: Box::new(value.with_self(owner, replacement)),
+            },
+            Self::Set(element) => Self::Set(Box::new(element.with_self(owner, replacement))),
+            Self::StandardEnum { kind, args } => Self::StandardEnum {
+                kind: *kind,
+                args: args
+                    .iter()
+                    .map(|ty| ty.with_self(owner, replacement))
+                    .collect(),
+            },
+            _ => self.clone(),
+        }
+    }
     pub fn is_integer(&self) -> bool {
         matches!(
             self,
@@ -59,7 +108,9 @@ impl TypeId {
     }
     pub fn supports_equality(&self) -> bool {
         match self {
-            Self::Unknown | Self::Error | Self::Trait(_) | Self::Generic(_) => false,
+            Self::Unknown | Self::Error | Self::Trait(_) | Self::Generic(_) | Self::SelfType(_) => {
+                false
+            }
             Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
                 members.iter().all(Self::supports_equality)
             }
@@ -114,16 +165,18 @@ impl TypeId {
                 format!("Map<{}, {}>", key.display_name(), value.display_name())
             }
             Self::Set(element) => format!("Set<{}>", element.display_name()),
-            Self::Struct(name) | Self::Enum(name) | Self::Trait(name) | Self::Generic(name) => {
-                name.clone()
+            Self::Struct(id) | Self::Enum(id) | Self::Trait(id) => {
+                id.path.last().expect("type declaration path").name.clone()
             }
-            Self::StandardEnum { name, args } => {
+            Self::Generic(parameter) => parameter.name.clone(),
+            Self::SelfType(_) => "Self".to_owned(),
+            Self::StandardEnum { kind, args } => {
                 let inner = args
                     .iter()
                     .map(TypeId::display_name)
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{name}<{inner}>")
+                format!("{}<{inner}>", kind.spec().name)
             }
         }
     }
@@ -142,6 +195,7 @@ impl TypeId {
             | Self::Enum(_)
             | Self::Trait(_)
             | Self::Generic(_)
+            | Self::SelfType(_)
             | Self::StandardEnum { .. } => true,
         }
     }

@@ -333,7 +333,7 @@ pub struct CheckedModule {
 
 impl CheckedModule {
     pub fn module_identity(&self) -> &kagari_common::identity::ModuleIdentity {
-        self.analyzed.source.module_identity()
+        self.analyzed.lowered.source.module_identity()
     }
     pub fn analyzed(&self) -> &CheckedAnalysis {
         &self.analyzed

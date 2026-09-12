@@ -14,7 +14,9 @@ pub struct BodyReuse<'a> {
 
 impl BodyReuse<'_> {
     pub(crate) fn environment_matches(&self, current: &LoweredModule) -> bool {
-        environment(&self.previous.lowered, self.old_text) == environment(current, self.new_text)
+        self.previous.lowered.source.module_identity() == current.source.module_identity()
+            && environment(&self.previous.lowered, self.old_text)
+                == environment(current, self.new_text)
     }
     pub(crate) fn restore(
         &self,

@@ -50,6 +50,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
             .unwrap()
             .result()
             .facts()
+            .lowered
             .source
             .module_identity(),
         &second
