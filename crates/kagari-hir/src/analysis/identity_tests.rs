@@ -218,6 +218,32 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
 }
 
 #[test]
+fn trait_call_navigation_consumes_checked_method_target_even_with_bad_arguments() {
+    let text = "trait Show { fn show(self, n: i32) -> i32; } fn render(value: Show) -> i32 { value.show(true) }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("method.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(!analysis.result().diagnostics().is_empty());
+    let method = analysis
+        .definition_at(text.find("show(true)").unwrap())
+        .unwrap();
+    assert_eq!(method.name, "show");
+    assert_eq!(method.location.range.start, text.find("fn show").unwrap());
+    let receiver = analysis
+        .definition_at(text.find("value.show").unwrap())
+        .unwrap();
+    assert_eq!(receiver.name, "value");
+    assert!(
+        analysis
+            .definition_at(text.find("true)").unwrap())
+            .is_none()
+    );
+}
+
+#[test]
 fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
     let text = "struct Same { val n: i32 } fn Same() -> i32 { 1 } fn Same() -> i32 { 2 } trait A { fn get(self) -> i32; } trait B { fn get(self) -> i32; } impl A for Same { fn get(self) -> i32 { self.n } }";
     let source = SourceFile::new("definitions.kgr", text);

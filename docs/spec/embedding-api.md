@@ -39,7 +39,16 @@ names to a declaration with a `FileSpan`. `visible_bindings(byte_offset)` return
 typed declarations from the resolver's lexical scope facts, including match arm
 bindings and declaration-order shadowing. Neither query executes script or host code.
 Unresolved names have no navigation target; other functions remain queryable.
-Member and type-reference navigation are not implemented by these queries yet.
+Resolved trait method calls also navigate to their checked method declaration,
+including when argument checking reports an error. Field and type-reference
+navigation are not implemented by these queries yet.
+
+`TypeTable::call_resolution` owns each recognized call's target and optional receiver.
+IR generation and reflection permission checks consume this semantic fact. A user
+binding with a helper's spelling is resolved as that binding; it does not acquire
+the helper's behavior or permission requirements. An unresolved or invalid call
+still prevents code generation. Trait-call analysis does not yet imply executable
+interface dispatch, which requires the planned linked implementation tables.
 
 Declaration identity consists of the logical module plus typed owner/name path
 segments. A same-kind, same-name occurrence distinguishes duplicate declarations;

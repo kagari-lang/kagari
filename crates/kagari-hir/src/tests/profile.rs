@@ -6,6 +6,28 @@ use crate::{
 };
 
 #[test]
+fn same_named_user_functions_are_not_reflection_helpers() {
+    let module = kagari_common::SourceFile::new(
+        "profile.kgr",
+        "fn type_of(value: i32) -> i32 { value + 1 } fn main() -> i32 { type_of(41) }",
+    );
+    let checked = analyze_source(&module, LanguageFeatureProfile::default())
+        .into_codegen()
+        .expect("resolved user function does not need reflection permission");
+    let main = &checked.lowered.module.functions[1];
+    let call = checked.lowered.module.block(main.body).tail_expr.unwrap();
+    assert_eq!(
+        checked
+            .typed
+            .type_table
+            .call_resolution(call)
+            .unwrap()
+            .target,
+        crate::typeck::CallTarget::Function(checked.lowered.module.functions[0].id)
+    );
+}
+
+#[test]
 fn profile_rejects_script_visible_reflection_when_disabled() {
     let module =
         kagari_common::SourceFile::new("profile.kgr", "fn main() -> String { type_of(7) }");

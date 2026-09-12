@@ -4,7 +4,7 @@ use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
 use crate::module::ids::LocalId;
 use crate::module::instruction::{
-    AggregateFieldRef, BinaryOp, CallTarget, Constant, Instruction, IrValue, UnaryOp,
+    AggregateFieldRef, BinaryOp, Constant, Instruction, IrValue, UnaryOp,
 };
 use crate::module::types::ValueType;
 use kagari_hir::typeck::ScalarValue;
@@ -194,28 +194,6 @@ impl FunctionLowerer<'_> {
             | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
                 "type-level names are not value expressions",
             )),
-        }
-    }
-
-    pub(crate) fn lower_direct_callee(
-        &self,
-        expr_id: hir::ExprId,
-    ) -> Result<Option<CallTarget>, IrLoweringError> {
-        let Some(resolved) = self.analyzed.names.expr_resolution(expr_id) else {
-            return Ok(None);
-        };
-
-        match resolved {
-            ResolvedName::Function(id) => Ok(Some(CallTarget::Function(id))),
-            ResolvedName::Const(_)
-            | ResolvedName::Param(_)
-            | ResolvedName::Local(_)
-            | ResolvedName::Module(_)
-            | ResolvedName::StandardModule(_)
-            | ResolvedName::StandardFunction(_)
-            | ResolvedName::Struct(_)
-            | ResolvedName::Enum(_)
-            | ResolvedName::Trait(_) => Ok(None),
         }
     }
 

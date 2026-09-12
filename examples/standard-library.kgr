@@ -1,8 +1,14 @@
 const EXPECTED_MAX: i32 = 6 * 2;
 const MIN_I32: i32 = -2147483648;
 
+// Declared functions take precedence over unqualified helper names.
+fn type_of(value: i32) -> i32 { value + 1 }
+
 fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
+    std::debug::assert_eq(type_of(41), 42, "resolved user function");
+    std::debug::assert_eq("中😀".len_bytes(), "1234567".len_bytes(), "UTF-8 byte length");
+    std::debug::assert_eq("中😀".len_chars(), "ab".len_chars(), "Unicode scalar count");
     values.push(3);
 
     val copied_values = std::iter::to_array(values);

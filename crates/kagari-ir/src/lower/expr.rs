@@ -1,11 +1,7 @@
-use kagari_hir::{
-    builtin::{BuiltinFunction, BuiltinMethod, StringMethod, array},
-    hir,
-};
+use kagari_hir::{builtin::BuiltinFunction, hir};
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
-use crate::module::BuiltinMethod as IrBuiltinMethod;
 use crate::module::instruction::{
     BinaryOp, CallTarget, Constant, Instruction, IrValue, RuntimeHelper, StructFieldInit,
     Terminator, ValueBuffer,
@@ -53,38 +49,7 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(dst)
             }
-            hir::ExprKind::Call { callee, args } => {
-                let (callee, args) = if let Some((intrinsic, intrinsic_args)) =
-                    self.lower_standard_intrinsic_call(expr_id, callee, &args)?
-                {
-                    (CallTarget::StandardIntrinsic(intrinsic), intrinsic_args)
-                } else if let Some((builtin, builtin_args)) =
-                    self.lower_builtin_method_call(callee, &args)?
-                {
-                    (CallTarget::BuiltinMethod(builtin), builtin_args)
-                } else if let Some((helper, helper_args)) =
-                    self.lower_runtime_helper_call(callee, &args)?
-                {
-                    (CallTarget::RuntimeHelper(helper), helper_args)
-                } else {
-                    let args = args
-                        .iter()
-                        .map(|arg| self.lower_expr(*arg))
-                        .collect::<Result<_, _>>()?;
-                    let callee = match self.lower_direct_callee(callee)? {
-                        Some(callee) => callee,
-                        None => CallTarget::Value(self.lower_expr(callee)?),
-                    };
-                    (callee, args)
-                };
-                let dst = self.alloc_temp(self.expr_type(expr_id)?);
-                self.emit(Instruction::Call {
-                    dst: Some(dst),
-                    callee,
-                    args,
-                });
-                Ok(dst)
-            }
+            hir::ExprKind::Call { args, .. } => self.lower_call(expr_id, &args),
             hir::ExprKind::Block(block) => {
                 if let Some(temp) = self.lower_block(block)? {
                     Ok(temp)
@@ -398,180 +363,107 @@ impl FunctionLowerer<'_> {
         Ok(dst)
     }
 
-    fn lower_runtime_helper_call(
+    fn lower_call(
         &mut self,
-        callee: hir::ExprId,
+        expr: hir::ExprId,
         args: &[hir::ExprId],
-    ) -> Result<Option<(RuntimeHelper, ValueBuffer)>, IrLoweringError> {
-        let Some(helper) = self.runtime_helper_name(callee) else {
-            return Ok(None);
-        };
-
-        let lowered = match helper {
-            BuiltinFunction::TypeOf => Some((
-                RuntimeHelper::ReflectTypeOf,
-                args.iter()
-                    .map(|arg| self.lower_expr(*arg))
-                    .collect::<Result<_, _>>()?,
-            )),
-            BuiltinFunction::GetField => {
-                let [base, field_name] = args else {
-                    return Ok(None);
-                };
-                let base = self.lower_expr(*base)?;
-                let Some(field_name) = self.string_literal_value(*field_name) else {
-                    return Ok(None);
-                };
-                Some((
-                    RuntimeHelper::ReflectGetField(field_name),
-                    smallvec::smallvec![base],
-                ))
-            }
-            BuiltinFunction::SetField => {
-                let [base, field_name, value] = args else {
-                    return Ok(None);
-                };
-                let base = self.lower_expr(*base)?;
-                let value = self.lower_expr(*value)?;
-                let Some(field_name) = self.string_literal_value(*field_name) else {
-                    return Ok(None);
-                };
-                Some((
-                    RuntimeHelper::ReflectSetField(field_name),
-                    smallvec::smallvec![base, value],
-                ))
-            }
-            BuiltinFunction::SetIndex => {
-                let [base, index, value] = args else {
-                    return Ok(None);
-                };
-                let base = self.lower_expr(*base)?;
-                let index = self.lower_expr(*index)?;
-                let value = self.lower_expr(*value)?;
-                Some((
-                    RuntimeHelper::ReflectSetIndex,
-                    smallvec::smallvec![base, index, value],
-                ))
-            }
-            BuiltinFunction::Print => {
-                let [message] = args else {
-                    return Ok(None);
-                };
-                let message = self.lower_expr(*message)?;
-                Some((
-                    RuntimeHelper::HostFunction("host.log".to_owned()),
-                    smallvec::smallvec![message],
-                ))
-            }
-        };
-
-        Ok(lowered)
-    }
-
-    fn lower_standard_intrinsic_call(
-        &mut self,
-        call_expr: hir::ExprId,
-        callee: hir::ExprId,
-        args: &[hir::ExprId],
-    ) -> Result<
-        Option<(kagari_hir::builtin::surface::StandardIntrinsic, ValueBuffer)>,
-        IrLoweringError,
-    > {
-        let Some(intrinsic) = self
+    ) -> Result<IrValue, IrLoweringError> {
+        use kagari_hir::typeck::CallTarget as SemanticCallTarget;
+        let call = self
             .analyzed
             .typed
             .type_table
-            .standard_call_intrinsic(call_expr)
-        else {
-            return Ok(None);
-        };
-
-        let mut lowered = ValueBuffer::new();
-        let callee_expr = self.analyzed.lowered.module.expr(callee).clone();
-        if let hir::ExprKind::Field { receiver, .. } = callee_expr.kind {
-            lowered.push(self.lower_expr(receiver)?);
-        }
-        lowered.extend(
-            args.iter()
-                .map(|arg| self.lower_expr(*arg))
-                .collect::<Result<ValueBuffer, _>>()?,
-        );
-        Ok(Some((intrinsic, lowered)))
-    }
-
-    fn lower_builtin_method_call(
-        &mut self,
-        callee: hir::ExprId,
-        args: &[hir::ExprId],
-    ) -> Result<Option<(IrBuiltinMethod, ValueBuffer)>, IrLoweringError> {
-        let Some((method, receiver)) = self.builtin_method(callee) else {
-            return Ok(None);
-        };
-
-        let lowered = match method {
-            BuiltinMethod::Array(method) => match method {
-                array::Method::Len => Some((
-                    IrBuiltinMethod::Array(method),
-                    smallvec::smallvec![self.lower_expr(receiver)?],
-                )),
-                array::Method::Push => {
-                    let [value] = args else {
-                        return Ok(None);
-                    };
-                    Some((
-                        IrBuiltinMethod::Array(method),
-                        smallvec::smallvec![self.lower_expr(receiver)?, self.lower_expr(*value)?],
-                    ))
+            .call_resolution(expr)
+            .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
+        let (callee, args) = match call.target {
+            SemanticCallTarget::RuntimeHelper(helper) => {
+                self.lower_runtime_helper_call(helper, args)?
+            }
+            SemanticCallTarget::TraitMethod(_) => {
+                return Err(IrLoweringError::UnsupportedExpr(
+                    "interface dispatch requires linked implementation tables",
+                ));
+            }
+            target => {
+                let mut lowered = ValueBuffer::new();
+                if let Some(receiver) = call.receiver {
+                    lowered.push(self.lower_expr(receiver)?);
                 }
-                array::Method::Pop => Some((
-                    IrBuiltinMethod::Array(method),
-                    smallvec::smallvec![self.lower_expr(receiver)?],
-                )),
-            },
-            BuiltinMethod::String(StringMethod::Len) => Some((
-                IrBuiltinMethod::String(StringMethod::Len),
-                smallvec::smallvec![self.lower_expr(receiver)?],
+                for arg in args {
+                    lowered.push(self.lower_expr(*arg)?);
+                }
+                let target = match target {
+                    SemanticCallTarget::Function(id) => CallTarget::Function(id),
+                    SemanticCallTarget::StandardIntrinsic(intrinsic) => {
+                        CallTarget::StandardIntrinsic(intrinsic)
+                    }
+                    SemanticCallTarget::RuntimeHelper(_) | SemanticCallTarget::TraitMethod(_) => {
+                        unreachable!()
+                    }
+                };
+                (target, lowered)
+            }
+        };
+        let dst = self.alloc_temp(self.expr_type(expr)?);
+        self.emit(Instruction::Call {
+            dst: Some(dst),
+            callee,
+            args,
+        });
+        Ok(dst)
+    }
+
+    fn lower_runtime_helper_call(
+        &mut self,
+        helper: BuiltinFunction,
+        args: &[hir::ExprId],
+    ) -> Result<(CallTarget, ValueBuffer), IrLoweringError> {
+        let (helper, args) = match (helper, args) {
+            (BuiltinFunction::TypeOf, [value]) => (
+                RuntimeHelper::ReflectTypeOf,
+                smallvec::smallvec![self.lower_expr(*value)?],
+            ),
+            (BuiltinFunction::GetField, [base, field]) => {
+                let field = self.checked_field_name(*field)?;
+                (
+                    RuntimeHelper::ReflectGetField(field),
+                    smallvec::smallvec![self.lower_expr(*base)?],
+                )
+            }
+            (BuiltinFunction::SetField, [base, field, value]) => {
+                let field = self.checked_field_name(*field)?;
+                (
+                    RuntimeHelper::ReflectSetField(field),
+                    smallvec::smallvec![self.lower_expr(*base)?, self.lower_expr(*value)?],
+                )
+            }
+            (BuiltinFunction::SetIndex, [base, index, value]) => (
+                RuntimeHelper::ReflectSetIndex,
+                smallvec::smallvec![
+                    self.lower_expr(*base)?,
+                    self.lower_expr(*index)?,
+                    self.lower_expr(*value)?
+                ],
+            ),
+            (BuiltinFunction::Print, [message]) => (
+                RuntimeHelper::HostFunction("host.log".into()),
+                smallvec::smallvec![self.lower_expr(*message)?],
+            ),
+            _ => {
+                return Err(IrLoweringError::MissingBinding(
+                    "checked runtime helper arguments",
+                ));
+            }
+        };
+        Ok((CallTarget::RuntimeHelper(helper), args))
+    }
+
+    fn checked_field_name(&self, expr: hir::ExprId) -> Result<String, IrLoweringError> {
+        match self.analyzed.typed.type_table.scalar_value(expr) {
+            Some(kagari_hir::typeck::ScalarValue::String(value)) => Ok(value.clone()),
+            _ => Err(IrLoweringError::MissingBinding(
+                "checked reflection field name",
             )),
-            BuiltinMethod::Iterable(_) => None,
-        };
-
-        Ok(lowered)
-    }
-
-    fn runtime_helper_name(&self, expr_id: hir::ExprId) -> Option<BuiltinFunction> {
-        match self.builtin_name(expr_id) {
-            Some(
-                BuiltinFunction::TypeOf
-                | BuiltinFunction::GetField
-                | BuiltinFunction::SetField
-                | BuiltinFunction::SetIndex
-                | BuiltinFunction::Print,
-            ) => self.builtin_name(expr_id),
-            _ => None,
-        }
-    }
-
-    fn builtin_name(&self, expr_id: hir::ExprId) -> Option<BuiltinFunction> {
-        let expr = self.analyzed.lowered.module.expr(expr_id);
-        let hir::ExprKind::Name(name) = &expr.kind else {
-            return None;
-        };
-        BuiltinFunction::from_name(name)
-    }
-
-    fn builtin_method(&self, expr_id: hir::ExprId) -> Option<(BuiltinMethod, hir::ExprId)> {
-        let expr = self.analyzed.lowered.module.expr(expr_id);
-        let hir::ExprKind::Field { receiver, name } = &expr.kind else {
-            return None;
-        };
-        let receiver_ty = self.analyzed.typed.type_table.expr_type(*receiver)?;
-        BuiltinMethod::resolve(&receiver_ty, name).map(|method| (method, *receiver))
-    }
-
-    fn string_literal_value(&self, expr_id: hir::ExprId) -> Option<String> {
-        match self.analyzed.typed.type_table.scalar_value(expr_id)? {
-            kagari_hir::typeck::ScalarValue::String(value) => Some(value.clone()),
-            _ => None,
         }
     }
 }

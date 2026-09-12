@@ -111,8 +111,28 @@ impl FileAnalysis {
                     .place_resolution(crate::hir::PlaceId::new(index))
                     .map(|target| (*span, target))
             });
+        let calls = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter_map(|(id, expr)| {
+                let ExprKind::Call { callee, .. } = &expr.kind else {
+                    return None;
+                };
+                let call = facts.typed.type_table.call_resolution(id)?;
+                match call.target {
+                    crate::typeck::CallTarget::Function(function)
+                    | crate::typeck::CallTarget::TraitMethod(function) => Some((
+                        facts.lowered.source_map.expr_span(*callee),
+                        crate::resolver::ResolvedName::Function(function),
+                    )),
+                    _ => None,
+                }
+            });
         expressions
             .chain(places)
+            .chain(calls)
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .min_by_key(|(span, _)| span.end - span.start)
             .and_then(|(_, target)| facts.declarations.target(target))

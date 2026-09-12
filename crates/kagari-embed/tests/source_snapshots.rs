@@ -67,10 +67,10 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
 }
 
 #[test]
-fn reused_literal_and_pattern_facts_emit_the_same_artifact_as_fresh_analysis() {
+fn reused_literal_pattern_and_call_facts_emit_the_same_artifact_as_fresh_analysis() {
     let engine = KagariEngine::default();
     let token = CancellationToken::default();
-    let unchanged = "fn b() -> i32 { match 2147483647 { 2147483647 => -2147483648, _ => 0 } }";
+    let unchanged = "fn b() -> i32 { val xs = [a()]; xs.push(2); match 2147483647 { 2147483647 => -2147483648, _ => xs[0] } }";
     let id = engine
         .set_source(
             "memory://reuse.kgr",

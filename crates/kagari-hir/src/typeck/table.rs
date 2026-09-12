@@ -1,16 +1,31 @@
 use std::collections::HashMap;
 
 use super::ScalarValue;
-use crate::builtin::surface::StandardIntrinsic;
-use crate::hir::{ExprId, LocalId, PatternId, PlaceId};
+use crate::builtin::{BuiltinFunction, surface::StandardIntrinsic};
+use crate::hir::{ExprId, FunctionId, LocalId, PatternId, PlaceId};
 use crate::types::TypeId;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallTarget {
+    Function(FunctionId),
+    StandardIntrinsic(StandardIntrinsic),
+    RuntimeHelper(BuiltinFunction),
+    TraitMethod(FunctionId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedCall {
+    pub target: CallTarget,
+    /// Evaluated before explicit arguments, exactly once.
+    pub receiver: Option<ExprId>,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct TypeTable {
     exprs: HashMap<ExprId, TypeId>,
     locals: HashMap<LocalId, TypeId>,
     places: HashMap<PlaceId, TypeId>,
-    standard_calls: HashMap<ExprId, StandardIntrinsic>,
+    calls: HashMap<ExprId, ResolvedCall>,
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
 }
@@ -80,6 +95,32 @@ impl TypeTable {
         ) else {
             return false;
         };
+        let expr_ids = exprs
+            .iter()
+            .map(|(a, b)| (ExprId::new(*a), ExprId::new(*b)))
+            .collect::<HashMap<_, _>>();
+        let mut calls = Vec::new();
+        for (old_id, new_id) in &expr_ids {
+            if let Some(call) = old.calls.get(old_id) {
+                let receiver = match call.receiver {
+                    Some(id) => match expr_ids.get(&id) {
+                        Some(id) => Some(*id),
+                        None => return false,
+                    },
+                    None => None,
+                };
+                // The non-body declaration environment must match before reuse,
+                // so function/method arena IDs remain unchanged.
+                calls.push((
+                    *new_id,
+                    ResolvedCall {
+                        target: call.target,
+                        receiver,
+                    },
+                ));
+            }
+        }
+        self.calls.extend(calls);
         for (a, b) in patterns {
             if let Some(value) = old.pattern_scalars.get(&PatternId::new(a)) {
                 self.pattern_scalars
@@ -92,9 +133,6 @@ impl TypeTable {
             }
             if let Some(ty) = old.exprs.get(&ExprId::new(a)) {
                 self.exprs.insert(ExprId::new(b), ty.clone());
-            }
-            if let Some(intrinsic) = old.standard_calls.get(&ExprId::new(a)) {
-                self.standard_calls.insert(ExprId::new(b), *intrinsic);
             }
         }
         for (a, b) in locals {
@@ -134,8 +172,8 @@ impl TypeTable {
         self.places.insert(id, ty);
     }
 
-    pub(crate) fn insert_standard_call(&mut self, id: ExprId, intrinsic: StandardIntrinsic) {
-        self.standard_calls.insert(id, intrinsic);
+    pub(crate) fn insert_call(&mut self, id: ExprId, target: CallTarget, receiver: Option<ExprId>) {
+        self.calls.insert(id, ResolvedCall { target, receiver });
     }
 
     pub fn expr_type(&self, id: ExprId) -> Option<TypeId> {
@@ -150,7 +188,7 @@ impl TypeTable {
         self.places.get(&id).cloned()
     }
 
-    pub fn standard_call_intrinsic(&self, id: ExprId) -> Option<StandardIntrinsic> {
-        self.standard_calls.get(&id).copied()
+    pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall> {
+        self.calls.get(&id).copied()
     }
 }

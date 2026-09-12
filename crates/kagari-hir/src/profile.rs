@@ -5,7 +5,8 @@ use kagari_common::{Diagnostic, DiagnosticKind};
 use crate::{
     AnalyzedModule, DiagnosticBuffer,
     builtin::BuiltinFunction,
-    hir::{ExprKind, TypeKind},
+    hir::TypeKind,
+    typeck::{CallTarget, ResolvedCall},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,25 +58,19 @@ fn validate_reflection_calls(
     profile: LanguageFeatureProfile,
     diagnostics: &mut DiagnosticBuffer,
 ) {
-    for (index, expr) in module.lowered.module.body.exprs.iter().enumerate() {
-        let ExprKind::Call { callee, .. } = &expr.kind else {
-            continue;
-        };
-        let callee_expr = module.lowered.module.expr(*callee);
-        let ExprKind::Name(name) = &callee_expr.kind else {
-            continue;
-        };
-        let Some(builtin) = BuiltinFunction::from_name(name) else {
+    for (expr_id, _) in module.lowered.module.body.expressions() {
+        let Some(ResolvedCall {
+            target: CallTarget::RuntimeHelper(builtin),
+            ..
+        }) = module.typed.type_table.call_resolution(expr_id)
+        else {
             continue;
         };
         match builtin {
             BuiltinFunction::TypeOf | BuiltinFunction::GetField if !profile.allow_reflection => {
                 diagnostics.push(profile_error(
                     "reflection",
-                    module
-                        .lowered
-                        .source_map
-                        .expr_span(crate::hir::ExprId::new(index)),
+                    module.lowered.source_map.expr_span(expr_id),
                 ));
             }
             BuiltinFunction::SetField | BuiltinFunction::SetIndex
@@ -83,10 +78,7 @@ fn validate_reflection_calls(
             {
                 diagnostics.push(profile_error(
                     "reflective writes",
-                    module
-                        .lowered
-                        .source_map
-                        .expr_span(crate::hir::ExprId::new(index)),
+                    module.lowered.source_map.expr_span(expr_id),
                 ));
             }
             _ => {}

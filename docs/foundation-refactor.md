@@ -88,7 +88,15 @@ Implemented foundation slices:
   Name resolution now owns lexical scopes, binding introduction points and match
   arm bindings. Tool scope queries consume these facts instead of reconstructing
   scopes from HIR blocks. Navigation uses resolved expression and assignment names;
-  member targets, type-reference navigation and cross-module imports remain pending.
+  field targets, type-reference navigation and cross-module imports remain pending.
+  Calls now carry one HIR target and an explicit receiver. IR and reflection
+  permission checks consume that target; duplicate Array/String method checking,
+  backend builtin-name classification and fallback call dispatch were removed.
+  Source String length uses the specified len_bytes/len_chars intrinsics; the old
+  String.len source entry is rejected. Legacy manually constructed builtin-method
+  bytecode operands still need removal at the linked-only R08 boundary.
+  Trait-call targets support navigation even with argument errors; executable
+  interface dispatch still awaits linked implementation tables in R07/R08.
 - R05: unchanged files share parse/analysis results; identical function bodies
   reuse remapped type facts, while declaration changes invalidate that reuse.
   Scope/type/member-receiver queries work on erroneous files. Shared cancellation
@@ -99,6 +107,7 @@ Implemented foundation slices:
   a newer revision. Engine snapshot compilation exposes cancellation explicitly.
   Reused bodies remap scalar expression and pattern facts; emitted artifacts are
   checked against fresh analysis after preceding code changes shift arena IDs.
+  Call facts remap their receiver IDs on body reuse and share this artifact check.
   Stable named declarations can be located in a new snapshot, while local binding
   handles remain scoped to their original analysis, including on profile changes.
   `cargo run -p kagari-embed --example source_queries` exercises these tool APIs.

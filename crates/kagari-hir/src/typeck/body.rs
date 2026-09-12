@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 
 use crate::{
     builtin::{
-        BuiltinFunction, BuiltinMethod, StringMethod, array,
+        BuiltinFunction,
         surface::{self, StandardIntrinsic, StandardMethodReceiver, StandardTypeConstraint},
     },
     hir::{
@@ -15,7 +15,9 @@ use crate::{
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
     typeck::ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
-    typeck::{BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable},
+    typeck::{
+        BodyTypeEnv, CallTarget, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable,
+    },
     types::{BuiltinType, TypeId},
 };
 
@@ -111,11 +113,18 @@ impl<'a> BodyChecker<'a> {
                 if ty.is_some()
                     && matches!(
                         (
-                            self.type_table.standard_call_intrinsic(*initializer),
+                            self.type_table
+                                .call_resolution(*initializer)
+                                .map(|call| call.target),
                             &local_ty
                         ),
-                        (Some(StandardIntrinsic::MapNew), TypeId::Map { .. })
-                            | (Some(StandardIntrinsic::SetNew), TypeId::Set(_))
+                        (
+                            Some(CallTarget::StandardIntrinsic(StandardIntrinsic::MapNew)),
+                            TypeId::Map { .. }
+                        ) | (
+                            Some(CallTarget::StandardIntrinsic(StandardIntrinsic::SetNew)),
+                            TypeId::Set(_)
+                        )
                     )
                 {
                     initializer_ty = local_ty.clone();
@@ -491,15 +500,15 @@ impl<'a> BodyChecker<'a> {
                 {
                     standard_ty
                 } else if let Some(helper_ty) =
-                    self.infer_runtime_helper_call_type(*callee, args, env)
+                    self.infer_runtime_helper_call_type(expr_id, *callee, args, env)
                 {
                     helper_ty
                 } else if let Some(method_ty) =
-                    self.infer_trait_method_call_type(*callee, args, env)
+                    self.infer_trait_method_call_type(expr_id, *callee, args, env)
                 {
                     method_ty
                 } else {
-                    self.infer_function_call_type(*callee, args, env)
+                    self.infer_function_call_type(expr_id, *callee, args, env)
                 }
             }
             ExprKind::Field { receiver, name } => {
@@ -668,8 +677,12 @@ impl<'a> BodyChecker<'a> {
         args: &[ExprId],
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        if let Some((intrinsic, receiver_ty)) = self.standard_method(callee, env) {
-            self.type_table.insert_standard_call(call_expr, intrinsic);
+        if let Some((intrinsic, receiver, receiver_ty)) = self.standard_method(callee, env) {
+            self.type_table.insert_call(
+                call_expr,
+                CallTarget::StandardIntrinsic(intrinsic),
+                Some(receiver),
+            );
             return Some(self.infer_standard_intrinsic_type(
                 intrinsic,
                 callee,
@@ -680,7 +693,8 @@ impl<'a> BodyChecker<'a> {
         }
 
         let intrinsic = self.standard_function(callee)?;
-        self.type_table.insert_standard_call(call_expr, intrinsic);
+        self.type_table
+            .insert_call(call_expr, CallTarget::StandardIntrinsic(intrinsic), None);
         Some(self.infer_standard_intrinsic_type(intrinsic, callee, None, args, env))
     }
 
@@ -1080,15 +1094,14 @@ impl<'a> BodyChecker<'a> {
 
     fn infer_runtime_helper_call_type(
         &mut self,
+        call_expr: ExprId,
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        if let Some(method_ty) = self.infer_builtin_method_call_type(callee, args, env) {
-            return Some(method_ty);
-        }
-
         let builtin = self.builtin_function(callee)?;
+        self.type_table
+            .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
         let arity = match builtin {
             BuiltinFunction::TypeOf | BuiltinFunction::Print => 1,
             BuiltinFunction::GetField => 2,
@@ -1180,96 +1193,9 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn infer_builtin_method_call_type(
-        &mut self,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let (method, _, receiver_ty) = self.builtin_method(callee, env)?;
-        match method {
-            BuiltinMethod::Array(method) => {
-                self.infer_array_method_call_type(method, callee, &receiver_ty, args, env)
-            }
-            BuiltinMethod::Iterable(_) => None,
-            BuiltinMethod::String(method) => {
-                self.infer_string_method_call_type(method, callee, args, env)
-            }
-        }
-    }
-
-    fn infer_array_method_call_type(
-        &mut self,
-        method: array::Method,
-        callee: ExprId,
-        receiver_ty: &TypeId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let spec = array::method_spec(method);
-        match method {
-            array::Method::Len => {
-                let _ = self.infer_call_args(args, env);
-                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                Some(TypeId::Builtin(BuiltinType::USize))
-            }
-            array::Method::Push => {
-                let TypeId::Array(element_ty) = receiver_ty else {
-                    return Some(TypeId::Error);
-                };
-                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                let value_ty = args
-                    .first()
-                    .map(|expr| self.infer_expr_type(*expr, env))
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
-                if value_ty != **element_ty {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                            function_name: spec.name.to_string(),
-                            parameter_name: "value".to_string(),
-                            expected: display_type_id(element_ty),
-                            found: display_type_id(&value_ty),
-                        })
-                        .with_span(
-                            args.first()
-                                .copied()
-                                .map(|expr| self.lowered.source_map.expr_span(expr))
-                                .unwrap_or_else(|| self.lowered.source_map.expr_span(callee)),
-                        ),
-                    );
-                }
-                for arg in args.iter().skip(1) {
-                    let _ = self.infer_expr_type(*arg, env);
-                }
-                Some(receiver_ty.clone())
-            }
-            array::Method::Pop => {
-                let _ = self.infer_call_args(args, env);
-                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                Some(receiver_ty.clone())
-            }
-        }
-    }
-
-    fn infer_string_method_call_type(
-        &mut self,
-        method: StringMethod,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let spec = BuiltinMethod::String(method).spec();
-        match method {
-            StringMethod::Len => {
-                let _ = self.infer_call_args(args, env);
-                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                Some(TypeId::Builtin(BuiltinType::USize))
-            }
-        }
-    }
-
     fn infer_trait_method_call_type(
         &mut self,
+        call_expr: ExprId,
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
@@ -1297,6 +1223,11 @@ impl<'a> BodyChecker<'a> {
         };
 
         let method_function = self.trait_method_function(&trait_name, name)?;
+        self.type_table.insert_call(
+            call_expr,
+            CallTarget::TraitMethod(method_function),
+            Some(*receiver),
+        );
         let Some(method) = self.function_index.by_id.get(&method_function) else {
             return Some(TypeId::Error);
         };
@@ -1357,6 +1288,7 @@ impl<'a> BodyChecker<'a> {
 
     fn infer_function_call_type(
         &mut self,
+        call_expr: ExprId,
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
@@ -1377,6 +1309,8 @@ impl<'a> BodyChecker<'a> {
         let Some(function) = self.function_index.by_id.get(&id) else {
             return self.infer_expr_type(callee, env);
         };
+        self.type_table
+            .insert_call(call_expr, CallTarget::Function(id), None);
         if function.params.len() != arg_tys.len() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CallArityMismatch {
@@ -1718,14 +1652,15 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr_id: ExprId,
         env: &mut BodyTypeEnv,
-    ) -> Option<(StandardIntrinsic, TypeId)> {
+    ) -> Option<(StandardIntrinsic, ExprId, TypeId)> {
         let expr = self.lowered.module.expr(expr_id);
         let ExprKind::Field { receiver, name } = &expr.kind else {
             return None;
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
-        let receiver = standard_method_receiver(&receiver_ty)?;
-        surface::standard_method(receiver, name).map(|method| (method.intrinsic, receiver_ty))
+        let receiver_kind = standard_method_receiver(&receiver_ty)?;
+        surface::standard_method(receiver_kind, name)
+            .map(|method| (method.intrinsic, *receiver, receiver_ty))
     }
 
     fn check_arg_type(
@@ -1827,6 +1762,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn builtin_function(&self, expr_id: ExprId) -> Option<BuiltinFunction> {
+        if self.names.expr_resolution(expr_id).is_some() {
+            return None;
+        }
         let expr = self.lowered.module.expr(expr_id);
         let ExprKind::Name(name) = &expr.kind else {
             return None;
@@ -1834,37 +1772,12 @@ impl<'a> BodyChecker<'a> {
         BuiltinFunction::from_name(name)
     }
 
-    fn builtin_method(
-        &mut self,
-        expr_id: ExprId,
-        env: &mut BodyTypeEnv,
-    ) -> Option<(BuiltinMethod, ExprId, TypeId)> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Field { receiver, name } = &expr.kind else {
-            return None;
-        };
-        let receiver_ty = self.infer_expr_type(*receiver, env);
-        BuiltinMethod::resolve(&receiver_ty, name).map(|method| (method, *receiver, receiver_ty))
-    }
-
     fn string_literal_value(&self, expr_id: ExprId) -> Option<String> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Literal(literal) = &expr.kind else {
-            return None;
-        };
-        if literal.kind != LiteralKind::String {
-            return None;
+        match self.type_table.scalar_value(expr_id)? {
+            super::ScalarValue::String(value) => Some(value.clone()),
+            _ => None,
         }
-        Some(
-            literal
-                .text
-                .strip_prefix('"')
-                .and_then(|text| text.strip_suffix('"'))
-                .unwrap_or(&literal.text)
-                .to_owned(),
-        )
     }
-
     fn infer_call_args(&mut self, args: &[ExprId], env: &mut BodyTypeEnv) -> Vec<(ExprId, TypeId)> {
         args.iter()
             .map(|arg| (*arg, self.infer_expr_type(*arg, env)))

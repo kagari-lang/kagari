@@ -436,7 +436,7 @@ fn infers_string_method_call_types() {
     let lowered = common::lower_ok(
         r#"
 fn main(value: String) -> usize {
-    value.len()
+    value.len_bytes()
 }
 "#,
     );
@@ -667,8 +667,13 @@ fn clamp(value: i32) -> i32 {
         .tail_expr
         .expect("size tail expr");
     assert_eq!(
-        typed.type_table.standard_call_intrinsic(size_tail),
-        Some(StandardIntrinsic::MapLen)
+        typed
+            .type_table
+            .call_resolution(size_tail)
+            .map(|call| call.target),
+        Some(crate::typeck::CallTarget::StandardIntrinsic(
+            StandardIntrinsic::MapLen
+        ))
     );
     assert_eq!(
         typed.type_table.expr_type(size_tail),
@@ -682,8 +687,13 @@ fn clamp(value: i32) -> i32 {
         .tail_expr
         .expect("clamp tail expr");
     assert_eq!(
-        typed.type_table.standard_call_intrinsic(clamp_tail),
-        Some(StandardIntrinsic::MathClamp)
+        typed
+            .type_table
+            .call_resolution(clamp_tail)
+            .map(|call| call.target),
+        Some(crate::typeck::CallTarget::StandardIntrinsic(
+            StandardIntrinsic::MathClamp
+        ))
     );
     assert_eq!(
         typed.type_table.expr_type(clamp_tail),
@@ -721,8 +731,13 @@ fn popped(values: [i32]) -> Option<i32> {
         .tail_expr
         .expect("keys tail expr");
     assert_eq!(
-        typed.type_table.standard_call_intrinsic(keys_tail),
-        Some(StandardIntrinsic::MapKeys)
+        typed
+            .type_table
+            .call_resolution(keys_tail)
+            .map(|call| call.target),
+        Some(crate::typeck::CallTarget::StandardIntrinsic(
+            StandardIntrinsic::MapKeys
+        ))
     );
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
@@ -737,8 +752,13 @@ fn popped(values: [i32]) -> Option<i32> {
         .tail_expr
         .expect("chars tail expr");
     assert_eq!(
-        typed.type_table.standard_call_intrinsic(chars_tail),
-        Some(StandardIntrinsic::StringLenChars)
+        typed
+            .type_table
+            .call_resolution(chars_tail)
+            .map(|call| call.target),
+        Some(crate::typeck::CallTarget::StandardIntrinsic(
+            StandardIntrinsic::StringLenChars
+        ))
     );
 
     let popped_tail = lowered

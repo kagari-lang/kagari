@@ -18,7 +18,7 @@ pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 
 pub use check::check_module;
 pub(crate) use check::check_module_controlled;
-pub use table::TypeTable;
+pub use table::{CallTarget, ResolvedCall, TypeTable};
 
 #[derive(Debug, Clone)]
 pub struct TypedModule {
