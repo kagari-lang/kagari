@@ -126,6 +126,10 @@ pub enum ConstantOperand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallTarget {
+    ModuleFunction {
+        module: super::ModuleRef,
+        function: FunctionRef,
+    },
     Function(FunctionRef),
     HostFunction(HostImportId),
     Register(Register),

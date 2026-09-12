@@ -155,6 +155,12 @@ The current Rust interface lives in `crates/kagari-runtime/src/backend.rs`.
 It exposes `BackendId`, `BackendTarget`, `BackendFunctionInput`, `ExecutableFunctionArtifact`, safepoint and debug metadata, backend diagnostics, and `CodegenBackend`.
 The implemented trait compiles one function at a time and optionally invokes a compiled artifact:
 
+BackendFunctionInput selects a FunctionRef from a LoadedModule with a checked
+constructor. It exposes immutable accessors for that linked version and its function;
+callers cannot assemble an unrelated function, module identity and bytecode record.
+The backend consumes the program's completed validation and linking. Cross-module
+calls remain unsupported by the current native subset and use interpreter fallback.
+
 ```text
 CodegenBackend {
   backend_id() -> BackendId

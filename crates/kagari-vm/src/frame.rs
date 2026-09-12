@@ -5,6 +5,7 @@ use crate::error::VmError;
 
 #[derive(Debug)]
 pub(crate) struct Frame<'a> {
+    pub(crate) module: kagari_ir::bytecode::ModuleRef,
     function: &'a BytecodeFunction,
     ip: usize,
     registers: Vec<Value>,
@@ -14,6 +15,7 @@ pub(crate) struct Frame<'a> {
 
 impl<'a> Frame<'a> {
     pub(crate) fn new(
+        module: kagari_ir::bytecode::ModuleRef,
         function: &'a BytecodeFunction,
         args: &[Value],
         return_dst: Option<Register>,
@@ -32,6 +34,7 @@ impl<'a> Frame<'a> {
         }
 
         Ok(Self {
+            module,
             function,
             ip: 0,
             registers: vec![Value::Unit; usize::from(function.register_count)],

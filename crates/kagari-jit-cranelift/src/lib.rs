@@ -11,7 +11,6 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
 use kagari_ir::bytecode::{
     BinaryOp, BytecodeFunction, BytecodeInstruction, ConstantOperand, Register, UnaryOp,
-    verify_module,
 };
 use kagari_ir::module::ValueType;
 use kagari_runtime::{
@@ -131,24 +130,17 @@ impl CraneliftBackend {
         &mut self,
         input: &BackendFunctionInput<'_>,
     ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
-        if let Err(error) = verify_module(input.module) {
-            return Err(BackendCompileError {
-                diagnostics: vec![BackendDiagnostic {
-                    kind: BackendDiagnosticKind::InvalidInput,
-                    message: format!("bytecode verification failed before JIT lowering: {error:?}"),
-                }],
-            });
-        }
-        if input.function.parameter_count != 0 {
+        if input.function().parameter_count != 0 {
             return Err(BackendCompileError::unsupported(format!(
                 "Cranelift baseline currently supports only zero-argument functions, `{}` has {}",
-                input.function.name, input.function.parameter_count
+                input.function().name,
+                input.function().parameter_count
             )));
         }
-        ensure_stack_maps_supported(input.function)?;
-        let safepoints = derive_safepoints(input.function);
-        let symbol = self.next_function_symbol(input.module_name, input.function);
-        let address = self.emit_scalar_function(&symbol, input.function)?;
+        ensure_stack_maps_supported(input.function())?;
+        let safepoints = derive_safepoints(input.function());
+        let symbol = self.next_function_symbol(input.module().name.as_str(), input.function());
+        let address = self.emit_scalar_function(&symbol, input.function())?;
         let mut artifact = ExecutableFunctionArtifact::new(
             self.backend_id.clone(),
             self.target.clone(),
@@ -157,7 +149,7 @@ impl CraneliftBackend {
         artifact.entry = ExecutableEntryPoint::Native { symbol, address };
         artifact.safepoints = safepoints;
         artifact.traps = input
-            .function
+            .function()
             .instructions
             .iter()
             .enumerate()
@@ -691,8 +683,7 @@ mod tests {
         module::ValueType,
     };
     use kagari_runtime::{
-        BackendDiagnosticKind, BackendFunctionInput, LoadedModule, ReloadDependencySnapshot,
-        ResourcePolicy, RuntimeConfig,
+        BackendDiagnosticKind, BackendFunctionInput, LoadedModule, ResourcePolicy, RuntimeConfig,
     };
 
     #[test]
@@ -732,10 +723,9 @@ mod tests {
             ValueType::I32,
             vec![ValueType::I32, ValueType::I32, ValueType::I32],
         ));
-        let dependencies = ReloadDependencySnapshot::from_bytecode(&loaded.bytecode);
 
         let artifact = backend
-            .compile_function(input_for(&loaded, dependencies))
+            .compile_function(input_for(&loaded))
             .expect("eligible scalar bytecode should compile");
 
         assert!(matches!(
@@ -775,9 +765,8 @@ mod tests {
             ValueType::Bool,
             vec![ValueType::Bool],
         ));
-        let dependencies = ReloadDependencySnapshot::from_bytecode(&loaded.bytecode);
         let artifact = backend
-            .compile_function(input_for(&loaded, dependencies))
+            .compile_function(input_for(&loaded))
             .expect("eligible scalar bytecode should compile");
         let runtime = Runtime::new(RuntimeConfig {
             resources: ResourcePolicy {
@@ -816,12 +805,17 @@ mod tests {
             },
         );
         let unsupported = Runtime::default()
-            .load_module("unsupported", bytecode)
+            .load_program(
+                "unsupported",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![bytecode],
+                },
+            )
             .unwrap();
-        let dependencies = ReloadDependencySnapshot::from_bytecode(&unsupported.bytecode);
 
         let error = backend
-            .compile_function(input_for(&unsupported, dependencies))
+            .compile_function(input_for(&unsupported))
             .expect_err("unsupported instructions should remain a backend diagnostic");
 
         assert_eq!(
@@ -845,10 +839,9 @@ mod tests {
             ValueType::Unit,
             vec![ValueType::HeapObject],
         ));
-        let dependencies = ReloadDependencySnapshot::from_bytecode(&loaded.bytecode);
 
         let error = backend
-            .compile_function(input_for(&loaded, dependencies))
+            .compile_function(input_for(&loaded))
             .expect_err("GC-managed frame slots require stack-map support before JIT");
 
         assert_eq!(
@@ -858,17 +851,8 @@ mod tests {
         assert!(error.diagnostics[0].message.contains("stack maps"));
     }
 
-    fn input_for(
-        loaded: &LoadedModule,
-        dependencies: ReloadDependencySnapshot,
-    ) -> BackendFunctionInput<'_> {
-        BackendFunctionInput {
-            module_key: loaded.key(),
-            module_name: &loaded.name,
-            module: &loaded.bytecode,
-            function: &loaded.bytecode.functions[0],
-            dependencies,
-        }
+    fn input_for(loaded: &LoadedModule) -> BackendFunctionInput<'_> {
+        BackendFunctionInput::new(loaded, FunctionRef::new(0)).unwrap()
     }
 
     fn loaded_module(function: BytecodeFunction) -> LoadedModule {
@@ -890,7 +874,15 @@ mod tests {
             effects: function.metadata.effects,
         });
         module.functions.push(function);
-        Runtime::default().load_module("jit_test", module).unwrap()
+        Runtime::default()
+            .load_program(
+                "jit_test",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module],
+                },
+            )
+            .unwrap()
     }
 
     fn function(

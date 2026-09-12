@@ -1,8 +1,8 @@
 use std::fmt;
 
-use kagari_ir::bytecode::{BytecodeFunction, BytecodeModule, DebugPointId, FunctionRef};
+use kagari_ir::bytecode::{BytecodeFunction, DebugPointId, FunctionRef};
 
-use crate::{ModuleKey, ReloadDependencySnapshot, Runtime, value::Value};
+use crate::{LoadedModule, Runtime, value::Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BackendId(String);
@@ -42,16 +42,24 @@ impl BackendTarget {
 
 #[derive(Debug, Clone)]
 pub struct BackendFunctionInput<'a> {
-    pub module_key: ModuleKey,
-    pub module_name: &'a str,
-    pub module: &'a BytecodeModule,
-    pub function: &'a BytecodeFunction,
-    pub dependencies: ReloadDependencySnapshot,
+    module: &'a LoadedModule,
+    function: FunctionRef,
 }
 
 impl<'a> BackendFunctionInput<'a> {
+    /// Select a function from an immutable, verified and linked program member.
+    pub fn new(module: &'a LoadedModule, function: FunctionRef) -> Option<Self> {
+        module.bytecode.functions.get(function.index())?;
+        Some(Self { module, function })
+    }
+    pub fn module(&self) -> &'a LoadedModule {
+        self.module
+    }
+    pub fn function(&self) -> &'a BytecodeFunction {
+        &self.module.bytecode.functions[self.function.index()]
+    }
     pub fn function_ref(&self) -> FunctionRef {
-        self.function.id
+        self.function
     }
 }
 

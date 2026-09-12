@@ -84,13 +84,18 @@ instruction budgets are shared across the whole closure, with cancellation check
 Current implementation boundary: source imports support graph, definition and
 function signature queries, imported type annotations and call checking. Applied
 user types, namespace-facade calls, foreign trait constraints/implementations,
-cross-module method/enum operations and executable bundle linking remain pending.
-Semantic checking and IR linking now accept valid source closures. Executable bundle
-encoding and dependency initialization remain pending: embedding artifact emission
-reports `KG_COMPILE_MODULE_LINK_REQUIRED` for multi-module programs. The low-level
-single-module bytecode emitter also rejects source dependencies or unlinked calls,
-including unused imports whose initialization would otherwise be lost. Host and
-standard imports remain executable.
+cross-module method/enum operations remain pending. Valid source closures compile
+to BytecodeProgram, including dependency initializers and module/function call slots.
+Initialization follows the verified dependency-first order, visits shared dependencies
+once, and caches failure per runtime and execution version. No completed side effect
+is rolled back. Loaded members share one immutable program version; cross-module calls
+resolve within it even after a newer root version is published. Active retention on any
+member keeps all instances in that version. Candidate isolation and initialization
+before publication remain outstanding; the current reload API still publishes before
+ordinary lazy initialization and does not satisfy the full activation contract.
+The current reload validator requires the same logical member set and checks public
+ABI and typed-path fingerprints for each member. It rejects stale root handles and
+changed member contracts before publication; automatic state migration is absent.
 
 ### Module contents
 

@@ -34,7 +34,17 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
         },
         ..Default::default()
     };
-    assert!(runtime.load_module("host", bytecode.clone()).is_err());
+    assert!(
+        runtime
+            .load_program(
+                "host",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![bytecode.clone()]
+                }
+            )
+            .is_err()
+    );
     assert_eq!(runtime.modules().loaded_count(), 0);
     assert_eq!(runtime.resources().counters().loaded_modules, 0);
     runtime
@@ -42,7 +52,15 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
             panic!("linking must not invoke host")
         }))
         .unwrap();
-    let loaded = runtime.load_module("host", bytecode.clone()).unwrap();
+    let loaded = runtime
+        .load_program(
+            "host",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![bytecode.clone()],
+            },
+        )
+        .unwrap();
     let shared = runtime.modules().latest("host").unwrap();
     assert!(std::ptr::eq(&loaded.bytecode, &shared.bytecode));
     assert!(std::ptr::eq(&loaded.bytecode, &loaded.clone().bytecode));
@@ -53,10 +71,23 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
         .may_mutate_host_state = true;
     assert!(
         runtime
-            .reload_module(&loaded, "host", mismatch.clone())
+            .reload_program(
+                &loaded,
+                "host",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![mismatch.clone()]
+                }
+            )
             .is_err()
     );
-    let artifact = KbcArtifact::from_module(mismatch, ArtifactBuildOptions::default());
+    let artifact = KbcArtifact::from_program(
+        kagari_ir::bytecode::BytecodeProgram {
+            root: kagari_ir::bytecode::ModuleRef::new(0),
+            modules: vec![mismatch],
+        },
+        ArtifactBuildOptions::default(),
+    );
     assert!(
         runtime
             .reload_artifact(&loaded, "host", artifact, &ArtifactCompatibility::default())
@@ -84,10 +115,22 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     assert_ne!(a, b);
     assert!(second.invoke_bound_host(a, &[Value::I32(1)]).is_err());
     let a = first
-        .load_module("same", BytecodeModule::default())
+        .load_program(
+            "same",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
         .unwrap();
     let b = second
-        .load_module("same", BytecodeModule::default())
+        .load_program(
+            "same",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
         .unwrap();
     assert_eq!(a.key(), b.key());
     assert!(second.validate_loaded_module(&a).is_err());
@@ -95,7 +138,14 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     assert!(second.module_instance_mut(&a).is_none());
     assert!(
         second
-            .reload_module(&a, "same", BytecodeModule::default())
+            .reload_program(
+                &a,
+                "same",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()]
+                }
+            )
             .is_err()
     );
     assert!(second.validate_loaded_module(&b).is_ok());

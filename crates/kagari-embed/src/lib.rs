@@ -13,7 +13,7 @@ use kagari_ir::{
     bytecode::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactValidationError, BytecodeInstruction,
         BytecodeLoweringError, BytecodeModule, CallTarget, KbcArtifact, RuntimeHelper,
-        lower_to_bytecode,
+        lower_program_to_bytecode,
     },
     program::{ProgramErrorKind, lower_program_to_ir},
 };
@@ -236,19 +236,8 @@ impl KagariEngine {
                 },
             }
         })?;
-        if ir.modules().len() != 1 {
-            return Err(EmbeddingError::diagnostics(
-                Box::new(smallvec::smallvec![Diagnostic::error(
-                    kagari_common::DiagnosticKind::ModuleLinkRequired {
-                        module: ir.root().to_string()
-                    }
-                )]),
-                &checked.program.root().lowered.source,
-            ));
-        }
-        let module =
-            lower_to_bytecode(&ir.modules()[0]).map_err(EmbeddingError::bytecode_lowering)?;
-        Ok(KbcArtifact::from_module(module, options.build))
+        let program = lower_program_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
+        Ok(KbcArtifact::from_program(program, options.build))
     }
 
     pub fn compile_to_artifact(
@@ -302,7 +291,7 @@ impl KagariRuntime {
         self.vm.runtime_mut().register_host_type(registration)
     }
 
-    pub fn load_module(
+    pub fn load_program(
         &mut self,
         artifact: BytecodeArtifact,
         options: LoadOptions,
@@ -310,24 +299,24 @@ impl KagariRuntime {
         artifact
             .validate_for_loader(&options.compatibility)
             .map_err(EmbeddingError::artifact_validation)?;
-        let module_name = options
-            .module_name
-            .unwrap_or_else(|| artifact.module.source_name.clone());
+        let module_name = options.module_name.unwrap_or_else(|| {
+            artifact.program.modules[artifact.program.root.index()]
+                .source_name
+                .clone()
+        });
         self.vm
             .runtime_mut()
-            .load_module(module_name, artifact.module)
+            .load_program(module_name, artifact.program)
             .map_err(EmbeddingError::load)
     }
 
-    pub fn reload_module(
+    pub fn reload_program(
         &mut self,
         previous: &LoadedModule,
         artifact: BytecodeArtifact,
         options: ReloadOptions,
     ) -> ReloadResult<LoadedModule> {
-        let module_name = options
-            .module_name
-            .unwrap_or_else(|| artifact.module.source_name.clone());
+        let module_name = options.module_name.unwrap_or_else(|| previous.name.clone());
         self.vm
             .runtime_mut()
             .reload_artifact(previous, module_name, artifact, &options.compatibility)
@@ -350,7 +339,9 @@ impl KagariRuntime {
                 ),
             ));
         }
-        context.validate_for_execute(entry, &module.bytecode)?;
+        for member in module.members() {
+            context.validate_for_execute(entry, &member.bytecode)?;
+        }
         self.vm
             .runtime_mut()
             .set_security_context(context.security_context());
@@ -377,7 +368,9 @@ impl KagariRuntime {
                 ),
             ));
         }
-        context.validate_for_backend_execute(entry, &module.bytecode)?;
+        for member in module.members() {
+            context.validate_for_backend_execute(entry, &member.bytecode)?;
+        }
         self.vm
             .runtime_mut()
             .set_security_context(context.security_context());
@@ -394,7 +387,9 @@ impl KagariRuntime {
         module: &LoadedModule,
         context: &ExecutionContext,
     ) -> RunResult<Value> {
-        context.validate_for_execute("__module_init__", &module.bytecode)?;
+        for member in module.members() {
+            context.validate_for_execute("__module_init__", &member.bytecode)?;
+        }
         self.vm
             .runtime_mut()
             .set_security_context(context.security_context());

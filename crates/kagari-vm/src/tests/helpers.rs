@@ -248,49 +248,52 @@ fn executes_runtime_host_helper_call() {
         .expect("host function should register");
 
     let loaded = runtime
-        .load_module(
+        .load_program(
             "helper.kbc",
-            crate::tests::common::with_host_imports(
-                test_function_module(
-                    "main",
-                    vec![
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(0),
-                            constant: ConstantOperand::I32(40),
-                        },
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(1),
-                            constant: ConstantOperand::I32(2),
-                        },
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(2)),
-                            callee: CallTarget::HostFunction(
-                                kagari_ir::bytecode::HostImportId::new(0),
-                            ),
-                            args: vec![Register::new(0), Register::new(1)],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(2))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32, ValueType::I32, ValueType::I32],
-                ),
-                vec![kagari_common::host_interface::HostFunctionDeclaration::new(
-                    "host.add_i32",
-                    vec![
-                        kagari_common::host_interface::HostParameter {
-                            name: "lhs".into(),
-                            ty: kagari_common::host_interface::HostValueType::I32,
-                            passing: kagari_common::host_interface::HostPassingStyle::Owned,
-                        },
-                        kagari_common::host_interface::HostParameter {
-                            name: "rhs".into(),
-                            ty: kagari_common::host_interface::HostValueType::I32,
-                            passing: kagari_common::host_interface::HostPassingStyle::Owned,
-                        },
-                    ],
-                    kagari_common::host_interface::HostValueType::I32,
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![crate::tests::common::with_host_imports(
+                    test_function_module(
+                        "main",
+                        vec![
+                            BytecodeInstruction::LoadConst {
+                                dst: Register::new(0),
+                                constant: ConstantOperand::I32(40),
+                            },
+                            BytecodeInstruction::LoadConst {
+                                dst: Register::new(1),
+                                constant: ConstantOperand::I32(2),
+                            },
+                            BytecodeInstruction::Call {
+                                dst: Some(Register::new(2)),
+                                callee: CallTarget::HostFunction(
+                                    kagari_ir::bytecode::HostImportId::new(0),
+                                ),
+                                args: vec![Register::new(0), Register::new(1)],
+                            },
+                            BytecodeInstruction::Return(Some(Register::new(2))),
+                        ],
+                        ValueType::I32,
+                        vec![ValueType::I32, ValueType::I32, ValueType::I32],
+                    ),
+                    vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                        "host.add_i32",
+                        vec![
+                            kagari_common::host_interface::HostParameter {
+                                name: "lhs".into(),
+                                ty: kagari_common::host_interface::HostValueType::I32,
+                                passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                            },
+                            kagari_common::host_interface::HostParameter {
+                                name: "rhs".into(),
+                                ty: kagari_common::host_interface::HostValueType::I32,
+                                passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                            },
+                        ],
+                        kagari_common::host_interface::HostValueType::I32,
+                    )],
                 )],
-            ),
+            },
         )
         .expect("helper module should load");
 
@@ -304,54 +307,59 @@ fn executes_runtime_host_helper_call() {
 fn executes_typed_path_read_set_modify_and_view_instructions() {
     let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let loaded = runtime
-        .load_module(
+        .load_program(
             "paths.kbc",
-            path_module(
-                "main",
-                vec![
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(0)),
-                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
-                        args: vec![],
-                    },
-                    BytecodeInstruction::ReadPath {
-                        dst: Register::new(1),
-                        root_or_view: Register::new(0),
-                        path: PathId::new(0),
-                        dynamic_args: vec![],
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(2),
-                        constant: ConstantOperand::I32(5),
-                    },
-                    BytecodeInstruction::SetPath {
-                        root_or_view: Register::new(0),
-                        path: PathId::new(0),
-                        dynamic_args: vec![],
-                        value: Register::new(2),
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(3),
-                        constant: ConstantOperand::I32(2),
-                    },
-                    BytecodeInstruction::ModifyPath {
-                        dst: Some(Register::new(4)),
-                        root_or_view: Register::new(0),
-                        path: PathId::new(0),
-                        dynamic_args: vec![],
-                        op: BinaryOp::Add,
-                        value: Register::new(3),
-                    },
-                    BytecodeInstruction::MakePathView {
-                        dst: Register::new(5),
-                        root_or_view: Register::new(0),
-                        path: PathId::new(0),
-                        dynamic_args: vec![],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(4))),
-                ],
-                ValueType::I32,
-            ),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![path_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::HostFunction(
+                                kagari_ir::bytecode::HostImportId::new(0),
+                            ),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::ReadPath {
+                            dst: Register::new(1),
+                            root_or_view: Register::new(0),
+                            path: PathId::new(0),
+                            dynamic_args: vec![],
+                        },
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(2),
+                            constant: ConstantOperand::I32(5),
+                        },
+                        BytecodeInstruction::SetPath {
+                            root_or_view: Register::new(0),
+                            path: PathId::new(0),
+                            dynamic_args: vec![],
+                            value: Register::new(2),
+                        },
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(3),
+                            constant: ConstantOperand::I32(2),
+                        },
+                        BytecodeInstruction::ModifyPath {
+                            dst: Some(Register::new(4)),
+                            root_or_view: Register::new(0),
+                            path: PathId::new(0),
+                            dynamic_args: vec![],
+                            op: BinaryOp::Add,
+                            value: Register::new(3),
+                        },
+                        BytecodeInstruction::MakePathView {
+                            dst: Register::new(5),
+                            root_or_view: Register::new(0),
+                            path: PathId::new(0),
+                            dynamic_args: vec![],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(4))),
+                    ],
+                    ValueType::I32,
+                )],
+            },
         )
         .unwrap();
 
@@ -367,30 +375,35 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
 fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadOnly);
     let loaded = runtime
-        .load_module(
+        .load_program(
             "readonly_path.kbc",
-            path_module(
-                "main",
-                vec![
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(0)),
-                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
-                        args: vec![],
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(1),
-                        constant: ConstantOperand::I32(2),
-                    },
-                    BytecodeInstruction::SetPath {
-                        root_or_view: Register::new(0),
-                        path: PathId::new(0),
-                        dynamic_args: vec![],
-                        value: Register::new(1),
-                    },
-                    BytecodeInstruction::Return(None),
-                ],
-                ValueType::Unit,
-            ),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![path_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::HostFunction(
+                                kagari_ir::bytecode::HostImportId::new(0),
+                            ),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(1),
+                            constant: ConstantOperand::I32(2),
+                        },
+                        BytecodeInstruction::SetPath {
+                            root_or_view: Register::new(0),
+                            path: PathId::new(0),
+                            dynamic_args: vec![],
+                            value: Register::new(1),
+                        },
+                        BytecodeInstruction::Return(None),
+                    ],
+                    ValueType::Unit,
+                )],
+            },
         )
         .unwrap();
 
@@ -414,26 +427,31 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
         },
     );
     let loaded = runtime
-        .load_module(
+        .load_program(
             "path_capability.kbc",
-            path_module(
-                "main",
-                vec![
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(0)),
-                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
-                        args: vec![],
-                    },
-                    BytecodeInstruction::ReadPath {
-                        dst: Register::new(1),
-                        root_or_view: Register::new(0),
-                        path: PathId::new(0),
-                        dynamic_args: vec![],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(1))),
-                ],
-                ValueType::I32,
-            ),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![path_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(0)),
+                            callee: CallTarget::HostFunction(
+                                kagari_ir::bytecode::HostImportId::new(0),
+                            ),
+                            args: vec![],
+                        },
+                        BytecodeInstruction::ReadPath {
+                            dst: Register::new(1),
+                            root_or_view: Register::new(0),
+                            path: PathId::new(0),
+                            dynamic_args: vec![],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(1))),
+                    ],
+                    ValueType::I32,
+                )],
+            },
         )
         .unwrap();
 
@@ -527,32 +545,35 @@ fn reflection_metadata_and_read_gates_are_separate() {
         ..RuntimeConfig::default()
     });
     let loaded = metadata_only
-        .load_module(
+        .load_program(
             "reflect_read_denied.kbc",
-            super::common::point_function_module(
-                "main",
-                vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(1),
-                    },
-                    BytecodeInstruction::MakeStruct {
-                        dst: Register::new(1),
-                        structure: StructId::new(0),
-                        fields: vec![Register::new(0)],
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(2)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
-                            "x".to_owned(),
-                        )),
-                        args: vec![Register::new(1)],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(2))),
-                ],
-                ValueType::I32,
-                vec![ValueType::I32, ValueType::HeapObject, ValueType::I32],
-            ),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![super::common::point_function_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(0),
+                            constant: ConstantOperand::I32(1),
+                        },
+                        BytecodeInstruction::MakeStruct {
+                            dst: Register::new(1),
+                            structure: StructId::new(0),
+                            fields: vec![Register::new(0)],
+                        },
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(2)),
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
+                                "x".to_owned(),
+                            )),
+                            args: vec![Register::new(1)],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(2))),
+                    ],
+                    ValueType::I32,
+                    vec![ValueType::I32, ValueType::HeapObject, ValueType::I32],
+                )],
+            },
         )
         .unwrap();
     let mut vm = Vm::new(metadata_only);
@@ -584,41 +605,44 @@ fn reflection_read_and_write_gates_are_separate() {
         ..RuntimeConfig::default()
     });
     let loaded = read_only
-        .load_module(
+        .load_program(
             "reflect_write_denied.kbc",
-            super::common::point_function_module(
-                "main",
-                vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(1),
-                    },
-                    BytecodeInstruction::MakeStruct {
-                        dst: Register::new(1),
-                        structure: StructId::new(0),
-                        fields: vec![Register::new(0)],
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(2),
-                        constant: ConstantOperand::I32(2),
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(3)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
-                            "x".to_owned(),
-                        )),
-                        args: vec![Register::new(1), Register::new(2)],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(3))),
-                ],
-                ValueType::HeapObject,
-                vec![
-                    ValueType::I32,
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![super::common::point_function_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(0),
+                            constant: ConstantOperand::I32(1),
+                        },
+                        BytecodeInstruction::MakeStruct {
+                            dst: Register::new(1),
+                            structure: StructId::new(0),
+                            fields: vec![Register::new(0)],
+                        },
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(2),
+                            constant: ConstantOperand::I32(2),
+                        },
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(3)),
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
+                                "x".to_owned(),
+                            )),
+                            args: vec![Register::new(1), Register::new(2)],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(3))),
+                    ],
                     ValueType::HeapObject,
-                    ValueType::I32,
-                    ValueType::HeapObject,
-                ],
-            ),
+                    vec![
+                        ValueType::I32,
+                        ValueType::HeapObject,
+                        ValueType::I32,
+                        ValueType::HeapObject,
+                    ],
+                )],
+            },
         )
         .unwrap();
     let mut vm = Vm::new(read_only);
@@ -653,42 +677,45 @@ fn reflection_helpers_enforce_reflection_operation_resource_limit() {
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_module(
+        .load_program(
             "reflect_operation_limit.kbc",
-            super::common::point_function_module(
-                "main",
-                vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(1),
-                    },
-                    BytecodeInstruction::MakeStruct {
-                        dst: Register::new(1),
-                        structure: StructId::new(0),
-                        fields: vec![Register::new(0)],
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(2)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                        args: vec![Register::new(1)],
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Register::new(3)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
-                            "x".to_owned(),
-                        )),
-                        args: vec![Register::new(1)],
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(3))),
-                ],
-                ValueType::I32,
-                vec![
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![super::common::point_function_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(0),
+                            constant: ConstantOperand::I32(1),
+                        },
+                        BytecodeInstruction::MakeStruct {
+                            dst: Register::new(1),
+                            structure: StructId::new(0),
+                            fields: vec![Register::new(0)],
+                        },
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(2)),
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
+                            args: vec![Register::new(1)],
+                        },
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(3)),
+                            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
+                                "x".to_owned(),
+                            )),
+                            args: vec![Register::new(1)],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(3))),
+                    ],
                     ValueType::I32,
-                    ValueType::HeapObject,
-                    ValueType::Str,
-                    ValueType::I32,
-                ],
-            ),
+                    vec![
+                        ValueType::I32,
+                        ValueType::HeapObject,
+                        ValueType::Str,
+                        ValueType::I32,
+                    ],
+                )],
+            },
         )
         .unwrap();
     let mut vm = Vm::new(runtime);
@@ -840,7 +867,13 @@ fn executes_source_lowered_print_builtin() {
         .expect("host function should register");
     let bytecode = compile_test_bytecode(r#"fn main() { print("hello"); }"#);
     let loaded = runtime
-        .load_module("print.kgr", bytecode)
+        .load_program(
+            "print.kgr",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![bytecode],
+            },
+        )
         .expect("print module should load");
 
     let mut vm = Vm::new(runtime);
@@ -1139,7 +1172,13 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
     let mut runtime = Runtime::default();
 
     let error = runtime
-        .load_module("standard_invalid_key.kbc", bytecode)
+        .load_program(
+            "standard_invalid_key.kbc",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![bytecode],
+            },
+        )
         .expect_err("aggregate map key should reject before publication");
 
     assert!(matches!(error.kind(), RuntimeErrorKind::ModuleValidation));
@@ -1165,7 +1204,13 @@ fn main() -> usize {
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_module("standard_resource_limit.kgr", bytecode)
+        .load_program(
+            "standard_resource_limit.kgr",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![bytecode],
+            },
+        )
         .expect("module should load");
     let mut vm = Vm::new(runtime);
     let error = vm

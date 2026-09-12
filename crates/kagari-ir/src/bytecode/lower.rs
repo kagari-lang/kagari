@@ -51,7 +51,18 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
     {
         return Err(BytecodeLoweringError::UnlinkedSourceModules);
     }
+    let module = lower_linked_module(ir, None, Vec::new())?;
+    verify_module(&module).map_err(BytecodeLoweringError::Verification)?;
+    Ok(module)
+}
+
+fn lower_linked_module(
+    ir: &VerifiedIrModule,
+    program: Option<&crate::program::VerifiedIrProgram>,
+    dependencies: Vec<super::ModuleRef>,
+) -> Result<BytecodeModule, BytecodeLoweringError> {
     let mut context = BytecodeLoweringContext {
+        program,
         structures: &ir.structures,
         ..Default::default()
     };
@@ -61,6 +72,7 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
         .map(|function| lower_function(function, &mut context))
         .collect::<Result<Vec<_>, _>>()?;
     let mut module = BytecodeModule {
+        dependencies,
         host_interface: context.host_interface,
         identity: ir.identity.clone(),
         source_name: ir.source_name.clone(),
@@ -85,12 +97,13 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
     module.constants = collect_constant_pool(&module.functions);
     module.types = collect_type_table(&module);
     module.function_table = collect_function_table(&module.functions);
-    verify_module(&module).map_err(BytecodeLoweringError::Verification)?;
+
     Ok(module)
 }
 
 #[derive(Debug, Default)]
 struct BytecodeLoweringContext<'a> {
+    program: Option<&'a crate::program::VerifiedIrProgram>,
     structures: &'a [crate::module::StructLayout],
     host_interface: kagari_common::host_interface::HostInterface,
     paths: Vec<PathRecord>,
@@ -507,8 +520,16 @@ fn lower_instruction(
         Instruction::Call { dst, callee, args } => BytecodeInstruction::Call {
             dst: dst.map(lower_value),
             callee: match callee {
-                IrCallTarget::SourceFunction(_) => {
-                    unreachable!("source imports checked before bytecode lowering")
+                IrCallTarget::SourceFunction(contract) => {
+                    let target = context
+                        .program
+                        .expect("linked source program")
+                        .function(&contract.declaration)
+                        .expect("verified source binding");
+                    CallTarget::ModuleFunction {
+                        module: super::ModuleRef::new(target.module),
+                        function: FunctionRef::new(target.function.index()),
+                    }
                 }
                 IrCallTarget::Function(id) => CallTarget::Function(FunctionRef::new(id.index())),
                 IrCallTarget::HostFunction(declaration) => {
@@ -731,4 +752,36 @@ fn emission_order(function: &IrFunction) -> impl Iterator<Item = (usize, &BasicB
             .enumerate()
             .filter(|(index, _)| *index != function.entry.index()),
     )
+}
+
+pub fn lower_program_to_bytecode(
+    program: &crate::program::VerifiedIrProgram,
+) -> Result<super::BytecodeProgram, BytecodeLoweringError> {
+    let indices = program
+        .modules()
+        .iter()
+        .enumerate()
+        .map(|(index, module)| (&module.identity, super::ModuleRef::new(index)))
+        .collect::<HashMap<_, _>>();
+    let modules = program
+        .modules()
+        .iter()
+        .map(|module| {
+            lower_linked_module(
+                module,
+                Some(program),
+                module
+                    .dependencies
+                    .iter()
+                    .map(|identity| indices[identity])
+                    .collect(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let bytecode = super::BytecodeProgram {
+        root: indices[program.root()],
+        modules,
+    };
+    super::verify_program(&bytecode).map_err(BytecodeLoweringError::Verification)?;
+    Ok(bytecode)
 }

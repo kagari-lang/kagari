@@ -438,19 +438,19 @@ fn run_loaded_artifact(
     profile: CliProfile,
     jit: bool,
 ) -> Result<(), CliError> {
-    let has_main = artifact
-        .module
-        .functions
-        .iter()
-        .any(|function| function.name == "main");
     let context = profile.execution_context(jit);
     let mut runtime = engine.runtime(context.clone());
     register_default_host_functions(&mut runtime)
         .map_err(|error| CliError::message(1, error.to_string()))?;
     let loaded = runtime
-        .load_module(artifact, load_options)
+        .load_program(artifact, load_options)
         .map_err(print_embedding_error)?;
 
+    let has_main = loaded
+        .bytecode
+        .functions
+        .iter()
+        .any(|function| function.name == "main");
     if has_main {
         execute_entry(&mut runtime, &loaded, &context, jit).map(|_| ())
     } else {

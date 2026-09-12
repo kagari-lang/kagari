@@ -6,3 +6,4 @@ mod helpers;
 mod jit;
 mod language_contract;
 mod security;
+mod source_programs;

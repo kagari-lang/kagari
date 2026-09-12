@@ -80,7 +80,13 @@ fn interpreter_conformance_classifies_failure_paths() {
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_module("resource_limit.kgr", bytecode)
+        .load_program(
+            "resource_limit.kgr",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![bytecode],
+            },
+        )
         .expect("module should load");
     let mut vm = Vm::new(runtime);
     let error = vm
@@ -112,7 +118,13 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("debug_conformance.kgr");
     let loaded = runtime
-        .load_module("debug_conformance.kgr", compile_test_bytecode(source))
+        .load_program(
+            "debug_conformance.kgr",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![compile_test_bytecode(source)],
+            },
+        )
         .expect("module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let breakpoint = session
@@ -220,7 +232,13 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("debug_steps.kgr");
     let loaded = runtime
-        .load_module("debug_steps.kgr", compile_test_bytecode(source))
+        .load_program(
+            "debug_steps.kgr",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![compile_test_bytecode(source)],
+            },
+        )
         .expect("module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let cursor = session

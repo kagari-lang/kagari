@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use kagari_ir::bytecode::{
-    BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef, verify_module,
-};
+use kagari_ir::bytecode::{BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef};
 use kagari_runtime::{
     BackendDiagnostic, BackendFunctionInput, BackendId, BackendInvocationError, CodegenBackend,
     ExecutionArtifactId, LoadedModule, ModuleEpochRetention, ModuleInitializationState, ModuleKey,
@@ -104,17 +102,8 @@ impl Vm {
             module.key(),
             ModuleEpochRetention::ActiveCall,
         );
-        let module_instance = self
-            .runtime
-            .module_instance_mut(module)
-            .expect("module instance should exist after module initialization");
-        let mut executor = Executor::new(
-            &self.runtime,
-            module,
-            module_instance,
-            entry,
-            self.debug_session.as_mut(),
-        )?;
+        let mut executor =
+            Executor::new(&self.runtime, module, entry, self.debug_session.as_mut())?;
         let return_value = executor.run()?;
 
         Ok(ExecutionReport {
@@ -175,6 +164,60 @@ impl Vm {
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
+        if let Some(instance) = self.runtime.module_instance_snapshot(module) {
+            match instance.state {
+                ModuleInitializationState::Initializing => {
+                    return Err(VmError::ModuleInitializing(module.key()));
+                }
+                ModuleInitializationState::Failed => {
+                    return Err(self
+                        .module_failures
+                        .get(&module.key())
+                        .cloned()
+                        .unwrap_or(VmError::UnsupportedInstruction("module_init_failed")));
+                }
+                ModuleInitializationState::Initialized
+                | ModuleInitializationState::Uninitialized => {}
+            }
+        }
+        let mut reachable = std::collections::HashSet::new();
+        let mut pending = vec![module.slot()];
+        while let Some(slot) = pending.pop() {
+            if reachable.insert(slot) {
+                pending.extend_from_slice(
+                    &module
+                        .member_data(slot)
+                        .expect("verified module slot")
+                        .bytecode
+                        .dependencies,
+                );
+            }
+        }
+        for member in module
+            .members()
+            .filter(|member| reachable.contains(&member.slot()))
+        {
+            if let Err(error) = self.initialize_one(&member) {
+                self.runtime
+                    .module_instance_mut(module)
+                    .expect("loaded root instance")
+                    .fail_initialization();
+                self.module_failures.insert(module.key(), error.clone());
+                return Err(error);
+            }
+        }
+        Ok(self
+            .runtime
+            .module_instance_snapshot(module)
+            .expect("initialized module")
+            .init_result
+            .unwrap_or(Value::Unit))
+    }
+
+    fn initialize_one(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
+        self.runtime
+            .validate_loaded_module(module)
+            .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
         if let Some(debug_session) = self.debug_session.as_mut() {
             debug_session.resolve_module(
@@ -220,14 +263,9 @@ impl Vm {
                     module.key(),
                     ModuleEpochRetention::ActiveCall,
                 );
-                let module_instance = self
-                    .runtime
-                    .module_instance_mut(module)
-                    .expect("loaded module should have a runtime module instance");
                 let mut executor = Executor::new(
                     &self.runtime,
                     module,
-                    module_instance,
                     module_init,
                     self.debug_session.as_mut(),
                 );
@@ -284,13 +322,9 @@ impl Vm {
             }));
         }
         let dependencies = ReloadDependencySnapshot::from_bytecode(&module.bytecode);
-        let artifact = match backend.compile_function(BackendFunctionInput {
-            module_key: module.key(),
-            module_name: &module.name,
-            module: &module.bytecode,
-            function,
-            dependencies: dependencies.clone(),
-        }) {
+        let artifact = match backend
+            .compile_function(BackendFunctionInput::new(module, entry).expect("resolved entry"))
+        {
             Ok(artifact) => artifact,
             Err(error) if error.is_unsupported() => {
                 return Ok(JitEntryResult::Fallback(JitExecutionReport {
@@ -383,17 +417,8 @@ impl Vm {
             module.key(),
             ModuleEpochRetention::ActiveCall,
         );
-        let module_instance = self
-            .runtime
-            .module_instance_mut(module)
-            .expect("module instance should exist after module initialization");
-        let mut executor = Executor::new(
-            &self.runtime,
-            module,
-            module_instance,
-            entry,
-            self.debug_session.as_mut(),
-        )?;
+        let mut executor =
+            Executor::new(&self.runtime, module, entry, self.debug_session.as_mut())?;
         executor.run()
     }
 }
@@ -465,7 +490,6 @@ fn find_function_ref(module: &BytecodeModule, name: &str) -> Option<FunctionRef>
 }
 
 fn validate_executable_bytecode(module: &BytecodeModule) -> Result<(), VmError> {
-    verify_module(module).map_err(VmError::BytecodeVerification)?;
     for function in &module.functions {
         for instruction in &function.instructions {
             let BytecodeInstruction::Call { callee, .. } = instruction else {
@@ -477,6 +501,7 @@ fn validate_executable_bytecode(module: &BytecodeModule) -> Result<(), VmError> 
                 }
                 CallTarget::HostFunction(_)
                 | CallTarget::Function(_)
+                | CallTarget::ModuleFunction { .. }
                 | CallTarget::StandardIntrinsic(_)
                 | CallTarget::RuntimeHelper(_) => {}
             }

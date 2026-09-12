@@ -19,9 +19,6 @@ pub enum DiagnosticKind {
     ImportNotPublic {
         path: String,
     },
-    ModuleLinkRequired {
-        module: String,
-    },
     UnexpectedToken,
     ExpectedTopLevelItem,
     TopLevelControlFlowNotAllowed,
@@ -273,7 +270,6 @@ impl DiagnosticKind {
             Self::CyclicImport { .. } => "KG_RESOLVE_CYCLIC_IMPORT",
             Self::AmbiguousImport { .. } => "KG_RESOLVE_AMBIGUOUS_IMPORT",
             Self::ImportNotPublic { .. } => "KG_RESOLVE_IMPORT_NOT_PUBLIC",
-            Self::ModuleLinkRequired { .. } => "KG_COMPILE_MODULE_LINK_REQUIRED",
             Self::UnexpectedToken => "KG_PARSE_UNEXPECTED_TOKEN",
             Self::ExpectedTopLevelItem => "KG_PARSE_EXPECTED_TOP_LEVEL_ITEM",
             Self::TopLevelControlFlowNotAllowed => "KG_PARSE_TOP_LEVEL_CONTROL_FLOW",
@@ -395,10 +391,6 @@ impl Display for DiagnosticKind {
             Self::ImportNotPublic { path } => {
                 write!(f, "import `{path}` does not name a public item")
             }
-            Self::ModuleLinkRequired { module } => write!(
-                f,
-                "source dependency `{module}` requires a linked module bundle"
-            ),
             Self::UnexpectedToken => write!(f, "unexpected token"),
             Self::ExpectedTopLevelItem => write!(
                 f,

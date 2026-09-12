@@ -22,7 +22,7 @@ pub mod value_semantics;
 
 use kagari_ir::{
     builtin::surface::StandardIntrinsic,
-    bytecode::{ArtifactCompatibility, BytecodeModule, KbcArtifact},
+    bytecode::{ArtifactCompatibility, BytecodeProgram, KbcArtifact},
 };
 
 pub use backend::{
@@ -65,10 +65,7 @@ use crate::{
     builtin::BuiltinError,
     gc::{GcHeap, GcHeapConfig, GcRootId, HeapObjectId},
     host::{HostFunction, HostRegistry},
-    reload::{
-        HotReloadCoordinator, validate_load_candidate, validate_reload_artifact_candidate,
-        validate_reload_candidate,
-    },
+    reload::{HotReloadCoordinator, validate_reload_artifact_candidate, validate_reload_candidate},
 };
 use value::Value;
 
@@ -862,44 +859,42 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn load_module(
+    pub fn load_program(
         &mut self,
         name: impl Into<String>,
-        bytecode: BytecodeModule,
+        bytecode: BytecodeProgram,
     ) -> Result<LoadedModule, RuntimeError> {
         let name = name.into();
-        let dependencies = ReloadDependencySnapshot::from_bytecode(&bytecode);
-        validate_load_candidate(&bytecode).map_err(|error| match error {
-            ReloadValidationError::Bytecode(error) => {
-                RuntimeError::module_validation(format!("bytecode validation failed: {error:?}"))
-            }
-            error => RuntimeError::module_validation(error.to_string()),
+        kagari_ir::bytecode::verify_program(&bytecode).map_err(|error| {
+            RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
         })?;
-        let bindings = self.host.link_interface(&bytecode.host_interface)?;
+        let dependencies = ReloadDependencySnapshot::from_program(&bytecode);
+        let bindings = bytecode
+            .modules
+            .iter()
+            .map(|module| self.host.link_interface(&module.host_interface))
+            .collect::<Result<Vec<_>, _>>()?;
         self.resources
-            .record_loaded_modules(self.modules.loaded_count() + 1)?;
+            .record_loaded_modules(self.modules.loaded_count() + bytecode.modules.len())?;
         let epoch = self.reloads.publish(&name);
         let module = self
             .modules
-            .load(name, epoch, bytecode, self.host.owner(), bindings);
+            .load_program(name, epoch, bytecode, self.host.owner(), bindings);
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
-        self.resources
-            .record_loaded_modules(self.modules.loaded_count())?;
         Ok(module)
     }
-
-    pub fn reload_module(
+    pub fn reload_program(
         &mut self,
         active: &LoadedModule,
         name: impl Into<String>,
-        bytecode: BytecodeModule,
+        bytecode: BytecodeProgram,
     ) -> Result<LoadedModule, ReloadValidationError> {
         let name = name.into();
         self.validate_loaded_module(active)
             .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&active.name);
         validate_reload_candidate(active, &name, &bytecode, latest.as_ref())?;
-        let dependencies = ReloadDependencySnapshot::from_bytecode(&bytecode);
+        let dependencies = ReloadDependencySnapshot::from_program(&bytecode);
         self.publish_validated_reload(name, bytecode, dependencies)
     }
 
@@ -922,26 +917,28 @@ impl Runtime {
             latest.as_ref(),
         )?;
         let dependencies = ReloadDependencySnapshot::from_artifact(&artifact);
-        self.publish_validated_reload(name, artifact.module, dependencies)
+        self.publish_validated_reload(name, artifact.program, dependencies)
     }
 
     fn publish_validated_reload(
         &mut self,
         name: String,
-        bytecode: BytecodeModule,
+        bytecode: BytecodeProgram,
         dependencies: ReloadDependencySnapshot,
     ) -> Result<LoadedModule, ReloadValidationError> {
-        let bindings = self
-            .host
-            .link_interface(&bytecode.host_interface)
+        let bindings = bytecode
+            .modules
+            .iter()
+            .map(|module| self.host.link_interface(&module.host_interface))
+            .collect::<Result<Vec<_>, _>>()
             .map_err(ReloadValidationError::Runtime)?;
         self.resources
-            .record_loaded_modules(self.modules.loaded_count() + 1)
+            .record_loaded_modules(self.modules.loaded_count() + bytecode.modules.len())
             .map_err(ReloadValidationError::Runtime)?;
         let epoch = self.reloads.publish(&name);
         let module = self
             .modules
-            .load(name, epoch, bytecode, self.host.owner(), bindings);
+            .load_program(name, epoch, bytecode, self.host.owner(), bindings);
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         self.resources
             .record_loaded_modules(self.modules.loaded_count())
@@ -958,6 +955,10 @@ impl Runtime {
             .execution_artifacts
             .invalidate_for_reload(&ReloadInvalidation {
                 module_name: module.name.clone(),
+                module_identity: module.bytecode.identity.clone(),
+                module_fingerprint: kagari_ir::bytecode::ArtifactFingerprint::of_serialized(
+                    &module.bytecode,
+                ),
                 module_id: module.id,
                 published: module.key(),
                 dependencies,
@@ -997,9 +998,8 @@ mod tests {
     use super::*;
     use kagari_ir::{
         bytecode::{
-            ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, BytecodeFunction,
-            BytecodeModule, ConstantOperand, DependencyFingerprint, FunctionMetadata, FunctionRef,
-            KbcArtifact,
+            ArtifactBuildOptions, ArtifactCompatibility, BytecodeFunction, BytecodeModule,
+            ConstantOperand, DependencyFingerprint, FunctionMetadata, FunctionRef, KbcArtifact,
         },
         module::{FunctionAbi, PublicAbiItem, ValueType},
     };
@@ -1048,23 +1048,29 @@ mod tests {
     }
 
     fn artifact_with_loader_fingerprints() -> KbcArtifact {
-        KbcArtifact::from_module(
-            module_with_public_function("i32"),
+        let dependency = BytecodeModule {
+            identity: kagari_common::identity::ModuleIdentity::single_file("pkg/dependency"),
+            ..Default::default()
+        };
+        let mut root = module_with_public_function("i32");
+        root.dependencies = vec![kagari_ir::bytecode::ModuleRef::new(0)];
+        KbcArtifact::from_program(
+            BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(1),
+                modules: vec![dependency, root],
+            },
             ArtifactBuildOptions {
-                dependency_fingerprints: vec![DependencyFingerprint {
-                    module_id: "pkg/dependency".to_owned(),
-                    fingerprint: ArtifactFingerprint::of_str("dependency-v1"),
-                }],
-                security_profile: Some("dev".to_owned()),
-                ..ArtifactBuildOptions::default()
+                security_profile: Some("dev".into()),
+                ..Default::default()
             },
         )
     }
-
     fn compatibility_for_artifact(artifact: &KbcArtifact) -> ArtifactCompatibility {
         ArtifactCompatibility {
             module_identity: Some(artifact.header.module_identity.clone()),
-            dependency_fingerprints: artifact.verification.loader.dependency_fingerprints.clone(),
+            dependency_fingerprints: Some(
+                artifact.verification.loader.dependency_fingerprints.clone(),
+            ),
             security_profile: artifact.verification.loader.security_profile.clone(),
             ..ArtifactCompatibility::default()
         }
@@ -1107,10 +1113,10 @@ mod tests {
             &mut self,
             input: BackendFunctionInput<'_>,
         ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
-            if input.function.name != "main" {
+            if input.function().name != "main" {
                 return Err(BackendCompileError::unsupported(format!(
                     "unsupported function `{}`",
-                    input.function.name
+                    input.function().name
                 )));
             }
 
@@ -1121,7 +1127,8 @@ mod tests {
             );
             artifact.entry = ExecutableEntryPoint::Symbol(format!(
                 "{}::{}",
-                input.module_name, input.function.name
+                input.module().name.as_str(),
+                input.function().name
             ));
             artifact.safepoints.push(ExecutableSafepoint {
                 instruction_offset: 0,
@@ -1145,10 +1152,22 @@ mod tests {
         });
 
         runtime
-            .load_module("first", BytecodeModule::default())
+            .load_program(
+                "first",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+            )
             .unwrap();
         let error = runtime
-            .load_module("second", BytecodeModule::default())
+            .load_program(
+                "second",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+            )
             .unwrap_err();
 
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
@@ -1159,11 +1178,24 @@ mod tests {
     fn reload_publishes_valid_candidate_after_validation() {
         let mut runtime = Runtime::default();
         let loaded = runtime
-            .load_module("reloadable", module_with_public_function("i32"))
+            .load_program(
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect("module should load");
 
         let reloaded = runtime
-            .reload_module(&loaded, "reloadable", module_with_public_function("i32"))
+            .reload_program(
+                &loaded,
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect("compatible module should reload");
 
         assert_eq!(reloaded.id, loaded.id);
@@ -1178,12 +1210,25 @@ mod tests {
     fn reload_rejects_public_abi_changes_before_publication() {
         let mut runtime = Runtime::default();
         let loaded = runtime
-            .load_module("reloadable", module_with_public_function("i32"))
+            .load_program(
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect("module should load");
         let before_count = runtime.modules().loaded_count();
 
         let error = runtime
-            .reload_module(&loaded, "reloadable", module_with_public_function("String"))
+            .reload_program(
+                &loaded,
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("String")],
+                },
+            )
             .expect_err("public ABI change should reject reload");
 
         assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
@@ -1202,15 +1247,35 @@ mod tests {
     fn reload_rejects_stale_active_epoch_before_publication() {
         let mut runtime = Runtime::default();
         let first = runtime
-            .load_module("reloadable", module_with_public_function("i32"))
+            .load_program(
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect("module should load");
         let second = runtime
-            .reload_module(&first, "reloadable", module_with_public_function("i32"))
+            .reload_program(
+                &first,
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect("compatible module should reload");
         let before_count = runtime.modules().loaded_count();
 
         let error = runtime
-            .reload_module(&first, "reloadable", module_with_public_function("i32"))
+            .reload_program(
+                &first,
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect_err("stale active epoch should reject reload");
 
         assert_eq!(error.code(), "KG_RELOAD_MODULE_NOT_ACTIVE");
@@ -1239,11 +1304,24 @@ mod tests {
             ..RuntimeConfig::default()
         });
         let loaded = runtime
-            .load_module("reloadable", module_with_public_function("i32"))
+            .load_program(
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect("module should load");
 
         let error = runtime
-            .reload_module(&loaded, "reloadable", module_with_public_function("i32"))
+            .reload_program(
+                &loaded,
+                "reloadable",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect_err("resource limit should reject reload before publication");
 
         assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
@@ -1264,7 +1342,7 @@ mod tests {
         let artifact = artifact_with_loader_fingerprints();
         let mut runtime = Runtime::default();
         let loaded = runtime
-            .load_module("reloadable", artifact.module.clone())
+            .load_program("reloadable", artifact.program.clone())
             .expect("module should load");
         let before_count = runtime.modules().loaded_count();
 
@@ -1273,7 +1351,10 @@ mod tests {
                 &loaded,
                 "reloadable",
                 artifact,
-                &ArtifactCompatibility::default(),
+                &ArtifactCompatibility {
+                    dependency_fingerprints: Some(Vec::new()),
+                    ..Default::default()
+                },
             )
             .expect_err("loader compatibility mismatch should reject reload");
 
@@ -1297,7 +1378,7 @@ mod tests {
         let compatibility = compatibility_for_artifact(&artifact);
         let mut runtime = Runtime::default();
         let loaded = runtime
-            .load_module("reloadable", artifact.module.clone())
+            .load_program("reloadable", artifact.program.clone())
             .expect("module should load");
 
         let reloaded = runtime
@@ -1314,28 +1395,40 @@ mod tests {
 
     #[test]
     fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
-        let dependency_v1 = KbcArtifact::from_module(
-            module_with_public_function_and_constant("i32", 1),
+        let dependency_v1 = KbcArtifact::from_program(
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![module_with_public_function_and_constant("i32", 1)],
+            },
             ArtifactBuildOptions::default(),
         );
-        let dependency_v2 = KbcArtifact::from_module(
-            module_with_public_function_and_constant("i32", 2),
+        let dependency_v2 = KbcArtifact::from_program(
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![module_with_public_function_and_constant("i32", 2)],
+            },
             ArtifactBuildOptions::default(),
         );
         let dependency_v1_snapshot = ReloadDependencySnapshot::from_artifact(&dependency_v1);
         let dependency_v2_compatibility = compatibility_for_artifact(&dependency_v2);
         let mut runtime = Runtime::default();
         let dependency = runtime
-            .load_module("dependency", dependency_v1.module.clone())
+            .load_program("dependency", dependency_v1.program.clone())
             .expect("dependency should load");
         let consumer = runtime
-            .load_module("consumer", module_with_public_function("i32"))
+            .load_program(
+                "consumer",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect("consumer should load");
         let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(&consumer.bytecode);
         consumer_snapshot
             .dependency_fingerprints
             .push(DependencyFingerprint {
-                module_id: "dependency".to_owned(),
+                module_id: dependency_v1.header.module_identity.clone(),
                 fingerprint: dependency_v1_snapshot.module_fingerprint,
             });
 
@@ -1390,9 +1483,12 @@ mod tests {
     fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_abi_is_stable() {
         let mut runtime = Runtime::default();
         let loaded = runtime
-            .load_module(
+            .load_program(
                 "reloadable",
-                module_with_public_function_and_constant("i32", 1),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function_and_constant("i32", 1)],
+                },
             )
             .expect("module should load");
         let artifact = runtime
@@ -1414,10 +1510,13 @@ mod tests {
         );
 
         let reloaded = runtime
-            .reload_module(
+            .reload_program(
                 &loaded,
                 "reloadable",
-                module_with_public_function_and_constant("i32", 2),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function_and_constant("i32", 2)],
+                },
             )
             .expect("implementation-only reload should publish a new epoch");
 
@@ -1437,18 +1536,18 @@ mod tests {
     fn backend_boundary_registers_executable_function_artifacts() {
         let mut runtime = Runtime::default();
         let loaded = runtime
-            .load_module("backend_module", module_with_executable_function())
+            .load_program(
+                "backend_module",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_executable_function()],
+                },
+            )
             .expect("module should load");
         let dependencies = ReloadDependencySnapshot::from_bytecode(&loaded.bytecode);
         let mut backend = FakeBackend::new();
         let artifact = backend
-            .compile_function(BackendFunctionInput {
-                module_key: loaded.key(),
-                module_name: &loaded.name,
-                module: &loaded.bytecode,
-                function: &loaded.bytecode.functions[0],
-                dependencies: dependencies.clone(),
-            })
+            .compile_function(BackendFunctionInput::new(&loaded, FunctionRef::new(0)).unwrap())
             .expect("fake backend should compile main");
 
         let id = runtime
@@ -1505,19 +1604,27 @@ mod tests {
         let dependency_v1 = artifact_with_loader_fingerprints();
         let dependency_v1_snapshot = ReloadDependencySnapshot::from_artifact(&dependency_v1);
         let mut dependency_v2 = dependency_v1.clone();
-        dependency_v2.module.constants.push(ConstantOperand::I32(2));
+        dependency_v2.program.modules[dependency_v2.program.root.index()]
+            .constants
+            .push(ConstantOperand::I32(2));
         let mut runtime = Runtime::default();
         let dependency = runtime
-            .load_module("dependency", dependency_v1.module.clone())
+            .load_program("dependency", dependency_v1.program.clone())
             .expect("dependency should load");
         let consumer = runtime
-            .load_module("consumer", module_with_public_function("i32"))
+            .load_program(
+                "consumer",
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module_with_public_function("i32")],
+                },
+            )
             .expect("consumer should load");
         let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(&consumer.bytecode);
         consumer_snapshot
             .dependency_fingerprints
             .push(DependencyFingerprint {
-                module_id: "dependency".to_owned(),
+                module_id: dependency_v1.header.module_identity.clone(),
                 fingerprint: dependency_v1_snapshot.module_fingerprint,
             });
 

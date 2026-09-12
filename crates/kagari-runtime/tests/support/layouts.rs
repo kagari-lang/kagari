@@ -38,14 +38,17 @@ pub fn layout(
         })
         .collect();
     let module = runtime
-        .load_module(
+        .load_program(
             name,
-            BytecodeModule {
-                structures: vec![StructLayout {
-                    declaration,
-                    fields,
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    structures: vec![StructLayout {
+                        declaration,
+                        fields,
+                    }],
+                    ..Default::default()
                 }],
-                ..Default::default()
             },
         )
         .unwrap();

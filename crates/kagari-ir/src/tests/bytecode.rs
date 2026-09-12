@@ -108,8 +108,15 @@ fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
 
 #[test]
 fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
-    let artifact =
-        |source: &str| KbcArtifact::from_module(common::bytecode_ok(source), Default::default());
+    let artifact = |source: &str| {
+        KbcArtifact::from_program(
+            crate::bytecode::BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![common::bytecode_ok(source)],
+            },
+            Default::default(),
+        )
+    };
     let expression = artifact("pub const VALUE: i32 = 6 * 7;");
     let literal = artifact("pub const VALUE: i32 = 42;");
     assert_eq!(
@@ -265,17 +272,28 @@ fn main() -> i32 { add(1, 2) }
         path: vec!["main".into()],
     };
     module.identity = identity.clone();
-    let dependency = DependencyFingerprint {
-        module_id: "pkg/math".to_owned(),
-        fingerprint: ArtifactFingerprint::of_str("math-v1"),
-    };
-    let options = ArtifactBuildOptions {
-        dependency_fingerprints: vec![dependency.clone()],
-        security_profile: Some("dev".to_owned()),
+    let dependency_module = BytecodeModule {
+        identity: ModuleIdentity {
+            package: PackageId("pkg".into()),
+            path: vec!["math".into()],
+        },
         ..Default::default()
     };
-    let artifact = KbcArtifact::from_module(module, options);
-
+    let dependency = DependencyFingerprint {
+        module_id: dependency_module.identity.clone(),
+        fingerprint: ArtifactFingerprint::of_serialized(&dependency_module),
+    };
+    module.dependencies = vec![crate::bytecode::ModuleRef::new(0)];
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(1),
+            modules: vec![dependency_module, module],
+        },
+        ArtifactBuildOptions {
+            security_profile: Some("dev".into()),
+            ..Default::default()
+        },
+    );
     assert_eq!(artifact.header.magic, KBC_MAGIC);
     assert_eq!(artifact.header.module_identity, identity);
     assert!(artifact.header.content_hash != ArtifactFingerprint::empty());
@@ -303,7 +321,7 @@ fn main() -> i32 { add(1, 2) }
 
     let requirements = ArtifactCompatibility {
         module_identity: Some(identity),
-        dependency_fingerprints: artifact.verification.loader.dependency_fingerprints.clone(),
+        dependency_fingerprints: Some(artifact.verification.loader.dependency_fingerprints.clone()),
         security_profile: Some("dev".to_owned()),
         ..Default::default()
     };
@@ -313,15 +331,25 @@ fn main() -> i32 { add(1, 2) }
 #[test]
 fn serializes_kbc_artifact_bytes_for_loader_execution() {
     let module = common::bytecode_ok("fn main() -> i32 { 1 }");
-    let artifact = KbcArtifact::from_module(module, ArtifactBuildOptions::default());
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    );
 
     let bytes = artifact.to_bytes().expect("artifact should encode");
     let decoded = KbcArtifact::from_bytes(&bytes).expect("artifact should decode");
 
     assert_eq!(decoded.header, artifact.header);
     assert_eq!(
-        decoded.module.functions.len(),
-        artifact.module.functions.len()
+        decoded.program.modules[decoded.program.root.index()]
+            .functions
+            .len(),
+        artifact.program.modules[artifact.program.root.index()]
+            .functions
+            .len()
     );
     decoded
         .validate_for_loader(&ArtifactCompatibility::default())
@@ -405,7 +433,13 @@ pub fn greet(player: Player) -> String {
                 && item.return_type == "String"
     )));
 
-    let artifact = KbcArtifact::from_module(module, ArtifactBuildOptions::default());
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    );
     let names = artifact
         .verification
         .public_abi_fingerprints
@@ -422,12 +456,20 @@ pub fn greet(player: Player) -> String {
 
 #[test]
 fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
-    let first = KbcArtifact::from_module(
-        common::bytecode_ok("pub fn main() -> i32 { 1 }"),
+    let first = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![common::bytecode_ok("pub fn main() -> i32 { 1 }")],
+        },
         ArtifactBuildOptions::default(),
     );
-    let second = KbcArtifact::from_module(
-        common::bytecode_ok("pub fn main(value: i32) -> i32 { value }"),
+    let second = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![common::bytecode_ok(
+                "pub fn main(value: i32) -> i32 { value }",
+            )],
+        },
         ArtifactBuildOptions::default(),
     );
     let first_main = first
@@ -444,17 +486,20 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         .expect("public main ABI should be fingerprinted");
     assert_ne!(first_main.fingerprint, second_main.fingerprint);
 
-    let path_artifact = KbcArtifact::from_module(
-        BytecodeModule {
-            types: vec![ValueType::HeapObject, ValueType::I32],
-            paths: vec![PathRecord {
-                id: PathId::new(0),
-                root_ty: ValueType::HeapObject,
-                result_ty: ValueType::I32,
-                read_only: false,
-                debug_name: "Actor.health".to_owned(),
+    let path_artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                types: vec![ValueType::HeapObject, ValueType::I32],
+                paths: vec![PathRecord {
+                    id: PathId::new(0),
+                    root_ty: ValueType::HeapObject,
+                    result_ty: ValueType::I32,
+                    read_only: false,
+                    debug_name: "Actor.health".to_owned(),
+                }],
+                ..Default::default()
             }],
-            ..Default::default()
         },
         ArtifactBuildOptions::default(),
     );
@@ -472,7 +517,13 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
 #[test]
 fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
     let module = common::bytecode_ok("fn main() -> i32 { 1 }");
-    let mut artifact = KbcArtifact::from_module(module, ArtifactBuildOptions::default());
+    let mut artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    );
     let requirements = ArtifactCompatibility {
         runtime_abi_version: "other-runtime".to_owned(),
         ..Default::default()
@@ -491,7 +542,9 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
     );
 
     let requirements = ArtifactCompatibility::default();
-    artifact.module.constants.clear();
+    artifact.program.modules[artifact.program.root.index()]
+        .constants
+        .clear();
     assert!(matches!(
         artifact.validate_for_loader(&requirements),
         Err(ArtifactValidationError::ContentHashMismatch)
@@ -504,23 +557,27 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
         "KG_ARTIFACT_CONTENT_HASH_MISMATCH"
     );
 
-    let artifact = KbcArtifact::from_module(
-        common::bytecode_ok("fn main() -> i32 { 1 }"),
-        ArtifactBuildOptions {
-            dependency_fingerprints: vec![DependencyFingerprint {
-                module_id: "pkg/dependency".to_owned(),
-                fingerprint: ArtifactFingerprint::of_str("dependency-v1"),
-            }],
-            ..Default::default()
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
         },
+        Default::default(),
     );
+    let requirements = ArtifactCompatibility {
+        dependency_fingerprints: Some(vec![DependencyFingerprint {
+            module_id: ModuleIdentity::single_file("missing.kgr"),
+            fingerprint: ArtifactFingerprint::of_str("expected dependency"),
+        }]),
+        ..Default::default()
+    };
     assert!(matches!(
-        artifact.validate_for_loader(&ArtifactCompatibility::default()),
+        artifact.validate_for_loader(&requirements),
         Err(ArtifactValidationError::DependencyFingerprintMismatch)
     ));
     assert_eq!(
         artifact
-            .validate_for_loader(&ArtifactCompatibility::default())
+            .validate_for_loader(&requirements)
             .unwrap_err()
             .code(),
         "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH"
@@ -621,7 +678,13 @@ fn main(value: String) -> usize {
         })
     ));
 
-    let artifact = KbcArtifact::from_module(bytecode, ArtifactBuildOptions::default());
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![bytecode],
+        },
+        ArtifactBuildOptions::default(),
+    );
     assert!(matches!(
         artifact.validate_for_loader(&ArtifactCompatibility::default()),
         Err(ArtifactValidationError::Bytecode(
@@ -1273,9 +1336,15 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
                 }
             }
         }
-        let bytes = KbcArtifact::from_module(module, ArtifactBuildOptions::default())
-            .to_bytes()
-            .unwrap();
+        let bytes = KbcArtifact::from_program(
+            crate::bytecode::BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![module],
+            },
+            ArtifactBuildOptions::default(),
+        )
+        .to_bytes()
+        .unwrap();
         let artifact = KbcArtifact::from_bytes(&bytes).unwrap();
         assert!(
             matches!(

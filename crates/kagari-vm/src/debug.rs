@@ -286,14 +286,16 @@ impl DebugSession {
     pub(crate) fn before_instruction(
         &mut self,
         runtime: &Runtime,
-        module_name: &str,
-        module_id: ModuleId,
-        epoch: u64,
+        loaded: &kagari_runtime::LoadedModule,
         frames: &[Frame<'_>],
     ) -> Result<(), VmError> {
         let Some(frame) = frames.last() else {
             return Ok(());
         };
+        let member = loaded.member_data(frame.module).expect("frame module");
+        let module_id = member.id;
+        let epoch = member.epoch.0;
+        let module_name = &member.name;
         let offset = frame.instruction_offset();
         let Some(_point) = safe_debug_point(frame.function(), offset) else {
             return Ok(());
@@ -323,7 +325,7 @@ impl DebugSession {
             runtime
                 .validate_debug_module_visible(module_name)
                 .map_err(VmError::RuntimeError)?;
-            self.record_pause(runtime, reason, module_id, epoch, frames)?;
+            self.record_pause(runtime, reason, loaded, frames)?;
         }
         if let Some(id) = breakpoint {
             let temporary = self
@@ -343,14 +345,13 @@ impl DebugSession {
     pub(crate) fn record_trap(
         &mut self,
         runtime: &Runtime,
-        module_id: ModuleId,
-        epoch: u64,
+        loaded: &kagari_runtime::LoadedModule,
         frames: &[Frame<'_>],
     ) -> Result<(), VmError> {
         runtime
             .validate_debug_pause_boundary()
             .map_err(VmError::RuntimeError)?;
-        self.record_pause(runtime, DebugPauseReason::Trap, module_id, epoch, frames)
+        self.record_pause(runtime, DebugPauseReason::Trap, loaded, frames)
     }
 
     fn step_reason(&mut self, depth: usize) -> Option<DebugPauseReason> {
@@ -376,8 +377,7 @@ impl DebugSession {
         &mut self,
         runtime: &Runtime,
         reason: DebugPauseReason,
-        module_id: ModuleId,
-        epoch: u64,
+        loaded: &kagari_runtime::LoadedModule,
         frames: &[Frame<'_>],
     ) -> Result<(), VmError> {
         runtime
@@ -387,7 +387,13 @@ impl DebugSession {
             reason,
             frames: frames
                 .iter()
-                .map(|frame| self.inspect_frame(runtime, module_id, epoch, frame))
+                .map(|frame| {
+                    let member = loaded.member_data(frame.module).expect("frame module");
+                    runtime
+                        .validate_debug_module_visible(&member.name)
+                        .map_err(VmError::RuntimeError)?;
+                    self.inspect_frame(runtime, member.id, member.epoch.0, frame)
+                })
                 .collect::<Result<Vec<_>, _>>()?,
         };
         self.pauses.push(pause);

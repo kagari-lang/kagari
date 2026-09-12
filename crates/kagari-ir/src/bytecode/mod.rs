@@ -4,6 +4,7 @@ mod artifact;
 mod instruction;
 mod lower;
 mod module;
+mod program;
 mod verifier;
 
 pub use artifact::{
@@ -23,7 +24,7 @@ pub use instruction::{
     HostImportId, JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructId,
     UnaryOp,
 };
-pub use lower::{BytecodeLoweringError, lower_to_bytecode};
+pub use lower::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode};
 pub use module::{
     BytecodeDebugMetadata, BytecodeFunction, BytecodeFunctionBuffer, BytecodeInstructionBuffer,
     BytecodeModule, BytecodeModuleSlot, BytecodeModuleSlotBuffer, BytecodeTypeTable,
@@ -33,4 +34,5 @@ pub use module::{
     LocalLiveRange, LocalLiveRangeBuffer, PathRecord, PathTable, PublicItemRecord, PublicItemTable,
     SafeDebugPoint, SafeDebugPointBuffer, SafeDebugPointKind, TypeLayoutBuffer,
 };
+pub use program::{BytecodeProgram, ModuleRef, verify_program};
 pub use verifier::{BytecodeVerificationError, verify_module};

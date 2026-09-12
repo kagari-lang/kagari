@@ -30,8 +30,10 @@ checked facts for its entire reachable dependency closure before code generation
 the former single-root `analyzed()` accessor is removed. Dependency-body errors
 retain dependency-owned locations, even for unused imports. Both snapshot entry
 points accept a cancellation token. Program IR verifies declaration-to-module/
-function bindings without executing any initializer. Multi-module executable
-artifact encoding remains pending and emission reports `KG_COMPILE_MODULE_LINK_REQUIRED`.
+function bindings without executing any initializer. Artifact emission includes the
+complete program and dependency initializers. Loading preflights every member's
+bytecode and host bindings before publication or resource accounting. Execution-context
+policy checks cover every member before any initializer runs.
 `compile_source` supplies base text through this same database, so an active
 overlay still takes precedence. Language profiles are analysis inputs: changing
 permissions cannot reuse a result accepted under another profile.
@@ -203,9 +205,9 @@ The embedding API must expose operations equivalent to:
 compile_source(source, compile_options) -> CompileResult<CheckedModule>
 emit_bytecode(checked_module, artifact_options) -> CompileResult<BytecodeArtifact>
 compile_to_artifact(source, compile_options, artifact_options) -> CompileResult<BytecodeArtifact>
-load_module(module_id, bytecode, load_options) -> LoadResult<LoadedModule>
+load_program(artifact, load_options) -> LoadResult<LoadedModule>
 execute(module, entry, args, execution_context) -> RunResult<Value>
-reload_module(module_id, bytecode, reload_options) -> ReloadResult<LoadedModule>
+reload_program(previous, artifact, reload_options) -> ReloadResult<LoadedModule>
 ```
 
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.

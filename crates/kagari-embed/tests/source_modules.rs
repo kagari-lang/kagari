@@ -3,7 +3,17 @@ use kagari_common::{
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_embed::{CompileOptions, EmbeddingError, KagariEngine};
+use kagari_embed::{
+    BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext, KagariEngine,
+};
+use kagari_runtime::value::Value;
+
+fn compile(engine: &KagariEngine, root: FileId, options: CompileOptions) -> BytecodeArtifact {
+    let checked = engine
+        .compile_snapshot(engine.source_snapshot(), root, options, &Default::default())
+        .unwrap();
+    engine.emit_bytecode(&checked, Default::default()).unwrap()
+}
 
 fn insert(engine: &KagariEngine, name: &str, text: &str) -> FileId {
     let source = format!("mem://{name}");
@@ -60,26 +70,44 @@ fn reachable_cycle_diagnostics_keep_the_dependency_file_and_revision() {
 }
 
 #[test]
-fn source_dependencies_cannot_be_omitted_from_single_module_artifacts() {
+fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layouts() {
     let engine = KagariEngine::default();
-    insert(&engine, "dependency", "pub fn value() -> i32 { 42 }");
+    insert(
+        &engine,
+        "shared",
+        "pub struct Data { var x: i32 } fn id<T>(x: T) -> T { x } pub fn make(x: i32) -> Data { Data { x: id(x) } } pub fn add(p: Data, x: i32) -> i32 { p.x += x; p.x }",
+    );
+    insert(&engine, "left", "pub use pkg::shared::make;");
+    insert(&engine, "right", "pub use pkg::shared::add;");
     let root = insert(
         &engine,
         "root",
-        "use pkg::dependency; fn main() -> i32 { 7 }",
+        "use pkg::left::make; use pkg::right::add; fn id() -> bool { true } fn main() -> i32 { val p = make(20); val n = add(p, 22); p.x }",
     );
-    let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root,
-            CompileOptions::default(),
-            &CancellationToken::default(),
-        )
-        .unwrap();
-    let error = engine
-        .emit_bytecode(&checked, Default::default())
-        .unwrap_err();
-    assert_eq!(error.code(), "KG_COMPILE_MODULE_LINK_REQUIRED");
+    let artifact = compile(&engine, root, Default::default());
+    assert_eq!(artifact.program.modules.len(), 4);
+    assert_eq!(artifact.verification.dependency_fingerprints.len(), 3);
+    let encoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    for artifact in [artifact, encoded] {
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        assert_eq!(
+            runtime
+                .execute(&loaded, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+        assert!(loaded.members().all(|member| {
+            runtime
+                .runtime()
+                .module_instance_snapshot(&member)
+                .unwrap()
+                .state
+                == kagari_runtime::ModuleInitializationState::Initialized
+        }));
+    }
 }
 
 #[test]
@@ -112,6 +140,355 @@ fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
         let span = diagnostic.span.unwrap();
         assert_eq!(span.file, dependency);
         assert!(source.contains(span));
-        assert_ne!(diagnostic.code, "KG_COMPILE_MODULE_LINK_REQUIRED");
     }
+}
+
+fn host_fixture(
+    failing: bool,
+) -> (
+    KagariEngine,
+    BytecodeArtifact,
+    ExecutionContext,
+    kagari_common::host_interface::HostFunctionDeclaration,
+) {
+    use kagari_common::host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
+    };
+    let engine = KagariEngine::default();
+    let declaration = HostFunctionDeclaration::new(
+        "trace.record",
+        vec![HostParameter {
+            name: "value".into(),
+            ty: HostValueType::I32,
+            passing: HostPassingStyle::Owned,
+        }],
+        HostValueType::I32,
+    );
+    engine
+        .set_host_interface(HostInterface {
+            functions: vec![declaration.clone()],
+        })
+        .unwrap();
+    insert(
+        &engine,
+        "shared",
+        if failing {
+            "val started = trace::record(1); val broken = 1 / 0; pub fn value() -> i32 { 42 }"
+        } else {
+            "val started = trace::record(1); pub fn value() -> i32 { 42 }"
+        },
+    );
+    insert(
+        &engine,
+        "left",
+        "use pkg::shared; val started = trace::record(2);",
+    );
+    insert(
+        &engine,
+        "right",
+        "use pkg::shared; val started = trace::record(3);",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::left; use pkg::right; val started = trace::record(4); fn main() -> i32 { 42 }",
+    );
+    let context = ExecutionContext {
+        language_profile: kagari_runtime::LanguageProfile {
+            allow_host_calls: true,
+            ..Default::default()
+        },
+        capabilities: kagari_runtime::CapabilitySet {
+            host_calls: true,
+            ..Default::default()
+        },
+        host_policy: kagari_runtime::HostExposurePolicy {
+            allowed_host_functions: vec!["trace.record".into()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let artifact = compile(
+        &engine,
+        root,
+        CompileOptions {
+            language_profile: context.language_profile,
+        },
+    );
+    (engine, artifact, context, declaration)
+}
+
+#[test]
+fn diamond_initialization_is_dependency_first_once_per_runtime_and_failure_is_cached() {
+    use std::sync::{Arc, Mutex};
+    for failing in [false, true] {
+        let (engine, artifact, context, declaration) = host_fixture(failing);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        for _ in 0..2 {
+            let mut runtime = engine.runtime(context.clone());
+            let recorded = calls.clone();
+            runtime
+                .register_host_function(kagari_runtime::host::HostFunction::new(
+                    declaration.clone(),
+                    move |args| {
+                        recorded.lock().unwrap().push(args[0].clone());
+                        Ok(args[0].clone())
+                    },
+                ))
+                .unwrap();
+            let loaded = runtime
+                .load_program(artifact.clone(), Default::default())
+                .unwrap();
+            for _ in 0..2 {
+                let result = runtime.execute(&loaded, "main", &[], &context);
+                if failing {
+                    assert!(result.is_err());
+                } else {
+                    assert_eq!(result.unwrap().return_value, Value::I32(42));
+                }
+            }
+            let expected_state = if failing {
+                kagari_runtime::ModuleInitializationState::Failed
+            } else {
+                kagari_runtime::ModuleInitializationState::Initialized
+            };
+            assert_eq!(
+                runtime
+                    .runtime()
+                    .module_instance_snapshot(&loaded)
+                    .unwrap()
+                    .state,
+                expected_state
+            );
+        }
+        let expected = if failing {
+            vec![1, 1]
+        } else {
+            vec![1, 2, 3, 4, 1, 2, 3, 4]
+        };
+        assert_eq!(
+            *calls.lock().unwrap(),
+            expected.into_iter().map(Value::I32).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn dependency_bindings_and_execution_policy_are_checked_before_initialization() {
+    use std::sync::{Arc, Mutex};
+    let (engine, _, context, declaration) = host_fixture(false);
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::left; use pkg::right; fn main() -> i32 { 42 }",
+    );
+    let artifact = compile(
+        &engine,
+        root,
+        CompileOptions {
+            language_profile: context.language_profile,
+        },
+    );
+    assert!(
+        artifact.program.modules[artifact.program.root.index()]
+            .host_interface
+            .functions
+            .is_empty()
+    );
+    let mut runtime = engine.runtime(context.clone());
+    assert!(
+        runtime
+            .load_program(artifact.clone(), Default::default())
+            .is_err()
+    );
+    assert_eq!(runtime.runtime().modules().loaded_count(), 0);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let recorded = calls.clone();
+    runtime
+        .register_host_function(kagari_runtime::host::HostFunction::new(
+            declaration,
+            move |args| {
+                recorded.lock().unwrap().push(args[0].clone());
+                Ok(args[0].clone())
+            },
+        ))
+        .unwrap();
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(loaded.epoch.0, 1);
+    assert!(
+        runtime
+            .execute(&loaded, "main", &[], &ExecutionContext::default())
+            .is_err()
+    );
+    assert!(calls.lock().unwrap().is_empty());
+    assert!(loaded.members().all(|member| {
+        runtime
+            .runtime()
+            .module_instance_snapshot(&member)
+            .unwrap()
+            .state
+            == kagari_runtime::ModuleInitializationState::Uninitialized
+    }));
+}
+
+#[test]
+fn old_program_calls_keep_their_dependency_versions_after_reload() {
+    use kagari_runtime::ModuleEpochRetention;
+    let engine = KagariEngine::default();
+    insert(&engine, "dependency", "pub fn value() -> i32 { 1 }");
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::dependency::value; fn main() -> i32 { value() }",
+    );
+    let first = compile(&engine, root, Default::default());
+    insert(&engine, "dependency", "pub fn value() -> i32 { 2 }");
+    let second = compile(&engine, root, Default::default());
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let old = runtime.load_program(first, Default::default()).unwrap();
+    let dependency = old.members().next().unwrap();
+    assert!(
+        runtime
+            .runtime()
+            .modules()
+            .retain_epoch(dependency.key(), ModuleEpochRetention::ActiveCall)
+    );
+    let new = runtime
+        .reload_program(&old, second.clone(), Default::default())
+        .unwrap();
+    assert!(
+        runtime
+            .runtime()
+            .modules()
+            .collect_unreachable_epochs()
+            .is_empty()
+    );
+    for (module, value) in [(&old, 1), (&new, 2), (&old, 1)] {
+        assert_eq!(
+            runtime
+                .execute(module, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(value)
+        );
+    }
+    assert!(
+        runtime
+            .reload_program(&old, second, Default::default())
+            .is_err()
+    );
+    assert!(
+        runtime
+            .runtime()
+            .modules()
+            .release_epoch(dependency.key(), ModuleEpochRetention::ActiveCall)
+    );
+    assert_eq!(
+        runtime
+            .runtime()
+            .modules()
+            .collect_unreachable_epochs()
+            .len(),
+        2
+    );
+    assert_eq!(
+        runtime
+            .execute(&new, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(2)
+    );
+}
+
+#[test]
+fn malformed_programs_are_rejected_before_any_member_is_published() {
+    use kagari_ir::bytecode::{
+        BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef, ModuleRef,
+    };
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "dependency",
+        "pub fn number(x: i32) -> i32 { x } pub fn flag(x: bool) -> i32 { if x { 1 } else { 0 } }",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::dependency::number; fn main() -> i32 { number(42) }",
+    );
+    let artifact = compile(&engine, root, Default::default());
+    let program = &artifact.program;
+    let mut malformed = Vec::new();
+    let mut bad = program.clone();
+    bad.root = ModuleRef::new(100);
+    malformed.push(bad);
+    let mut bad = program.clone();
+    bad.modules[0].dependencies.push(program.root);
+    malformed.push(bad);
+    let mut bad = program.clone();
+    bad.modules[program.root.index()].dependencies.clear();
+    malformed.push(bad);
+    let mut bad = program.clone();
+    bad.modules[program.root.index()]
+        .dependencies
+        .push(ModuleRef::new(0));
+    malformed.push(bad);
+    let mut bad = program.clone();
+    bad.modules[0].identity = bad.modules[program.root.index()].identity.clone();
+    malformed.push(bad);
+    let mut bad = program.clone();
+    bad.modules.push(BytecodeModule::default());
+    malformed.push(bad);
+    let mut bad = program.clone();
+    bad.modules[0].module_init = Some(FunctionRef::new(0));
+    malformed.push(bad);
+    let flag = program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "flag")
+        .unwrap()
+        .id;
+    for (module, function) in [
+        (ModuleRef::new(100), FunctionRef::new(0)),
+        (ModuleRef::new(0), FunctionRef::new(100)),
+        (ModuleRef::new(0), flag),
+    ] {
+        let mut bad = program.clone();
+        let call = bad.modules[program.root.index()]
+            .functions
+            .iter_mut()
+            .flat_map(|function| &mut function.instructions)
+            .find_map(|instruction| {
+                if let BytecodeInstruction::Call {
+                    callee: callee @ CallTarget::ModuleFunction { .. },
+                    ..
+                } = instruction
+                {
+                    Some(callee)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        *call = CallTarget::ModuleFunction { module, function };
+        malformed.push(bad);
+    }
+    let mut runtime = engine.runtime(ExecutionContext::default());
+    for bad in malformed {
+        let encoded = BytecodeArtifact::from_program(bad, Default::default())
+            .to_bytes()
+            .unwrap();
+        let decoded = BytecodeArtifact::from_bytes(&encoded).unwrap();
+        assert!(runtime.load_program(decoded, Default::default()).is_err());
+        assert_eq!(runtime.runtime().modules().loaded_count(), 0);
+    }
+    assert_eq!(
+        runtime
+            .load_program(artifact, Default::default())
+            .unwrap()
+            .epoch
+            .0,
+        1
+    );
 }

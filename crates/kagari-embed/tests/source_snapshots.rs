@@ -35,8 +35,14 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
     assert_eq!(old.module_identity(), &first);
     assert_eq!(new.module_identity(), &second);
     let artifact = engine.emit_bytecode(&new, Default::default()).unwrap();
-    assert_eq!(artifact.module.identity, second);
-    assert_eq!(artifact.header.module_identity, artifact.module.identity);
+    assert_eq!(
+        artifact.program.modules[artifact.program.root.index()].identity,
+        second
+    );
+    assert_eq!(
+        artifact.header.module_identity,
+        artifact.program.modules[artifact.program.root.index()].identity
+    );
     let old_again = engine
         .compile_snapshot(old_source, id, Default::default(), &token)
         .unwrap();

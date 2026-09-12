@@ -40,7 +40,7 @@ impl Executor<'_> {
             .map(|field| self.current_frame()?.read_register(*field))
             .collect::<Result<Vec<_>, VmError>>()?;
         let layout = self
-            .loaded
+            .current_loaded()?
             .struct_layout(structure)
             .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
         let handle = self
@@ -52,7 +52,7 @@ impl Executor<'_> {
 
     pub(crate) fn read_field(&self, base: Register, field: FieldRef) -> Result<Value, VmError> {
         let layout = self
-            .loaded
+            .current_loaded()?
             .struct_layout(field.structure)
             .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
         match self.current_frame()?.read_register(base)? {
@@ -106,7 +106,7 @@ impl Executor<'_> {
             ));
         }
         let layout = self
-            .loaded
+            .current_loaded()?
             .struct_layout(field.structure)
             .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
         match self.current_frame()?.read_register(base)? {

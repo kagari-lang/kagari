@@ -24,7 +24,13 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
         field.declaration.module.path = vec!["other.kgr".into()];
     }
     let foreign = runtime
-        .load_module("other", foreign)
+        .load_program(
+            "other",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![foreign],
+            },
+        )
         .unwrap()
         .struct_layout(StructId::new(0))
         .unwrap();
@@ -112,10 +118,13 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         .alloc_struct(original.clone(), vec![Value::I32(1)])
         .unwrap();
     let next = runtime
-        .reload_module(
+        .reload_program(
             original.module(),
             "Point",
-            original.module().bytecode.clone(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![original.module().bytecode.clone()],
+            },
         )
         .unwrap();
     let compatible = next.struct_layout(StructId::new(0)).unwrap();

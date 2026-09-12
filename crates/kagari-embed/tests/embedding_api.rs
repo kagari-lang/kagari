@@ -147,57 +147,60 @@ fn host_path_artifact(
         registers,
         ..FunctionMetadata::default()
     };
-    KbcArtifact::from_module(
-        BytecodeModule {
-            host_interface: kagari_common::host_interface::HostInterface {
-                functions: if instructions.iter().any(|instruction| {
-                    matches!(
-                        instruction,
-                        BytecodeInstruction::Call {
-                            callee: CallTarget::HostFunction(_),
-                            ..
-                        }
-                    )
-                }) {
-                    vec![kagari_common::host_interface::HostFunctionDeclaration::new(
-                        "host.player",
-                        vec![],
-                        kagari_common::host_interface::HostValueType::opaque("game.Player"),
-                    )]
-                } else {
-                    vec![]
+    KbcArtifact::from_program(
+        kagari_ir::bytecode::BytecodeProgram {
+            root: kagari_ir::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                host_interface: kagari_common::host_interface::HostInterface {
+                    functions: if instructions.iter().any(|instruction| {
+                        matches!(
+                            instruction,
+                            BytecodeInstruction::Call {
+                                callee: CallTarget::HostFunction(_),
+                                ..
+                            }
+                        )
+                    }) {
+                        vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                            "host.player",
+                            vec![],
+                            kagari_common::host_interface::HostValueType::opaque("game.Player"),
+                        )]
+                    } else {
+                        vec![]
+                    },
                 },
-            },
-            identity: kagari_common::identity::ModuleIdentity::single_file(source_name),
-            source_name: source_name.to_owned(),
-            module_init: None,
-            module_slots: vec![],
-            constants,
-            types: vec![ValueType::Unit, ValueType::HeapObject, ValueType::I32],
-            paths: vec![PathRecord {
-                id: PathId::new(0),
-                root_ty: ValueType::HeapObject,
-                result_ty: ValueType::I32,
-                read_only: false,
-                debug_name: path_debug_name.to_owned(),
+                identity: kagari_common::identity::ModuleIdentity::single_file(source_name),
+                source_name: source_name.to_owned(),
+                module_init: None,
+                module_slots: vec![],
+                constants,
+                types: vec![ValueType::Unit, ValueType::HeapObject, ValueType::I32],
+                paths: vec![PathRecord {
+                    id: PathId::new(0),
+                    root_ty: ValueType::HeapObject,
+                    result_ty: ValueType::I32,
+                    read_only: false,
+                    debug_name: path_debug_name.to_owned(),
+                }],
+                function_table: vec![FunctionRecord {
+                    id: FunctionRef::new(0),
+                    name: "main".to_owned(),
+                    params: metadata.params.clone(),
+                    return_type: metadata.return_type,
+                    effects: metadata.effects,
+                }],
+                functions: vec![BytecodeFunction {
+                    id: FunctionRef::new(0),
+                    name: "main".to_owned(),
+                    parameter_count: 0,
+                    register_count: metadata.registers.len() as u16,
+                    local_count: 0,
+                    metadata,
+                    instructions,
+                }],
+                ..BytecodeModule::default()
             }],
-            function_table: vec![FunctionRecord {
-                id: FunctionRef::new(0),
-                name: "main".to_owned(),
-                params: metadata.params.clone(),
-                return_type: metadata.return_type,
-                effects: metadata.effects,
-            }],
-            functions: vec![BytecodeFunction {
-                id: FunctionRef::new(0),
-                name: "main".to_owned(),
-                parameter_count: 0,
-                register_count: metadata.registers.len() as u16,
-                local_count: 0,
-                metadata,
-                instructions,
-            }],
-            ..BytecodeModule::default()
         },
         ArtifactBuildOptions::default(),
     )
@@ -212,7 +215,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
 
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             first,
             LoadOptions {
                 module_name: Some("game.main".to_owned()),
@@ -226,7 +229,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     assert_eq!(report.return_value, Value::I32(1));
 
     let reloaded = runtime
-        .reload_module(
+        .reload_program(
             &loaded,
             second,
             ReloadOptions {
@@ -308,7 +311,7 @@ fn execution_context_resource_limits_surface_as_runtime_failures() {
     let artifact = compile_artifact(&engine, "limited.kgr", "fn main() -> i32 { 1 }");
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             artifact,
             LoadOptions {
                 module_name: Some("limited".to_owned()),
@@ -341,7 +344,7 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
 
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             first,
             LoadOptions {
                 module_name: Some("reload".to_owned()),
@@ -352,7 +355,7 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
     let before_count = runtime.runtime().modules().loaded_count();
 
     let error = runtime
-        .reload_module(
+        .reload_program(
             &loaded,
             candidate,
             ReloadOptions {
@@ -392,7 +395,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
 
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             first,
             LoadOptions {
                 module_name: Some("reload_paths".to_owned()),
@@ -403,7 +406,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let before_count = runtime.runtime().modules().loaded_count();
 
     let error = runtime
-        .reload_module(
+        .reload_program(
             &loaded,
             candidate,
             ReloadOptions {
@@ -437,7 +440,7 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
     let artifact = compile_artifact(&engine, "args.kgr", "fn main() -> i32 { 1 }");
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             artifact,
             LoadOptions {
                 module_name: Some("args".to_owned()),
@@ -495,7 +498,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         CapabilitySet::default(),
     );
     let loaded = runtime
-        .load_module(
+        .load_program(
             artifact,
             LoadOptions {
                 module_name: Some("set_path".to_owned()),
@@ -552,7 +555,7 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         },
     );
     let loaded = runtime
-        .load_module(
+        .load_program(
             artifact,
             LoadOptions {
                 module_name: Some("read_secure_path".to_owned()),
@@ -599,7 +602,7 @@ fn execution_context_denies_host_and_reflection_helpers() {
         ))
         .unwrap();
     let print_module = runtime
-        .load_module(
+        .load_program(
             print_artifact,
             LoadOptions {
                 module_name: Some("print".to_owned()),
@@ -608,7 +611,7 @@ fn execution_context_denies_host_and_reflection_helpers() {
         )
         .expect("print module should load");
     let type_of_module = runtime
-        .load_module(
+        .load_program(
             type_of_artifact,
             LoadOptions {
                 module_name: Some("type_of".to_owned()),

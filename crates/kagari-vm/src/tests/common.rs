@@ -20,7 +20,13 @@ pub fn load_bytecode_module_with_runtime(
     bytecode: BytecodeModule,
 ) -> (Runtime, LoadedModule) {
     let loaded = runtime
-        .load_module(name, bytecode)
+        .load_program(
+            name,
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![bytecode],
+            },
+        )
         .expect("test module should load");
     (runtime, loaded)
 }

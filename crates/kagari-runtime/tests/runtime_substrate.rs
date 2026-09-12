@@ -132,10 +132,22 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
 fn module_epochs_and_initialization_state_live_in_runtime_store() {
     let mut runtime = Runtime::default();
     let first = runtime
-        .load_module("game.player", BytecodeModule::default())
+        .load_program(
+            "game.player",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
         .unwrap();
     let second = runtime
-        .load_module("game.player", BytecodeModule::default())
+        .load_program(
+            "game.player",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
         .unwrap();
 
     assert_eq!(first.id, second.id);

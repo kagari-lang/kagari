@@ -47,11 +47,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         [Value::I32(value)] => Ok(Value::I32(*value)),
         _ => Err(HostError::new("echo expects one i32")),
     }))?;
-    let loaded = runtime.load_module(
+    let loaded = runtime.load_program(
         "offline-demo",
-        kagari_ir::bytecode::BytecodeModule {
-            host_interface: expected,
-            ..Default::default()
+        kagari_ir::bytecode::BytecodeProgram {
+            root: kagari_ir::bytecode::ModuleRef::new(0),
+            modules: vec![kagari_ir::bytecode::BytecodeModule {
+                host_interface: expected,
+                ..Default::default()
+            }],
         },
     )?;
     let binding = loaded

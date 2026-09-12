@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
 
 use crate::{reload::ModuleEpoch, value::Value};
 
@@ -90,9 +90,15 @@ pub enum ModuleInitializationState {
 /// ```
 #[derive(Debug, Clone)]
 pub struct LoadedModule {
-    linked: Arc<LinkedModule>,
+    program: Arc<LinkedProgram>,
+    slot: ModuleRef,
 }
 
+#[derive(Debug)]
+struct LinkedProgram {
+    root: ModuleRef,
+    modules: Vec<LinkedModule>,
+}
 /// Immutable executable data, exposed only through a shared loaded handle.
 #[derive(Debug)]
 pub struct LinkedModule {
@@ -107,11 +113,39 @@ pub struct LinkedModule {
 impl Deref for LoadedModule {
     type Target = LinkedModule;
     fn deref(&self) -> &LinkedModule {
-        &self.linked
+        &self.program.modules[self.slot.index()]
     }
 }
 
 impl LoadedModule {
+    pub fn slot(&self) -> ModuleRef {
+        self.slot
+    }
+    pub fn member(&self, slot: ModuleRef) -> Option<Self> {
+        self.program.modules.get(slot.index())?;
+        Some(Self {
+            program: self.program.clone(),
+            slot,
+        })
+    }
+    pub fn member_data(&self, slot: ModuleRef) -> Option<&LinkedModule> {
+        self.program.modules.get(slot.index())
+    }
+    pub fn members(&self) -> impl Iterator<Item = Self> + '_ {
+        (0..self.program.modules.len()).map(|index| Self {
+            program: self.program.clone(),
+            slot: ModuleRef::new(index),
+        })
+    }
+    pub fn program_root(&self) -> Self {
+        Self {
+            program: self.program.clone(),
+            slot: self.program.root,
+        }
+    }
+    fn program_key(&self) -> ModuleKey {
+        self.program_root().key()
+    }
     pub fn struct_layout(&self, id: kagari_ir::bytecode::StructId) -> Option<StructLayoutRef> {
         self.bytecode.structures.get(id.index())?;
         Some(StructLayoutRef {
@@ -153,7 +187,9 @@ impl StructLayoutRef {
     }
     pub(crate) fn matches(&self, other: &Self) -> bool {
         self.module.registry_owner == other.module.registry_owner
-            && ((Arc::ptr_eq(&self.module.linked, &other.module.linked) && self.id == other.id)
+            && ((Arc::ptr_eq(&self.module.program, &other.module.program)
+                && self.module.slot == other.module.slot
+                && self.id == other.id)
                 || self.layout() == other.layout())
     }
 }
@@ -207,7 +243,7 @@ pub struct ModuleStore {
 #[derive(Debug, Default)]
 struct ModuleStoreInner {
     next_id: usize,
-    ids_by_name: HashMap<String, ModuleId>,
+    ids_by_member: HashMap<(String, kagari_common::identity::ModuleIdentity), ModuleId>,
     loaded: HashMap<ModuleKey, LoadedModule>,
     latest_by_name: HashMap<String, ModuleKey>,
     instances: HashMap<ModuleKey, ModuleInstance>,
@@ -215,43 +251,66 @@ struct ModuleStoreInner {
 }
 
 impl ModuleStore {
-    pub(crate) fn load(
+    pub(crate) fn load_program(
         &self,
         name: impl Into<String>,
         epoch: ModuleEpoch,
-        bytecode: BytecodeModule,
+        bytecode: BytecodeProgram,
         registry_owner: crate::host::HostRegistryId,
-        host_bindings: Vec<crate::host::HostFunctionId>,
+        host_bindings: Vec<Vec<crate::host::HostFunctionId>>,
     ) -> LoadedModule {
+        assert_eq!(
+            bytecode.modules.len(),
+            host_bindings.len(),
+            "each program member must be linked"
+        );
         let name = name.into();
         let mut inner = self.inner.borrow_mut();
-        let id = if let Some(id) = inner.ids_by_name.get(&name).copied() {
-            id
-        } else {
-            let id = ModuleId::new(inner.next_id);
-            inner.next_id += 1;
-            inner.ids_by_name.insert(name.clone(), id);
-            id
+        let root = bytecode.root;
+        let modules = bytecode
+            .modules
+            .into_iter()
+            .zip(host_bindings)
+            .enumerate()
+            .map(|(index, (bytecode, host_bindings))| {
+                let identity = (name.clone(), bytecode.identity.clone());
+                let id = if let Some(id) = inner.ids_by_member.get(&identity).copied() {
+                    id
+                } else {
+                    let id = ModuleId::new(inner.next_id);
+                    inner.next_id += 1;
+                    inner.ids_by_member.insert(identity, id);
+                    id
+                };
+                let display = if index == root.index() {
+                    name.clone()
+                } else {
+                    format!("{}::{}", name, bytecode.identity)
+                };
+                LinkedModule {
+                    id,
+                    name: display,
+                    epoch,
+                    bytecode,
+                    registry_owner,
+                    host_bindings,
+                }
+            })
+            .collect();
+        let program = Arc::new(LinkedProgram { root, modules });
+        let loaded = LoadedModule {
+            program,
+            slot: root,
         };
-
-        let module = LoadedModule {
-            linked: Arc::new(LinkedModule {
-                id,
-                name: name.clone(),
-                epoch,
-                bytecode,
-                registry_owner,
-                host_bindings,
-            }),
-        };
-        let key = module.key();
-        inner.latest_by_name.insert(name, key);
-        inner.instances.insert(key, ModuleInstance::new(&module));
-        inner.retentions.entry(key).or_default();
-        inner.loaded.insert(key, module.clone());
-        module
+        for member in loaded.members() {
+            let key = member.key();
+            inner.instances.insert(key, ModuleInstance::new(&member));
+            inner.retentions.entry(key).or_default();
+            inner.loaded.insert(key, member);
+        }
+        inner.latest_by_name.insert(name, loaded.key());
+        loaded
     }
-
     pub fn loaded(&self, key: ModuleKey) -> Option<LoadedModule> {
         self.inner.borrow().loaded.get(&key).cloned()
     }
@@ -309,31 +368,20 @@ impl ModuleStore {
 
     pub fn is_reachable(&self, key: ModuleKey) -> bool {
         let inner = self.inner.borrow();
-        inner.latest_by_name.values().any(|latest| *latest == key)
-            || inner
-                .retentions
-                .get(&key)
-                .copied()
-                .is_some_and(ModuleEpochRetentionCounts::is_retained)
+        let Some(module) = inner.loaded.get(&key) else {
+            return false;
+        };
+        live_programs(&inner).contains(&module.program_key())
     }
 
     pub fn collect_unreachable_epochs(&self) -> Vec<ModuleKey> {
         let mut inner = self.inner.borrow_mut();
-        let latest_keys = inner.latest_by_name.values().copied().collect::<Vec<_>>();
+        let live = live_programs(&inner);
         let removable = inner
             .loaded
-            .keys()
-            .copied()
-            .filter(|key| {
-                !latest_keys.contains(key)
-                    && !inner
-                        .retentions
-                        .get(key)
-                        .copied()
-                        .is_some_and(ModuleEpochRetentionCounts::is_retained)
-            })
+            .iter()
+            .filter_map(|(key, module)| (!live.contains(&module.program_key())).then_some(*key))
             .collect::<Vec<_>>();
-
         for key in &removable {
             inner.loaded.remove(key);
             inner.instances.remove(key);
@@ -343,6 +391,20 @@ impl ModuleStore {
     }
 }
 
+fn live_programs(inner: &ModuleStoreInner) -> std::collections::HashSet<ModuleKey> {
+    inner
+        .latest_by_name
+        .values()
+        .copied()
+        .chain(
+            inner
+                .retentions
+                .iter()
+                .filter_map(|(key, counts)| counts.is_retained().then_some(*key)),
+        )
+        .filter_map(|key| inner.loaded.get(&key).map(LoadedModule::program_key))
+        .collect()
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,26 +412,35 @@ mod tests {
     #[test]
     fn assigns_stable_module_ids_across_epochs() {
         let store = ModuleStore::default();
-        let first = store.load(
+        let first = store.load_program(
             "game.player",
             ModuleEpoch(1),
-            BytecodeModule::default(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
             crate::host::HostRegistryId::default(),
-            vec![],
+            vec![vec![]],
         );
-        let second = store.load(
+        let second = store.load_program(
             "game.player",
             ModuleEpoch(2),
-            BytecodeModule::default(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
             crate::host::HostRegistryId::default(),
-            vec![],
+            vec![vec![]],
         );
-        let other = store.load(
+        let other = store.load_program(
             "game.world",
             ModuleEpoch(1),
-            BytecodeModule::default(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
             crate::host::HostRegistryId::default(),
-            vec![],
+            vec![vec![]],
         );
 
         assert_eq!(first.id, second.id);
@@ -383,12 +454,15 @@ mod tests {
     #[test]
     fn creates_module_instances_with_explicit_initialization_state() {
         let store = ModuleStore::default();
-        let module = store.load(
+        let module = store.load_program(
             "game.init",
             ModuleEpoch(1),
-            BytecodeModule::default(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
             crate::host::HostRegistryId::default(),
-            vec![],
+            vec![vec![]],
         );
 
         let instance = store.instance_snapshot(module.key()).unwrap();
@@ -402,12 +476,15 @@ mod tests {
     #[test]
     fn records_initialization_result_and_failure_state() {
         let store = ModuleStore::default();
-        let module = store.load(
+        let module = store.load_program(
             "game.init",
             ModuleEpoch(1),
-            BytecodeModule::default(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
             crate::host::HostRegistryId::default(),
-            vec![],
+            vec![vec![]],
         );
 
         {
@@ -421,12 +498,15 @@ mod tests {
             Some(Value::I32(7))
         );
 
-        let next = store.load(
+        let next = store.load_program(
             "game.init",
             ModuleEpoch(2),
-            BytecodeModule::default(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
             crate::host::HostRegistryId::default(),
-            vec![],
+            vec![vec![]],
         );
         {
             let mut instance = store.instance_mut(next.key()).unwrap();
@@ -441,19 +521,25 @@ mod tests {
     #[test]
     fn keeps_latest_and_retained_old_epochs_reachable() {
         let store = ModuleStore::default();
-        let first = store.load(
+        let first = store.load_program(
             "game.player",
             ModuleEpoch(1),
-            BytecodeModule::default(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
             crate::host::HostRegistryId::default(),
-            vec![],
+            vec![vec![]],
         );
-        let second = store.load(
+        let second = store.load_program(
             "game.player",
             ModuleEpoch(2),
-            BytecodeModule::default(),
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
             crate::host::HostRegistryId::default(),
-            vec![],
+            vec![vec![]],
         );
 
         assert!(store.is_reachable(second.key()));

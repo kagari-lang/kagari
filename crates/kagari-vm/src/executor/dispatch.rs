@@ -19,8 +19,11 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::LoadModule { dst, slot } => {
+                let loaded = self.current_loaded()?;
                 let value = self
-                    .module_instance
+                    .runtime
+                    .module_instance_mut(&loaded)
+                    .ok_or(VmError::InvalidModuleSlot(slot))?
                     .module_slots
                     .get(slot.index())
                     .cloned()
@@ -33,21 +36,24 @@ impl<'a> Executor<'a> {
             }
             BytecodeInstruction::StoreModule { slot, src } => {
                 let value = self.current_frame()?.read_register(src)?;
-                let mutable = self
-                    .module
+                let loaded = self.current_loaded()?;
+                let mutable = loaded
+                    .bytecode
                     .module_slots
                     .get(slot.index())
                     .map(|item| item.mutable)
                     .ok_or(VmError::InvalidModuleSlot(slot))?;
-                if !mutable && !self.module_instance.is_initializing() {
+                let mut instance = self
+                    .runtime
+                    .module_instance_mut(&loaded)
+                    .ok_or(VmError::InvalidModuleSlot(slot))?;
+                if !mutable && !instance.is_initializing() {
                     return Err(VmError::ImmutableModuleSlot(slot));
                 }
-                let target = self
-                    .module_instance
+                *instance
                     .module_slots
                     .get_mut(slot.index())
-                    .ok_or(VmError::InvalidModuleSlot(slot))?;
-                *target = value;
+                    .ok_or(VmError::InvalidModuleSlot(slot))? = value;
             }
             BytecodeInstruction::Move { dst, src } => {
                 let value = self.current_frame()?.read_register(src)?;
@@ -205,17 +211,26 @@ impl<'a> Executor<'a> {
             .collect::<Result<Vec<_>, _>>()?;
 
         match callee {
+            CallTarget::ModuleFunction { module, function } => {
+                let target = self
+                    .loaded
+                    .member_data(module)
+                    .and_then(|member| member.bytecode.functions.get(function.index()))
+                    .ok_or(VmError::InvalidFunctionRef(function))?;
+                self.push_frame(module, target, &arg_values, dst)
+            }
             CallTarget::Function(id) => {
                 let function = self
-                    .module
+                    .current_module()?
+                    .bytecode
                     .functions
                     .get(id.index())
                     .ok_or(VmError::InvalidFunctionRef(id))?;
-                self.push_frame(function, &arg_values, dst)
+                self.push_frame(self.current_frame()?.module, function, &arg_values, dst)
             }
             CallTarget::HostFunction(import) => {
                 let binding = self
-                    .loaded
+                    .current_loaded()?
                     .host_binding(import)
                     .ok_or(VmError::UnsupportedInstruction("unlinked host import"))?;
                 let value = self

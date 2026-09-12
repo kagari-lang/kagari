@@ -41,7 +41,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("offline source should compile against its declaration");
     println!(
         "compiled {} required host function; artifact is {} bytes",
-        artifact.module.host_interface.functions.len(),
+        artifact.program.modules[artifact.program.root.index()]
+            .host_interface
+            .functions
+            .len(),
         artifact.to_bytes()?.len()
     );
     Ok(())

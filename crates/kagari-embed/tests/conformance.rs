@@ -15,7 +15,7 @@ fn exact_compatibility(
 ) -> ArtifactCompatibility {
     ArtifactCompatibility {
         module_identity: Some(identity),
-        dependency_fingerprints: artifact.verification.loader.dependency_fingerprints.clone(),
+        dependency_fingerprints: Some(artifact.verification.loader.dependency_fingerprints.clone()),
         security_profile: artifact.verification.loader.security_profile.clone(),
         ..ArtifactCompatibility::default()
     }
@@ -30,13 +30,23 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
     };
     let source_name = "pkg://gameplay/combat/main.kgr";
     engine.bind_module(source_name, identity.clone()).unwrap();
-    let dependency = DependencyFingerprint {
-        module_id: "gameplay/math".to_owned(),
-        fingerprint: ArtifactFingerprint::of_str("math-v1"),
+    let dependency_identity = ModuleIdentity {
+        package: PackageId("gameplay".into()),
+        path: vec!["math".into()],
     };
+    engine
+        .bind_module("pkg://gameplay/math.kgr", dependency_identity.clone())
+        .unwrap();
+    engine
+        .set_source(
+            "pkg://gameplay/math.kgr",
+            "pub fn value() -> i32 { 42 }".into(),
+            kagari_common::source_database::SourceLayer::Base,
+        )
+        .unwrap();
     let checked = engine
         .compile_source(
-            SourceFile::new(source_name, "fn main() -> i32 { 7 }"),
+            SourceFile::new(source_name, "use gameplay::math; fn main() -> i32 { 7 }"),
             CompileOptions::default(),
         )
         .expect("source should compile");
@@ -47,7 +57,6 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
             ArtifactOptions {
                 lowering: Default::default(),
                 build: ArtifactBuildOptions {
-                    dependency_fingerprints: vec![dependency.clone()],
                     security_profile: Some("dev".to_owned()),
                     ..ArtifactBuildOptions::default()
                 },
@@ -60,11 +69,14 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
     assert_eq!(artifact.verification.loader.module_identity, identity);
     assert_eq!(
         artifact.verification.loader.dependency_fingerprints,
-        vec![dependency]
+        vec![DependencyFingerprint {
+            module_id: dependency_identity,
+            fingerprint: ArtifactFingerprint::of_serialized(&artifact.program.modules[0])
+        }]
     );
     assert_eq!(
         artifact.verification.host_interface_fingerprint,
-        ArtifactFingerprint::of_host_interface(&artifact.module.host_interface)
+        ArtifactFingerprint::of_program_hosts(&artifact.program)
     );
     assert_eq!(
         artifact.verification.loader.security_profile.as_deref(),
@@ -79,7 +91,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             artifact,
             LoadOptions {
                 compatibility,
@@ -116,7 +128,7 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
 
     let mut runtime = engine.runtime(ExecutionContext::default());
     let error = runtime
-        .load_module(incompatible, LoadOptions::default())
+        .load_program(incompatible, LoadOptions::default())
         .expect_err("incompatible artifact should be rejected before publication");
 
     assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_HELPER_ABI_MISMATCH");
@@ -155,7 +167,7 @@ fn main() -> (usize, usize, usize, bool, i32) {
         .expect("builtin source should compile to artifact");
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             artifact,
             LoadOptions {
                 module_name: Some("builtins".to_owned()),
@@ -219,7 +231,7 @@ pub fn main() -> usize {
 
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             first,
             LoadOptions {
                 module_name: Some("stdlib_reload".to_owned()),
@@ -228,7 +240,7 @@ pub fn main() -> usize {
         )
         .expect("first standard artifact should load");
     let reloaded = runtime
-        .reload_module(
+        .reload_program(
             &loaded,
             second,
             kagari_embed::ReloadOptions {
@@ -243,7 +255,7 @@ pub fn main() -> usize {
     assert_eq!(report.return_value, Value::I64(2));
 
     let failed_epoch = runtime
-        .reload_module(
+        .reload_program(
             &reloaded,
             invalid,
             kagari_embed::ReloadOptions {
@@ -295,7 +307,7 @@ fn main() -> usize {
     };
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_module(
+        .load_program(
             artifact,
             LoadOptions {
                 module_name: Some("stdlib_resource".to_owned()),

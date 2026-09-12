@@ -41,7 +41,9 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     };
     let artifact = engine.compile_to_artifact(SourceFile::new("host.kgr", "use demo::echo as call; use demo as api; fn main() -> i32 { call(api::echo(demo::echo(39))) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
     assert_eq!(
-        artifact.module.host_interface.functions,
+        artifact.program.modules[artifact.program.root.index()]
+            .host_interface
+            .functions,
         vec![definition.clone()]
     );
     let artifact =
@@ -63,7 +65,7 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let mut runtime = engine.runtime(context.clone());
     assert!(
         runtime
-            .load_module(artifact.clone(), LoadOptions::default())
+            .load_program(artifact.clone(), LoadOptions::default())
             .is_err()
     );
     runtime
@@ -76,7 +78,7 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
         }))
         .unwrap();
     let loaded = runtime
-        .load_module(artifact, LoadOptions::default())
+        .load_program(artifact, LoadOptions::default())
         .unwrap();
     assert!(calls.lock().unwrap().is_empty());
     assert_eq!(

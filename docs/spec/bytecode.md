@@ -59,13 +59,15 @@ missing dependencies, cycles, unrelated modules, unresolved calls, signature
 mismatches and conflicting layouts for the same nominal struct declaration.
 Editing any module invalidates the program's verification and link bindings.
 
-Executable bundle encoding and dependency initialization remain pending. Embedding
-artifact emission reports `KG_COMPILE_MODULE_LINK_REQUIRED` for multi-module programs;
-the low-level bytecode emitter returns `UnlinkedSourceModules` for source dependencies
-or imported-call contracts. A single-module artifact must not discard initialization
-merely because no imported item is called. Import and dependency-body diagnostics
-retain their originating file/revision. Standard and offline host imports remain
-executable through their checked runtime binding paths.
+`lower_program_to_bytecode` consumes VerifiedIrProgram and emits BytecodeProgram:
+one root ModuleRef and a dependency-first vector of BytecodeModule members. Each
+member stores its dependency ModuleRefs. Module identities are unique; all members
+must be reachable from the root. Calls to dependencies use
+`ModuleFunction { module: ModuleRef, function: FunctionRef }`, scoped to that program.
+Verification checks dependency reachability, target signatures, shared nominal layouts
+and consistent host contracts. Dependency initializers run even for unused imports.
+The unit-only `lower_to_bytecode` rejects source dependencies with UnlinkedSourceModules;
+it cannot discard dependencies to form a standalone artifact.
 
 `lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule`.
 `lower_to_bytecode` accepts only that handle. An optimizer or inspection tool can

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use kagari_ir::bytecode::{
     ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError, BytecodeModule,
-    BytecodeVerificationError, KbcArtifact, PathDescriptorFingerprint, PublicAbiFingerprint,
-    verify_module,
+    BytecodeProgram, BytecodeVerificationError, KbcArtifact, PathDescriptorFingerprint,
+    PublicAbiFingerprint, verify_program,
 };
 
 use crate::{
@@ -85,8 +85,8 @@ impl std::fmt::Display for ReloadValidationError {
 
 impl std::error::Error for ReloadValidationError {}
 
-pub fn validate_load_candidate(bytecode: &BytecodeModule) -> Result<(), ReloadValidationError> {
-    verify_module(bytecode).map_err(ReloadValidationError::Bytecode)
+pub fn validate_load_candidate(bytecode: &BytecodeProgram) -> Result<(), ReloadValidationError> {
+    verify_program(bytecode).map_err(ReloadValidationError::Bytecode)
 }
 
 pub fn validate_reload_artifact_candidate(
@@ -99,13 +99,13 @@ pub fn validate_reload_artifact_candidate(
     artifact
         .validate_for_loader(compatibility)
         .map_err(ReloadValidationError::Artifact)?;
-    validate_reload_candidate(active, candidate_name, &artifact.module, active_latest)
+    validate_reload_candidate(active, candidate_name, &artifact.program, active_latest)
 }
 
 pub fn validate_reload_candidate(
     active: &LoadedModule,
     candidate_name: &str,
-    candidate: &BytecodeModule,
+    candidate: &BytecodeProgram,
     active_latest: Option<&LoadedModule>,
 ) -> Result<(), ReloadValidationError> {
     if candidate_name != active.name {
@@ -136,13 +136,33 @@ pub fn validate_reload_candidate(
     }
 
     validate_load_candidate(candidate)?;
-    if public_abi_fingerprints_for_module(&active.bytecode)
-        != public_abi_fingerprints_for_module(candidate)
-    {
+    let root = &candidate.modules[candidate.root.index()];
+    if active.bytecode.identity != root.identity {
+        return Err(ReloadValidationError::ModuleIdentityMismatch {
+            expected: active.bytecode.identity.to_string(),
+            found: root.identity.to_string(),
+        });
+    }
+    let current = active
+        .members()
+        .map(|module| (module.bytecode.identity.clone(), module))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if current.len() != candidate.modules.len() {
         return Err(ReloadValidationError::PublicAbiFingerprintMismatch);
     }
-    if path_fingerprints_for_module(&active.bytecode) != path_fingerprints_for_module(candidate) {
-        return Err(ReloadValidationError::PathFingerprintMismatch);
+    for module in &candidate.modules {
+        let previous = current
+            .get(&module.identity)
+            .ok_or(ReloadValidationError::PublicAbiFingerprintMismatch)?;
+        if public_abi_fingerprints_for_module(&previous.bytecode)
+            != public_abi_fingerprints_for_module(module)
+        {
+            return Err(ReloadValidationError::PublicAbiFingerprintMismatch);
+        }
+        if path_fingerprints_for_module(&previous.bytecode) != path_fingerprints_for_module(module)
+        {
+            return Err(ReloadValidationError::PathFingerprintMismatch);
+        }
     }
     Ok(())
 }

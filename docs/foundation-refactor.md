@@ -189,17 +189,20 @@ Implemented foundation slices:
 - R03/R14: an immutable import graph detects strongly connected components with
   explicit stacks and rejects reachable cycles before compilation. Its deterministic
   dependency-first order visits diamond dependencies once and ignores unrelated
-  cycles. Embedding errors preserve the dependency file and revision. Executable
-  bundle encoding, dependency initialization and root-call version pinning
-  remain pending. CheckedProgram now owns the complete immutable source closure;
+  cycles. Embedding errors preserve the dependency file and revision.
+  CheckedProgram owns the complete immutable source closure;
   dependency body/constant errors reject compilation with their own file/revision.
   IR retains module boundaries and dependency edges, and verifies imported declaration
   contracts against module/function link slots, including public source facades.
   Same-spelled functions and stale document targets remain distinct. Generic-instance
   and instruction limits are shared across the closure. CheckedModule now exposes
-  this program instead of a single analyzed root. Artifact emission still reports
-  KG_COMPILE_MODULE_LINK_REQUIRED for multi-module programs; low-level bytecode
-  emission rejects dependencies and unlinked source calls, including unused imports.
+  this program instead of a single analyzed root. BytecodeProgram now encodes this
+  closure in dependency-first order. Imported calls use module/function slots;
+  validation checks graph reachability, signatures and shared layout/host contracts.
+  Runtime initialization visits every dependency once, including unused imports,
+  and caches failures per runtime and version. Root calls retain one shared program
+  version across module calls. Isolated candidate initialization and publication
+  remain pending; ordinary reload does not yet implement Prepare/Initialize/Publish.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints
@@ -225,11 +228,14 @@ Implemented foundation slices:
   object validation remains open.
 - R08/R09/R10: LoadedModule is an immutable shared Arc handle; public raw store
   loading and post-load bytecode mutation were removed. Module queries share code.
-  Loaded handles and host slots reject cross-runtime use. Format v8 rejects v1–v7;
+  Loaded handles and host slots reject cross-runtime use. Format v9 rejects v1–v8;
   required host fingerprints derive from declarations rather than caller options.
   The empty string host-dependency side table was removed. Struct layout handles
-  retain executable versions; dependency pinning, roots and full instance/code
-  lifecycle reclamation remain open.
+  retain executable versions. LoadedModule members share an Arc-owned program;
+  retaining an active call on any member keeps all its module instances reachable.
+  Root-version dependency pinning is covered across reload. Roots and full instance/
+  code lifecycle reclamation remain open. Runtime and embedding load/reload entry
+  points now accept whole programs; the old module-loading APIs were removed.
 - R07: semantic Struct/Enum/Trait types use DefinitionId, and generic parameters
   use their declaring owner and position. Same-spelled cross-module types and
   shadowed generic parameters are distinct. Implicit Self types belong to a trait;
@@ -267,7 +273,7 @@ Implemented foundation slices:
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this
   does not claim native compilation of parameterized generic instances.
-- R09: format v8 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v9 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked
@@ -279,16 +285,30 @@ Implemented foundation slices:
   The artifact-only module identity type was removed. Bytecode, artifact headers
   and loader metadata share the source ModuleIdentity and must agree before load.
   Runtime lookup names remain separate display/entry labels pending R10.
+  Dependency fingerprints now derive from actual program members and carry typed
+  ModuleIdentity; build options cannot supply them. Loader pins are optional,
+  while payload agreement is always checked. Host fingerprints cover all members.
+  Source and artifact loads derive the same execution-version fingerprint. Root
+  verification summaries are checked against the program, including after a
+  recomputed checksum. Per-member debug/function metadata stays in its module.
 - R11 prerequisite for R02: the VM and standard equality assertion now call one
   script equality operation instead of Rust Value::PartialEq. Tuples/enums compare
   members, mutable objects compare identity, and unsupported categories trap.
   Enum nominal identity still uses the current representation pending R07; owned
   heap handles, rooted host handles and collecting GC remain outstanding.
+- R12/R17: execution frames now carry their owning program member, and module-state
+  access uses short borrows. Debug frames and breakpoints distinguish member IDs
+  even when local function IDs coincide. BackendFunctionInput can only select a
+  function from an immutable linked version; cross-module calls pass through the
+  existing interpreter fallback. Synchronous host reentry, session-owned budgets/
+  roots and lexical debugger visibility remain pending. Tests cover direct/encoded
+  programs, dependency-first initialization/failure caching, stale reloads, old
+  dependency calls, malformed program rejection and interpreter/JIT fallback parity.
 - R13/R17 prerequisite for R02: interpreter arithmetic, typed-path arithmetic and
   integer abs use checked operations. Existing native i32 add/subtract/multiply/
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
-  ABI is v3 and JIT helper ABI remains v2. Path arithmetic failure produces no
+  ABI is v4 and JIT helper ABI remains v2. Path arithmetic failure produces no
   write callback or dirty record. Const evaluation shares checked arithmetic and
   honors short circuit, with cancellation checks. Mutation resource commit,
   narrower integer layouts and the other backend/

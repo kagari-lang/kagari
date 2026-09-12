@@ -11,6 +11,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BytecodeVerificationError {
+    InvalidProgramGraph,
     InvalidStructLayout,
     InvalidStructId {
         function: FunctionRef,
@@ -100,6 +101,7 @@ pub enum BytecodeVerificationError {
 impl BytecodeVerificationError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::InvalidProgramGraph => "KG_BYTECODE_INVALID_PROGRAM_GRAPH",
             Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
             Self::InvalidStructId { .. } => "KG_BYTECODE_INVALID_STRUCT_ID",
             Self::InvalidHostInterface(_) => "KG_BYTECODE_INVALID_HOST_INTERFACE",
@@ -133,6 +135,7 @@ impl BytecodeVerificationError {
 impl Display for BytecodeVerificationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidProgramGraph => write!(f, "invalid executable module graph"),
             Self::InvalidStructLayout => write!(f, "invalid struct layouts"),
             Self::InvalidStructId {
                 function,
@@ -234,6 +237,16 @@ impl Display for BytecodeVerificationError {
 impl std::error::Error for BytecodeVerificationError {}
 
 pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
+    if !module.dependencies.is_empty() {
+        return Err(BytecodeVerificationError::InvalidProgramGraph);
+    }
+    verify_module_with_program(module, None)
+}
+
+pub(super) fn verify_module_with_program(
+    module: &BytecodeModule,
+    program: Option<&super::BytecodeProgram>,
+) -> Result<(), BytecodeVerificationError> {
     crate::module::layout::validate_layouts(&module.structures, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
     module
@@ -247,7 +260,8 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
         });
     }
     if let Some(init) = module.module_init
-        && !function_ref_exists(module, init)
+        && (!function_ref_exists(module, init)
+            || !module.functions[init.index()].metadata.params.is_empty())
     {
         return Err(BytecodeVerificationError::InvalidModuleInit(init));
     }
@@ -271,7 +285,7 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
                 function: function.id,
             });
         }
-        verify_function(module, function)?;
+        verify_function(module, function, program)?;
     }
     Ok(())
 }
@@ -279,6 +293,7 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
 fn verify_function(
     module: &BytecodeModule,
     function: &BytecodeFunction,
+    program: Option<&super::BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
     verify_metadata_counts(function)?;
     verify_metadata_types(module, function)?;
@@ -287,7 +302,7 @@ fn verify_function(
         verify_jump(function, *target)?;
     }
     for instruction in &function.instructions {
-        verify_instruction(module, function, instruction)?;
+        verify_instruction(module, function, instruction, program)?;
     }
     Ok(())
 }
@@ -401,6 +416,7 @@ fn verify_instruction(
     module: &BytecodeModule,
     function: &BytecodeFunction,
     instruction: &BytecodeInstruction,
+    program: Option<&super::BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
     match instruction {
         BytecodeInstruction::LoadConst { dst, constant } => {
@@ -450,7 +466,7 @@ fn verify_instruction(
             expect_register_ty(function, *dst, ty, "binary dst")?;
         }
         BytecodeInstruction::Call { dst, callee, args } => {
-            verify_call(module, function, *dst, callee, args)?;
+            verify_call(module, function, *dst, callee, args, program)?;
         }
         BytecodeInstruction::MakeTuple { dst, elements }
         | BytecodeInstruction::MakeArray { dst, elements } => {
@@ -617,8 +633,25 @@ fn verify_call(
     dst: Option<Register>,
     callee: &CallTarget,
     args: &[Register],
+    program: Option<&super::BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
     match callee {
+        CallTarget::ModuleFunction {
+            module: target_module,
+            function: target,
+        } => {
+            let target_module = program
+                .and_then(|program| program.modules.get(target_module.index()))
+                .ok_or(BytecodeVerificationError::InvalidProgramGraph)?;
+            verify_call(
+                target_module,
+                function,
+                dst,
+                &CallTarget::Function(*target),
+                args,
+                None,
+            )?;
+        }
         CallTarget::Function(target) => {
             if !function_ref_exists(module, *target) {
                 return Err(BytecodeVerificationError::InvalidFunctionRef {

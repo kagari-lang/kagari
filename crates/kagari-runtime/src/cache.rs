@@ -38,6 +38,13 @@ pub struct ReloadDependencySnapshot {
 }
 
 impl ReloadDependencySnapshot {
+    pub fn from_program(program: &kagari_ir::bytecode::BytecodeProgram) -> Self {
+        let mut snapshot = Self::from_bytecode(&program.modules[program.root.index()]);
+        snapshot.module_fingerprint = ArtifactFingerprint::of_serialized(program);
+        snapshot.host_interface_fingerprint = ArtifactFingerprint::of_program_hosts(program);
+        snapshot.dependency_fingerprints = program.dependency_fingerprints();
+        snapshot
+    }
     pub fn from_bytecode(module: &BytecodeModule) -> Self {
         Self {
             module_fingerprint: ArtifactFingerprint::of_serialized(module),
@@ -52,14 +59,7 @@ impl ReloadDependencySnapshot {
     }
 
     pub fn from_artifact(artifact: &KbcArtifact) -> Self {
-        Self {
-            module_fingerprint: artifact.header.content_hash,
-            public_abi_fingerprints: artifact.verification.public_abi_fingerprints.clone(),
-            typed_path_fingerprints: artifact.verification.typed_path_fingerprints.clone(),
-            dependency_fingerprints: artifact.verification.dependency_fingerprints.clone(),
-            host_interface_fingerprint: artifact.verification.host_interface_fingerprint,
-            runtime_helper_abi_version: artifact.header.runtime_helper_abi_version.clone(),
-        }
+        Self::from_program(&artifact.program)
     }
 }
 
@@ -77,6 +77,8 @@ pub struct ExecutionArtifactRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReloadInvalidation {
     pub module_name: String,
+    pub module_identity: kagari_common::identity::ModuleIdentity,
+    pub module_fingerprint: ArtifactFingerprint,
     pub module_id: ModuleId,
     pub published: ModuleKey,
     pub dependencies: ReloadDependencySnapshot,
@@ -181,7 +183,7 @@ fn artifact_invalidated_by_reload(
         .dependency_fingerprints
         .iter()
         .any(|dependency| {
-            dependency.module_id == invalidation.module_name
-                && dependency.fingerprint != invalidation.dependencies.module_fingerprint
+            dependency.module_id == invalidation.module_identity
+                && dependency.fingerprint != invalidation.module_fingerprint
         })
 }

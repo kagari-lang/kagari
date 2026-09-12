@@ -30,15 +30,20 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
     for artifact in [false, true] {
         for jit in [false, true] {
             let module = if artifact {
-                let encoded =
-                    KbcArtifact::from_module(bytecode.clone(), ArtifactBuildOptions::default())
-                        .to_bytes()
-                        .unwrap();
+                let encoded = KbcArtifact::from_program(
+                    kagari_ir::bytecode::BytecodeProgram {
+                        root: kagari_ir::bytecode::ModuleRef::new(0),
+                        modules: vec![bytecode.clone()],
+                    },
+                    ArtifactBuildOptions::default(),
+                )
+                .to_bytes()
+                .unwrap();
                 let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
                 decoded
                     .validate_for_loader(&ArtifactCompatibility::default())
                     .unwrap();
-                decoded.module
+                decoded.program.modules[decoded.program.root.index()].clone()
             } else {
                 bytecode.clone()
             };
@@ -75,7 +80,15 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                     Ok(Value::Unit)
                 }))
                 .unwrap();
-            let loaded = runtime.load_module("linked", module).unwrap();
+            let loaded = runtime
+                .load_program(
+                    "linked",
+                    kagari_ir::bytecode::BytecodeProgram {
+                        root: kagari_ir::bytecode::ModuleRef::new(0),
+                        modules: vec![module],
+                    },
+                )
+                .unwrap();
             assert_eq!(loaded.host_binding(HostImportId::new(0)), Some(binding));
             assert_eq!(binding.index(), 1);
             let mut vm = Vm::new(runtime);
@@ -124,7 +137,7 @@ impl CodegenBackend for UnsupportedBackend {
     ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
         Err(BackendCompileError::unsupported(format!(
             "test backend cannot compile `{}`",
-            input.function.name
+            input.function().name
         )))
     }
 }
@@ -177,8 +190,11 @@ impl CodegenBackend for NativeBackend {
         self.compile_count += 1;
         let mut artifact =
             ExecutableFunctionArtifact::new(self.backend_id(), self.target(), input.function_ref());
-        artifact.entry =
-            ExecutableEntryPoint::Symbol(format!("{}::{}", input.module_name, input.function.name));
+        artifact.entry = ExecutableEntryPoint::Symbol(format!(
+            "{}::{}",
+            input.module().name.as_str(),
+            input.function().name
+        ));
         artifact.safepoints.push(ExecutableSafepoint {
             instruction_offset: 0,
             kind: ExecutableSafepointKind::RuntimeHelperCall {
@@ -193,7 +209,7 @@ impl CodegenBackend for NativeBackend {
                 has_live_value_locations: true,
                 has_safe_debug_callbacks: true,
                 safe_debug_points: input
-                    .function
+                    .function()
                     .metadata
                     .debug
                     .safe_debug_points

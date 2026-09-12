@@ -33,7 +33,7 @@ An artifact contains:
 ```text
 KbcArtifact {
   header: ArtifactHeader,
-  module: BytecodeModule,
+  program: BytecodeProgram,
   tables: ArtifactTables,
   verification: VerificationMetadata,
   debug: DebugMetadata?,
@@ -41,12 +41,13 @@ KbcArtifact {
 }
 ```
 
-Format version 8 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 9 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 7 are rejected; no migration or compatibility
-decoder exists. Version 8 replaces named struct initializer/field records with
-nominal layout tables, positional initializers and layout/slot field operands.
-The runtime ABI identity is `kagari-runtime-abi-v3`; the runtime-helper ABI remains
+format version. Versions 1 through 8 are rejected; no migration or compatibility
+decoder exists. Version 9 stores a complete dependency-first BytecodeProgram, its
+root ModuleRef, and module/function call slots. Structs use nominal layout tables,
+positional initializers and layout/slot field operands.
+The runtime ABI identity is `kagari-runtime-abi-v4`; the runtime-helper ABI remains
 v2. Host calls use HostImportId operands and a required HostInterface declaration
 table. There is no arbitrary host-registry
 fingerprint option or duplicate string dependency table. The obsolete BuiltinMethod
@@ -133,8 +134,20 @@ Verification metadata includes:
 - required host-interface fingerprints
 - security profile requirements
 
-The loader may re-run verification even when metadata is present.
-Metadata is a validation aid, not a replacement for verification.
+The loader verifies every member even when metadata is present. Root-level function,
+effect, control-flow, public-ABI and path summaries refer to the root ModuleRef;
+dependency metadata remains owned by each BytecodeModule. The loader derives and
+compares these summaries against the actual program. They cannot replace verification.
+Root-map completeness and per-table/depth decoding quotas remain pending.
+
+Dependency fingerprints carry ModuleIdentity and are derived from the canonical
+bytes of every non-root module in dependency-first order. ArtifactBuildOptions has
+no dependency-fingerprint input. ArtifactCompatibility may pin an exact dependency
+set with Some; None omits that external pin but still requires metadata/payload
+agreement. The required-host fingerprint covers each program member's declarations,
+excluding documentation and declaration order within each interface. Runtime code
+fingerprints derive from BytecodeProgram for both source and artifact loads; the
+artifact content hash separately covers packaging, headers and auxiliary metadata.
 
 ## Debug Metadata
 

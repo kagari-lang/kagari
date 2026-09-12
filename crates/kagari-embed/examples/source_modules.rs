@@ -1,4 +1,4 @@
-//! Query source dependencies and imported signatures without running initializers.
+//! Query source dependencies, then encode, load and execute their shared program.
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{ModuleIdentity, PackageId},
@@ -73,7 +73,20 @@ fn main() {
             );
         }
     }
-    // Executable bundle encoding and dependency initialization remain pending.
+    let program = kagari_ir::bytecode::lower_program_to_bytecode(&ir).unwrap();
+    let artifact = kagari_ir::bytecode::KbcArtifact::from_program(program, Default::default());
+    let encoded = artifact.to_bytes().unwrap();
+    let decoded = kagari_ir::bytecode::KbcArtifact::from_bytes(&encoded).unwrap();
+    let context = kagari_embed::ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(decoded, Default::default()).unwrap();
+    let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
+    assert_eq!(report.return_value, kagari_runtime::value::Value::I32(42));
+    println!(
+        "{} modules, result {:?}",
+        loaded.members().count(),
+        report.return_value
+    );
 }
 
 fn identity(name: &str) -> ModuleIdentity {

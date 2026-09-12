@@ -36,7 +36,12 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
             .contains(diagnostics[0].span.unwrap())
     );
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
-    assert_eq!(artifact.module.functions.len(), 2);
+    assert_eq!(
+        artifact.program.modules[artifact.program.root.index()]
+            .functions
+            .len(),
+        2
+    );
 }
 
 #[test]

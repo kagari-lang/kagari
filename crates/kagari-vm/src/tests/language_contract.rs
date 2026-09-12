@@ -159,14 +159,20 @@ fn run(case: &Case, route: Route) {
     let module = match route {
         Route::Source | Route::Jit => compiled,
         Route::Artifact => {
-            let bytes = KbcArtifact::from_module(compiled, ArtifactBuildOptions::default())
-                .to_bytes()
-                .unwrap();
+            let bytes = KbcArtifact::from_program(
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![compiled],
+                },
+                ArtifactBuildOptions::default(),
+            )
+            .to_bytes()
+            .unwrap();
             let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
             decoded
                 .validate_for_loader(&ArtifactCompatibility::default())
                 .unwrap();
-            decoded.module
+            decoded.program.modules[decoded.program.root.index()].clone()
         }
     };
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -221,7 +227,15 @@ fn run(case: &Case, route: Route) {
             },
         ))
         .unwrap();
-    let loaded = runtime.load_module(case.name, module).unwrap();
+    let loaded = runtime
+        .load_program(
+            case.name,
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![module],
+            },
+        )
+        .unwrap();
     let mut vm = Vm::new(runtime);
     let mut backend = RecordingBackend {
         inner: CraneliftBackend::for_host().unwrap(),
