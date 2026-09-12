@@ -57,7 +57,23 @@ fn main() {
         "imported type {} has a dependency-owned definition",
         declaration.name
     );
-    // Source bundles still require cross-module linking before execution.
+    let checked = snapshot
+        .check_program(root.file, &CancellationToken::default())
+        .unwrap();
+    let ir = kagari_ir::program::lower_program_to_ir(&checked, &Default::default()).unwrap();
+    for module in ir.modules() {
+        for function in &module.functions {
+            let binding = ir.function(&function.instance.declaration).unwrap();
+            println!(
+                "{}::{} -> module {}, function {}",
+                module.identity,
+                function.name,
+                binding.module,
+                binding.function.index()
+            );
+        }
+    }
+    // Executable bundle encoding and dependency initialization remain pending.
 }
 
 fn identity(name: &str) -> ModuleIdentity {

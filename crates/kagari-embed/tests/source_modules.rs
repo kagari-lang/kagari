@@ -68,13 +68,50 @@ fn source_dependencies_cannot_be_omitted_from_single_module_artifacts() {
         "root",
         "use pkg::dependency; fn main() -> i32 { 7 }",
     );
-    let error = engine
+    let checked = engine
         .compile_snapshot(
             engine.source_snapshot(),
             root,
             CompileOptions::default(),
             &CancellationToken::default(),
         )
+        .unwrap();
+    let error = engine
+        .emit_bytecode(&checked, Default::default())
         .unwrap_err();
     assert_eq!(error.code(), "KG_COMPILE_MODULE_LINK_REQUIRED");
+}
+
+#[test]
+fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
+    let engine = KagariEngine::default();
+    let dependency = insert(
+        &engine,
+        "dependency",
+        "pub fn good() -> i32 { 42 } fn broken() -> i32 { false }",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::dependency; fn main() -> i32 { 7 }",
+    );
+    let source = engine.source_snapshot();
+    let error = engine
+        .compile_snapshot(
+            source.clone(),
+            root,
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap_err();
+    let EmbeddingError::Diagnostics { diagnostics } = error else {
+        panic!("expected dependency diagnostics")
+    };
+    assert!(!diagnostics.is_empty());
+    for diagnostic in diagnostics {
+        let span = diagnostic.span.unwrap();
+        assert_eq!(span.file, dependency);
+        assert!(source.contains(span));
+        assert_ne!(diagnostic.code, "KG_COMPILE_MODULE_LINK_REQUIRED");
+    }
 }

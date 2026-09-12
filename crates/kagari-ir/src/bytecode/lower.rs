@@ -27,11 +27,30 @@ use crate::module::{
 
 #[derive(Debug)]
 pub enum BytecodeLoweringError {
+    UnlinkedSourceModules,
     InvalidBranchTarget(BlockId),
     Verification(crate::bytecode::BytecodeVerificationError),
 }
 
 pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, BytecodeLoweringError> {
+    if !ir.dependencies.is_empty()
+        || ir
+            .functions
+            .iter()
+            .flat_map(|f| &f.blocks)
+            .flat_map(|b| &b.instructions)
+            .any(|i| {
+                matches!(
+                    i,
+                    Instruction::Call {
+                        callee: IrCallTarget::SourceFunction(_),
+                        ..
+                    }
+                )
+            })
+    {
+        return Err(BytecodeLoweringError::UnlinkedSourceModules);
+    }
     let mut context = BytecodeLoweringContext {
         structures: &ir.structures,
         ..Default::default()
@@ -488,6 +507,9 @@ fn lower_instruction(
         Instruction::Call { dst, callee, args } => BytecodeInstruction::Call {
             dst: dst.map(lower_value),
             callee: match callee {
+                IrCallTarget::SourceFunction(_) => {
+                    unreachable!("source imports checked before bytecode lowering")
+                }
                 IrCallTarget::Function(id) => CallTarget::Function(FunctionRef::new(id.index())),
                 IrCallTarget::HostFunction(declaration) => {
                     CallTarget::HostFunction(context.host_import(declaration))

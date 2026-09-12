@@ -56,7 +56,7 @@ fn imported_struct_initializers_and_nested_mutations_use_nominal_fields() {
             }
         }
     }
-    assert!(file.result().clone().into_codegen().is_err());
+    assert!(file.result().clone().into_codegen().is_ok());
 }
 
 #[test]

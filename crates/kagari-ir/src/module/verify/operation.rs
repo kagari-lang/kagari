@@ -73,6 +73,19 @@ pub(super) fn verify(
                 contracts::verify_call_dst(dst.map(|v| v.ty), callee.return_type)
                     .map_err(contract)?;
             }
+            CallTarget::SourceFunction(callee) => {
+                if args.len() != callee.params.len() {
+                    return Err(context.error(Error::CallArity {
+                        expected: callee.params.len(),
+                        found: args.len(),
+                    }));
+                }
+                for (arg, param) in args.iter().zip(&callee.params) {
+                    context.expect(arg.ty, *param, "source call argument")?;
+                }
+                contracts::verify_call_dst(dst.map(|v| v.ty), callee.return_type)
+                    .map_err(contract)?;
+            }
             CallTarget::StandardIntrinsic(intrinsic) => contracts::verify_intrinsic(
                 dst.map(|v| v.ty),
                 *intrinsic,

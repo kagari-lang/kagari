@@ -55,17 +55,10 @@ fn diamond_has_deterministic_dependency_first_order() {
             .diagnostics()
             .is_empty()
     );
-    let errors = snapshot
-        .file(root.file)
-        .unwrap()
-        .result()
-        .clone()
-        .into_codegen()
-        .unwrap_err();
     assert!(
-        errors
-            .iter()
-            .all(|d| matches!(d.kind, DiagnosticKind::ModuleLinkRequired { .. }))
+        snapshot
+            .check_program(root.file, &Default::default())
+            .is_ok()
     );
 }
 

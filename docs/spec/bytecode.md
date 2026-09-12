@@ -51,12 +51,21 @@ Bytecode remains a first-class execution format when those backend paths are pre
 
 ## Verified IR Boundary
 
-The checked-analysis gate rejects source imports until executable bundle linking
-is available (`KG_COMPILE_MODULE_LINK_REQUIRED`). A single-module artifact must
-not discard dependency initialization merely because no imported item is called.
-Import-graph errors are reported before this gate with their originating file and
-revision. Standard and offline host imports pass through their existing lowering
-and checked runtime binding paths.
+Checked analysis can contain valid source imports. The snapshot-owned CheckedProgram
+checks every reachable module, and `lower_program_to_ir` produces a VerifiedIrProgram
+with preserved module boundaries and declaration-to-module/function bindings.
+IR verification checks every imported signature against its bound target and rejects
+missing dependencies, cycles, unrelated modules, unresolved calls, signature
+mismatches and conflicting layouts for the same nominal struct declaration.
+Editing any module invalidates the program's verification and link bindings.
+
+Executable bundle encoding and dependency initialization remain pending. Embedding
+artifact emission reports `KG_COMPILE_MODULE_LINK_REQUIRED` for multi-module programs;
+the low-level bytecode emitter returns `UnlinkedSourceModules` for source dependencies
+or imported-call contracts. A single-module artifact must not discard initialization
+merely because no imported item is called. Import and dependency-body diagnostics
+retain their originating file/revision. Standard and offline host imports remain
+executable through their checked runtime binding paths.
 
 `lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule`.
 `lower_to_bytecode` accepts only that handle. An optimizer or inspection tool can

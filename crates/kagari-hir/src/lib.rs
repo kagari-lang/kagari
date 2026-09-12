@@ -7,6 +7,7 @@ pub mod host;
 pub mod imports;
 pub mod lower;
 pub mod profile;
+pub mod program;
 pub mod resolver;
 pub mod source_map;
 pub mod typeck;
@@ -71,19 +72,7 @@ impl Deref for CheckedAnalysis {
 }
 
 impl AnalysisResult<AnalyzedModule> {
-    pub fn into_codegen(mut self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
-        for import in &self.facts.names.imports.entries {
-            if let Some(imports::ImportTarget::Source(target)) = &import.target {
-                self.diagnostics.push(
-                    kagari_common::Diagnostic::error(
-                        kagari_common::DiagnosticKind::ModuleLinkRequired {
-                            module: target.module.to_string(),
-                        },
-                    )
-                    .with_span(import.span),
-                );
-            }
-        }
+    pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
         self.into_checked().map(CheckedAnalysis)
     }
 }

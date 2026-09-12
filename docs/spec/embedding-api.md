@@ -25,7 +25,13 @@ must agree. Runtime load names remain labels for the current runtime module stor
 
 `source_snapshot` captures immutable inputs. `analyze` returns partial semantic
 facts and diagnostics for tools; `compile_snapshot` selects a file and requires
-checked facts before code generation. Both accept a cancellation token.
+checked facts for its entire reachable dependency closure before code generation.
+`CheckedModule::program()` exposes that immutable CheckedProgram and its root;
+the former single-root `analyzed()` accessor is removed. Dependency-body errors
+retain dependency-owned locations, even for unused imports. Both snapshot entry
+points accept a cancellation token. Program IR verifies declaration-to-module/
+function bindings without executing any initializer. Multi-module executable
+artifact encoding remains pending and emission reports `KG_COMPILE_MODULE_LINK_REQUIRED`.
 `compile_source` supplies base text through this same database, so an active
 overlay still takes precedence. Language profiles are analysis inputs: changing
 permissions cannot reuse a result accepted under another profile.

@@ -4,8 +4,9 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
 use kagari_hir::{
-    CheckedAnalysis, LanguageFeatureProfile,
+    LanguageFeatureProfile,
     analysis::{AnalysisDatabase, AnalysisSnapshot, CancellationToken},
+    program::{CheckedProgram, ProgramCheckError},
 };
 use kagari_ir::{
     IrLoweringError,
@@ -14,7 +15,7 @@ use kagari_ir::{
         BytecodeLoweringError, BytecodeModule, CallTarget, KbcArtifact, RuntimeHelper,
         lower_to_bytecode,
     },
-    lower_to_ir,
+    program::{ProgramErrorKind, lower_program_to_ir},
 };
 use kagari_runtime::{
     CapabilitySet, CodegenBackend, HostFunctionId, HostTypeRegistration, LanguageProfile,
@@ -161,44 +162,54 @@ impl KagariEngine {
         })?;
         let source = analysis.source();
         use kagari_hir::imports::ModuleOrderError;
-        let failed_modules = match snapshot
-            .module_graph()
-            .initialization_order(source.module_identity(), cancel)
-        {
-            Ok(_) => Vec::new(),
-            Err(ModuleOrderError::Cancelled) => return Err(EmbeddingError::Cancelled),
-            Err(ModuleOrderError::Cycle(modules)) => modules,
-            Err(ModuleOrderError::InvalidImports(module)) => vec![module],
-            Err(ModuleOrderError::Missing(module)) => {
-                return Err(EmbeddingError::Source {
-                    message: format!("missing source module `{module}`"),
-                });
-            }
-        };
-        if !failed_modules.is_empty() {
-            let mut diagnostics = Vec::new();
-            for module in failed_modules {
-                let node = snapshot
-                    .module_graph()
-                    .node(&module)
-                    .expect("graph failure names an existing node");
-                let file = snapshot
-                    .file(node.file)
-                    .expect("graph node belongs to snapshot");
-                diagnostics.extend(node.imports.diagnostics.iter().cloned().map(|diagnostic| {
-                    EmbeddingDiagnostic::from_diagnostic(diagnostic, file.source())
-                }));
-            }
-            return Err(EmbeddingError::Diagnostics { diagnostics });
-        }
-        let analyzed = analysis
-            .result()
-            .clone()
-            .into_codegen()
-            .map_err(|diagnostics| EmbeddingError::diagnostics(diagnostics, source))?;
+        let program = snapshot
+            .check_program(file, cancel)
+            .map_err(|error| match error {
+                ProgramCheckError::Cancelled => EmbeddingError::Cancelled,
+                ProgramCheckError::MissingFile(file) => EmbeddingError::Source {
+                    message: format!("missing source file {file:?}"),
+                },
+                ProgramCheckError::Diagnostics(records) => EmbeddingError::Diagnostics {
+                    diagnostics: records
+                        .into_iter()
+                        .map(|record| {
+                            EmbeddingDiagnostic::from_diagnostic(
+                                record.diagnostic,
+                                snapshot.file(record.file).expect("checked source").source(),
+                            )
+                        })
+                        .collect(),
+                },
+                ProgramCheckError::Graph(error) => {
+                    let failed = match error {
+                        ModuleOrderError::Cancelled => return EmbeddingError::Cancelled,
+                        ModuleOrderError::Cycle(modules) => modules,
+                        ModuleOrderError::InvalidImports(module) => vec![module],
+                        ModuleOrderError::Missing(module) => {
+                            return EmbeddingError::Source {
+                                message: format!("missing source module {module}"),
+                            };
+                        }
+                    };
+                    let mut diagnostics = Vec::new();
+                    for module in failed {
+                        let node = snapshot
+                            .module_graph()
+                            .node(&module)
+                            .expect("failed graph node");
+                        let file = snapshot.file(node.file).expect("graph source");
+                        diagnostics.extend(node.imports.diagnostics.iter().cloned().map(
+                            |diagnostic| {
+                                EmbeddingDiagnostic::from_diagnostic(diagnostic, file.source())
+                            },
+                        ));
+                    }
+                    EmbeddingError::Diagnostics { diagnostics }
+                }
+            })?;
         Ok(CheckedModule {
             source_name: source.name().to_owned(),
-            analyzed,
+            program,
         })
     }
 
@@ -207,10 +218,36 @@ impl KagariEngine {
         checked: &CheckedModule,
         options: ArtifactOptions,
     ) -> CompileResult<BytecodeArtifact> {
-        let ir = lower_to_ir(&checked.analyzed, &options.lowering).map_err(|error| {
-            EmbeddingError::ir_lowering(error, &checked.analyzed.lowered.source)
+        let ir = lower_program_to_ir(&checked.program, &options.lowering).map_err(|error| {
+            let source = &checked
+                .program
+                .modules()
+                .iter()
+                .find(|module| module.lowered.source.module_identity() == error.module.as_ref())
+                .expect("lowered program source")
+                .lowered
+                .source;
+            match error.kind {
+                ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
+                ProgramErrorKind::Lowering(error) => EmbeddingError::ir_lowering(error, source),
+                error => EmbeddingError::Compilation {
+                    phase: CompilationPhase::IrLowering,
+                    message: format!("{error:?}"),
+                },
+            }
         })?;
-        let module = lower_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
+        if ir.modules().len() != 1 {
+            return Err(EmbeddingError::diagnostics(
+                Box::new(smallvec::smallvec![Diagnostic::error(
+                    kagari_common::DiagnosticKind::ModuleLinkRequired {
+                        module: ir.root().to_string()
+                    }
+                )]),
+                &checked.program.root().lowered.source,
+            ));
+        }
+        let module =
+            lower_to_bytecode(&ir.modules()[0]).map_err(EmbeddingError::bytecode_lowering)?;
         Ok(KbcArtifact::from_module(module, options.build))
     }
 
@@ -371,15 +408,15 @@ impl KagariRuntime {
 #[derive(Debug)]
 pub struct CheckedModule {
     pub source_name: String,
-    analyzed: CheckedAnalysis,
+    program: CheckedProgram,
 }
 
 impl CheckedModule {
     pub fn module_identity(&self) -> &kagari_common::identity::ModuleIdentity {
-        self.analyzed.lowered.source.module_identity()
+        self.program.root().lowered.source.module_identity()
     }
-    pub fn analyzed(&self) -> &CheckedAnalysis {
-        &self.analyzed
+    pub fn program(&self) -> &CheckedProgram {
+        &self.program
     }
 }
 

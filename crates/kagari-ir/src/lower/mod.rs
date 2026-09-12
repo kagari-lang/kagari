@@ -93,6 +93,22 @@ pub fn lower_to_ir(
 
     verify_ir(
         IrModule {
+            dependencies: module
+                .names
+                .imports
+                .entries
+                .iter()
+                .filter_map(|import| {
+                    if let Some(kagari_hir::imports::ImportTarget::Source(target)) = &import.target
+                    {
+                        Some(target.module.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             structures,
             identity: module.lowered.source.module_identity().clone(),
             source_name: module.lowered.source.name().to_owned(),

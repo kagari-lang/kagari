@@ -454,10 +454,32 @@ impl FunctionLowerer<'_, '_> {
                         )?;
                         CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
                     }
-                    SemanticCallTarget::SourceFunction(_) => {
-                        return Err(IrLoweringError::UnsupportedExpr(
-                            "source calls require module linking",
-                        ));
+                    SemanticCallTarget::SourceFunction(id) => {
+                        let imported =
+                            self.analyzed.imported_functions.target(id).ok_or(
+                                IrLoweringError::MissingBinding("source function contract"),
+                            )?;
+                        let params = imported
+                            .signature
+                            .params
+                            .iter()
+                            .map(|param| {
+                                self.planner
+                                    .value_type(&param.ty, &Default::default(), span)
+                            })
+                            .collect::<Result<_, _>>()?;
+                        let return_type = self.planner.value_type(
+                            &imported.signature.return_type,
+                            &Default::default(),
+                            span,
+                        )?;
+                        CallTarget::SourceFunction(Box::new(
+                            crate::module::instruction::SourceFunctionContract {
+                                declaration: imported.declaration.clone(),
+                                params,
+                                return_type,
+                            },
+                        ))
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         CallTarget::StandardIntrinsic(intrinsic)

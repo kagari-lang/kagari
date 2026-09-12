@@ -1,0 +1,289 @@
+use kagari_common::{
+    DiagnosticKind,
+    cancellation::CancellationToken,
+    identity::{FileId, ModuleIdentity, PackageId},
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_hir::{
+    analysis::AnalysisDatabase,
+    program::{CheckedProgram, ProgramCheckError},
+};
+use kagari_ir::{
+    IrLoweringOptions,
+    bytecode::{BytecodeLoweringError, lower_to_bytecode},
+    module::{CallTarget, Instruction},
+    program::{ProgramErrorKind, lower_program_to_ir, verify_program},
+};
+
+fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
+    let path = format!("mem://{name}");
+    db.bind_module(
+        &path,
+        ModuleIdentity {
+            package: PackageId("pkg".into()),
+            path: vec![name.into()],
+        },
+    )
+    .unwrap();
+    db.set(&path, text.into(), SourceLayer::Base).unwrap()
+}
+fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
+    AnalysisDatabase::default()
+        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap()
+}
+fn fixture() -> CheckedProgram {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "shared",
+        "fn id<T>(x: T) -> T { x } pub fn answer(x: i32) -> i32 { id(x) } pub fn flag(x: bool) -> i32 { if x { 1 } else { 0 } } pub struct Data { var x: i32 }",
+    );
+    insert(
+        &mut db,
+        "left",
+        "pub use pkg::shared::answer; pub use pkg::shared::Data;",
+    );
+    insert(
+        &mut db,
+        "right",
+        "pub use pkg::shared::answer; pub use pkg::shared::Data;",
+    );
+    insert(&mut db, "unrelated", "fn broken() -> i32 { false }");
+    let root = insert(
+        &mut db,
+        "root",
+        "use pkg::left::answer as a; use pkg::right::answer as b; use pkg::left::Data; fn answer() -> bool { true } fn main() -> i32 { val p = Data { x: a(20) }; p.x += b(22); p.x }",
+    );
+    checked(&db, root)
+}
+
+#[test]
+fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts() {
+    let checked = fixture();
+    assert_eq!(
+        checked
+            .modules()
+            .iter()
+            .map(|module| module.lowered.source.module_identity().path[0].as_str())
+            .collect::<Vec<_>>(),
+        ["shared", "left", "right", "root"]
+    );
+    let program = lower_program_to_ir(&checked, &Default::default()).unwrap();
+    let root = program.modules().last().unwrap();
+    let calls = root
+        .functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instructions)
+        .filter_map(|i| {
+            if let Instruction::Call {
+                callee: CallTarget::SourceFunction(contract),
+                ..
+            } = i
+            {
+                Some(contract)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 2);
+    for call in calls {
+        assert_eq!(call.declaration.module.path, ["shared"]);
+        let binding = program.function(&call.declaration).unwrap();
+        let target = &program.modules()[binding.module].functions[binding.function.index()];
+        assert_eq!(target.name, "answer");
+        assert_eq!(target.instance.declaration, call.declaration);
+    }
+    assert!(
+        program.modules()[0]
+            .functions
+            .iter()
+            .any(|f| !f.instance.arguments.is_empty())
+    );
+    assert!(matches!(
+        lower_to_bytecode(root),
+        Err(BytecodeLoweringError::UnlinkedSourceModules)
+    ));
+    // Unused imports still carry initialization dependencies and cannot be erased.
+    assert!(matches!(
+        lower_to_bytecode(&program.modules()[1]),
+        Err(BytecodeLoweringError::UnlinkedSourceModules)
+    ));
+}
+
+#[test]
+fn missing_dependencies_cycles_and_mismatched_link_signatures_are_rejected() {
+    let program = lower_program_to_ir(&fixture(), &Default::default()).unwrap();
+    let root = program.root().clone();
+    let raw = program.into_unverified();
+    let mut schema = raw.clone();
+    schema[0].structures[0].fields[0].mutable = false;
+    assert!(matches!(
+        verify_program(root.clone(), schema, &Default::default())
+            .unwrap_err()
+            .kind,
+        ProgramErrorKind::StructContract(_)
+    ));
+    let mut unresolved = raw.clone();
+    for instruction in unresolved
+        .last_mut()
+        .unwrap()
+        .functions
+        .iter_mut()
+        .flat_map(|f| &mut f.blocks)
+        .flat_map(|b| &mut b.instructions)
+    {
+        if let Instruction::Call {
+            callee: CallTarget::SourceFunction(contract),
+            ..
+        } = instruction
+        {
+            contract.declaration.path.last_mut().unwrap().name = "absent".into();
+        }
+    }
+    assert!(matches!(
+        verify_program(root.clone(), unresolved, &Default::default())
+            .unwrap_err()
+            .kind,
+        ProgramErrorKind::UnresolvedFunction(_)
+    ));
+    let mut missing = raw.clone();
+    missing.remove(0);
+    assert!(matches!(
+        verify_program(root.clone(), missing, &Default::default())
+            .unwrap_err()
+            .kind,
+        ProgramErrorKind::InvalidGraph
+    ));
+    let mut cycle = raw.clone();
+    cycle[0].dependencies.push(root.clone());
+    assert!(matches!(
+        verify_program(root.clone(), cycle, &Default::default())
+            .unwrap_err()
+            .kind,
+        ProgramErrorKind::InvalidGraph
+    ));
+    let mut wrong = raw.clone();
+    let other = wrong[0]
+        .functions
+        .iter()
+        .find(|f| f.name == "flag")
+        .unwrap()
+        .instance
+        .declaration
+        .clone();
+    for instruction in wrong
+        .last_mut()
+        .unwrap()
+        .functions
+        .iter_mut()
+        .flat_map(|f| &mut f.blocks)
+        .flat_map(|b| &mut b.instructions)
+    {
+        if let Instruction::Call {
+            callee: CallTarget::SourceFunction(contract),
+            ..
+        } = instruction
+        {
+            contract.declaration = other.clone();
+        }
+    }
+    assert!(
+        matches!(verify_program(root.clone(), wrong, &Default::default()).unwrap_err().kind, ProgramErrorKind::FunctionContract(id) if id == other)
+    );
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        verify_program(root, raw, &cancel).unwrap_err().kind,
+        ProgramErrorKind::Cancelled
+    ));
+}
+
+#[test]
+fn program_limits_are_shared_across_modules() {
+    let checked = fixture();
+    let ir = lower_program_to_ir(&checked, &Default::default()).unwrap();
+    let count = ir
+        .modules()
+        .iter()
+        .flat_map(|m| &m.functions)
+        .flat_map(|f| &f.blocks)
+        .map(|b| b.instructions.len() + usize::from(b.terminator.is_some()))
+        .sum::<usize>();
+    let error = lower_program_to_ir(
+        &checked,
+        &IrLoweringOptions {
+            max_instructions: count - 1,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error.kind, ProgramErrorKind::Lowering(kagari_ir::IrLoweringError::Diagnostic(d)) if matches!(d.kind, DiagnosticKind::CompileLimitExceeded {resource: "generated instructions", ..}))
+    );
+}
+
+#[test]
+fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() {
+    let mut db = SourceDatabase::default();
+    let dependency = insert(&mut db, "dependency", "pub fn value() -> i32 { 1 }");
+    let root = insert(
+        &mut db,
+        "root",
+        "use pkg::dependency::value; fn main() -> i32 { value() }",
+    );
+    let mut analysis = AnalysisDatabase::default();
+    let old = analysis
+        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let file = old.file(root).unwrap();
+    let target = file
+        .source_function_at(file.source().text().rfind("value()").unwrap())
+        .unwrap()
+        .id;
+    let old_program = old.check_program(root, &Default::default()).unwrap();
+    assert!(old_program.source_function(target).is_some());
+    db.set(
+        "mem://dependency",
+        "pub fn value() -> i32 { 2 }".into(),
+        SourceLayer::Overlay,
+    )
+    .unwrap();
+    assert!(checked(&db, root).source_function(target).is_none());
+    assert!(old_program.source_function(target).is_some());
+    db.set(
+        "mem://dependency",
+        "pub fn value() -> i32 { 2 } fn broken() -> i32 { false }".into(),
+        SourceLayer::Overlay,
+    )
+    .unwrap();
+    let current = analysis
+        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    assert!(
+        current
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+    let ProgramCheckError::Diagnostics(records) = current
+        .check_program(root, &Default::default())
+        .unwrap_err()
+    else {
+        panic!("expected dependency error")
+    };
+    assert!(records.iter().all(|record| record.file == dependency
+        && record.revision == current.file(dependency).unwrap().source().revision()));
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        current.check_program(root, &cancel),
+        Err(ProgramCheckError::Cancelled)
+    ));
+}

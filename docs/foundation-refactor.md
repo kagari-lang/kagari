@@ -189,10 +189,17 @@ Implemented foundation slices:
 - R03/R14: an immutable import graph detects strongly connected components with
   explicit stacks and rejects reachable cycles before compilation. Its deterministic
   dependency-first order visits diamond dependencies once and ignores unrelated
-  cycles. Embedding errors preserve the dependency file and revision. Actual bundle
-  linking, dependency initialization and root-call version pinning remain pending.
-  Until those are implemented, single-module code generation explicitly rejects
-  source imports with KG_COMPILE_MODULE_LINK_REQUIRED; it cannot silently omit them.
+  cycles. Embedding errors preserve the dependency file and revision. Executable
+  bundle encoding, dependency initialization and root-call version pinning
+  remain pending. CheckedProgram now owns the complete immutable source closure;
+  dependency body/constant errors reject compilation with their own file/revision.
+  IR retains module boundaries and dependency edges, and verifies imported declaration
+  contracts against module/function link slots, including public source facades.
+  Same-spelled functions and stale document targets remain distinct. Generic-instance
+  and instruction limits are shared across the closure. CheckedModule now exposes
+  this program instead of a single analyzed root. Artifact emission still reports
+  KG_COMPILE_MODULE_LINK_REQUIRED for multi-module programs; low-level bytecode
+  emission rejects dependencies and unlinked source calls, including unused imports.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

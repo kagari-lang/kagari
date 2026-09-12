@@ -62,16 +62,35 @@ field contracts include their declaring struct, declaration-order slot, type,
 writeability and source location. Nested imported fields obey the same `val`/`var`
 and initializer checks as local fields. A field change invalidates dependent bodies
 even when exported function signatures still name the same nominal type. Incomplete
-member access retains the receiver type for queries. These semantic slots are not
-yet linked runtime layouts; bytecode field operands still await R07/R08 conversion.
+member access retains the receiver type for queries. IR/bytecode layouts and runtime
+field slots use these identities and permissions; executable bundle ownership and
+cross-module method/enum operations still require further linking work.
+
+`AnalysisSnapshot::check_program(root, cancel)` checks the entire reachable source
+closure and returns an immutable `CheckedProgram`. Its members are ordered before
+their dependents, with each diamond dependency included once. Errors in any reachable
+body or constant reject compilation even when the imported item is unused; tooling
+can still query the partial snapshot. Diagnostics retain the owning file/revision.
+Function targets from another document revision do not resolve in the checked
+program. Unrelated broken modules do not prevent compiling a valid closure.
+
+`lower_program_to_ir` preserves module boundaries, initializers and dependency edges.
+Imported calls carry nominal declaration contracts; whole-program IR verification
+binds each contract to a module/function slot and checks its signature. Public
+facades resolve to the final defining module. Per-module HIR IDs and same-spelled
+functions cannot substitute for these link identities. Generic-instance and generated
+instruction budgets are shared across the whole closure, with cancellation checks.
 
 Current implementation boundary: source imports support graph, definition and
 function signature queries, imported type annotations and call checking. Applied
 user types, namespace-facade calls, foreign trait constraints/implementations,
 cross-module method/enum operations and executable bundle linking remain pending.
-Single-module code generation reports `KG_COMPILE_MODULE_LINK_REQUIRED`
-for source imports, including unused imports whose initialization would otherwise
-be lost. Host and standard imports remain executable.
+Semantic checking and IR linking now accept valid source closures. Executable bundle
+encoding and dependency initialization remain pending: embedding artifact emission
+reports `KG_COMPILE_MODULE_LINK_REQUIRED` for multi-module programs. The low-level
+single-module bytecode emitter also rejects source dependencies or unlinked calls,
+including unused imports whose initialization would otherwise be lost. Host and
+standard imports remain executable.
 
 ### Module contents
 

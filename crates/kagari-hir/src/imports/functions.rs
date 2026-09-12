@@ -22,6 +22,9 @@ pub struct ImportedFunctions {
 }
 
 impl ImportedFunctions {
+    pub fn target(&self, id: SourceFunctionId) -> Option<&ImportedFunction> {
+        self.functions.values().find(|function| function.id == id)
+    }
     pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction> {
         self.functions.get(&name)
     }

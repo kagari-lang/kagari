@@ -142,6 +142,7 @@ pub enum Terminator {
 
 #[derive(Debug, Clone)]
 pub enum CallTarget {
+    SourceFunction(Box<SourceFunctionContract>),
     Function(crate::module::ids::InstanceId),
     HostFunction(Box<kagari_common::host_interface::HostFunctionDeclaration>),
     Value(IrValue),
@@ -331,7 +332,7 @@ impl Terminator {
 impl CallTarget {
     pub fn effects(&self) -> EffectSet {
         match self {
-            Self::Function(_) | Self::Value(_) => EffectSet::call(),
+            Self::Function(_) | Self::SourceFunction(_) | Self::Value(_) => EffectSet::call(),
             Self::HostFunction(declaration) => EffectSet {
                 allocates: declaration.effects.may_allocate,
                 ..EffectSet::runtime_call()
@@ -464,3 +465,11 @@ pub struct StructFieldInit {
 pub type InstructionBuffer = Vec<Instruction>;
 pub type ValueBuffer = SmallVec<[IrValue; 4]>;
 pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
+
+/// Unlinked declaration contract. It cannot be encoded as an executable call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceFunctionContract {
+    pub declaration: kagari_common::identity::DefinitionId,
+    pub params: Vec<ValueType>,
+    pub return_type: ValueType,
+}
