@@ -61,8 +61,10 @@ Implemented foundation slices:
   concrete parameters inferred from binding annotations.
 - R05: unchanged files share parse/analysis results; identical function bodies
   reuse remapped type facts, while declaration changes invalidate that reuse.
-  Scope/type/member-receiver queries work on erroneous files. Cancellation checks
-  currently cover file/parse/analysis boundaries; intra-pass checks remain.
+  Scope/type/member-receiver queries work on erroneous files. Shared cancellation
+  now reaches lexer character iteration, parser traversal, HIR expression/block
+  lowering, name resolution and body checking. Cancelled snapshots do not publish.
+  Remaining work includes dependency-query ownership and compile-time limits.
   Language profiles participate in cache reuse; old queries cannot publish over
   a newer revision. Engine snapshot compilation exposes cancellation explicitly.
 - R09: format v2 uses fixed little-endian encoding, bounded decoding and strict

@@ -8,8 +8,10 @@ use crate::lower::context::{Lowerer, syntax_span};
 
 impl Lowerer {
     pub(crate) fn lower_block(&mut self, block: &ast::BlockExpr) -> BlockId {
+        let cancel = self.cancel.clone();
         let statements = block
             .statements()
+            .take_while(|_| cancel.check().is_ok())
             .map(|stmt| self.lower_stmt(&stmt))
             .collect::<SmallVec<[_; 8]>>();
         let tail_expr = block.tail_expr().map(|expr| self.lower_expr(&expr));

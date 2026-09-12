@@ -2,12 +2,13 @@ mod core;
 mod grammar;
 
 use kagari_common::SourceFile;
+use kagari_common::cancellation::{CancellationToken, Cancelled};
 use rowan::GreenNode;
 
 use crate::{
     BoxedDiagnosticBuffer, DiagnosticBuffer,
     ast::{self, AstNode},
-    lexer::lex,
+    lexer::lex_with_cancellation,
     syntax_node::syntax_node_from_green,
 };
 
@@ -31,11 +32,20 @@ impl Parse {
 }
 
 pub fn parse(source: &SourceFile) -> Parse {
-    let tokens = lex(source.text());
-    let mut parser = Parser::new(source.text(), tokens);
+    parse_with_cancellation(source, &CancellationToken::default())
+        .expect("fresh cancellation token")
+}
+
+pub fn parse_with_cancellation(
+    source: &SourceFile,
+    cancel: &CancellationToken,
+) -> Result<Parse, Cancelled> {
+    let tokens = lex_with_cancellation(source.text(), cancel)?;
+    let mut parser = Parser::new(source.text(), tokens, cancel.clone());
     parser.parse_root();
     let (green, diagnostics) = parser.finish();
-    Parse { green, diagnostics }
+    cancel.check()?;
+    Ok(Parse { green, diagnostics })
 }
 
 pub fn parse_module(source: &SourceFile) -> Result<ast::SourceFile, BoxedDiagnosticBuffer> {

@@ -14,6 +14,7 @@ pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 
 pub use check::check_module;
+pub(crate) use check::check_module_controlled;
 pub use table::TypeTable;
 
 #[derive(Debug, Clone)]
@@ -53,6 +54,7 @@ pub(crate) struct TopLevelTypeIndex {
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeIndexes<'a> {
+    pub(crate) cancel: &'a kagari_common::cancellation::CancellationToken,
     pub(crate) function_index: &'a FunctionTypeIndex,
     pub(crate) top_level_index: &'a TopLevelTypeIndex,
 }

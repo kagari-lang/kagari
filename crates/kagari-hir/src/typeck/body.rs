@@ -20,6 +20,7 @@ use crate::{
 };
 
 pub(crate) struct BodyChecker<'a> {
+    cancel: &'a kagari_common::cancellation::CancellationToken,
     lowered: &'a LoweredModule,
     names: &'a ResolvedNames,
     function_index: &'a FunctionTypeIndex,
@@ -42,6 +43,7 @@ impl<'a> BodyChecker<'a> {
         expected_return: TypeId,
     ) -> Self {
         Self {
+            cancel: indexes.cancel,
             lowered,
             names,
             function_index: indexes.function_index,
@@ -57,6 +59,9 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_block_types(&mut self, block_id: BlockId, env: &mut BodyTypeEnv) -> TypeId {
         let block = self.lowered.module.block(block_id);
         for stmt in &block.statements {
+            if self.cancel.check().is_err() {
+                return TypeId::Unknown;
+            }
             self.check_stmt(*stmt, env);
         }
 
@@ -68,6 +73,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_stmt(&mut self, stmt_id: StmtId, env: &mut BodyTypeEnv) {
+        if self.cancel.check().is_err() {
+            return;
+        }
         let stmt = self.lowered.module.stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Binding {
@@ -356,6 +364,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn infer_expr_type(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> TypeId {
+        if self.cancel.check().is_err() {
+            return TypeId::Unknown;
+        }
         if let Some(ty) = env.exprs.get(&expr_id).cloned() {
             return ty;
         }

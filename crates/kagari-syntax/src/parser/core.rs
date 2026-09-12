@@ -1,3 +1,4 @@
+use kagari_common::cancellation::CancellationToken;
 use kagari_common::{Diagnostic, DiagnosticKind};
 use rowan::{Checkpoint, GreenNode, GreenNodeBuilder, Language};
 use smallvec::SmallVec;
@@ -16,10 +17,11 @@ pub(crate) struct Parser<'a> {
     builder: GreenNodeBuilder<'static>,
     diagnostics: DiagnosticBuffer,
     allow_struct_literals: bool,
+    cancel: CancellationToken,
 }
 
 impl<'a> Parser<'a> {
-    pub(crate) fn new(text: &'a str, tokens: TokenBuffer) -> Self {
+    pub(crate) fn new(text: &'a str, tokens: TokenBuffer, cancel: CancellationToken) -> Self {
         Self {
             text,
             tokens,
@@ -27,6 +29,7 @@ impl<'a> Parser<'a> {
             builder: GreenNodeBuilder::new(),
             diagnostics: SmallVec::new(),
             allow_struct_literals: true,
+            cancel,
         }
     }
 
@@ -128,6 +131,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn nth_nontrivia_kind(&self, n: usize) -> Option<TokenKind> {
+        self.cancel.check().ok()?;
         self.tokens
             .iter()
             .skip(self.cursor)
@@ -142,6 +146,7 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn nth_nontrivia_kind_from(&self, cursor: &mut usize) -> Option<TokenKind> {
         while let Some(token) = self.tokens.get(*cursor) {
+            self.cancel.check().ok()?;
             *cursor += 1;
             if !token.kind.is_trivia() {
                 return Some(token.kind.clone());
@@ -151,6 +156,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn peek(&self) -> Option<&Token> {
+        self.cancel.check().ok()?;
         self.tokens.get(self.cursor)
     }
 }

@@ -1,11 +1,23 @@
 use kagari_common::Span;
+use kagari_common::cancellation::{CancellationToken, Cancelled};
 use smallvec::SmallVec;
 
 use crate::TokenBuffer;
 use crate::token::{Token, TokenKind};
 
 pub fn lex(input: &str) -> TokenBuffer {
-    let mut chars = input.char_indices().peekable();
+    lex_with_cancellation(input, &CancellationToken::default()).expect("fresh cancellation token")
+}
+
+pub fn lex_with_cancellation(
+    input: &str,
+    cancel: &CancellationToken,
+) -> Result<TokenBuffer, Cancelled> {
+    cancel.check()?;
+    let mut chars = input
+        .char_indices()
+        .take_while(|_| cancel.check().is_ok())
+        .peekable();
     let mut tokens = SmallVec::new();
 
     while let Some((index, ch)) = chars.peek().copied() {
@@ -15,10 +27,10 @@ pub fn lex(input: &str) -> TokenBuffer {
                 if !next.is_whitespace() {
                     break;
                 }
-                end = next_index;
+                end = next_index + next.len_utf8();
                 chars.next();
             }
-            tokens.push(token(TokenKind::Whitespace, index, end + 1));
+            tokens.push(token(TokenKind::Whitespace, index, end));
             continue;
         }
 
@@ -239,7 +251,8 @@ pub fn lex(input: &str) -> TokenBuffer {
 
     let eof = input.len();
     tokens.push(token(TokenKind::Eof, eof, eof));
-    tokens
+    cancel.check()?;
+    Ok(tokens)
 }
 
 fn token(kind: TokenKind, start: usize, end: usize) -> Token {

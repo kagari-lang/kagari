@@ -1,3 +1,4 @@
+pub mod cancellation;
 pub mod diagnostic;
 pub mod identity;
 pub mod line_index;

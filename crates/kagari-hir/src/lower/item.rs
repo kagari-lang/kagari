@@ -11,6 +11,9 @@ use crate::lower::context::{Lowerer, syntax_span};
 impl Lowerer {
     pub(crate) fn lower_module(&mut self, module: &ast::SourceFile) {
         for item in module.items() {
+            if self.cancel.check().is_err() {
+                break;
+            }
             match item {
                 ast::Item::ModuleDef(module_def) => {
                     let hir_module = self.lower_module_decl(&module_def);

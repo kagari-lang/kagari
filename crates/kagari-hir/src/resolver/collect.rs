@@ -9,6 +9,13 @@ use crate::resolver::resolve::BodyResolver;
 use crate::resolver::table::NameTable;
 
 pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
+    resolve_names_controlled(lowered, &Default::default())
+}
+
+pub(crate) fn resolve_names_controlled(
+    lowered: &LoweredModule,
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> AnalysisResult<ResolvedNames> {
     let mut names = NameTable::default();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
@@ -78,7 +85,7 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
         names.insert_impl(impl_block.id);
     }
 
-    let mut resolver = BodyResolver::new(&names, &lowered.module);
+    let mut resolver = BodyResolver::new(&names, &lowered.module, cancel.clone());
     for const_item in &lowered.module.consts {
         resolver.resolve_top_level_expr(const_item.initializer);
     }

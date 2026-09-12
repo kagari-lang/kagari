@@ -10,13 +10,15 @@ use crate::hir::{
 use crate::source_map::SourceMap;
 
 pub(crate) struct Lowerer {
+    pub(crate) cancel: kagari_common::cancellation::CancellationToken,
     pub(crate) source_map: SourceMap,
     pub(crate) module: Module,
 }
 
 impl Lowerer {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(cancel: kagari_common::cancellation::CancellationToken) -> Self {
         Self {
+            cancel,
             source_map: SourceMap::default(),
             module: Module::default(),
         }

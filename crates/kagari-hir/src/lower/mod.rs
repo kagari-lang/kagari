@@ -18,7 +18,14 @@ pub struct LoweredModule {
 }
 
 pub fn lower_module(module: &ast::SourceFile) -> LoweredModule {
-    let mut lowerer = Lowerer::new();
+    lower_module_controlled(module, &Default::default())
+}
+
+pub(crate) fn lower_module_controlled(
+    module: &ast::SourceFile,
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> LoweredModule {
+    let mut lowerer = Lowerer::new(cancel.clone());
     lowerer.lower_module(module);
     let (module, source_map) = lowerer.finish();
     LoweredModule { module, source_map }

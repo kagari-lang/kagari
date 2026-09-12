@@ -69,16 +69,17 @@ impl AnalysisResult<AnalyzedModule> {
 }
 
 pub fn analyze_module(module: &ast::SourceFile) -> AnalysisResult<AnalyzedModule> {
-    analyze_syntax(module, None)
+    analyze_syntax(module, None, &Default::default())
 }
 
 fn analyze_syntax(
     module: &ast::SourceFile,
     reuse: Option<&typeck::BodyReuse<'_>>,
+    cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let lowered = lower::lower_module(module);
-    let names = resolver::resolve_names(&lowered);
-    let typed = typeck::check_module(&lowered, &names.facts, reuse);
+    let lowered = lower::lower_module_controlled(module, cancel);
+    let names = resolver::resolve_names_controlled(&lowered, cancel);
+    let typed = typeck::check_module_controlled(&lowered, &names.facts, reuse, cancel);
     let mut diagnostics = names.diagnostics;
     diagnostics.extend(typed.diagnostics);
     AnalysisResult {
@@ -107,15 +108,16 @@ pub fn analyze_source(
     profile: LanguageFeatureProfile,
 ) -> AnalysisResult<AnalyzedModule> {
     let parsed = kagari_syntax::parse(source);
-    analyze_parsed(&parsed, profile, None)
+    analyze_parsed(&parsed, profile, None, &Default::default())
 }
 
 pub(crate) fn analyze_parsed(
     parsed: &kagari_syntax::Parse,
     profile: LanguageFeatureProfile,
     reuse: Option<&typeck::BodyReuse<'_>>,
+    cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_syntax(&parsed.syntax(), reuse);
+    let mut analyzed = analyze_syntax(&parsed.syntax(), reuse, cancel);
     if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, profile) {
         analyzed.diagnostics.extend(*diagnostics);
     }

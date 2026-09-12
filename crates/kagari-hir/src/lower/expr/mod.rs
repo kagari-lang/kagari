@@ -10,6 +10,9 @@ use crate::lower::context::{Lowerer, lower_binary_op, syntax_span};
 
 impl Lowerer {
     pub(crate) fn lower_expr(&mut self, expr: &ast::Expr) -> ExprId {
+        if self.cancel.check().is_err() {
+            return self.missing_expr();
+        }
         let kind = match expr {
             ast::Expr::BlockExpr(block) => ExprKind::Block(self.lower_block(block)),
             ast::Expr::PathExpr(path) => ExprKind::Name(path.name_text().unwrap_or_default()),

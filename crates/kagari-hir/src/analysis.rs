@@ -1,11 +1,5 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use std::{collections::HashMap, sync::Arc};
 
 use kagari_common::{
     SourceFile, Span,
@@ -19,24 +13,7 @@ use crate::{
     types::TypeId,
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct CancellationToken(Arc<AtomicBool>);
-
-impl CancellationToken {
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::Relaxed);
-    }
-    pub fn check(&self) -> Result<(), Cancelled> {
-        if self.0.load(Ordering::Relaxed) {
-            Err(Cancelled)
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Cancelled;
+pub use kagari_common::cancellation::{CancellationToken, Cancelled};
 
 #[derive(Debug)]
 pub struct FileAnalysis {
@@ -213,8 +190,10 @@ impl AnalysisDatabase {
                         .files
                         .get(&file.id())
                         .filter(|old| old.source.revision() == file.revision())
-                        .map(|old| old.parsed.clone())
-                        .unwrap_or_else(|| kagari_syntax::parse(file));
+                        .map(|old| Ok(old.parsed.clone()))
+                        .unwrap_or_else(|| {
+                            kagari_syntax::parser::parse_with_cancellation(file, cancel)
+                        })?;
                     cancel.check()?;
                     let reuse = self
                         .files
@@ -225,7 +204,7 @@ impl AnalysisDatabase {
                             old_text: old.source.text(),
                             new_text: file.text(),
                         });
-                    let result = analyze_parsed(&parsed, profile, reuse.as_ref());
+                    let result = analyze_parsed(&parsed, profile, reuse.as_ref(), cancel);
                     Arc::new(FileAnalysis {
                         source: file.clone(),
                         profile,

@@ -8,6 +8,7 @@ use crate::hir::{
 use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
 
 pub(crate) struct BodyResolver<'a> {
+    cancel: kagari_common::cancellation::CancellationToken,
     names: &'a NameTable,
     module: &'a Module,
     resolved: ResolvedNames,
@@ -15,8 +16,13 @@ pub(crate) struct BodyResolver<'a> {
 }
 
 impl<'a> BodyResolver<'a> {
-    pub(crate) fn new(names: &'a NameTable, module: &'a Module) -> Self {
+    pub(crate) fn new(
+        names: &'a NameTable,
+        module: &'a Module,
+        cancel: kagari_common::cancellation::CancellationToken,
+    ) -> Self {
         Self {
+            cancel,
             names,
             module,
             resolved: ResolvedNames::new(names.clone()),
@@ -49,6 +55,9 @@ impl<'a> BodyResolver<'a> {
         let block = self.module.block(block_id);
         self.push_scope();
         for stmt in &block.statements {
+            if self.cancel.check().is_err() {
+                break;
+            }
             self.resolve_stmt(*stmt);
         }
         if let Some(expr) = block.tail_expr {
@@ -58,6 +67,9 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn resolve_stmt(&mut self, stmt_id: StmtId) {
+        if self.cancel.check().is_err() {
+            return;
+        }
         let stmt = self.module.stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Binding {
@@ -91,6 +103,9 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn resolve_expr(&mut self, expr_id: ExprId) {
+        if self.cancel.check().is_err() {
+            return;
+        }
         let expr = self.module.expr(expr_id);
         match &expr.kind {
             ExprKind::Missing => {}

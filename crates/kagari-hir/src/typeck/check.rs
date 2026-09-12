@@ -23,6 +23,15 @@ pub fn check_module(
     names: &ResolvedNames,
     reuse: Option<&super::BodyReuse<'_>>,
 ) -> AnalysisResult<TypedModule> {
+    check_module_controlled(lowered, names, reuse, &Default::default())
+}
+
+pub(crate) fn check_module_controlled(
+    lowered: &LoweredModule,
+    names: &ResolvedNames,
+    reuse: Option<&super::BodyReuse<'_>>,
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> AnalysisResult<TypedModule> {
     let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
     let mut checked_bodies = 0;
     let mut reused_bodies = 0;
@@ -168,6 +177,7 @@ pub fn check_module(
                         lowered,
                         names,
                         TypeIndexes {
+                            cancel,
                             function_index: &function_index,
                             top_level_index: &top_level_index,
                         },
@@ -185,6 +195,7 @@ pub fn check_module(
                     lowered,
                     names,
                     TypeIndexes {
+                        cancel,
                         function_index: &function_index,
                         top_level_index: &top_level_index,
                     },
@@ -208,6 +219,9 @@ pub fn check_module(
         validate_trait_surface(lowered, &function_index, &mut diagnostics);
 
         for function in &lowered.module.functions {
+            if cancel.check().is_err() {
+                break;
+            }
             if matches!(function.kind, FunctionKind::TraitMethod) {
                 continue;
             }
@@ -227,6 +241,7 @@ pub fn check_module(
                     lowered,
                     names,
                     TypeIndexes {
+                        cancel,
                         function_index: &function_index,
                         top_level_index: &top_level_index,
                     },
