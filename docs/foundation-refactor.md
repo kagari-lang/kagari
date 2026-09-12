@@ -44,8 +44,13 @@ as conforming until its corresponding checkpoint and regression tests pass.
 
 Implemented foundation slices:
 
-- R02: shared source/artifact/JIT value, identity, alias, short-circuit and negative
-  diagnostic cases. Host effect trace fixtures remain to be connected.
+- R02: one source/artifact/JIT fixture format now checks values, structured
+  diagnostic codes, index traps, host failures, ordered host calls, committed
+  host mutation records and final host state. It covers left-to-right evaluation,
+  alias/identity/tuple behavior, short circuit, effects surviving traps, rejected
+  host mutations and cached initialization failure. Run with `cargo test -p
+  kagari-vm language_contract`. The remaining value/activation contracts still
+  need implementation and fixtures before R02 can be checked off.
 - R03: source IDs/revisions, immutable snapshots, base/overlay precedence and
   checked UTF-8/UTF-16/CRLF coordinates. The engine now compiles and queries the
   same snapshots; disk loading, host text and overlays use one ingestion path.
