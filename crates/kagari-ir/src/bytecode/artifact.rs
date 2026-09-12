@@ -80,14 +80,14 @@ impl KbcArtifact {
             && &self.header.module_identity != expected_module
         {
             return Err(ArtifactValidationError::ModuleIdentityMismatch {
-                expected: expected_module.clone(),
-                found: self.header.module_identity.clone(),
+                expected: Box::new(expected_module.clone()),
+                found: Box::new(self.header.module_identity.clone()),
             });
         }
         if self.verification.loader.module_identity != self.header.module_identity {
             return Err(ArtifactValidationError::ModuleIdentityMismatch {
-                expected: self.header.module_identity.clone(),
-                found: self.verification.loader.module_identity.clone(),
+                expected: Box::new(self.header.module_identity.clone()),
+                found: Box::new(self.verification.loader.module_identity.clone()),
             });
         }
         if self.verification.loader.runtime_abi_version != self.header.runtime_abi_version {
@@ -611,8 +611,8 @@ pub enum ArtifactValidationError {
         found: String,
     },
     ModuleIdentityMismatch {
-        expected: ArtifactModuleIdentity,
-        found: ArtifactModuleIdentity,
+        expected: Box<ArtifactModuleIdentity>,
+        found: Box<ArtifactModuleIdentity>,
     },
     ContentHashMismatch,
     UnverifiedBytecode,

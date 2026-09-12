@@ -57,10 +57,10 @@ impl ResourceState {
     pub fn consume_instruction_steps(&self, steps: u64) -> Result<(), RuntimeError> {
         let mut counters = self.counters.borrow_mut();
         let next = counters.instruction_steps.saturating_add(steps);
-        if let Some(max) = self.policy.max_instruction_steps {
-            if next > max {
-                return Err(RuntimeError::resource_limit("instruction steps"));
-            }
+        if let Some(max) = self.policy.max_instruction_steps
+            && next > max
+        {
+            return Err(RuntimeError::resource_limit("instruction steps"));
         }
         counters.instruction_steps = next;
         Ok(())
@@ -69,10 +69,10 @@ impl ResourceState {
     pub fn enter_call(&self) -> Result<(), RuntimeError> {
         let mut counters = self.counters.borrow_mut();
         let next = counters.current_call_depth.saturating_add(1);
-        if let Some(max) = self.policy.max_call_depth {
-            if next > max {
-                return Err(RuntimeError::resource_limit("call depth"));
-            }
+        if let Some(max) = self.policy.max_call_depth
+            && next > max
+        {
+            return Err(RuntimeError::resource_limit("call depth"));
         }
         counters.current_call_depth = next;
         counters.peak_call_depth = counters.peak_call_depth.max(next);
@@ -85,10 +85,10 @@ impl ResourceState {
     }
 
     pub fn record_heap_units(&self, current: usize, peak: usize) -> Result<(), RuntimeError> {
-        if let Some(max) = self.policy.max_heap_units {
-            if current > max {
-                return Err(RuntimeError::resource_limit("heap units"));
-            }
+        if let Some(max) = self.policy.max_heap_units
+            && current > max
+        {
+            return Err(RuntimeError::resource_limit("heap units"));
         }
 
         let mut counters = self.counters.borrow_mut();
@@ -100,10 +100,10 @@ impl ResourceState {
     pub fn consume_allocation_units(&self, units: usize) -> Result<(), RuntimeError> {
         let mut counters = self.counters.borrow_mut();
         let next = counters.allocation_units.saturating_add(units);
-        if let Some(max) = self.policy.max_allocation_units {
-            if next > max {
-                return Err(RuntimeError::resource_limit("allocation units"));
-            }
+        if let Some(max) = self.policy.max_allocation_units
+            && next > max
+        {
+            return Err(RuntimeError::resource_limit("allocation units"));
         }
         counters.allocation_units = next;
         Ok(())
@@ -112,10 +112,10 @@ impl ResourceState {
     pub fn consume_host_call(&self) -> Result<(), RuntimeError> {
         let mut counters = self.counters.borrow_mut();
         let next = counters.host_calls.saturating_add(1);
-        if let Some(max) = self.policy.max_host_calls {
-            if next > max {
-                return Err(RuntimeError::resource_limit("host calls"));
-            }
+        if let Some(max) = self.policy.max_host_calls
+            && next > max
+        {
+            return Err(RuntimeError::resource_limit("host calls"));
         }
         counters.host_calls = next;
         Ok(())
@@ -124,20 +124,20 @@ impl ResourceState {
     pub fn consume_reflection_operation(&self) -> Result<(), RuntimeError> {
         let mut counters = self.counters.borrow_mut();
         let next = counters.reflection_operations.saturating_add(1);
-        if let Some(max) = self.policy.max_reflection_operations {
-            if next > max {
-                return Err(RuntimeError::resource_limit("reflection operations"));
-            }
+        if let Some(max) = self.policy.max_reflection_operations
+            && next > max
+        {
+            return Err(RuntimeError::resource_limit("reflection operations"));
         }
         counters.reflection_operations = next;
         Ok(())
     }
 
     pub fn record_loaded_modules(&self, loaded_modules: usize) -> Result<(), RuntimeError> {
-        if let Some(max) = self.policy.max_modules {
-            if loaded_modules > max {
-                return Err(RuntimeError::resource_limit("loaded modules"));
-            }
+        if let Some(max) = self.policy.max_modules
+            && loaded_modules > max
+        {
+            return Err(RuntimeError::resource_limit("loaded modules"));
         }
         self.counters.borrow_mut().loaded_modules = loaded_modules;
         Ok(())

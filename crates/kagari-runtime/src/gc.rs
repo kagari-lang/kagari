@@ -466,10 +466,10 @@ impl GcHeap {
     fn reserve_heap_units(&self, units: usize) -> Option<()> {
         let mut stats = self.stats.borrow_mut();
         let next = stats.current_heap_units.checked_add(units)?;
-        if let Some(max) = self.config.max_heap_units {
-            if next > max {
-                return None;
-            }
+        if let Some(max) = self.config.max_heap_units
+            && next > max
+        {
+            return None;
         }
         stats.current_heap_units = next;
         stats.peak_heap_units = stats.peak_heap_units.max(next);

@@ -176,7 +176,7 @@ impl CraneliftBackend {
             let result_ptr = builder.block_params(entry_block)[1];
             let consume_step = self
                 .module
-                .declare_func_in_func(self.consume_step, &mut builder.func);
+                .declare_func_in_func(self.consume_step, builder.func);
             let mut registers = vec![None; usize::from(function.register_count)];
             let mut returned = false;
 
@@ -814,14 +814,16 @@ mod tests {
     }
 
     fn loaded_module(function: BytecodeFunction) -> LoadedModule {
-        let mut module = BytecodeModule::default();
-        module.types = vec![
-            ValueType::Unit,
-            ValueType::Bool,
-            ValueType::I32,
-            ValueType::HeapObject,
-        ];
-        module.constants = constants_for_function(&function);
+        let mut module = BytecodeModule {
+            types: vec![
+                ValueType::Unit,
+                ValueType::Bool,
+                ValueType::I32,
+                ValueType::HeapObject,
+            ],
+            constants: constants_for_function(&function),
+            ..BytecodeModule::default()
+        };
         module.function_table.push(FunctionRecord {
             id: function.id,
             name: function.name.clone(),

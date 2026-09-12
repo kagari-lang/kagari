@@ -1696,7 +1696,6 @@ mod tests {
                     debug_watch_evaluation: true,
                     ..CapabilitySet::default()
                 },
-                ..SecurityContext::default()
             },
             host_exposure: HostExposurePolicy {
                 allow_host_functions: true,

@@ -17,5 +17,12 @@ macro_rules! id_newtype {
 
 id_newtype!(BlockId);
 id_newtype!(LocalId);
-id_newtype!(ModuleSlotId);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ModuleSlotId(u32);
+
+impl ModuleSlotId {
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
 id_newtype!(TempId);
