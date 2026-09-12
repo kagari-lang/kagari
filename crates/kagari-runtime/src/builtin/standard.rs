@@ -140,15 +140,24 @@ fn array_push(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     };
     gc.array_push(*handle, item.clone())
         .map(|_| Value::Array(*handle))
-        .ok_or_else(|| BuiltinError::new("array.push expects valid array and storable item"))
+        .map_err(BuiltinError::from)
 }
 
 fn array_pop(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let handle = one_array(args, "array.pop")?;
-    match gc.array_pop(handle) {
-        Some(value) => option_some(gc, value),
-        None => option_none(gc),
-    }
+    let len = gc
+        .array_len(handle)
+        .ok_or_else(|| BuiltinError::new("array.pop expects valid array"))?;
+    let Some(index) = len.checked_sub(1) else {
+        return option_none(gc);
+    };
+    let value = gc
+        .array_get(handle, index)
+        .expect("validated final array index");
+    let result = option_some(gc, value)?;
+    gc.array_pop(handle)
+        .expect("prepared array pop must commit");
+    Ok(result)
 }
 
 fn array_insert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -160,7 +169,7 @@ fn array_insert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let index = index_value(index, "array.insert")?;
     gc.array_insert(*handle, index, item.clone())
         .map(|_| Value::Array(*handle))
-        .ok_or_else(|| BuiltinError::new("array.insert expects valid index and storable item"))
+        .map_err(BuiltinError::from)
 }
 
 fn array_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -168,10 +177,15 @@ fn array_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         return Err(BuiltinError::new("array.remove expects array and index"));
     };
     let index = index_value(index, "array.remove")?;
-    match gc.array_remove(*handle, index) {
-        Some(value) => option_some(gc, value),
-        None => option_none(gc),
-    }
+    gc.array_len(*handle)
+        .ok_or_else(|| BuiltinError::new("array.remove expects valid array"))?;
+    let Some(value) = gc.array_get(*handle, index) else {
+        return option_none(gc);
+    };
+    let result = option_some(gc, value)?;
+    gc.array_remove(*handle, index)
+        .expect("prepared array removal must commit");
+    Ok(result)
 }
 
 fn array_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -187,7 +201,7 @@ fn map_new(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     }
     gc.alloc_map(Vec::new())
         .map(Value::Map)
-        .ok_or_else(|| BuiltinError::new("map.new could not allocate map"))
+        .map_err(BuiltinError::from)
 }
 
 fn map_len(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -232,7 +246,7 @@ fn map_insert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     require_hash_key(key, "map.insert")?;
     gc.map_insert(*handle, key.clone(), item.clone())
         .map(|_| Value::Map(*handle))
-        .ok_or_else(|| BuiltinError::new("map.insert expects valid map and storable item"))
+        .map_err(BuiltinError::from)
 }
 
 fn map_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -240,10 +254,15 @@ fn map_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         return Err(BuiltinError::new("map.remove expects map and key"));
     };
     require_hash_key(key, "map.remove")?;
-    match gc.map_remove(*handle, key) {
-        Some(value) => option_some(gc, value),
-        None => option_none(gc),
-    }
+    gc.map_len(*handle)
+        .ok_or_else(|| BuiltinError::new("map.remove expects valid map"))?;
+    let Some(value) = gc.map_get(*handle, key) else {
+        return option_none(gc);
+    };
+    let result = option_some(gc, value)?;
+    gc.map_remove(*handle, key)
+        .expect("prepared map removal must commit");
+    Ok(result)
 }
 
 fn map_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -292,7 +311,7 @@ fn set_new(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     }
     gc.alloc_set(Vec::new())
         .map(Value::Set)
-        .ok_or_else(|| BuiltinError::new("set.new could not allocate set"))
+        .map_err(BuiltinError::from)
 }
 
 fn set_len(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -326,7 +345,7 @@ fn set_insert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     require_hash_key(item, "set.insert")?;
     gc.set_insert(*handle, item.clone())
         .map(|_| Value::Set(*handle))
-        .ok_or_else(|| BuiltinError::new("set.insert expects valid set and hash-key item"))
+        .map_err(BuiltinError::from)
 }
 
 fn set_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -858,13 +877,13 @@ fn require_hash_key(value: &Value, name: &'static str) -> Result<(), BuiltinErro
 fn array_value(gc: &GcHeap, values: Vec<Value>) -> Result<Value, BuiltinError> {
     gc.alloc_array(values)
         .map(Value::Array)
-        .ok_or_else(|| BuiltinError::new("could not allocate standard array value"))
+        .map_err(BuiltinError::from)
 }
 
 fn set_value(gc: &GcHeap, values: Vec<Value>) -> Result<Value, BuiltinError> {
     gc.alloc_set(values)
         .map(Value::Set)
-        .ok_or_else(|| BuiltinError::new("could not allocate standard set value"))
+        .map_err(BuiltinError::from)
 }
 
 fn option_some(gc: &GcHeap, value: Value) -> Result<Value, BuiltinError> {
@@ -891,7 +910,7 @@ fn enum_value(
 ) -> Result<Value, BuiltinError> {
     gc.alloc_enum(name.to_owned(), variant.to_owned(), fields)
         .map(Value::Enum)
-        .ok_or_else(|| BuiltinError::new("could not allocate standard enum value"))
+        .map_err(BuiltinError::from)
 }
 
 fn option_value(
@@ -1131,7 +1150,10 @@ mod tests {
 
     #[test]
     fn builtin_standard_array_helpers_mutate_and_return_options() {
-        let gc = GcHeap::new(GcHeapConfig::default());
+        let gc = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let array = Value::Array(gc.alloc_array(vec![Value::I32(1)]).unwrap());
 
         assert_eq!(
@@ -1183,7 +1205,10 @@ mod tests {
 
     #[test]
     fn builtin_standard_map_helpers_preserve_order_and_return_options() {
-        let gc = GcHeap::new(GcHeapConfig::default());
+        let gc = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let map = call(&gc, StandardIntrinsic::MapNew, &[]).unwrap();
         call(
             &gc,
@@ -1239,7 +1264,10 @@ mod tests {
 
     #[test]
     fn builtin_standard_set_helpers_use_ordered_algebra() {
-        let gc = GcHeap::new(GcHeapConfig::default());
+        let gc = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let lhs = Value::Set(gc.alloc_set(vec![Value::I32(1), Value::I32(2)]).unwrap());
         let rhs = Value::Set(gc.alloc_set(vec![Value::I32(2), Value::I32(3)]).unwrap());
 
@@ -1276,7 +1304,10 @@ mod tests {
 
     #[test]
     fn builtin_standard_string_helpers_validate_utf8_boundaries() {
-        let gc = GcHeap::new(GcHeapConfig::default());
+        let gc = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         assert_eq!(
             call(
                 &gc,
@@ -1316,7 +1347,10 @@ mod tests {
 
     #[test]
     fn builtin_standard_option_result_helpers_use_standard_enum_values() {
-        let gc = GcHeap::new(GcHeapConfig::default());
+        let gc = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let some = option_some(&gc, Value::I32(10)).unwrap();
         let none = option_none(&gc).unwrap();
         let ok = result_ok(&gc, Value::I32(7)).unwrap();
@@ -1390,7 +1424,10 @@ mod tests {
 
     #[test]
     fn builtin_standard_iter_helpers_cover_arrays_maps_sets_strings_and_callbacks() {
-        let gc = GcHeap::new(GcHeapConfig::default());
+        let gc = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let array = Value::Array(gc.alloc_array(vec![Value::I32(1), Value::I32(2)]).unwrap());
         let map = Value::Map(
             gc.alloc_map(vec![
@@ -1453,7 +1490,10 @@ mod tests {
 
     #[test]
     fn builtin_standard_math_and_debug_helpers_are_deterministic() {
-        let gc = GcHeap::new(GcHeapConfig::default());
+        let gc = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         assert_eq!(
             call(
                 &gc,

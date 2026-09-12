@@ -108,6 +108,13 @@ The layout handle comes from a verified `LoadedModule` and retains that immutabl
 executable generation. Objects do not duplicate field names. Allocation requires
 a layout belonging to the receiving runtime and validates field count, payload
 storage boundaries and value representations before charging allocation units.
+`ResourcePolicy` is the sole source of heap and allocation limits. `GcHeapConfig`
+only configures collection scheduling. Runtime and standard-library allocations
+and growth update the same counters on successful commit; heap statistics read
+those counters directly. There is no explicit accounting synchronization API.
+Allocating heap operations return structured runtime errors, including distinct
+heap-limit and cumulative-allocation failures. See the
+[failure contract](failure-semantics.md#modification-guarantees) for commit order.
 Field reads require a matching nominal layout; writes additionally require a
 writable slot and matching value representation before changing the target.
 

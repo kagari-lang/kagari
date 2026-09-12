@@ -8,20 +8,19 @@ use std::{
 
 use indexmap::{IndexMap, IndexSet};
 
+use crate::error::{RuntimeError, RuntimeErrorKind};
 use crate::value::{EnumValueSnapshot, MapKey, StructValueField, Value};
 
 #[derive(Debug, Clone, Copy)]
 pub struct GcHeapConfig {
     /// Minimum live-unit threshold for collection at execution safepoints.
     pub collection_threshold: Option<usize>,
-    pub max_heap_units: Option<usize>,
 }
 
 impl Default for GcHeapConfig {
     fn default() -> Self {
         Self {
             collection_threshold: Some(1024),
-            max_heap_units: None,
         }
     }
 }
@@ -30,10 +29,19 @@ impl Default for GcHeapConfig {
 pub struct GcHeapStats {
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
+    pub allocation_units: usize,
     pub allocated_objects: usize,
     pub collections: u64,
     pub reclaimed_objects: usize,
     pub last_pause: Duration,
+}
+
+#[derive(Debug, Default)]
+struct CollectorStats {
+    allocated_objects: usize,
+    collections: u64,
+    reclaimed_objects: usize,
+    last_pause: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -149,12 +157,13 @@ pub struct GcHeap {
     objects: RefCell<Vec<ObjectSlot>>,
     free: RefCell<Vec<usize>>,
     roots: RefCell<Vec<Weak<RefCell<Vec<Value>>>>>,
-    stats: RefCell<GcHeapStats>,
+    stats: RefCell<CollectorStats>,
+    resources: Rc<crate::resource::ResourceState>,
     next_collection: Cell<usize>,
 }
 
 impl GcHeap {
-    pub fn new(config: GcHeapConfig) -> Self {
+    pub fn new(config: GcHeapConfig, resources: Rc<crate::resource::ResourceState>) -> Self {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
         let owner = NEXT_OWNER
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
@@ -167,7 +176,8 @@ impl GcHeap {
             objects: RefCell::new(Vec::new()),
             free: RefCell::new(Vec::new()),
             roots: RefCell::new(Vec::new()),
-            stats: RefCell::new(GcHeapStats::default()),
+            stats: RefCell::new(CollectorStats::default()),
+            resources,
             next_collection: Cell::new(config.collection_threshold.unwrap_or(usize::MAX).max(1)),
         }
     }
@@ -181,7 +191,17 @@ impl GcHeap {
     }
 
     pub fn stats(&self) -> GcHeapStats {
-        *self.stats.borrow()
+        let stats = self.stats.borrow();
+        let counters = self.resources.counters();
+        GcHeapStats {
+            current_heap_units: counters.current_heap_units,
+            peak_heap_units: counters.peak_heap_units,
+            allocation_units: counters.allocation_units,
+            allocated_objects: stats.allocated_objects,
+            collections: stats.collections,
+            reclaimed_objects: stats.reclaimed_objects,
+            last_pause: stats.last_pause,
+        }
     }
 
     pub fn active_roots(&self) -> usize {
@@ -192,42 +212,53 @@ impl GcHeap {
             .count()
     }
 
-    pub fn alloc_array(&self, elements: Vec<Value>) -> Option<HeapObjectId> {
+    pub fn alloc_array(&self, elements: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
         if !elements.iter().all(|value| self.valid_payload(value)) {
-            return None;
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap target, index, or payload",
+            ));
         }
-        self.reserve_heap_units(1 + elements.len())?;
-        Some(self.alloc_object(HeapObject::Array(elements)))
+        self.alloc_object(HeapObject::Array(elements))
     }
 
-    pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Option<HeapObjectId> {
+    pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Result<HeapObjectId, RuntimeError> {
         let mut map = IndexMap::new();
         for (key, value) in entries {
             if !self.valid_payload(&value) {
-                return None;
+                return Err(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "invalid heap target, index, or payload",
+                ));
             }
-            let key = MapKey::from_value(&key)?;
+            let key = MapKey::from_value(&key).ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key")
+            })?;
+            map.try_reserve(usize::from(!map.contains_key(&key)))
+                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
             map.insert(key, value);
         }
-        self.reserve_heap_units(1 + map.len())?;
-        Some(self.alloc_object(HeapObject::Map(map)))
+        self.alloc_object(HeapObject::Map(map))
     }
 
-    pub fn alloc_set(&self, values: Vec<Value>) -> Option<HeapObjectId> {
+    pub fn alloc_set(&self, values: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
         let mut set = IndexSet::new();
         for value in values {
-            let key = MapKey::from_value(&value)?;
+            let key = MapKey::from_value(&value).ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key")
+            })?;
+            set.try_reserve(usize::from(!set.contains(&key)))
+                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
             set.insert(key);
         }
-        self.reserve_heap_units(1 + set.len())?;
-        Some(self.alloc_object(HeapObject::Set(set)))
+        self.alloc_object(HeapObject::Set(set))
     }
 
     pub(crate) fn alloc_struct(
         &self,
         layout: crate::module::StructLayoutRef,
         fields: Vec<Value>,
-    ) -> Option<HeapObjectId> {
+    ) -> Result<HeapObjectId, RuntimeError> {
         if fields.len() != layout.layout().fields.len()
             || !fields
                 .iter()
@@ -236,10 +267,12 @@ impl GcHeap {
                     self.valid_payload(value) && value.has_representation(field.ty)
                 })
         {
-            return None;
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap target, index, or payload",
+            ));
         }
-        self.reserve_heap_units(1 + fields.len())?;
-        Some(self.alloc_object(HeapObject::Struct { layout, fields }))
+        self.alloc_object(HeapObject::Struct { layout, fields })
     }
 
     pub fn alloc_enum(
@@ -247,16 +280,18 @@ impl GcHeap {
         name: String,
         variant: String,
         fields: Vec<Value>,
-    ) -> Option<HeapObjectId> {
+    ) -> Result<HeapObjectId, RuntimeError> {
         if !fields.iter().all(|value| self.valid_payload(value)) {
-            return None;
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap target, index, or payload",
+            ));
         }
-        self.reserve_heap_units(1 + fields.len())?;
-        Some(self.alloc_object(HeapObject::Enum(EnumValueSnapshot {
+        self.alloc_object(HeapObject::Enum(EnumValueSnapshot {
             name,
             variant,
             fields,
-        })))
+        }))
     }
 
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {
@@ -272,15 +307,23 @@ impl GcHeap {
             .flatten()
     }
 
-    pub fn array_push(&self, id: HeapObjectId, value: Value) -> Option<()> {
+    pub fn array_push(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
         if !self.valid_payload(&value) {
-            return None;
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap target, index, or payload",
+            ));
         }
-        self.array_len(id)?;
-        self.reserve_heap_units(1)?;
         self.with_array_mut(id, |elements| {
+            let growth = self.resources.prepare_heap_growth(1)?;
+            elements
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
             elements.push(value);
+            growth.commit();
+            Ok(())
         })
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
     pub fn array_pop(&self, id: HeapObjectId) -> Option<Value> {
@@ -291,22 +334,34 @@ impl GcHeap {
         value
     }
 
-    pub fn array_insert(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
+    pub fn array_insert(
+        &self,
+        id: HeapObjectId,
+        index: usize,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
         if !self.valid_payload(&value) {
-            return None;
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap target, index, or payload",
+            ));
         }
-        let valid_index = self.with_array(id, |elements| index <= elements.len())?;
-        if !valid_index {
-            return None;
-        }
-        self.reserve_heap_units(1)?;
-        let inserted = self.with_array_mut(id, |elements| {
+        self.with_array_mut(id, |elements| {
+            if index > elements.len() {
+                return Err(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "invalid heap target, index, or payload",
+                ));
+            }
+            let growth = self.resources.prepare_heap_growth(1)?;
+            elements
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
             elements.insert(index, value);
-        });
-        if inserted.is_none() {
-            self.release_heap_units(1);
-        }
-        inserted
+            growth.commit();
+            Ok(())
+        })
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
     pub fn array_remove(&self, id: HeapObjectId, index: usize) -> Option<Value> {
@@ -362,22 +417,31 @@ impl GcHeap {
             .flatten()
     }
 
-    pub fn map_insert(&self, id: HeapObjectId, key: Value, value: Value) -> Option<()> {
+    pub fn map_insert(
+        &self,
+        id: HeapObjectId,
+        key: Value,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
         if !self.valid_payload(&value) {
-            return None;
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap target, index, or payload",
+            ));
         }
-        let key = MapKey::from_value(&key)?;
-        let needs_unit = self.with_map(id, |entries| !entries.contains_key(&key))?;
-        if needs_unit {
-            self.reserve_heap_units(1)?;
-        }
-        let inserted = self.with_map_mut(id, |entries| {
+        let key = MapKey::from_value(&key)
+            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
+        self.with_map_mut(id, |entries| {
+            let units = usize::from(!entries.contains_key(&key));
+            let growth = self.resources.prepare_heap_growth(units)?;
+            entries
+                .try_reserve(units)
+                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
             entries.insert(key, value);
-        });
-        if inserted.is_none() && needs_unit {
-            self.release_heap_units(1);
-        }
-        inserted
+            growth.commit();
+            Ok(())
+        })
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
     pub fn map_remove(&self, id: HeapObjectId, key: &Value) -> Option<Value> {
@@ -414,17 +478,20 @@ impl GcHeap {
         self.with_set(id, |values| values.contains(&key))
     }
 
-    pub fn set_insert(&self, id: HeapObjectId, value: Value) -> Option<bool> {
-        let key = MapKey::from_value(&value)?;
-        let needs_unit = self.with_set(id, |values| !values.contains(&key))?;
-        if needs_unit {
-            self.reserve_heap_units(1)?;
-        }
-        let inserted = self.with_set_mut(id, |values| values.insert(key));
-        if inserted.is_none() && needs_unit {
-            self.release_heap_units(1);
-        }
-        inserted
+    pub fn set_insert(&self, id: HeapObjectId, value: Value) -> Result<bool, RuntimeError> {
+        let key = MapKey::from_value(&value)
+            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
+        self.with_set_mut(id, |values| {
+            let units = usize::from(!values.contains(&key));
+            let growth = self.resources.prepare_heap_growth(units)?;
+            values
+                .try_reserve(units)
+                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
+            let inserted = values.insert(key);
+            growth.commit();
+            Ok(inserted)
+        })
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
     pub fn set_remove(&self, id: HeapObjectId, value: &Value) -> Option<bool> {
@@ -561,7 +628,7 @@ impl GcHeap {
 
     pub fn collection_due(&self) -> bool {
         self.config.collection_threshold.is_some()
-            && self.stats.borrow().current_heap_units >= self.next_collection.get()
+            && self.resources.counters().current_heap_units >= self.next_collection.get()
     }
 
     /// Stop-the-world, nonmoving collection. Additional roots belong to runtime
@@ -607,7 +674,8 @@ impl GcHeap {
         stats.allocated_objects -= reclaimed_objects;
         stats.last_pause = pause;
         self.next_collection.set(
-            stats
+            self.resources
+                .counters()
                 .current_heap_units
                 .saturating_mul(2)
                 .max(self.config.collection_threshold.unwrap_or(usize::MAX))
@@ -670,12 +738,16 @@ impl GcHeap {
         value.is_default_heap_payload() && self.validate_value(value)
     }
 
-    fn alloc_object(&self, object: HeapObject) -> HeapObjectId {
+    fn alloc_object(&self, object: HeapObject) -> Result<HeapObjectId, RuntimeError> {
+        let growth = self.resources.prepare_heap_growth(object.units())?;
         let mut objects = self.objects.borrow_mut();
         let slot = if let Some(index) = self.free.borrow_mut().pop() {
             objects[index].object = Some(object);
             index
         } else {
+            objects
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("allocation capacity"))?;
             let index = objects.len();
             objects.push(ObjectSlot {
                 generation: 0,
@@ -684,11 +756,12 @@ impl GcHeap {
             index
         };
         self.stats.borrow_mut().allocated_objects += 1;
-        HeapObjectId {
+        growth.commit();
+        Ok(HeapObjectId {
             owner: self.owner,
             slot,
             generation: objects[slot].generation,
-        }
+        })
     }
 
     fn object_ref<'a>(
@@ -720,22 +793,8 @@ impl GcHeap {
         slot.object.as_mut()
     }
 
-    fn reserve_heap_units(&self, units: usize) -> Option<()> {
-        let mut stats = self.stats.borrow_mut();
-        let next = stats.current_heap_units.checked_add(units)?;
-        if let Some(max) = self.config.max_heap_units
-            && next > max
-        {
-            return None;
-        }
-        stats.current_heap_units = next;
-        stats.peak_heap_units = stats.peak_heap_units.max(next);
-        Some(())
-    }
-
     fn release_heap_units(&self, units: usize) {
-        let mut stats = self.stats.borrow_mut();
-        stats.current_heap_units = stats.current_heap_units.saturating_sub(units);
+        self.resources.release_heap_units(units);
     }
 
     fn trace_values(&self, values: &[Value]) -> Option<Vec<HeapObjectId>> {
@@ -999,40 +1058,49 @@ mod tests {
 
     #[test]
     fn rejects_ephemeral_values_as_heap_payloads() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
 
-        assert!(heap.alloc_array(vec![shared_borrow_value(1)]).is_none());
-        assert!(heap.alloc_array(vec![unique_borrow_value(2)]).is_none());
+        assert!(heap.alloc_array(vec![shared_borrow_value(1)]).is_err());
+        assert!(heap.alloc_array(vec![unique_borrow_value(2)]).is_err());
         assert_eq!(heap.allocated_objects(), 0);
     }
 
     #[test]
     fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
 
-        assert!(heap.alloc_array(vec![host_root_value(1)]).is_none());
+        assert!(heap.alloc_array(vec![host_root_value(1)]).is_err());
         assert!(
             heap.alloc_map(vec![(Value::Str("host".to_owned()), host_root_value(2))])
-                .is_none()
+                .is_err()
         );
         assert!(
             heap.alloc_map(vec![(path_view_value(3), Value::I32(1))])
-                .is_none()
+                .is_err()
         );
-        assert!(heap.alloc_set(vec![host_root_value(4)]).is_none());
+        assert!(heap.alloc_set(vec![host_root_value(4)]).is_err());
         assert!(
             heap.alloc_struct(
                 layout("HostBacked", "path", ValueType::HeapObject),
                 vec![path_view_value(3)],
             )
-            .is_none()
+            .is_err()
         );
         assert_eq!(heap.allocated_objects(), 0);
     }
 
     #[test]
     fn rejects_non_storable_heap_mutations() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let array = heap.alloc_array(vec![Value::I32(1)]).unwrap();
         let record = heap
             .alloc_struct(
@@ -1041,7 +1109,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(heap.array_push(array, shared_borrow_value(1)).is_none());
+        assert!(heap.array_push(array, shared_borrow_value(1)).is_err());
         assert!(heap.array_set(array, 0, path_view_value(4)).is_none());
         assert!(
             heap.struct_set_slot(
@@ -1062,7 +1130,10 @@ mod tests {
 
     #[test]
     fn assigns_stable_object_identity_and_kind() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let first = heap.alloc_array(vec![]).unwrap();
         let second = heap.alloc_map(vec![]).unwrap();
         let third = heap.alloc_set(vec![]).unwrap();
@@ -1085,7 +1156,10 @@ mod tests {
 
     #[test]
     fn builtin_ordered_maps_preserve_insertion_order_and_account_units() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let map = heap
             .alloc_map(vec![
                 (Value::Str("b".to_owned()), Value::I32(2)),
@@ -1136,7 +1210,10 @@ mod tests {
 
     #[test]
     fn builtin_ordered_sets_preserve_insertion_order_and_account_units() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let set = heap
             .alloc_set(vec![
                 Value::Str("b".to_owned()),
@@ -1156,12 +1233,9 @@ mod tests {
             Some(true)
         );
 
-        assert_eq!(heap.set_insert(set, Value::Str("c".to_owned())), Some(true));
+        assert_eq!(heap.set_insert(set, Value::Str("c".to_owned())), Ok(true));
         assert_eq!(heap.stats().current_heap_units, 4);
-        assert_eq!(
-            heap.set_insert(set, Value::Str("a".to_owned())),
-            Some(false)
-        );
+        assert_eq!(heap.set_insert(set, Value::Str("a".to_owned())), Ok(false));
         assert_eq!(heap.stats().current_heap_units, 4);
         assert_eq!(
             heap.set_remove(set, &Value::Str("b".to_owned())),
@@ -1175,7 +1249,10 @@ mod tests {
 
     #[test]
     fn roots_are_explicit_storable_slots() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let object = heap.alloc_array(vec![Value::I32(1)]).unwrap();
         let root = heap.root_value(Value::Array(object)).unwrap();
 
@@ -1194,7 +1271,10 @@ mod tests {
 
     #[test]
     fn root_scanning_traces_only_gc_managed_boundaries() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let leaf = heap.alloc_array(vec![Value::I32(1)]).unwrap();
         let map = heap
             .alloc_map(vec![(Value::Str("leaf".to_owned()), Value::Array(leaf))])
@@ -1227,7 +1307,10 @@ mod tests {
 
     #[test]
     fn root_scanning_handles_cycles_without_duplicate_identity() {
-        let heap = GcHeap::new(GcHeapConfig::default());
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let array = heap.alloc_array(vec![]).unwrap();
         let record = heap
             .alloc_struct(

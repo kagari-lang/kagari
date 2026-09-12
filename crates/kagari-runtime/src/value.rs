@@ -293,18 +293,24 @@ mod tests {
         assert_eq!(scalar.category(), ValueCategory::Primitive);
         assert_eq!(
             Value::Map(
-                crate::gc::GcHeap::new(Default::default())
-                    .alloc_map(Vec::new())
-                    .unwrap()
+                crate::gc::GcHeap::new(
+                    Default::default(),
+                    std::rc::Rc::new(crate::resource::ResourceState::default())
+                )
+                .alloc_map(Vec::new())
+                .unwrap()
             )
             .category(),
             ValueCategory::ScriptOwned
         );
         assert_eq!(
             Value::Set(
-                crate::gc::GcHeap::new(Default::default())
-                    .alloc_set(Vec::new())
-                    .unwrap()
+                crate::gc::GcHeap::new(
+                    Default::default(),
+                    std::rc::Rc::new(crate::resource::ResourceState::default())
+                )
+                .alloc_set(Vec::new())
+                .unwrap()
             )
             .category(),
             ValueCategory::ScriptOwned
@@ -329,17 +335,23 @@ mod tests {
         assert!(Value::Tuple(vec![Value::Unit]).is_default_heap_payload());
         assert!(
             Value::Map(
-                crate::gc::GcHeap::new(Default::default())
-                    .alloc_map(Vec::new())
-                    .unwrap()
+                crate::gc::GcHeap::new(
+                    Default::default(),
+                    std::rc::Rc::new(crate::resource::ResourceState::default())
+                )
+                .alloc_map(Vec::new())
+                .unwrap()
             )
             .is_default_heap_payload()
         );
         assert!(
             Value::Set(
-                crate::gc::GcHeap::new(Default::default())
-                    .alloc_set(Vec::new())
-                    .unwrap()
+                crate::gc::GcHeap::new(
+                    Default::default(),
+                    std::rc::Rc::new(crate::resource::ResourceState::default())
+                )
+                .alloc_set(Vec::new())
+                .unwrap()
             )
             .is_default_heap_payload()
         );

@@ -100,7 +100,7 @@ impl DebugPause {
                     runtime
                         .validate_debug_value_visible(&binding.value)
                         .map_err(VmError::RuntimeError)?;
-                    Ok(binding.value.clone())
+                    Ok::<_, VmError>(binding.value.clone())
                 })
                 .transpose()?
                 .ok_or(VmError::MissingField(name.clone())),

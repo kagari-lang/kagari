@@ -261,7 +261,7 @@ impl<'a> Executor<'a> {
         let value = self
             .runtime
             .invoke_standard_builtin(intrinsic, &args)
-            .map_err(VmError::BuiltinError)?;
+            .map_err(VmError::from)?;
         if let Some(dst) = dst {
             self.current_frame_mut()?.write_register(dst, value)?;
         }

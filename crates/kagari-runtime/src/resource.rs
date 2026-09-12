@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{RefCell, RefMut};
 
 use crate::error::RuntimeError;
 
@@ -32,6 +32,20 @@ pub struct ResourceCounters {
 pub struct ResourceState {
     policy: ResourcePolicy,
     counters: RefCell<ResourceCounters>,
+}
+
+/// A checked, uncharged growth operation. No user code runs while it is held.
+pub(crate) struct HeapGrowth<'a> {
+    counters: RefMut<'a, ResourceCounters>,
+    live: usize,
+    allocated: usize,
+}
+impl HeapGrowth<'_> {
+    pub(crate) fn commit(mut self) {
+        self.counters.current_heap_units = self.live;
+        self.counters.peak_heap_units = self.counters.peak_heap_units.max(self.live);
+        self.counters.allocation_units = self.allocated;
+    }
 }
 
 impl ResourceState {
@@ -84,29 +98,39 @@ impl ResourceState {
         counters.current_call_depth = counters.current_call_depth.saturating_sub(1);
     }
 
-    pub fn record_heap_units(&self, current: usize, peak: usize) -> Result<(), RuntimeError> {
-        if let Some(max) = self.policy.max_heap_units
-            && current > max
-        {
+    pub(crate) fn prepare_heap_growth(&self, units: usize) -> Result<HeapGrowth<'_>, RuntimeError> {
+        let counters = self.counters.borrow_mut();
+        let live = counters
+            .current_heap_units
+            .checked_add(units)
+            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
+        let allocated = counters
+            .allocation_units
+            .checked_add(units)
+            .ok_or_else(|| RuntimeError::resource_limit("allocation units"))?;
+        if self.policy.max_heap_units.is_some_and(|max| live > max) {
             return Err(RuntimeError::resource_limit("heap units"));
         }
-
-        let mut counters = self.counters.borrow_mut();
-        counters.current_heap_units = current;
-        counters.peak_heap_units = counters.peak_heap_units.max(peak);
-        Ok(())
-    }
-
-    pub fn consume_allocation_units(&self, units: usize) -> Result<(), RuntimeError> {
-        let mut counters = self.counters.borrow_mut();
-        let next = counters.allocation_units.saturating_add(units);
-        if let Some(max) = self.policy.max_allocation_units
-            && next > max
+        if self
+            .policy
+            .max_allocation_units
+            .is_some_and(|max| allocated > max)
         {
             return Err(RuntimeError::resource_limit("allocation units"));
         }
-        counters.allocation_units = next;
-        Ok(())
+        Ok(HeapGrowth {
+            counters,
+            live,
+            allocated,
+        })
+    }
+
+    pub(crate) fn release_heap_units(&self, units: usize) {
+        let mut counters = self.counters.borrow_mut();
+        counters.current_heap_units = counters
+            .current_heap_units
+            .checked_sub(units)
+            .expect("heap accounting cannot underflow");
     }
 
     pub fn consume_host_call(&self) -> Result<(), RuntimeError> {
@@ -206,9 +230,9 @@ mod tests {
             ..ResourcePolicy::default()
         });
 
-        resources.consume_allocation_units(2).unwrap();
+        resources.prepare_heap_growth(2).unwrap().commit();
         assert_eq!(
-            resources.consume_allocation_units(1).unwrap_err().kind(),
+            resources.prepare_heap_growth(1).err().unwrap().kind(),
             RuntimeErrorKind::ResourceLimitExceeded
         );
         assert_eq!(resources.counters().allocation_units, 2);

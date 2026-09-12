@@ -515,6 +515,34 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
 }
 
 #[test]
+fn rejects_previous_allocation_abi_even_when_loader_requests_it() {
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
+        },
+        ArtifactBuildOptions {
+            runtime_abi_version: "kagari-runtime-abi-v5".into(),
+            ..Default::default()
+        },
+    );
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    for runtime_abi_version in [
+        crate::bytecode::KAGARI_RUNTIME_ABI_VERSION,
+        "kagari-runtime-abi-v5",
+    ] {
+        let requirements = ArtifactCompatibility {
+            runtime_abi_version: runtime_abi_version.into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            decoded.validate_for_loader(&requirements),
+            Err(ArtifactValidationError::RuntimeAbiMismatch { .. })
+        ));
+    }
+}
+
+#[test]
 fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
     let module = common::bytecode_ok("fn main() -> i32 { 1 }");
     let mut artifact = KbcArtifact::from_program(

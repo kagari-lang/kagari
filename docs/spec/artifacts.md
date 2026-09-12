@@ -47,8 +47,10 @@ format version. Versions 1 through 9 are rejected; no migration or compatibility
 decoder exists. Version 10 stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
-The runtime ABI identity is `kagari-runtime-abi-v5`; the runtime-helper ABI is
-v3. Host calls use HostImportId operands and a required HostInterface declaration
+The runtime ABI identity is `kagari-runtime-abi-v6`; the runtime-helper ABI is
+v3. ABI v5 artifacts are rejected, including when the caller requests v5: their
+allocation and standard-mutation accounting does not satisfy the current contract.
+Host calls use HostImportId operands and a required HostInterface declaration
 table. There is no arbitrary host-registry
 fingerprint option or duplicate string dependency table. The obsolete BuiltinMethod
 call operand is also absent;

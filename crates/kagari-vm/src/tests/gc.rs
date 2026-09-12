@@ -9,7 +9,6 @@ fn runtime(max_steps: Option<u64>) -> Runtime {
     Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
-            ..Default::default()
         },
         resources: ResourcePolicy {
             max_instruction_steps: max_steps,

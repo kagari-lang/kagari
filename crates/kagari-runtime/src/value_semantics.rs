@@ -77,7 +77,10 @@ mod tests {
 
     #[test]
     fn enum_members_use_script_semantics_including_identity_and_nan() {
-        let gc = GcHeap::new(Default::default());
+        let gc = GcHeap::new(
+            Default::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let make = |value| {
             Value::Enum(
                 gc.alloc_enum("Option".into(), "Some".into(), vec![value])

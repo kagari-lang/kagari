@@ -123,7 +123,7 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
         runtime
             .gc()
             .alloc_array(vec![borrow_value.clone()])
-            .is_none()
+            .is_err()
     );
     assert!(runtime.root_value(borrow_value).is_none());
 }

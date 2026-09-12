@@ -235,7 +235,10 @@ mod tests {
 
     #[test]
     fn reports_production_value_category_names() {
-        let gc = GcHeap::new(GcHeapConfig::default());
+        let gc = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
         let map = gc.alloc_map(vec![]).unwrap();
         let set = gc.alloc_set(vec![]).unwrap();
 

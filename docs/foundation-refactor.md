@@ -306,7 +306,7 @@ Implemented foundation slices:
   and can retain explicit rooted values. The rooted_values example records pause
   data for a 10,000-object chain, recorded in [performance-baseline.md](performance-baseline.md).
   Enum nominal identity, complete interface/capture
-  ownership, allocation/dirty-record transaction guarantees and host reentry remain
+  ownership, typed-path dirty-record transaction guarantees and host reentry remain
   open; this does not mark R11/R12 complete.
 - R12/R17: execution frames now carry their owning program member, and module-state
   access uses short borrows. Debug frames and breakpoints distinguish member IDs
@@ -320,9 +320,18 @@ Implemented foundation slices:
   integer abs use checked operations. Existing native i32 add/subtract/multiply/
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
-  ABI is v5 and JIT helper ABI is v3. Path arithmetic failure produces no
-  write callback or dirty record. Const evaluation shares checked arithmetic and
-  honors short circuit, with cancellation checks. Mutation resource commit,
+  ABI is v6 and JIT helper ABI is v3. Path arithmetic failure produces no
+  write callback or dirty record. Heap allocations and standard container growth
+  now share resource counters: validation, budget checks and capacity preparation
+  precede mutation and accounting commit. Failed operations charge no units;
+  removals/GC release live units without refunding cumulative allocation budget.
+  Standard array/map removals prepare their Option result before removing an
+  entry, and structured allocation errors survive builtin/VM boundaries.
+  Direct/encoded programs and existing JIT fallback verify the same resource
+  failures, counters and frame cleanup. Typed-path dirty-record commit and engine
+  fault isolation still remain open; this does not complete R13.
+  Const evaluation shares checked arithmetic and
+  honors short circuit, with cancellation checks. Typed-path resource commit,
   narrower integer layouts and the other backend/
   debugger contracts remain open; compile-time quotas are still pending R15.
   Assignment lowering now retains a location before RHS execution and resolves
@@ -330,7 +339,7 @@ Implemented foundation slices:
   enclosing object/slot commit; shared-object ancestors are not rewritten.
   Source syntax supports `+=`, `-=`, `*=`, `/=` and computed receivers. Tuple
   member replacement requires a writable enclosing slot. Runtime mutation records,
-  commit resource accounting and full failure-state observation remain pending.
+  typed-path commit accounting and full failure-state observation remain pending.
   Line comments are retained as CST trivia, with Unicode/CRLF coverage. The
   standard-library example now runs through the CLI as part of this validation.
 

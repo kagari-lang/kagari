@@ -2,22 +2,43 @@ pub mod standard;
 
 use kagari_ir::builtin::surface::StandardIntrinsic;
 
-use crate::{gc::GcHeap, value::Value};
+use crate::{
+    error::{RuntimeError, RuntimeErrorKind},
+    gc::GcHeap,
+    value::Value,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuiltinError {
-    message: String,
+    error: RuntimeError,
 }
 
 impl BuiltinError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
+            error: RuntimeError::new(RuntimeErrorKind::ScriptTrap, message),
         }
     }
 
     pub fn message(&self) -> &str {
-        &self.message
+        self.error.message()
+    }
+    pub fn into_runtime_error(self) -> RuntimeError {
+        self.error
+    }
+
+    pub fn kind(&self) -> RuntimeErrorKind {
+        self.error.kind()
+    }
+
+    fn with_context(self, name: &str) -> Self {
+        RuntimeError::new(self.error.kind(), format!("{name}: {}", self.message())).into()
+    }
+}
+
+impl From<RuntimeError> for BuiltinError {
+    fn from(error: RuntimeError) -> Self {
+        Self { error }
     }
 }
 
@@ -26,13 +47,8 @@ pub fn invoke_standard(
     intrinsic: StandardIntrinsic,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {
-    standard::invoke(gc, intrinsic, args).map_err(|err| {
-        BuiltinError::new(format!(
-            "{}: {}",
-            standard_intrinsic_name(intrinsic),
-            err.message()
-        ))
-    })
+    standard::invoke(gc, intrinsic, args)
+        .map_err(|err| err.with_context(standard_intrinsic_name(intrinsic)))
 }
 
 pub fn invoke_standard_with_callbacks(
@@ -41,13 +57,8 @@ pub fn invoke_standard_with_callbacks(
     args: &[Value],
     callbacks: &mut dyn standard::BuiltinCallbacks,
 ) -> Result<Value, BuiltinError> {
-    standard::invoke_with_callbacks(gc, intrinsic, args, callbacks).map_err(|err| {
-        BuiltinError::new(format!(
-            "{}: {}",
-            standard_intrinsic_name(intrinsic),
-            err.message()
-        ))
-    })
+    standard::invoke_with_callbacks(gc, intrinsic, args, callbacks)
+        .map_err(|err| err.with_context(standard_intrinsic_name(intrinsic)))
 }
 
 fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {

@@ -252,7 +252,7 @@ fn metadata_registry_carries_reload_and_path_validation_records() {
 fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let mut runtime = Runtime::default();
 
-    assert!(runtime.gc().alloc_array(vec![host_root_value(1)]).is_none());
+    assert!(runtime.gc().alloc_array(vec![host_root_value(1)]).is_err());
     let record_layout = layouts::layout(
         &mut runtime,
         "HostBacked",

@@ -6,5 +6,6 @@ mod gc;
 mod helpers;
 mod jit;
 mod language_contract;
+mod mutation_resources;
 mod security;
 mod source_programs;

@@ -10,8 +10,8 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     assert_ne!(own, foreign);
     let before = first.gc().stats();
     assert!(first.gc().array_get(foreign, 0).is_none());
-    assert!(first.gc().array_push(foreign, Value::I32(3)).is_none());
-    assert!(first.gc().array_push(own, Value::Array(foreign)).is_none());
+    assert!(first.gc().array_push(foreign, Value::I32(3)).is_err());
+    assert!(first.gc().array_push(own, Value::Array(foreign)).is_err());
     assert!(
         first
             .gc()
@@ -22,7 +22,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
         first
             .gc()
             .alloc_enum("E".into(), "V".into(), vec![Value::Array(foreign)])
-            .is_none()
+            .is_err()
     );
     assert!(first.root_value(Value::Array(foreign)).is_none());
     assert!(first.root_value(Value::Map(own)).is_none());
@@ -66,7 +66,7 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
     assert_eq!(next.index(), object.index());
     assert!(next.generation() > object.generation());
     let before = runtime.gc().stats();
-    assert!(runtime.gc().array_push(object, Value::I32(7)).is_none());
+    assert!(runtime.gc().array_push(object, Value::I32(7)).is_err());
     assert_eq!(runtime.gc().stats(), before);
     assert!(script_equal(runtime.gc(), &Value::Array(object), &Value::Array(object)).is_err());
 }

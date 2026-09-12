@@ -87,7 +87,7 @@ pub struct Runtime {
     security: SecurityContext,
     host_exposure: HostExposurePolicy,
     debug_visibility: DebugVisibilityPolicy,
-    resources: ResourceState,
+    resources: std::rc::Rc<ResourceState>,
     reloads: HotReloadCoordinator,
     modules: ModuleStore,
     execution_artifacts: ExecutionArtifactRegistry,
@@ -95,17 +95,16 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
-        let mut gc_config = config.gc;
-        gc_config.max_heap_units = gc_config.max_heap_units.or(config.resources.max_heap_units);
+        let resources = std::rc::Rc::new(ResourceState::new(config.resources));
         Self {
-            gc: GcHeap::new(gc_config),
+            gc: GcHeap::new(config.gc, resources.clone()),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
             host_borrows: HostBorrowTable::default(),
             security: config.security,
             host_exposure: config.host_exposure,
             debug_visibility: config.debug_visibility,
-            resources: ResourceState::new(config.resources),
+            resources,
             reloads: HotReloadCoordinator::default(),
             modules: ModuleStore::default(),
             execution_artifacts: ExecutionArtifactRegistry::default(),
@@ -118,14 +117,7 @@ impl Runtime {
 
     pub fn alloc_array(&self, elements: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
         self.validate_heap_payloads(&elements)?;
-        let units = 1 + elements.len();
-        self.resources.consume_allocation_units(units)?;
-        let handle = self
-            .gc
-            .alloc_array(elements)
-            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
-        self.sync_heap_accounting()?;
-        Ok(handle)
+        self.gc.alloc_array(elements)
     }
 
     pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Result<HeapObjectId, RuntimeError> {
@@ -133,26 +125,12 @@ impl Runtime {
             self.validate_heap_payloads(std::slice::from_ref(key))?;
             self.validate_heap_payloads(std::slice::from_ref(value))?;
         }
-        let units = 1 + entries.len();
-        self.resources.consume_allocation_units(units)?;
-        let handle = self
-            .gc
-            .alloc_map(entries)
-            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
-        self.sync_heap_accounting()?;
-        Ok(handle)
+        self.gc.alloc_map(entries)
     }
 
     pub fn alloc_set(&self, values: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
         self.validate_heap_payloads(&values)?;
-        let units = 1 + values.len();
-        self.resources.consume_allocation_units(units)?;
-        let handle = self
-            .gc
-            .alloc_set(values)
-            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
-        self.sync_heap_accounting()?;
-        Ok(handle)
+        self.gc.alloc_set(values)
     }
 
     pub fn alloc_struct(
@@ -181,14 +159,7 @@ impl Runtime {
                 "struct initializer does not match its layout",
             ));
         }
-        let units = 1 + fields.len();
-        self.resources.consume_allocation_units(units)?;
-        let handle = self
-            .gc
-            .alloc_struct(layout, fields)
-            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
-        self.sync_heap_accounting()?;
-        Ok(handle)
+        self.gc.alloc_struct(layout, fields)
     }
 
     pub fn alloc_enum(
@@ -198,14 +169,7 @@ impl Runtime {
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.validate_heap_payloads(&fields)?;
-        let units = 1 + fields.len();
-        self.resources.consume_allocation_units(units)?;
-        let handle = self
-            .gc
-            .alloc_enum(name, variant, fields)
-            .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
-        self.sync_heap_accounting()?;
-        Ok(handle)
+        self.gc.alloc_enum(name, variant, fields)
     }
 
     pub fn host(&self) -> &HostRegistry {
@@ -797,7 +761,6 @@ impl Runtime {
                 "invalid heap reference in collection roots",
             )
         })?;
-        self.sync_heap_accounting()?;
         Ok(result)
     }
 
@@ -818,12 +781,6 @@ impl Runtime {
 
     pub fn leave_call(&self) {
         self.resources.leave_call();
-    }
-
-    pub fn sync_heap_accounting(&self) -> Result<(), RuntimeError> {
-        let stats = self.gc.stats();
-        self.resources
-            .record_heap_units(stats.current_heap_units, stats.peak_heap_units)
     }
 
     pub fn invoke_host(
@@ -915,7 +872,6 @@ impl Runtime {
         args: &[value::Value],
     ) -> Result<value::Value, BuiltinError> {
         let value = builtin::invoke_standard(&self.gc, intrinsic, args)?;
-        let _ = self.sync_heap_accounting();
         Ok(value)
     }
 
@@ -1732,7 +1688,7 @@ mod tests {
     }
 
     #[test]
-    fn syncs_heap_accounting_into_runtime_resource_counters() {
+    fn heap_mutations_update_runtime_resource_counters() {
         let runtime = Runtime::default();
         let array = runtime
             .gc()
@@ -1743,7 +1699,6 @@ mod tests {
             .array_push(array, value::Value::I32(2))
             .unwrap();
 
-        runtime.sync_heap_accounting().unwrap();
         let counters = runtime.resources().counters();
 
         assert_eq!(counters.current_heap_units, 3);

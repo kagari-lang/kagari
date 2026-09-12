@@ -36,3 +36,13 @@ pub enum VmError {
     UnsupportedCallTarget(CallTarget),
     UnsupportedInstruction(&'static str),
 }
+
+impl From<BuiltinError> for VmError {
+    fn from(error: BuiltinError) -> Self {
+        if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap {
+            Self::BuiltinError(error)
+        } else {
+            Self::RuntimeError(error.into_runtime_error())
+        }
+    }
+}

@@ -24,6 +24,19 @@ permissions, arithmetic, and resource availability before committing. Rejection
 leaves the target unchanged by that operation. This does not undo effects of
 evaluating the receiver, indexes, or RHS, nor earlier operations in the call.
 
+Heap allocations and container growth share the runtime's resource counters.
+Validation, live-heap and cumulative-allocation limit checks, and capacity
+reservation precede the content and counter commit. Failure does not charge
+either counter. Replacing a map entry or adding an existing set key consumes no
+growth units; duplicate constructor keys count only once. Removal and GC reduce
+live occupancy, but do not refund the cumulative allocation budget.
+
+Standard removals returning an Option prepare that result before removing the
+entry. Result allocation failure leaves the entry present. Peak heap occupancy
+includes the prepared result before the removed entry's units are released.
+Resource exhaustion keeps its structured classification through builtins and
+the VM; it does not become a script trap or a different resource limit.
+
 A host path mutation prepares both the value update and its dirty record before
 commit. The commit does not allocate fallibly or invoke arbitrary script code.
 It cannot update the field and then report an ordinary failure because dirty
