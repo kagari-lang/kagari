@@ -85,12 +85,14 @@ pub(crate) fn resolve_names_controlled(
         names.insert_impl(impl_block.id);
     }
 
-    let mut resolver = BodyResolver::new(&names, &lowered.module, cancel.clone());
+    let mut resolver =
+        BodyResolver::new(&names, &lowered.module, &lowered.source_map, cancel.clone());
     for const_item in &lowered.module.consts {
-        resolver.resolve_top_level_expr(const_item.initializer);
+        resolver.resolve_top_level_expr(const_item.id, const_item.initializer);
     }
     for function in &lowered.module.functions {
         resolver.resolve_function(
+            function.id,
             function
                 .params
                 .iter()

@@ -2,14 +2,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use kagari_common::{
-    SourceFile, Span,
+    SourceFile,
     identity::{FileId, Revision},
     source_database::SourceSnapshot,
 };
 
 use crate::{
-    AnalysisResult, AnalyzedModule, LanguageFeatureProfile, analyze_parsed,
-    hir::{ExprKind, StmtKind},
+    AnalysisResult, AnalyzedModule, LanguageFeatureProfile, analyze_parsed, hir::ExprKind,
     types::TypeId,
 };
 
@@ -25,9 +24,8 @@ pub struct FileAnalysis {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingInfo {
-    pub name: String,
     pub ty: TypeId,
-    pub declaration: Span,
+    pub declaration: crate::declarations::Declaration,
 }
 
 impl FileAnalysis {
@@ -90,74 +88,61 @@ impl FileAnalysis {
             .map(|(_, ty)| ty)
     }
 
-    pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {
+    pub fn definition_at(&self, offset: usize) -> Option<&crate::declarations::Declaration> {
         let facts = self.result.facts();
-        let mut bindings = HashMap::new();
-        for function in &facts.lowered.module.functions {
-            let span = facts.lowered.source_map.function_span(function.id);
-            if span.start <= offset
-                && offset < span.end
-                && let Some(typed) = facts
-                    .typed
-                    .functions
-                    .iter()
-                    .find(|typed| typed.id == function.id)
-            {
-                for param in &typed.params {
-                    bindings.insert(
-                        param.name.clone(),
-                        BindingInfo {
-                            name: param.name.clone(),
-                            ty: param.ty.clone(),
-                            declaration: facts.lowered.source_map.param_span(param.id),
-                        },
-                    );
-                }
-            }
-        }
-        let mut blocks = facts
+        let expressions = facts
             .lowered
             .module
             .body
-            .blocks()
-            .filter(|(id, _)| {
-                let span = facts.lowered.source_map.block_span(*id);
-                span.start <= offset && offset < span.end
-            })
-            .collect::<Vec<_>>();
-        // Outer scopes first, so the innermost declaration wins.
-        blocks.sort_by_key(|(id, _)| {
-            std::cmp::Reverse({
-                let span = facts.lowered.source_map.block_span(*id);
-                span.end - span.start
-            })
-        });
-        for (_, block) in blocks {
-            for stmt in &block.statements {
-                if facts.lowered.source_map.stmt_span(*stmt).end > offset {
-                    continue;
+            .expressions()
+            .filter_map(|(id, _)| {
+                let span = facts.lowered.source_map.expr_span(id);
+                facts.names.expr_resolution(id).map(|target| (span, target))
+            });
+        let places = facts
+            .lowered
+            .source_map
+            .place_spans()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, span)| {
+                facts
+                    .names
+                    .place_resolution(crate::hir::PlaceId::new(index))
+                    .map(|target| (*span, target))
+            });
+        expressions
+            .chain(places)
+            .filter(|(span, _)| span.start <= offset && offset < span.end)
+            .min_by_key(|(span, _)| span.end - span.start)
+            .and_then(|(_, target)| facts.declarations.target(target))
+    }
+
+    pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {
+        let facts = self.result.facts();
+        facts
+            .names
+            .visible_bindings(offset)
+            .into_iter()
+            .filter_map(|binding| {
+                let declaration = facts.declarations.target(binding.resolved)?.clone();
+                let ty = match binding.resolved {
+                    crate::resolver::ResolvedName::Local(id) => {
+                        facts.typed.type_table.local_type(id)
+                    }
+                    crate::resolver::ResolvedName::Param(id) => facts
+                        .typed
+                        .functions
+                        .iter()
+                        .flat_map(|function| &function.params)
+                        .find(|param| param.id == id)
+                        .map(|param| param.ty.clone()),
+                    _ => None,
                 }
-                if let StmtKind::Binding { local, name, .. } =
-                    &facts.lowered.module.stmt(*stmt).kind
-                {
-                    bindings.insert(
-                        name.clone(),
-                        BindingInfo {
-                            name: name.clone(),
-                            ty: facts
-                                .typed
-                                .type_table
-                                .local_type(*local)
-                                .unwrap_or(TypeId::Unknown),
-                            declaration: facts.lowered.source_map.local_span(*local),
-                        },
-                    );
-                }
-            }
-        }
-        let mut bindings = bindings.into_values().collect::<Vec<_>>();
-        bindings.sort_by(|a, b| a.name.cmp(&b.name));
-        bindings
+                .unwrap_or(TypeId::Unknown);
+                Some(BindingInfo { declaration, ty })
+            })
+            .collect()
     }
 }
 
@@ -244,7 +229,19 @@ impl AnalysisSnapshot {
     pub fn file(&self, id: FileId) -> Option<&Arc<FileAnalysis>> {
         self.files.get(&id)
     }
+
+    pub fn declaration(
+        &self,
+        id: &crate::declarations::DeclarationId,
+    ) -> Option<&crate::declarations::Declaration> {
+        self.files
+            .values()
+            .find_map(|file| file.result.facts().declarations.get(id))
+    }
 }
+
+#[cfg(test)]
+mod identity_tests;
 
 #[cfg(test)]
 mod tests {
@@ -347,7 +344,7 @@ mod tests {
             facts
                 .visible_bindings(offset)
                 .iter()
-                .map(|b| b.name.as_str())
+                .map(|b| b.declaration.name.as_str())
                 .collect::<Vec<_>>(),
             vec!["answer"]
         );

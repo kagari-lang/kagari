@@ -34,7 +34,7 @@ pub enum StandardTypeConstructor {
     Set,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardModule {
     Debug,
     Math,

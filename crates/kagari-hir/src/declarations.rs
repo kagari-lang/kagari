@@ -1,0 +1,296 @@
+//! Declaration and binding identities owned by one semantic analysis.
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+use kagari_common::{
+    SourceFile, Span,
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, FileSpan},
+};
+
+use crate::{
+    hir::FunctionKind,
+    lower::LoweredModule,
+    resolver::{BodyOwner, ResolvedName, ResolvedNames},
+};
+
+static NEXT_ANALYSIS: AtomicU64 = AtomicU64::new(1);
+
+/// Distinguishes analyses even when they use the same text revision with different inputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AnalysisId(u64);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BindingId {
+    pub analysis: AnalysisId,
+    pub body: DefinitionId,
+    slot: ResolvedName,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DeclarationId {
+    Definition(DefinitionId),
+    Binding(BindingId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declaration {
+    pub id: DeclarationId,
+    pub name: String,
+    pub location: FileSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct Declarations {
+    analysis: AnalysisId,
+    targets: HashMap<ResolvedName, Declaration>,
+    identities: HashMap<DeclarationId, ResolvedName>,
+}
+
+impl Declarations {
+    pub fn analysis_id(&self) -> AnalysisId {
+        self.analysis
+    }
+
+    pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
+        self.targets.get(&name)
+    }
+
+    /// A binding from another analysis is rejected, even if its arena slot coincides.
+    pub fn get(&self, id: &DeclarationId) -> Option<&Declaration> {
+        self.identities
+            .get(id)
+            .and_then(|name| self.targets.get(name))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Declaration> {
+        self.targets.values()
+    }
+
+    pub(crate) fn collect(
+        source: &SourceFile,
+        lowered: &LoweredModule,
+        names: &ResolvedNames,
+        cancel: &kagari_common::cancellation::CancellationToken,
+    ) -> Self {
+        let analysis = AnalysisId(
+            NEXT_ANALYSIS
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .expect("analysis identity exhausted"),
+        );
+        let mut builder = Builder {
+            source,
+            result: Self {
+                analysis,
+                targets: HashMap::new(),
+                identities: HashMap::new(),
+            },
+            occurrences: HashMap::new(),
+        };
+        let module = &lowered.module;
+        let map = &lowered.source_map;
+        for item in &module.functions {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            let kind = match item.kind {
+                FunctionKind::User => DefinitionKind::Function,
+                FunctionKind::ModuleInit => DefinitionKind::ModuleInit,
+                FunctionKind::TraitMethod | FunctionKind::ImplMethod => continue,
+            };
+            builder.definition(
+                ResolvedName::Function(item.id),
+                &[],
+                kind,
+                &item.name,
+                map.function_span(item.id),
+            );
+        }
+        for item in &module.consts {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            builder.definition(
+                ResolvedName::Const(item.id),
+                &[],
+                DefinitionKind::Const,
+                &item.name,
+                map.const_span(item.id),
+            );
+        }
+        for item in &module.modules {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            builder.definition(
+                ResolvedName::Module(item.id),
+                &[],
+                DefinitionKind::Module,
+                &item.name,
+                map.module_span(item.id),
+            );
+        }
+        for item in &module.structs {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            builder.definition(
+                ResolvedName::Struct(item.id),
+                &[],
+                DefinitionKind::Struct,
+                &item.name,
+                map.struct_span(item.id),
+            );
+        }
+        for item in &module.enums {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            builder.definition(
+                ResolvedName::Enum(item.id),
+                &[],
+                DefinitionKind::Enum,
+                &item.name,
+                map.enum_span(item.id),
+            );
+        }
+        for item in &module.traits {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            let owner = builder.definition(
+                ResolvedName::Trait(item.id),
+                &[],
+                DefinitionKind::Trait,
+                &item.name,
+                map.trait_span(item.id),
+            );
+            for method in &item.methods {
+                if cancel.check().is_err() {
+                    return builder.result;
+                }
+                builder.definition(
+                    ResolvedName::Function(method.function),
+                    &owner.path,
+                    DefinitionKind::Method,
+                    &method.name,
+                    map.function_span(method.function),
+                );
+            }
+        }
+        for item in &module.impls {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            let owner = builder.identity(&[], DefinitionKind::Impl, "");
+            for method in &item.methods {
+                if cancel.check().is_err() {
+                    return builder.result;
+                }
+                builder.definition(
+                    ResolvedName::Function(method.function),
+                    &owner.path,
+                    DefinitionKind::Method,
+                    &method.name,
+                    map.function_span(method.function),
+                );
+            }
+        }
+        for scope in names.scopes() {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            let owner = match scope.owner {
+                BodyOwner::Function(id) => ResolvedName::Function(id),
+                BodyOwner::Const(id) => ResolvedName::Const(id),
+            };
+            let DeclarationId::Definition(body) = builder.result.targets[&owner].id.clone() else {
+                unreachable!("body owner is a definition")
+            };
+            for binding in &scope.bindings {
+                if cancel.check().is_err() {
+                    return builder.result;
+                }
+                let range = match binding.resolved {
+                    ResolvedName::Param(id) => map.param_span(id),
+                    ResolvedName::Local(id) => map.local_span(id),
+                    _ => unreachable!("scope binds parameters and locals"),
+                };
+                builder.insert(
+                    binding.resolved,
+                    DeclarationId::Binding(BindingId {
+                        analysis,
+                        body: body.clone(),
+                        slot: binding.resolved,
+                    }),
+                    &binding.name,
+                    range,
+                );
+            }
+        }
+        builder.result
+    }
+}
+
+struct Builder<'a> {
+    source: &'a SourceFile,
+    result: Declarations,
+    occurrences: HashMap<(Vec<DefinitionPathSegment>, DefinitionKind, String), u32>,
+}
+
+impl Builder<'_> {
+    fn identity(
+        &mut self,
+        parent: &[DefinitionPathSegment],
+        kind: DefinitionKind,
+        name: &str,
+    ) -> DefinitionId {
+        let occurrence = self
+            .occurrences
+            .entry((parent.to_vec(), kind, name.into()))
+            .or_default();
+        let mut path = parent.to_vec();
+        path.push(DefinitionPathSegment {
+            kind,
+            name: name.into(),
+            occurrence: *occurrence,
+        });
+        *occurrence = occurrence
+            .checked_add(1)
+            .expect("declaration identity exhausted");
+        DefinitionId {
+            module: self.source.module_identity().clone(),
+            path,
+        }
+    }
+
+    fn definition(
+        &mut self,
+        key: ResolvedName,
+        parent: &[DefinitionPathSegment],
+        kind: DefinitionKind,
+        name: &str,
+        range: Span,
+    ) -> DefinitionId {
+        let id = self.identity(parent, kind, name);
+        self.insert(key, DeclarationId::Definition(id.clone()), name, range);
+        id
+    }
+
+    fn insert(&mut self, key: ResolvedName, id: DeclarationId, name: &str, range: Span) {
+        self.result.identities.insert(id.clone(), key);
+        self.result.targets.insert(
+            key,
+            Declaration {
+                id,
+                name: name.into(),
+                location: FileSpan {
+                    file: self.source.id(),
+                    revision: self.source.revision(),
+                    range,
+                },
+            },
+        );
+    }
+}

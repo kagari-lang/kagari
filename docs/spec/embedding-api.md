@@ -34,6 +34,25 @@ Embedding diagnostic ranges contain file identity, document revision and byte
 range. Hosts must reject stale ranges before applying editor actions. UTF-8 and
 UTF-16 editor coordinates are checked conversions through the source line index.
 
+`FileAnalysis::definition_at(byte_offset)` follows resolved expression or assignment
+names to a declaration with a `FileSpan`. `visible_bindings(byte_offset)` returns
+typed declarations from the resolver's lexical scope facts, including match arm
+bindings and declaration-order shadowing. Neither query executes script or host code.
+Unresolved names have no navigation target; other functions remain queryable.
+Member and type-reference navigation are not implemented by these queries yet.
+
+Declaration identity consists of the logical module plus typed owner/name path
+segments. A same-kind, same-name occurrence distinguishes duplicate declarations;
+unnamed impl owners use source-order occurrences. This is declaration identity,
+not an edit-tracking guarantee for renames or reordered duplicate/unnamed items.
+Parameters and locals additionally carry their owning body and an analysis instance
+identity. They must not be retained as bare arena indices across analyses.
+`AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
+revision, but rejects a local binding from a different analysis. An unchanged cached
+analysis retains its local identities; text or profile changes create new ones.
+The original snapshot remains usable after edits. See the runnable
+`crates/kagari-embed/examples/source_queries.rs` example.
+
 ## Design Goals
 
 - expose a small, stable host API for compiling, loading, running, and reloading scripts

@@ -26,6 +26,19 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    pub fn item_span(&self, item: crate::hir::Item) -> Span {
+        use crate::hir::Item;
+        match item {
+            Item::Function(id) => self.function_span(id),
+            Item::Const(id) => self.const_span(id),
+            Item::Module(id) => self.module_span(id),
+            Item::Struct(id) => self.struct_span(id),
+            Item::Enum(id) => self.enum_span(id),
+            Item::Trait(id) => self.trait_span(id),
+            Item::Impl(id) => self.impl_span(id),
+        }
+    }
+
     pub(crate) fn pattern_spans(&self) -> &[Span] {
         &self.pattern_spans
     }

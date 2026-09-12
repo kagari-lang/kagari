@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod builtin;
+pub mod declarations;
 pub mod hir;
 pub mod lower;
 pub mod profile;
@@ -22,6 +23,7 @@ pub struct AnalyzedModule {
     pub source: std::sync::Arc<kagari_common::SourceFile>,
     pub lowered: lower::LoweredModule,
     pub names: resolver::ResolvedNames,
+    pub declarations: declarations::Declarations,
     pub typed: typeck::TypedModule,
 }
 
@@ -78,6 +80,7 @@ fn analyze_syntax(
     let lowered = lower::lower_module_controlled(module, cancel);
     let names = resolver::resolve_names_controlled(&lowered, cancel);
     let typed = typeck::check_module_controlled(&lowered, &names.facts, reuse, cancel);
+    let declarations = declarations::Declarations::collect(&source, &lowered, &names.facts, cancel);
     let mut diagnostics = names.diagnostics;
     diagnostics.extend(typed.diagnostics);
     AnalysisResult {
@@ -85,6 +88,7 @@ fn analyze_syntax(
             source,
             lowered,
             names: names.facts,
+            declarations,
             typed: typed.facts,
         },
         diagnostics,

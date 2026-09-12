@@ -5,8 +5,33 @@ use crate::hir::{
     ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, ParamId, PlaceId, StructId, TraitId,
 };
 use crate::resolver::table::NameTable;
+use kagari_common::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyOwner {
+    Function(FunctionId),
+    Const(ConstId),
+}
+
+#[derive(Debug, Clone)]
+pub struct ScopeBinding {
+    pub name: String,
+    pub resolved: ResolvedName,
+    pub visible_from: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct LexicalScope {
+    pub owner: BodyOwner,
+    pub span: Span,
+    pub parent: Option<usize>,
+    pub bindings: Vec<ScopeBinding>,
+    /// Declarations interleaved with a synthetic module initializer are outside
+    /// that body's lexical scope, despite its whole-file bounding span.
+    pub excluded_ranges: Vec<Span>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
     Function(FunctionId),
     Const(ConstId),
@@ -23,6 +48,7 @@ pub enum ResolvedName {
 #[derive(Debug, Clone)]
 pub struct ResolvedNames {
     pub items: NameTable,
+    pub(crate) scopes: Vec<LexicalScope>,
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
 }
@@ -31,6 +57,7 @@ impl ResolvedNames {
     pub(crate) fn new(items: NameTable) -> Self {
         Self {
             items,
+            scopes: Vec::new(),
             exprs: HashMap::new(),
             places: HashMap::new(),
         }
@@ -50,5 +77,38 @@ impl ResolvedNames {
 
     pub fn place_resolution(&self, id: PlaceId) -> Option<ResolvedName> {
         self.places.get(&id).copied()
+    }
+
+    pub fn scopes(&self) -> &[LexicalScope] {
+        &self.scopes
+    }
+
+    pub fn visible_bindings(&self, offset: usize) -> Vec<&ScopeBinding> {
+        let mut scope = self
+            .scopes
+            .iter()
+            .enumerate()
+            .filter(|(_, scope)| scope.span.start <= offset && offset < scope.span.end)
+            .min_by_key(|(id, scope)| (scope.span.end - scope.span.start, std::cmp::Reverse(*id)))
+            .map(|(id, _)| id);
+        let mut visible = HashMap::new();
+        while let Some(id) = scope {
+            if self.scopes[id]
+                .excluded_ranges
+                .iter()
+                .any(|range| range.start <= offset && offset < range.end)
+            {
+                return Vec::new();
+            }
+            for binding in self.scopes[id].bindings.iter().rev() {
+                if binding.visible_from <= offset {
+                    visible.entry(binding.name.as_str()).or_insert(binding);
+                }
+            }
+            scope = self.scopes[id].parent;
+        }
+        let mut visible = visible.into_values().collect::<Vec<_>>();
+        visible.sort_by(|a, b| a.name.cmp(&b.name));
+        visible
     }
 }

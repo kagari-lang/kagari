@@ -56,7 +56,29 @@ impl std::fmt::Display for ModuleIdentity {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DefinitionId {
     pub module: ModuleIdentity,
-    pub path: Vec<String>,
+    pub path: Vec<DefinitionPathSegment>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum DefinitionKind {
+    Function,
+    Const,
+    Module,
+    Struct,
+    Enum,
+    Trait,
+    Impl,
+    Method,
+    ModuleInit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct DefinitionPathSegment {
+    pub kind: DefinitionKind,
+    pub name: String,
+    /// Source-order occurrence among declarations with the same parent, kind and name.
+    /// Usually zero; also distinguishes malformed duplicates and unnamed impl blocks.
+    pub occurrence: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -63,11 +63,15 @@ Implemented foundation slices:
   same snapshots; disk loading, host text and overlays use one ingestion path.
   Relative paths resolve against a captured root; virtual URI schemes survive
   normalization. Embedding diagnostics carry file/revision ranges. Cross-module
-  resolution and semantic definition identity integration remain outstanding.
+  resolution and concrete type/member identity integration remain outstanding.
   Logical package/module bindings now belong to source documents and survive
   overlays. Rebinding invalidates analysis; duplicate source bindings are rejected.
   Source-based HIR carries its origin through IR, bytecode and artifact metadata.
   The AST-only analysis entry and post-analysis identity overrides were removed.
+  Declaration paths now include module, kind, owner and duplicate occurrence.
+  Parameter/local identities include their body and analysis instance; stale local
+  IDs cannot resolve in a new analysis. Definition navigation returns file/revision
+  ranges and distinguishes same-spelled declarations in separate modules.
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
   represented explicitly, and codegen requires a sealed CheckedAnalysis. More
   semantic-target and source-owner integration remains outstanding.
@@ -81,6 +85,10 @@ Implemented foundation slices:
   Literal expressions and match patterns now carry checked scalar facts, including
   the i32 minimum spelling. Invalid literal ranges and pattern type mismatches
   are source diagnostics. IR consumes these facts without reparsing literal text.
+  Name resolution now owns lexical scopes, binding introduction points and match
+  arm bindings. Tool scope queries consume these facts instead of reconstructing
+  scopes from HIR blocks. Navigation uses resolved expression and assignment names;
+  member targets, type-reference navigation and cross-module imports remain pending.
 - R05: unchanged files share parse/analysis results; identical function bodies
   reuse remapped type facts, while declaration changes invalidate that reuse.
   Scope/type/member-receiver queries work on erroneous files. Shared cancellation
@@ -91,6 +99,9 @@ Implemented foundation slices:
   a newer revision. Engine snapshot compilation exposes cancellation explicitly.
   Reused bodies remap scalar expression and pattern facts; emitted artifacts are
   checked against fresh analysis after preceding code changes shift arena IDs.
+  Stable named declarations can be located in a new snapshot, while local binding
+  handles remain scoped to their original analysis, including on profile changes.
+  `cargo run -p kagari-embed --example source_queries` exercises these tool APIs.
 - R09: format v4 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.

@@ -1,30 +1,40 @@
-use std::collections::HashMap;
-
 use crate::builtin::surface;
 use crate::hir::{
     BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
     PlaceId, PlaceKind, StmtId, StmtKind, StructId, TraitId,
 };
+use crate::resolver::{BodyOwner, LexicalScope, ScopeBinding};
 use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
+use crate::source_map::SourceMap;
+use kagari_common::Span;
+use std::collections::HashMap;
+
+struct ActiveScope {
+    id: usize,
+    latest: HashMap<String, usize>,
+}
 
 pub(crate) struct BodyResolver<'a> {
     cancel: kagari_common::cancellation::CancellationToken,
     names: &'a NameTable,
     module: &'a Module,
     resolved: ResolvedNames,
-    scopes: Vec<HashMap<String, ResolvedName>>,
+    source_map: &'a SourceMap,
+    scopes: Vec<ActiveScope>,
 }
 
 impl<'a> BodyResolver<'a> {
     pub(crate) fn new(
         names: &'a NameTable,
         module: &'a Module,
+        source_map: &'a SourceMap,
         cancel: kagari_common::cancellation::CancellationToken,
     ) -> Self {
         Self {
             cancel,
             names,
             module,
+            source_map,
             resolved: ResolvedNames::new(names.clone()),
             scopes: Vec::new(),
         }
@@ -36,24 +46,41 @@ impl<'a> BodyResolver<'a> {
 
     pub(crate) fn resolve_function(
         &mut self,
+        function: FunctionId,
         params: impl Iterator<Item = (&'a str, ParamId)>,
         body: BlockId,
     ) {
-        self.push_scope();
+        let span = self.source_map.block_span(body);
+        self.push_scope(
+            self.source_map.function_span(function),
+            BodyOwner::Function(function),
+        );
+        if self.module.module_init == Some(function) {
+            let scope = self.scopes.last().expect("initializer scope").id;
+            self.resolved.scopes[scope].excluded_ranges = self
+                .module
+                .items
+                .iter()
+                .take_while(|_| self.cancel.check().is_ok())
+                .map(|item| self.source_map.item_span(*item))
+                .collect();
+        }
         for (name, id) in params {
-            self.bind_name(name, ResolvedName::Param(id));
+            self.bind_name(name, ResolvedName::Param(id), span.start);
         }
         self.resolve_block(body);
         self.pop_scope();
     }
 
-    pub(crate) fn resolve_top_level_expr(&mut self, expr: ExprId) {
+    pub(crate) fn resolve_top_level_expr(&mut self, owner: ConstId, expr: ExprId) {
+        self.push_scope(self.source_map.expr_span(expr), BodyOwner::Const(owner));
         self.resolve_expr(expr);
+        self.pop_scope();
     }
 
     fn resolve_block(&mut self, block_id: BlockId) {
         let block = self.module.block(block_id);
-        self.push_scope();
+        self.push_child_scope(self.source_map.block_span(block_id));
         for stmt in &block.statements {
             if self.cancel.check().is_err() {
                 break;
@@ -80,7 +107,11 @@ impl<'a> BodyResolver<'a> {
             } => {
                 self.resolve_expr(*initializer);
                 if !name.is_empty() {
-                    self.bind_name(name, ResolvedName::Local(*local));
+                    self.bind_name(
+                        name,
+                        ResolvedName::Local(*local),
+                        self.source_map.stmt_span(stmt_id).end,
+                    );
                 }
             }
             StmtKind::Assign { target, value, .. } => {
@@ -145,13 +176,14 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 self.resolve_expr(*scrutinee);
                 for arm in arms {
-                    self.push_scope();
+                    let span = self.source_map.expr_span(arm.expr);
+                    self.push_child_scope(span);
                     if let PatternKind::Name { name, local } =
                         &self.module.pattern(arm.pattern).kind
                         && !name.is_empty()
                         && name != "<missing>"
                     {
-                        self.bind_name(name, ResolvedName::Local(*local));
+                        self.bind_name(name, ResolvedName::Local(*local), span.start);
                     }
                     self.resolve_expr(arm.expr);
                     self.pop_scope();
@@ -190,8 +222,8 @@ impl<'a> BodyResolver<'a> {
 
     fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
         for scope in self.scopes.iter().rev() {
-            if let Some(resolved) = scope.get(name) {
-                return Some(*resolved);
+            if let Some(index) = scope.latest.get(name) {
+                return Some(self.resolved.scopes[scope.id].bindings[*index].resolved);
             }
         }
 
@@ -219,14 +251,37 @@ impl<'a> BodyResolver<'a> {
         self.names.trait_(name).map(ResolvedName::Trait)
     }
 
-    fn bind_name(&mut self, name: &str, resolved: ResolvedName) {
+    fn bind_name(&mut self, name: &str, resolved: ResolvedName, visible_from: usize) {
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.to_string(), resolved);
+            let bindings = &mut self.resolved.scopes[scope.id].bindings;
+            scope.latest.insert(name.to_owned(), bindings.len());
+            bindings.push(ScopeBinding {
+                name: name.to_owned(),
+                resolved,
+                visible_from,
+            });
         }
     }
 
-    fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+    fn push_scope(&mut self, span: Span, owner: BodyOwner) {
+        let id = self.resolved.scopes.len();
+        self.resolved.scopes.push(LexicalScope {
+            owner,
+            span,
+            parent: self.scopes.last().map(|scope| scope.id),
+            bindings: Vec::new(),
+            excluded_ranges: Vec::new(),
+        });
+        self.scopes.push(ActiveScope {
+            id,
+            latest: HashMap::new(),
+        });
+    }
+
+    fn push_child_scope(&mut self, span: Span) {
+        let owner =
+            self.resolved.scopes[self.scopes.last().expect("body owns its scopes").id].owner;
+        self.push_scope(span, owner);
     }
 
     fn pop_scope(&mut self) {
