@@ -4,6 +4,13 @@ This document defines the production architecture for Kagari.
 It describes the intended system shape that implementation work must converge on.
 When existing code conflicts with the specifications, the specifications are authoritative.
 
+## Foundation Contracts
+
+The active breaking track is [foundation-refactor.md](foundation-refactor.md).
+[Value semantics](spec/value-semantics.md), [failure semantics](spec/failure-semantics.md),
+and [module activation](spec/module-activation.md) define observable behavior and
+supersede conflicting historical descriptions. Unchecked work is not implemented.
+
 ## Architectural Principles
 
 - Kagari is a statically typed, GC-backed scripting language for Rust-hosted applications.

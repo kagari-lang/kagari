@@ -9,6 +9,13 @@ Do not preserve compatibility with incorrect implementation behavior.
 Each step is complete only when its scoped work is verified and committed with the step's required conventional commit message.
 Each milestone is complete when all of its steps are committed and the milestone acceptance criteria pass.
 
+## Active Foundation Track
+
+[Foundation refactor](foundation-refactor.md) is the active R01-R18 track. Its
+contracts replace conflicting milestone behavior below. Historical milestones
+remain a subsystem inventory, not a second execution queue. Foundation commits
+use `Roadmap-Step: Rxx` trailers.
+
 ## Global Execution Rules
 
 - Use `docs/spec/` and `docs/kagari.ebnf` as the source of truth.
