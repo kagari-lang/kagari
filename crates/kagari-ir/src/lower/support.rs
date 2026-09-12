@@ -109,15 +109,8 @@ impl FunctionLowerer<'_, '_> {
             .field(field)
             .expect("checked field contract");
         AggregateFieldRef {
-            owner: self
-                .analyzed
-                .aggregates
-                .structure(&field.owner)
-                .expect("checked field owner")
-                .declaration
-                .name
-                .clone(),
-            name: field.name.clone(),
+            owner: field.owner.clone(),
+            slot: field.slot,
         }
     }
     pub(crate) fn place_root(&self, place_id: hir::PlaceId) -> hir::PlaceId {

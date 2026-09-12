@@ -8,6 +8,7 @@ use super::{
 };
 
 mod flow;
+mod layout;
 mod operation;
 
 /// Owns a checked module. Mutating a copy requires verifying it again.
@@ -56,6 +57,10 @@ pub enum IrVerificationErrorKind {
         limit: usize,
     },
     InvalidInstance,
+    InvalidStructLayout,
+    InvalidField,
+    InvalidStructInitializer,
+    ReadOnlyField,
     InvalidModuleSlot,
     InvalidInitializer,
     InvalidBlock(BlockId),
@@ -84,6 +89,10 @@ impl IrVerificationError {
             Cancelled => "KG_IR_CANCELLED",
             Limit { .. } => "KG_IR_LIMIT_EXCEEDED",
             InvalidInstance => "KG_IR_INVALID_INSTANCE",
+            InvalidStructLayout => "KG_IR_INVALID_STRUCT_LAYOUT",
+            InvalidField => "KG_IR_INVALID_FIELD",
+            InvalidStructInitializer => "KG_IR_INVALID_STRUCT_INITIALIZER",
+            ReadOnlyField => "KG_IR_READ_ONLY_FIELD",
             InvalidModuleSlot => "KG_IR_INVALID_MODULE_SLOT",
             InvalidInitializer => "KG_IR_INVALID_INITIALIZER",
             InvalidBlock(_) => "KG_IR_INVALID_BLOCK",
@@ -133,6 +142,7 @@ pub fn verify_ir(
         cancel,
     };
     context.check_cancel()?;
+    layout::verify(&module, context)?;
     context.limit(
         module.functions.len(),
         u32::MAX as usize,

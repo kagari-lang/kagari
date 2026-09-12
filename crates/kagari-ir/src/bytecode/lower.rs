@@ -31,7 +31,10 @@ pub enum BytecodeLoweringError {
 }
 
 pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, BytecodeLoweringError> {
-    let mut context = BytecodeLoweringContext::default();
+    let mut context = BytecodeLoweringContext {
+        structures: &ir.structures,
+        ..Default::default()
+    };
     let functions = ir
         .functions
         .iter()
@@ -67,13 +70,15 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
 }
 
 #[derive(Debug, Default)]
-struct BytecodeLoweringContext {
+struct BytecodeLoweringContext<'a> {
+    structures: &'a [crate::module::StructLayout],
+    field_ids: HashMap<AggregateFieldRef, FieldId>,
     host_interface: kagari_common::host_interface::HostInterface,
     fields: Vec<FieldRecord>,
     paths: Vec<PathRecord>,
 }
 
-impl BytecodeLoweringContext {
+impl BytecodeLoweringContext<'_> {
     fn host_import(
         &mut self,
         declaration: &kagari_common::host_interface::HostFunctionDeclaration,
@@ -90,19 +95,31 @@ impl BytecodeLoweringContext {
         self.host_interface.functions.push(declaration.clone());
         id
     }
-    fn field_id(&mut self, field: &AggregateFieldRef, ty: ValueType) -> FieldId {
-        if let Some(record) = self.fields.iter().find(|record| {
-            record.owner == field.owner && record.name == field.name && record.ty == ty
-        }) {
-            return record.id;
+    fn structure(
+        &self,
+        id: &kagari_common::identity::DefinitionId,
+    ) -> &crate::module::StructLayout {
+        self.structures
+            .iter()
+            .find(|layout| &layout.declaration == id)
+            .expect("verified struct layout")
+    }
+
+    fn field_id(&mut self, field: &AggregateFieldRef) -> FieldId {
+        if let Some(id) = self.field_ids.get(field) {
+            return *id;
         }
-        let id = FieldId::new(self.fields.len());
-        self.fields.push(FieldRecord {
-            id,
-            owner: field.owner.clone(),
-            name: field.name.clone(),
-            ty,
-        });
+        let layout = self.structure(&field.owner);
+        let descriptor = &layout.fields[field.slot];
+        let record = FieldRecord {
+            id: FieldId::new(self.fields.len()),
+            owner: layout.name().to_owned(),
+            name: descriptor.name.clone(),
+            ty: descriptor.ty,
+        };
+        let id = record.id;
+        self.fields.push(record);
+        self.field_ids.insert(field.clone(), id);
         id
     }
 
@@ -511,28 +528,37 @@ fn lower_instruction(
                 .map(|element| lower_value(*element))
                 .collect(),
         },
-        Instruction::MakeStruct { dst, name, fields } => BytecodeInstruction::MakeStruct {
-            dst: lower_value(*dst),
-            name: name.clone(),
-            fields: fields
-                .iter()
-                .map(|field| StructFieldInit {
-                    name: field.name.clone(),
-                    value: lower_value(field.value),
-                })
-                .collect(),
-        },
+        Instruction::MakeStruct {
+            dst,
+            structure,
+            fields,
+        } => {
+            let layout = context.structure(structure);
+            let mut ordered = fields.iter().collect::<Vec<_>>();
+            ordered.sort_by_key(|field| field.slot);
+            BytecodeInstruction::MakeStruct {
+                dst: lower_value(*dst),
+                name: layout.name().to_owned(),
+                fields: ordered
+                    .into_iter()
+                    .map(|field| StructFieldInit {
+                        name: layout.fields[field.slot].name.clone(),
+                        value: lower_value(field.value),
+                    })
+                    .collect(),
+            }
+        }
         Instruction::ReadAggregateField { dst, base, field } => {
             BytecodeInstruction::ReadAggregateField {
                 dst: lower_value(*dst),
                 base: lower_value(*base),
-                field: context.field_id(field, dst.ty),
+                field: context.field_id(field),
             }
         }
         Instruction::WriteAggregateField { base, field, value } => {
             BytecodeInstruction::WriteAggregateField {
                 base: lower_value(*base),
-                field: context.field_id(field, value.ty),
+                field: context.field_id(field),
                 value: lower_value(*value),
             }
         }

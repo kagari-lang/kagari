@@ -51,6 +51,147 @@ fn reject(module: IrModule) -> Error {
 }
 
 #[test]
+fn layouts_reject_duplicate_owners_and_foreign_field_declarations() {
+    let source = "struct P { var value: i32 } fn main() -> i32 { P { value: 42 }.value }";
+    let mut module = raw(source);
+    module.structures.push(module.structures[0].clone());
+    assert_eq!(reject(module), Error::InvalidStructLayout);
+    let mut module = raw(source);
+    module.structures[0].fields[0]
+        .declaration
+        .module
+        .path
+        .push("other".into());
+    assert_eq!(reject(module), Error::InvalidStructLayout);
+    let mut module = raw(source);
+    let duplicate = module.structures[0].fields[0].clone();
+    module.structures[0].fields.push(duplicate);
+    assert_eq!(reject(module), Error::InvalidStructLayout);
+}
+
+#[test]
+fn struct_initializers_require_every_slot_once_and_the_declared_representation() {
+    let source = "struct P { var number: i32, val flag: bool } fn main() -> P { P { flag: true, number: 42 } }";
+    for invalid in [0, 1, 2] {
+        let mut module = raw(source);
+        for instruction in module
+            .functions
+            .iter_mut()
+            .flat_map(|f| &mut f.blocks)
+            .flat_map(|b| &mut b.instructions)
+        {
+            if let Instruction::MakeStruct { fields, .. } = instruction {
+                match invalid {
+                    0 => {
+                        fields.pop();
+                    }
+                    1 => fields[1].slot = fields[0].slot,
+                    _ => fields[1].slot = usize::MAX,
+                }
+            }
+        }
+        assert_eq!(reject(module), Error::InvalidStructInitializer);
+    }
+    let mut module = raw(source);
+    for instruction in module
+        .functions
+        .iter_mut()
+        .flat_map(|f| &mut f.blocks)
+        .flat_map(|b| &mut b.instructions)
+    {
+        if let Instruction::MakeStruct { fields, .. } = instruction {
+            for field in fields {
+                field.slot = 1 - field.slot;
+            }
+        }
+    }
+    assert!(matches!(
+        reject(module),
+        Error::Contract(ContractError::TypeMismatch {
+            context: "struct field initializer",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn field_operands_require_an_existing_owner_slot_type_and_write_permission() {
+    let source = "struct P { var number: i32, val flag: bool } fn main() -> i32 { val p = P { number: 1, flag: true }; p.number = 42; p.number }";
+    let mut module = raw(source);
+    module.structures[0].fields[0].mutable = false;
+    assert_eq!(reject(module), Error::ReadOnlyField);
+    let mut module = raw(source);
+    for instruction in module
+        .functions
+        .iter_mut()
+        .flat_map(|f| &mut f.blocks)
+        .flat_map(|b| &mut b.instructions)
+    {
+        if let Instruction::ReadAggregateField { field, .. } = instruction {
+            field.slot = 999;
+        }
+    }
+    assert_eq!(reject(module), Error::InvalidField);
+    let mut module = raw(source);
+    for instruction in module
+        .functions
+        .iter_mut()
+        .flat_map(|f| &mut f.blocks)
+        .flat_map(|b| &mut b.instructions)
+    {
+        if let Instruction::ReadAggregateField { field, .. } = instruction {
+            field.owner.module.path.push("different".into());
+        }
+    }
+    assert_eq!(reject(module), Error::InvalidField);
+    let mut module = raw(source);
+    for instruction in module
+        .functions
+        .iter_mut()
+        .flat_map(|f| &mut f.blocks)
+        .flat_map(|b| &mut b.instructions)
+    {
+        if let Instruction::ReadAggregateField { field, .. } = instruction {
+            field.slot = 1;
+        }
+    }
+    assert!(matches!(
+        reject(module),
+        Error::Contract(ContractError::TypeMismatch {
+            context: "field read",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
+    let module = raw(
+        "struct P { val first: i32, val second: bool } fn main() -> P { P { second: true, first: 42 } }",
+    );
+    let bytecode = lower_to_bytecode(&verify_ir(module, &Default::default()).unwrap()).unwrap();
+    let fields = bytecode
+        .functions
+        .iter()
+        .flat_map(|f| &f.instructions)
+        .find_map(|instruction| {
+            if let BytecodeInstruction::MakeStruct { fields, .. } = instruction {
+                Some(fields)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(
+        fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "second"]
+    );
+}
+
+#[test]
 fn rejects_missing_call_and_duplicate_instance_identity_before_bytecode() {
     let mut module = raw("fn f(x: i32) -> i32 { x } fn main() -> i32 { f(7) }");
     for instruction in &mut module.functions[1].blocks[0].instructions {

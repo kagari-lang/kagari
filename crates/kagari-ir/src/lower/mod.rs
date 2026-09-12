@@ -72,8 +72,28 @@ pub fn lower_to_ir(
         )?);
     }
 
+    let mut structures = Vec::new();
+    for structure in module.aggregates.structures() {
+        planner.check()?;
+        let mut fields = Vec::new();
+        for field in &structure.fields {
+            planner.check()?;
+            fields.push(crate::module::StructFieldLayout {
+                declaration: field.id.clone(),
+                name: field.name.clone(),
+                ty: crate::module::ValueType::from_type_id(&field.ty),
+                mutable: field.writeability.is_var(),
+            });
+        }
+        structures.push(crate::module::StructLayout {
+            declaration: structure.id.clone(),
+            fields,
+        });
+    }
+
     verify_ir(
         IrModule {
+            structures,
             identity: module.lowered.source.module_identity().clone(),
             source_name: module.lowered.source.name().to_owned(),
             module_init,

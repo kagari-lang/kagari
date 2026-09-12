@@ -109,11 +109,52 @@ pub(super) fn verify(
                 }
             }
         },
-        MakeTuple { dst, .. } | MakeArray { dst, .. } | MakeStruct { dst, .. } => {
+        MakeTuple { dst, .. } | MakeArray { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "aggregate destination")?
         }
-        ReadAggregateField { base, .. } | WriteAggregateField { base, .. } => {
-            context.expect(base.ty, ValueType::HeapObject, "field base")?
+        MakeStruct {
+            dst,
+            structure,
+            fields,
+        } => {
+            context.expect(dst.ty, ValueType::HeapObject, "struct destination")?;
+            let layout = module
+                .structure(structure)
+                .ok_or_else(|| context.error(Error::InvalidStructInitializer))?;
+            if fields.len() != layout.fields.len() {
+                return Err(context.error(Error::InvalidStructInitializer));
+            }
+            let mut seen = std::collections::HashSet::new();
+            for field in fields {
+                context.check_cancel()?;
+                let target = layout
+                    .fields
+                    .get(field.slot)
+                    .ok_or_else(|| context.error(Error::InvalidStructInitializer))?;
+                if !seen.insert(field.slot) {
+                    return Err(context.error(Error::InvalidStructInitializer));
+                }
+                context.expect(field.value.ty, target.ty, "struct field initializer")?;
+            }
+        }
+        ReadAggregateField { dst, base, field } => {
+            context.expect(base.ty, ValueType::HeapObject, "field base")?;
+            let target = module
+                .structure(&field.owner)
+                .and_then(|layout| layout.fields.get(field.slot))
+                .ok_or_else(|| context.error(Error::InvalidField))?;
+            context.expect(dst.ty, target.ty, "field read")?;
+        }
+        WriteAggregateField { base, field, value } => {
+            context.expect(base.ty, ValueType::HeapObject, "field base")?;
+            let target = module
+                .structure(&field.owner)
+                .and_then(|layout| layout.fields.get(field.slot))
+                .ok_or_else(|| context.error(Error::InvalidField))?;
+            if !target.mutable {
+                return Err(context.error(Error::ReadOnlyField));
+            }
+            context.expect(value.ty, target.ty, "field write")?;
         }
         ReadAggregateIndex { base, index, .. } | WriteAggregateIndex { base, index, .. } => {
             context.expect(base.ty, ValueType::HeapObject, "index base")?;

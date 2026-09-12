@@ -9,6 +9,7 @@ use crate::module::{
 
 #[derive(Debug, Clone)]
 pub struct IrModule {
+    pub structures: Vec<super::StructLayout>,
     pub identity: kagari_common::identity::ModuleIdentity,
     pub source_name: String,
     pub module_init: Option<InstanceId>,
@@ -30,6 +31,17 @@ pub struct IrFunction {
     pub entry: BlockId,
     pub effects: EffectSet,
     pub debug: IrFunctionDebugMetadata,
+}
+
+impl IrModule {
+    pub fn structure(
+        &self,
+        declaration: &kagari_common::identity::DefinitionId,
+    ) -> Option<&super::StructLayout> {
+        self.structures
+            .iter()
+            .find(|layout| &layout.declaration == declaration)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

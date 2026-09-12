@@ -42,6 +42,9 @@ pub struct AggregateCatalog {
 }
 
 impl AggregateCatalog {
+    pub fn structures(&self) -> impl Iterator<Item = &StructSignature> {
+        self.structures.values().map(AsRef::as_ref)
+    }
     pub fn structure(&self, id: &DefinitionId) -> Option<&StructSignature> {
         self.structures.get(id).map(AsRef::as_ref)
     }

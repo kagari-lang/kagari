@@ -119,6 +119,14 @@ Implemented foundation slices:
   IR consumes the catalog instead of looking fields up in the current HIR module.
   Runtime field records still encode names pending concrete layouts and linking in
   R07/R08; this slice does not claim runtime field lookup has become slot-only.
+  IR now carries nominal struct layouts and owner/slot operands for construction,
+  reads and writes. Its verifier checks layout/field identities, slot completeness,
+  representations and write permissions before bytecode emission. The old IR field
+  name operands and string-based field interning were removed; bytecode emission
+  derives its existing named records from checked layout slots. Initializer values
+  are emitted in layout order after source-order evaluation. The layouts IR example
+  shows these contracts. Exact runtime receiver ownership and bytecode/heap slot
+  conversion remain pending, so R07/R08 are not complete.
   Calls now carry one HIR target and an explicit receiver. IR and reflection
   permission checks consume that target; duplicate Array/String method checking,
   backend builtin-name classification and fallback call dispatch were removed.

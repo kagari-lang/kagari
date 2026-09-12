@@ -332,14 +332,6 @@ impl FunctionLowerer<'_, '_> {
                 "checked initializer field count",
             ));
         }
-        let path = self
-            .analyzed
-            .aggregates
-            .structure(&target.structure)
-            .ok_or(IrLoweringError::MissingBinding("checked struct contract"))?
-            .declaration
-            .name
-            .clone();
         let fields = fields
             .iter()
             .zip(target.fields)
@@ -347,13 +339,12 @@ impl FunctionLowerer<'_, '_> {
                 let target =
                     target.ok_or(IrLoweringError::MissingBinding("checked initializer field"))?;
                 Ok(StructFieldInit {
-                    name: self
+                    slot: self
                         .analyzed
                         .aggregates
                         .field(&target)
                         .ok_or(IrLoweringError::MissingBinding("checked field contract"))?
-                        .name
-                        .clone(),
+                        .slot,
                     value: self.lower_expr(field.value)?,
                 })
             })
@@ -361,7 +352,7 @@ impl FunctionLowerer<'_, '_> {
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeStruct {
             dst,
-            name: path,
+            structure: target.structure,
             fields,
         });
         Ok(dst)

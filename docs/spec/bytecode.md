@@ -73,6 +73,16 @@ arity comes from the standard declaration table. IR rejects unsupported indirect
 calls. The declared entry block is emitted first, even when its arena index is
 nonzero; branches use offsets computed in that same emission order.
 
+IR struct construction names a nominal declaration and provides each field slot
+exactly once. Ordinary field operands contain a declaring struct identity and a
+slot, with no field-name fallback. The module carries checked layouts with field
+identities, representations and writeability. Verification rejects duplicate or
+malformed layouts, absent owners, invalid slots, missing/duplicate initializer
+slots, mismatched operand representations and writes to read-only fields.
+Initializer expressions retain source evaluation order; bytecode emission arranges
+their already-computed values in declaration order. Run the `layouts` example in
+`kagari-ir` to inspect this boundary without runtime registration.
+
 Locals and temporaries must be initialized on every reachable predecessor before
 use. This is a fixed-point analysis for non-SSA IR, including loops and merge
 temporaries written in separate branches. Structural and type checks include
@@ -86,8 +96,10 @@ carry `KG_IR_*` codes, function/block/instruction positions and available source
 spans. During source compilation, encoding or verification-state limits become
 `KG_COMPILE_LIMIT_EXCEEDED` diagnostics.
 
-This boundary does not yet prove nominal field layout, dynamic interface dispatch,
-host nominal object types or GC root maps. Those require the R06–R11 linking and
+This boundary validates declared layouts but does not yet prove the exact nominal
+type of a heap-valued operand, dynamic interface dispatch, host nominal object
+types or GC root maps. Bytecode and heap fields still use their current named
+representation pending the runtime slot conversion. Those require the R06–R11 linking and
 ownership work. The artifact loader still runs bytecode verification independently;
 the IR handle is neither serialized nor a substitute for artifact validation.
 

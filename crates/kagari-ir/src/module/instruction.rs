@@ -13,8 +13,8 @@ pub struct IrValue {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AggregateFieldRef {
-    pub owner: String,
-    pub name: String,
+    pub owner: kagari_common::identity::DefinitionId,
+    pub slot: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +77,7 @@ pub enum Instruction {
     },
     MakeStruct {
         dst: IrValue,
-        name: String,
+        structure: kagari_common::identity::DefinitionId,
         fields: StructFieldInitBuffer,
     },
     ReadAggregateField {
@@ -457,7 +457,7 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone)]
 pub struct StructFieldInit {
-    pub name: String,
+    pub slot: usize,
     pub value: IrValue,
 }
 

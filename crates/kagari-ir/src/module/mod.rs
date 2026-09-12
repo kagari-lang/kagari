@@ -5,6 +5,8 @@ pub mod contracts;
 pub mod function;
 pub mod ids;
 pub mod instruction;
+pub mod layout;
+pub use layout::{StructFieldLayout, StructLayout};
 pub mod types;
 mod verify;
 

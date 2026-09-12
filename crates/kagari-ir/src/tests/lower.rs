@@ -426,7 +426,7 @@ fn main() -> i32 {
 
     assert!(instructions.iter().any(|instruction| matches!(
         instruction,
-        Instruction::WriteAggregateField { field, .. } if field.name == "x"
+        Instruction::WriteAggregateField { field, .. } if ir.structure(&field.owner).unwrap().fields[field.slot].name == "x"
     )));
     assert!(
         instructions
