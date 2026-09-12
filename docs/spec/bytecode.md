@@ -83,6 +83,15 @@ Initializer expressions retain source evaluation order; bytecode emission arrang
 their already-computed values in declaration order. Run the `layouts` example in
 `kagari-ir` to inspect this boundary without runtime registration.
 
+Bytecode carries the same verified `StructLayout` records. `StructId` indexes
+this version's layout table; a field operand is `FieldRef { structure, slot }`.
+`MakeStruct` carries a layout ID and positional register operands, with exactly
+one value per layout slot. The old field table, field-name operands and named
+initializer records are removed. Artifact verification independently checks the
+layout identities, field count, slots, representations and write permissions.
+The VM checks the actual receiver's retained layout before slot access. Reflection
+resolves names explicitly from this metadata and shares the checked write path.
+
 Locals and temporaries must be initialized on every reachable predecessor before
 use. This is a fixed-point analysis for non-SSA IR, including loops and merge
 temporaries written in separate branches. Structural and type checks include
@@ -98,8 +107,8 @@ spans. During source compilation, encoding or verification-state limits become
 
 This boundary validates declared layouts but does not yet prove the exact nominal
 type of a heap-valued operand, dynamic interface dispatch, host nominal object
-types or GC root maps. Bytecode and heap fields still use their current named
-representation pending the runtime slot conversion. Those require the R06–R11 linking and
+types or GC root maps. Heap-valued field representations do not yet encode their
+complete nested nominal types. Those require the R06–R11 linking and
 ownership work. The artifact loader still runs bytecode verification independently;
 the IR handle is neither serialized nor a substitute for artifact validation.
 

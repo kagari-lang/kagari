@@ -70,8 +70,8 @@ enum HeapObject {
     Set(IndexSet<MapKey>),
     Enum(EnumValueSnapshot),
     Struct {
-        name: String,
-        fields: Vec<StructValueField>,
+        layout: crate::module::StructLayoutRef,
+        fields: Vec<Value>,
     },
 }
 
@@ -142,19 +142,23 @@ impl GcHeap {
         Some(self.alloc_object(HeapObject::Set(set)))
     }
 
-    pub fn alloc_struct(
+    pub(crate) fn alloc_struct(
         &self,
-        name: String,
-        fields: Vec<StructValueField>,
+        layout: crate::module::StructLayoutRef,
+        fields: Vec<Value>,
     ) -> Option<HeapObjectId> {
-        if !fields
-            .iter()
-            .all(|field| field.value.is_default_heap_payload())
+        if fields.len() != layout.layout().fields.len()
+            || !fields
+                .iter()
+                .zip(&layout.layout().fields)
+                .all(|(value, field)| {
+                    value.is_default_heap_payload() && value.has_representation(field.ty)
+                })
         {
             return None;
         }
         self.reserve_heap_units(1 + fields.len())?;
-        Some(self.alloc_object(HeapObject::Struct { name, fields }))
+        Some(self.alloc_object(HeapObject::Struct { layout, fields }))
     }
 
     pub fn alloc_enum(
@@ -360,40 +364,63 @@ impl GcHeap {
         Some(())
     }
 
-    pub fn struct_name(&self, id: HeapObjectId) -> Option<String> {
-        self.with_struct(id, |name, _| name.clone())
+    pub fn struct_layout(&self, id: HeapObjectId) -> Option<crate::module::StructLayoutRef> {
+        self.with_struct(id, |layout, _| layout.clone())
     }
-
+    pub fn struct_name(&self, id: HeapObjectId) -> Option<String> {
+        self.with_struct(id, |layout, _| layout.layout().name().to_owned())
+    }
     pub fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
         self.with_enum(id, Clone::clone)
     }
-
     pub fn struct_snapshot(&self, id: HeapObjectId) -> Option<(String, Vec<StructValueField>)> {
-        self.with_struct(id, |name, fields| (name.clone(), fields.clone()))
+        self.with_struct(id, |layout, fields| {
+            (
+                layout.layout().name().to_owned(),
+                fields
+                    .iter()
+                    .zip(&layout.layout().fields)
+                    .map(|(value, field)| StructValueField {
+                        name: field.name.clone(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+            )
+        })
     }
-
-    pub fn struct_get_field(&self, id: HeapObjectId, field_name: &str) -> Option<Value> {
-        self.with_struct(id, |_, fields| {
-            fields
-                .iter()
-                .find(|field| field.name == field_name)
-                .map(|field| field.value.clone())
+    pub fn struct_get_slot(
+        &self,
+        id: HeapObjectId,
+        expected: &crate::module::StructLayoutRef,
+        slot: usize,
+    ) -> Option<Value> {
+        self.with_struct(id, |layout, fields| {
+            if !layout.matches(expected) {
+                return None;
+            }
+            fields.get(slot).cloned()
         })
         .flatten()
     }
-
-    pub fn struct_set_field(
+    pub fn struct_set_slot(
         &self,
         id: HeapObjectId,
-        field_name: &str,
+        expected: &crate::module::StructLayoutRef,
+        slot: usize,
         next_value: Value,
     ) -> Option<()> {
         if !next_value.is_default_heap_payload() {
             return None;
         }
-        self.with_struct_mut(id, |_, fields| {
-            let field = fields.iter_mut().find(|field| field.name == field_name)?;
-            field.value = next_value;
+        self.with_struct_mut(id, |layout, fields| {
+            if !layout.matches(expected) {
+                return None;
+            }
+            let field = layout.layout().fields.get(slot)?;
+            if !field.mutable || !next_value.has_representation(field.ty) {
+                return None;
+            }
+            *fields.get_mut(slot)? = next_value;
             Some(())
         })
         .flatten()
@@ -557,7 +584,7 @@ impl GcHeap {
             }
             HeapObject::Struct { fields, .. } => {
                 for field in fields {
-                    self.trace_value_inner(&field.value, seen, traced);
+                    self.trace_value_inner(&field, seen, traced);
                 }
             }
         }
@@ -655,11 +682,11 @@ impl GcHeap {
     fn with_struct<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&String, &Vec<StructValueField>) -> R,
+        f: impl FnOnce(&crate::module::StructLayoutRef, &Vec<Value>) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
         match objects.get(id.index())? {
-            HeapObject::Struct { name, fields } => Some(f(name, fields)),
+            HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Set(_)
@@ -670,11 +697,11 @@ impl GcHeap {
     fn with_struct_mut<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&mut String, &mut Vec<StructValueField>) -> R,
+        f: impl FnOnce(&crate::module::StructLayoutRef, &mut Vec<Value>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
         match objects.get_mut(id.index())? {
-            HeapObject::Struct { name, fields } => Some(f(name, fields)),
+            HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Set(_)
@@ -685,6 +712,10 @@ impl GcHeap {
 
 #[cfg(test)]
 mod tests {
+    use kagari_ir::module::ValueType;
+    fn layout(name: &str, field: &str, ty: ValueType) -> crate::module::StructLayoutRef {
+        crate::layout_fixtures::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
+    }
     use super::*;
     use crate::{
         host::{
@@ -693,7 +724,6 @@ mod tests {
             HostTypeOwnership,
         },
         metadata::{AbiFingerprint, FieldMetadataId, PathAccess, TypeId},
-        value::StructValueField,
     };
 
     fn host_root_value(object_id: u64) -> Value {
@@ -796,11 +826,8 @@ mod tests {
         assert!(heap.alloc_set(vec![host_root_value(4)]).is_none());
         assert!(
             heap.alloc_struct(
-                "HostBacked".to_owned(),
-                vec![StructValueField {
-                    name: "path".to_owned(),
-                    value: path_view_value(3),
-                }],
+                layout("HostBacked", "path", ValueType::HeapObject),
+                vec![path_view_value(3)],
             )
             .is_none()
         );
@@ -813,23 +840,28 @@ mod tests {
         let array = heap.alloc_array(vec![Value::I32(1)]).unwrap();
         let record = heap
             .alloc_struct(
-                "Record".to_owned(),
-                vec![StructValueField {
-                    name: "value".to_owned(),
-                    value: Value::I32(1),
-                }],
+                layout("Record", "value", ValueType::I32),
+                vec![Value::I32(1)],
             )
             .unwrap();
 
         assert!(heap.array_push(array, shared_borrow_value(1)).is_none());
         assert!(heap.array_set(array, 0, path_view_value(4)).is_none());
         assert!(
-            heap.struct_set_field(record, "value", host_root_value(5))
-                .is_none()
+            heap.struct_set_slot(
+                record,
+                &heap.struct_layout(record).unwrap(),
+                0,
+                host_root_value(5)
+            )
+            .is_none()
         );
 
         assert_eq!(heap.array_snapshot(array), Some(vec![Value::I32(1)]));
-        assert_eq!(heap.struct_get_field(record, "value"), Some(Value::I32(1)));
+        assert_eq!(
+            heap.struct_get_slot(record, &heap.struct_layout(record).unwrap(), 0),
+            Some(Value::I32(1))
+        );
     }
 
     #[test]
@@ -839,13 +871,7 @@ mod tests {
         let second = heap.alloc_map(vec![]).unwrap();
         let third = heap.alloc_set(vec![]).unwrap();
         let fourth = heap
-            .alloc_struct(
-                "Empty".to_owned(),
-                vec![StructValueField {
-                    name: "value".to_owned(),
-                    value: Value::Unit,
-                }],
-            )
+            .alloc_struct(layout("Empty", "value", ValueType::Unit), vec![Value::Unit])
             .unwrap();
 
         assert_ne!(first, second);
@@ -981,11 +1007,8 @@ mod tests {
         let set = heap.alloc_set(vec![Value::Str("seen".to_owned())]).unwrap();
         let record = heap
             .alloc_struct(
-                "Record".to_owned(),
-                vec![StructValueField {
-                    name: "map".to_owned(),
-                    value: Value::Map(map),
-                }],
+                layout("Record", "map", ValueType::HeapObject),
+                vec![Value::Map(map)],
             )
             .unwrap();
 
@@ -1012,11 +1035,8 @@ mod tests {
         let array = heap.alloc_array(vec![]).unwrap();
         let record = heap
             .alloc_struct(
-                "Cycle".to_owned(),
-                vec![StructValueField {
-                    name: "array".to_owned(),
-                    value: Value::Array(array),
-                }],
+                layout("Cycle", "array", ValueType::HeapObject),
+                vec![Value::Array(array)],
             )
             .unwrap();
         heap.array_push(array, Value::Struct(record)).unwrap();

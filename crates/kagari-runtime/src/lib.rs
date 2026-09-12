@@ -1,3 +1,5 @@
+#[cfg(test)]
+extern crate self as kagari_runtime;
 pub mod backend;
 pub mod builtin;
 pub mod cache;
@@ -5,6 +7,9 @@ pub mod error;
 pub mod gc;
 pub mod host;
 pub mod jit_abi;
+#[cfg(test)]
+#[path = "../tests/support/layouts.rs"]
+mod layout_fixtures;
 pub mod metadata;
 pub mod module;
 pub mod numeric;
@@ -65,7 +70,7 @@ use crate::{
         validate_reload_candidate,
     },
 };
-use value::{StructValueField, Value};
+use value::Value;
 
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeConfig {
@@ -149,14 +154,34 @@ impl Runtime {
 
     pub fn alloc_struct(
         &self,
-        name: String,
-        fields: Vec<StructValueField>,
+        layout: module::StructLayoutRef,
+        fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
+        // The layout retains a verified generation; allocation does not depend on
+        // whether that generation remains a current module-store entry.
+        if !layout.module().belongs_to(self.host.owner()) {
+            return Err(RuntimeError::module_validation(
+                "struct layout belongs to a different runtime",
+            ));
+        }
+        if fields.len() != layout.layout().fields.len()
+            || !fields
+                .iter()
+                .zip(&layout.layout().fields)
+                .all(|(value, field)| {
+                    value.is_default_heap_payload() && value.has_representation(field.ty)
+                })
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "struct initializer does not match its layout",
+            ));
+        }
         let units = 1 + fields.len();
         self.resources.consume_allocation_units(units)?;
         let handle = self
             .gc
-            .alloc_struct(name, fields)
+            .alloc_struct(layout, fields)
             .ok_or_else(|| RuntimeError::resource_limit("heap units"))?;
         self.sync_heap_accounting()?;
         Ok(handle)

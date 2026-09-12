@@ -84,9 +84,9 @@ impl Default for FunctionRef {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct FieldId(u32);
+pub struct StructId(u32);
 
-impl FieldId {
+impl StructId {
     pub fn new(index: usize) -> Self {
         Self(index as u32)
     }
@@ -94,6 +94,12 @@ impl FieldId {
     pub fn index(self) -> usize {
         self.0 as usize
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct FieldRef {
+    pub structure: StructId,
+    pub slot: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -208,17 +214,17 @@ pub enum BytecodeInstruction {
     },
     MakeStruct {
         dst: Register,
-        name: String,
-        fields: Vec<StructFieldInit>,
+        structure: StructId,
+        fields: Vec<Register>,
     },
     ReadAggregateField {
         dst: Register,
         base: Register,
-        field: FieldId,
+        field: FieldRef,
     },
     WriteAggregateField {
         base: Register,
-        field: FieldId,
+        field: FieldRef,
         value: Register,
     },
     ReadAggregateIndex {
@@ -267,10 +273,4 @@ pub enum BytecodeInstruction {
     },
     Return(Option<Register>),
     Unreachable,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StructFieldInit {
-    pub name: String,
-    pub value: Register,
 }

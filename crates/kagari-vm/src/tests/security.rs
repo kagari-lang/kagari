@@ -1,6 +1,6 @@
 use kagari_ir::{
     bytecode::{
-        BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructFieldInit,
+        BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructId,
     },
     module::ValueType,
 };
@@ -150,7 +150,7 @@ fn security_reflection_and_debugger_gates_remain_separate() {
     let reflection_module = metadata_only
         .load_module(
             "security_reflection_write_denied.kbc",
-            test_function_module(
+            super::common::point_function_module(
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
@@ -159,11 +159,8 @@ fn security_reflection_and_debugger_gates_remain_separate() {
                     },
                     BytecodeInstruction::MakeStruct {
                         dst: Register::new(1),
-                        name: "Point".to_owned(),
-                        fields: vec![StructFieldInit {
-                            name: "x".to_owned(),
-                            value: Register::new(0),
-                        }],
+                        structure: StructId::new(0),
+                        fields: vec![Register::new(0)],
                     },
                     BytecodeInstruction::LoadConst {
                         dst: Register::new(2),
@@ -305,7 +302,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
         .load_module(
             "security_host_call_limit.kbc",
             crate::tests::common::with_host_imports(
-                test_function_module(
+                super::common::point_function_module(
                     "main",
                     vec![
                         BytecodeInstruction::Call {
@@ -357,7 +354,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let reflection_module = reflection_limited
         .load_module(
             "security_reflection_limit.kbc",
-            test_function_module(
+            super::common::point_function_module(
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
@@ -366,11 +363,8 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
                     },
                     BytecodeInstruction::MakeStruct {
                         dst: Register::new(1),
-                        name: "Point".to_owned(),
-                        fields: vec![StructFieldInit {
-                            name: "x".to_owned(),
-                            value: Register::new(0),
-                        }],
+                        structure: StructId::new(0),
+                        fields: vec![Register::new(0)],
                     },
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(2)),

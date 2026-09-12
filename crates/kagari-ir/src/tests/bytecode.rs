@@ -2,9 +2,9 @@ use crate::{
     bytecode::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactSectionId,
         ArtifactValidationError, BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule,
-        BytecodeVerificationError, CallTarget, DebugMetadata, DependencyFingerprint, FieldId,
-        FieldRecord, FunctionMetadata, FunctionRef, JumpTarget, KBC_MAGIC, KbcArtifact, LocalSlot,
-        PathId, PathRecord, Register, RuntimeHelper, SafeDebugPointKind, StandardIntrinsic,
+        BytecodeVerificationError, CallTarget, DebugMetadata, DependencyFingerprint, FieldRef,
+        FunctionMetadata, FunctionRef, JumpTarget, KBC_MAGIC, KbcArtifact, LocalSlot, PathId,
+        PathRecord, Register, RuntimeHelper, SafeDebugPointKind, StandardIntrinsic, StructId,
         UnaryOp, verify_module,
     },
     module::{PublicAbiItem, TypeAbiKind, ValueType},
@@ -642,12 +642,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
             ValueType::I32,
             ValueType::HeapObject,
         ],
-        fields: vec![FieldRecord {
-            id: FieldId::new(0),
-            owner: "Point".to_owned(),
-            name: "x".to_owned(),
-            ty: ValueType::I32,
-        }],
+        structures: common::bytecode_ok("struct Point { var x: i32 }").structures,
         function_table: vec![crate::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             name: "write_bad_field".to_owned(),
@@ -670,7 +665,10 @@ fn verifier_rejects_invalid_aggregate_writes() {
             instructions: vec![
                 BytecodeInstruction::WriteAggregateField {
                     base: Register::new(0),
-                    field: FieldId::new(0),
+                    field: FieldRef {
+                        structure: StructId::new(0),
+                        slot: 0,
+                    },
                     value: Register::new(1),
                 },
                 BytecodeInstruction::Return(None),
@@ -958,11 +956,17 @@ fn main() -> () {
             BytecodeInstruction::ReadAggregateField { .. }
         ))
     );
-    assert!(bytecode.fields.iter().any(|field| field.name == "x"));
+    assert!(
+        bytecode
+            .structures
+            .iter()
+            .flat_map(|layout| &layout.fields)
+            .any(|field| field.name == "x")
+    );
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
         BytecodeInstruction::ReadAggregateField { field, .. }
-            if bytecode.fields.get(field.index()).is_some_and(|record| record.name == "x")
+            if bytecode.structures.get(field.structure.index()).and_then(|layout| layout.fields.get(field.slot as usize)).is_some_and(|record| record.name == "x")
     )));
 }
 
@@ -1121,7 +1125,7 @@ fn main() -> i32 {
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
         BytecodeInstruction::WriteAggregateField { field, .. }
-            if bytecode.fields.get(field.index()).is_some_and(|record| record.name == "x")
+            if bytecode.structures.get(field.structure.index()).and_then(|layout| layout.fields.get(field.slot as usize)).is_some_and(|record| record.name == "x")
     )));
     assert!(
         function.instructions.iter().any(|instruction| matches!(
@@ -1225,4 +1229,60 @@ fn main() -> usize {
             ..
         }
     )));
+}
+
+#[test]
+fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
+    let original = common::bytecode_ok(
+        "struct P { var x: i32, val fixed: bool } fn main() -> i32 { val p = P { fixed: true, x: 1 }; p.x = 2; p.x }",
+    );
+    for corruption in 0..7 {
+        let mut module = original.clone();
+        match corruption {
+            0 => module.structures.push(module.structures[0].clone()),
+            1 => module.structures[0].fields[0]
+                .declaration
+                .module
+                .path
+                .push("foreign".into()),
+            2 => module.structures[0].fields[0].mutable = false,
+            _ => {
+                for instruction in module
+                    .functions
+                    .iter_mut()
+                    .flat_map(|function| &mut function.instructions)
+                {
+                    match instruction {
+                        BytecodeInstruction::MakeStruct {
+                            structure, fields, ..
+                        } => match corruption {
+                            3 => *structure = StructId::new(999),
+                            4 => {
+                                fields.pop();
+                            }
+                            5 => fields.swap(0, 1),
+                            _ => {}
+                        },
+                        BytecodeInstruction::ReadAggregateField { field, .. }
+                            if corruption == 6 =>
+                        {
+                            field.slot = u32::MAX
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let bytes = KbcArtifact::from_module(module, ArtifactBuildOptions::default())
+            .to_bytes()
+            .unwrap();
+        let artifact = KbcArtifact::from_bytes(&bytes).unwrap();
+        assert!(
+            matches!(
+                artifact.validate_for_loader(&ArtifactCompatibility::default()),
+                Err(ArtifactValidationError::Bytecode(_))
+            ),
+            "corruption {corruption}"
+        );
+    }
 }

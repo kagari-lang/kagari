@@ -9,7 +9,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 7;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 8;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 
 fn codec() -> impl Options {
@@ -21,7 +21,7 @@ fn codec() -> impl Options {
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v2";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v3";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -345,8 +345,8 @@ impl ArtifactTables {
         );
         push_section(
             &mut sections,
-            ArtifactSectionId::Fields,
-            module.fields.len(),
+            ArtifactSectionId::StructLayouts,
+            module.structures.len(),
         );
         push_section(&mut sections, ArtifactSectionId::Paths, module.paths.len());
         push_section(&mut sections, ArtifactSectionId::HostDependencies, 0usize);
@@ -384,7 +384,7 @@ pub enum ArtifactSectionId {
     Functions,
     PublicItems,
     ModuleSlots,
-    Fields,
+    StructLayouts,
     Paths,
     HostDependencies,
     StringTable,

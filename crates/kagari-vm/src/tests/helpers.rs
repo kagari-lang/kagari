@@ -1,6 +1,6 @@
 use kagari_ir::bytecode::{
     BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
-    FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StandardIntrinsic, StructFieldInit,
+    FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StandardIntrinsic, StructId,
 };
 use kagari_ir::module::ValueType;
 use std::sync::{Arc, Mutex};
@@ -529,7 +529,7 @@ fn reflection_metadata_and_read_gates_are_separate() {
     let loaded = metadata_only
         .load_module(
             "reflect_read_denied.kbc",
-            test_function_module(
+            super::common::point_function_module(
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
@@ -538,11 +538,8 @@ fn reflection_metadata_and_read_gates_are_separate() {
                     },
                     BytecodeInstruction::MakeStruct {
                         dst: Register::new(1),
-                        name: "Point".to_owned(),
-                        fields: vec![StructFieldInit {
-                            name: "x".to_owned(),
-                            value: Register::new(0),
-                        }],
+                        structure: StructId::new(0),
+                        fields: vec![Register::new(0)],
                     },
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(2)),
@@ -589,7 +586,7 @@ fn reflection_read_and_write_gates_are_separate() {
     let loaded = read_only
         .load_module(
             "reflect_write_denied.kbc",
-            test_function_module(
+            super::common::point_function_module(
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
@@ -598,11 +595,8 @@ fn reflection_read_and_write_gates_are_separate() {
                     },
                     BytecodeInstruction::MakeStruct {
                         dst: Register::new(1),
-                        name: "Point".to_owned(),
-                        fields: vec![StructFieldInit {
-                            name: "x".to_owned(),
-                            value: Register::new(0),
-                        }],
+                        structure: StructId::new(0),
+                        fields: vec![Register::new(0)],
                     },
                     BytecodeInstruction::LoadConst {
                         dst: Register::new(2),
@@ -661,7 +655,7 @@ fn reflection_helpers_enforce_reflection_operation_resource_limit() {
     let loaded = runtime
         .load_module(
             "reflect_operation_limit.kbc",
-            test_function_module(
+            super::common::point_function_module(
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
@@ -670,11 +664,8 @@ fn reflection_helpers_enforce_reflection_operation_resource_limit() {
                     },
                     BytecodeInstruction::MakeStruct {
                         dst: Register::new(1),
-                        name: "Point".to_owned(),
-                        fields: vec![StructFieldInit {
-                            name: "x".to_owned(),
-                            value: Register::new(0),
-                        }],
+                        structure: StructId::new(0),
+                        fields: vec![Register::new(0)],
                     },
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(2)),
@@ -716,7 +707,7 @@ fn reflection_helpers_enforce_reflection_operation_resource_limit() {
 fn executes_runtime_reflect_get_and_set_field_helpers() {
     let (runtime, loaded) = load_reflection_bytecode_module(
         "reflect_field.kbc",
-        test_function_module(
+        super::common::point_function_module(
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
@@ -725,11 +716,8 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
                 },
                 BytecodeInstruction::MakeStruct {
                     dst: Register::new(1),
-                    name: "Point".to_owned(),
-                    fields: vec![StructFieldInit {
-                        name: "x".to_owned(),
-                        value: Register::new(0),
-                    }],
+                    structure: StructId::new(0),
+                    fields: vec![Register::new(0)],
                 },
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(2),

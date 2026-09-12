@@ -103,6 +103,27 @@ The key property is:
 
 ## Value Shape
 
+Script struct objects contain a `StructLayoutRef` and positional `Value` slots.
+The layout handle comes from a verified `LoadedModule` and retains that immutable
+executable generation. Objects do not duplicate field names. Allocation requires
+a layout belonging to the receiving runtime and validates field count, payload
+storage boundaries and value representations before charging allocation units.
+Field reads require a matching nominal layout; writes additionally require a
+writable slot and matching value representation before changing the target.
+
+Layouts from the same executable generation compare by shared handle and index.
+Across generations, access requires the same runtime owner and equal nominal
+declaration, field identities, slot order, representations and permissions.
+Publication does not invalidate an object's retained layout. This does not yet
+pin module instance state or the root call's dependency graph. Heap-valued fields
+still have coarse representations, and runtime-owned generational heap handles
+remain pending R11.
+
+Explicit reflection resolves a field name through the retained layout metadata
+and uses the same slot write checks. Reflection cannot bypass read-only fields
+or scalar representation checks. Named `StructValueField` records exist only in
+diagnostic snapshots, not heap storage or allocation APIs.
+
 The current `value.rs` file already separates script-owned handles from host-backed handles.
 
 The value shape is:

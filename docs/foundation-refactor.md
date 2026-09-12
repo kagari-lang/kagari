@@ -117,16 +117,20 @@ Implemented foundation slices:
   types, declaration order, writeability and source locations for local and imported
   accesses. Nested imported struct construction/read/write uses the same checks;
   IR consumes the catalog instead of looking fields up in the current HIR module.
-  Runtime field records still encode names pending concrete layouts and linking in
-  R07/R08; this slice does not claim runtime field lookup has become slot-only.
   IR now carries nominal struct layouts and owner/slot operands for construction,
   reads and writes. Its verifier checks layout/field identities, slot completeness,
   representations and write permissions before bytecode emission. The old IR field
-  name operands and string-based field interning were removed; bytecode emission
-  derives its existing named records from checked layout slots. Initializer values
+  name operands and string-based field interning were removed. Bytecode carries
+  these layouts and uses StructId/FieldRef slots instead of named field records.
+  Heap structs retain a verified version layout and positional values. Reads check
+  the actual layout; writes also check permissions and value representations before
+  committing. Explicit reflection resolves names from layouts and shares slot
+  mutation checks. Allocation rejects foreign-runtime layouts and invalid field
+  values before accounting. Old objects retain their layout; compatible layouts
+  across versions require equal identities, slots and schemas. Initializer values
   are emitted in layout order after source-order evaluation. The layouts IR example
-  shows these contracts. Exact runtime receiver ownership and bytecode/heap slot
-  conversion remain pending, so R07/R08 are not complete.
+  shows these contracts. Full nested nominal types, generic type layouts, interface
+  tables and dependency linking remain pending, so R07/R08 are not complete.
   Calls now carry one HIR target and an explicit receiver. IR and reflection
   permission checks consume that target; duplicate Array/String method checking,
   backend builtin-name classification and fallback call dispatch were removed.
@@ -214,10 +218,11 @@ Implemented foundation slices:
   object validation remains open.
 - R08/R09/R10: LoadedModule is an immutable shared Arc handle; public raw store
   loading and post-load bytecode mutation were removed. Module queries share code.
-  Loaded handles and host slots reject cross-runtime use. Format v7 rejects v1–v6;
+  Loaded handles and host slots reject cross-runtime use. Format v8 rejects v1–v7;
   required host fingerprints derive from declarations rather than caller options.
-  The empty string host-dependency side table was removed. Full version-owned
-  layouts, dependency pinning, roots and lifecycle reclamation remain open.
+  The empty string host-dependency side table was removed. Struct layout handles
+  retain executable versions; dependency pinning, roots and full instance/code
+  lifecycle reclamation remain open.
 - R07: semantic Struct/Enum/Trait types use DefinitionId, and generic parameters
   use their declaring owner and position. Same-spelled cross-module types and
   shadowed generic parameters are distinct. Implicit Self types belong to a trait;
@@ -234,8 +239,8 @@ Implemented foundation slices:
   calls on existing concrete implementations use HIR implementation targets.
   Return/break/continue terminate block lowering, preventing later effects and
   unreachable generic calls from being emitted. Generic impl specialization,
-  applied trait/type arguments, concrete layouts and dynamic implementation tables
-  remain outstanding; ABI labels/runtime fields still need linked identities.
+  applied trait/type arguments, generic concrete layouts and dynamic implementation
+  tables remain outstanding; public ABI labels still need linked identities.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite
@@ -244,7 +249,7 @@ Implemented foundation slices:
   are shared with bytecode validation; intrinsic arity uses HIR declarations.
   Entry block order is preserved, and IDs are bounded before narrowing. Verification
   supports cancellation and bounds its dataflow matrix to 64 MiB. Nominal field
-  layouts, host signatures, dynamic interface tables, root maps and the final
+  layouts and scalar host signatures are checked; dynamic interface tables, root maps and the final
   linked-only runtime boundary remain outstanding.
 - R15: IR generation has configurable instance, type-node, type-depth and generated
   instruction limits plus cancellation. Expansion counts nodes while copying,
@@ -255,7 +260,7 @@ Implemented foundation slices:
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this
   does not claim native compilation of parameterized generic instances.
-- R09: format v7 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v8 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Full linked
@@ -276,7 +281,7 @@ Implemented foundation slices:
   integer abs use checked operations. Existing native i32 add/subtract/multiply/
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
-  and JIT helper ABI fingerprints are v2. Path arithmetic failure produces no
+  ABI is v3 and JIT helper ABI remains v2. Path arithmetic failure produces no
   write callback or dirty record. Const evaluation shares checked arithmetic and
   honors short circuit, with cancellation checks. Mutation resource commit,
   narrower integer layouts and the other backend/

@@ -25,23 +25,31 @@ fn main() {
         }
     }
     let bytecode = lower_to_bytecode(&ir).unwrap();
-    let fields = bytecode
+    let (structure, fields) = bytecode
         .functions
         .iter()
         .flat_map(|f| &f.instructions)
         .find_map(|instruction| {
-            if let BytecodeInstruction::MakeStruct { fields, .. } = instruction {
-                Some(fields)
+            if let BytecodeInstruction::MakeStruct {
+                structure, fields, ..
+            } = instruction
+            {
+                Some((structure, fields))
             } else {
                 None
             }
         })
         .unwrap();
     assert_eq!(
-        fields
+        bytecode.structures[structure.index()]
+            .fields
             .iter()
             .map(|field| field.name.as_str())
             .collect::<Vec<_>>(),
         ["number", "enabled"]
+    );
+    assert_eq!(
+        fields.len(),
+        bytecode.structures[structure.index()].fields.len()
     );
 }

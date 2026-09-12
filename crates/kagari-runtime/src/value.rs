@@ -90,6 +90,29 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn has_representation(&self, ty: kagari_ir::module::ValueType) -> bool {
+        use kagari_ir::module::ValueType as T;
+        matches!(
+            (self, ty),
+            (Self::Unit, T::Unit)
+                | (Self::Bool(_), T::Bool)
+                | (Self::I32(_), T::I32)
+                | (Self::I64(_), T::I64)
+                | (Self::F32(_), T::F32)
+                | (Self::F64(_), T::F64)
+                | (Self::Str(_), T::Str)
+                | (
+                    Self::Tuple(_)
+                        | Self::Array(_)
+                        | Self::Map(_)
+                        | Self::Set(_)
+                        | Self::Enum(_)
+                        | Self::Struct(_)
+                        | Self::GcHandle(_),
+                    T::HeapObject
+                )
+        )
+    }
     pub fn category(&self) -> ValueCategory {
         match self {
             Self::Unit => ValueCategory::Unit,

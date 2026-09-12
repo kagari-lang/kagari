@@ -170,24 +170,36 @@ fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
         "struct P { val first: i32, val second: bool } fn main() -> P { P { second: true, first: 42 } }",
     );
     let bytecode = lower_to_bytecode(&verify_ir(module, &Default::default()).unwrap()).unwrap();
-    let fields = bytecode
+    let (structure, fields) = bytecode
         .functions
         .iter()
         .flat_map(|f| &f.instructions)
         .find_map(|instruction| {
-            if let BytecodeInstruction::MakeStruct { fields, .. } = instruction {
-                Some(fields)
+            if let BytecodeInstruction::MakeStruct {
+                structure, fields, ..
+            } = instruction
+            {
+                Some((structure, fields))
             } else {
                 None
             }
         })
         .unwrap();
     assert_eq!(
-        fields
+        bytecode.structures[structure.index()]
+            .fields
             .iter()
             .map(|field| field.name.as_str())
             .collect::<Vec<_>>(),
         ["first", "second"]
+    );
+    let registers = &bytecode.functions[0].metadata.registers;
+    assert_eq!(
+        fields
+            .iter()
+            .map(|register| registers[register.index()])
+            .collect::<Vec<_>>(),
+        [ValueType::I32, ValueType::Bool]
     );
 }
 

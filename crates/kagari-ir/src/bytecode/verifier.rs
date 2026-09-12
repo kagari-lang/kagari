@@ -3,14 +3,19 @@ use std::fmt::{self, Display, Formatter};
 use crate::{
     bytecode::{
         BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
-        ConstantOperand, FieldId, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, PathId, Register,
-        StandardIntrinsic, UnaryOp,
+        ConstantOperand, FieldRef, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, PathId,
+        Register, StandardIntrinsic, StructId, UnaryOp,
     },
     module::ValueType,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BytecodeVerificationError {
+    InvalidStructLayout,
+    InvalidStructId {
+        function: FunctionRef,
+        structure: StructId,
+    },
     InvalidHostInterface(String),
     InvalidHostImport {
         function: FunctionRef,
@@ -46,9 +51,9 @@ pub enum BytecodeVerificationError {
         function: FunctionRef,
         slot: ModuleSlot,
     },
-    InvalidFieldId {
+    InvalidFieldReference {
         function: FunctionRef,
-        field: FieldId,
+        field: FieldRef,
     },
     InvalidPathId {
         function: FunctionRef,
@@ -95,6 +100,8 @@ pub enum BytecodeVerificationError {
 impl BytecodeVerificationError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
+            Self::InvalidStructId { .. } => "KG_BYTECODE_INVALID_STRUCT_ID",
             Self::InvalidHostInterface(_) => "KG_BYTECODE_INVALID_HOST_INTERFACE",
             Self::InvalidHostImport { .. } => "KG_BYTECODE_INVALID_HOST_IMPORT",
             Self::InvalidOperation { .. } => "KG_BYTECODE_INVALID_OPERATION",
@@ -107,7 +114,7 @@ impl BytecodeVerificationError {
             Self::InvalidRegister { .. } => "KG_BYTECODE_INVALID_REGISTER",
             Self::InvalidLocal { .. } => "KG_BYTECODE_INVALID_LOCAL",
             Self::InvalidModuleSlot { .. } => "KG_BYTECODE_INVALID_MODULE_SLOT",
-            Self::InvalidFieldId { .. } => "KG_BYTECODE_INVALID_FIELD_ID",
+            Self::InvalidFieldReference { .. } => "KG_BYTECODE_INVALID_FIELD_REFERENCE",
             Self::InvalidPathId { .. } => "KG_BYTECODE_INVALID_PATH_ID",
             Self::ReadOnlyPath { .. } => "KG_BYTECODE_READ_ONLY_PATH",
             Self::InvalidFunctionRef { .. } => "KG_BYTECODE_INVALID_FUNCTION_REF",
@@ -126,6 +133,11 @@ impl BytecodeVerificationError {
 impl Display for BytecodeVerificationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidStructLayout => write!(f, "invalid struct layouts"),
+            Self::InvalidStructId {
+                function,
+                structure,
+            } => write!(f, "invalid struct {structure:?} in {function:?}"),
             Self::InvalidHostInterface(reason) => write!(f, "invalid host interface: {reason}"),
             Self::InvalidHostImport { function, import } => {
                 write!(f, "invalid host import {import:?} in {function:?}")
@@ -164,7 +176,7 @@ impl Display for BytecodeVerificationError {
             Self::InvalidModuleSlot { function, slot } => {
                 write!(f, "invalid module slot {slot:?} in {function:?}")
             }
-            Self::InvalidFieldId { function, field } => {
+            Self::InvalidFieldReference { function, field } => {
                 write!(f, "invalid field id {field:?} in {function:?}")
             }
             Self::InvalidPathId { function, path } => {
@@ -222,6 +234,8 @@ impl Display for BytecodeVerificationError {
 impl std::error::Error for BytecodeVerificationError {}
 
 pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
+    crate::module::layout::validate_layouts(&module.structures, &Default::default())
+        .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
     module
         .host_interface
         .validate()
@@ -445,19 +459,41 @@ fn verify_instruction(
                 let _ = register_ty(function, *element)?;
             }
         }
-        BytecodeInstruction::MakeStruct { dst, fields, .. } => {
+        BytecodeInstruction::MakeStruct {
+            dst,
+            structure,
+            fields,
+        } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "struct dst")?;
-            for field in fields {
-                let _ = register_ty(function, field.value)?;
+            let layout = module.structures.get(structure.index()).ok_or(
+                BytecodeVerificationError::InvalidStructId {
+                    function: function.id,
+                    structure: *structure,
+                },
+            )?;
+            if fields.len() != layout.fields.len() {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "struct initializer field count",
+                });
+            }
+            for (value, field) in fields.iter().zip(&layout.fields) {
+                expect_register_ty(function, *value, field.ty, "struct field initializer")?;
             }
         }
         BytecodeInstruction::ReadAggregateField { dst, base, field } => {
-            let field = field_record(module, function, *field)?;
+            let field = field_layout(module, function, *field)?;
             expect_register_ty(function, *dst, field.ty, "aggregate field dst")?;
             expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
         }
         BytecodeInstruction::WriteAggregateField { base, field, value } => {
-            let field = field_record(module, function, *field)?;
+            let field = field_layout(module, function, *field)?;
+            if !field.mutable {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "write to read-only field",
+                });
+            }
             expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
             expect_register_ty(function, *value, field.ty, "aggregate field value")?;
         }
@@ -698,25 +734,19 @@ fn function_ref_exists(module: &BytecodeModule, target: FunctionRef) -> bool {
     target.index() < module.functions.len() && target.index() < module.function_table.len()
 }
 
-fn field_record<'a>(
+fn field_layout<'a>(
     module: &'a BytecodeModule,
     function: &BytecodeFunction,
-    field: FieldId,
-) -> Result<&'a crate::bytecode::FieldRecord, BytecodeVerificationError> {
-    let Some(record) = module.fields.get(field.index()) else {
-        return Err(BytecodeVerificationError::InvalidFieldId {
-            function: function.id,
-            field,
-        });
-    };
-    if record.id == field {
-        Ok(record)
-    } else {
-        Err(BytecodeVerificationError::InvalidFieldId {
+    field: FieldRef,
+) -> Result<&'a crate::module::StructFieldLayout, BytecodeVerificationError> {
+    module
+        .structures
+        .get(field.structure.index())
+        .and_then(|layout| layout.fields.get(field.slot as usize))
+        .ok_or(BytecodeVerificationError::InvalidFieldReference {
             function: function.id,
             field,
         })
-    }
 }
 
 fn path_record<'a>(

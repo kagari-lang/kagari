@@ -3,14 +3,15 @@ use std::collections::HashMap;
 use kagari_common::Span;
 
 use crate::bytecode::instruction::{
-    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldId, FunctionRef, HostImportId,
-    JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructFieldInit, UnaryOp,
+    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldRef, FunctionRef,
+    HostImportId, JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructId,
+    UnaryOp,
 };
 use crate::bytecode::module::{
     BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, BytecodeModuleSlot,
-    CapturedBindingDebugInfo, DebugPointId, FieldRecord, FrameLayout, FunctionMetadata,
-    FunctionRecord, InstructionSourceSpan, LineTableEntry, LocalLiveRange, PathRecord,
-    SafeDebugPoint, SafeDebugPointKind,
+    CapturedBindingDebugInfo, DebugPointId, FrameLayout, FunctionMetadata, FunctionRecord,
+    InstructionSourceSpan, LineTableEntry, LocalLiveRange, PathRecord, SafeDebugPoint,
+    SafeDebugPointKind,
 };
 use crate::bytecode::verify_module;
 use crate::module::{
@@ -56,7 +57,7 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
             .collect(),
         constants: Vec::new(),
         types: Vec::new(),
-        fields: context.fields,
+        structures: ir.structures.clone(),
         paths: context.paths,
         function_table: Vec::new(),
         public_items: ir.abi.public_items.clone(),
@@ -72,9 +73,7 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
 #[derive(Debug, Default)]
 struct BytecodeLoweringContext<'a> {
     structures: &'a [crate::module::StructLayout],
-    field_ids: HashMap<AggregateFieldRef, FieldId>,
     host_interface: kagari_common::host_interface::HostInterface,
-    fields: Vec<FieldRecord>,
     paths: Vec<PathRecord>,
 }
 
@@ -95,32 +94,19 @@ impl BytecodeLoweringContext<'_> {
         self.host_interface.functions.push(declaration.clone());
         id
     }
-    fn structure(
-        &self,
-        id: &kagari_common::identity::DefinitionId,
-    ) -> &crate::module::StructLayout {
-        self.structures
-            .iter()
-            .find(|layout| &layout.declaration == id)
-            .expect("verified struct layout")
+    fn structure_id(&self, id: &kagari_common::identity::DefinitionId) -> StructId {
+        StructId::new(
+            self.structures
+                .iter()
+                .position(|layout| &layout.declaration == id)
+                .expect("verified struct layout"),
+        )
     }
-
-    fn field_id(&mut self, field: &AggregateFieldRef) -> FieldId {
-        if let Some(id) = self.field_ids.get(field) {
-            return *id;
+    fn field_ref(&self, field: &AggregateFieldRef) -> FieldRef {
+        FieldRef {
+            structure: self.structure_id(&field.owner),
+            slot: field.slot as u32,
         }
-        let layout = self.structure(&field.owner);
-        let descriptor = &layout.fields[field.slot];
-        let record = FieldRecord {
-            id: FieldId::new(self.fields.len()),
-            owner: layout.name().to_owned(),
-            name: descriptor.name.clone(),
-            ty: descriptor.ty,
-        };
-        let id = record.id;
-        self.fields.push(record);
-        self.field_ids.insert(field.clone(), id);
-        id
     }
 
     fn path_id(&mut self, path: &PathRef) -> PathId {
@@ -221,8 +207,10 @@ fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
     for slot in &module.module_slots {
         push_type(&mut types, slot.ty);
     }
-    for field in &module.fields {
-        push_type(&mut types, field.ty);
+    for layout in &module.structures {
+        for field in &layout.fields {
+            push_type(&mut types, field.ty);
+        }
     }
     for path in &module.paths {
         push_type(&mut types, path.root_ty);
@@ -533,18 +521,14 @@ fn lower_instruction(
             structure,
             fields,
         } => {
-            let layout = context.structure(structure);
             let mut ordered = fields.iter().collect::<Vec<_>>();
             ordered.sort_by_key(|field| field.slot);
             BytecodeInstruction::MakeStruct {
                 dst: lower_value(*dst),
-                name: layout.name().to_owned(),
+                structure: context.structure_id(structure),
                 fields: ordered
                     .into_iter()
-                    .map(|field| StructFieldInit {
-                        name: layout.fields[field.slot].name.clone(),
-                        value: lower_value(field.value),
-                    })
+                    .map(|field| lower_value(field.value))
                     .collect(),
             }
         }
@@ -552,13 +536,13 @@ fn lower_instruction(
             BytecodeInstruction::ReadAggregateField {
                 dst: lower_value(*dst),
                 base: lower_value(*base),
-                field: context.field_id(field),
+                field: context.field_ref(field),
             }
         }
         Instruction::WriteAggregateField { base, field, value } => {
             BytecodeInstruction::WriteAggregateField {
                 base: lower_value(*base),
-                field: context.field_id(field),
+                field: context.field_ref(field),
                 value: lower_value(*value),
             }
         }

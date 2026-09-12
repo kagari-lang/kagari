@@ -19,17 +19,18 @@ pub use artifact::{
     PublicAbiFingerprint, PublicAbiFingerprintBuffer, SourceFileTable, VerificationMetadata,
 };
 pub use instruction::{
-    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldId, FunctionRef, HostImportId,
-    JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructFieldInit, UnaryOp,
+    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldRef, FunctionRef,
+    HostImportId, JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructId,
+    UnaryOp,
 };
 pub use lower::{BytecodeLoweringError, lower_to_bytecode};
 pub use module::{
     BytecodeDebugMetadata, BytecodeFunction, BytecodeFunctionBuffer, BytecodeInstructionBuffer,
     BytecodeModule, BytecodeModuleSlot, BytecodeModuleSlotBuffer, BytecodeTypeTable,
     CapturedBindingDebugBuffer, CapturedBindingDebugInfo, ConstantPool, ControlFlowTargetBuffer,
-    DebugPointId, FieldRecord, FieldTable, FrameLayout, FunctionMetadata, FunctionRecord,
-    FunctionTable, InstructionSourceSpan, InstructionSourceSpanBuffer, LineTableBuffer,
-    LineTableEntry, LocalLiveRange, LocalLiveRangeBuffer, PathRecord, PathTable, PublicItemRecord,
-    PublicItemTable, SafeDebugPoint, SafeDebugPointBuffer, SafeDebugPointKind, TypeLayoutBuffer,
+    DebugPointId, FrameLayout, FunctionMetadata, FunctionRecord, FunctionTable,
+    InstructionSourceSpan, InstructionSourceSpanBuffer, LineTableBuffer, LineTableEntry,
+    LocalLiveRange, LocalLiveRangeBuffer, PathRecord, PathTable, PublicItemRecord, PublicItemTable,
+    SafeDebugPoint, SafeDebugPointBuffer, SafeDebugPointKind, TypeLayoutBuffer,
 };
 pub use verifier::{BytecodeVerificationError, verify_module};

@@ -112,6 +112,13 @@ impl Deref for LoadedModule {
 }
 
 impl LoadedModule {
+    pub fn struct_layout(&self, id: kagari_ir::bytecode::StructId) -> Option<StructLayoutRef> {
+        self.bytecode.structures.get(id.index())?;
+        Some(StructLayoutRef {
+            module: self.clone(),
+            id,
+        })
+    }
     pub fn host_binding(
         &self,
         import: kagari_ir::bytecode::HostImportId,
@@ -127,6 +134,27 @@ impl LoadedModule {
             id: self.id,
             epoch: self.epoch,
         }
+    }
+}
+
+/// A verified layout that retains its immutable executable generation.
+#[derive(Debug, Clone)]
+pub struct StructLayoutRef {
+    module: LoadedModule,
+    id: kagari_ir::bytecode::StructId,
+}
+
+impl StructLayoutRef {
+    pub fn layout(&self) -> &kagari_ir::module::StructLayout {
+        &self.module.bytecode.structures[self.id.index()]
+    }
+    pub fn module(&self) -> &LoadedModule {
+        &self.module
+    }
+    pub(crate) fn matches(&self, other: &Self) -> bool {
+        self.module.registry_owner == other.module.registry_owner
+            && ((Arc::ptr_eq(&self.module.linked, &other.module.linked) && self.id == other.id)
+                || self.layout() == other.layout())
     }
 }
 

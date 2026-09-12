@@ -41,11 +41,14 @@ KbcArtifact {
 }
 ```
 
-Format version 7 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 8 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 6 are rejected; no migration or compatibility
-decoder exists. Version 7 replaces host call symbols with HostImportId operands
-and a required HostInterface declaration table. There is no arbitrary host-registry
+format version. Versions 1 through 7 are rejected; no migration or compatibility
+decoder exists. Version 8 replaces named struct initializer/field records with
+nominal layout tables, positional initializers and layout/slot field operands.
+The runtime ABI identity is `kagari-runtime-abi-v3`; the runtime-helper ABI remains
+v2. Host calls use HostImportId operands and a required HostInterface declaration
+table. There is no arbitrary host-registry
 fingerprint option or duplicate string dependency table. The obsolete BuiltinMethod
 call operand is also absent;
 standard-library calls use StandardIntrinsic and its verified call contract.

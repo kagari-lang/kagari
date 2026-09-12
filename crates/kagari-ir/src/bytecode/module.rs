@@ -1,6 +1,6 @@
 use crate::{
     bytecode::instruction::{
-        BytecodeInstruction, ConstantOperand, FieldId, FunctionRef, JumpTarget, LocalSlot, PathId,
+        BytecodeInstruction, ConstantOperand, FunctionRef, JumpTarget, LocalSlot, PathId,
     },
     module::{EffectSet, PublicAbiItem, ValueType},
 };
@@ -16,7 +16,7 @@ pub struct BytecodeModule {
     pub module_slots: BytecodeModuleSlotBuffer,
     pub constants: ConstantPool,
     pub types: BytecodeTypeTable,
-    pub fields: FieldTable,
+    pub structures: Vec<crate::module::StructLayout>,
     pub paths: PathTable,
     pub function_table: FunctionTable,
     pub public_items: PublicItemTable,
@@ -28,14 +28,6 @@ pub struct BytecodeModuleSlot {
     pub name: String,
     pub ty: ValueType,
     pub mutable: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldRecord {
-    pub id: FieldId,
-    pub owner: String,
-    pub name: String,
-    pub ty: ValueType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,7 +156,7 @@ pub type BytecodeInstructionBuffer = Vec<BytecodeInstruction>;
 pub type BytecodeModuleSlotBuffer = Vec<BytecodeModuleSlot>;
 pub type ConstantPool = Vec<ConstantOperand>;
 pub type BytecodeTypeTable = Vec<ValueType>;
-pub type FieldTable = Vec<FieldRecord>;
+
 pub type PathTable = Vec<PathRecord>;
 pub type FunctionTable = Vec<FunctionRecord>;
 pub type PublicItemRecord = PublicAbiItem;

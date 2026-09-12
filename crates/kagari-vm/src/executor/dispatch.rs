@@ -94,26 +94,20 @@ impl<'a> Executor<'a> {
                 let value = self.make_array(&elements)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
-            BytecodeInstruction::MakeStruct { dst, name, fields } => {
-                let value = self.make_struct(name, &fields)?;
+            BytecodeInstruction::MakeStruct {
+                dst,
+                structure,
+                fields,
+            } => {
+                let value = self.make_struct(structure, &fields)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::ReadAggregateField { dst, base, field } => {
-                let field = self
-                    .module
-                    .fields
-                    .get(field.index())
-                    .ok_or(VmError::UnsupportedInstruction("invalid_aggregate_field"))?;
-                let value = self.read_field(base, &field.name)?;
+                let value = self.read_field(base, field)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::WriteAggregateField { base, field, value } => {
-                let field = self
-                    .module
-                    .fields
-                    .get(field.index())
-                    .ok_or(VmError::UnsupportedInstruction("invalid_aggregate_field"))?;
-                self.write_field(base, &field.name, value)?;
+                self.write_field(base, field, value)?;
             }
             BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
                 let value = self.read_index(base, index)?;

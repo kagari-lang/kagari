@@ -1,4 +1,7 @@
+#[path = "support/layouts.rs"]
+mod layouts;
 use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::module::ValueType;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId,
     MethodOrigin, ModuleInitializationState, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind,
@@ -8,7 +11,7 @@ use kagari_runtime::{
         HostPathSegment, HostRegistry, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
         HostTypeOwnership,
     },
-    value::{StructValueField, Value, ValueCategory},
+    value::{Value, ValueCategory},
 };
 
 fn host_root_value(object_id: u64) -> Value {
@@ -103,17 +106,15 @@ fn value_categories_and_storage_boundaries_match_runtime_spec() {
 
 #[test]
 fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
     let leaf = runtime.gc().alloc_array(vec![Value::I32(1)]).unwrap();
+    let record_layout = layouts::layout(
+        &mut runtime,
+        "Record",
+        &[("leaf", ValueType::HeapObject, true)],
+    );
     let record = runtime
-        .gc()
-        .alloc_struct(
-            "Record".to_owned(),
-            vec![StructValueField {
-                name: "leaf".to_owned(),
-                value: Value::Array(leaf),
-            }],
-        )
+        .alloc_struct(record_layout, vec![Value::Array(leaf)])
         .unwrap();
 
     let root = runtime
@@ -236,22 +237,19 @@ fn metadata_registry_carries_reload_and_path_validation_records() {
 
 #[test]
 fn host_objects_are_not_gc_payloads_or_trace_targets() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
 
     assert!(runtime.gc().alloc_array(vec![host_root_value(1)]).is_none());
+    let record_layout = layouts::layout(
+        &mut runtime,
+        "HostBacked",
+        &[("path", ValueType::HeapObject, true)],
+    );
     assert!(
         runtime
-            .gc()
-            .alloc_struct(
-                "HostBacked".to_owned(),
-                vec![StructValueField {
-                    name: "path".to_owned(),
-                    value: path_view_value(2),
-                }],
-            )
-            .is_none()
+            .alloc_struct(record_layout, vec![path_view_value(2)])
+            .is_err()
     );
-
     let script = runtime.gc().alloc_array(vec![Value::I32(1)]).unwrap();
     assert!(runtime.root_value(host_root_value(3)).is_none());
     assert!(runtime.root_value(path_view_value(4)).is_none());

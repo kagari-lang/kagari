@@ -115,3 +115,15 @@ pub fn unique_types(types: impl IntoIterator<Item = ValueType>) -> Vec<ValueType
     }
     unique
 }
+
+/// Explicit Point layout for reflection permission fixtures.
+pub fn point_function_module(
+    name: &str,
+    instructions: Vec<BytecodeInstruction>,
+    return_type: ValueType,
+    registers: Vec<ValueType>,
+) -> BytecodeModule {
+    let mut module = test_function_module(name, instructions, return_type, registers);
+    module.structures = compile_test_bytecode("struct Point { var x: i32 }").structures;
+    module
+}

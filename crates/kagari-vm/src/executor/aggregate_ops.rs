@@ -1,5 +1,5 @@
-use kagari_ir::bytecode::{Register, StructFieldInit};
-use kagari_runtime::value::{StructValueField, Value};
+use kagari_ir::bytecode::{FieldRef, Register, StructId};
+use kagari_runtime::value::Value;
 
 use crate::error::VmError;
 use crate::executor::Executor;
@@ -32,44 +32,38 @@ impl Executor<'_> {
 
     pub(crate) fn make_struct(
         &self,
-        name: String,
-        fields: &[StructFieldInit],
+        structure: StructId,
+        fields: &[Register],
     ) -> Result<Value, VmError> {
         let fields = fields
             .iter()
-            .map(|field| {
-                Ok(StructValueField {
-                    name: field.name.clone(),
-                    value: self.current_frame()?.read_register(field.value)?,
-                })
-            })
+            .map(|field| self.current_frame()?.read_register(*field))
             .collect::<Result<Vec<_>, VmError>>()?;
-        if !fields
-            .iter()
-            .all(|field| field.value.is_default_heap_payload())
-        {
-            return Err(VmError::TypeMismatch(
-                "make_struct expects default-storable fields",
-            ));
-        }
+        let layout = self
+            .loaded
+            .struct_layout(structure)
+            .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
         let handle = self
             .runtime
-            .alloc_struct(name, fields)
+            .alloc_struct(layout, fields)
             .map_err(VmError::RuntimeError)?;
         Ok(Value::Struct(handle))
     }
 
-    pub(crate) fn read_field(&self, base: Register, name: &str) -> Result<Value, VmError> {
+    pub(crate) fn read_field(&self, base: Register, field: FieldRef) -> Result<Value, VmError> {
+        let layout = self
+            .loaded
+            .struct_layout(field.structure)
+            .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
         match self.current_frame()?.read_register(base)? {
             Value::Struct(handle) => self
                 .runtime
                 .gc()
-                .struct_get_field(handle, name)
-                .ok_or_else(|| VmError::MissingField(name.to_owned())),
+                .struct_get_slot(handle, &layout, field.slot as usize)
+                .ok_or(VmError::TypeMismatch("struct layout or field mismatch")),
             _ => Err(VmError::TypeMismatch("read_field expects struct value")),
         }
     }
-
     pub(crate) fn read_index(&self, base: Register, index: Register) -> Result<Value, VmError> {
         let base = self.current_frame()?.read_register(base)?;
         let index = self.current_frame()?.read_register(index)?;
@@ -102,7 +96,7 @@ impl Executor<'_> {
     pub(crate) fn write_field(
         &self,
         base: Register,
-        name: &str,
+        field: FieldRef,
         value: Register,
     ) -> Result<(), VmError> {
         let value = self.current_frame()?.read_register(value)?;
@@ -111,12 +105,18 @@ impl Executor<'_> {
                 "write_field expects default-storable value",
             ));
         }
+        let layout = self
+            .loaded
+            .struct_layout(field.structure)
+            .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
         match self.current_frame()?.read_register(base)? {
             Value::Struct(handle) => self
                 .runtime
                 .gc()
-                .struct_set_field(handle, name, value)
-                .ok_or_else(|| VmError::MissingField(name.to_owned())),
+                .struct_set_slot(handle, &layout, field.slot as usize, value)
+                .ok_or(VmError::TypeMismatch(
+                    "struct layout, field permission or value mismatch",
+                )),
             _ => Err(VmError::TypeMismatch("write_field expects struct value")),
         }
     }

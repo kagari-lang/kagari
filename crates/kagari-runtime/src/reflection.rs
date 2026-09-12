@@ -55,9 +55,11 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
 
 pub fn get_field(gc: &GcHeap, value: &Value, field_name: &str) -> Result<Value, ReflectionError> {
     match value {
-        Value::Struct(handle) => gc
-            .struct_get_field(*handle, field_name)
-            .ok_or_else(|| ReflectionError::new(format!("missing field `{field_name}`"))),
+        Value::Struct(handle) => {
+            let (layout, slot) = resolve_field(gc, *handle, field_name)?;
+            gc.struct_get_slot(*handle, &layout, slot)
+                .ok_or_else(|| ReflectionError::new("invalid struct field"))
+        }
         _ => Err(ReflectionError::new(
             "reflect_get_field expects struct value",
         )),
@@ -78,10 +80,11 @@ pub fn set_field(
 
     match value {
         Value::Struct(handle) => {
-            let Some(()) = gc.struct_set_field(*handle, field_name, next_value) else {
-                return Err(ReflectionError::new(format!(
-                    "missing field `{field_name}`"
-                )));
+            let (layout, slot) = resolve_field(gc, *handle, field_name)?;
+            let Some(()) = gc.struct_set_slot(*handle, &layout, slot, next_value) else {
+                return Err(ReflectionError::new(
+                    "field is read-only or value has the wrong representation",
+                ));
             };
             Ok(Value::Struct(*handle))
         }
@@ -132,6 +135,23 @@ pub fn set_index(
             "reflect_set_index expects array or tuple value",
         )),
     }
+}
+
+fn resolve_field(
+    gc: &GcHeap,
+    handle: crate::gc::HeapObjectId,
+    name: &str,
+) -> Result<(crate::module::StructLayoutRef, usize), ReflectionError> {
+    let layout = gc
+        .struct_layout(handle)
+        .ok_or_else(|| ReflectionError::new("invalid struct"))?;
+    let slot = layout
+        .layout()
+        .fields
+        .iter()
+        .position(|field| field.name == name)
+        .ok_or_else(|| ReflectionError::new(format!("missing field {name}")))?;
+    Ok((layout, slot))
 }
 
 #[cfg(test)]
