@@ -1244,15 +1244,19 @@ impl HostFunction {
         context: &HostCallContext<'_>,
         args: &[Value],
     ) -> Result<Value, RuntimeError> {
-        if args.len() != self.declaration.params.len()
-            || args
-                .iter()
-                .zip(&self.declaration.params)
-                .any(|(value, parameter)| !host_value_matches(value, &parameter.ty))
-        {
-            return Err(RuntimeError::host_call_failure(
-                "host arguments do not match the declared signature",
-            ));
+        let invalid_arguments = || {
+            RuntimeError::host_call_failure("host arguments do not match the declared signature")
+        };
+        if args.len() != self.declaration.params.len() {
+            return Err(invalid_arguments());
+        }
+        for (value, parameter) in args.iter().zip(&self.declaration.params) {
+            if parameter.passing == HostPassingStyle::Owned {
+                HostBorrowTable::validate_no_escape(value)?;
+            }
+            if !host_value_matches(context.runtime(), value, &parameter.ty)? {
+                return Err(invalid_arguments());
+            }
         }
         for (value, parameter) in args.iter().zip(&self.declaration.params) {
             match (value, parameter.passing) {
@@ -1289,7 +1293,7 @@ impl HostFunction {
         }
         let result = (self.handler)(context, args)
             .map_err(|error| RuntimeError::host_call_failure(error.message()))?;
-        if !host_value_matches(&result, &self.declaration.return_type) {
+        if !host_value_matches(context.runtime(), &result, &self.declaration.return_type)? {
             return Err(RuntimeError::host_call_failure(
                 "host result does not match the declared signature",
             ));
@@ -1302,10 +1306,18 @@ impl HostFunction {
     }
 }
 
-fn host_value_matches(value: &Value, ty: &HostValueType) -> bool {
-    matches!(
-        (value, ty),
-        (Value::Unit, HostValueType::Unit)
+fn host_value_matches(
+    runtime: &crate::Runtime,
+    value: &Value,
+    ty: &HostValueType,
+) -> Result<bool, RuntimeError> {
+    use crate::value::EnumTag;
+    let heap = runtime.gc();
+    let mut pending = vec![(value.clone(), ty)];
+    while let Some((value, ty)) = pending.pop() {
+        runtime.resources().poll_execution()?;
+        match (value, ty) {
+            (Value::Unit, HostValueType::Unit)
             | (Value::Bool(_), HostValueType::Bool)
             | (Value::I32(_), HostValueType::I32)
             | (Value::I64(_), HostValueType::I64)
@@ -1316,11 +1328,63 @@ fn host_value_matches(value: &Value, ty: &HostValueType) -> bool {
             | (
                 Value::Ephemeral(
                     crate::value::EphemeralValue::HostRef(_)
-                        | crate::value::EphemeralValue::HostMut(_)
+                    | crate::value::EphemeralValue::HostMut(_),
                 ),
-                HostValueType::Opaque(_)
-            )
-    )
+                HostValueType::Opaque(_),
+            ) => {}
+            (Value::Tuple(values), HostValueType::Tuple(types)) if values.len() == types.len() => {
+                pending.extend(values.into_iter().zip(types))
+            }
+            (Value::Array(id), HostValueType::Array(element)) => {
+                let Some(values) = heap.array_snapshot(id) else {
+                    return Ok(false);
+                };
+                pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
+            }
+            (Value::Map(id), HostValueType::Map { key, value }) => {
+                let Some(entries) = heap.map_snapshot(id) else {
+                    return Ok(false);
+                };
+                for (k, v) in entries {
+                    pending.push((k, key.as_ref()));
+                    pending.push((v, value.as_ref()));
+                }
+            }
+            (Value::Set(id), HostValueType::Set(element)) => {
+                let Some(values) = heap.set_snapshot(id) else {
+                    return Ok(false);
+                };
+                pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
+            }
+            (Value::Enum(id), HostValueType::Option(_) | HostValueType::Result { .. }) => {
+                let Some(snapshot) = heap.enum_snapshot(id) else {
+                    return Ok(false);
+                };
+                let expected = match (ty, snapshot.tag) {
+                    (HostValueType::Option(_), EnumTag::OptionNone)
+                        if snapshot.fields.is_empty() =>
+                    {
+                        continue;
+                    }
+                    (HostValueType::Option(element), EnumTag::OptionSome) => element,
+                    (HostValueType::Result { ok, .. }, EnumTag::ResultOk) => ok,
+                    (HostValueType::Result { error, .. }, EnumTag::ResultErr) => error,
+                    _ => return Ok(false),
+                };
+                if snapshot.fields.len() != 1 {
+                    return Ok(false);
+                }
+                pending.extend(
+                    snapshot
+                        .fields
+                        .into_iter()
+                        .map(|value| (value, expected.as_ref())),
+                );
+            }
+            _ => return Ok(false),
+        }
+    }
+    Ok(true)
 }
 
 #[derive(Debug, Default)]

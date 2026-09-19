@@ -8,21 +8,11 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HostValueType {
-    Unit,
-    Bool,
-    I32,
-    I64,
-    F32,
-    F64,
-    String,
-    /// An opaque type is identified by its declaration, never a registry slot.
-    Opaque(DefinitionId),
-}
+mod value_type;
+pub use value_type::HostValueType;
 
 impl HostValueType {
     pub fn opaque(symbol: &str) -> Self {
@@ -144,11 +134,7 @@ impl HostFunctionDeclaration {
             .map(|p| &p.ty)
             .chain(std::iter::once(&self.return_type))
         {
-            if let HostValueType::Opaque(id) = ty
-                && id.path.is_empty()
-            {
-                return Err(HostInterfaceError::InvalidDeclaration);
-            }
+            ty.validate()?;
         }
         Ok(())
     }
@@ -169,7 +155,7 @@ impl HostFunctionDeclaration {
             ))
             .map_err(|_| HostInterfaceError::Encoding)?;
         Ok(hash(
-            b"kagari-host-function-v1\0".iter().copied().chain(bytes),
+            b"kagari-host-function-v2\0".iter().copied().chain(bytes),
         ))
     }
 }

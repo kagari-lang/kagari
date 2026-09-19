@@ -476,9 +476,10 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
     }
     let mut runtime = engine.runtime(ExecutionContext::default());
     for bad in malformed {
-        let encoded = BytecodeArtifact::from_program(bad, Default::default())
-            .to_bytes()
-            .unwrap();
+        assert!(BytecodeArtifact::from_program(bad.clone(), Default::default()).is_err());
+        let mut corrupted = artifact.clone();
+        corrupted.program = bad;
+        let encoded = corrupted.to_bytes().unwrap();
         let decoded = BytecodeArtifact::from_bytes(&encoded).unwrap();
         assert!(runtime.load_program(decoded, Default::default()).is_err());
         assert_eq!(runtime.runtime().modules().loaded_count(), 0);

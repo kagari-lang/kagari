@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 14;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 15;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 
 fn codec() -> impl Options {
@@ -23,7 +23,7 @@ fn codec() -> impl Options {
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v14";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v15";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,14 +37,13 @@ pub struct KbcArtifact {
 }
 
 impl KbcArtifact {
-    pub fn from_program(program: BytecodeProgram, options: ArtifactBuildOptions) -> Self {
-        let fallback = BytecodeModule::default();
-        let module = program
-            .modules
-            .get(program.root.index())
-            .unwrap_or(&fallback);
+    pub fn from_program(
+        program: BytecodeProgram,
+        options: ArtifactBuildOptions,
+    ) -> Result<Self, ArtifactValidationError> {
+        let verification = VerificationMetadata::from_program(&program, &options)?;
+        let module = &program.modules[program.root.index()];
         let mut tables = ArtifactTables::from_program(&program);
-        let verification = VerificationMetadata::from_program(&program, &options);
         let debug = options.debug;
         let signatures = options.signatures;
         if let Some(debug) = &debug {
@@ -83,7 +82,7 @@ impl KbcArtifact {
             signatures,
         };
         artifact.header.content_hash = artifact.compute_content_hash();
-        artifact
+        Ok(artifact)
     }
 
     pub fn validate_for_loader(
@@ -91,10 +90,10 @@ impl KbcArtifact {
         requirements: &ArtifactCompatibility,
     ) -> Result<(), ArtifactValidationError> {
         self.validate_header(requirements)?;
+        verify_program(&self.program).map_err(ArtifactValidationError::Bytecode)?;
         if self.header.content_hash != self.compute_content_hash() {
             return Err(ArtifactValidationError::ContentHashMismatch);
         }
-        verify_program(&self.program).map_err(ArtifactValidationError::Bytecode)?;
         let module = &self.program.modules[self.program.root.index()];
         if let Some(expected_module) = &requirements.module_identity
             && &self.header.module_identity != expected_module
@@ -176,7 +175,6 @@ impl KbcArtifact {
                 security_profile: self.verification.loader.security_profile.clone(),
                 ..Default::default()
             },
-            true,
         );
         if self.verification != derived {
             return Err(ArtifactValidationError::VerificationMetadataMismatch);
@@ -293,7 +291,7 @@ impl ArtifactFingerprint {
             function.documentation.clear();
         }
         functions.sort_by(|a, b| a.id.cmp(&b.id));
-        Self::of_serialized(&("kagari-required-host-interface-v1", functions))
+        Self::of_serialized(&("kagari-required-host-interface-v2", functions))
     }
 
     pub fn of_program_hosts(program: &BytecodeProgram) -> Self {
@@ -464,19 +462,15 @@ pub struct VerificationMetadata {
 }
 
 impl VerificationMetadata {
-    pub fn from_program(program: &BytecodeProgram, options: &ArtifactBuildOptions) -> Self {
-        Self::build(program, options, verify_program(program).is_ok())
-    }
-    fn build(
+    pub fn from_program(
         program: &BytecodeProgram,
         options: &ArtifactBuildOptions,
-        bytecode_verified: bool,
-    ) -> Self {
-        let fallback = BytecodeModule::default();
-        let module = program
-            .modules
-            .get(program.root.index())
-            .unwrap_or(&fallback);
+    ) -> Result<Self, ArtifactValidationError> {
+        verify_program(program).map_err(ArtifactValidationError::Bytecode)?;
+        Ok(Self::build(program, options))
+    }
+    fn build(program: &BytecodeProgram, options: &ArtifactBuildOptions) -> Self {
+        let module = &program.modules[program.root.index()];
         let typed_path_fingerprints = module
             .paths
             .iter()
@@ -495,7 +489,7 @@ impl VerificationMetadata {
             .collect::<Vec<_>>();
 
         Self {
-            bytecode_verified,
+            bytecode_verified: true,
             function_layouts: module
                 .functions
                 .iter()
@@ -839,6 +833,41 @@ mod canonical_tests {
     use super::*;
 
     #[test]
+    fn invalid_host_types_are_rejected_before_fingerprinting_memory_artifacts() {
+        use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType};
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        let mut deep = HostValueType::I32;
+        for _ in 0..64 {
+            deep = HostValueType::Array(Box::new(deep));
+        }
+        for ty in [HostValueType::Set(Box::new(HostValueType::F32)), deep] {
+            let mut program = valid.clone();
+            program.modules[0]
+                .host_interface
+                .functions
+                .push(HostFunctionDeclaration::new("host.bad", vec![], ty));
+            assert!(matches!(
+                VerificationMetadata::from_program(&program, &Default::default()),
+                Err(ArtifactValidationError::Bytecode(_))
+            ));
+            assert!(matches!(
+                KbcArtifact::from_program(program.clone(), Default::default()),
+                Err(ArtifactValidationError::Bytecode(_))
+            ));
+            let mut artifact =
+                KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
+            artifact.program = program;
+            assert!(matches!(
+                artifact.validate_for_loader(&Default::default()),
+                Err(ArtifactValidationError::Bytecode(_))
+            ));
+        }
+    }
+
+    #[test]
     fn bytecode_cannot_claim_a_different_identity_from_its_header() {
         let mut artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {
@@ -846,7 +875,8 @@ mod canonical_tests {
                 modules: vec![BytecodeModule::default()],
             },
             Default::default(),
-        );
+        )
+        .unwrap();
         artifact.program.modules[artifact.program.root.index()].identity =
             ModuleIdentity::single_file("forged.kgr");
         artifact.header.content_hash = artifact.compute_content_hash();
@@ -864,7 +894,8 @@ mod canonical_tests {
                 modules: vec![BytecodeModule::default()],
             },
             Default::default(),
-        );
+        )
+        .unwrap();
         artifact.header.language_version = "0.1.0".into();
         let requirements = ArtifactCompatibility {
             language_version: "0.1.0".into(),
@@ -900,7 +931,8 @@ mod canonical_tests {
                 modules: vec![BytecodeModule::default()],
             },
             ArtifactBuildOptions::default(),
-        );
+        )
+        .unwrap();
         let bytes = artifact.to_bytes().unwrap();
         assert!(KbcArtifact::from_bytes(&bytes).is_ok());
         for version in 1..KBC_ARTIFACT_FORMAT_VERSION {
@@ -949,7 +981,8 @@ mod canonical_tests {
                 }],
             },
             ArtifactBuildOptions::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(
             artifact.verification.host_interface_fingerprint,
             ArtifactFingerprint::of_program_hosts(&artifact.program)
@@ -970,7 +1003,8 @@ mod canonical_tests {
                 modules: vec![BytecodeModule::default()],
             },
             ArtifactBuildOptions::default(),
-        );
+        )
+        .unwrap();
         artifact
             .header
             .module_identity
@@ -1009,7 +1043,7 @@ mod canonical_tests {
                 },
             ],
         };
-        let original = KbcArtifact::from_program(program, Default::default());
+        let original = KbcArtifact::from_program(program, Default::default()).unwrap();
         original.validate_for_loader(&Default::default()).unwrap();
         let mut artifact = original.clone();
         artifact.program.modules[0].source_name.push_str("changed");

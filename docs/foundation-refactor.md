@@ -229,7 +229,7 @@ Implemented foundation slices:
   Semantic Struct/Enum/Trait identities now carry a NominalType with declaration
   identity and ordered arguments. Substitution, inference, concreteness, recovery
   and display recurse through those arguments. ABI types preserve the same shape;
-  format 14/runtime ABI v14 reject older products. Layout verification rejects
+  format 15/runtime ABI v15 reject older products. Layout verification rejects
   applied nominal payloads until their concrete layout exists, rather than binding
   them to zero-argument declarations. Reachable struct/enum layouts are now emitted
   per concrete instance and deduplicated. Layouts and function instances share the
@@ -267,7 +267,7 @@ Implemented foundation slices:
   mutable-member identity and evaluation order share source/artifact/JIT-fallback
   conformance fixtures; embedding tests cover foreign runtimes, changed nested
   schemas, rooted old-version survival, same-named standard types and dependencies.
-  Format 14/runtime ABI v14 reject older products. Remaining interface/layout
+  Format 15/runtime ABI v15 reject older products. Remaining interface/layout
   contracts retain R07/R08 acceptance.
   Erroneous signatures retain parameter slots with Error types. Invalid local
   annotations, call targets and indices produce diagnostics; unresolved operands
@@ -427,8 +427,19 @@ Implemented foundation slices:
   snapshots retain their original declarations, types and docs. Protocol-neutral
   callee queries return offline declarations. The offline_compile embedding
   example needs no runtime registration. Host calls require the language profile
-  and cannot execute in scalar constants. Composite declarations, nominal host
-  type/member integration remain outstanding; this does not mark R06 complete.
+  and cannot execute in scalar constants. Composite scalar/container declarations
+  now cover Tuple, Array, Map, Set, Option and Result; HIR retains nested types and
+  runtime boundaries check complete member shapes with cancellation. KHI v2 and
+  artifact/runtime ABI v15 reject old encodings; host types use bounded flat nodes
+  with 4096-node and 64-depth limits. Tests cover malformed type encodings, nested
+  source mismatches, wrong callback results, nested borrow escape, foreign/stale
+  handles, callback GC and retained roots through source/artifact/JIT fallback.
+  The offline_compile example
+  compiles array contracts through a facade. Artifact and verification-metadata
+  constructors are now fallible and verify before fingerprinting. In-memory loader
+  checks reject malformed host types before serialization; invalid root fallback
+  metadata was removed. Nominal host type/member integration
+  remains outstanding; this does not mark R06 complete.
   Source facades now re-export host functions and modules using one final import
   binding table. Name resolution, imported signature/type catalogs and navigation
   share those targets; downstream facade traversal and the unsupported-host-export

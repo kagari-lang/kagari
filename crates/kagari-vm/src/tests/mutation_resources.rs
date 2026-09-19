@@ -41,7 +41,8 @@ fn standard_mutation_resource_failures_match_across_execution_routes() {
                         modules: vec![module.clone()],
                     };
                     let program = if encoded {
-                        let artifact = KbcArtifact::from_program(program, Default::default());
+                        let artifact =
+                            KbcArtifact::from_program(program, Default::default()).unwrap();
                         let decoded =
                             KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
                         decoded.validate_for_loader(&Default::default()).unwrap();

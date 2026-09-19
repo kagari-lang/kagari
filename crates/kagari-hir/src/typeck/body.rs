@@ -1196,7 +1196,7 @@ impl<'a> BodyChecker<'a> {
             return TypeId::Error;
         }
         for ((arg, found), parameter) in args.iter().zip(&declaration.params) {
-            let Some(expected) = crate::host::scalar_type(&parameter.ty) else {
+            let Some(expected) = crate::host::signature_type(&parameter.ty) else {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnsupportedHostType {
                         function: declaration.symbol.clone(),
@@ -1209,7 +1209,7 @@ impl<'a> BodyChecker<'a> {
                 self.emit_arg_mismatch(name, &parameter.name, &expected, found, *arg);
             }
         }
-        let result = crate::host::scalar_type(&declaration.return_type);
+        let result = crate::host::signature_type(&declaration.return_type);
         if result.is_none() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::UnsupportedHostType {

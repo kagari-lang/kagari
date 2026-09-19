@@ -15,10 +15,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "demo.echo",
             vec![HostParameter {
                 name: "value".into(),
-                ty: HostValueType::I32,
+                ty: HostValueType::Array(Box::new(HostValueType::I32)),
                 passing: HostPassingStyle::Owned,
             }],
-            HostValueType::I32,
+            HostValueType::Array(Box::new(HostValueType::I32)),
         )],
     };
     // A build process may read these bytes from the binding provider's interface file.
@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; fn main() -> i32 { echo(api::service::echo(42)) }",
+            "use build::api::echo; use build::api as api; fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");

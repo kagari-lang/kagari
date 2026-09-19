@@ -28,7 +28,13 @@ impl ValueType {
             Host::F32 => Self::F32,
             Host::F64 => Self::F64,
             Host::String => Self::Str,
-            Host::Opaque(_) => Self::HeapObject,
+            Host::Opaque(_)
+            | Host::Tuple(_)
+            | Host::Array(_)
+            | Host::Map { .. }
+            | Host::Set(_)
+            | Host::Option(_)
+            | Host::Result { .. } => Self::HeapObject,
         }
     }
     pub fn from_type_id(type_id: &TypeId) -> Self {

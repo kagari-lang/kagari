@@ -204,6 +204,7 @@ fn host_path_artifact(
         },
         ArtifactBuildOptions::default(),
     )
+    .unwrap()
 }
 
 #[test]

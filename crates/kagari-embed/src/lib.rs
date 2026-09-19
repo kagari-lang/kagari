@@ -277,7 +277,8 @@ impl KagariEngine {
             }
         })?;
         let program = lower_program_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
-        Ok(KbcArtifact::from_program(program, options.build))
+        KbcArtifact::from_program(program, options.build)
+            .map_err(EmbeddingError::artifact_validation)
     }
 
     pub fn compile_to_artifact(

@@ -36,7 +36,7 @@ fn route(program: BytecodeProgram, encoded: bool) -> BytecodeProgram {
     if !encoded {
         return program;
     }
-    let artifact = KbcArtifact::from_program(program, Default::default());
+    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     decoded.validate_for_loader(&Default::default()).unwrap();
     decoded.program

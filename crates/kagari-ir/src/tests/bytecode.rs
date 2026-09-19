@@ -116,6 +116,7 @@ fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
             },
             Default::default(),
         )
+        .unwrap()
     };
     let expression = artifact("pub const VALUE: i32 = 6 * 7;");
     let literal = artifact("pub const VALUE: i32 = 42;");
@@ -293,7 +294,8 @@ fn main() -> i32 { add(1, 2) }
             security_profile: Some("dev".into()),
             ..Default::default()
         },
-    );
+    )
+    .unwrap();
     assert_eq!(artifact.header.magic, KBC_MAGIC);
     assert_eq!(artifact.header.module_identity, identity);
     assert!(artifact.header.content_hash != ArtifactFingerprint::empty());
@@ -337,7 +339,8 @@ fn serializes_kbc_artifact_bytes_for_loader_execution() {
             modules: vec![module],
         },
         ArtifactBuildOptions::default(),
-    );
+    )
+    .unwrap();
 
     let bytes = artifact.to_bytes().expect("artifact should encode");
     let decoded = KbcArtifact::from_bytes(&bytes).expect("artifact should decode");
@@ -439,7 +442,8 @@ pub fn greet(player: Player) -> String {
             modules: vec![module],
         },
         ArtifactBuildOptions::default(),
-    );
+    )
+    .unwrap();
     let names = artifact
         .verification
         .public_abi_fingerprints
@@ -462,7 +466,8 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
             modules: vec![common::bytecode_ok("pub fn main() -> i32 { 1 }")],
         },
         ArtifactBuildOptions::default(),
-    );
+    )
+    .unwrap();
     let second = KbcArtifact::from_program(
         crate::bytecode::BytecodeProgram {
             root: crate::bytecode::ModuleRef::new(0),
@@ -471,7 +476,8 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
             )],
         },
         ArtifactBuildOptions::default(),
-    );
+    )
+    .unwrap();
     let first_main = first
         .verification
         .public_abi_fingerprints
@@ -502,7 +508,8 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
             }],
         },
         ArtifactBuildOptions::default(),
-    );
+    )
+    .unwrap();
     assert_eq!(path_artifact.verification.typed_path_fingerprints.len(), 1);
     assert_ne!(
         path_artifact.verification.typed_path_fingerprints[0].fingerprint,
@@ -523,6 +530,10 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
         "kagari-runtime-abi-v8",
         "kagari-runtime-abi-v9",
         "kagari-runtime-abi-v10",
+        "kagari-runtime-abi-v11",
+        "kagari-runtime-abi-v12",
+        "kagari-runtime-abi-v13",
+        "kagari-runtime-abi-v14",
     ] {
         let artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {
@@ -533,7 +544,8 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
                 runtime_abi_version: previous.into(),
                 ..Default::default()
             },
-        );
+        )
+        .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
         for runtime_abi_version in [crate::bytecode::KAGARI_RUNTIME_ABI_VERSION, previous] {
             let requirements = ArtifactCompatibility {
@@ -563,7 +575,8 @@ fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
                 runtime_helper_abi_version: previous.into(),
                 ..Default::default()
             },
-        );
+        )
+        .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
         for version in [previous, crate::bytecode::KAGARI_RUNTIME_HELPER_ABI_VERSION] {
             let requirements = ArtifactCompatibility {
@@ -587,7 +600,8 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
             modules: vec![module],
         },
         ArtifactBuildOptions::default(),
-    );
+    )
+    .unwrap();
     let requirements = ArtifactCompatibility {
         runtime_abi_version: "other-runtime".to_owned(),
         ..Default::default()
@@ -607,8 +621,8 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
 
     let requirements = ArtifactCompatibility::default();
     artifact.program.modules[artifact.program.root.index()]
-        .constants
-        .clear();
+        .source_name
+        .push_str("changed");
     assert!(matches!(
         artifact.validate_for_loader(&requirements),
         Err(ArtifactValidationError::ContentHashMismatch)
@@ -627,7 +641,8 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
             modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
         },
         Default::default(),
-    );
+    )
+    .unwrap();
     let requirements = ArtifactCompatibility {
         dependency_fingerprints: Some(vec![DependencyFingerprint {
             module_id: ModuleIdentity::single_file("missing.kgr"),
@@ -750,7 +765,7 @@ fn main(value: String) -> usize {
         ArtifactBuildOptions::default(),
     );
     assert!(matches!(
-        artifact.validate_for_loader(&ArtifactCompatibility::default()),
+        artifact,
         Err(ArtifactValidationError::Bytecode(
             BytecodeVerificationError::TypeMismatch {
                 context: "standard intrinsic argument",
@@ -1363,6 +1378,14 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
     let original = common::bytecode_ok(
         "struct P { var x: i32, val fixed: bool } fn main() -> i32 { val p = P { fixed: true, x: 1 }; p.x = 2; p.x }",
     );
+    let valid = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![original.clone()],
+        },
+        Default::default(),
+    )
+    .unwrap();
     for corruption in 0..7 {
         let mut module = original.clone();
         match corruption {
@@ -1400,15 +1423,19 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
                 }
             }
         }
-        let bytes = KbcArtifact::from_program(
-            crate::bytecode::BytecodeProgram {
-                root: crate::bytecode::ModuleRef::new(0),
-                modules: vec![module],
-            },
-            ArtifactBuildOptions::default(),
-        )
-        .to_bytes()
-        .unwrap();
+        assert!(
+            KbcArtifact::from_program(
+                crate::bytecode::BytecodeProgram {
+                    root: crate::bytecode::ModuleRef::new(0),
+                    modules: vec![module.clone()],
+                },
+                ArtifactBuildOptions::default(),
+            )
+            .is_err()
+        );
+        let mut corrupted = valid.clone();
+        corrupted.program.modules[0] = module;
+        let bytes = corrupted.to_bytes().unwrap();
         let artifact = KbcArtifact::from_bytes(&bytes).unwrap();
         assert!(
             matches!(

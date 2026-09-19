@@ -124,12 +124,15 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 1, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 2, fixed-width little-endian
 fields and a 4 MiB limit. Functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. Function
 fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
 documentation is excluded. Binding checks compare the complete contract rather
-than treating a matching fingerprint as sufficient evidence.
+than treating a matching fingerprint as sufficient evidence. Each value type uses
+a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child
+counts, trailing nodes, excessive depth and invalid Map/Set key types are rejected.
+The fingerprint domain is `kagari-host-function-v2`. Version 1 is not decoded.
 
 The source `print` entry and CLI log binding use the same `standard_log`
 declaration. Run `cargo run -p kagari-runtime --example offline_host` for an
@@ -156,10 +159,22 @@ its parsed CST. Correct neighboring functions remain queryable after import or
 call errors. Host calls require the host-call language profile and are excluded
 from scalar constant evaluation.
 
-The source call boundary currently supports scalar host signatures. Opaque host
+The source call boundary supports scalar and nested Tuple, Array, Map, Set, Option
+and Result signatures. Map keys and Set elements must be bool, i32, i64 or String.
+Composite arguments use `Owned` passing: shared mutable objects retain their
+identity, and tuples retain value semantics. This does not provide a Rust borrow
+lease or make a naked Value an owning GC root. Owned arguments reject frame-scoped
+host borrows even inside nested tuples; script containers cannot store them.
+Arguments stay rooted during the
+callback; longer host retention requires an explicit rooted handle. Both argument
+and result checks inspect nested members and standard enum tags, reject foreign
+or stale heap references, and observe execution termination while traversing.
+Argument mismatch prevents callback execution. A result mismatch rejects the
+result without rolling back effects already performed by the callback.
+Opaque host
 types remain declared offline but their use in source calls is rejected with
-KG_TYPE_UNSUPPORTED_HOST_TYPE. Composite declarations, nominal host type/member
-integration still require the remaining R06/R07 work. Public host function and
+KG_TYPE_UNSUPPORTED_HOST_TYPE, including when nested. Nominal host type/member
+integration still requires the remaining R06/R07 work. Public host function and
 module re-exports retain their offline declaration identities through source
 facades. The import graph resolves the final binding once; name resolution,
 signature catalogs and navigation consume it. The original source dependency is

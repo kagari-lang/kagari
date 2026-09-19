@@ -382,7 +382,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     program.modules[0].module_init = Some(FunctionRef::new(0));
                 }
                 let program = if encoded {
-                    let artifact = KbcArtifact::from_program(program, Default::default());
+                    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
                     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
                     decoded.validate_for_loader(&Default::default()).unwrap();
                     decoded.program
@@ -538,6 +538,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             if encoded {
                 program = KbcArtifact::from_bytes(
                     &KbcArtifact::from_program(program, Default::default())
+                        .unwrap()
                         .to_bytes()
                         .unwrap(),
                 )

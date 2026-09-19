@@ -46,6 +46,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             if encoded {
                 program = KbcArtifact::from_bytes(
                     &KbcArtifact::from_program(program, Default::default())
+                        .unwrap()
                         .to_bytes()
                         .unwrap(),
                 )

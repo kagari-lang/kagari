@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 14 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 15 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 13 are rejected; no migration or compatibility
+format version. Versions 1 through 14 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
@@ -67,7 +67,11 @@ templates encode parameters by declaring owner and position, and must instantiat
 to each executable layout, including instances emitted only by an importer.
 Unused public templates still validate parameter ownership and position. Template
 parameters are rejected in executable layout arguments and enum payloads.
-The runtime ABI identity is `kagari-runtime-abi-v14`; the runtime-helper ABI is
+Version 15 stores host value types as bounded flat preorder nodes and supports
+nested tuple/container/standard-enum host contracts. Type encoding has a 4096-node
+and 64-depth limit, including during artifact decoding. Runtime call boundaries
+validate nested host arguments and results instead of accepting any heap object.
+The runtime ABI identity is `kagari-runtime-abi-v15`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -88,6 +92,12 @@ does not treat uninstantiated generic parameters as heap-object representations.
 64 MiB encoded-size and decoding budget, and rejects trailing data. Decoding alone
 does not establish trust: header, content, dependency, and bytecode checks still
 run before execution.
+
+`KbcArtifact::from_program()` and `VerificationMetadata::from_program()` return
+structured validation errors for invalid programs. Both verify before deriving
+metadata or computing fingerprints. In-memory loader validation likewise checks
+bytecode before hashing, so invalid host type declarations cannot cause a
+serialization panic. A checksum cannot substitute for bytecode validation.
 
 The language contract version is `kagari-language-v1`, independent of Rust crate
 versions and the binary format version. Artifacts carrying the former crate-based

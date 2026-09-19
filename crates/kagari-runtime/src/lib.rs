@@ -1358,6 +1358,7 @@ mod tests {
                 ..Default::default()
             },
         )
+        .unwrap()
     }
     fn compatibility_for_artifact(artifact: &KbcArtifact) -> ArtifactCompatibility {
         ArtifactCompatibility {
@@ -1695,14 +1696,16 @@ mod tests {
                 modules: vec![module_with_public_function_and_constant("i32", 1)],
             },
             ArtifactBuildOptions::default(),
-        );
+        )
+        .unwrap();
         let dependency_v2 = KbcArtifact::from_program(
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function_and_constant("i32", 2)],
             },
             ArtifactBuildOptions::default(),
-        );
+        )
+        .unwrap();
         let dependency_v1_snapshot = ReloadDependencySnapshot::from_artifact(&dependency_v1);
         let dependency_v2_compatibility = compatibility_for_artifact(&dependency_v2);
         let mut runtime = Runtime::default();

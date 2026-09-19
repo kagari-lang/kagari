@@ -42,7 +42,8 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             };
             let program = if encoded {
                 let artifact =
-                    kagari_ir::bytecode::KbcArtifact::from_program(program, Default::default());
+                    kagari_ir::bytecode::KbcArtifact::from_program(program, Default::default())
+                        .unwrap();
                 let decoded =
                     kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
                         .unwrap();

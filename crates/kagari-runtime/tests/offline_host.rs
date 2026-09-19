@@ -87,7 +87,8 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
             modules: vec![mismatch],
         },
         ArtifactBuildOptions::default(),
-    );
+    )
+    .unwrap();
     assert!(
         runtime
             .reload_artifact(&loaded, "host", artifact, &ArtifactCompatibility::default())

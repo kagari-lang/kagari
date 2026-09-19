@@ -174,6 +174,7 @@ fn run(case: &Case, route: Route) {
                 },
                 ArtifactBuildOptions::default(),
             )
+            .unwrap()
             .to_bytes()
             .unwrap();
             let decoded = KbcArtifact::from_bytes(&bytes).unwrap();

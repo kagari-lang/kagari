@@ -74,7 +74,8 @@ fn main() {
         }
     }
     let program = kagari_ir::bytecode::lower_program_to_bytecode(&ir).unwrap();
-    let artifact = kagari_ir::bytecode::KbcArtifact::from_program(program, Default::default());
+    let artifact =
+        kagari_ir::bytecode::KbcArtifact::from_program(program, Default::default()).unwrap();
     let encoded = artifact.to_bytes().unwrap();
     let decoded = kagari_ir::bytecode::KbcArtifact::from_bytes(&encoded).unwrap();
     let context = kagari_embed::ExecutionContext::default();

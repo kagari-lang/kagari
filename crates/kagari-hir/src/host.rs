@@ -118,15 +118,35 @@ impl HostDeclarations {
     }
 }
 
-pub fn scalar_type(ty: &HostValueType) -> Option<TypeId> {
-    Some(TypeId::Builtin(match ty {
-        HostValueType::Unit => BuiltinType::Unit,
-        HostValueType::Bool => BuiltinType::Bool,
-        HostValueType::I32 => BuiltinType::I32,
-        HostValueType::I64 => BuiltinType::I64,
-        HostValueType::F32 => BuiltinType::F32,
-        HostValueType::F64 => BuiltinType::F64,
-        HostValueType::String => BuiltinType::String,
+pub(crate) fn signature_type(ty: &HostValueType) -> Option<TypeId> {
+    Some(match ty {
+        HostValueType::Tuple(types) => {
+            TypeId::Tuple(types.iter().map(signature_type).collect::<Option<_>>()?)
+        }
+        HostValueType::Array(element) => TypeId::Array(Box::new(signature_type(element)?)),
+        HostValueType::Map { key, value } => TypeId::Map {
+            key: Box::new(signature_type(key)?),
+            value: Box::new(signature_type(value)?),
+        },
+        HostValueType::Set(element) => TypeId::Set(Box::new(signature_type(element)?)),
+        HostValueType::Option(element) => TypeId::StandardEnum {
+            kind: crate::builtin::surface::StandardEnum::Option,
+            args: vec![signature_type(element)?],
+        },
+        HostValueType::Result { ok, error } => TypeId::StandardEnum {
+            kind: crate::builtin::surface::StandardEnum::Result,
+            args: vec![signature_type(ok)?, signature_type(error)?],
+        },
         HostValueType::Opaque(_) => return None,
-    }))
+        scalar => TypeId::Builtin(match scalar {
+            HostValueType::Unit => BuiltinType::Unit,
+            HostValueType::Bool => BuiltinType::Bool,
+            HostValueType::I32 => BuiltinType::I32,
+            HostValueType::I64 => BuiltinType::I64,
+            HostValueType::F32 => BuiltinType::F32,
+            HostValueType::F64 => BuiltinType::F64,
+            HostValueType::String => BuiltinType::String,
+            _ => unreachable!("composite handled above"),
+        }),
+    })
 }

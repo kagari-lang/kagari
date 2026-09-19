@@ -37,6 +37,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                     },
                     ArtifactBuildOptions::default(),
                 )
+                .unwrap()
                 .to_bytes()
                 .unwrap();
                 let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
