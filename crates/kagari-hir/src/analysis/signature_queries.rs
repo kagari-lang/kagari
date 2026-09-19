@@ -4,7 +4,7 @@ use super::*;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileSignatures {
     pub(super) declaration: Arc<FileDeclarations>,
     pub(super) prepared: crate::PreparedAnalysis,
@@ -44,6 +44,7 @@ impl FileSignatures {
 pub struct SignatureSnapshot {
     pub(super) declarations: DeclarationSnapshot,
     pub(super) files: Arc<std::collections::BTreeMap<FileId, Arc<FileSignatures>>>,
+    aggregates: Arc<crate::aggregates::AggregateCatalog>,
 }
 
 impl SignatureSnapshot {
@@ -55,16 +56,6 @@ impl SignatureSnapshot {
             self.module_graph(),
             self.files.values().map(|file| &file.prepared),
         );
-        let mut aggregates = crate::aggregates::AggregateCatalog::default();
-        for file in self.files.values() {
-            let prepared = &file.prepared;
-            aggregates.add_module(
-                &prepared.lowered,
-                &prepared.declarations,
-                prepared.signatures.facts(),
-                cancel,
-            )?;
-        }
         let mut result = HashMap::new();
         for (id, file) in self.files.iter() {
             cancel.check()?;
@@ -73,7 +64,7 @@ impl SignatureSnapshot {
                 BodyEnvironment {
                     imported_functions: catalog
                         .bindings(&file.prepared.names.facts.imports, cancel)?,
-                    aggregates: aggregates.for_module(
+                    aggregates: self.aggregates.for_module(
                         file.source().module_identity(),
                         self.module_graph(),
                         cancel,
@@ -175,10 +166,35 @@ impl AnalysisDatabase {
             };
             files.insert(*id, result);
         }
+        let mut aggregates = crate::aggregates::AggregateCatalog::default();
+        for file in files.values() {
+            let prepared = &file.prepared;
+            aggregates.add_module(
+                &prepared.lowered,
+                &prepared.declarations,
+                prepared.signatures.facts(),
+                cancel,
+            )?;
+        }
+        for file in files.values_mut() {
+            let visible = aggregates.for_module(
+                file.source().module_identity(),
+                &declarations.graph,
+                cancel,
+            )?;
+            if let Some(signatures) = file.prepared.completed_signatures(&visible, cancel)? {
+                let file = Arc::make_mut(file);
+                file.prepared.signatures = signatures;
+                file.diagnostics = file.declaration.diagnostics().iter().cloned().collect();
+                file.diagnostics
+                    .extend(file.prepared.signatures.diagnostics().iter().cloned());
+            }
+        }
         cancel.check()?;
         Ok(SignatureSnapshot {
             declarations,
             files: Arc::new(files),
+            aggregates: Arc::new(aggregates),
         })
     }
 }

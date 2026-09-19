@@ -343,13 +343,6 @@ pub(crate) fn check_bodies_controlled(
     };
     let mut top_level_index = TopLevelTypeIndex::default();
     let mut type_table = signatures.facts.type_table.clone();
-    super::applications::validate_signatures(
-        lowered,
-        &signatures.facts,
-        aggregates,
-        &mut diagnostics,
-        cancel,
-    );
     {
         for const_item in &lowered.module.consts {
             let ty = match const_item.ty {

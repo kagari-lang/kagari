@@ -53,6 +53,13 @@ collects local bindings, checks bodies or evaluates constants. These queries are
 profile-independent tools; their results cannot be passed to code generation.
 Full `analyze` and compilation still enforce the requested language profile.
 
+Signature queries build the shared aggregate catalog after declaration signatures
+are available, then validate applied struct/enum bounds in parameters, returns,
+fields and payloads. Imported templates and facades use the same contracts as body
+checking. Dependency changes recompute these diagnostics; body edits rebase their
+locations, and unchanged results remain shared. Full analysis consumes the checked
+signature result instead of rechecking its applications in every function query.
+
 `AnalysisSnapshot::declaration_snapshot()` and `signature_snapshot()` expose the
 immutable query results consumed by full analysis. These share unchanged file
 results with standalone queries. Old snapshots retain their source locations;

@@ -1,4 +1,5 @@
 mod applications;
+pub(crate) use applications::validate_signatures as validate_signature_applications;
 mod body;
 mod check;
 mod const_eval;

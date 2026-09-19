@@ -107,9 +107,10 @@ dynamic interface dispatch still require the remaining R07/R08 work.
 
 Struct and enum declarations retain generic binders and inline bounds in checked
 signatures. Type applications such as `Cell<i32>` resolve those binders, check
-arity, and preserve declaration identity through imports and facades. Full/body
-analysis checks applied bounds in signatures, annotations and constructors;
-independent signature-query bound diagnostics still need the aggregate catalog.
+arity, and preserve declaration identity through imports and facades. Independent
+signature queries check applied bounds in parameters, returns, fields and payloads
+after constructing the shared aggregate catalog. Body analysis consumes those
+signatures and checks local annotations and constructors.
 Constructors infer arguments from field or variant payload values. Field access
 substitutes the receiver's concrete arguments. For example:
 

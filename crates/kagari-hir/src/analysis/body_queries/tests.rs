@@ -34,6 +34,38 @@ fn query(
 }
 
 #[test]
+fn unrelated_applied_bound_errors_stay_in_the_signature_snapshot() {
+    let text =
+        "struct Key<T: HashKey> { val value: T } fn bad(x: Key<f32>) {} fn good() -> i32 { 7 }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("application.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let good = owner(&mut db, &sources, file, "good");
+    let result = query(&mut db, &sources, &good);
+    assert_eq!(result.checked_bodies(), 1);
+    assert!(
+        result.diagnostics().is_empty(),
+        "{:?}",
+        result.diagnostics()
+    );
+    assert_eq!(
+        result
+            .signature_snapshot()
+            .file(file)
+            .unwrap()
+            .diagnostics()
+            .len(),
+        1
+    );
+    assert_eq!(
+        result.type_at(text.rfind('7').unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+}
+
+#[test]
 fn single_function_query_does_not_check_or_bind_its_neighbors() {
     let mut sources = SourceDatabase::default();
     let text = "const N: i32 = 41; fn broken(x: i32) -> i32 { val wrong = missing; true } fn good(value: i32) -> i32 { val answer = value + N; answer }";

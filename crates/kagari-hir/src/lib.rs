@@ -79,10 +79,45 @@ impl AnalysisResult<AnalyzedModule> {
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedAnalysis {
     signatures_reused: bool,
+    // The suffix after this boundary depends on the complete aggregate catalog.
+    // Recompute it after all declaration signatures exist, including on reuse.
+    local_signature_diagnostics: usize,
     lowered: std::sync::Arc<lower::LoweredModule>,
     names: AnalysisResult<resolver::DeclarationNames>,
     declarations: declarations::Declarations,
     signatures: std::sync::Arc<AnalysisResult<typeck::ModuleSignatures>>,
+}
+
+impl PreparedAnalysis {
+    fn completed_signatures(
+        &self,
+        aggregates: &aggregates::AggregateCatalog,
+        cancel: &kagari_common::cancellation::CancellationToken,
+    ) -> Result<
+        Option<std::sync::Arc<AnalysisResult<typeck::ModuleSignatures>>>,
+        kagari_common::cancellation::Cancelled,
+    > {
+        let mut diagnostics = DiagnosticBuffer::new();
+        typeck::validate_signature_applications(
+            &self.lowered,
+            self.signatures.facts(),
+            aggregates,
+            &mut diagnostics,
+            cancel,
+        );
+        cancel.check()?;
+        if &self.signatures.diagnostics()[self.local_signature_diagnostics..]
+            == diagnostics.as_slice()
+        {
+            return Ok(None);
+        }
+        let mut result = self.signatures.as_ref().clone();
+        result
+            .diagnostics
+            .truncate(self.local_signature_diagnostics);
+        result.diagnostics.extend(diagnostics);
+        Ok(Some(std::sync::Arc::new(result)))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +157,11 @@ impl DeclaredAnalysis {
             }
         });
         let signatures_reused = previous.is_some();
+        let reused_local_diagnostics = previous.as_ref().map(|_| {
+            previous_analysis
+                .expect("signature reuse source")
+                .local_signature_diagnostics
+        });
         let signatures = previous.unwrap_or_else(|| {
             std::sync::Arc::new(typeck::check_signatures(
                 &self.lowered,
@@ -131,6 +171,8 @@ impl DeclaredAnalysis {
         });
         PreparedAnalysis {
             signatures_reused,
+            local_signature_diagnostics: reused_local_diagnostics
+                .unwrap_or(signatures.diagnostics().len()),
             lowered: self.lowered,
             names: self.names,
             declarations: self.declarations,
@@ -168,6 +210,7 @@ fn analyze_prepared(
 ) -> AnalysisResult<AnalyzedModule> {
     let PreparedAnalysis {
         signatures_reused: _,
+        local_signature_diagnostics: _,
         lowered,
         names,
         declarations,
@@ -234,7 +277,7 @@ pub fn analyze_source(
     let imported_types = imports::TypeCatalog::new(&graph, [&declared])
         .bindings(&declared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
-    let prepared = declared.check_signatures(imported_types, None, &Default::default());
+    let mut prepared = declared.check_signatures(imported_types, None, &Default::default());
     let imported_functions = imports::FunctionCatalog::new(&graph, [&prepared])
         .bindings(&prepared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
@@ -247,6 +290,12 @@ pub fn analyze_source(
             &Default::default(),
         )
         .expect("uncancelled source analysis");
+    if let Some(signatures) = prepared
+        .completed_signatures(&aggregates, &Default::default())
+        .expect("uncancelled source analysis")
+    {
+        prepared.signatures = signatures;
+    }
     analyze_parsed(
         prepared,
         &parsed,

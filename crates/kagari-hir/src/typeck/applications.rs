@@ -87,7 +87,7 @@ pub(super) fn validate(
     }
 }
 
-pub(super) fn validate_signatures(
+pub(crate) fn validate_signatures(
     lowered: &LoweredModule,
     signatures: &ModuleSignatures,
     catalog: &AggregateCatalog,

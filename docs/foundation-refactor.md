@@ -239,8 +239,12 @@ Implemented foundation slices:
   facades, distinct field representations, bounds, malformed binders, source/artifact/
   JIT fallback behavior and the standard-library example. Explicit constructor type
   arguments, contextual inference for phantom parameters, generic impl specialization
-  and interface tables remain pending. Applied-bound validation currently runs in
-  body/full analysis; independent signature-query diagnostics need the same catalog.
+  and interface tables remain pending. Independent signature queries now construct
+  the shared aggregate catalog and check applied bounds in signatures. Full/body
+  analysis consumes that result instead of repeating header validation. Tests cover
+  facade dependency changes, repair, body-edit diagnostic rebasing, unchanged query
+  sharing and a correct function beside an invalid applied signature. The
+  source_queries embedding example demonstrates the separate diagnostic boundaries.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts

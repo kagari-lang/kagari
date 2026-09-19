@@ -14,6 +14,142 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapsh
 }
 
 #[test]
+fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
+    let text = "fn before() {} struct Key<T: HashKey> { val value: T } struct Holder { val key: Key<f32> } enum Packet { Data(Key<f32>) } fn bad(x: Key<f32>) {} fn unresolved(x: Absent) {} fn good() -> i32 { 7 }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("applications.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let original = query(&mut db, &sources);
+    let file = original.file(id).unwrap();
+    assert_eq!(file.diagnostics().len(), 4, "{:?}", file.diagnostics());
+    assert_eq!(file.signatures().diagnostics().len(), 4);
+    assert_eq!(
+        file.diagnostics()
+            .iter()
+            .filter(|d| d.kind.code() == "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED")
+            .count(),
+        3
+    );
+    assert!(db.files.is_empty());
+    let same = query(&mut db, &sources);
+    assert!(Arc::ptr_eq(file, same.file(id).unwrap()));
+    let edit = text.replace("fn before() {}", "fn before() { val text = \"中文😀\"; }");
+    sources
+        .set("applications.kgr", edit.clone(), SourceLayer::Overlay)
+        .unwrap();
+    let changed = query(&mut db, &sources);
+    assert!(changed.file(id).unwrap().reused());
+    let fresh = query(&mut AnalysisDatabase::default(), &sources);
+    assert_eq!(
+        changed.file(id).unwrap().diagnostics(),
+        fresh.file(id).unwrap().diagnostics()
+    );
+    assert_eq!(changed.file(id).unwrap().diagnostics().len(), 4);
+    assert_ne!(file.diagnostics(), changed.file(id).unwrap().diagnostics());
+    let full = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    assert_eq!(full.file(id).unwrap().result().diagnostics().len(), 4);
+    assert!(Arc::ptr_eq(
+        changed.file(id).unwrap().signatures(),
+        full.file(id).unwrap().signatures()
+    ));
+    sources
+        .set(
+            "applications.kgr",
+            edit.replace("Key<f32>", "Key<i32>")
+                .replace("Absent", "i32"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    assert!(
+        query(&mut db, &sources)
+            .file(id)
+            .unwrap()
+            .diagnostics()
+            .is_empty()
+    );
+    assert_eq!(file.diagnostics().len(), 4);
+}
+
+#[test]
+fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
+    use kagari_common::identity::{ModuleIdentity, PackageId};
+    let mut sources = SourceDatabase::default();
+    for name in ["types", "facade", "user"] {
+        sources
+            .bind_module(
+                &format!("mem://{name}"),
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+    }
+    sources
+        .set(
+            "mem://types",
+            "pub struct Key<T> { val value: T }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    sources
+        .set(
+            "mem://facade",
+            "pub use pkg::types::Key;".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let id = sources
+        .set(
+            "mem://user",
+            "use pkg::facade::Key; fn accept(x: Key<f32>) {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let original = query(&mut db, &sources);
+    assert!(original.file(id).unwrap().diagnostics().is_empty());
+    sources
+        .set(
+            "mem://types",
+            "pub struct Key<T: HashKey> { val value: T }".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let changed = query(&mut db, &sources);
+    assert_eq!(changed.file(id).unwrap().diagnostics().len(), 1);
+    assert_eq!(
+        changed.file(id).unwrap().diagnostics()[0].kind.code(),
+        "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"
+    );
+    assert!(original.file(id).unwrap().diagnostics().is_empty());
+    let fresh = query(&mut AnalysisDatabase::default(), &sources);
+    assert_eq!(
+        changed.file(id).unwrap().diagnostics(),
+        fresh.file(id).unwrap().diagnostics()
+    );
+    sources
+        .set(
+            "mem://types",
+            "pub struct Key<T> { val value: T }".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    assert!(
+        query(&mut db, &sources)
+            .file(id)
+            .unwrap()
+            .diagnostics()
+            .is_empty()
+    );
+    assert!(db.files.is_empty());
+}
+
+#[test]
 fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
     use crate::typeck::ConstraintTarget;
     for header in ["impl<T: HashKey> Set<T>", "impl<T> Set<T> where T: HashKey"] {

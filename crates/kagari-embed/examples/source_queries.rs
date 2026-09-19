@@ -266,5 +266,23 @@ fn main() -> kagari_embed::CompileResult<()> {
         "T"
     );
     println!("invalid type application retains its binder target for navigation");
+    let bounded = format!(
+        "{text}\r\nstruct Key<T: HashKey> {{ val value: T }}\r\nfn invalid_key(value: Key<f32>) {{}}"
+    );
+    engine.set_source(source_name, bounded, SourceLayer::Overlay)?;
+    let bounded = engine.signatures(engine.source_snapshot(), &Default::default())?;
+    let signature = bounded.file(file).expect("signature query");
+    assert_eq!(signature.diagnostics().len(), 1);
+    assert_eq!(
+        signature.diagnostics()[0].kind.code(),
+        "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"
+    );
+    let good_body = engine
+        .body(engine.source_snapshot(), good, &Default::default())?
+        .expect("good body");
+    assert!(good_body.diagnostics().is_empty());
+    println!(
+        "applied generic bounds are checked by signatures; the neighboring good body stays queryable"
+    );
     Ok(())
 }
