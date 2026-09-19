@@ -3,9 +3,9 @@ use kagari_common::host_interface::{
 };
 use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
 use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, HostBorrowKind, HostExposurePolicy, HostObjectId,
-    HostRootHandle, HostSchemaEpoch, LanguageProfile, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, TypeId,
+    CapabilitySet, HostBorrowKind, HostExposurePolicy, HostObjectId, HostSchemaEpoch,
+    HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig,
+    RuntimeErrorKind, SecurityContext, TypeId,
     host::{HostError, HostFunction},
     value::Value,
 };
@@ -34,13 +34,16 @@ fn runtime() -> Runtime {
     })
 }
 
-fn root() -> Value {
-    Value::HostRoot(HostRootHandle::new(
-        HostObjectId(1),
-        TypeId::new(0),
-        HostSchemaEpoch::new(0),
-        AbiFingerprint(1),
-    ))
+fn root(runtime: &mut Runtime) -> Value {
+    let mut registration = HostTypeRegistration::new("game.Object", "Object");
+    registration.ownership = HostTypeOwnership::HostRoot;
+    registration.path_access = PathAccess::ReadWrite;
+    let ty = runtime.register_host_type(registration).unwrap();
+    Value::HostRoot(
+        runtime
+            .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
+            .unwrap(),
+    )
 }
 
 fn declaration(name: &str, passing: HostPassingStyle) -> HostFunctionDeclaration {
@@ -171,6 +174,7 @@ fn host_scopes_keep_the_root_budget_until_all_resources_are_released() {
 #[test]
 fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     let mut runtime = runtime();
+    let object = root(&mut runtime);
     let invoked = Rc::new(Cell::new(0));
     let called = invoked.clone();
     runtime
@@ -198,13 +202,13 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
         .unwrap();
     assert_eq!(
         runtime
-            .invoke_host("game.write", &[root()])
+            .invoke_host("game.write", std::slice::from_ref(&object))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostCallFailure
     );
     assert_eq!(invoked.get(), 1);
-    runtime.invoke_host("game.read", &[root()]).unwrap();
+    runtime.invoke_host("game.read", &[object]).unwrap();
     let scope = runtime.host_scope(&[]).unwrap();
     let token = scope
         .borrows()

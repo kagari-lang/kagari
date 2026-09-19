@@ -395,6 +395,8 @@ impl Runtime {
         &mut self,
         registration: HostTypeRegistration,
     ) -> Result<TypeId, RuntimeError> {
+        self.host
+            .validate_type_identity(&registration.declaration, &registration.script_name)?;
         let type_id = self.types.register(registration.to_type_registration())?;
         self.host
             .register_type(HostTypeInfo::from_registration(type_id, registration))?;
@@ -2255,6 +2257,7 @@ mod tests {
     #[test]
     fn debug_visibility_respects_host_value_policy() {
         let host_value = value::Value::HostRoot(HostRootHandle::new(
+            Default::default(),
             HostObjectId(1),
             TypeId::new(0),
             HostSchemaEpoch::new(0),

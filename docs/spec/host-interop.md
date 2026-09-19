@@ -51,13 +51,15 @@ Borrow-boundary management decides how Rust-owned data may be accessed safely du
 
 ## Type Registration
 
-Rust types are registered explicitly.
-
-Conceptually:
+Rust types are registered explicitly. `HostTypeRegistration` carries a nominal
+`declaration: DefinitionId` independently of its export label and Rust type name.
+The default constructor derives an identity in the application host namespace;
+providers can replace it with their own package/module declaration.
 
 ```rust
-registry.register_type::<Player>("game.Player");
-registry.register_type::<Vec2>("math.Vec2");
+let mut registration = HostTypeRegistration::new("game.Player", "Player");
+registration.declaration = host_type_identity("game.PlayerState");
+let type_id = runtime.register_host_type(registration)?;
 ```
 
 Registration attaches at least:
@@ -68,14 +70,27 @@ Registration attaches at least:
 - trait metadata if enabled
 - host access policy
 
+Registration rejects duplicate declaration identities even under different export
+labels. Identity validation runs before publishing general type metadata, so
+rejected registrations do not leave a partially registered type. Link validation
+requires every opaque signature type, including nested references, to have a
+binding. Calls check that root/borrow runtime slots correspond to the required
+declaration; matching display names or value categories are insufficient.
+
+Root handles are created only by `register_host_root` and carry registry ownership.
+Host calls, temporary scopes and path-view chaining reject foreign roots even when
+object IDs, type slots, schemas and fingerprints coincide. Host type member
+descriptions still use runtime metadata; complete offline member declarations and
+source-level host type resolution remain R06 work.
+
 ## Function Registration
 
 The current function API is `HostFunction::new(declaration, callback)`. Its
 `HostFunctionDeclaration` comes from `kagari_common::host_interface`, which has no
 runtime dependency. It carries a `DefinitionId`, export label, typed parameters
 and result, passing styles, capabilities, effects, resource cost and documentation.
-`HostValueType` currently covers the registered scalar representations and opaque
-nominal types. Opaque references use declaration identities, not runtime type slots.
+`HostValueType` covers scalar and composite representations plus opaque nominal
+types. Opaque references use declaration identities, not runtime type slots.
 The old callback-owned metadata model, arbitrary ABI fingerprint field, static
 string type names and `with_metadata` constructor have been removed.
 

@@ -7,19 +7,21 @@ use kagari_runtime::{
     ParameterInfo, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
     TypeKind, TypeRegistration, Visibility,
     host::{
-        HostError, HostFunction, HostObjectId, HostParameter, HostPassingStyle, HostRootHandle,
-        HostSchemaEpoch,
+        HostError, HostFunction, HostObjectId, HostParameter, HostPassingStyle, HostSchemaEpoch,
     },
     value::Value,
 };
 
-fn host_root_value(object_id: u64) -> Value {
-    Value::HostRoot(HostRootHandle::new(
-        HostObjectId(object_id),
-        TypeId::new(0),
-        HostSchemaEpoch::new(0),
-        AbiFingerprint(1),
-    ))
+fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
+    let mut registration = HostTypeRegistration::new("game.Player", "Player");
+    registration.ownership = HostTypeOwnership::HostRoot;
+    registration.path_access = PathAccess::ReadWrite;
+    let ty = runtime.register_host_type(registration).unwrap();
+    Value::HostRoot(
+        runtime
+            .register_host_root(HostObjectId(object_id), ty, HostSchemaEpoch::new(0))
+            .unwrap(),
+    )
 }
 
 fn exposed_host_runtime() -> Runtime {
@@ -63,6 +65,7 @@ fn host_call_enabled_runtime() -> Runtime {
 #[test]
 fn callback_context_releases_borrows_and_rejects_borrowed_results() {
     let mut runtime = exposed_host_runtime();
+    host_root_value(&mut runtime, 1);
     runtime
         .register_host_function(HostFunction::new(
             HostFunctionDeclaration::new(
@@ -152,9 +155,10 @@ fn registers_host_function_metadata_and_invokes_handler() {
     assert_eq!(registered.declaration().resource_cost_hint, Some(5));
     assert!(registered.declaration().effects.may_mutate_host_state);
     assert_eq!(registered.declaration().fingerprint().unwrap(), fingerprint);
+    let root = host_root_value(&mut runtime, 1);
     assert_eq!(
         runtime
-            .invoke_host("game.heal", &[host_root_value(1), Value::I32(7)])
+            .invoke_host("game.heal", &[root, Value::I32(7)])
             .unwrap(),
         Value::I32(7)
     );

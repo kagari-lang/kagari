@@ -264,6 +264,7 @@ mod tests {
 
     fn host_root(object_id: u64) -> HostRootHandle {
         HostRootHandle::new(
+            Default::default(),
             HostObjectId(object_id),
             TypeId::new(0),
             HostSchemaEpoch::new(0),
@@ -277,6 +278,7 @@ mod tests {
         let mut registry = HostRegistry::default();
         registry
             .register_type(HostTypeInfo {
+                declaration: kagari_common::host_interface::host_type_identity("Player"),
                 type_id: root_type,
                 script_name: "Player".to_owned(),
                 rust_type_name: "Player".to_owned(),

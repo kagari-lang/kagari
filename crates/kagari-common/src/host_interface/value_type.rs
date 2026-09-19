@@ -35,6 +35,24 @@ pub enum HostValueType {
 }
 
 impl HostValueType {
+    pub fn nominal_references(&self) -> Vec<&DefinitionId> {
+        let mut pending = vec![self];
+        let mut declarations = Vec::new();
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Opaque(id) => declarations.push(id),
+                Self::Tuple(elements) => pending.extend(elements),
+                Self::Array(element) | Self::Set(element) | Self::Option(element) => {
+                    pending.push(element)
+                }
+                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Result { ok, error } => pending.extend([ok.as_ref(), error.as_ref()]),
+                _ => {}
+            }
+        }
+        declarations
+    }
+
     fn hash_key(&self) -> bool {
         matches!(self, Self::Bool | Self::I32 | Self::I64 | Self::String)
     }
@@ -59,9 +77,7 @@ impl HostValueType {
                 Self::F64 => Node::F64,
                 Self::String => Node::String,
                 Self::Opaque(id) => {
-                    if id.path.is_empty() {
-                        return Err(HostInterfaceError::InvalidDeclaration);
-                    }
+                    super::validate_host_type_identity(id)?;
                     Node::Opaque(id.clone())
                 }
                 Self::Tuple(elements) => {

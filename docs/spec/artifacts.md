@@ -71,14 +71,16 @@ Version 15 stores host value types as bounded flat preorder nodes and supports
 nested tuple/container/standard-enum host contracts. Type encoding has a 4096-node
 and 64-depth limit, including during artifact decoding. Runtime call boundaries
 validate nested host arguments and results instead of accepting any heap object.
-The runtime ABI identity is `kagari-runtime-abi-v15`; the runtime-helper ABI is
+The runtime ABI identity is `kagari-runtime-abi-v16`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
 checked synchronous script reentry; v9 lacks session-owned frame stacks and
 nested execution observation; v10 lacks session-registered host resources, owned
 borrow tokens and contextual path callbacks; v11 lacks enum version handles and
-typed standard-enum tags. The helper ABI preserves cancellation
+typed standard-enum tags. Runtime ABI v16 additionally requires nominal host type
+bindings and registry-owned host roots; v15 products are rejected despite sharing
+the current wire format. The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration
 table. There is no arbitrary host-registry

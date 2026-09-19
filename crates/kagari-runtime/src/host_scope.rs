@@ -79,6 +79,16 @@ impl<'a> HostResourceScope<'a> {
         while let Some(value) = pending.pop() {
             match value {
                 Value::Tuple(elements) => pending.extend(elements),
+                Value::HostRoot(root) if !self.runtime.host().matches_root(*root) => {
+                    return Err(RuntimeError::host_call_failure(
+                        "host root belongs to another registry or is not registered",
+                    ));
+                }
+                Value::HostPathView(view) if !self.runtime.host().matches_root(view.root()) => {
+                    return Err(RuntimeError::host_call_failure(
+                        "host path view belongs to another registry or has an unregistered root",
+                    ));
+                }
                 Value::Ephemeral(crate::value::EphemeralValue::HostRef(token)) => self
                     .runtime
                     .host_borrows

@@ -8,19 +8,16 @@ use kagari_runtime::{
     TraitInfo, TypeId, TypeKind, TypeRegistration, Visibility,
     host::{
         DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-        HostPathSegment, HostRegistry, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
-        HostTypeOwnership,
+        HostPathSegment, HostRegistry, HostSchemaEpoch, HostTypeInfo, HostTypeOwnership,
     },
     value::{Value, ValueCategory},
 };
 
 fn host_root_value(object_id: u64) -> Value {
-    Value::HostRoot(HostRootHandle::new(
-        HostObjectId(object_id),
-        TypeId::new(0),
-        HostSchemaEpoch::new(0),
-        AbiFingerprint(1),
-    ))
+    let Value::HostPathView(view) = path_view_value(object_id) else {
+        unreachable!()
+    };
+    Value::HostRoot(view.root())
 }
 
 fn path_view_value(object_id: u64) -> Value {
@@ -29,6 +26,7 @@ fn path_view_value(object_id: u64) -> Value {
     let mut registry = HostRegistry::default();
     registry
         .register_type(HostTypeInfo {
+            declaration: kagari_common::host_interface::host_type_identity("Player"),
             type_id: root_type,
             script_name: "Player".to_owned(),
             rust_type_name: "Player".to_owned(),

@@ -16,13 +16,33 @@ pub use value_type::HostValueType;
 
 impl HostValueType {
     pub fn opaque(symbol: &str) -> Self {
-        let mut id = HostFunctionDeclaration::new(symbol, Vec::new(), Self::Unit).id;
-        id.path
-            .last_mut()
-            .expect("constructor creates declaration")
-            .kind = DefinitionKind::Struct;
-        Self::Opaque(id)
+        Self::Opaque(host_type_identity(symbol))
     }
+}
+
+/// Default identity for a type in the application host namespace. Providers may
+/// supply their own package/module identity independently of the export label.
+pub fn host_type_identity(symbol: &str) -> DefinitionId {
+    let mut id = HostFunctionDeclaration::new(symbol, Vec::new(), HostValueType::Unit).id;
+    id.path
+        .last_mut()
+        .expect("constructor creates declaration")
+        .kind = DefinitionKind::Struct;
+    id
+}
+
+pub fn validate_host_type_identity(id: &DefinitionId) -> Result<(), HostInterfaceError> {
+    if id.module.package.0.is_empty()
+        || id.module.path.iter().any(String::is_empty)
+        || id.path.iter().any(|part| part.name.is_empty())
+        || id
+            .path
+            .last()
+            .is_none_or(|part| part.kind != DefinitionKind::Struct)
+    {
+        return Err(HostInterfaceError::InvalidDeclaration);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

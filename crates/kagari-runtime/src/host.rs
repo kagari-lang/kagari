@@ -4,6 +4,7 @@ pub use kagari_common::host_interface::{
 };
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
+use kagari_common::identity::DefinitionId;
 use kagari_ir::bytecode::BinaryOp;
 
 use crate::{
@@ -34,6 +35,7 @@ impl HostSchemaEpoch {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostRootHandle {
+    owner: HostRegistryId,
     object_id: HostObjectId,
     type_id: TypeId,
     schema_epoch: HostSchemaEpoch,
@@ -41,13 +43,15 @@ pub struct HostRootHandle {
 }
 
 impl HostRootHandle {
-    pub fn new(
+    pub(crate) fn new(
+        owner: HostRegistryId,
         object_id: HostObjectId,
         type_id: TypeId,
         schema_epoch: HostSchemaEpoch,
         abi_fingerprint: AbiFingerprint,
     ) -> Self {
         Self {
+            owner,
             object_id,
             type_id,
             schema_epoch,
@@ -1078,6 +1082,7 @@ pub enum HostReflectionPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostTypeRegistration {
+    pub declaration: DefinitionId,
     pub script_name: String,
     pub rust_type_name: String,
     pub ownership: HostTypeOwnership,
@@ -1091,8 +1096,10 @@ pub struct HostTypeRegistration {
 
 impl HostTypeRegistration {
     pub fn new(script_name: impl Into<String>, rust_type_name: impl Into<String>) -> Self {
+        let script_name = script_name.into();
         Self {
-            script_name: script_name.into(),
+            declaration: kagari_common::host_interface::host_type_identity(&script_name),
+            script_name,
             rust_type_name: rust_type_name.into(),
             ownership: HostTypeOwnership::Opaque,
             fields: Vec::new(),
@@ -1120,6 +1127,7 @@ impl HostTypeRegistration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostTypeInfo {
+    pub declaration: DefinitionId,
     pub type_id: TypeId,
     pub script_name: String,
     pub rust_type_name: String,
@@ -1135,6 +1143,7 @@ pub struct HostTypeInfo {
 impl HostTypeInfo {
     pub fn from_registration(type_id: TypeId, registration: HostTypeRegistration) -> Self {
         Self {
+            declaration: registration.declaration,
             type_id,
             script_name: registration.script_name,
             rust_type_name: registration.rust_type_name,
@@ -1323,15 +1332,25 @@ fn host_value_matches(
             | (Value::I64(_), HostValueType::I64)
             | (Value::F32(_), HostValueType::F32)
             | (Value::F64(_), HostValueType::F64)
-            | (Value::Str(_), HostValueType::String)
-            | (Value::HostRoot(_), HostValueType::Opaque(_))
-            | (
+            | (Value::Str(_), HostValueType::String) => {}
+            (Value::HostRoot(root), HostValueType::Opaque(declaration)) => {
+                if !runtime.host().matches_root(root)
+                    || !runtime.host().matches_type(root.type_id(), declaration)
+                {
+                    return Ok(false);
+                }
+            }
+            (
                 Value::Ephemeral(
-                    crate::value::EphemeralValue::HostRef(_)
-                    | crate::value::EphemeralValue::HostMut(_),
+                    crate::value::EphemeralValue::HostRef(token)
+                    | crate::value::EphemeralValue::HostMut(token),
                 ),
-                HostValueType::Opaque(_),
-            ) => {}
+                HostValueType::Opaque(declaration),
+            ) => {
+                if !runtime.host().matches_type(token.type_id(), declaration) {
+                    return Ok(false);
+                }
+            }
             (Value::Tuple(values), HostValueType::Tuple(types)) if values.len() == types.len() => {
                 pending.extend(values.into_iter().zip(types))
             }
@@ -1396,6 +1415,7 @@ pub struct HostRegistry {
     function_declarations: HashMap<kagari_common::identity::DefinitionId, HostFunctionId>,
     types: HashMap<TypeId, HostTypeInfo>,
     type_names: HashMap<String, TypeId>,
+    type_declarations: HashMap<DefinitionId, TypeId>,
     roots: HashMap<HostObjectId, HostRootHandle>,
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
     path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,
@@ -1477,6 +1497,20 @@ impl HostRegistry {
             .functions
             .iter()
             .map(|required| {
+                for ty in required
+                    .params
+                    .iter()
+                    .map(|param| &param.ty)
+                    .chain(std::iter::once(&required.return_type))
+                {
+                    for declaration in ty.nominal_references() {
+                        if !self.type_declarations.contains_key(declaration) {
+                            return Err(RuntimeError::metadata_conflict(format!(
+                                "missing host type binding for {declaration:?}"
+                            )));
+                        }
+                    }
+                }
                 let bound = self
                     .function_declarations
                     .get(&required.id)
@@ -1501,14 +1535,44 @@ impl HostRegistry {
     }
 
     pub fn register_type(&mut self, info: HostTypeInfo) -> Result<(), RuntimeError> {
+        self.validate_type_identity(&info.declaration, &info.script_name)?;
         if self.types.contains_key(&info.type_id) || self.type_names.contains_key(&info.script_name)
         {
             return Err(RuntimeError::metadata_conflict(info.script_name));
         }
         self.type_names
             .insert(info.script_name.clone(), info.type_id);
+        self.type_declarations
+            .insert(info.declaration.clone(), info.type_id);
         self.types.insert(info.type_id, info);
         Ok(())
+    }
+
+    pub(crate) fn validate_type_identity(
+        &self,
+        declaration: &DefinitionId,
+        symbol: &str,
+    ) -> Result<(), RuntimeError> {
+        kagari_common::host_interface::validate_host_type_identity(declaration)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        if symbol.is_empty()
+            || symbol.split('.').any(str::is_empty)
+            || self.type_declarations.contains_key(declaration)
+            || self.type_names.contains_key(symbol)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "invalid or duplicate host type declaration",
+            ));
+        }
+        Ok(())
+    }
+
+    fn matches_type(&self, type_id: TypeId, declaration: &DefinitionId) -> bool {
+        self.type_declarations.get(declaration) == Some(&type_id)
+    }
+
+    pub(crate) fn matches_root(&self, root: HostRootHandle) -> bool {
+        root.owner == self.owner && self.roots.get(&root.object_id) == Some(&root)
     }
 
     pub fn register_root(
@@ -1534,7 +1598,13 @@ impl HostRegistry {
             ));
         }
         validate_path_access(info.path_access, "host root type")?;
-        let root = HostRootHandle::new(object_id, type_id, schema_epoch, info.abi_fingerprint);
+        let root = HostRootHandle::new(
+            self.owner,
+            object_id,
+            type_id,
+            schema_epoch,
+            info.abi_fingerprint,
+        );
         self.roots.insert(object_id, root);
         Ok(root)
     }
@@ -1890,6 +1960,11 @@ impl HostRegistry {
                 (*root, None)
             }
             Value::HostPathView(view) => {
+                if !self.matches_root(view.root) {
+                    return Err(RuntimeError::typed_path_validation(
+                        "host path view belongs to another registry or has an unregistered root",
+                    ));
+                }
                 if descriptor.root_type != view.result_type {
                     return Err(RuntimeError::typed_path_validation(
                         "path descriptor root type does not match host path view result type",
@@ -1997,6 +2072,10 @@ impl HostRegistry {
 
     pub fn host_type(&self, type_id: TypeId) -> Option<&HostTypeInfo> {
         self.types.get(&type_id)
+    }
+
+    pub fn host_type_by_declaration(&self, declaration: &DefinitionId) -> Option<&HostTypeInfo> {
+        self.types.get(self.type_declarations.get(declaration)?)
     }
 
     pub fn host_type_by_name(&self, script_name: &str) -> Option<&HostTypeInfo> {

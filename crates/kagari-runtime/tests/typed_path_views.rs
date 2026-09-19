@@ -845,12 +845,9 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
         RuntimeErrorKind::TypedPathValidation
     );
 
-    let stale = kagari_runtime::HostRootHandle::new(
-        root.object_id(),
-        root.type_id(),
-        HostSchemaEpoch::new(1),
-        root.abi_fingerprint(),
-    );
+    let stale = runtime
+        .register_host_root(HostObjectId(2), root.type_id(), HostSchemaEpoch::new(1))
+        .unwrap();
     assert_eq!(
         runtime
             .read_host_path(&Value::HostRoot(stale), descriptor_id, vec![Value::I32(1)])
@@ -899,7 +896,7 @@ fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
 }
 
 #[test]
-fn rejects_stale_root_metadata_when_creating_views() {
+fn rejects_root_schema_mismatch_when_creating_views() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
@@ -925,12 +922,9 @@ fn rejects_stale_root_metadata_when_creating_views() {
         })
         .unwrap();
 
-    let stale = kagari_runtime::HostRootHandle::new(
-        root.object_id(),
-        root.type_id(),
-        HostSchemaEpoch::new(1),
-        root.abi_fingerprint(),
-    );
+    let stale = runtime
+        .register_host_root(HostObjectId(2), root.type_id(), HostSchemaEpoch::new(1))
+        .unwrap();
 
     assert_eq!(
         runtime
