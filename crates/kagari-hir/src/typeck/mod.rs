@@ -2,6 +2,7 @@ mod body;
 mod check;
 mod const_eval;
 mod constraints;
+pub(crate) use constraints::function_bounds;
 mod inference;
 mod scalar;
 pub use scalar::ScalarValue;

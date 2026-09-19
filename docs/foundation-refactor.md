@@ -201,7 +201,15 @@ Implemented foundation slices:
   trait/method IDs even with matching local slots, preserve targets across declaration
   reordering and rebase cached receivers. Source/artifact/JIT fixtures distinguish
   two same-named trait methods implemented by one receiver type. Imported trait
-  execution and other semantic contracts retain the R04 audit.
+  execution and other semantic contracts retain the R04 audit. The shared aggregate
+  catalog now owns checked trait/method contracts, including nominal parameters,
+  bounds, Self types and source targets. Method calls and navigation consume this
+  catalog for local and imported interface annotations; local HIR method lookup is
+  removed. Ambiguous bound methods and duplicate method declarations reject codegen.
+  Tests cover facade imports, same-named methods across modules, signature errors,
+  unchanged caller-body reuse and dependency signature invalidation. Dependency
+  source revisions still conservatively invalidate consumers, even for body-only
+  dependency edits; this does not claim dependency-level incremental reuse.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts

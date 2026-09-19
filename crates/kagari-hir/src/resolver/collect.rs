@@ -162,11 +162,46 @@ pub(crate) fn collect_declarations(
         }
     }
 
+    for item in &lowered.module.traits {
+        if cancel.check().is_err() {
+            break;
+        }
+        let mut seen = std::collections::HashSet::new();
+        for method in &item.methods {
+            if cancel.check().is_err() {
+                break;
+            }
+            if !method.name.is_empty() && !seen.insert(&method.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateMethod {
+                        owner: item.name.clone(),
+                        name: method.name.clone(),
+                    })
+                    .with_span(lowered.source_map.function_span(method.function)),
+                );
+            }
+        }
+    }
     for impl_block in &lowered.module.impls {
         if cancel.check().is_err() {
             break;
         }
         names.insert_impl(impl_block.id);
+        let mut seen = std::collections::HashSet::new();
+        for method in &impl_block.methods {
+            if cancel.check().is_err() {
+                break;
+            }
+            if !method.name.is_empty() && !seen.insert(&method.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateMethod {
+                        owner: "impl".into(),
+                        name: method.name.clone(),
+                    })
+                    .with_span(lowered.source_map.function_span(method.function)),
+                );
+            }
+        }
     }
 
     AnalysisResult {

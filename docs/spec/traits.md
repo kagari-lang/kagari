@@ -395,6 +395,27 @@ The initial trait system excludes:
 
 ## Implementation Phases
 
+### Checked method contracts
+
+Semantic analysis stores trait and method declarations in the shared nominal
+catalog. A method contract contains its owning declaration, ordered parameters,
+generic parameter identities and bounds, return type, and source declaration.
+Local and imported interface annotations use these same contracts for argument
+checking, Self substitution, and definition queries. Invalid parameter types retain
+Error facts without discarding later parameters or unrelated declarations.
+
+Two distinct bounds offering the same method name make an unqualified call
+ambiguous (`KG_TYPE_AMBIGUOUS_METHOD`); bound order never selects a winner.
+Repeating the same bound does not create another candidate. Duplicate method
+declarations within a trait or impl produce `KG_RESOLVE_DUPLICATE_METHOD`.
+Ambiguous calls have no selected method target and cannot enter code generation.
+
+These analysis capabilities do not imply executable dynamic interface values.
+Imported trait constraints/impls, runtime interface dispatch, and applied trait
+arguments remain tracked in the [foundation roadmap](../foundation-refactor.md).
+
+### Remaining execution work
+
 The implementation can be staged in this order:
 
 1. trait declarations

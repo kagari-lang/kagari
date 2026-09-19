@@ -117,6 +117,13 @@ pub enum DiagnosticKind {
         enum_name: String,
         name: String,
     },
+    DuplicateMethod {
+        owner: String,
+        name: String,
+    },
+    AmbiguousMethod {
+        name: String,
+    },
     UnknownType {
         type_name: String,
         function_name: String,
@@ -356,6 +363,8 @@ impl DiagnosticKind {
             Self::DuplicateDeclaration { .. } => "KG_RESOLVE_DUPLICATE_DECLARATION",
             Self::DuplicateField { .. } => "KG_RESOLVE_DUPLICATE_FIELD",
             Self::DuplicateVariant { .. } => "KG_RESOLVE_DUPLICATE_VARIANT",
+            Self::DuplicateMethod { .. } => "KG_RESOLVE_DUPLICATE_METHOD",
+            Self::AmbiguousMethod { .. } => "KG_TYPE_AMBIGUOUS_METHOD",
             Self::UnknownType { .. } => "KG_TYPE_UNKNOWN_TYPE",
             Self::UnknownConstType { .. } => "KG_TYPE_UNKNOWN_CONST_TYPE",
             Self::InvalidConstInitializer { .. } => "KG_TYPE_INVALID_CONST_INITIALIZER",
@@ -517,6 +526,8 @@ impl Display for DiagnosticKind {
             Self::DuplicateVariant { enum_name, name } => {
                 write!(f, "duplicate variant `{enum_name}::{name}`")
             }
+            Self::DuplicateMethod { owner, name } => write!(f, "duplicate method `{owner}.{name}`"),
+            Self::AmbiguousMethod { name } => write!(f, "multiple trait methods match `{name}`"),
             Self::UnknownType {
                 type_name,
                 function_name,

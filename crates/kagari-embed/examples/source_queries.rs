@@ -153,6 +153,20 @@ fn main() -> kagari_embed::CompileResult<()> {
         .definition_at(text.find("value.show()").expect("generic method call") + "value.".len())
         .expect("nominal trait method target");
     println!("trait method {} -> {:?}", method.name, method.id);
+    let kagari_hir::declarations::DeclarationId::Definition(method_id) = &method.id else {
+        unreachable!("nominal method");
+    };
+    let contract = analysis
+        .result()
+        .facts()
+        .aggregates
+        .trait_method(method_id)
+        .expect("shared checked method contract");
+    assert_eq!(&contract.declaration, method);
+    println!(
+        "checked method parameters: {:?}; result: {:?}",
+        contract.params, contract.return_type
+    );
     let implementation = analysis
         .definition_at(text.find("impl Show").expect("impl header") + 5)
         .expect("checked impl trait target");

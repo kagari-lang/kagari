@@ -341,6 +341,21 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     }
     for case in [
         Case::new(
+            "ambiguous-bound-method",
+            "trait Left { fn get(self) -> i32; } trait Right { fn get(self) -> i32; } fn read<T: Left + Right>(x: T) -> i32 { x.get() } fn main() {}",
+            Expected::Diagnostic("KG_TYPE_AMBIGUOUS_METHOD"),
+        ),
+        Case::new(
+            "duplicate-trait-method",
+            "trait View { fn get(self) -> i32; fn get(self) -> i32; } fn main() {}",
+            Expected::Diagnostic("KG_RESOLVE_DUPLICATE_METHOD"),
+        ),
+        Case::new(
+            "duplicate-impl-method",
+            "struct Point {} impl Point { fn get(self) -> i32 { 1 } fn get(self) -> i32 { 2 } } fn main() {}",
+            Expected::Diagnostic("KG_RESOLVE_DUPLICATE_METHOD"),
+        ),
+        Case::new(
             "applied-impl-trait-not-erased",
             "trait View<T> {} struct Point {} impl View<i32> for Point {} fn main() {}",
             Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE"),

@@ -1307,36 +1307,52 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
-        let (trait_id, self_ty) = match &receiver_ty {
-            TypeId::Trait(definition) => (definition.clone(), receiver_ty.clone()),
-            TypeId::Generic(generic_name) => {
-                let trait_id = env.generic_bounds.get(generic_name).and_then(|bounds| {
-                    bounds.iter().find_map(|bound| {
-                        let super::ConstraintTarget::Trait(id) = bound else {
-                            return None;
-                        };
-                        self.trait_method_function(id, name).map(|_| id.clone())
-                    })
-                })?;
-                (trait_id, receiver_ty.clone())
-            }
+        let trait_ids = match &receiver_ty {
+            TypeId::Trait(definition) => vec![definition.clone()],
+            TypeId::Generic(parameter) => env
+                .generic_bounds
+                .get(parameter)?
+                .iter()
+                .filter_map(|bound| match bound {
+                    super::ConstraintTarget::Trait(id) => Some(id.clone()),
+                    _ => None,
+                })
+                .collect(),
             _ => return None,
         };
-
-        let method_function = self.trait_method_function(&trait_id, name)?;
-        let self_owner = &trait_id;
+        let mut candidates = Vec::new();
+        for owner in trait_ids {
+            if let Some(contract) = self.aggregates.trait_(&owner) {
+                for method in &contract.methods {
+                    if method.name == *name && !candidates.contains(&method.id) {
+                        candidates.push(method.id.clone());
+                    }
+                }
+            }
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+        if candidates.len() != 1 {
+            self.infer_call_args(args, env);
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::AmbiguousMethod { name: name.clone() })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+            );
+            return Some(TypeId::Error);
+        }
+        let method = self
+            .aggregates
+            .trait_method(&candidates[0])
+            .expect("catalog method")
+            .clone();
+        let self_owner = &method.owner;
+        let self_ty = receiver_ty;
         self.type_table.insert_call(
             call_expr,
-            CallTarget::TraitMethod(
-                self.declarations
-                    .definition(ResolvedName::Function(method_function))?
-                    .clone(),
-            ),
+            CallTarget::TraitMethod(method.id.clone()),
             Some(*receiver),
         );
-        let Some(method) = self.function_index.by_id.get(&method_function) else {
-            return Some(TypeId::Error);
-        };
         let params = method
             .params
             .iter()
@@ -1356,7 +1372,7 @@ impl<'a> BodyChecker<'a> {
         for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
             if let Some(param) = params.get(index) {
                 let expected = param.ty.with_self(self_owner, &self_ty);
-                if expected != *arg_ty {
+                if expected.conflicts_with(arg_ty) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                             function_name: name.clone(),
@@ -1371,28 +1387,6 @@ impl<'a> BodyChecker<'a> {
         }
 
         Some(method.return_type.with_self(self_owner, &self_ty))
-    }
-
-    fn trait_method_function(
-        &self,
-        trait_id: &kagari_common::identity::DefinitionId,
-        method_name: &str,
-    ) -> Option<crate::hir::FunctionId> {
-        let ResolvedName::Trait(trait_id) = self.declarations.definition_target(trait_id)? else {
-            return None;
-        };
-        self.lowered
-            .module
-            .traits
-            .iter()
-            .find(|trait_def| trait_def.id == trait_id)
-            .and_then(|trait_def| {
-                trait_def
-                    .methods
-                    .iter()
-                    .find(|method| method.name == method_name)
-                    .map(|method| method.function)
-            })
     }
 
     fn enum_member_owner(&self, expr: ExprId) -> Option<kagari_common::identity::DefinitionId> {

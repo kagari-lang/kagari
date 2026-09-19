@@ -1,4 +1,5 @@
-//! Checked nominal aggregate contracts shared by local and imported field access.
+//! Checked nominal contracts shared by local and imported member access.
+mod traits;
 use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     hir::Writeability,
@@ -16,6 +17,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+pub use traits::{MethodParameter, MethodSignature, TraitSignature};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldSignature {
@@ -54,6 +56,8 @@ pub struct EnumSignature {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AggregateCatalog {
+    traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
+    methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
     structures: BTreeMap<DefinitionId, Arc<StructSignature>>,
     fields: BTreeMap<DefinitionId, (DefinitionId, usize)>,
     enumerations: BTreeMap<DefinitionId, Arc<EnumSignature>>,
@@ -180,6 +184,7 @@ impl AggregateCatalog {
                 }),
             );
         }
+        self.add_traits(lowered, declarations, signatures, cancel)?;
         Ok(())
     }
 
@@ -203,6 +208,7 @@ impl AggregateCatalog {
         let mut result = Self::default();
         for module in reachable {
             cancel.check()?;
+            self.include_traits(&mut result, &module, cancel)?;
             let start = DefinitionId {
                 module: module.clone(),
                 path: Vec::new(),
@@ -238,7 +244,8 @@ impl AggregateCatalog {
     }
 
     pub(crate) fn same_contracts(&self, other: &Self) -> bool {
-        self.enumerations.len() == other.enumerations.len()
+        self.same_trait_contracts(other)
+            && self.enumerations.len() == other.enumerations.len()
             && self.enumerations.iter().all(|(id, a)| {
                 other.enumeration(id).is_some_and(|b| {
                     a.variants.len() == b.variants.len()

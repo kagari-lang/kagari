@@ -212,9 +212,7 @@ impl FileAnalysis {
                     )),
                     crate::typeck::CallTarget::TraitMethod(function) => Some((
                         facts.lowered.source_map.expr_span(*callee),
-                        facts
-                            .declarations
-                            .get(&crate::declarations::DeclarationId::Definition(function))?,
+                        &facts.aggregates.trait_method(&function)?.declaration,
                     )),
                     _ => None,
                 }
@@ -613,6 +611,8 @@ mod payload_tests;
 mod prelude_tests;
 #[cfg(test)]
 mod signature_tests;
+#[cfg(test)]
+mod trait_catalog_tests;
 #[cfg(test)]
 mod trait_identity_tests;
 #[cfg(test)]
