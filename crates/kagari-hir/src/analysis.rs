@@ -153,6 +153,18 @@ impl FileAnalysis {
                                 .field(field)
                                 .map(|field| &field.declaration)
                         })
+                    })
+                    .or_else(|| {
+                        facts
+                            .typed
+                            .type_table
+                            .enum_constructor(id)
+                            .filter(|_| {
+                                matches!(facts.lowered.module.expr(id).kind, ExprKind::Name(_))
+                            })
+                            .and_then(|target| target.variant.as_ref())
+                            .and_then(|variant| facts.aggregates.variant(variant))
+                            .map(|variant| &variant.declaration)
                     })?;
                 Some((span, target))
             });
@@ -580,6 +592,8 @@ impl AnalysisSnapshot {
 
 #[cfg(test)]
 mod arena_tests;
+#[cfg(test)]
+mod constructor_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]

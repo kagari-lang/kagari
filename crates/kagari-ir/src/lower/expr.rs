@@ -11,6 +11,17 @@ use crate::module::types::ValueType;
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         self.planner.check()?;
+        if self
+            .analyzed
+            .typed
+            .type_table
+            .enum_constructor(expr_id)
+            .is_some()
+        {
+            return Err(IrLoweringError::UnsupportedExpr(
+                "enum construction requires linked enum layouts",
+            ));
+        }
         if let Some(value) = self
             .analyzed
             .typed

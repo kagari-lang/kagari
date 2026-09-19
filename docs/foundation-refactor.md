@@ -182,8 +182,13 @@ Implemented foundation slices:
   Public variant ABI records encode checked structural/nominal payload types in
   format 11, so changing payload types rejects reload before publication. HIR and
   embedding regressions cover recovery, cache reuse, cross-module identity,
-  encoding round trips and unchanged runtime entry after ABI rejection. Enum
-  constructors, applied generic enums and executable layouts remain outstanding.
+  encoding round trips and unchanged runtime entry after ABI rejection.
+  Qualified constructor paths now retain resolved owner facts and nominal enum/
+  variant targets. Payload arity/type errors preserve target navigation and result
+  types; missing variants retain their enum owner while arguments remain checked.
+  Source imports/facades, local shadowing and independent cached body queries share
+  those facts. IR still reports unsupported construction until executable enum
+  layouts are linked; applied generic enums and runtime construction remain open.
   Erroneous signatures retain parameter slots with Error types. Invalid local
   annotations, call targets and indices produce diagnostics; unresolved operands
   suppress dependent mismatch diagnostics. Empty Map/Set constructors retain

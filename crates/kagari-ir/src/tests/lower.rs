@@ -8,6 +8,21 @@ use crate::{
 };
 
 #[test]
+fn checked_enum_constructors_report_the_execution_layout_boundary() {
+    for expression in ["Event::Empty", "Event::Data(7)"] {
+        let source =
+            format!("enum Event {{ Empty, Data(i32) }} fn main() -> Event {{ {expression} }}");
+        let checked = common::analyze_ok(&source);
+        assert!(matches!(
+            lower_to_ir(&checked, &Default::default()),
+            Err(crate::lower::IrLoweringError::UnsupportedExpr(
+                "enum construction requires linked enum layouts"
+            ))
+        ));
+    }
+}
+
+#[test]
 fn monomorphizes_reachable_arguments_and_deduplicates_instances() {
     let analyzed = common::analyze_ok(
         "fn unused<T>(x: T) -> T { x } fn echo<T>(x: T) -> T { x } fn wrap<U>(x: U) -> U { echo(x) } fn main() -> (i32, i32, String) { (wrap(7), echo(8), echo(\"ok\")) }",

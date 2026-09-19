@@ -433,6 +433,9 @@ impl<'a> BodyChecker<'a> {
                 );
                 TypeId::Unknown
             }
+            ExprKind::Name(_) if self.enum_member_owner(expr_id).is_some() => self
+                .infer_enum_constructor(expr_id, expr_id, &[], env)
+                .expect("resolved enum member owner"),
             ExprKind::Name(name) => self
                 .names
                 .expr_resolution(expr_id)
@@ -530,7 +533,9 @@ impl<'a> BodyChecker<'a> {
                 self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty, env)
             }
             ExprKind::Call { callee, args } => {
-                if let Some(ty) = self.infer_host_call_type(expr_id, *callee, args, env) {
+                if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env) {
+                    ty
+                } else if let Some(ty) = self.infer_host_call_type(expr_id, *callee, args, env) {
                     ty
                 } else if let Some(standard_ty) =
                     self.infer_standard_call_type(expr_id, *callee, args, env)
@@ -1384,6 +1389,95 @@ impl<'a> BodyChecker<'a> {
                     .find(|method| method.name == method_name)
                     .map(|method| method.function)
             })
+    }
+
+    fn enum_member_owner(&self, expr: ExprId) -> Option<kagari_common::identity::DefinitionId> {
+        let member = self.names.qualified_member(expr)?;
+        if let ResolvedName::Enum(id) = member.owner {
+            return self
+                .declarations
+                .definition(ResolvedName::Enum(id))
+                .cloned();
+        }
+        let TypeId::Enum(id) = &self
+            .declarations
+            .imported_types()
+            .resolved(member.owner)?
+            .ty
+        else {
+            return None;
+        };
+        Some(id.clone())
+    }
+
+    fn infer_enum_constructor(
+        &mut self,
+        expression: ExprId,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let enumeration = self.enum_member_owner(callee)?;
+        let member = self
+            .names
+            .qualified_member(callee)
+            .expect("qualified owner");
+        let signature = self
+            .aggregates
+            .enumeration(&enumeration)
+            .expect("enum signature catalog");
+        let variant = signature
+            .variants
+            .iter()
+            .find(|variant| variant.name == member.name)
+            .cloned();
+        let name = format!("{}::{}", signature.declaration.name, member.name);
+        let target = super::ResolvedEnumConstructor {
+            enumeration: enumeration.clone(),
+            variant: variant.as_ref().map(|variant| variant.id.clone()),
+        };
+        self.type_table
+            .insert_enum_constructor(callee, target.clone());
+        self.type_table.insert_enum_constructor(expression, target);
+        let result = TypeId::Enum(enumeration);
+        self.type_table.insert_expr(callee, result.clone());
+        env.exprs.insert(callee, result.clone());
+        // Every argument is checked once, even when the variant is absent or its
+        // signature is erroneous. Known target facts survive argument failures.
+        let actual = self.infer_call_args(args, env);
+        if let Some(variant) = variant {
+            if actual.len() != variant.payload.len() {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::CallArityMismatch {
+                        function_name: name.clone(),
+                        expected: variant.payload.len(),
+                        found: actual.len(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+                );
+            }
+            for (index, ((argument, actual), expected)) in
+                actual.iter().zip(&variant.payload).enumerate()
+            {
+                if expected.conflicts_with(actual) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
+                            function_name: name.clone(),
+                            parameter_name: format!("payload[{index}]"),
+                            expected: expected.display_name(),
+                            found: actual.display_name(),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*argument)),
+                    );
+                }
+            }
+        } else {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnknownName { name })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+            );
+        }
+        Some(result)
     }
 
     fn infer_function_call_type(

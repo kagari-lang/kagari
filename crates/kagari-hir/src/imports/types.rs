@@ -19,9 +19,14 @@ pub struct ImportedType {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportedTypes {
     types: HashMap<String, ImportedType>,
+    resolutions: HashMap<ResolvedName, String>,
 }
 
 impl ImportedTypes {
+    pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType> {
+        self.types.get(self.resolutions.get(&name)?)
+    }
+
     pub fn get(&self, name: &str) -> Option<&ImportedType> {
         self.types.get(name)
     }
@@ -55,7 +60,7 @@ impl<'a> TypeCatalog<'a> {
         cancel: &CancellationToken,
     ) -> Result<ImportedTypes, Cancelled> {
         let mut result = ImportedTypes::default();
-        for import in &imports.entries {
+        for (index, import) in imports.entries.iter().enumerate() {
             cancel.check()?;
             let Some(ImportTarget::Source(source)) = &import.target else {
                 continue;
@@ -65,6 +70,9 @@ impl<'a> TypeCatalog<'a> {
             };
             if let Some(ty) = self.resolve(source.clone(), cancel)? {
                 result.types.insert(import.alias.clone(), ty);
+                result
+                    .resolutions
+                    .insert(ResolvedName::SourceImport(index), import.alias.clone());
             }
             if source.item.is_none() {
                 for (name, items) in source.members.iter() {
@@ -75,7 +83,15 @@ impl<'a> TypeCatalog<'a> {
                     let mut target = source.clone();
                     target.item = Some(*item);
                     if let Some(ty) = self.resolve(target, cancel)? {
-                        result.types.insert(format!("{}::{name}", import.alias), ty);
+                        let name = format!("{}::{name}", import.alias);
+                        result.resolutions.insert(
+                            ResolvedName::SourceItem {
+                                import: index,
+                                item: *item,
+                            },
+                            name.clone(),
+                        );
+                        result.types.insert(name, ty);
                     }
                 }
             }

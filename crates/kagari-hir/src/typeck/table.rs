@@ -53,6 +53,13 @@ pub struct ResolvedStructInit {
     pub fields: Vec<Option<DefinitionId>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedEnumConstructor {
+    pub enumeration: DefinitionId,
+    /// Missing members keep their known enum owner for error recovery.
+    pub variant: Option<DefinitionId>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
     implementations: HashMap<(crate::hir::TraitId, TypeId), HashMap<FunctionId, FunctionId>>,
@@ -62,6 +69,7 @@ pub struct TypeTable {
     expr_fields: HashMap<ExprId, DefinitionId>,
     place_fields: HashMap<PlaceId, DefinitionId>,
     struct_inits: HashMap<ExprId, ResolvedStructInit>,
+    enum_constructors: HashMap<ExprId, ResolvedEnumConstructor>,
     exprs: HashMap<ExprId, TypeId>,
     locals: HashMap<LocalId, TypeId>,
     places: HashMap<PlaceId, TypeId>,
@@ -103,7 +111,7 @@ impl TypeTable {
                 )+};
             }
             keys!(constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
-                place_fields: PlaceId, struct_inits: ExprId, exprs: ExprId, locals: LocalId,
+                place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId);
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {
@@ -321,6 +329,10 @@ impl TypeTable {
             if let Some(target) = old.struct_inits.get(&old_map.expr_id(a)) {
                 self.struct_inits.insert(new_map.expr_id(b), target.clone());
             }
+            if let Some(target) = old.enum_constructors.get(&old_map.expr_id(a)) {
+                self.enum_constructors
+                    .insert(new_map.expr_id(b), target.clone());
+            }
             if let Some(value) = old.scalars.get(&old_map.expr_id(a)) {
                 self.scalars.insert(new_map.expr_id(b), value.clone());
             }
@@ -345,6 +357,14 @@ impl TypeTable {
     }
     pub(crate) fn insert_expr(&mut self, id: ExprId, ty: TypeId) {
         self.exprs.insert(id, ty);
+    }
+
+    pub(crate) fn insert_enum_constructor(&mut self, id: ExprId, target: ResolvedEnumConstructor) {
+        self.enum_constructors.insert(id, target);
+    }
+
+    pub fn enum_constructor(&self, id: ExprId) -> Option<&ResolvedEnumConstructor> {
+        self.enum_constructors.get(&id)
     }
 
     pub(crate) fn insert_scalar(&mut self, id: ExprId, value: ScalarValue) {

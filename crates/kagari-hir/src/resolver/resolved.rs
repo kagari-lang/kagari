@@ -56,6 +56,12 @@ pub struct DeclarationNames {
 }
 
 #[derive(Debug, Clone)]
+pub struct QualifiedMember {
+    pub owner: ResolvedName,
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ResolvedNames {
     pub imports: std::sync::Arc<crate::imports::ModuleImports>,
     pub hosts: std::sync::Arc<crate::host::HostDeclarations>,
@@ -63,6 +69,7 @@ pub struct ResolvedNames {
     pub(crate) scopes: Vec<LexicalScope>,
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
+    qualified_members: HashMap<ExprId, QualifiedMember>,
 }
 
 impl ResolvedNames {
@@ -78,11 +85,20 @@ impl ResolvedNames {
             scopes: Vec::new(),
             exprs: HashMap::new(),
             places: HashMap::new(),
+            qualified_members: HashMap::new(),
         }
     }
 
     pub(crate) fn insert_expr(&mut self, id: ExprId, resolved: ResolvedName) {
         self.exprs.insert(id, resolved);
+    }
+
+    pub(crate) fn insert_qualified_member(&mut self, id: ExprId, member: QualifiedMember) {
+        self.qualified_members.insert(id, member);
+    }
+
+    pub fn qualified_member(&self, id: ExprId) -> Option<&QualifiedMember> {
+        self.qualified_members.get(&id)
     }
 
     pub(crate) fn insert_place(&mut self, id: PlaceId, resolved: ResolvedName) {

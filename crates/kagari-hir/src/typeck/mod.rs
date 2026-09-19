@@ -22,8 +22,8 @@ pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 
 pub(crate) use check::{check_bodies_controlled, check_signatures};
 pub use table::{
-    CallTarget, ConstraintTarget, ResolvedCall, ResolvedStructInit, ResolvedTypeRef, TypeTable,
-    TypeTarget,
+    CallTarget, ConstraintTarget, ResolvedCall, ResolvedEnumConstructor, ResolvedStructInit,
+    ResolvedTypeRef, TypeTable, TypeTarget,
 };
 
 #[derive(Debug, Clone)]

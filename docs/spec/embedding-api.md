@@ -215,8 +215,7 @@ declaration path contains its enum owner and a `Variant` name/occurrence segment
 so reordering uniquely named variants changes slots without changing declaration
 identity. Source maps retain exact member-name ranges. `FileDeclarations::member_at`
 and `Declarations::member_at` query those declaration sites without analyzing bodies;
-`FileAnalysis::definition_at` returns the same declaration there. This does not yet
-provide enum-constructor reference resolution (R04/R07).
+`FileAnalysis::definition_at` returns the same declaration there.
 Duplicate variant names retain separate identities and report
 `KG_RESOLVE_DUPLICATE_VARIANT` at the repeated name; erroneous declarations remain
 queryable, but cannot pass the checked-codegen boundary.
@@ -229,8 +228,24 @@ declaration targets for navigation. The shared aggregate catalog includes nomina
 enum/variant signatures and payload types for reachable source dependencies;
 payload contract changes invalidate dependent body reuse. Signature reuse after
 body edits remaps payload references with the other declaration type references.
-Public enum ABI metadata consumes these checked types. Generic enum instantiation,
-constructors and executable enum layouts remain R04/R07 work.
+Public enum ABI metadata consumes these checked types.
+
+For qualified enum constructors, name resolution retains the resolved owner and
+member name; imported owners refer to the same checked import/type bindings used
+by signatures. `TypeTable::enum_constructor` records nominal enum/variant identities
+for both the callee and construction expression. Unit variants can be referenced
+as `Event::Empty` or called without arguments. Payload variants check argument
+count and types; argument errors retain the target and enum result type. Unknown
+variants retain their known enum owner and report a diagnostic. Arguments are
+still checked when the member is absent. Navigation on the qualified callee uses
+the retained variant declaration, including across source facades; unrelated
+unresolved arguments do not navigate to the enclosing constructor. Body reuse
+remaps expression keys while preserving nominal targets. These facts are available
+in independent function queries as well as full analysis.
+
+Executable enum layouts and generic enum instantiation remain R07/R08 work.
+Until layouts are linked, IR lowering reports `UnsupportedExpr` for user enum
+construction; semantic success alone does not claim runtime constructor support.
 
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached

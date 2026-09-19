@@ -159,6 +159,16 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Name(name) => {
                 if let Some(resolved) = self.resolve_name(name) {
                     self.resolved.insert_expr(expr_id, resolved);
+                } else if let Some((owner, member)) = name.rsplit_once("::")
+                    && let Some(owner) = self.resolve_name(owner)
+                {
+                    self.resolved.insert_qualified_member(
+                        expr_id,
+                        crate::resolver::QualifiedMember {
+                            owner,
+                            name: member.to_owned(),
+                        },
+                    );
                 }
             }
             ExprKind::Literal(_) => {}
