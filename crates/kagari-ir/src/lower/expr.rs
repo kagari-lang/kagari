@@ -455,7 +455,7 @@ impl FunctionLowerer<'_, '_> {
                 .analyzed
                 .typed
                 .type_table
-                .implementation_method(method, &ty)
+                .implementation_method(&method, &ty)
                 .ok_or(IrLoweringError::UnsupportedExpr(
                     "interface dispatch requires linked implementation tables",
                 ))?;

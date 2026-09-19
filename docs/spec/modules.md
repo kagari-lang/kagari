@@ -82,6 +82,13 @@ an impl. Imported trait references retain their nominal type and defining source
 location through aliases and facades; constraint/impl execution support remains
 pending and is diagnosed explicitly, instead of reporting a known trait as unknown.
 
+Checked trait constraints, implementation-table keys and trait-method call targets
+use nominal declaration identities. Module-local trait/function slots cannot be
+used to query those semantic contracts. Two modules with the same declaration names
+and arena indices remain distinct; reordering declarations preserves nominal
+targets while local implementation slots are relinked. Cached body queries rebase
+receiver expression IDs without changing the target method identity.
+
 Public struct, enum and trait types can be used in parameter, return, field and
 local annotations via direct imports and qualified namespace aliases. Type
 facades and aliases of re-exported source modules retain the final declaration

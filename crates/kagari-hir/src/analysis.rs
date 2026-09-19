@@ -204,12 +204,17 @@ impl FileAnalysis {
                 };
                 let call = facts.typed.type_table.call_resolution(id)?;
                 match call.target {
-                    crate::typeck::CallTarget::Function(function)
-                    | crate::typeck::CallTarget::TraitMethod(function) => Some((
+                    crate::typeck::CallTarget::Function(function) => Some((
                         facts.lowered.source_map.expr_span(*callee),
                         facts
                             .declarations
                             .target(crate::resolver::ResolvedName::Function(function))?,
+                    )),
+                    crate::typeck::CallTarget::TraitMethod(function) => Some((
+                        facts.lowered.source_map.expr_span(*callee),
+                        facts
+                            .declarations
+                            .get(&crate::declarations::DeclarationId::Definition(function))?,
                     )),
                     _ => None,
                 }
@@ -608,6 +613,8 @@ mod payload_tests;
 mod prelude_tests;
 #[cfg(test)]
 mod signature_tests;
+#[cfg(test)]
+mod trait_identity_tests;
 #[cfg(test)]
 mod trait_reference_tests;
 #[cfg(test)]

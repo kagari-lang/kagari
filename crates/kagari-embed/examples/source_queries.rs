@@ -149,6 +149,10 @@ fn main() -> kagari_embed::CompileResult<()> {
         .definition_at(text.find("T: Show").expect("trait bound") + 3)
         .expect("resolved trait constraint");
     println!("constraint {} -> {:?}", constraint.name, constraint.id);
+    let method = analysis
+        .definition_at(text.find("value.show()").expect("generic method call") + "value.".len())
+        .expect("nominal trait method target");
+    println!("trait method {} -> {:?}", method.name, method.id);
     let implementation = analysis
         .definition_at(text.find("impl Show").expect("impl header") + 5)
         .expect("checked impl trait target");

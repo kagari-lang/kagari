@@ -81,10 +81,13 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
                 .unwrap();
             for item in &facts.lowered.module.traits {
                 assert!(
-                    !facts
-                        .typed
-                        .type_table
-                        .implements(item.id, &TypeId::Struct(valid.id.clone()))
+                    !facts.typed.type_table.implements(
+                        facts
+                            .declarations
+                            .definition(crate::resolver::ResolvedName::Trait(item.id))
+                            .unwrap(),
+                        &TypeId::Struct(valid.id.clone())
+                    )
                 );
             }
             assert!(

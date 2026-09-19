@@ -331,6 +331,14 @@ fn run(case: &Case, route: Route) {
 
 #[test]
 fn language_contract_routes_preserve_values_diagnostics_and_effects() {
+    let distinct_trait_methods = Case::new(
+        "nominal-trait-methods-on-one-receiver",
+        "trait Left { fn get(self) -> i32; } trait Right { fn get(self) -> i32; } struct Point {} impl Left for Point { fn get(self) -> i32 { 11 } } impl Right for Point { fn get(self) -> i32 { 22 } } fn left<T: Left>(x: T) -> i32 { x.get() } fn right<T: Right>(x: T) -> i32 { x.get() } fn main() -> (i32, i32) { val p = Point {}; (left(p), right(p)) }",
+        Expected::Value(Value::Tuple(vec![Value::I32(11), Value::I32(22)])),
+    );
+    for route in [Route::Source, Route::Artifact, Route::Jit] {
+        run(&distinct_trait_methods, route);
+    }
     for case in [
         Case::new(
             "applied-impl-trait-not-erased",

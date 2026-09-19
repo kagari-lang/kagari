@@ -6,10 +6,10 @@ use crate::hir::{ExprId, FieldId, FunctionId, LocalId, PatternId, PlaceId};
 use crate::types::TypeId;
 use kagari_common::identity::DefinitionId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstraintTarget {
     Standard(crate::builtin::surface::StandardTypeConstraint),
-    Trait(crate::hir::TraitId),
+    Trait(DefinitionId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,14 +27,14 @@ pub struct ResolvedTypeRef {
     pub target: Option<TypeTarget>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallTarget {
     SourceFunction(crate::imports::SourceFunctionId),
     HostFunction(crate::host::HostFunctionId),
     Function(FunctionId),
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(BuiltinFunction),
-    TraitMethod(FunctionId),
+    TraitMethod(DefinitionId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,7 +62,7 @@ pub struct ResolvedEnumConstructor {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
-    implementations: HashMap<(crate::hir::TraitId, TypeId), HashMap<FunctionId, FunctionId>>,
+    implementations: HashMap<(DefinitionId, TypeId), HashMap<DefinitionId, FunctionId>>,
     constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
     type_refs: HashMap<crate::hir::TypeRefId, ResolvedTypeRef>,
     field_types: HashMap<FieldId, TypeId>,
@@ -146,28 +146,29 @@ impl TypeTable {
         result.constraints = self
             .constraints
             .iter()
-            .map(|(id, value)| Some((*ids.get(id)?, *value)))
+            .map(|(id, value)| Some((*ids.get(id)?, value.clone())))
             .collect::<Option<_>>()?;
         Some(result)
     }
     pub(crate) fn insert_implementation(
         &mut self,
-        trait_id: crate::hir::TraitId,
+        trait_id: DefinitionId,
         ty: TypeId,
-        methods: HashMap<FunctionId, FunctionId>,
+        methods: HashMap<DefinitionId, FunctionId>,
     ) {
         self.implementations
             .entry((trait_id, ty))
             .or_insert(methods);
     }
-    pub fn implements(&self, trait_id: crate::hir::TraitId, ty: &TypeId) -> bool {
-        self.implementations.contains_key(&(trait_id, ty.clone()))
+    pub fn implements(&self, trait_id: &DefinitionId, ty: &TypeId) -> bool {
+        self.implementations
+            .contains_key(&(trait_id.clone(), ty.clone()))
     }
-    pub fn implementation_method(&self, method: FunctionId, ty: &TypeId) -> Option<FunctionId> {
+    pub fn implementation_method(&self, method: &DefinitionId, ty: &TypeId) -> Option<FunctionId> {
         self.implementations
             .iter()
             .filter(|((_, target), _)| target == ty)
-            .find_map(|(_, methods)| methods.get(&method).copied())
+            .find_map(|(_, methods)| methods.get(method).copied())
     }
     pub(crate) fn insert_constraint(
         &mut self,
@@ -177,7 +178,7 @@ impl TypeTable {
         self.constraints.insert(id, target);
     }
     pub fn constraint(&self, id: crate::hir::TypeRefId) -> Option<ConstraintTarget> {
-        self.constraints.get(&id).copied().flatten()
+        self.constraints.get(&id).cloned().flatten()
     }
     pub(crate) fn has_constraint(&self, id: crate::hir::TypeRefId) -> bool {
         self.constraints.contains_key(&id)
@@ -303,7 +304,7 @@ impl TypeTable {
                 calls.push((
                     *new_id,
                     ResolvedCall {
-                        target: call.target,
+                        target: call.target.clone(),
                         receiver,
                         type_arguments: call.type_arguments.clone(),
                     },

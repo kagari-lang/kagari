@@ -539,11 +539,14 @@ fn validate_trait_surface(
             );
             continue;
         };
+        let Some(ResolvedName::Trait(local_id)) = declarations.definition_target(&id) else {
+            unreachable!("checked local trait identity");
+        };
         let trait_def = lowered
             .module
             .traits
             .iter()
-            .find(|item| item.id == id)
+            .find(|item| item.id == local_id)
             .expect("resolved local trait");
 
         let Some(for_ty) = impl_block
@@ -575,7 +578,7 @@ fn validate_trait_surface(
             continue;
         }
 
-        if !seen_impls.insert((trait_def.id, for_ty.clone())) {
+        if !seen_impls.insert((id.clone(), for_ty.clone())) {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                     trait_name: trait_name.to_string(),
@@ -607,10 +610,18 @@ fn validate_trait_surface(
                     .methods
                     .iter()
                     .find(|implementation| implementation.name == method.name)
-                    .map(|implementation| (method.function, implementation.function))
+                    .map(|implementation| {
+                        (
+                            declarations
+                                .definition(ResolvedName::Function(method.function))
+                                .expect("trait method declaration")
+                                .clone(),
+                            implementation.function,
+                        )
+                    })
             })
             .collect();
-        table.insert_implementation(trait_def.id, for_ty, methods);
+        table.insert_implementation(id, for_ty, methods);
     }
 }
 

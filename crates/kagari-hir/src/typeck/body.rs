@@ -1308,20 +1308,14 @@ impl<'a> BodyChecker<'a> {
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
         let (trait_id, self_ty) = match &receiver_ty {
-            TypeId::Trait(definition) => {
-                let ResolvedName::Trait(id) = self.declarations.definition_target(definition)?
-                else {
-                    return None;
-                };
-                (id, receiver_ty.clone())
-            }
+            TypeId::Trait(definition) => (definition.clone(), receiver_ty.clone()),
             TypeId::Generic(generic_name) => {
                 let trait_id = env.generic_bounds.get(generic_name).and_then(|bounds| {
                     bounds.iter().find_map(|bound| {
                         let super::ConstraintTarget::Trait(id) = bound else {
                             return None;
                         };
-                        self.trait_method_function(*id, name).map(|_| *id)
+                        self.trait_method_function(id, name).map(|_| id.clone())
                     })
                 })?;
                 (trait_id, receiver_ty.clone())
@@ -1329,13 +1323,15 @@ impl<'a> BodyChecker<'a> {
             _ => return None,
         };
 
-        let method_function = self.trait_method_function(trait_id, name)?;
-        let self_owner = self
-            .declarations
-            .definition(ResolvedName::Trait(trait_id))?;
+        let method_function = self.trait_method_function(&trait_id, name)?;
+        let self_owner = &trait_id;
         self.type_table.insert_call(
             call_expr,
-            CallTarget::TraitMethod(method_function),
+            CallTarget::TraitMethod(
+                self.declarations
+                    .definition(ResolvedName::Function(method_function))?
+                    .clone(),
+            ),
             Some(*receiver),
         );
         let Some(method) = self.function_index.by_id.get(&method_function) else {
@@ -1379,9 +1375,12 @@ impl<'a> BodyChecker<'a> {
 
     fn trait_method_function(
         &self,
-        trait_id: crate::hir::TraitId,
+        trait_id: &kagari_common::identity::DefinitionId,
         method_name: &str,
     ) -> Option<crate::hir::FunctionId> {
+        let ResolvedName::Trait(trait_id) = self.declarations.definition_target(trait_id)? else {
+            return None;
+        };
         self.lowered
             .module
             .traits
@@ -1580,7 +1579,7 @@ impl<'a> BodyChecker<'a> {
             let Some(actual) = substitution.get(parameter) else {
                 continue;
             };
-            for constraint in bounds.get(parameter).into_iter().flatten().copied() {
+            for constraint in bounds.get(parameter).into_iter().flatten().cloned() {
                 match constraint {
                     super::ConstraintTarget::Standard(constraint) => {
                         self.check_standard_constraint(actual, constraint, env, callee)
@@ -1589,18 +1588,16 @@ impl<'a> BodyChecker<'a> {
                         let satisfied = match actual {
                             TypeId::Generic(parameter) => {
                                 env.generic_bounds.get(parameter).is_some_and(|bounds| {
-                                    bounds.contains(&super::ConstraintTarget::Trait(trait_id))
+                                    bounds
+                                        .contains(&super::ConstraintTarget::Trait(trait_id.clone()))
                                 })
                             }
-                            _ => self.type_table.implements(trait_id, actual),
+                            _ => self.type_table.implements(&trait_id, actual),
                         };
                         if !satisfied && !actual.is_unresolved() {
                             let trait_name = self
-                                .lowered
-                                .module
-                                .traits
-                                .iter()
-                                .find(|item| item.id == trait_id)
+                                .declarations
+                                .get(&crate::declarations::DeclarationId::Definition(trait_id))
                                 .expect("resolved trait")
                                 .name
                                 .clone();

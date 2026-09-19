@@ -142,14 +142,16 @@ fn resolve_constraint(
     let target = standard
         .map(ConstraintTarget::Standard)
         .or(match resolved.target {
-            Some(TypeTarget::Trait(id)) if matches!(resolved.ty, TypeId::Trait(_)) => {
-                Some(ConstraintTarget::Trait(id))
-            }
+            Some(TypeTarget::Trait(id)) if matches!(resolved.ty, TypeId::Trait(_)) => context
+                .declarations
+                .definition(crate::resolver::ResolvedName::Trait(id))
+                .cloned()
+                .map(ConstraintTarget::Trait),
             _ => None,
         });
     let reason = if applied {
         Some("generic trait applications require concrete instantiation")
-    } else if matches!(target, Some(ConstraintTarget::Trait(id)) if lowered.module.traits.iter().any(|item| item.id == id && !item.generic_params.is_empty()))
+    } else if matches!(resolved.target, Some(TypeTarget::Trait(id)) if lowered.module.traits.iter().any(|item| item.id == id && !item.generic_params.is_empty()))
     {
         Some("generic trait references require concrete type arguments")
     } else if matches!(resolved.ty, TypeId::Trait(_)) && target.is_none() {
@@ -166,7 +168,7 @@ fn resolve_constraint(
         table.insert_type_ref(reference.ty, resolved);
     }
     let target = target.filter(|_| reason.is_none());
-    table.insert_constraint(reference.ty, target);
+    table.insert_constraint(reference.ty, target.clone());
     if target.is_none() {
         if table.type_ref(reference.ty).is_none() {
             table.insert_type_ref(

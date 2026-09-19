@@ -244,12 +244,9 @@ fn constraint_name<'a>(module: &'a AnalyzedModule, reference: &hir::TraitRef) ->
         }
         kagari_hir::typeck::ConstraintTarget::Trait(id) => {
             &module
-                .lowered
-                .module
-                .traits
-                .iter()
-                .find(|item| item.id == id)
-                .expect("checked trait must exist")
+                .declarations
+                .get(&kagari_hir::declarations::DeclarationId::Definition(id))
+                .expect("checked trait declaration")
                 .name
         }
     }

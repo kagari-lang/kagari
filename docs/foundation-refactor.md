@@ -195,7 +195,13 @@ Implemented foundation slices:
   names consistently with annotations. Imported trait targets retain nominal
   identity/navigation through facades while their execution remains explicitly
   unsupported. Regressions cover recovery, signature-cache rebasing and cross-module
-  targets. Imported trait execution and other semantic contracts retain the R04 audit.
+  targets. Trait constraints, implementation keys and trait-method call targets now
+  carry nominal declaration IDs instead of local trait/method numbers; query and
+  monomorphization consumers use those identities. Regressions reject foreign
+  trait/method IDs even with matching local slots, preserve targets across declaration
+  reordering and rebase cached receivers. Source/artifact/JIT fixtures distinguish
+  two same-named trait methods implemented by one receiver type. Imported trait
+  execution and other semantic contracts retain the R04 audit.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts
