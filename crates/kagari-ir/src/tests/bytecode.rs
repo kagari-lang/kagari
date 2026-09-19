@@ -361,6 +361,8 @@ fn serializes_kbc_artifact_bytes_for_loader_execution() {
 
 #[test]
 fn fingerprints_public_module_abi_records() {
+    use crate::module::abi::{AbiType, NominalAbiType};
+    use kagari_hir::types::BuiltinType;
     let module = common::bytecode_ok(
         r#"
 pub const VERSION: i32 = 1;
@@ -391,10 +393,20 @@ pub fn greet(player: Player) -> String {
 "#,
     );
 
+    let player = AbiType::Struct(NominalAbiType {
+        declaration: module
+            .structures
+            .iter()
+            .find(|layout| layout.name() == "Player")
+            .unwrap()
+            .declaration
+            .clone(),
+        arguments: vec![],
+    });
     assert!(module.public_items.iter().any(|item| matches!(
         item,
         PublicAbiItem::Const(item)
-            if item.name == "VERSION" && item.ty == "i32" && item.value == "const-v1:i32:1"
+            if item.name == "VERSION" && item.ty == AbiType::Builtin(BuiltinType::I32) && item.value == "const-v1:i32:1"
     )));
     assert!(module.public_items.iter().any(|item| matches!(
         item,
@@ -402,7 +414,7 @@ pub fn greet(player: Player) -> String {
             if item.name == "Player"
                 && item.kind == TypeAbiKind::Struct
                 && item.fields.iter().any(|field| {
-                    field.name == "score" && field.ty == "i32" && field.mutable
+                    field.name == "score" && field.ty == AbiType::Builtin(BuiltinType::I32) && field.mutable
                 })
     )));
     assert!(module.public_items.iter().any(|item| matches!(
@@ -417,14 +429,14 @@ pub fn greet(player: Player) -> String {
         PublicAbiItem::Trait(item)
             if item.name == "Display"
                 && item.methods.iter().any(|method| {
-                    method.name == "show" && method.return_type == "String"
+                    method.name == "show" && method.return_type == AbiType::Builtin(BuiltinType::String)
                 })
     )));
     assert!(module.public_items.iter().any(|item| matches!(
         item,
         PublicAbiItem::InterfaceTable(item)
-            if item.trait_name == "Display"
-                && item.for_type == "Player"
+            if matches!(&item.trait_type, AbiType::Trait(ty) if ty.declaration.module == module.identity && ty.declaration.path.last().unwrap().name == "Display")
+                && item.for_type == player
                 && item.methods.iter().any(|method| method.name == "show")
     )));
     assert!(module.public_items.iter().any(|item| matches!(
@@ -432,8 +444,8 @@ pub fn greet(player: Player) -> String {
         PublicAbiItem::Function(item)
             if item.name == "greet"
                 && item.params.len() == 1
-                && item.params[0].ty == "Player"
-                && item.return_type == "String"
+                && item.params[0].ty == player
+                && item.return_type == AbiType::Builtin(BuiltinType::String)
     )));
 
     let artifact = KbcArtifact::from_program(
@@ -536,6 +548,7 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
         "kagari-runtime-abi-v14",
         "kagari-runtime-abi-v15",
         "kagari-runtime-abi-v16",
+        "kagari-runtime-abi-v17",
     ] {
         let artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {

@@ -5,6 +5,17 @@ use crate::module::{
 };
 
 pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVerificationError> {
+    crate::module::abi::verify::validate(
+        &module.abi.public_items,
+        &module.identity,
+        context.cancel,
+    )
+    .map_err(|error| {
+        context.error(match error {
+            LayoutValidationError::Cancelled => Error::Cancelled,
+            _ => Error::InvalidPublicAbi,
+        })
+    })?;
     if !crate::module::layout::enum_abi_matches(
         &module.enumerations,
         &module.identity,

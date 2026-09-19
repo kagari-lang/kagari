@@ -17,7 +17,7 @@ fn main() {
         ("right", "use demo::shared;"),
         (
             "root",
-            "use demo::left; use demo::right; use demo::shared::value; use demo::shared::Data; fn pass(x: Data) -> i32 { x.number } fn make() -> Data { Data { number: 42 } } fn main() -> i32 { value() }",
+            "use demo::left; use demo::right; use demo::shared::value; use demo::shared::Data; fn pass(x: Data) -> i32 { x.number } pub fn make() -> Data { Data { number: 42 } } fn main() -> i32 { value() }",
         ),
     ] {
         let source = format!("memory://{name}");
@@ -78,6 +78,23 @@ fn main() {
         kagari_ir::bytecode::KbcArtifact::from_program(program, Default::default()).unwrap();
     let encoded = artifact.to_bytes().unwrap();
     let decoded = kagari_ir::bytecode::KbcArtifact::from_bytes(&encoded).unwrap();
+    let root_bytecode = &decoded.program.modules[decoded.program.root.index()];
+    let kagari_ir::module::PublicAbiItem::Function(make) = root_bytecode
+        .public_items
+        .iter()
+        .find(|item| item.name() == "make")
+        .unwrap()
+    else {
+        panic!("public make signature")
+    };
+    let kagari_ir::module::abi::AbiType::Struct(result) = &make.return_type else {
+        panic!("nominal return type")
+    };
+    assert_eq!(result.declaration.module, identity("shared"));
+    println!(
+        "public return type belongs to {}",
+        result.declaration.module
+    );
     let context = kagari_embed::ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(decoded, Default::default()).unwrap();

@@ -34,6 +34,83 @@ fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
         .check_program(root, &Default::default())
         .unwrap()
 }
+
+#[test]
+fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
+    use kagari_ir::{
+        bytecode::{ArtifactFingerprint, KbcArtifact, lower_program_to_bytecode},
+        module::PublicAbiItem,
+    };
+    let mut db = SourceDatabase::default();
+    for name in ["left", "right"] {
+        insert(&mut db, name, "pub struct Item { val value: i32 }");
+    }
+    let mut artifacts = Vec::new();
+    for side in ["Left", "Right"] {
+        let source = format!(
+            "use pkg::left::Item as Left; use pkg::right::Item as Right; trait LeftMarker {{}} trait RightMarker {{}} pub struct Wrap {{ val value: {side} }} pub fn expose(value: {side}) -> {side} {{ value }} pub trait Api {{ fn accept<T: {side}Marker>(self, value: T) -> T; }}"
+        );
+        let root = insert(&mut db, "root", &source);
+        let ir = lower_program_to_ir(&checked(&db, root), &Default::default()).unwrap();
+        let artifact =
+            KbcArtifact::from_program(lower_program_to_bytecode(&ir).unwrap(), Default::default())
+                .unwrap();
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        decoded.validate_for_loader(&Default::default()).unwrap();
+        artifacts.push(decoded);
+    }
+    let roots = artifacts
+        .iter()
+        .map(|artifact| &artifact.program.modules[artifact.program.root.index()])
+        .collect::<Vec<_>>();
+    assert_eq!(roots[0].identity, roots[1].identity);
+    assert_eq!(roots[0].dependencies, roots[1].dependencies);
+    for name in ["Wrap", "expose", "Api"] {
+        let a = roots[0]
+            .public_items
+            .iter()
+            .find(|item| item.name() == name)
+            .unwrap();
+        let b = roots[1]
+            .public_items
+            .iter()
+            .find(|item| item.name() == name)
+            .unwrap();
+        assert_ne!(
+            ArtifactFingerprint::of_serialized(a),
+            ArtifactFingerprint::of_serialized(b),
+            "{name}"
+        );
+    }
+    let PublicAbiItem::Trait(interface) = roots[0]
+        .public_items
+        .iter()
+        .find(|item| item.name() == "Api")
+        .unwrap()
+    else {
+        panic!("trait")
+    };
+    assert!(
+        matches!(&interface.methods[0].bounds[0].constraints[0], kagari_ir::module::abi::ConstraintAbi::Trait(id) if id.module.path == ["root"] && id.path.last().unwrap().name == "LeftMarker")
+    );
+}
+
+#[test]
+fn public_generic_abi_ignores_binder_spelling_and_constraint_source_order() {
+    use kagari_ir::bytecode::lower_program_to_bytecode;
+    let mut db = SourceDatabase::default();
+    let mut items = Vec::new();
+    for source in [
+        "pub struct Box<T> { val value: T } pub trait Factory { fn id<T: HashKey + Comparable>(self, value: T) -> T; }",
+        "pub struct Box<U> { val value: U } pub trait Factory { fn id<U>(self, value: U) -> U where U: Comparable + HashKey; }",
+    ] {
+        let root = insert(&mut db, "generic", source);
+        let ir = lower_program_to_ir(&checked(&db, root), &Default::default()).unwrap();
+        let program = lower_program_to_bytecode(&ir).unwrap();
+        items.push(program.modules[program.root.index()].public_items.clone());
+    }
+    assert_eq!(items[0], items[1]);
+}
 fn fixture() -> CheckedProgram {
     let mut db = SourceDatabase::default();
     insert(

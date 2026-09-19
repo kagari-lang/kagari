@@ -1,4 +1,5 @@
 pub use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
+pub use kagari_hir::types::BuiltinType;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,23 +45,23 @@ impl PublicAbiItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionAbi {
     pub name: String,
-    pub generic_params: Vec<String>,
-    pub bounds: Vec<String>,
+    pub generic_params: Vec<GenericParameterAbi>,
+    pub bounds: Vec<GenericBoundAbi>,
     pub params: Vec<ParameterAbi>,
-    pub return_type: String,
+    pub return_type: AbiType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParameterAbi {
     pub name: String,
-    pub ty: String,
+    pub ty: AbiType,
     pub mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConstAbi {
     pub name: String,
-    pub ty: String,
+    pub ty: AbiType,
     pub value: String,
 }
 
@@ -68,7 +69,8 @@ pub struct ConstAbi {
 pub struct TypeAbi {
     pub name: String,
     pub kind: TypeAbiKind,
-    pub generic_params: Vec<String>,
+    pub generic_params: Vec<GenericParameterAbi>,
+    pub bounds: Vec<GenericBoundAbi>,
     pub fields: Vec<FieldAbi>,
     pub variants: Vec<VariantAbi>,
 }
@@ -82,7 +84,7 @@ pub enum TypeAbiKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldAbi {
     pub name: String,
-    pub ty: String,
+    pub ty: AbiType,
     pub mutable: bool,
 }
 
@@ -115,6 +117,8 @@ impl NominalAbiType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AbiType {
+    /// Receiver template in a trait signature, never an executable value layout.
+    SelfType(kagari_common::identity::DefinitionId),
     /// Valid only in a declaration template, never in an executable layout.
     Parameter {
         owner: kagari_common::identity::DefinitionId,
@@ -171,7 +175,8 @@ impl AbiType {
                 owner: parameter.owner.clone(),
                 position: parameter.position,
             },
-            TypeId::Unknown | TypeId::Error | TypeId::SelfType(_) => {
+            TypeId::SelfType(owner) => Self::SelfType(owner.clone()),
+            TypeId::Unknown | TypeId::Error => {
                 unreachable!("non-concrete type reached concrete ABI encoding")
             }
         }
@@ -197,7 +202,7 @@ impl AbiType {
                 owner: parameter_owner,
                 position,
             } if owner == parameter_owner => arguments.get(*position)?.clone(),
-            Self::Parameter { .. } => return None,
+            Self::Parameter { .. } | Self::SelfType(_) => return None,
             Self::Builtin(_) => self.clone(),
             Self::Tuple(types) => Self::Tuple(
                 types
@@ -228,16 +233,40 @@ impl AbiType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraitAbi {
     pub name: String,
-    pub generic_params: Vec<String>,
+    pub generic_params: Vec<GenericParameterAbi>,
+    pub bounds: Vec<GenericBoundAbi>,
     pub methods: Vec<FunctionAbi>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceTableAbi {
     pub name: String,
-    pub trait_name: String,
-    pub for_type: String,
+    pub generic_params: Vec<GenericParameterAbi>,
+    pub bounds: Vec<GenericBoundAbi>,
+    pub trait_type: AbiType,
+    pub for_type: AbiType,
     pub methods: Vec<FunctionAbi>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GenericParameterAbi {
+    pub owner: kagari_common::identity::DefinitionId,
+    pub position: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GenericBoundAbi {
+    pub owner: kagari_common::identity::DefinitionId,
+    pub position: usize,
+    pub constraints: Vec<ConstraintAbi>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ConstraintAbi {
+    Standard(kagari_hir::builtin::surface::StandardTypeConstraint),
+    Trait(kagari_common::identity::DefinitionId),
+}
+
 pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;
+
+pub(crate) mod verify;

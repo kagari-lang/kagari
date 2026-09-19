@@ -333,6 +333,54 @@ fn dependency_bindings_and_execution_policy_are_checked_before_initialization() 
 }
 
 #[test]
+fn reload_rejects_same_named_dependency_type_changes_before_publication() {
+    let engine = KagariEngine::default();
+    for name in ["left", "right"] {
+        insert(&engine, name, "pub struct Item { val value: i32 }");
+    }
+    let mut artifacts = Vec::new();
+    for (side, result) in [("left", 42), ("right", 99)] {
+        let root = insert(
+            &engine,
+            "root",
+            &format!(
+                "use pkg::left; use pkg::right; use pkg::{side}::Item; pub fn expose(value: Item) -> Item {{ value }} fn main() -> i32 {{ {result} }}"
+            ),
+        );
+        artifacts.push(compile(&engine, root, Default::default()));
+    }
+    for encoded in [false, true] {
+        let prepare = |artifact: &BytecodeArtifact| {
+            if encoded {
+                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            } else {
+                artifact.clone()
+            }
+        };
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let active = runtime
+            .load_program(prepare(&artifacts[0]), Default::default())
+            .unwrap();
+        let error = runtime
+            .reload_program(&active, prepare(&artifacts[1]), Default::default())
+            .unwrap_err();
+        assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
+        assert_eq!(
+            runtime
+                .execute(&active, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+        // Rejection leaves the baseline active, so a valid reload can still publish.
+        runtime
+            .reload_program(&active, prepare(&artifacts[0]), Default::default())
+            .unwrap();
+    }
+}
+
+#[test]
 fn old_program_calls_keep_their_dependency_versions_after_reload() {
     use kagari_runtime::ModuleEpochRetention;
     let engine = KagariEngine::default();

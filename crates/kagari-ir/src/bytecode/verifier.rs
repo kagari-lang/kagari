@@ -14,6 +14,7 @@ pub enum BytecodeVerificationError {
     InvalidProgramGraph,
     InvalidStructLayout,
     InvalidEnumLayout,
+    InvalidPublicAbi,
     InvalidStructId {
         function: FunctionRef,
         structure: StructId,
@@ -105,6 +106,7 @@ impl BytecodeVerificationError {
             Self::InvalidProgramGraph => "KG_BYTECODE_INVALID_PROGRAM_GRAPH",
             Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
             Self::InvalidEnumLayout => "KG_BYTECODE_INVALID_ENUM_LAYOUT",
+            Self::InvalidPublicAbi => "KG_BYTECODE_INVALID_PUBLIC_ABI",
             Self::InvalidStructId { .. } => "KG_BYTECODE_INVALID_STRUCT_ID",
             Self::InvalidHostInterface(_) => "KG_BYTECODE_INVALID_HOST_INTERFACE",
             Self::InvalidHostImport { .. } => "KG_BYTECODE_INVALID_HOST_IMPORT",
@@ -140,6 +142,7 @@ impl Display for BytecodeVerificationError {
             Self::InvalidProgramGraph => write!(f, "invalid executable module graph"),
             Self::InvalidStructLayout => write!(f, "invalid struct layouts"),
             Self::InvalidEnumLayout => write!(f, "invalid enum layouts"),
+            Self::InvalidPublicAbi => write!(f, "invalid public ABI"),
             Self::InvalidStructId {
                 function,
                 structure,
@@ -250,6 +253,12 @@ pub(super) fn verify_module_with_program(
     module: &BytecodeModule,
     program: Option<&super::BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
+    crate::module::abi::verify::validate(
+        &module.public_items,
+        &module.identity,
+        &Default::default(),
+    )
+    .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     crate::module::layout::validate_layouts(&module.structures, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
     if !crate::module::layout::enum_abi_matches(

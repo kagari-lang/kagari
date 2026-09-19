@@ -38,6 +38,7 @@ pub(crate) fn enum_abi_matches(
             use super::abi::AbiType;
             use kagari_common::identity::DefinitionKind;
             match payload {
+                AbiType::SelfType(_) => return false,
                 AbiType::Parameter { owner, position } => {
                     if &owner.module != identity
                         || *position >= ty.generic_params.len()
@@ -170,7 +171,9 @@ pub(crate) fn validate_enum_layouts(
             .map_err(|_| LayoutValidationError::Cancelled)?;
         use super::abi::{AbiType, StandardEnumKind};
         match ty {
-            AbiType::Parameter { .. } => return Err(LayoutValidationError::Invalid),
+            AbiType::Parameter { .. } | AbiType::SelfType(_) => {
+                return Err(LayoutValidationError::Invalid);
+            }
             AbiType::Builtin(_) => {}
             AbiType::Tuple(types) => pending.extend(types),
             AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),

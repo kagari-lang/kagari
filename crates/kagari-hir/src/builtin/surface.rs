@@ -158,7 +158,9 @@ pub enum StandardIntrinsic {
     DebugPanic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum StandardTypeConstraint {
     HashKey,
     Iterable,

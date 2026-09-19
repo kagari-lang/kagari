@@ -1305,20 +1305,25 @@ mod tests {
         module::{FunctionAbi, PublicAbiItem, ValueType},
     };
 
-    fn module_with_public_function(return_type: &str) -> BytecodeModule {
+    use kagari_ir::module::abi::{AbiType, BuiltinType};
+
+    fn module_with_public_function(return_type: BuiltinType) -> BytecodeModule {
         BytecodeModule {
             public_items: vec![PublicAbiItem::Function(FunctionAbi {
                 name: "main".to_owned(),
                 generic_params: Vec::new(),
                 bounds: Vec::new(),
                 params: Vec::new(),
-                return_type: return_type.to_owned(),
+                return_type: AbiType::Builtin(return_type),
             })],
             ..BytecodeModule::default()
         }
     }
 
-    fn module_with_public_function_and_constant(return_type: &str, value: i32) -> BytecodeModule {
+    fn module_with_public_function_and_constant(
+        return_type: BuiltinType,
+        value: i32,
+    ) -> BytecodeModule {
         let mut module = module_with_public_function(return_type);
         module.constants.push(ConstantOperand::I32(value));
         module
@@ -1353,7 +1358,7 @@ mod tests {
             identity: kagari_common::identity::ModuleIdentity::single_file("pkg/dependency"),
             ..Default::default()
         };
-        let mut root = module_with_public_function("i32");
+        let mut root = module_with_public_function(BuiltinType::I32);
         root.dependencies = vec![kagari_ir::bytecode::ModuleRef::new(0)];
         KbcArtifact::from_program(
             BytecodeProgram {
@@ -1484,7 +1489,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect("module should load");
@@ -1495,7 +1500,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect("compatible module should reload");
@@ -1516,7 +1521,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect("module should load");
@@ -1528,7 +1533,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("String")],
+                    modules: vec![module_with_public_function(BuiltinType::String)],
                 },
             )
             .expect_err("public ABI change should reject reload");
@@ -1553,7 +1558,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect("module should load");
@@ -1563,7 +1568,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect("compatible module should reload");
@@ -1575,7 +1580,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect_err("stale active epoch should reject reload");
@@ -1610,7 +1615,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect("module should load");
@@ -1621,7 +1626,7 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect_err("resource limit should reject reload before publication");
@@ -1700,7 +1705,10 @@ mod tests {
         let dependency_v1 = KbcArtifact::from_program(
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![module_with_public_function_and_constant("i32", 1)],
+                modules: vec![module_with_public_function_and_constant(
+                    BuiltinType::I32,
+                    1,
+                )],
             },
             ArtifactBuildOptions::default(),
         )
@@ -1708,7 +1716,10 @@ mod tests {
         let dependency_v2 = KbcArtifact::from_program(
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![module_with_public_function_and_constant("i32", 2)],
+                modules: vec![module_with_public_function_and_constant(
+                    BuiltinType::I32,
+                    2,
+                )],
             },
             ArtifactBuildOptions::default(),
         )
@@ -1724,7 +1735,7 @@ mod tests {
                 "consumer",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect("consumer should load");
@@ -1791,7 +1802,10 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function_and_constant("i32", 1)],
+                    modules: vec![module_with_public_function_and_constant(
+                        BuiltinType::I32,
+                        1,
+                    )],
                 },
             )
             .expect("module should load");
@@ -1819,7 +1833,10 @@ mod tests {
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function_and_constant("i32", 2)],
+                    modules: vec![module_with_public_function_and_constant(
+                        BuiltinType::I32,
+                        2,
+                    )],
                 },
             )
             .expect("implementation-only reload should publish a new epoch");
@@ -1920,7 +1937,7 @@ mod tests {
                 "consumer",
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![module_with_public_function("i32")],
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
             .expect("consumer should load");

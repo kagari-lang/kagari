@@ -229,7 +229,7 @@ Implemented foundation slices:
   Semantic Struct/Enum/Trait identities now carry a NominalType with declaration
   identity and ordered arguments. Substitution, inference, concreteness, recovery
   and display recurse through those arguments. ABI types preserve the same shape;
-  format 16/runtime ABI v17 reject older products. Layout verification rejects
+  format 17/runtime ABI v18 reject older products. Layout verification rejects
   applied nominal payloads until their concrete layout exists, rather than binding
   them to zero-argument declarations. Reachable struct/enum layouts are now emitted
   per concrete instance and deduplicated. Layouts and function instances share the
@@ -267,7 +267,7 @@ Implemented foundation slices:
   mutable-member identity and evaluation order share source/artifact/JIT-fallback
   conformance fixtures; embedding tests cover foreign runtimes, changed nested
   schemas, rooted old-version survival, same-named standard types and dependencies.
-  Format 16/runtime ABI v17 reject older products. Remaining interface/layout
+  Format 17/runtime ABI v18 reject older products. Remaining interface/layout
   contracts retain R07/R08 acceptance.
   Erroneous signatures retain parameter slots with Error types. Invalid local
   annotations, call targets and indices produce diagnostics; unresolved operands
@@ -430,7 +430,7 @@ Implemented foundation slices:
   and cannot execute in scalar constants. Composite scalar/container declarations
   now cover Tuple, Array, Map, Set, Option and Result; HIR retains nested types and
   runtime boundaries check complete member shapes with cancellation. KHI v3 and
-  artifact format 16/runtime ABI v17 reject old products; host types use bounded flat nodes
+  artifact format 17/runtime ABI v18 reject old products; host types use bounded flat nodes
   with 4096-node and 64-depth limits. Tests cover malformed type encodings, nested
   source mismatches, wrong callback results, nested borrow escape, foreign/stale
   handles, callback GC and retained roots through source/artifact/JIT fallback.
@@ -458,7 +458,7 @@ Implemented foundation slices:
   without a runtime. Tests cover canonical encoding, invalid member owners,
   reference closure, batch failure atomicity, generated metadata and ABI changes.
   Source host type resolution and executable member/trait binding remain pending;
-  runtime ABI v17 rejects prior products. R06 remains unchecked.
+  runtime ABI v18 rejects prior products. R06 remains unchecked.
   Source facades now re-export host functions and modules using one final import
   binding table. Name resolution, imported signature/type catalogs and navigation
   share those targets; downstream facade traversal and the unsupported-host-export
@@ -474,6 +474,19 @@ Implemented foundation slices:
   IR/bytecode checks verify call representations and reject conflicting imports.
   Runtime scalar callback arguments/results are also checked. Nominal opaque
   object validation remains open.
+- R07/R08/R09: public function parameters/results, const types, struct fields,
+  trait methods and interface targets now encode checked structural AbiType facts,
+  preserving module/declaration identity and nested arguments. Generic binders
+  encode owner and position; checked standard/nominal trait bounds are merged,
+  sorted and deduplicated. Renaming a binder or reordering equivalent constraints
+  preserves ABI. Shared IR/bytecode validation rejects foreign/free parameters,
+  escaped Self, wrong nominal kinds and invalid standard-enum arity; exported
+  top-level functions still require concrete signatures. Format 17/runtime ABI v18
+  reject previous products. Tests cover artifact round trips, distinct same-named
+  dependency types, malformed signatures and ABI rejection before reload publication
+  with the old entry intact. The source_modules example inspects a dependency-owned
+  public result type after encoding. Cross-module trait constraints, full semantic
+  signature/layout agreement and complete artifact resource bounds remain open.
 - R08/R09/R10: LoadedModule is an immutable shared Arc handle; public raw store
   loading and post-load bytecode mutation were removed. Module queries share code.
   Loaded handles and host slots reject cross-runtime use. Format v10 rejects v1–v9;

@@ -1,4 +1,4 @@
 mod bytecode;
-mod common;
+pub(crate) mod common;
 mod lower;
 mod verify;

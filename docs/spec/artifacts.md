@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 16 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 17 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 15 are rejected; no migration or compatibility
+format version. Versions 1 through 16 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
@@ -75,7 +75,18 @@ Version 16 includes portable host type/member declarations in each required host
 interface. Validation checks member ownership and referenced-type closure. Host
 interface fingerprints include those contracts with documentation removed; host
 section counts include both function and type declarations.
-The runtime ABI identity is `kagari-runtime-abi-v17`; the runtime-helper ABI is
+Version 17 extends structural `AbiType` encoding to public parameters, results,
+const types, struct fields, trait methods and interface implementation targets.
+Generic binders use declaration owner and position rather than parameter spelling.
+Constraints encode standard constraint tags or nominal trait identities, grouped
+by parameter identity and sorted/deduplicated. Inline and `where` forms produce the
+same bound contract. Trait receiver templates carry their owning trait identity;
+`Self` cannot escape into a concrete signature or executable layout. Shared IR and
+bytecode validation rejects unbound/foreign template parameters, noncanonical
+bounds, invalid nominal kinds and wrong standard-enum argument counts. Public
+top-level functions remain concrete. Names retained on members are declaration
+labels; display strings no longer encode the types of public members.
+The runtime ABI identity is `kagari-runtime-abi-v18`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -84,7 +95,8 @@ nested execution observation; v10 lacks session-registered host resources, owned
 borrow tokens and contextual path callbacks; v11 lacks enum version handles and
 typed standard-enum tags. Runtime ABI v16 additionally requires nominal host type
 bindings and registry-owned host roots. ABI v17 requires complete member contract
-linking and declaration-derived registration; all prior ABI products are rejected.
+linking and declaration-derived registration. ABI v18 requires structured public
+type and bound contracts for reload validation; all prior ABI products are rejected.
 The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration
