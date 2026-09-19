@@ -15,7 +15,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [ ] R02: Source/result/diagnostic/host-effect conformance harness.
 - [ ] R03: Unified source database, revisions, identities, overlays, coordinates.
 - [ ] R04: Recoverable HIR analysis; checked-only code generation.
-- [ ] R05: Immutable queries, cancellation, parse/body reuse and invalidation.
+- [x] R05: Immutable queries, cancellation, parse/body reuse and invalidation.
 - [ ] R06: Offline host declarations and checked runtime bindings.
 - [ ] R07: Nominal concrete identity, layouts, bounded reachable monomorphization.
 - [ ] R08: Verified IR and linked-only runtime operands.
@@ -38,6 +38,31 @@ Focused tests accompany each semantic change. Final gates are `cargo fmt --all
 workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
+
+R05 acceptance evidence:
+
+- [Declaration queries](../crates/kagari-hir/src/analysis/declaration_queries/tests.rs)
+  cover standalone discovery, recovery, shared unchanged file results, dependency
+  invalidation and rejection of stale/cancelled cache publication.
+- [Signature queries](../crates/kagari-hir/src/analysis/signature_queries/tests.rs)
+  cover checking without body analysis, independent reuse, rebased error locations,
+  immutable lowering sharing and consumption by full analysis.
+- [Function queries](../crates/kagari-hir/src/analysis/body_queries/tests.rs) cover
+  selecting one body, absence of neighbor bindings/facts, incomplete member receiver
+  types, exact-cache sharing, unchanged-body remapping, fresh local identities,
+  same-named impl and cross-module identities, dependency signature invalidation,
+  deletion and stale/cancelled publication. Results match fresh analysis.
+- [Snapshot integration](../crates/kagari-embed/tests/source_snapshots.rs) compares
+  artifacts after cache reuse with fresh compilation and checks source/profile
+  invalidation. Existing analysis/identity/import tests cover queries on erroneous
+  files, dependency facades and old snapshot navigation; source_queries exercises
+  declaration, signature, one-body and full queries through the embedding API.
+
+Full analysis batches bodies through the same resolver/type checker used by the
+single-function query. Module constants remain shared semantic prerequisites and
+are checked when querying a body. This is bounded query caching, not a complete
+incremental dependency framework. R03 body arena scoping, R04 recovery coverage,
+R15 resource limits and R18 performance measurements retain separate acceptance.
 
 R12 acceptance evidence:
 
@@ -171,7 +196,7 @@ Implemented foundation slices:
   Scope/type/member-receiver queries work on erroneous files. Shared cancellation
   now reaches lexer character iteration, parser traversal, HIR expression/block
   lowering, name resolution and body checking. Cancelled snapshots do not publish.
-  Remaining work includes dependency-query ownership and compile-time limits.
+  Query ownership is now explicit; compile-time limits remain in R15.
   Language profiles participate in cache reuse; old queries cannot publish over
   a newer revision. Engine snapshot compilation exposes cancellation explicitly.
   Reused bodies remap scalar expression and pattern facts; emitted artifacts are
@@ -214,8 +239,12 @@ Implemented foundation slices:
   declaration/signature snapshots they consumed. Each query publishes caches only
   after cancellation checks and cannot replace newer source revisions. Partial
   declaration and signature results retain their own diagnostics and can be reused
-  without any previous full analysis. Standalone per-function body queries remain
-  pending; body analysis still runs as a module query with unchanged-body reuse.
+  without any previous full analysis. `body(source, definition, cancel)` now queries
+  one function independently and retains its own immutable source/signature context,
+  scopes, bindings and type facts. Neighbor bodies are not resolved or checked.
+  Its cache handles source/dependency changes, deleted declarations and old queries;
+  unchanged user/impl bodies remap facts by declaration-order function identity,
+  including same-named methods. Full analysis uses the same checker in batch form.
   All module declarations are now available before signature checking. Public struct,
   enum and trait type annotations resolve through direct imports, qualified module
   aliases and source type facades. Parameter, return, field and local annotations

@@ -12,6 +12,8 @@ use crate::{
     types::TypeId,
 };
 
+mod body_queries;
+pub use body_queries::FunctionAnalysis;
 mod declaration_queries;
 mod signature_queries;
 pub use declaration_queries::{DeclarationSnapshot, FileDeclarations};
@@ -120,69 +122,12 @@ impl FileAnalysis {
 
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
         let facts = self.result.facts();
-        let expressions = facts
-            .lowered
-            .module
-            .body
-            .expressions()
-            .filter_map(|(id, _)| {
-                let span = facts.lowered.source_map.expr_span(id);
-                (span.start <= offset && offset < span.end)
-                    .then(|| {
-                        facts
-                            .typed
-                            .type_table
-                            .expr_type(id)
-                            .map(|ty| (span.end - span.start, ty))
-                    })
-                    .flatten()
-            });
-        let types = facts
-            .lowered
-            .source_map
-            .type_spans()
-            .iter()
-            .enumerate()
-            .filter_map(|(index, span)| {
-                if !(span.start <= offset && offset < span.end) {
-                    return None;
-                }
-                facts
-                    .typed
-                    .type_table
-                    .type_ref(crate::hir::TypeRefId::new(index))
-                    .map(|resolved| (span.end - span.start, resolved.ty.clone()))
-            });
-        expressions
-            .chain(types)
-            .min_by_key(|(len, _)| *len)
-            .map(|(_, ty)| ty)
+        type_at_in(&facts.lowered, &facts.typed.type_table, offset)
     }
 
     pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
         let facts = self.result.facts();
-        facts
-            .lowered
-            .module
-            .body
-            .expressions()
-            .filter_map(|(id, expr)| {
-                let ExprKind::Field { receiver, .. } = &expr.kind else {
-                    return None;
-                };
-                let span = facts.lowered.source_map.expr_span(id);
-                if span.start <= offset && offset <= span.end {
-                    facts
-                        .typed
-                        .type_table
-                        .expr_type(*receiver)
-                        .map(|ty| (span.end - span.start, ty))
-                } else {
-                    None
-                }
-            })
-            .min_by_key(|(len, _)| *len)
-            .map(|(_, ty)| ty)
+        member_receiver_type_in(&facts.lowered, &facts.typed.type_table, offset)
     }
 
     pub fn definition_at(&self, offset: usize) -> Option<&crate::declarations::Declaration> {
@@ -324,8 +269,66 @@ impl FileAnalysis {
     }
 }
 
+fn type_at_in(
+    lowered: &crate::lower::LoweredModule,
+    table: &crate::typeck::TypeTable,
+    offset: usize,
+) -> Option<TypeId> {
+    let expressions = lowered.module.body.expressions().filter_map(|(id, _)| {
+        let span = lowered.source_map.expr_span(id);
+        (span.start <= offset && offset < span.end)
+            .then(|| table.expr_type(id).map(|ty| (span.end - span.start, ty)))
+            .flatten()
+    });
+    let types = lowered
+        .source_map
+        .type_spans()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, span)| {
+            if !(span.start <= offset && offset < span.end) {
+                return None;
+            }
+            table
+                .type_ref(crate::hir::TypeRefId::new(index))
+                .map(|resolved| (span.end - span.start, resolved.ty.clone()))
+        });
+    expressions
+        .chain(types)
+        .min_by_key(|(len, _)| *len)
+        .map(|(_, ty)| ty)
+}
+
+fn member_receiver_type_in(
+    lowered: &crate::lower::LoweredModule,
+    table: &crate::typeck::TypeTable,
+    offset: usize,
+) -> Option<TypeId> {
+    lowered
+        .module
+        .body
+        .expressions()
+        .filter_map(|(id, expr)| {
+            let ExprKind::Field { receiver, .. } = &expr.kind else {
+                return None;
+            };
+            let span = lowered.source_map.expr_span(id);
+            if span.start <= offset && offset <= span.end {
+                table
+                    .expr_type(*receiver)
+                    .map(|ty| (span.end - span.start, ty))
+            } else {
+                None
+            }
+        })
+        .min_by_key(|(len, _)| *len)
+        .map(|(_, ty)| ty)
+}
+
 #[derive(Debug)]
 pub struct AnalysisDatabase {
+    body_cache: HashMap<kagari_common::identity::DefinitionId, Arc<FunctionAnalysis>>,
+    body_revision: Revision,
     declaration_cache: Option<DeclarationSnapshot>,
     signature_cache: Option<SignatureSnapshot>,
     files: HashMap<FileId, Arc<FileAnalysis>>,
@@ -336,6 +339,8 @@ pub struct AnalysisDatabase {
 impl Default for AnalysisDatabase {
     fn default() -> Self {
         Self {
+            body_cache: HashMap::new(),
+            body_revision: Revision::default(),
             declaration_cache: None,
             signature_cache: None,
             files: HashMap::new(),
@@ -372,33 +377,14 @@ impl AnalysisDatabase {
                 )
             })
             .collect::<std::collections::BTreeMap<_, _>>();
-        // Every module signature is available before any function body is checked.
-        let catalog = crate::imports::FunctionCatalog::new(
-            &graph,
-            signatures.values().map(|(_, _, prepared)| prepared),
-        );
-        let mut bindings = HashMap::new();
-        for (id, (_, _, prepared)) in &signatures {
-            bindings.insert(
-                *id,
-                catalog.bindings(&prepared.names.facts.imports, cancel)?,
-            );
-        }
-        let mut aggregate_catalog = crate::aggregates::AggregateCatalog::default();
-        for (_, _, prepared) in signatures.values() {
-            aggregate_catalog.add_module(
-                &prepared.lowered,
-                &prepared.declarations,
-                prepared.signatures.facts(),
-                cancel,
-            )?;
-        }
+        let mut environments = signature_snapshot.body_environments(cancel)?;
         let mut files = HashMap::new();
         for (id, (file, parsed, prepared)) in signatures {
             cancel.check()?;
-            let imported_functions = bindings.remove(&id).expect("prepared import bindings");
-            let aggregates =
-                aggregate_catalog.for_module(file.module_identity(), &graph, cancel)?;
+            let signature_queries::BodyEnvironment {
+                imported_functions,
+                aggregates,
+            } = environments.remove(&id).expect("prepared body environment");
             let imports = prepared.names.facts.imports.clone();
             let analysis = match self.files.get(&id) {
                 Some(previous)
@@ -431,7 +417,8 @@ impl AnalysisDatabase {
                                 && old.source.module_identity() == file.module_identity()
                         })
                         .map(|old| crate::typeck::BodyReuse {
-                            previous: old.result.facts(),
+                            previous_lowered: &old.result.facts().lowered,
+                            previous_types: &old.result.facts().typed.type_table,
                             old_text: old.source.text(),
                             new_text: file.text(),
                         });

@@ -80,6 +80,7 @@ impl AnalysisDatabase {
     }
 
     pub(super) fn publish_declarations(&mut self, snapshot: DeclarationSnapshot) {
+        self.publish_body(&snapshot, None);
         if self
             .declaration_cache
             .as_ref()

@@ -20,7 +20,7 @@ use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability};
 pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 
-pub(crate) use check::{check_module_controlled, check_signatures};
+pub(crate) use check::{check_bodies_controlled, check_signatures};
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedCall, ResolvedStructInit, ResolvedTypeRef, TypeTable,
     TypeTarget,
@@ -89,6 +89,7 @@ pub(crate) struct TypeIndexes<'a> {
 }
 
 pub(crate) struct BodyInputs<'a> {
+    pub selection: crate::hir::BodySelection,
     pub signatures: &'a crate::AnalysisResult<ModuleSignatures>,
     pub imported_functions: &'a crate::imports::ImportedFunctions,
     pub aggregates: &'a crate::aggregates::AggregateCatalog,

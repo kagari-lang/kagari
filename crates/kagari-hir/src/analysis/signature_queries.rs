@@ -37,6 +37,43 @@ pub struct SignatureSnapshot {
 }
 
 impl SignatureSnapshot {
+    pub(super) fn body_environments(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<HashMap<FileId, BodyEnvironment>, Cancelled> {
+        let catalog = crate::imports::FunctionCatalog::new(
+            self.module_graph(),
+            self.files.values().map(|file| &file.prepared),
+        );
+        let mut aggregates = crate::aggregates::AggregateCatalog::default();
+        for file in self.files.values() {
+            let prepared = &file.prepared;
+            aggregates.add_module(
+                &prepared.lowered,
+                &prepared.declarations,
+                prepared.signatures.facts(),
+                cancel,
+            )?;
+        }
+        let mut result = HashMap::new();
+        for (id, file) in self.files.iter() {
+            cancel.check()?;
+            result.insert(
+                *id,
+                BodyEnvironment {
+                    imported_functions: catalog
+                        .bindings(&file.prepared.names.facts.imports, cancel)?,
+                    aggregates: aggregates.for_module(
+                        file.source().module_identity(),
+                        self.module_graph(),
+                        cancel,
+                    )?,
+                },
+            );
+        }
+        Ok(result)
+    }
+
     pub fn revision(&self) -> Revision {
         self.declarations.revision()
     }
@@ -52,6 +89,12 @@ impl SignatureSnapshot {
     pub fn module_graph(&self) -> &crate::imports::ModuleGraph {
         self.declarations.module_graph()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct BodyEnvironment {
+    pub imported_functions: crate::imports::ImportedFunctions,
+    pub aggregates: crate::aggregates::AggregateCatalog,
 }
 
 impl AnalysisDatabase {

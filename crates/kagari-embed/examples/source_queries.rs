@@ -34,6 +34,23 @@ fn main() -> kagari_embed::CompileResult<()> {
         "{} function signatures before body analysis",
         signature.signatures().facts().functions().len()
     );
+    let good = header
+        .declarations()
+        .iter()
+        .find(|d| d.name == "good")
+        .expect("good declaration");
+    let kagari_hir::declarations::DeclarationId::Definition(good) = &good.id else {
+        panic!("function has a definition identity");
+    };
+    let body = engine
+        .body(engine.source_snapshot(), good, &Default::default())?
+        .expect("function body");
+    assert_eq!(body.checked_bodies(), 1);
+    assert!(body.diagnostics().is_empty());
+    println!(
+        "queried one body: {:?}",
+        body.type_at(text.rfind("answer }").expect("reference"))
+    );
     let snapshot = engine.analyze(
         engine.source_snapshot(),
         Default::default(),

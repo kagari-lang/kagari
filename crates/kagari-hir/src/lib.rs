@@ -168,15 +168,16 @@ fn analyze_prepared(
         signatures,
     } = prepared;
     let names = AnalysisResult {
-        facts: resolver::resolve_bodies(&lowered, &names.facts, cancel),
+        facts: resolver::resolve_bodies(&lowered, &names.facts, hir::BodySelection::All, cancel),
         diagnostics: names.diagnostics,
     };
     let declarations = declarations.with_bindings(&lowered, &names.facts, cancel);
-    let typed = typeck::check_module_controlled(
+    let typed = typeck::check_bodies_controlled(
         &lowered,
         &names.facts,
         &declarations,
         typeck::BodyInputs {
+            selection: hir::BodySelection::All,
             signatures: &signatures,
             imported_functions: &imported_functions,
             aggregates: &aggregates,

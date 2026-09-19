@@ -20,7 +20,12 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
         .clone();
     let declarations = collect_declarations(lowered, hosts, imports, &Default::default());
     AnalysisResult {
-        facts: resolve_bodies(lowered, &declarations.facts, &Default::default()),
+        facts: resolve_bodies(
+            lowered,
+            &declarations.facts,
+            crate::hir::BodySelection::All,
+            &Default::default(),
+        ),
         diagnostics: declarations.diagnostics,
     }
 }
@@ -146,6 +151,7 @@ pub(crate) fn collect_declarations(
 pub(crate) fn resolve_bodies(
     lowered: &LoweredModule,
     names: &DeclarationNames,
+    selection: crate::hir::BodySelection,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> ResolvedNames {
     let mut resolver = BodyResolver::new(
@@ -165,6 +171,9 @@ pub(crate) fn resolve_bodies(
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
             break;
+        }
+        if !selection.includes(function.id) {
+            continue;
         }
         resolver.resolve_function(
             function.id,

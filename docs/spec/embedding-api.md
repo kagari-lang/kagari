@@ -58,8 +58,24 @@ immutable query results consumed by full analysis. These share unchanged file
 results with standalone queries. Old snapshots retain their source locations;
 local bindings created by full analysis never appear in declaration-only results.
 Each successful query publishes its own cache, while cancelled queries and older
-source revisions cannot overwrite newer entries. Body queries remain module-wide;
-standalone function-body scheduling is not yet exposed.
+source revisions cannot overwrite newer entries. Standalone function queries
+are available through `body(source, definition,
+cancel)`. This returns an immutable `FunctionAnalysis`, or `None` if the declaration
+has no body in that snapshot. Its type and receiver queries are restricted to the
+selected function, and its scope/declaration facts exclude neighboring local
+bindings. Raw local IDs belong to that result's lowering; retained binding handles
+cannot be resolved in a different analysis.
+
+Function queries resolve and check module constants as prerequisites, then only
+the selected function body. Their diagnostics cover those constants and that body;
+parse/declaration/signature diagnostics remain on the retained signature snapshot.
+They do not produce checked modules and cannot bypass full compilation or language
+profile validation. Exact cached results retain their original source/signature
+snapshot. Unchanged user and impl bodies can reuse remapped facts after other body
+edits, while local binding identities are recreated for the new analysis. Header
+and dependency changes invalidate reuse. Deleted declarations and stale queries
+cannot repopulate a newer cache. Full analysis batches bodies through the same
+resolver and type checker; it continues to validate the complete dependency closure.
 
 Embedding diagnostic ranges contain file identity, document revision and byte
 range. Hosts must reject stale ranges before applying editor actions. UTF-8 and

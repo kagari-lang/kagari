@@ -45,11 +45,12 @@ pub fn check_module(
             &Default::default(),
         )
         .unwrap();
-    crate::typeck::check_module_controlled(
+    crate::typeck::check_bodies_controlled(
         lowered,
         names,
         &declarations,
         crate::typeck::BodyInputs {
+            selection: crate::hir::BodySelection::All,
             signatures: &signatures,
             imported_functions: &Default::default(),
             aggregates: &aggregates,

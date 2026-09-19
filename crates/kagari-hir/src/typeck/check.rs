@@ -239,7 +239,7 @@ pub(crate) fn check_signatures(
     }
 }
 
-pub(crate) fn check_module_controlled(
+pub(crate) fn check_bodies_controlled(
     lowered: &LoweredModule,
     names: &ResolvedNames,
     declarations: &crate::declarations::Declarations,
@@ -248,6 +248,7 @@ pub(crate) fn check_module_controlled(
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<TypedModule> {
     let super::BodyInputs {
+        selection,
         signatures,
         imported_functions,
         aggregates,
@@ -255,7 +256,11 @@ pub(crate) fn check_module_controlled(
     let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
     let mut checked_bodies = 0;
     let mut reused_bodies = 0;
-    let mut diagnostics = signatures.diagnostics.clone();
+    let mut diagnostics = if matches!(selection, crate::hir::BodySelection::All) {
+        signatures.diagnostics.clone()
+    } else {
+        Default::default()
+    };
     let mut functions = signatures.facts.functions.clone();
     let mut function_index = FunctionTypeIndex {
         by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
@@ -360,6 +365,9 @@ pub(crate) fn check_module_controlled(
                 break;
             }
             if matches!(function.kind, FunctionKind::TraitMethod) {
+                continue;
+            }
+            if !selection.includes(function.id) {
                 continue;
             }
             if reuse.is_some_and(|reuse| reuse.restore(lowered, function, &mut type_table)) {

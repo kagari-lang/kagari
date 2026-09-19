@@ -1,13 +1,13 @@
 use kagari_common::{
     Diagnostic, Severity, SourceFile,
-    identity::{FileId, FileSpan},
+    identity::{DefinitionId, FileId, FileSpan},
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
 use kagari_hir::{
     LanguageFeatureProfile,
     analysis::{
         AnalysisDatabase, AnalysisSnapshot, CancellationToken, DeclarationSnapshot,
-        SignatureSnapshot,
+        FunctionAnalysis, SignatureSnapshot,
     },
     program::{CheckedProgram, ProgramCheckError},
 };
@@ -173,6 +173,19 @@ impl KagariEngine {
         self.analysis
             .borrow_mut()
             .signatures(source, cancel)
+            .map_err(|_| EmbeddingError::Cancelled)
+    }
+
+    /// Query one function body and module-constant prerequisites by declaration identity.
+    pub fn body(
+        &self,
+        source: SourceSnapshot,
+        function: &DefinitionId,
+        cancel: &CancellationToken,
+    ) -> CompileResult<Option<std::sync::Arc<FunctionAnalysis>>> {
+        self.analysis
+            .borrow_mut()
+            .body(source, function, cancel)
             .map_err(|_| EmbeddingError::Cancelled)
     }
 

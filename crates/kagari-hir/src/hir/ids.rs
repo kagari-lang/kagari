@@ -34,6 +34,18 @@ id_newtype!(PatternId);
 id_newtype!(TypeRefId);
 id_newtype!(GenericParamId);
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum BodySelection {
+    All,
+    Function(FunctionId),
+}
+
+impl BodySelection {
+    pub(crate) fn includes(self, id: FunctionId) -> bool {
+        matches!(self, Self::All) || matches!(self, Self::Function(selected) if selected == id)
+    }
+}
+
 /// A field slot within its declaring struct in this analysis's HIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FieldId {

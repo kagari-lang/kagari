@@ -63,8 +63,11 @@ ranges into the new lowering, including for erroneous signatures; it does not ke
 old local binding identities alive. Changes to dependencies, signatures or field
 contracts invalidate the affected queries. Cancelled or older analyses cannot
 replace a newer cached revision. Query reuse remains conservative: declarations
-and signatures have independent cached snapshot queries; bodies are still checked
-as a module, reusing unchanged function facts where possible.
+and signatures have independent cached snapshot queries. A function body can be
+queried by its nominal declaration identity, resolving/checking only that function
+and its module constants. Full analysis uses the same resolver and checker in batch
+form. Both paths reuse unchanged function facts where possible; source-local IDs
+are remapped, and same-named impl methods match by their own function identity.
 
 Declaration collection owns module names, imports, named definitions, fields and
 generic parameters. It does not resolve body expressions or create local bindings.
