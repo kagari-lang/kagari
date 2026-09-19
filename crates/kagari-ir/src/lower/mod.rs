@@ -91,6 +91,27 @@ pub fn lower_to_ir(
         });
     }
 
+    let mut enumerations = Vec::new();
+    for enumeration in module.aggregates.enumerations() {
+        planner.check()?;
+        let mut variants = Vec::new();
+        for variant in &enumeration.variants {
+            planner.check()?;
+            variants.push(crate::module::EnumVariantLayout {
+                declaration: variant.id.clone(),
+                payload: variant
+                    .payload
+                    .iter()
+                    .map(crate::module::abi::AbiType::from_checked_type)
+                    .collect(),
+            });
+        }
+        enumerations.push(crate::module::EnumLayout {
+            declaration: enumeration.id.clone(),
+            variants,
+        });
+    }
+
     verify_ir(
         IrModule {
             dependencies: module
@@ -110,6 +131,7 @@ pub fn lower_to_ir(
                 .into_iter()
                 .collect(),
             structures,
+            enumerations,
             identity: module.lowered.source.module_identity().clone(),
             source_name: module.lowered.source.name().to_owned(),
             module_init,

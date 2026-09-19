@@ -153,6 +153,23 @@ impl LoadedModule {
             id,
         })
     }
+
+    pub fn enum_variant(
+        &self,
+        id: kagari_ir::bytecode::EnumId,
+        variant: u32,
+    ) -> Option<EnumVariantRef> {
+        self.bytecode
+            .enumerations
+            .get(id.index())?
+            .variants
+            .get(variant as usize)?;
+        Some(EnumVariantRef {
+            module: self.clone(),
+            id,
+            variant,
+        })
+    }
     pub fn host_binding(
         &self,
         import: kagari_ir::bytecode::HostImportId,
@@ -168,6 +185,34 @@ impl LoadedModule {
             id: self.id,
             epoch: self.epoch,
         }
+    }
+}
+
+/// A verified layout that retains its immutable executable generation.
+#[derive(Debug, Clone)]
+pub struct EnumVariantRef {
+    module: LoadedModule,
+    id: kagari_ir::bytecode::EnumId,
+    variant: u32,
+}
+
+impl EnumVariantRef {
+    pub fn layout(&self) -> &kagari_ir::module::EnumLayout {
+        &self.module.bytecode.enumerations[self.id.index()]
+    }
+    pub fn variant(&self) -> &kagari_ir::module::EnumVariantLayout {
+        &self.layout().variants[self.variant as usize]
+    }
+    pub fn module(&self) -> &LoadedModule {
+        &self.module
+    }
+}
+
+impl PartialEq for EnumVariantRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.module.registry_owner == other.module.registry_owner
+            && self.layout() == other.layout()
+            && self.variant == other.variant
     }
 }
 

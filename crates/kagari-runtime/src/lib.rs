@@ -350,12 +350,18 @@ impl Runtime {
 
     pub fn alloc_enum(
         &self,
-        name: String,
-        variant: String,
+        tag: value::EnumTag,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.validate_heap_payloads(&fields)?;
-        self.gc.alloc_enum(name, variant, fields)
+        if let value::EnumTag::Declared(layout) = &tag
+            && !layout.module().belongs_to(self.host.owner())
+        {
+            return Err(RuntimeError::module_validation(
+                "enum layout belongs to a different runtime",
+            ));
+        }
+        self.gc.alloc_enum(tag, fields)
     }
 
     pub fn host(&self) -> &HostRegistry {

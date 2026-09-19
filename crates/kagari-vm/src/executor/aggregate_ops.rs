@@ -5,6 +5,26 @@ use crate::error::VmError;
 use crate::executor::Executor;
 
 impl Executor<'_> {
+    pub(crate) fn make_enum(
+        &self,
+        enumeration: kagari_ir::bytecode::EnumId,
+        variant: u32,
+        fields: &[Register],
+    ) -> Result<Value, VmError> {
+        let fields = fields
+            .iter()
+            .map(|register| Ok::<_, VmError>(self.current_frame()?.read_register(*register)?))
+            .collect::<Result<Vec<_>, _>>()?;
+        let layout = self
+            .current_loaded()?
+            .enum_variant(enumeration, variant)
+            .ok_or(VmError::TypeMismatch("invalid enum variant layout"))?;
+        self.runtime
+            .alloc_enum(kagari_runtime::value::EnumTag::Declared(layout), fields)
+            .map(Value::Enum)
+            .map_err(VmError::RuntimeError)
+    }
+
     pub(crate) fn make_tuple(&self, elements: &[Register]) -> Result<Value, VmError> {
         elements
             .iter()

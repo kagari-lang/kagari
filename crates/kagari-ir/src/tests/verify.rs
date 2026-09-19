@@ -18,6 +18,75 @@ fn raw(source: &str) -> IrModule {
 }
 
 #[test]
+fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
+    let source = "enum Event { Data(i32) } fn main() -> Event { Event::Data(7) }";
+    let mut public = crate::tests::common::bytecode_ok(&format!("pub {source}"));
+    let crate::module::PublicAbiItem::Type(ty) = &mut public.public_items[0] else {
+        panic!("enum ABI")
+    };
+    ty.variants[0].payload.clear();
+    assert_eq!(
+        crate::bytecode::verify_module(&public).unwrap_err(),
+        crate::bytecode::BytecodeVerificationError::InvalidEnumLayout
+    );
+    let mut module = raw(source);
+    module.enumerations[0].variants[0].declaration.path[0].name = "Other".into();
+    assert_eq!(reject(module), Error::InvalidEnumLayout);
+    let mut module = raw(source);
+    let mut absent = module.enumerations[0].declaration.clone();
+    absent.path[0].name = "Absent".into();
+    module.enumerations[0].variants[0].payload[0] = crate::module::abi::AbiType::Enum(absent);
+    assert_eq!(reject(module), Error::InvalidEnumLayout);
+    let mut module = raw(source);
+    for instruction in module
+        .functions
+        .iter_mut()
+        .flat_map(|f| &mut f.blocks)
+        .flat_map(|b| &mut b.instructions)
+    {
+        if let Instruction::MakeEnum { variant, .. } = instruction {
+            *variant = 99;
+        }
+    }
+    assert_eq!(reject(module), Error::InvalidEnumInitializer);
+    let good = crate::tests::common::bytecode_ok(source);
+    for mode in 0..3 {
+        let mut bad = good.clone();
+        for instruction in &mut bad.functions[0].instructions {
+            if let BytecodeInstruction::MakeEnum {
+                enumeration,
+                variant,
+                fields,
+                ..
+            } = instruction
+            {
+                match mode {
+                    0 => *enumeration = crate::bytecode::EnumId::new(99),
+                    1 => *variant = 99,
+                    _ => fields.clear(),
+                }
+            }
+        }
+        assert!(crate::bytecode::verify_module(&bad).is_err());
+    }
+    let mut second = good.clone();
+    second.identity = kagari_common::identity::ModuleIdentity::single_file("second.kgr");
+    second.dependencies = vec![crate::bytecode::ModuleRef::new(0)];
+    let mut program = crate::bytecode::BytecodeProgram {
+        root: crate::bytecode::ModuleRef::new(1),
+        modules: vec![good, second],
+    };
+    crate::bytecode::verify_program(&program).unwrap();
+    program.modules[1].enumerations[0].variants[0]
+        .payload
+        .clear();
+    assert_eq!(
+        crate::bytecode::verify_program(&program).unwrap_err(),
+        crate::bytecode::BytecodeVerificationError::InvalidEnumLayout
+    );
+}
+
+#[test]
 fn conflicting_host_contracts_cannot_be_hidden_by_import_interning() {
     let mut module = raw(r#"fn main() { print("one"); print("two"); }"#);
     let mut calls = module

@@ -33,7 +33,7 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
         Value::Enum(handle) => {
             return Value::Str(
                 gc.enum_snapshot(*handle)
-                    .map(|snapshot| snapshot.name)
+                    .map(|snapshot| snapshot.tag.type_name().to_owned())
                     .unwrap_or_else(|| "enum".to_owned()),
             );
         }

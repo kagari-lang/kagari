@@ -20,8 +20,10 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     );
     assert!(
         first
-            .gc()
-            .alloc_enum("E".into(), "V".into(), vec![Value::Array(foreign)])
+            .alloc_enum(
+                kagari_runtime::value::EnumTag::OptionSome,
+                vec![Value::Array(foreign)]
+            )
             .is_err()
     );
     assert!(first.root_value(Value::Array(foreign)).is_none());
@@ -81,8 +83,7 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
     runtime.gc().array_push(array, Value::Map(map)).unwrap();
     let variant = runtime
         .alloc_enum(
-            "E".into(),
-            "V".into(),
+            kagari_runtime::value::EnumTag::OptionSome,
             vec![Value::Tuple(vec![Value::Array(array)])],
         )
         .unwrap();

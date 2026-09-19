@@ -80,6 +80,12 @@ pub enum Instruction {
         structure: kagari_common::identity::DefinitionId,
         fields: StructFieldInitBuffer,
     },
+    MakeEnum {
+        dst: IrValue,
+        enumeration: kagari_common::identity::DefinitionId,
+        variant: usize,
+        fields: ValueBuffer,
+    },
     ReadAggregateField {
         dst: IrValue,
         base: IrValue,
@@ -304,9 +310,10 @@ impl Instruction {
             Self::LoadModule { .. } => EffectSet::module_read(),
             Self::StoreModule { .. } => EffectSet::module_write(),
             Self::Call { callee, .. } => callee.effects(),
-            Self::MakeTuple { .. } | Self::MakeArray { .. } | Self::MakeStruct { .. } => {
-                EffectSet::allocation()
-            }
+            Self::MakeTuple { .. }
+            | Self::MakeArray { .. }
+            | Self::MakeStruct { .. }
+            | Self::MakeEnum { .. } => EffectSet::allocation(),
             Self::ReadAggregateField { .. } | Self::ReadAggregateIndex { .. } => {
                 EffectSet::aggregate_read()
             }

@@ -64,6 +64,7 @@ fn lower_linked_module(
     let mut context = BytecodeLoweringContext {
         program,
         structures: &ir.structures,
+        enumerations: &ir.enumerations,
         ..Default::default()
     };
     let functions = ir
@@ -89,6 +90,7 @@ fn lower_linked_module(
         constants: Vec::new(),
         types: Vec::new(),
         structures: ir.structures.clone(),
+        enumerations: ir.enumerations.clone(),
         paths: context.paths,
         function_table: Vec::new(),
         public_items: ir.abi.public_items.clone(),
@@ -105,6 +107,7 @@ fn lower_linked_module(
 struct BytecodeLoweringContext<'a> {
     program: Option<&'a crate::program::VerifiedIrProgram>,
     structures: &'a [crate::module::StructLayout],
+    enumerations: &'a [crate::module::EnumLayout],
     host_interface: kagari_common::host_interface::HostInterface,
     paths: Vec<PathRecord>,
 }
@@ -242,6 +245,13 @@ fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
     for layout in &module.structures {
         for field in &layout.fields {
             push_type(&mut types, field.ty);
+        }
+    }
+    for layout in &module.enumerations {
+        for variant in &layout.variants {
+            for ty in &variant.payload {
+                push_type(&mut types, ty.representation());
+            }
         }
     }
     for path in &module.paths {
@@ -558,6 +568,23 @@ fn lower_instruction(
                 .iter()
                 .map(|element| lower_value(*element))
                 .collect(),
+        },
+        Instruction::MakeEnum {
+            dst,
+            enumeration,
+            variant,
+            fields,
+        } => BytecodeInstruction::MakeEnum {
+            dst: lower_value(*dst),
+            enumeration: super::EnumId::new(
+                context
+                    .enumerations
+                    .iter()
+                    .position(|layout| &layout.declaration == enumeration)
+                    .expect("verified enum layout"),
+            ),
+            variant: *variant as u32,
+            fields: fields.iter().map(|value| lower_value(*value)).collect(),
         },
         Instruction::MakeStruct {
             dst,

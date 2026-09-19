@@ -1,3 +1,4 @@
+use crate::value::EnumTag;
 use kagari_ir::builtin::surface::StandardIntrinsic;
 
 use crate::{
@@ -479,12 +480,12 @@ fn string_slice(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
 
 fn option_is_some(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let option = option_value(gc, args, "option.is_some")?;
-    Ok(Value::Bool(option.variant == "Some"))
+    Ok(Value::Bool(option.tag == EnumTag::OptionSome))
 }
 
 fn option_is_none(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let option = option_value(gc, args, "option.is_none")?;
-    Ok(Value::Bool(option.variant == "None"))
+    Ok(Value::Bool(option.tag == EnumTag::OptionNone))
 }
 
 fn option_unwrap_or(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -493,12 +494,9 @@ fn option_unwrap_or(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> 
             "option.unwrap_or expects option and fallback",
         ));
     };
-    match option_snapshot(gc, value, "option.unwrap_or")?
-        .variant
-        .as_str()
-    {
-        "Some" => option_payload(gc, value, "option.unwrap_or"),
-        "None" => Ok(fallback.clone()),
+    match option_snapshot(gc, value, "option.unwrap_or")?.tag {
+        EnumTag::OptionSome => option_payload(gc, value, "option.unwrap_or"),
+        EnumTag::OptionNone => Ok(fallback.clone()),
         _ => unreachable!(),
     }
 }
@@ -512,12 +510,12 @@ fn option_map(
         return Err(BuiltinError::new("option.map expects option and mapper"));
     };
     let callback = callback_id(mapper, "option.map")?;
-    match option_snapshot(gc, value, "option.map")?.variant.as_str() {
-        "Some" => {
+    match option_snapshot(gc, value, "option.map")?.tag {
+        EnumTag::OptionSome => {
             let next = callbacks.call(callback, &[option_payload(gc, value, "option.map")?])?;
             option_some(gc, next)
         }
-        "None" => option_none(gc),
+        EnumTag::OptionNone => option_none(gc),
         _ => unreachable!(),
     }
 }
@@ -533,29 +531,26 @@ fn option_and_then(
         ));
     };
     let callback = callback_id(mapper, "option.and_then")?;
-    match option_snapshot(gc, value, "option.and_then")?
-        .variant
-        .as_str()
-    {
-        "Some" => {
+    match option_snapshot(gc, value, "option.and_then")?.tag {
+        EnumTag::OptionSome => {
             let next =
                 callbacks.call(callback, &[option_payload(gc, value, "option.and_then")?])?;
             option_snapshot(gc, &next, "option.and_then mapper result")?;
             Ok(next)
         }
-        "None" => option_none(gc),
+        EnumTag::OptionNone => option_none(gc),
         _ => unreachable!(),
     }
 }
 
 fn result_is_ok(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let result = result_value(gc, args, "result.is_ok")?;
-    Ok(Value::Bool(result.variant == "Ok"))
+    Ok(Value::Bool(result.tag == EnumTag::ResultOk))
 }
 
 fn result_is_err(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let result = result_value(gc, args, "result.is_err")?;
-    Ok(Value::Bool(result.variant == "Err"))
+    Ok(Value::Bool(result.tag == EnumTag::ResultErr))
 }
 
 fn result_unwrap_or(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -564,12 +559,9 @@ fn result_unwrap_or(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> 
             "result.unwrap_or expects result and fallback",
         ));
     };
-    match result_snapshot(gc, value, "result.unwrap_or")?
-        .variant
-        .as_str()
-    {
-        "Ok" => result_payload(gc, value, "result.unwrap_or"),
-        "Err" => Ok(fallback.clone()),
+    match result_snapshot(gc, value, "result.unwrap_or")?.tag {
+        EnumTag::ResultOk => result_payload(gc, value, "result.unwrap_or"),
+        EnumTag::ResultErr => Ok(fallback.clone()),
         _ => unreachable!(),
     }
 }
@@ -583,12 +575,12 @@ fn result_map(
         return Err(BuiltinError::new("result.map expects result and mapper"));
     };
     let callback = callback_id(mapper, "result.map")?;
-    match result_snapshot(gc, value, "result.map")?.variant.as_str() {
-        "Ok" => {
+    match result_snapshot(gc, value, "result.map")?.tag {
+        EnumTag::ResultOk => {
             let next = callbacks.call(callback, &[result_payload(gc, value, "result.map")?])?;
             result_ok(gc, next)
         }
-        "Err" => result_err(gc, result_payload(gc, value, "result.map")?),
+        EnumTag::ResultErr => result_err(gc, result_payload(gc, value, "result.map")?),
         _ => unreachable!(),
     }
 }
@@ -604,12 +596,9 @@ fn result_map_err(
         ));
     };
     let callback = callback_id(mapper, "result.map_err")?;
-    match result_snapshot(gc, value, "result.map_err")?
-        .variant
-        .as_str()
-    {
-        "Ok" => result_ok(gc, result_payload(gc, value, "result.map_err")?),
-        "Err" => {
+    match result_snapshot(gc, value, "result.map_err")?.tag {
+        EnumTag::ResultOk => result_ok(gc, result_payload(gc, value, "result.map_err")?),
+        EnumTag::ResultErr => {
             let next = callbacks.call(callback, &[result_payload(gc, value, "result.map_err")?])?;
             result_err(gc, next)
         }
@@ -628,17 +617,14 @@ fn result_and_then(
         ));
     };
     let callback = callback_id(mapper, "result.and_then")?;
-    match result_snapshot(gc, value, "result.and_then")?
-        .variant
-        .as_str()
-    {
-        "Ok" => {
+    match result_snapshot(gc, value, "result.and_then")?.tag {
+        EnumTag::ResultOk => {
             let next =
                 callbacks.call(callback, &[result_payload(gc, value, "result.and_then")?])?;
             result_snapshot(gc, &next, "result.and_then mapper result")?;
             Ok(next)
         }
-        "Err" => result_err(gc, result_payload(gc, value, "result.and_then")?),
+        EnumTag::ResultErr => result_err(gc, result_payload(gc, value, "result.and_then")?),
         _ => unreachable!(),
     }
 }
@@ -887,28 +873,23 @@ fn set_value(gc: &GcHeap, values: Vec<Value>) -> Result<Value, BuiltinError> {
 }
 
 fn option_some(gc: &GcHeap, value: Value) -> Result<Value, BuiltinError> {
-    enum_value(gc, "Option", "Some", vec![value])
+    enum_value(gc, EnumTag::OptionSome, vec![value])
 }
 
 fn option_none(gc: &GcHeap) -> Result<Value, BuiltinError> {
-    enum_value(gc, "Option", "None", Vec::new())
+    enum_value(gc, EnumTag::OptionNone, Vec::new())
 }
 
 fn result_ok(gc: &GcHeap, value: Value) -> Result<Value, BuiltinError> {
-    enum_value(gc, "Result", "Ok", vec![value])
+    enum_value(gc, EnumTag::ResultOk, vec![value])
 }
 
 fn result_err(gc: &GcHeap, value: Value) -> Result<Value, BuiltinError> {
-    enum_value(gc, "Result", "Err", vec![value])
+    enum_value(gc, EnumTag::ResultErr, vec![value])
 }
 
-fn enum_value(
-    gc: &GcHeap,
-    name: &'static str,
-    variant: &'static str,
-    fields: Vec<Value>,
-) -> Result<Value, BuiltinError> {
-    gc.alloc_enum(name.to_owned(), variant.to_owned(), fields)
+fn enum_value(gc: &GcHeap, tag: EnumTag, fields: Vec<Value>) -> Result<Value, BuiltinError> {
+    gc.alloc_enum(tag, fields)
         .map(Value::Enum)
         .map_err(BuiltinError::from)
 }
@@ -946,12 +927,8 @@ fn option_snapshot(
     let snapshot = gc
         .enum_snapshot(*handle)
         .ok_or_else(|| BuiltinError::new(format!("{name} expects valid enum handle")))?;
-    match (
-        snapshot.name.as_str(),
-        snapshot.variant.as_str(),
-        snapshot.fields.len(),
-    ) {
-        ("Option", "Some", 1) | ("Option", "None", 0) => Ok(snapshot),
+    match snapshot.tag {
+        EnumTag::OptionSome | EnumTag::OptionNone => Ok(snapshot),
         _ => Err(BuiltinError::new(format!("{name} expects Option value"))),
     }
 }
@@ -967,12 +944,8 @@ fn result_snapshot(
     let snapshot = gc
         .enum_snapshot(*handle)
         .ok_or_else(|| BuiltinError::new(format!("{name} expects valid enum handle")))?;
-    match (
-        snapshot.name.as_str(),
-        snapshot.variant.as_str(),
-        snapshot.fields.len(),
-    ) {
-        ("Result", "Ok", 1) | ("Result", "Err", 1) => Ok(snapshot),
+    match snapshot.tag {
+        EnumTag::ResultOk | EnumTag::ResultErr => Ok(snapshot),
         _ => Err(BuiltinError::new(format!("{name} expects Result value"))),
     }
 }
@@ -1135,8 +1108,8 @@ mod tests {
             panic!("expected enum value");
         };
         let snapshot = gc.enum_snapshot(*handle).unwrap();
-        assert_eq!(snapshot.name, "Option");
-        (snapshot.variant, snapshot.fields)
+        assert_eq!(snapshot.tag.type_name(), "Option");
+        (snapshot.tag.variant_name().to_owned(), snapshot.fields)
     }
 
     fn result_variant(gc: &GcHeap, value: &Value) -> (String, Vec<Value>) {
@@ -1144,8 +1117,8 @@ mod tests {
             panic!("expected enum value");
         };
         let snapshot = gc.enum_snapshot(*handle).unwrap();
-        assert_eq!(snapshot.name, "Result");
-        (snapshot.variant, snapshot.fields)
+        assert_eq!(snapshot.tag.type_name(), "Result");
+        (snapshot.tag.variant_name().to_owned(), snapshot.fields)
     }
 
     #[test]

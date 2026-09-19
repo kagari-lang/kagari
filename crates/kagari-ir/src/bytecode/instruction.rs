@@ -4,6 +4,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Register(u16);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct EnumId(u32);
+impl EnumId {
+    pub fn new(index: usize) -> Self {
+        Self(u32::try_from(index).expect("enum slot overflow"))
+    }
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 impl Register {
     pub fn new(index: usize) -> Self {
         Self(index as u16)
@@ -219,6 +230,12 @@ pub enum BytecodeInstruction {
     MakeStruct {
         dst: Register,
         structure: StructId,
+        fields: Vec<Register>,
+    },
+    MakeEnum {
+        dst: Register,
+        enumeration: EnumId,
+        variant: u32,
         fields: Vec<Register>,
     },
     ReadAggregateField {

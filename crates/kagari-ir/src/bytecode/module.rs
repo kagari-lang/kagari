@@ -18,6 +18,7 @@ pub struct BytecodeModule {
     pub constants: ConstantPool,
     pub types: BytecodeTypeTable,
     pub structures: Vec<crate::module::StructLayout>,
+    pub enumerations: Vec<crate::module::EnumLayout>,
     pub paths: PathTable,
     pub function_table: FunctionTable,
     pub public_items: PublicItemTable,

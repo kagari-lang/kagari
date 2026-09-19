@@ -20,7 +20,7 @@ pub use artifact::{
     PublicAbiFingerprint, PublicAbiFingerprintBuffer, SourceFileTable, VerificationMetadata,
 };
 pub use instruction::{
-    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldRef, FunctionRef,
+    BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, EnumId, FieldRef, FunctionRef,
     HostImportId, JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructId,
     UnaryOp,
 };

@@ -8,17 +8,33 @@ use crate::{
 };
 
 #[test]
-fn checked_enum_constructors_report_the_execution_layout_boundary() {
+fn checked_enum_constructors_lower_to_nominal_layout_operands() {
     for expression in ["Event::Empty", "Event::Data(7)"] {
         let source =
             format!("enum Event {{ Empty, Data(i32) }} fn main() -> Event {{ {expression} }}");
         let checked = common::analyze_ok(&source);
-        assert!(matches!(
-            lower_to_ir(&checked, &Default::default()),
-            Err(crate::lower::IrLoweringError::UnsupportedExpr(
-                "enum construction requires linked enum layouts"
-            ))
-        ));
+        let ir = lower_to_ir(&checked, &Default::default()).unwrap();
+        assert_eq!(ir.enumerations.len(), 1);
+        let instruction = ir.functions[0]
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .find(|instruction| matches!(instruction, Instruction::MakeEnum { .. }))
+            .unwrap();
+        let Instruction::MakeEnum {
+            enumeration,
+            variant,
+            fields,
+            ..
+        } = instruction
+        else {
+            unreachable!()
+        };
+        assert_eq!(enumeration, &ir.enumerations[0].declaration);
+        assert_eq!(
+            fields.len(),
+            ir.enumerations[0].variants[*variant].payload.len()
+        );
     }
 }
 
@@ -595,7 +611,13 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             values.extend(args.iter().copied());
             values
         }
-        Instruction::MakeTuple { dst, elements } | Instruction::MakeArray { dst, elements } => {
+        Instruction::MakeTuple { dst, elements }
+        | Instruction::MakeArray { dst, elements }
+        | Instruction::MakeEnum {
+            dst,
+            fields: elements,
+            ..
+        } => {
             let mut values = vec![*dst];
             values.extend(elements.iter().copied());
             values

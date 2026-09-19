@@ -125,6 +125,27 @@ pub(super) fn verify(
         MakeTuple { dst, .. } | MakeArray { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "aggregate destination")?
         }
+        MakeEnum {
+            dst,
+            enumeration,
+            variant,
+            fields,
+        } => {
+            context.expect(dst.ty, ValueType::HeapObject, "enum destination")?;
+            let variant = module
+                .enumerations
+                .iter()
+                .find(|layout| &layout.declaration == enumeration)
+                .and_then(|layout| layout.variants.get(*variant))
+                .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
+            if fields.len() != variant.payload.len() {
+                return Err(context.error(Error::InvalidEnumInitializer));
+            }
+            for (value, ty) in fields.iter().zip(&variant.payload) {
+                context.check_cancel()?;
+                context.expect(value.ty, ty.representation(), "enum payload")?;
+            }
+        }
         MakeStruct {
             dst,
             structure,

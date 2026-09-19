@@ -28,6 +28,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
     }
     let mut identities = HashSet::new();
     let mut layouts = HashMap::new();
+    let mut enum_layouts = HashMap::new();
     let mut hosts = HashMap::new();
     let mut symbols = HashMap::new();
     for (index, module) in program.modules.iter().enumerate() {
@@ -45,6 +46,13 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 && previous != layout
             {
                 return Err(BytecodeVerificationError::InvalidStructLayout);
+            }
+        }
+        for layout in &module.enumerations {
+            if let Some(previous) = enum_layouts.insert(&layout.declaration, layout)
+                && previous != layout
+            {
+                return Err(BytecodeVerificationError::InvalidEnumLayout);
             }
         }
         for declaration in &module.host_interface.functions {

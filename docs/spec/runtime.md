@@ -103,6 +103,17 @@ The key property is:
 
 ## Value Shape
 
+Enum objects contain an `EnumTag` and immutable payload slots. Declared variants
+hold an `EnumVariantRef` from a verified module; standard Option/Result have typed
+tags. Names are display metadata. Allocation checks runtime ownership, payload
+arity, storage/representation and nested payload type/schema consistency before
+charging resources. Declared payload structs/enums must match the receiving
+version's nominal layout. Standard-enum built-ins reject same-named declared types.
+Enum equality compares tags/layouts and then members using script equality, so
+mutable members compare by identity. Enum objects retain their executable version
+and trace their payloads through the same mark-sweep root mechanism. Publication
+does not invalidate old values; rooted old enum objects keep their original layout.
+
 Script struct objects contain a `StructLayoutRef` and positional `Value` slots.
 The layout handle comes from a verified `LoadedModule` and retains that immutable
 executable generation. Objects do not duplicate field names. Allocation requires

@@ -243,9 +243,14 @@ unresolved arguments do not navigate to the enclosing constructor. Body reuse
 remaps expression keys while preserving nominal targets. These facts are available
 in independent function queries as well as full analysis.
 
-Executable enum layouts and generic enum instantiation remain R07/R08 work.
-Until layouts are linked, IR lowering reports `UnsupportedExpr` for user enum
-construction; semantic success alone does not claim runtime constructor support.
+IR now consumes those facts to emit enum construction with nominal layout operands;
+linking encodes module-local enum and variant slots. Unit and concrete payload
+variants execute in the interpreter and existing JIT fallback. Generic enum
+instantiation remains R07 work. `LoadedModule::enum_variant` returns a verified
+`EnumVariantRef` that retains its executable generation. Host allocation uses
+`Runtime::alloc_enum(EnumTag, fields)`; arbitrary enum/variant string allocation
+has been removed. Standard Option/Result use dedicated tags, so a declared enum
+with the same display name cannot enter their built-in dispatch.
 
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached

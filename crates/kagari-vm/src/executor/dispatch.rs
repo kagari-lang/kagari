@@ -100,6 +100,15 @@ impl<'a> Executor<'a> {
                 let value = self.make_array(&elements)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
+            BytecodeInstruction::MakeEnum {
+                dst,
+                enumeration,
+                variant,
+                fields,
+            } => {
+                let value = self.make_enum(enumeration, variant, &fields)?;
+                self.current_frame_mut()?.write_register(dst, value)?;
+            }
             BytecodeInstruction::MakeStruct {
                 dst,
                 structure,

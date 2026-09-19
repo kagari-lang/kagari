@@ -11,6 +11,7 @@ use crate::module::{
 pub struct IrModule {
     pub dependencies: Vec<kagari_common::identity::ModuleIdentity>,
     pub structures: Vec<super::StructLayout>,
+    pub enumerations: Vec<super::EnumLayout>,
     pub identity: kagari_common::identity::ModuleIdentity,
     pub source_name: String,
     pub module_init: Option<InstanceId>,

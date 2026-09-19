@@ -13,6 +13,7 @@ use crate::{
 pub enum BytecodeVerificationError {
     InvalidProgramGraph,
     InvalidStructLayout,
+    InvalidEnumLayout,
     InvalidStructId {
         function: FunctionRef,
         structure: StructId,
@@ -103,6 +104,7 @@ impl BytecodeVerificationError {
         match self {
             Self::InvalidProgramGraph => "KG_BYTECODE_INVALID_PROGRAM_GRAPH",
             Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
+            Self::InvalidEnumLayout => "KG_BYTECODE_INVALID_ENUM_LAYOUT",
             Self::InvalidStructId { .. } => "KG_BYTECODE_INVALID_STRUCT_ID",
             Self::InvalidHostInterface(_) => "KG_BYTECODE_INVALID_HOST_INTERFACE",
             Self::InvalidHostImport { .. } => "KG_BYTECODE_INVALID_HOST_IMPORT",
@@ -137,6 +139,7 @@ impl Display for BytecodeVerificationError {
         match self {
             Self::InvalidProgramGraph => write!(f, "invalid executable module graph"),
             Self::InvalidStructLayout => write!(f, "invalid struct layouts"),
+            Self::InvalidEnumLayout => write!(f, "invalid enum layouts"),
             Self::InvalidStructId {
                 function,
                 structure,
@@ -249,6 +252,19 @@ pub(super) fn verify_module_with_program(
 ) -> Result<(), BytecodeVerificationError> {
     crate::module::layout::validate_layouts(&module.structures, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
+    if !crate::module::layout::enum_abi_matches(
+        &module.enumerations,
+        &module.identity,
+        &module.public_items,
+    ) {
+        return Err(BytecodeVerificationError::InvalidEnumLayout);
+    }
+    crate::module::layout::validate_enum_layouts(
+        &module.enumerations,
+        &module.structures,
+        &Default::default(),
+    )
+    .map_err(|_| BytecodeVerificationError::InvalidEnumLayout)?;
     module
         .host_interface
         .validate()
@@ -473,6 +489,29 @@ fn verify_instruction(
             expect_register_ty(function, *dst, ValueType::HeapObject, "aggregate dst")?;
             for element in elements {
                 let _ = register_ty(function, *element)?;
+            }
+        }
+        BytecodeInstruction::MakeEnum {
+            dst,
+            enumeration,
+            variant,
+            fields,
+        } => {
+            expect_register_ty(function, *dst, ValueType::HeapObject, "enum dst")?;
+            let invalid = || BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "enum initializer layout or payload count",
+            };
+            let layout = module
+                .enumerations
+                .get(enumeration.index())
+                .and_then(|layout| layout.variants.get(*variant as usize))
+                .ok_or_else(invalid)?;
+            if fields.len() != layout.payload.len() {
+                return Err(invalid());
+            }
+            for (register, ty) in fields.iter().zip(&layout.payload) {
+                expect_register_ty(function, *register, ty.representation(), "enum payload")?;
             }
         }
         BytecodeInstruction::MakeStruct {

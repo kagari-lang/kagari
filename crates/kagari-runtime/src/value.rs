@@ -9,9 +9,65 @@ pub struct StructValueField {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumValueSnapshot {
-    pub name: String,
-    pub variant: String,
+    pub tag: EnumTag,
     pub fields: Vec<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumTag {
+    OptionSome,
+    OptionNone,
+    ResultOk,
+    ResultErr,
+    Declared(crate::module::EnumVariantRef),
+}
+
+impl EnumTag {
+    pub fn type_name(&self) -> &str {
+        match self {
+            Self::OptionSome | Self::OptionNone => "Option",
+            Self::ResultOk | Self::ResultErr => "Result",
+            Self::Declared(layout) => {
+                &layout
+                    .layout()
+                    .declaration
+                    .path
+                    .last()
+                    .expect("enum declaration")
+                    .name
+            }
+        }
+    }
+    pub fn variant_name(&self) -> &str {
+        match self {
+            Self::OptionSome => "Some",
+            Self::OptionNone => "None",
+            Self::ResultOk => "Ok",
+            Self::ResultErr => "Err",
+            Self::Declared(layout) => {
+                &layout
+                    .variant()
+                    .declaration
+                    .path
+                    .last()
+                    .expect("variant declaration")
+                    .name
+            }
+        }
+    }
+    pub(crate) fn accepts_representations(&self, fields: &[Value]) -> bool {
+        match self {
+            Self::OptionNone => fields.is_empty(),
+            Self::OptionSome | Self::ResultOk | Self::ResultErr => fields.len() == 1,
+            Self::Declared(layout) => {
+                fields.len() == layout.variant().payload.len()
+                    && fields
+                        .iter()
+                        .zip(&layout.variant().payload)
+                        .all(|(value, ty)| value.has_representation(ty.representation()))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 11 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 12 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 10 are rejected; no migration or compatibility
+format version. Versions 1 through 11 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
@@ -51,15 +51,21 @@ Version 11 adds ordered enum payload types to public variant ABI records. These
 use structural `AbiType` encoding, preserving nominal declaration identity and
 container arguments instead of display strings or erased instruction ValueTypes.
 Changing a payload type therefore changes the public ABI fingerprint and rejects
-reload before publication. Body-only changes retain the same enum ABI. Payload
-ABI metadata does not yet supply executable enum layouts or constructor operands.
-The runtime ABI identity is `kagari-runtime-abi-v11`; the runtime-helper ABI is
+reload before publication. Body-only changes retain the same enum ABI.
+Version 12 adds nominal enum/variant layout tables and `MakeEnum` layout/variant
+slots. IR and bytecode verification check declaration ownership, payload type
+references, slot existence, argument count and representations. Program linking
+rejects conflicting layouts for the same nominal declaration across modules.
+Public enum ABI records must match their executable variant names and payloads;
+recomputing an artifact checksum cannot authorize a contradictory ABI record.
+The runtime ABI identity is `kagari-runtime-abi-v12`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
 checked synchronous script reentry; v9 lacks session-owned frame stacks and
 nested execution observation; v10 lacks session-registered host resources, owned
-borrow tokens and contextual path callbacks. The helper ABI preserves cancellation
+borrow tokens and contextual path callbacks; v11 lacks enum version handles and
+typed standard-enum tags. The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration
 table. There is no arbitrary host-registry

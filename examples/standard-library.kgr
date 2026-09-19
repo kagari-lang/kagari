@@ -1,6 +1,8 @@
 const EXPECTED_MAX: i32 = 6 * 2;
 const MIN_I32: i32 = -2147483648;
 
+enum Sample { Empty, Count(i32), Values([i32]) }
+
 // Declared functions take precedence over unqualified helper names.
 fn type_of(value: i32) -> i32 { value + 1 }
 
@@ -10,6 +12,10 @@ pub fn add_i32(lhs: i32, rhs: i32) -> i32 { add(lhs, rhs) }
 
 fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
+    std::debug::assert(Sample::Empty == Sample::Empty(), "unit enum values compare equally");
+    std::debug::assert_eq(Sample::Count(7), Sample::Count(7), "enum payloads compare by value");
+    val sample = Sample::Values(values);
+    std::debug::assert(sample == Sample::Values(values), "enum mutable members retain their identity");
     std::debug::assert_eq(add_i32(20, 22), 42, "concrete public entry");
     std::debug::assert_eq(add(1.5, 2.5), 4.0, "separate f32 instance");
     std::debug::assert_eq(type_of(41), 42, "resolved user function");

@@ -58,6 +58,8 @@ pub enum IrVerificationErrorKind {
     },
     InvalidInstance,
     InvalidStructLayout,
+    InvalidEnumLayout,
+    InvalidEnumInitializer,
     InvalidField,
     InvalidStructInitializer,
     ReadOnlyField,
@@ -90,6 +92,8 @@ impl IrVerificationError {
             Limit { .. } => "KG_IR_LIMIT_EXCEEDED",
             InvalidInstance => "KG_IR_INVALID_INSTANCE",
             InvalidStructLayout => "KG_IR_INVALID_STRUCT_LAYOUT",
+            InvalidEnumLayout => "KG_IR_INVALID_ENUM_LAYOUT",
+            InvalidEnumInitializer => "KG_IR_INVALID_ENUM_INITIALIZER",
             InvalidField => "KG_IR_INVALID_FIELD",
             InvalidStructInitializer => "KG_IR_INVALID_STRUCT_INITIALIZER",
             ReadOnlyField => "KG_IR_READ_ONLY_FIELD",
@@ -435,7 +439,11 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
             }
             values
         }
-        MakeTuple { elements, .. } | MakeArray { elements, .. } => elements.clone(),
+        MakeTuple { elements, .. }
+        | MakeArray { elements, .. }
+        | MakeEnum {
+            fields: elements, ..
+        } => elements.clone(),
         MakeStruct { fields, .. } => fields.iter().map(|f| f.value).collect(),
         ReadAggregateField { base, .. } => smallvec::smallvec![*base],
         WriteAggregateField { base, value, .. } => smallvec::smallvec![*base, *value],
@@ -489,6 +497,7 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | MakeTuple { dst, .. }
         | MakeArray { dst, .. }
         | MakeStruct { dst, .. }
+        | MakeEnum { dst, .. }
         | ReadAggregateField { dst, .. }
         | ReadAggregateIndex { dst, .. }
         | ReadPath { dst, .. }

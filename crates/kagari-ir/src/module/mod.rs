@@ -6,7 +6,7 @@ pub mod function;
 pub mod ids;
 pub mod instruction;
 pub mod layout;
-pub use layout::{StructFieldLayout, StructLayout};
+pub use layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout};
 pub mod types;
 mod verify;
 

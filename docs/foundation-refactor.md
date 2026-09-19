@@ -60,8 +60,8 @@ R03 acceptance evidence:
 - The source_queries example exposes declaration-site member navigation alongside
   independent declaration, signature and function queries.
 
-This completes source identity and query provenance. Enum constructor semantics,
-applied generic types and executable layouts retain R04/R07 acceptance;
+This completes source identity and query provenance. Applied generic types and
+remaining executable layouts retain R04/R07 acceptance;
 R03 does not imply those execution features are complete.
 
 R05 acceptance evidence:
@@ -109,7 +109,7 @@ R12 acceptance evidence:
 - The host_reentry embedding example exercises rooted results, temporary scopes
   and complete-stack observation. No async API or cross-thread execution was added.
 
-This completes R12, not R10/R11/R13/R17: nominal enum/interface/capture ownership,
+This completes R12, not R10/R11/R13/R17: interface/capture ownership,
 the wider engine-invariant audit, lexical debug visibility and remaining backend
 contracts retain their own acceptance requirements.
 
@@ -187,8 +187,17 @@ Implemented foundation slices:
   variant targets. Payload arity/type errors preserve target navigation and result
   types; missing variants retain their enum owner while arguments remain checked.
   Source imports/facades, local shadowing and independent cached body queries share
-  those facts. IR still reports unsupported construction until executable enum
-  layouts are linked; applied generic enums and runtime construction remain open.
+  those facts. IR now emits nominal enum layouts and constructor operands; bytecode
+  links them to checked enum/variant slots. Layout validators check ownership,
+  payload references, counts and representations, and reject cross-module conflicts.
+  Runtime variants retain their executable generation; allocation validates runtime,
+  payload and schema before charging resources. Arbitrary string enum allocation and
+  Option/Result string dispatch were removed in favor of typed tags. Value equality,
+  mutable-member identity and evaluation order share source/artifact/JIT-fallback
+  conformance fixtures; embedding tests cover foreign runtimes, changed nested
+  schemas, rooted old-version survival, same-named standard types and dependencies.
+  Format 12/runtime ABI v12 reject older products. Applied generic enum instantiation
+  and the remaining interface/layout contracts retain R07/R08 acceptance.
   Erroneous signatures retain parameter slots with Error types. Invalid local
   annotations, call targets and indices produce diagnostics; unresolved operands
   suppress dependent mismatch diagnostics. Empty Map/Set constructors retain
@@ -311,7 +320,7 @@ Implemented foundation slices:
   Function exports may use types imported from another source module. Public facade
   target traversal is shared by type imports, imported calls and definition queries;
   cyclic or stale targets cannot escape their snapshot. Applied user types, foreign
-  method/enum operations and imported trait implementation contracts remain pending.
+  generic enum operations and imported trait method/implementation contracts remain pending.
   Aggregate contracts from reachable dependencies participate in body invalidation,
   including when a function's nominal return type stays unchanged but its fields
   change. Unrelated module results remain shared. Local body edits can reuse nominal

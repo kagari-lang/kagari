@@ -11,16 +11,40 @@ use crate::module::types::ValueType;
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         self.planner.check()?;
-        if self
+        if let Some(target) = self
             .analyzed
             .typed
             .type_table
             .enum_constructor(expr_id)
-            .is_some()
+            .cloned()
         {
-            return Err(IrLoweringError::UnsupportedExpr(
-                "enum construction requires linked enum layouts",
-            ));
+            let variant = target
+                .variant
+                .as_ref()
+                .and_then(|id| self.analyzed.aggregates.variant(id))
+                .ok_or(IrLoweringError::MissingBinding("checked enum variant"))?
+                .slot;
+            let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
+                hir::ExprKind::Call { args, .. } => args.to_vec(),
+                hir::ExprKind::Name(_) => Vec::new(),
+                _ => {
+                    return Err(IrLoweringError::MissingBinding(
+                        "enum constructor expression",
+                    ));
+                }
+            };
+            let fields = args
+                .iter()
+                .map(|arg| self.lower_expr(*arg))
+                .collect::<Result<_, _>>()?;
+            let dst = self.alloc_temp(ValueType::HeapObject);
+            self.emit(Instruction::MakeEnum {
+                dst,
+                enumeration: target.enumeration,
+                variant,
+                fields,
+            });
+            return Ok(dst);
         }
         if let Some(value) = self
             .analyzed

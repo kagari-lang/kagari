@@ -1,3 +1,4 @@
+pub use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +113,15 @@ pub enum AbiType {
 }
 
 impl AbiType {
+    pub fn representation(&self) -> super::ValueType {
+        match self {
+            Self::Builtin(ty) => {
+                super::ValueType::from_type_id(&kagari_hir::types::TypeId::Builtin(*ty))
+            }
+            _ => super::ValueType::HeapObject,
+        }
+    }
+
     pub(crate) fn from_checked_type(ty: &kagari_hir::types::TypeId) -> Self {
         use kagari_hir::types::TypeId;
         match ty {

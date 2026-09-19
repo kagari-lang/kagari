@@ -293,24 +293,74 @@ impl GcHeap {
         self.alloc_object(HeapObject::Struct { layout, fields })
     }
 
-    pub fn alloc_enum(
+    pub(crate) fn alloc_enum(
         &self,
-        name: String,
-        variant: String,
+        tag: crate::value::EnumTag,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        if !fields.iter().all(|value| self.valid_payload(value)) {
+        if !tag.accepts_representations(&fields)
+            || !fields.iter().all(|value| self.valid_payload(value))
+            || matches!(&tag, crate::value::EnumTag::Declared(layout)
+                if !fields.iter().zip(&layout.variant().payload).all(|(value, ty)| self.matches_abi(value, ty, layout.module())))
+        {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "invalid heap target, index, or payload",
             ));
         }
-        self.alloc_object(HeapObject::Enum(EnumValueSnapshot {
-            name,
-            variant,
-            fields,
-        }))
+        self.alloc_object(HeapObject::Enum(EnumValueSnapshot { tag, fields }))
+    }
+
+    fn matches_abi(
+        &self,
+        value: &Value,
+        ty: &kagari_ir::module::abi::AbiType,
+        owner: &crate::module::LoadedModule,
+    ) -> bool {
+        use crate::value::EnumTag;
+        use kagari_ir::module::abi::AbiType;
+        let mut pending = vec![(value.clone(), ty)];
+        while let Some((value, ty)) = pending.pop() {
+            match (value, ty) {
+                (value, AbiType::Builtin(_)) if value.has_representation(ty.representation()) => {},
+                (Value::Tuple(values), AbiType::Tuple(types)) if values.len() == types.len() => {
+                    pending.extend(values.into_iter().zip(types));
+                },
+                (Value::Struct(id), AbiType::Struct(expected)) => {
+                    if !self.struct_layout(id).is_some_and(|layout| owner.bytecode.structures.iter().any(|current| &current.declaration == expected && layout.layout() == current)) { return false; }
+                },
+                (Value::Enum(id), AbiType::Enum(expected)) => {
+                    if !self.enum_snapshot(id).is_some_and(|value| matches!(value.tag, EnumTag::Declared(layout) if owner.bytecode.enumerations.iter().any(|current| &current.declaration == expected && layout.layout() == current))) { return false; }
+                },
+                (Value::Array(id), AbiType::Array(element)) => {
+                    let Some(values) = self.array_snapshot(id) else { return false; };
+                    pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
+                },
+                (Value::Map(id), AbiType::Map { key, value }) => {
+                    let Some(entries) = self.map_snapshot(id) else { return false; };
+                    for (k, v) in entries { pending.push((k, key)); pending.push((v, value)); }
+                },
+                (Value::Set(id), AbiType::Set(element)) => {
+                    let Some(values) = self.set_snapshot(id) else { return false; };
+                    pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
+                },
+                (Value::Enum(id), AbiType::StandardEnum { kind, args }) => {
+                    let Some(snapshot) = self.enum_snapshot(id) else { return false; };
+                    let index = match (kind, snapshot.tag) {
+                        (kagari_ir::module::abi::StandardEnumKind::Option, EnumTag::OptionNone) => continue,
+                        (kagari_ir::module::abi::StandardEnumKind::Option, EnumTag::OptionSome)
+                        | (kagari_ir::module::abi::StandardEnumKind::Result, EnumTag::ResultOk) => 0,
+                        (kagari_ir::module::abi::StandardEnumKind::Result, EnumTag::ResultErr) => 1,
+                        _ => return false,
+                    };
+                    let Some(ty) = args.get(index) else { return false; };
+                    pending.extend(snapshot.fields.into_iter().map(|value| (value, ty)));
+                },
+                _ => return false,
+            }
+        }
+        true
     }
 
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {

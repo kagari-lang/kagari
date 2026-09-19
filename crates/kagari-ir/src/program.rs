@@ -30,6 +30,7 @@ pub enum ProgramErrorKind {
     UnresolvedFunction(DefinitionId),
     FunctionContract(DefinitionId),
     StructContract(DefinitionId),
+    EnumContract(DefinitionId),
 }
 
 #[derive(Debug)]
@@ -121,6 +122,7 @@ pub fn verify_program(
     let mut indices = HashMap::new();
     let mut bindings = HashMap::new();
     let mut layouts = HashMap::new();
+    let mut enum_layouts = HashMap::new();
     for (index, module) in raw.into_iter().enumerate() {
         cancel
             .check()
@@ -147,6 +149,19 @@ pub fn verify_program(
                 return Err(error(
                     &identity,
                     ProgramErrorKind::StructContract(layout.declaration.clone()),
+                ));
+            }
+        }
+        for layout in &module.enumerations {
+            cancel
+                .check()
+                .map_err(|_| error(&identity, ProgramErrorKind::Cancelled))?;
+            if let Some(previous) = enum_layouts.insert(layout.declaration.clone(), layout.clone())
+                && previous != *layout
+            {
+                return Err(error(
+                    &identity,
+                    ProgramErrorKind::EnumContract(layout.declaration.clone()),
                 ));
             }
         }

@@ -35,7 +35,7 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
         (Enum(a), Enum(b)) => {
             let a = gc.enum_snapshot(*a).ok_or_else(invalid)?;
             let b = gc.enum_snapshot(*b).ok_or_else(invalid)?;
-            a.name == b.name && a.variant == b.variant && members_equal(gc, &a.fields, &b.fields)?
+            a.tag == b.tag && members_equal(gc, &a.fields, &b.fields)?
         }
         (Array(a), Array(b)) | (Map(a), Map(b)) | (Set(a), Set(b)) | (Struct(a), Struct(b)) => {
             let kind = match lhs {
@@ -83,7 +83,7 @@ mod tests {
         );
         let make = |value| {
             Value::Enum(
-                gc.alloc_enum("Option".into(), "Some".into(), vec![value])
+                gc.alloc_enum(crate::value::EnumTag::OptionSome, vec![value])
                     .unwrap(),
             )
         };
