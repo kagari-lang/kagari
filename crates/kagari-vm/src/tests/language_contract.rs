@@ -97,6 +97,7 @@ struct Case {
     repeat: usize,
     require_native: bool,
     max_steps: Option<u64>,
+    reflection: bool,
 }
 
 impl Case {
@@ -111,6 +112,7 @@ impl Case {
             repeat: 1,
             require_native: false,
             max_steps: None,
+            reflection: false,
         }
     }
     fn effects(
@@ -127,6 +129,10 @@ impl Case {
         self.require_native = true;
         self
     }
+    fn reflection(mut self) -> Self {
+        self.reflection = true;
+        self
+    }
 }
 
 fn run(case: &Case, route: Route) {
@@ -135,6 +141,8 @@ fn run(case: &Case, route: Route) {
         &source,
         LanguageFeatureProfile {
             allow_host_calls: true,
+            allow_reflection: case.reflection,
+            allow_reflection_write: case.reflection,
             ..Default::default()
         },
     );
@@ -184,11 +192,16 @@ fn run(case: &Case, route: Route) {
             profile: LanguageProfile {
                 allow_jit: true,
                 allow_host_calls: true,
+                allow_reflection: case.reflection,
+                allow_reflection_write: case.reflection,
                 ..Default::default()
             },
             capabilities: CapabilitySet {
                 jit: true,
                 host_calls: true,
+                reflection_metadata: case.reflection,
+                reflection_read: case.reflection,
+                reflection_write: case.reflection,
                 ..Default::default()
             },
         },
@@ -318,6 +331,14 @@ fn run(case: &Case, route: Route) {
 
 #[test]
 fn language_contract_routes_preserve_values_diagnostics_and_effects() {
+    for case in [
+        Case::new("resolved-runtime-helpers", "struct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(Value::I32(5))).effects(&["i32"], &["i32"]).reflection(),
+        Case::new("shadowed-print-has-no-host-effect", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(6) }", Expected::Value(Value::I32(7))),
+        Case::new("bare-function-is-not-return-value", "fn answer() -> i32 { 42 } fn main() -> i32 { answer }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),
+        Case::new("bare-helper-is-not-a-value", "fn main() { val f = print; }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),
+    ] {
+        for route in [Route::Source, Route::Artifact, Route::Jit] { run(&case, route); }
+    }
     for case in [
         Case::new(
             "ambiguous-module-name",

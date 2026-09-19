@@ -182,9 +182,13 @@ Implemented foundation slices:
   imports revoke every target, and failed imports block fallback. Qualified source,
   host and standard-library calls respect lexical root shadowing; the checker no
   longer reconstructs standard-library targets from expression strings. Runtime
-  helper fallback also respects invalid/ambiguous bindings; moving the remaining
-  helper prelude into resolved targets, imported traits and other semantic contracts
-  still need the broader R04 audit.
+  helpers now have explicit prelude resolver targets; the checker's remaining
+  helper string fallback was removed. Arity errors retain those targets, local
+  declarations/bindings shadow every helper, and body cache reuse rebases calls.
+  Bare function/module/type items now fail with a structured HIR diagnostic rather
+  than giving a bare function its return type and reaching an IR rejection.
+  Source/artifact/JIT fixtures exercise helper effects, shadowed print and those
+  diagnostics. Imported traits and other semantic contracts retain the R04 audit.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts

@@ -59,6 +59,16 @@ therefore shadows `use std::math as api;` for `api::clamp(...)`, and normal look
 resumes outside its scope. Standard-library call targets are resolver facts shared
 by type checking and navigation, without a second textual lookup in the checker.
 
+The runtime-helper prelude (`print`, `type_of`, `get_field`, `set_field`,
+`set_index`) is resolved after explicit declarations, imports, lexical bindings
+and host declarations. Each helper has an explicit resolver target consumed by
+the checker; spelling is interpreted only during name resolution. Argument errors
+retain that target, and declaration changes invalidate cached calls. These helpers
+and other named function items are not first-class values in the current checked
+subset. Bare function, module or type names produce `KG_TYPE_INVALID_VALUE_TARGET`
+in HIR while retaining their resolution for tooling; unknown names still produce
+`KG_RESOLVE_UNKNOWN_NAME`. Enum unit-variant values retain their constructor rules.
+
 Public struct, enum and trait types can be used in parameter, return, field and
 local annotations via direct imports and qualified namespace aliases. Type
 facades and aliases of re-exported source modules retain the final declaration

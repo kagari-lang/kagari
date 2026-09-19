@@ -260,6 +260,7 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::StandardModule(_)
                         | ResolvedName::HostFunction(_)
                         | ResolvedName::StandardFunction(_)
+                        | ResolvedName::RuntimeHelper(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
                         | ResolvedName::Trait(_) => None,
@@ -312,6 +313,7 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::StandardModule(_)
                         | ResolvedName::HostFunction(_)
                         | ResolvedName::StandardFunction(_)
+                        | ResolvedName::RuntimeHelper(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
                         | ResolvedName::Trait(_) => None,
@@ -370,7 +372,7 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::StandardModule(_) => {
                         "standard module item is not assignable".to_string()
                     }
-                    ResolvedName::StandardFunction(_) => {
+                    ResolvedName::StandardFunction(_) | ResolvedName::RuntimeHelper(_) => {
                         "standard function item is not assignable".to_string()
                     }
                     ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
@@ -443,12 +445,9 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Param(id) => env.params.get(&id).cloned(),
                     ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                     ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
-                    ResolvedName::Function(id) => self
-                        .function_index
-                        .by_id
-                        .get(&id)
-                        .map(|function| function.return_type.clone()),
-                    ResolvedName::SourceItem { .. }
+                    ResolvedName::Function(_)
+                    | ResolvedName::RuntimeHelper(_)
+                    | ResolvedName::SourceItem { .. }
                     | ResolvedName::SourceImport(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)
@@ -461,8 +460,12 @@ impl<'a> BodyChecker<'a> {
                 })
                 .unwrap_or_else(|| {
                     self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::UnknownName { name: name.clone() })
-                            .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        Diagnostic::error(if self.names.expr_resolution(expr_id).is_some() {
+                            DiagnosticKind::InvalidValueTarget { name: name.clone() }
+                        } else {
+                            DiagnosticKind::UnknownName { name: name.clone() }
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
                     );
                     TypeId::Error
                 }),
@@ -1207,7 +1210,9 @@ impl<'a> BodyChecker<'a> {
         args: &[ExprId],
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        let builtin = self.builtin_function(callee)?;
+        let ResolvedName::RuntimeHelper(builtin) = self.names.expr_resolution(callee)? else {
+            return None;
+        };
         self.type_table
             .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
         let arity = match builtin {
@@ -2067,20 +2072,6 @@ impl<'a> BodyChecker<'a> {
             })
             .with_span(self.lowered.source_map.expr_span(span_expr)),
         );
-    }
-
-    fn builtin_function(&self, expr_id: ExprId) -> Option<BuiltinFunction> {
-        if self.names.expr_resolution(expr_id).is_some() {
-            return None;
-        }
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Name(name) = &expr.kind else {
-            return None;
-        };
-        if self.names.items.lookup(name).is_some() {
-            return None;
-        }
-        BuiltinFunction::from_name(name)
     }
 
     fn string_literal_value(&self, expr_id: ExprId) -> Option<String> {

@@ -300,6 +300,9 @@ impl<'a> BodyResolver<'a> {
         if let Some(module) = surface::standard_module(name) {
             return Some(ResolvedName::StandardModule(module.kind));
         }
+        if let Some(helper) = crate::builtin::BuiltinFunction::from_name(name) {
+            return Some(ResolvedName::RuntimeHelper(helper));
+        }
         let (module, member) = name.rsplit_once("::")?;
         surface::standard_function(surface::standard_module(module)?.kind, member)
             .map(|f| ResolvedName::StandardFunction(f.intrinsic))

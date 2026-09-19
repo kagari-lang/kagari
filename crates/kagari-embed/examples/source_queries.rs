@@ -18,6 +18,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     )?;
     // An erroneous neighbor does not prevent navigation in the correct function.
     let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }\r\nenum Mode { Ready, Running(Point, [String]) }\r\nfn mode(p: Point) -> Mode { Mode::Running(p, [\"active\"]) }";
+    let text = &format!("{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}");
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
     // Declaration discovery does not resolve bodies or evaluate constants.
     let headers = engine.declarations(engine.source_snapshot(), &Default::default())?;
@@ -80,6 +81,18 @@ fn main() -> kagari_embed::CompileResult<()> {
         &Default::default(),
     )?;
     let analysis = snapshot.file(file).expect("source belongs to snapshot");
+    let facts = analysis.result().facts();
+    let helper = facts
+        .lowered
+        .module
+        .body
+        .expressions()
+        .find_map(|(id, _)| match facts.names.expr_resolution(id) {
+            Some(kagari_hir::resolver::ResolvedName::RuntimeHelper(helper)) => Some(helper),
+            _ => None,
+        })
+        .expect("resolved prelude helper");
+    println!("prelude helper target -> {helper:?}");
     let constructor = analysis
         .definition_at(text.find("Mode::Running").expect("constructor reference"))
         .expect("resolved variant target");

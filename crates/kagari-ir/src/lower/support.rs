@@ -69,6 +69,7 @@ impl FunctionLowerer<'_, '_> {
             | ResolvedName::SourceImport(_)
             | ResolvedName::HostModule(_)
             | ResolvedName::StandardFunction(_)
+            | ResolvedName::RuntimeHelper(_)
             | ResolvedName::Struct(_)
             | ResolvedName::Enum(_)
             | ResolvedName::Trait(_) => Err(IrLoweringError::UnsupportedExpr(
@@ -177,7 +178,8 @@ impl FunctionLowerer<'_, '_> {
             | ResolvedName::SourceItem { .. }
             | ResolvedName::SourceImport(_)
             | ResolvedName::HostModule(_)
-            | ResolvedName::StandardFunction(_) => Err(IrLoweringError::UnsupportedExpr(
+            | ResolvedName::StandardFunction(_)
+            | ResolvedName::RuntimeHelper(_) => Err(IrLoweringError::UnsupportedExpr(
                 "bare standard functions are not lowered yet",
             )),
             ResolvedName::Module(_)

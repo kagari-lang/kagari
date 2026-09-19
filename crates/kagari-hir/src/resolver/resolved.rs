@@ -43,6 +43,7 @@ pub enum ResolvedName {
     Module(ModuleId),
     StandardModule(surface::StandardModule),
     StandardFunction(surface::StandardIntrinsic),
+    RuntimeHelper(crate::builtin::BuiltinFunction),
     Struct(StructId),
     Enum(EnumId),
     Trait(TraitId),
