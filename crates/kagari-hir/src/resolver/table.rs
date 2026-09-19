@@ -1,7 +1,23 @@
 use std::collections::HashMap;
 
+use super::ResolvedName;
 use crate::builtin::surface;
-use crate::hir::{ConstId, EnumId, FunctionId, ImplId, ModuleId, StructId, TraitId};
+use crate::hir::{ConstId, FunctionId, ImplId, ModuleId};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeNameResolution {
+    Unique(ResolvedName),
+    Ambiguous,
+}
+
+impl TypeNameResolution {
+    pub fn target(self) -> Option<ResolvedName> {
+        match self {
+            Self::Unique(target) => Some(target),
+            Self::Ambiguous => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct NameTable {
@@ -13,9 +29,7 @@ pub struct NameTable {
     pub(crate) modules: HashMap<String, ModuleId>,
     pub(crate) standard_modules: HashMap<String, surface::StandardModule>,
     pub(crate) standard_functions: HashMap<String, surface::StandardIntrinsic>,
-    pub(crate) structs: HashMap<String, StructId>,
-    pub(crate) enums: HashMap<String, EnumId>,
-    pub(crate) traits: HashMap<String, TraitId>,
+    types: HashMap<String, TypeNameResolution>,
     pub(crate) impls: Vec<ImplId>,
 }
 
@@ -48,16 +62,27 @@ impl NameTable {
         self.standard_functions.insert(name, intrinsic)
     }
 
-    pub(crate) fn insert_struct(&mut self, name: String, id: StructId) -> Option<StructId> {
-        self.structs.insert(name, id)
+    /// A collision never chooses a declaration by kind or insertion order.
+    pub(crate) fn insert_type(&mut self, name: String, target: ResolvedName) -> bool {
+        use std::collections::hash_map::Entry;
+        assert!(matches!(
+            target,
+            ResolvedName::Struct(_) | ResolvedName::Enum(_) | ResolvedName::Trait(_)
+        ));
+        match self.types.entry(name) {
+            Entry::Vacant(entry) => {
+                entry.insert(TypeNameResolution::Unique(target));
+                true
+            }
+            Entry::Occupied(mut entry) => {
+                entry.insert(TypeNameResolution::Ambiguous);
+                false
+            }
+        }
     }
 
-    pub(crate) fn insert_enum(&mut self, name: String, id: EnumId) -> Option<EnumId> {
-        self.enums.insert(name, id)
-    }
-
-    pub(crate) fn insert_trait(&mut self, name: String, id: TraitId) -> Option<TraitId> {
-        self.traits.insert(name, id)
+    pub fn local_type(&self, name: &str) -> Option<TypeNameResolution> {
+        self.types.get(name).copied()
     }
 
     pub(crate) fn insert_impl(&mut self, id: ImplId) {
@@ -85,15 +110,24 @@ impl NameTable {
     }
 
     pub fn contains_struct(&self, name: &str) -> bool {
-        self.structs.contains_key(name)
+        matches!(
+            self.local_type(name),
+            Some(TypeNameResolution::Unique(ResolvedName::Struct(_)))
+        )
     }
 
     pub fn contains_enum(&self, name: &str) -> bool {
-        self.enums.contains_key(name)
+        matches!(
+            self.local_type(name),
+            Some(TypeNameResolution::Unique(ResolvedName::Enum(_)))
+        )
     }
 
     pub fn contains_trait(&self, name: &str) -> bool {
-        self.traits.contains_key(name)
+        matches!(
+            self.local_type(name),
+            Some(TypeNameResolution::Unique(ResolvedName::Trait(_)))
+        )
     }
 
     pub fn impl_count(&self) -> usize {

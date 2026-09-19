@@ -7,7 +7,7 @@ use crate::imports::{ImportTarget, ModuleGraph, ModuleImports};
 use crate::lower::LoweredModule;
 use crate::resolver::resolve::BodyResolver;
 use crate::resolver::table::NameTable;
-use crate::resolver::{DeclarationNames, ResolvedNames};
+use crate::resolver::{DeclarationNames, ResolvedName, ResolvedNames};
 
 pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
     let hosts = crate::host::HostDeclarations::empty();
@@ -62,12 +62,47 @@ pub(crate) fn collect_declarations(
         }
     }
 
-    for struct_def in &lowered.module.structs {
+    let mut types = Vec::new();
+    for item in &lowered.module.structs {
         if cancel.check().is_err() {
             break;
         }
-        if !struct_def.name.is_empty() {
-            names.insert_struct(struct_def.name.clone(), struct_def.id);
+        types.push((
+            &item.name,
+            ResolvedName::Struct(item.id),
+            lowered.source_map.struct_span(item.id),
+        ));
+    }
+    for item in &lowered.module.enums {
+        if cancel.check().is_err() {
+            break;
+        }
+        types.push((
+            &item.name,
+            ResolvedName::Enum(item.id),
+            lowered.source_map.enum_span(item.id),
+        ));
+    }
+    for item in &lowered.module.traits {
+        if cancel.check().is_err() {
+            break;
+        }
+        types.push((
+            &item.name,
+            ResolvedName::Trait(item.id),
+            lowered.source_map.trait_span(item.id),
+        ));
+    }
+    types.sort_by_key(|(_, _, span)| span.start);
+    for (name, target, span) in types {
+        if cancel.check().is_err() {
+            break;
+        }
+        if !name.is_empty() && !names.insert_type(name.clone(), target) {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::DuplicateType { name: name.clone() })
+                    .with_span(span),
+            );
         }
     }
 
@@ -117,9 +152,6 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        if !enum_def.name.is_empty() {
-            names.insert_enum(enum_def.name.clone(), enum_def.id);
-        }
         let mut seen = std::collections::HashSet::new();
         for variant in &enum_def.variants {
             if cancel.check().is_err() {
@@ -137,15 +169,6 @@ pub(crate) fn collect_declarations(
         }
     }
 
-    for trait_def in &lowered.module.traits {
-        if cancel.check().is_err() {
-            break;
-        }
-        if !trait_def.name.is_empty() {
-            names.insert_trait(trait_def.name.clone(), trait_def.id);
-        }
-    }
-
     for impl_block in &lowered.module.impls {
         if cancel.check().is_err() {
             break;
@@ -155,7 +178,7 @@ pub(crate) fn collect_declarations(
 
     AnalysisResult {
         facts: DeclarationNames {
-            items: names,
+            items: std::sync::Arc::new(names),
             hosts,
             imports,
         },

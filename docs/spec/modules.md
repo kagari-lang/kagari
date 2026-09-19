@@ -41,6 +41,16 @@ do not prevent compilation of an independent root. Lifecycle semantics belong to
 [module-activation.md](module-activation.md).
 
 Declarations are collected for every module before signatures are checked.
+Local struct, enum and trait declarations share one type namespace. Repeated names,
+including collisions between different declaration kinds, produce
+`KG_RESOLVE_DUPLICATE_TYPE` on each subsequent declaration in source order.
+All declarations retain distinct identities for tooling, but an ambiguous name has
+no selected type target. Annotations, constructors, trait bounds and impl headers
+consume the same declaration table; none chooses the first or last declaration.
+Unrelated declarations and function bodies remain queryable, while the module
+cannot enter code generation. Introducing or removing a collision invalidates
+dependent semantic queries without changing an existing snapshot.
+
 Public struct, enum and trait types can be used in parameter, return, field and
 local annotations via direct imports and qualified namespace aliases. Type
 facades and aliases of re-exported source modules retain the final declaration

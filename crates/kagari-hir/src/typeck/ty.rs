@@ -62,27 +62,26 @@ pub(super) fn resolve_type_in(
                     .map(TypeId::SelfType)
             } else if let Some(ty) = TypeId::from_name(name) {
                 Some(ty)
-            } else if let Some(item) = module.structs.iter().find(|item| item.name == *name) {
-                target = Some(TypeTarget::Struct(item.id));
-                context
-                    .declarations
-                    .definition(crate::resolver::ResolvedName::Struct(item.id))
-                    .cloned()
-                    .map(TypeId::Struct)
-            } else if let Some(item) = module.enums.iter().find(|item| item.name == *name) {
-                target = Some(TypeTarget::Enum(item.id));
-                context
-                    .declarations
-                    .definition(crate::resolver::ResolvedName::Enum(item.id))
-                    .cloned()
-                    .map(TypeId::Enum)
-            } else if let Some(item) = module.traits.iter().find(|item| item.name == *name) {
-                target = Some(TypeTarget::Trait(item.id));
-                context
-                    .declarations
-                    .definition(crate::resolver::ResolvedName::Trait(item.id))
-                    .cloned()
-                    .map(TypeId::Trait)
+            } else if let Some(binding) = context.declarations.names.local_type(name) {
+                binding.target().and_then(|resolved| {
+                    use crate::resolver::ResolvedName;
+                    let definition = context.declarations.definition(resolved)?.clone();
+                    Some(match resolved {
+                        ResolvedName::Struct(id) => {
+                            target = Some(TypeTarget::Struct(id));
+                            TypeId::Struct(definition)
+                        }
+                        ResolvedName::Enum(id) => {
+                            target = Some(TypeTarget::Enum(id));
+                            TypeId::Enum(definition)
+                        }
+                        ResolvedName::Trait(id) => {
+                            target = Some(TypeTarget::Trait(id));
+                            TypeId::Trait(definition)
+                        }
+                        _ => unreachable!("type namespace contains only nominal types"),
+                    })
+                })
             } else if let Some(imported) = context.declarations.imported_types().get(name) {
                 target = Some(TypeTarget::Source(imported.id));
                 Some(imported.ty.clone())

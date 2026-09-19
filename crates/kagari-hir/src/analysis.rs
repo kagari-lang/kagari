@@ -604,6 +604,8 @@ mod owner_tests;
 mod payload_tests;
 #[cfg(test)]
 mod signature_tests;
+#[cfg(test)]
+mod type_name_tests;
 
 #[cfg(test)]
 mod tests {

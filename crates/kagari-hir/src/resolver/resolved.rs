@@ -52,7 +52,7 @@ pub enum ResolvedName {
 pub struct DeclarationNames {
     pub imports: std::sync::Arc<crate::imports::ModuleImports>,
     pub hosts: std::sync::Arc<crate::host::HostDeclarations>,
-    pub items: NameTable,
+    pub items: std::sync::Arc<NameTable>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +65,7 @@ pub struct QualifiedMember {
 pub struct ResolvedNames {
     pub imports: std::sync::Arc<crate::imports::ModuleImports>,
     pub hosts: std::sync::Arc<crate::host::HostDeclarations>,
-    pub items: NameTable,
+    pub items: std::sync::Arc<NameTable>,
     pub(crate) scopes: Vec<LexicalScope>,
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
@@ -74,7 +74,7 @@ pub struct ResolvedNames {
 
 impl ResolvedNames {
     pub(crate) fn new(
-        items: NameTable,
+        items: std::sync::Arc<NameTable>,
         hosts: std::sync::Arc<crate::host::HostDeclarations>,
         imports: std::sync::Arc<crate::imports::ModuleImports>,
     ) -> Self {

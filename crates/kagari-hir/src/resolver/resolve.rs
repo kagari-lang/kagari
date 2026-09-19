@@ -1,7 +1,7 @@
 use crate::builtin::surface;
 use crate::hir::{
-    BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
-    PlaceId, PlaceKind, StmtId, StmtKind, StructId, TraitId,
+    BlockId, ConstId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
+    PlaceId, PlaceKind, StmtId, StmtKind,
 };
 use crate::hir::{BodyOwner, HirOwner};
 use crate::resolver::{LexicalScope, ScopeBinding};
@@ -26,7 +26,7 @@ pub(crate) struct BodyResolver<'a> {
 
 impl<'a> BodyResolver<'a> {
     pub(crate) fn new(
-        names: &'a NameTable,
+        names: &'a std::sync::Arc<NameTable>,
         module: &'a Module,
         source_map: &'a SourceMap,
         hosts: std::sync::Arc<crate::host::HostDeclarations>,
@@ -301,13 +301,7 @@ impl<'a> BodyResolver<'a> {
         if let Some(intrinsic) = self.names.standard_function(name) {
             return Some(ResolvedName::StandardFunction(intrinsic));
         }
-        if let Some(id) = self.names.struct_(name) {
-            return Some(ResolvedName::Struct(id));
-        }
-        if let Some(id) = self.names.enum_(name) {
-            return Some(ResolvedName::Enum(id));
-        }
-        self.names.trait_(name).map(ResolvedName::Trait)
+        self.names.local_type(name)?.target()
     }
 
     fn bind_name(&mut self, name: &str, resolved: ResolvedName, visible_from: usize) {
@@ -369,9 +363,6 @@ trait TopLevelLookup {
     fn module(&self, name: &str) -> Option<ModuleId>;
     fn standard_module(&self, name: &str) -> Option<surface::StandardModule>;
     fn standard_function(&self, name: &str) -> Option<surface::StandardIntrinsic>;
-    fn struct_(&self, name: &str) -> Option<StructId>;
-    fn enum_(&self, name: &str) -> Option<EnumId>;
-    fn trait_(&self, name: &str) -> Option<TraitId>;
 }
 
 impl TopLevelLookup for NameTable {
@@ -393,17 +384,5 @@ impl TopLevelLookup for NameTable {
 
     fn standard_function(&self, name: &str) -> Option<surface::StandardIntrinsic> {
         self.standard_functions.get(name).copied()
-    }
-
-    fn struct_(&self, name: &str) -> Option<StructId> {
-        self.structs.get(name).copied()
-    }
-
-    fn enum_(&self, name: &str) -> Option<EnumId> {
-        self.enums.get(name).copied()
-    }
-
-    fn trait_(&self, name: &str) -> Option<TraitId> {
-        self.traits.get(name).copied()
     }
 }

@@ -1689,17 +1689,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn resolve_struct_id(&self, path: &str) -> Option<kagari_common::identity::DefinitionId> {
-        if let Some(local) = self
-            .lowered
-            .module
-            .structs
-            .iter()
-            .find(|item| item.name == path)
-        {
-            return self
-                .declarations
-                .definition(ResolvedName::Struct(local.id))
-                .cloned();
+        if let Some(binding) = self.declarations.names.local_type(path) {
+            let target @ ResolvedName::Struct(_) = binding.target()? else {
+                return None;
+            };
+            return self.declarations.definition(target).cloned();
         }
         let TypeId::Struct(id) = &self.declarations.imported_types().get(path)?.ty else {
             return None;

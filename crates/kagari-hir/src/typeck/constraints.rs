@@ -121,12 +121,15 @@ fn resolve_constraint(
     let target = surface::standard_constraint(&reference.name)
         .map(ConstraintTarget::Standard)
         .or_else(|| {
-            lowered
-                .module
-                .traits
-                .iter()
-                .find(|item| item.name == reference.name)
-                .map(|item| ConstraintTarget::Trait(item.id))
+            let crate::resolver::ResolvedName::Trait(id) = context
+                .declarations
+                .names
+                .local_type(&reference.name)?
+                .target()?
+            else {
+                return None;
+            };
+            Some(ConstraintTarget::Trait(id))
         });
     if let Some(ConstraintTarget::Trait(id)) = target {
         table.insert_type_ref(

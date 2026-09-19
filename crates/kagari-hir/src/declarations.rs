@@ -48,6 +48,7 @@ pub struct Declaration {
 #[derive(Debug, Clone)]
 pub struct Declarations {
     pub(crate) imported_types: crate::imports::ImportedTypes,
+    pub(crate) names: std::sync::Arc<crate::resolver::NameTable>,
     analysis: AnalysisId,
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
@@ -143,6 +144,7 @@ impl Declarations {
     pub(crate) fn collect_named(
         source: &SourceFile,
         lowered: &LoweredModule,
+        names: std::sync::Arc<crate::resolver::NameTable>,
         cancel: &kagari_common::cancellation::CancellationToken,
     ) -> Self {
         let analysis = AnalysisId(
@@ -155,6 +157,7 @@ impl Declarations {
             cancel,
             result: Self {
                 imported_types: Default::default(),
+                names,
                 analysis,
                 targets: HashMap::new(),
                 identities: HashMap::new(),

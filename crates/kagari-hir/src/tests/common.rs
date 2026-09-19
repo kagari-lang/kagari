@@ -32,6 +32,7 @@ pub fn check_module(
     let declarations = crate::declarations::Declarations::collect_named(
         &lowered.source,
         lowered,
+        names.items.clone(),
         &Default::default(),
     )
     .with_bindings(lowered, names, &Default::default());

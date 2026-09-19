@@ -525,12 +525,16 @@ fn validate_trait_surface(
         let Some(trait_name) = impl_block.trait_ref.as_deref() else {
             continue;
         };
-        let Some(trait_def) = lowered
-            .module
-            .traits
-            .iter()
-            .find(|trait_def| trait_def.name == trait_name)
-        else {
+        let trait_target = declarations
+            .names
+            .local_type(trait_name)
+            .and_then(|binding| binding.target());
+        let Some(trait_def) = trait_target.and_then(|target| {
+            let crate::resolver::ResolvedName::Trait(id) = target else {
+                return None;
+            };
+            lowered.module.traits.iter().find(|item| item.id == id)
+        }) else {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::UnknownTrait {
                     trait_name: trait_name.to_string(),

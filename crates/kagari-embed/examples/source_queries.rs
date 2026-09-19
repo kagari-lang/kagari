@@ -163,5 +163,29 @@ fn main() -> kagari_embed::CompileResult<()> {
     println!("body edit reused checked signatures; local bindings belong to the new query");
     assert!(edited.declaration(&field.id).is_some());
     assert_eq!(snapshot.declaration(&target.id), Some(target));
+    engine.set_source(
+        source_name,
+        format!("{text}\r\nenum Point {{ Origin }}"),
+        SourceLayer::Overlay,
+    )?;
+    let ambiguous = engine.analyze(
+        engine.source_snapshot(),
+        Default::default(),
+        &Default::default(),
+    )?;
+    let ambiguous_file = ambiguous.file(file).expect("edited source");
+    assert!(
+        ambiguous_file
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_TYPE")
+    );
+    assert!(ambiguous_file.definition_at(annotation).is_none());
+    assert!(ambiguous_file.definition_at(offset).is_some());
+    assert_eq!(analysis.definition_at(annotation), Some(point_type));
+    println!(
+        "type collision has no selected declaration; the good function and old snapshot remain queryable"
+    );
     Ok(())
 }
