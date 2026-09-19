@@ -24,13 +24,12 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 #[derive(Debug, Clone)]
 pub struct AnalyzedModule {
     pub aggregates: aggregates::AggregateCatalog,
-    pub lowered: lower::LoweredModule,
+    pub lowered: std::sync::Arc<lower::LoweredModule>,
     pub names: resolver::ResolvedNames,
     pub declarations: declarations::Declarations,
     pub typed: typeck::TypedModule,
     pub signatures: std::sync::Arc<AnalysisResult<typeck::ModuleSignatures>>,
     pub imported_functions: imports::ImportedFunctions,
-    name_diagnostics: DiagnosticBuffer,
 }
 
 #[derive(Debug, Clone)]
@@ -77,55 +76,49 @@ impl AnalysisResult<AnalyzedModule> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct PreparedAnalysis {
-    cached: bool,
     signatures_reused: bool,
-    lowered: lower::LoweredModule,
-    names: AnalysisResult<resolver::ResolvedNames>,
+    lowered: std::sync::Arc<lower::LoweredModule>,
+    names: AnalysisResult<resolver::DeclarationNames>,
     declarations: declarations::Declarations,
     signatures: std::sync::Arc<AnalysisResult<typeck::ModuleSignatures>>,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct DeclaredAnalysis {
-    cached: bool,
-    lowered: lower::LoweredModule,
-    names: AnalysisResult<resolver::ResolvedNames>,
+    lowered: std::sync::Arc<lower::LoweredModule>,
+    names: AnalysisResult<resolver::DeclarationNames>,
     declarations: declarations::Declarations,
-    previous_signatures: Option<std::sync::Arc<AnalysisResult<typeck::ModuleSignatures>>>,
 }
 
 impl DeclaredAnalysis {
-    fn from_cached(facts: &AnalyzedModule) -> Self {
-        Self {
-            cached: true,
-            lowered: facts.lowered.clone(),
-            names: AnalysisResult {
-                facts: facts.names.clone(),
-                diagnostics: facts.name_diagnostics.clone(),
-            },
-            declarations: facts.declarations.clone(),
-            previous_signatures: Some(facts.signatures.clone()),
-        }
-    }
-
     fn check_signatures(
         mut self,
         imported_types: imports::ImportedTypes,
-        previous_analysis: Option<&AnalyzedModule>,
+        previous_analysis: Option<&PreparedAnalysis>,
         cancel: &kagari_common::cancellation::CancellationToken,
     ) -> PreparedAnalysis {
-        let previous = self
-            .previous_signatures
-            .filter(|_| self.declarations.imported_types == imported_types);
         self.declarations.imported_types = imported_types;
-        let previous = previous.or_else(|| {
-            let old = previous_analysis?;
-            (old.names.hosts.revision() == self.names.facts.hosts.revision()
-                && old.names.imports.same_bindings(&self.names.facts.imports)
+        let previous = previous_analysis.and_then(|old| {
+            if !(old.names.facts.hosts.revision() == self.names.facts.hosts.revision()
+                && old
+                    .names
+                    .facts
+                    .imports
+                    .same_bindings(&self.names.facts.imports)
                 && old.declarations.imported_types == self.declarations.imported_types)
-                .then(|| typeck::reuse_signatures(old, &self.lowered, cancel))
-                .flatten()
-                .map(std::sync::Arc::new)
+            {
+                return None;
+            }
+            if old.lowered.source.revision() == self.lowered.source.revision()
+                && old.lowered.source.module_identity() == self.lowered.source.module_identity()
+            {
+                Some(old.signatures.clone())
+            } else {
+                typeck::reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel)
+                    .map(std::sync::Arc::new)
+            }
         });
         let signatures_reused = previous.is_some();
         let signatures = previous.unwrap_or_else(|| {
@@ -136,7 +129,6 @@ impl DeclaredAnalysis {
             ))
         });
         PreparedAnalysis {
-            cached: self.cached,
             signatures_reused,
             lowered: self.lowered,
             names: self.names,
@@ -147,20 +139,17 @@ impl DeclaredAnalysis {
 }
 
 fn declare_analysis(
-    lowered: lower::LoweredModule,
+    lowered: std::sync::Arc<lower::LoweredModule>,
     hosts: std::sync::Arc<host::HostDeclarations>,
     imports: std::sync::Arc<imports::ModuleImports>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> DeclaredAnalysis {
-    let names = resolver::resolve_names_controlled(&lowered, hosts, imports, cancel);
-    let declarations =
-        declarations::Declarations::collect(&lowered.source, &lowered, &names.facts, cancel);
+    let names = resolver::collect_declarations(&lowered, hosts, imports, cancel);
+    let declarations = declarations::Declarations::collect_named(&lowered.source, &lowered, cancel);
     DeclaredAnalysis {
-        cached: false,
         lowered,
         names,
         declarations,
-        previous_signatures: None,
     }
 }
 
@@ -172,22 +161,17 @@ fn analyze_prepared(
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
     let PreparedAnalysis {
-        cached,
         signatures_reused: _,
         lowered,
         names,
         declarations,
         signatures,
     } = prepared;
-    // Signature reuse does not extend the lifetime of body-local binding identities.
-    let declarations = if cached {
-        let mut fresh =
-            declarations::Declarations::collect(&lowered.source, &lowered, &names.facts, cancel);
-        fresh.imported_types = declarations.imported_types;
-        fresh
-    } else {
-        declarations
+    let names = AnalysisResult {
+        facts: resolver::resolve_bodies(&lowered, &names.facts, cancel),
+        diagnostics: names.diagnostics,
     };
+    let declarations = declarations.with_bindings(&lowered, &names.facts, cancel);
     let typed = typeck::check_module_controlled(
         &lowered,
         &names.facts,
@@ -211,7 +195,6 @@ fn analyze_prepared(
             signatures,
             imported_functions,
             typed: typed.facts,
-            name_diagnostics: names.diagnostics,
         },
         diagnostics,
     }
@@ -235,7 +218,12 @@ pub fn analyze_source(
         .unwrap()
         .imports
         .clone();
-    let declared = declare_analysis(lowered, hosts, imports, &Default::default());
+    let declared = declare_analysis(
+        std::sync::Arc::new(lowered),
+        hosts,
+        imports,
+        &Default::default(),
+    );
     let imported_types = imports::TypeCatalog::new(&graph, [&declared])
         .bindings(&declared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");

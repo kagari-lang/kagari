@@ -63,7 +63,21 @@ ranges into the new lowering, including for erroneous signatures; it does not ke
 old local binding identities alive. Changes to dependencies, signatures or field
 contracts invalidate the affected queries. Cancelled or older analyses cannot
 replace a newer cached revision. Query reuse remains conservative: declarations
-and body checking are not yet independently scheduled queries.
+and signatures have independent cached snapshot queries; bodies are still checked
+as a module, reusing unchanged function facts where possible.
+
+Declaration collection owns module names, imports, named definitions, fields and
+generic parameters. It does not resolve body expressions or create local bindings.
+Signature queries consume those declarations and resolve imported types before
+checking parameter, return, field and impl contracts. Neither query evaluates
+constants. Full analysis consumes these same results, then resolves body scopes
+and adds analysis-scoped parameter/local identities. Declaration-only snapshots
+never acquire those local identities when a full analysis subsequently runs.
+
+Parse and declaration diagnostics are available from declaration queries;
+signature queries additionally report signature errors. Body name/type errors and
+constant-evaluation failures belong to full analysis. Queries may return usable
+facts with errors. Only complete checked analysis may cross into code generation.
 
 Struct construction and field access use a checked aggregate catalog for the root's
 reachable modules. Both local and imported targets carry nominal declaration IDs;

@@ -53,6 +53,13 @@ pub enum ResolvedName {
 }
 
 #[derive(Debug, Clone)]
+pub struct DeclarationNames {
+    pub imports: std::sync::Arc<crate::imports::ModuleImports>,
+    pub hosts: std::sync::Arc<crate::host::HostDeclarations>,
+    pub items: NameTable,
+}
+
+#[derive(Debug, Clone)]
 pub struct ResolvedNames {
     pub imports: std::sync::Arc<crate::imports::ModuleImports>,
     pub hosts: std::sync::Arc<crate::host::HostDeclarations>,

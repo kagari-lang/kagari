@@ -125,10 +125,9 @@ impl Declarations {
         self.targets.values()
     }
 
-    pub(crate) fn collect(
+    pub(crate) fn collect_named(
         source: &SourceFile,
         lowered: &LoweredModule,
-        names: &ResolvedNames,
         cancel: &kagari_common::cancellation::CancellationToken,
     ) -> Self {
         let analysis = AnalysisId(
@@ -283,6 +282,29 @@ impl Declarations {
                 builder.generic_params(&method_owner, &function.generic_params, map);
             }
         }
+        builder.result
+    }
+
+    pub(crate) fn with_bindings(
+        mut self,
+        lowered: &LoweredModule,
+        names: &ResolvedNames,
+        cancel: &kagari_common::cancellation::CancellationToken,
+    ) -> Self {
+        // Cached named declarations do not extend the lifetime of local handles.
+        self.analysis = AnalysisId(
+            NEXT_ANALYSIS
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .expect("analysis identity exhausted"),
+        );
+        let analysis = self.analysis;
+        let map = &lowered.source_map;
+        let mut builder = Builder {
+            source: &lowered.source,
+            cancel,
+            result: self,
+            occurrences: HashMap::new(),
+        };
         for scope in names.scopes() {
             if cancel.check().is_err() {
                 return builder.result;

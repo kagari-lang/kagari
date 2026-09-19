@@ -19,12 +19,38 @@ fn main() -> kagari_embed::CompileResult<()> {
     // An erroneous neighbor does not prevent navigation in the correct function.
     let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }";
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
+    // Declaration discovery does not resolve bodies or evaluate constants.
+    let headers = engine.declarations(engine.source_snapshot(), &Default::default())?;
+    let header = headers.file(file).expect("source declarations");
+    assert!(header.diagnostics().is_empty());
+    println!(
+        "{} named declarations before body analysis",
+        header.declarations().iter().count()
+    );
+    let signatures = engine.signatures(engine.source_snapshot(), &Default::default())?;
+    let signature = signatures.file(file).expect("source signatures");
+    assert!(signature.diagnostics().is_empty());
+    println!(
+        "{} function signatures before body analysis",
+        signature.signatures().facts().functions().len()
+    );
     let snapshot = engine.analyze(
         engine.source_snapshot(),
         Default::default(),
         &Default::default(),
     )?;
     let analysis = snapshot.file(file).expect("source belongs to snapshot");
+    assert!(std::sync::Arc::ptr_eq(
+        signature.signatures(),
+        analysis.signatures()
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        header,
+        snapshot
+            .declaration_snapshot()
+            .file(file)
+            .expect("shared declarations")
+    ));
     let offset = text.rfind("answer }").expect("reference offset");
     let target = analysis.definition_at(offset).expect("resolved local");
     let position = analysis

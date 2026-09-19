@@ -29,12 +29,12 @@ pub fn check_module(
     names: &crate::resolver::ResolvedNames,
     reuse: Option<&crate::typeck::BodyReuse<'_>>,
 ) -> crate::AnalysisResult<crate::typeck::TypedModule> {
-    let declarations = crate::declarations::Declarations::collect(
+    let declarations = crate::declarations::Declarations::collect_named(
         &lowered.source,
         lowered,
-        names,
         &Default::default(),
-    );
+    )
+    .with_bindings(lowered, names, &Default::default());
     let signatures = crate::typeck::check_signatures(lowered, &declarations, &Default::default());
     let mut aggregates = crate::aggregates::AggregateCatalog::default();
     aggregates

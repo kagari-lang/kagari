@@ -5,13 +5,14 @@ It is a semantic API specification, not a commitment to exact Rust type names.
 
 ## Source snapshots
 
-`FileAnalysis::signatures_reused()` reports whether construction of that immutable
-file result reused an earlier checked signature query. Unchanged files share the
+`FileAnalysis::signatures_reused()` and `FileSignatures::reused()` report whether
+their signature query reused earlier checked facts. Unchanged queries share the
 original result and its statistic. Body edits can reuse signatures even when body
 or signature diagnostics exist; positions and type-reference IDs belong to the
 new source revision. The `source_queries` example exercises this behavior.
 
-An engine owns one source database and one analysis cache. `load_source` reads
+An engine owns one source database and caches for declaration, signature and full
+analysis queries. `load_source` reads
 disk text, `set_source` supplies host text or an editor overlay, and
 `close_overlay` exposes the latest base text again. Relative file paths resolve
 against the database's captured absolute root. File URIs and local paths share
@@ -43,6 +44,22 @@ policy checks cover every member before any initializer runs.
 `compile_source` supplies base text through this same database, so an active
 overlay still takes precedence. Language profiles are analysis inputs: changing
 permissions cannot reuse a result accepted under another profile.
+
+`declarations(source_snapshot, cancel)` returns a `DeclarationSnapshot` with
+per-file module names, named declarations and parse/declaration diagnostics.
+`signatures(source_snapshot, cancel)` returns a `SignatureSnapshot` with checked
+signature facts and signature diagnostics. Neither entry resolves body names,
+collects local bindings, checks bodies or evaluates constants. These queries are
+profile-independent tools; their results cannot be passed to code generation.
+Full `analyze` and compilation still enforce the requested language profile.
+
+`AnalysisSnapshot::declaration_snapshot()` and `signature_snapshot()` expose the
+immutable query results consumed by full analysis. These share unchanged file
+results with standalone queries. Old snapshots retain their source locations;
+local bindings created by full analysis never appear in declaration-only results.
+Each successful query publishes its own cache, while cancelled queries and older
+source revisions cannot overwrite newer entries. Body queries remain module-wide;
+standalone function-body scheduling is not yet exposed.
 
 Embedding diagnostic ranges contain file identity, document revision and byte
 range. Hosts must reject stale ranges before applying editor actions. UTF-8 and

@@ -5,9 +5,9 @@ use crate::AnalysisResult;
 use crate::hir::FunctionKind;
 use crate::imports::{ImportTarget, ModuleGraph, ModuleImports};
 use crate::lower::LoweredModule;
-use crate::resolver::ResolvedNames;
 use crate::resolver::resolve::BodyResolver;
 use crate::resolver::table::NameTable;
+use crate::resolver::{DeclarationNames, ResolvedNames};
 
 pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
     let hosts = crate::host::HostDeclarations::empty();
@@ -18,18 +18,25 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
         .unwrap()
         .imports
         .clone();
-    resolve_names_controlled(lowered, hosts, imports, &Default::default())
+    let declarations = collect_declarations(lowered, hosts, imports, &Default::default());
+    AnalysisResult {
+        facts: resolve_bodies(lowered, &declarations.facts, &Default::default()),
+        diagnostics: declarations.diagnostics,
+    }
 }
-pub(crate) fn resolve_names_controlled(
+pub(crate) fn collect_declarations(
     lowered: &LoweredModule,
     hosts: std::sync::Arc<crate::host::HostDeclarations>,
     imports: std::sync::Arc<ModuleImports>,
     cancel: &kagari_common::cancellation::CancellationToken,
-) -> AnalysisResult<ResolvedNames> {
+) -> AnalysisResult<DeclarationNames> {
     let mut names = NameTable::default();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
     for function in &lowered.module.functions {
+        if cancel.check().is_err() {
+            break;
+        }
         if function.kind != FunctionKind::User {
             continue;
         }
@@ -51,12 +58,18 @@ pub(crate) fn resolve_names_controlled(
     }
 
     for struct_def in &lowered.module.structs {
+        if cancel.check().is_err() {
+            break;
+        }
         if !struct_def.name.is_empty() {
             names.insert_struct(struct_def.name.clone(), struct_def.id);
         }
     }
 
     for module_decl in &lowered.module.modules {
+        if cancel.check().is_err() {
+            break;
+        }
         if !module_decl.name.is_empty() {
             names.insert_module(module_decl.name.clone(), module_decl.id);
         }
@@ -64,6 +77,9 @@ pub(crate) fn resolve_names_controlled(
 
     diagnostics.extend(imports.diagnostics.iter().cloned());
     for (index, import) in imports.entries.iter().enumerate() {
+        if cancel.check().is_err() {
+            break;
+        }
         match &import.target {
             Some(ImportTarget::StandardModule(module)) => {
                 names.insert_standard_module(import.alias.clone(), *module);
@@ -84,39 +100,72 @@ pub(crate) fn resolve_names_controlled(
         }
     }
     for const_item in &lowered.module.consts {
+        if cancel.check().is_err() {
+            break;
+        }
         if !const_item.name.is_empty() {
             names.insert_const(const_item.name.clone(), const_item.id);
         }
     }
 
     for enum_def in &lowered.module.enums {
+        if cancel.check().is_err() {
+            break;
+        }
         if !enum_def.name.is_empty() {
             names.insert_enum(enum_def.name.clone(), enum_def.id);
         }
     }
 
     for trait_def in &lowered.module.traits {
+        if cancel.check().is_err() {
+            break;
+        }
         if !trait_def.name.is_empty() {
             names.insert_trait(trait_def.name.clone(), trait_def.id);
         }
     }
 
     for impl_block in &lowered.module.impls {
+        if cancel.check().is_err() {
+            break;
+        }
         names.insert_impl(impl_block.id);
     }
 
+    AnalysisResult {
+        facts: DeclarationNames {
+            items: names,
+            hosts,
+            imports,
+        },
+        diagnostics,
+    }
+}
+
+pub(crate) fn resolve_bodies(
+    lowered: &LoweredModule,
+    names: &DeclarationNames,
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> ResolvedNames {
     let mut resolver = BodyResolver::new(
-        &names,
+        &names.items,
         &lowered.module,
         &lowered.source_map,
-        hosts,
-        imports,
+        names.hosts.clone(),
+        names.imports.clone(),
         cancel.clone(),
     );
     for const_item in &lowered.module.consts {
+        if cancel.check().is_err() {
+            break;
+        }
         resolver.resolve_top_level_expr(const_item.id, const_item.initializer);
     }
     for function in &lowered.module.functions {
+        if cancel.check().is_err() {
+            break;
+        }
         resolver.resolve_function(
             function.id,
             function
@@ -127,8 +176,5 @@ pub(crate) fn resolve_names_controlled(
         );
     }
 
-    AnalysisResult {
-        facts: resolver.finish(),
-        diagnostics,
-    }
+    resolver.finish()
 }

@@ -5,7 +5,10 @@ use kagari_common::{
 };
 use kagari_hir::{
     LanguageFeatureProfile,
-    analysis::{AnalysisDatabase, AnalysisSnapshot, CancellationToken},
+    analysis::{
+        AnalysisDatabase, AnalysisSnapshot, CancellationToken, DeclarationSnapshot,
+        SignatureSnapshot,
+    },
     program::{CheckedProgram, ProgramCheckError},
 };
 use kagari_ir::{
@@ -146,6 +149,30 @@ impl KagariEngine {
                 language_feature_profile_from_runtime(profile),
                 cancel,
             )
+            .map_err(|_| EmbeddingError::Cancelled)
+    }
+
+    /// Parse and collect module declarations without resolving or checking bodies.
+    pub fn declarations(
+        &self,
+        source: SourceSnapshot,
+        cancel: &CancellationToken,
+    ) -> CompileResult<DeclarationSnapshot> {
+        self.analysis
+            .borrow_mut()
+            .declarations(source, cancel)
+            .map_err(|_| EmbeddingError::Cancelled)
+    }
+
+    /// Check declaration signatures without resolving or checking function bodies.
+    pub fn signatures(
+        &self,
+        source: SourceSnapshot,
+        cancel: &CancellationToken,
+    ) -> CompileResult<SignatureSnapshot> {
+        self.analysis
+            .borrow_mut()
+            .signatures(source, cancel)
             .map_err(|_| EmbeddingError::Cancelled)
     }
 

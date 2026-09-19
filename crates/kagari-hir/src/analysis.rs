@@ -12,6 +12,11 @@ use crate::{
     types::TypeId,
 };
 
+mod declaration_queries;
+mod signature_queries;
+pub use declaration_queries::{DeclarationSnapshot, FileDeclarations};
+pub use signature_queries::{FileSignatures, SignatureSnapshot};
+
 pub use kagari_common::cancellation::{CancellationToken, Cancelled};
 
 #[derive(Debug)]
@@ -30,7 +35,7 @@ pub struct BindingInfo {
 }
 
 impl FileAnalysis {
-    /// Whether constructing this result reused an earlier signature query.
+    /// Whether this result's signature query reused earlier checked facts.
     /// An unchanged file shares its existing result and this original statistic.
     pub fn signatures_reused(&self) -> bool {
         self.signatures_reused
@@ -321,6 +326,8 @@ impl FileAnalysis {
 
 #[derive(Debug)]
 pub struct AnalysisDatabase {
+    declaration_cache: Option<DeclarationSnapshot>,
+    signature_cache: Option<SignatureSnapshot>,
     files: HashMap<FileId, Arc<FileAnalysis>>,
     latest_revision: Revision,
     hosts: Arc<crate::host::HostDeclarations>,
@@ -329,6 +336,8 @@ pub struct AnalysisDatabase {
 impl Default for AnalysisDatabase {
     fn default() -> Self {
         Self {
+            declaration_cache: None,
+            signature_cache: None,
             files: HashMap::new(),
             latest_revision: Revision::default(),
             hosts: crate::host::HostDeclarations::empty(),
@@ -347,71 +356,22 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<AnalysisSnapshot, Cancelled> {
         cancel.check()?;
-        let mut prepared = std::collections::BTreeMap::new();
-        for file in source.files() {
-            cancel.check()?;
-            let previous = self
-                .files
-                .get(&file.id())
-                .filter(|old| old.source.revision() == file.revision());
-            let parsed = match previous {
-                Some(old) => old.parsed.clone(),
-                None => kagari_syntax::parser::parse_with_cancellation(file, cancel)?,
-            };
-            let lowered = previous
-                .map(|old| old.result.facts().lowered.clone())
-                .unwrap_or_else(|| {
-                    crate::lower::lower_module_controlled(file.clone(), &parsed.syntax(), cancel)
-                });
-            prepared.insert(file.id(), (file.clone(), parsed, lowered));
-        }
-        let graph = Arc::new(crate::imports::ModuleGraph::build(
-            prepared.values().map(|(_, _, lowered)| lowered),
-            &self.hosts,
-            cancel,
-        )?);
-        let mut declarations = std::collections::BTreeMap::new();
-        for (id, (file, parsed, lowered)) in prepared {
-            cancel.check()?;
-            let imports = graph
-                .node(file.module_identity())
-                .expect("prepared module is in graph")
-                .imports
-                .clone();
-            let prepared = match self.files.get(&id) {
-                Some(previous)
-                    if previous.source.revision() == file.revision()
-                        && previous.result.facts().names.hosts.revision()
-                            == self.hosts.revision()
-                        && previous.result.facts().names.imports == imports =>
-                {
-                    crate::DeclaredAnalysis::from_cached(previous.result.facts())
-                }
-                _ => crate::declare_analysis(lowered, self.hosts.clone(), imports, cancel),
-            };
-            declarations.insert(id, (file, parsed, prepared));
-        }
-        let type_catalog = crate::imports::TypeCatalog::new(
-            &graph,
-            declarations.values().map(|(_, _, declared)| declared),
-        );
-        let mut imported_types = HashMap::new();
-        for (id, (_, _, declared)) in &declarations {
-            imported_types.insert(
-                *id,
-                type_catalog.bindings(&declared.names.facts.imports, cancel)?,
-            );
-        }
-        let mut signatures = std::collections::BTreeMap::new();
-        for (id, (file, parsed, declared)) in declarations {
-            cancel.check()?;
-            let prepared = declared.check_signatures(
-                imported_types.remove(&id).expect("declared type bindings"),
-                self.files.get(&id).map(|old| old.result.facts()),
-                cancel,
-            );
-            signatures.insert(id, (file, parsed, prepared));
-        }
+        let signature_snapshot = self.prepare_signatures(source.clone(), cancel)?;
+        let graph = signature_snapshot.declarations.graph.clone();
+        let signatures = signature_snapshot
+            .files
+            .iter()
+            .map(|(id, file)| {
+                (
+                    *id,
+                    (
+                        file.prepared.lowered.source.clone(),
+                        file.declaration.parsed.clone(),
+                        file.prepared.clone(),
+                    ),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
         // Every module signature is available before any function body is checked.
         let catalog = crate::imports::FunctionCatalog::new(
             &graph,
@@ -496,11 +456,13 @@ impl AnalysisDatabase {
             files.insert(id, analysis);
         }
         cancel.check()?;
+        self.publish_signatures(signature_snapshot.clone());
         if source.revision() >= self.latest_revision {
             self.latest_revision = source.revision();
             self.files = files.clone();
         }
         Ok(AnalysisSnapshot {
+            signatures: signature_snapshot,
             revision: source.revision(),
             host_revision: self.hosts.revision(),
             graph,
@@ -511,6 +473,7 @@ impl AnalysisDatabase {
 
 #[derive(Debug, Clone)]
 pub struct AnalysisSnapshot {
+    signatures: SignatureSnapshot,
     revision: Revision,
     host_revision: u64,
     graph: Arc<crate::imports::ModuleGraph>,
@@ -518,6 +481,15 @@ pub struct AnalysisSnapshot {
 }
 
 impl AnalysisSnapshot {
+    /// The declaration query consumed by this complete analysis.
+    pub fn declaration_snapshot(&self) -> &DeclarationSnapshot {
+        self.signatures.declaration_snapshot()
+    }
+
+    pub fn signature_snapshot(&self) -> &SignatureSnapshot {
+        &self.signatures
+    }
+
     pub fn source_import_at(
         &self,
         file: FileId,

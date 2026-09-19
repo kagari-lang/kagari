@@ -202,9 +202,20 @@ Implemented foundation slices:
   Declaration text, imported type bindings or host declaration changes invalidate
   reuse. Cached and fresh analyses are compared for types, navigation, diagnostics
   and emitted artifacts, including CRLF/Unicode edits and transitive type changes.
-  `FileAnalysis::signatures_reused()` reports reuse during result construction;
-  unchanged files share their original result and statistic. Fully independent
-  declaration/body queries remain pending.
+  `FileAnalysis::signatures_reused()` reports whether its signature query reused
+  checked facts; unchanged query results keep their original statistic.
+  `AnalysisDatabase` and `KagariEngine` now expose independent `declarations` and
+  `signatures` queries with immutable file results. Both stop before body name
+  resolution, local binding collection, type checking and const evaluation.
+  Full analysis consumes these same cached queries and creates fresh local binding
+  identities only when bodies are analyzed. Lowered HIR is shared immutably across
+  declaration, signature and full results instead of deep-cloned per stage.
+  Complete snapshots expose the exact
+  declaration/signature snapshots they consumed. Each query publishes caches only
+  after cancellation checks and cannot replace newer source revisions. Partial
+  declaration and signature results retain their own diagnostics and can be reused
+  without any previous full analysis. Standalone per-function body queries remain
+  pending; body analysis still runs as a module query with unchanged-body reuse.
   All module declarations are now available before signature checking. Public struct,
   enum and trait type annotations resolve through direct imports, qualified module
   aliases and source type facades. Parameter, return, field and local annotations

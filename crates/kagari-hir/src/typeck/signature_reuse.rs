@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use kagari_common::{Span, cancellation::CancellationToken};
 
 use crate::{
-    AnalysisResult, AnalyzedModule,
+    AnalysisResult,
     hir::{FunctionKind, TypeRefId},
     lower::LoweredModule,
 };
@@ -99,21 +99,21 @@ impl Surface {
 }
 
 pub(crate) fn reuse_signatures(
-    previous: &AnalyzedModule,
+    previous: &LoweredModule,
+    previous_signatures: &AnalysisResult<ModuleSignatures>,
     current: &LoweredModule,
     cancel: &CancellationToken,
 ) -> Option<AnalysisResult<ModuleSignatures>> {
-    let old = Surface::new(&previous.lowered, cancel)?;
+    let old = Surface::new(previous, cancel)?;
     let new = Surface::new(current, cancel)?;
-    if old.text != new.text
-        || previous.lowered.source.module_identity() != current.source.module_identity()
+    if old.text != new.text || previous.source.module_identity() != current.source.module_identity()
     {
         return None;
     }
     // Declaration order is unchanged. Body-local type annotations, however, may
     // change both the lengths and indices of the shared type arena.
     let mut old_types: HashMap<_, Vec<_>> = HashMap::new();
-    for (index, span) in previous.lowered.source_map.type_spans().iter().enumerate() {
+    for (index, span) in previous.source_map.type_spans().iter().enumerate() {
         cancel.check().ok()?;
         if let Some(key) = old.span(*span) {
             old_types
@@ -144,8 +144,8 @@ pub(crate) fn reuse_signatures(
         }
         ids.extend(old_ids.into_iter().zip(new_ids));
     }
-    let mut result = previous.signatures.as_ref().clone();
-    let old_functions = &previous.lowered.module.functions;
+    let mut result = previous_signatures.clone();
+    let old_functions = &previous.module.functions;
     let new_functions = &current.module.functions;
     if old_functions.len() != new_functions.len()
         || result.facts.functions.len() != new_functions.len()
