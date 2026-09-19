@@ -599,6 +599,8 @@ mod identity_tests;
 #[cfg(test)]
 mod member_tests;
 #[cfg(test)]
+mod namespace_tests;
+#[cfg(test)]
 mod owner_tests;
 #[cfg(test)]
 mod payload_tests;

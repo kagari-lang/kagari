@@ -62,9 +62,14 @@ pub(super) fn resolve_type_in(
                     .map(TypeId::SelfType)
             } else if let Some(ty) = TypeId::from_name(name) {
                 Some(ty)
-            } else if let Some(binding) = context.declarations.names.local_type(name) {
+            } else if let Some(binding) = context.declarations.names.lookup(name) {
                 binding.target().and_then(|resolved| {
                     use crate::resolver::ResolvedName;
+                    if let Some(imported) = context.declarations.imported_types().resolved(resolved)
+                    {
+                        target = Some(TypeTarget::Source(imported.id));
+                        return Some(imported.ty.clone());
+                    }
                     let definition = context.declarations.definition(resolved)?.clone();
                     Some(match resolved {
                         ResolvedName::Struct(id) => {
@@ -79,7 +84,7 @@ pub(super) fn resolve_type_in(
                             target = Some(TypeTarget::Trait(id));
                             TypeId::Trait(definition)
                         }
-                        _ => unreachable!("type namespace contains only nominal types"),
+                        _ => return None,
                     })
                 })
             } else if let Some(imported) = context.declarations.imported_types().get(name) {

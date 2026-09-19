@@ -33,7 +33,12 @@ fn declaration_query_stops_before_body_resolution_signatures_and_const_evaluatio
             .iter()
             .all(|d| !matches!(d.id, DeclarationId::Binding(_)))
     );
-    assert!(file.names().items.contains_function("good"));
+    assert!(
+        file.names().items.lookup("good").is_some_and(|r| matches!(
+            r.target(),
+            Some(crate::resolver::ResolvedName::Function(_))
+        ))
+    );
     assert!(
         db.files.is_empty(),
         "declarations must not populate body results"
@@ -153,7 +158,11 @@ fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
             .unwrap()
             .names()
             .items
-            .contains_function("good")
+            .lookup("good")
+            .is_some_and(|r| matches!(
+                r.target(),
+                Some(crate::resolver::ResolvedName::Function(_))
+            ))
     );
     assert!(!latest.file(id).unwrap().diagnostics().is_empty());
     assert!(old.file(id).unwrap().diagnostics().is_empty());
@@ -167,7 +176,11 @@ fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
             .unwrap()
             .names()
             .items
-            .contains_function("old")
+            .lookup("old")
+            .is_some_and(|r| matches!(
+                r.target(),
+                Some(crate::resolver::ResolvedName::Function(_))
+            ))
     );
     let again = query(&mut db, &sources);
     assert!(Arc::ptr_eq(

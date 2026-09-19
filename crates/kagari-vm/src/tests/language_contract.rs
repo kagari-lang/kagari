@@ -319,6 +319,32 @@ fn run(case: &Case, route: Route) {
 #[test]
 fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     for case in [
+        Case::new(
+            "ambiguous-module-name",
+            "const pick: i32 = 1; fn pick() -> i32 { 2 } fn main() -> i32 { pick() }",
+            Expected::Diagnostic("KG_RESOLVE_DUPLICATE_DECLARATION"),
+        ),
+        Case::new(
+            "duplicate-constant",
+            "const n: i32 = 1; const n: i32 = 2; fn main() -> i32 { n }",
+            Expected::Diagnostic("KG_RESOLVE_DUPLICATE_DECLARATION"),
+        ),
+        Case::new(
+            "shadowed-standard-namespace",
+            "use std::math as api; fn main(api: i32) -> i32 { api::clamp(1, 1, 1) }",
+            Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME"),
+        ),
+        Case::new(
+            "resolved-standard-call",
+            "use std::math as api; fn main() -> i32 { api::clamp(5, 1, 3) + std::math::clamp(0, 2, 4) }",
+            Expected::Value(Value::I32(5)),
+        ),
+    ] {
+        for route in [Route::Source, Route::Artifact, Route::Jit] {
+            run(&case, route);
+        }
+    }
+    for case in [
         Case::new("enum-value-members", "enum Event { Empty, Data(i32, String) } fn main() -> bool { Event::Empty == Event::Empty() && Event::Data(7, \"x\") == Event::Data(7, \"x\") && Event::Data(7, \"x\") != Event::Data(8, \"x\") }", Expected::Value(Value::Bool(true))),
         Case::new("enum-alias-members", "enum Event { Data([i32]) } fn main() -> bool { val a = [1]; val x = Event::Data(a); a.push(2); x == Event::Data(a) && x != Event::Data([1, 2]) }", Expected::Value(Value::Bool(true))),
         Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(Value::Bool(true))).effects(&["first", "second"], &["first", "second"]),

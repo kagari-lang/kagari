@@ -174,14 +174,17 @@ Implemented foundation slices:
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
   represented explicitly, and codegen requires a sealed CheckedAnalysis. More
   semantic-target and source-owner integration remains outstanding.
-  Local nominal types now use one immutable shared declaration table for name
-  resolution, annotations, struct constructors, trait bounds and impl headers.
-  Duplicate struct/enum/trait names retain their individual declaration identities
-  but have no winning target, with diagnostics in source order and no codegen.
-  Regressions cover all nine ordered kind combinations, unaffected neighbors,
-  and body-query invalidation when a collision is introduced and removed.
-  Other declaration namespaces and remaining imported trait contracts still need
-  the broader R04 audit.
+  All local module-level declarations and import aliases now share an immutable
+  name table. Calls, annotations, constructors, bounds and impl headers consume
+  it; duplicate names retain identities but have no winning target or codegen.
+  Regressions cover all 36 ordered declaration-kind combinations, unaffected
+  neighbors and invalidation when a collision is introduced and removed. Duplicate
+  imports revoke every target, and failed imports block fallback. Qualified source,
+  host and standard-library calls respect lexical root shadowing; the checker no
+  longer reconstructs standard-library targets from expression strings. Runtime
+  helper fallback also respects invalid/ambiguous bindings; moving the remaining
+  helper prelude into resolved targets, imported traits and other semantic contracts
+  still need the broader R04 audit.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts

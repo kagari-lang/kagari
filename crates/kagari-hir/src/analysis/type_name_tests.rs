@@ -1,14 +1,21 @@
 use super::*;
-use crate::{declarations::DeclarationId, resolver::TypeNameResolution, types::BuiltinType};
+use crate::{declarations::DeclarationId, resolver::NameResolution, types::BuiltinType};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
-fn duplicate_types_have_no_winner_in_any_semantic_consumer() {
-    let declarations = ["struct Clash {}", "enum Clash { Ready }", "trait Clash {}"];
+fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
+    let declarations = [
+        "struct Clash {}",
+        "enum Clash { Ready }",
+        "trait Clash {}",
+        "fn Clash() -> i32 { 1 }",
+        "const Clash: i32 = 2;",
+        "mod Clash;",
+    ];
     for first in declarations {
         for second in declarations {
             let text = format!(
-                "{first} {second} struct Valid {{}} fn bad(x: Clash) -> Clash {{ Clash::Ready }} fn make() {{ val x = Clash {{}}; }} fn bound<T>(x: T) -> T where T: Clash {{ x }} impl Clash for Valid {{}} fn good(x: i32) -> i32 {{ x }}"
+                "{first} {second} struct Valid {{}} fn bad(x: Clash) -> Clash {{ Clash::Ready }} fn make() {{ val x = Clash {{}}; }} fn call() {{ Clash(); }} fn read() {{ Clash; }} fn bound<T>(x: T) -> T where T: Clash {{ x }} impl Clash for Valid {{}} fn good(x: i32) -> i32 {{ x }}"
             );
             let mut sources = SourceDatabase::default();
             let file = sources
@@ -20,13 +27,13 @@ fn duplicate_types_have_no_winner_in_any_semantic_consumer() {
                 .unwrap();
             let header = headers.file(file).unwrap();
             assert_eq!(
-                header.names().items.local_type("Clash"),
-                Some(TypeNameResolution::Ambiguous)
+                header.names().items.lookup("Clash"),
+                Some(NameResolution::Ambiguous)
             );
             let duplicates = header
                 .diagnostics()
                 .iter()
-                .filter(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_TYPE")
+                .filter(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_DECLARATION")
                 .collect::<Vec<_>>();
             assert_eq!(duplicates.len(), 1, "{text}");
             assert_eq!(duplicates[0].span.unwrap().start, first.len() + 1);
@@ -45,6 +52,16 @@ fn duplicate_types_have_no_winner_in_any_semantic_consumer() {
             let annotation = text.find("x: Clash").unwrap() + 3;
             assert_eq!(analysis.type_at(annotation), Some(TypeId::Error));
             assert!(analysis.definition_at(annotation).is_none());
+            assert!(
+                analysis
+                    .definition_at(text.find("{ Clash();").unwrap() + 2)
+                    .is_none()
+            );
+            assert!(
+                analysis
+                    .definition_at(text.find("{ Clash;").unwrap() + 2)
+                    .is_none()
+            );
             assert!(
                 analysis
                     .definition_at(text.find("Clash::Ready").unwrap())
@@ -144,7 +161,7 @@ fn introducing_and_removing_a_type_collision_invalidates_cached_targets() {
             .unwrap()
             .diagnostics()
             .iter()
-            .any(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_TYPE")
+            .any(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_DECLARATION")
     );
     sources
         .set("edit.kgr", text.into(), SourceLayer::Overlay)

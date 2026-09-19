@@ -1,133 +1,56 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 use super::ResolvedName;
-use crate::builtin::surface;
-use crate::hir::{ConstId, FunctionId, ImplId, ModuleId};
+use crate::hir::ImplId;
 
+/// Presence blocks fallback even when a declaration or import cannot resolve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TypeNameResolution {
+pub enum NameResolution {
     Unique(ResolvedName),
     Ambiguous,
+    Unresolved,
 }
 
-impl TypeNameResolution {
+impl NameResolution {
     pub fn target(self) -> Option<ResolvedName> {
         match self {
             Self::Unique(target) => Some(target),
-            Self::Ambiguous => None,
+            Self::Ambiguous | Self::Unresolved => None,
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct NameTable {
-    pub(crate) source_imports: HashMap<String, usize>,
-    pub(crate) host_modules: HashMap<String, crate::host::HostModuleId>,
-    pub(crate) host_functions: HashMap<String, crate::host::HostFunctionId>,
-    pub(crate) functions: HashMap<String, FunctionId>,
-    pub(crate) consts: HashMap<String, ConstId>,
-    pub(crate) modules: HashMap<String, ModuleId>,
-    pub(crate) standard_modules: HashMap<String, surface::StandardModule>,
-    pub(crate) standard_functions: HashMap<String, surface::StandardIntrinsic>,
-    types: HashMap<String, TypeNameResolution>,
-    pub(crate) impls: Vec<ImplId>,
+    entries: HashMap<String, NameResolution>,
+    impls: Vec<ImplId>,
 }
 
 impl NameTable {
-    pub(crate) fn insert_function(&mut self, name: String, id: FunctionId) -> Option<FunctionId> {
-        self.functions.insert(name, id)
-    }
-
-    pub(crate) fn insert_const(&mut self, name: String, id: ConstId) -> Option<ConstId> {
-        self.consts.insert(name, id)
-    }
-
-    pub(crate) fn insert_module(&mut self, name: String, id: ModuleId) -> Option<ModuleId> {
-        self.modules.insert(name, id)
-    }
-
-    pub(crate) fn insert_standard_module(
-        &mut self,
-        name: String,
-        module: surface::StandardModule,
-    ) -> Option<surface::StandardModule> {
-        self.standard_modules.insert(name, module)
-    }
-
-    pub(crate) fn insert_standard_function(
-        &mut self,
-        name: String,
-        intrinsic: surface::StandardIntrinsic,
-    ) -> Option<surface::StandardIntrinsic> {
-        self.standard_functions.insert(name, intrinsic)
-    }
-
     /// A collision never chooses a declaration by kind or insertion order.
-    pub(crate) fn insert_type(&mut self, name: String, target: ResolvedName) -> bool {
-        use std::collections::hash_map::Entry;
-        assert!(matches!(
-            target,
-            ResolvedName::Struct(_) | ResolvedName::Enum(_) | ResolvedName::Trait(_)
-        ));
-        match self.types.entry(name) {
+    pub(crate) fn insert(&mut self, name: String, target: Option<ResolvedName>) -> bool {
+        match self.entries.entry(name) {
             Entry::Vacant(entry) => {
-                entry.insert(TypeNameResolution::Unique(target));
+                entry.insert(
+                    target
+                        .map(NameResolution::Unique)
+                        .unwrap_or(NameResolution::Unresolved),
+                );
                 true
             }
             Entry::Occupied(mut entry) => {
-                entry.insert(TypeNameResolution::Ambiguous);
+                entry.insert(NameResolution::Ambiguous);
                 false
             }
         }
     }
 
-    pub fn local_type(&self, name: &str) -> Option<TypeNameResolution> {
-        self.types.get(name).copied()
+    pub fn lookup(&self, name: &str) -> Option<NameResolution> {
+        self.entries.get(name).copied()
     }
 
     pub(crate) fn insert_impl(&mut self, id: ImplId) {
         self.impls.push(id);
-    }
-
-    pub fn contains_function(&self, name: &str) -> bool {
-        self.functions.contains_key(name)
-    }
-
-    pub fn contains_const(&self, name: &str) -> bool {
-        self.consts.contains_key(name)
-    }
-
-    pub fn contains_module(&self, name: &str) -> bool {
-        self.modules.contains_key(name)
-    }
-
-    pub fn contains_standard_module(&self, name: &str) -> bool {
-        self.standard_modules.contains_key(name)
-    }
-
-    pub fn contains_standard_function(&self, name: &str) -> bool {
-        self.standard_functions.contains_key(name)
-    }
-
-    pub fn contains_struct(&self, name: &str) -> bool {
-        matches!(
-            self.local_type(name),
-            Some(TypeNameResolution::Unique(ResolvedName::Struct(_)))
-        )
-    }
-
-    pub fn contains_enum(&self, name: &str) -> bool {
-        matches!(
-            self.local_type(name),
-            Some(TypeNameResolution::Unique(ResolvedName::Enum(_)))
-        )
-    }
-
-    pub fn contains_trait(&self, name: &str) -> bool {
-        matches!(
-            self.local_type(name),
-            Some(TypeNameResolution::Unique(ResolvedName::Trait(_)))
-        )
     }
 
     pub fn impl_count(&self) -> usize {

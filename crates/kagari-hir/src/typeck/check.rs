@@ -527,7 +527,7 @@ fn validate_trait_surface(
         };
         let trait_target = declarations
             .names
-            .local_type(trait_name)
+            .lookup(trait_name)
             .and_then(|binding| binding.target());
         let Some(trait_def) = trait_target.and_then(|target| {
             let crate::resolver::ResolvedName::Trait(id) = target else {

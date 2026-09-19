@@ -656,8 +656,14 @@ fn clamp(value: i32) -> i32 {
     let names = resolve_names(&lowered)
         .into_checked()
         .expect("resolver should succeed");
-    assert!(names.items.contains_standard_module("math"));
-    assert!(names.items.contains_standard_function("map_len"));
+    assert!(names.items.lookup("math").is_some_and(|r| matches!(
+        r.target(),
+        Some(crate::resolver::ResolvedName::StandardModule(_))
+    )));
+    assert!(names.items.lookup("map_len").is_some_and(|r| matches!(
+        r.target(),
+        Some(crate::resolver::ResolvedName::StandardFunction(_))
+    )));
     let typed = check_module(&lowered, &names, None)
         .into_checked()
         .expect("type checker should succeed");

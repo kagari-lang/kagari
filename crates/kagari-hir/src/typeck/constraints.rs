@@ -124,7 +124,7 @@ fn resolve_constraint(
             let crate::resolver::ResolvedName::Trait(id) = context
                 .declarations
                 .names
-                .local_type(&reference.name)?
+                .lookup(&reference.name)?
                 .target()?
             else {
                 return None;

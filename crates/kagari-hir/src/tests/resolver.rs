@@ -22,13 +22,13 @@ fn foo() {}
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
         diagnostics[0].kind,
-        DiagnosticKind::DuplicateFunction {
+        DiagnosticKind::DuplicateDeclaration {
             name: "foo".to_string(),
         }
     );
     assert_eq!(
         diagnostics[0].to_string(),
-        "Error: duplicate function `foo` at 13..24"
+        "Error: ambiguous declaration `foo` at 13..24"
     );
 }
 
@@ -143,10 +143,30 @@ fn main() -> i32 { 1 }
         .into_checked()
         .expect("resolver should succeed");
 
-    assert!(resolved.items.contains_module("gameplay"));
-    assert!(resolved.items.contains_trait("Display"));
-    assert!(resolved.items.contains_struct("Player"));
-    assert!(resolved.items.contains_function("main"));
+    assert!(
+        resolved
+            .items
+            .lookup("gameplay")
+            .is_some_and(|r| matches!(r.target(), Some(crate::resolver::ResolvedName::Module(_))))
+    );
+    assert!(
+        resolved
+            .items
+            .lookup("Display")
+            .is_some_and(|r| matches!(r.target(), Some(crate::resolver::ResolvedName::Trait(_))))
+    );
+    assert!(
+        resolved
+            .items
+            .lookup("Player")
+            .is_some_and(|r| matches!(r.target(), Some(crate::resolver::ResolvedName::Struct(_))))
+    );
+    assert!(
+        resolved.items.lookup("main").is_some_and(|r| matches!(
+            r.target(),
+            Some(crate::resolver::ResolvedName::Function(_))
+        ))
+    );
     assert_eq!(resolved.items.impl_count(), 1);
 }
 
@@ -183,8 +203,18 @@ boot
         resolved.expr_resolution(tail_expr),
         Some(ResolvedName::Local(binding_local))
     );
-    assert!(!resolved.items.contains_const("boot"));
-    assert!(!resolved.items.contains_function("boot"));
+    assert!(
+        !resolved
+            .items
+            .lookup("boot")
+            .is_some_and(|r| matches!(r.target(), Some(crate::resolver::ResolvedName::Const(_))))
+    );
+    assert!(
+        !resolved.items.lookup("boot").is_some_and(|r| matches!(
+            r.target(),
+            Some(crate::resolver::ResolvedName::Function(_))
+        ))
+    );
 
     let lowered = common::lower_ok(
         r#"

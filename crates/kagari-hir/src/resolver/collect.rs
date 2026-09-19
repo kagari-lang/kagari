@@ -38,6 +38,7 @@ pub(crate) fn collect_declarations(
     let mut names = NameTable::default();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
+    let mut declarations = Vec::new();
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
             break;
@@ -49,25 +50,37 @@ pub(crate) fn collect_declarations(
             diagnostics.push(Diagnostic::error(DiagnosticKind::MissingFunctionName));
             continue;
         }
-        if names
-            .insert_function(function.name.clone(), function.id)
-            .is_some()
-        {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::DuplicateFunction {
-                    name: function.name.clone(),
-                })
-                .with_span(lowered.source_map.function_span(function.id)),
-            );
-        }
+        declarations.push((
+            &function.name,
+            ResolvedName::Function(function.id),
+            lowered.source_map.function_span(function.id),
+        ));
     }
-
-    let mut types = Vec::new();
+    for item in &lowered.module.consts {
+        if cancel.check().is_err() {
+            break;
+        }
+        declarations.push((
+            &item.name,
+            ResolvedName::Const(item.id),
+            lowered.source_map.const_span(item.id),
+        ));
+    }
+    for item in &lowered.module.modules {
+        if cancel.check().is_err() {
+            break;
+        }
+        declarations.push((
+            &item.name,
+            ResolvedName::Module(item.id),
+            lowered.source_map.module_span(item.id),
+        ));
+    }
     for item in &lowered.module.structs {
         if cancel.check().is_err() {
             break;
         }
-        types.push((
+        declarations.push((
             &item.name,
             ResolvedName::Struct(item.id),
             lowered.source_map.struct_span(item.id),
@@ -77,7 +90,7 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        types.push((
+        declarations.push((
             &item.name,
             ResolvedName::Enum(item.id),
             lowered.source_map.enum_span(item.id),
@@ -87,31 +100,22 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        types.push((
+        declarations.push((
             &item.name,
             ResolvedName::Trait(item.id),
             lowered.source_map.trait_span(item.id),
         ));
     }
-    types.sort_by_key(|(_, _, span)| span.start);
-    for (name, target, span) in types {
+    declarations.sort_by_key(|(_, _, span)| span.start);
+    for (name, target, span) in declarations {
         if cancel.check().is_err() {
             break;
         }
-        if !name.is_empty() && !names.insert_type(name.clone(), target) {
+        if !name.is_empty() && !names.insert(name.clone(), Some(target)) {
             diagnostics.push(
-                Diagnostic::error(DiagnosticKind::DuplicateType { name: name.clone() })
+                Diagnostic::error(DiagnosticKind::DuplicateDeclaration { name: name.clone() })
                     .with_span(span),
             );
-        }
-    }
-
-    for module_decl in &lowered.module.modules {
-        if cancel.check().is_err() {
-            break;
-        }
-        if !module_decl.name.is_empty() {
-            names.insert_module(module_decl.name.clone(), module_decl.id);
         }
     }
 
@@ -120,32 +124,21 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        match &import.target {
+        let target = match &import.target {
             Some(ImportTarget::StandardModule(module)) => {
-                names.insert_standard_module(import.alias.clone(), *module);
+                Some(ResolvedName::StandardModule(*module))
             }
             Some(ImportTarget::StandardFunction(function)) => {
-                names.insert_standard_function(import.alias.clone(), *function);
+                Some(ResolvedName::StandardFunction(*function))
             }
-            Some(ImportTarget::HostModule(module)) => {
-                names.host_modules.insert(import.alias.clone(), *module);
-            }
+            Some(ImportTarget::HostModule(module)) => Some(ResolvedName::HostModule(*module)),
             Some(ImportTarget::HostFunction(function)) => {
-                names.host_functions.insert(import.alias.clone(), *function);
+                Some(ResolvedName::HostFunction(*function))
             }
-            Some(ImportTarget::Source(_)) => {
-                names.source_imports.insert(import.alias.clone(), index);
-            }
-            None => {}
-        }
-    }
-    for const_item in &lowered.module.consts {
-        if cancel.check().is_err() {
-            break;
-        }
-        if !const_item.name.is_empty() {
-            names.insert_const(const_item.name.clone(), const_item.id);
-        }
+            Some(ImportTarget::Source(_)) => Some(ResolvedName::SourceImport(index)),
+            None => None,
+        };
+        names.insert(import.alias.clone(), target);
     }
 
     for enum_def in &lowered.module.enums {

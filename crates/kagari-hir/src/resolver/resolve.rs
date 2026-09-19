@@ -1,7 +1,7 @@
 use crate::builtin::surface;
 use crate::hir::{
-    BlockId, ConstId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
-    PlaceId, PlaceKind, StmtId, StmtKind,
+    BlockId, ConstId, ExprId, ExprKind, FunctionId, Module, ParamId, PatternKind, PlaceId,
+    PlaceKind, StmtId, StmtKind,
 };
 use crate::hir::{BodyOwner, HirOwner};
 use crate::resolver::{LexicalScope, ScopeBinding};
@@ -248,60 +248,61 @@ impl<'a> BodyResolver<'a> {
         }
     }
 
-    fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
+    fn binding(&self, name: &str) -> Option<super::NameResolution> {
         for scope in self.scopes.iter().rev() {
             if let Some(index) = scope.latest.get(name) {
-                return Some(self.resolved.scopes[scope.id].bindings[*index].resolved);
+                return Some(super::NameResolution::Unique(
+                    self.resolved.scopes[scope.id].bindings[*index].resolved,
+                ));
             }
         }
+        self.names.lookup(name)
+    }
 
-        if let Some(id) = self.names.function(name) {
-            return Some(ResolvedName::Function(id));
-        }
-        if let Some(id) = self.names.host_functions.get(name) {
-            return Some(ResolvedName::HostFunction(*id));
-        }
-        if let Some(index) = self.names.source_imports.get(name) {
-            return Some(ResolvedName::SourceImport(*index));
+    fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
+        if let Some(binding) = self.binding(name) {
+            return binding.target();
         }
         if let Some((alias, member)) = name.split_once("::")
-            && let Some(index) = self.names.source_imports.get(alias)
-            && let Some(crate::imports::ImportTarget::Source(target)) =
-                &self.resolved.imports.entries[*index].target
-            && target.item.is_none()
-            && let Some(items) = target.members.get(member)
-            && let [item] = items.as_slice()
+            && let Some(binding) = self.binding(alias)
         {
-            return Some(ResolvedName::SourceItem {
-                import: *index,
-                item: *item,
-            });
-        }
-        if let Some(id) = self.names.host_modules.get(name) {
-            return Some(ResolvedName::HostModule(*id));
-        }
-        if let Some((alias, suffix)) = name.split_once("::")
-            && let Some(module) = self.names.host_modules.get(alias)
-            && let Some(id) = self.resolved.hosts.resolve_in(*module, suffix)
-        {
-            return Some(ResolvedName::HostFunction(id));
+            return match binding.target()? {
+                ResolvedName::SourceImport(index) => {
+                    let Some(crate::imports::ImportTarget::Source(target)) =
+                        &self.resolved.imports.entries[index].target
+                    else {
+                        return None;
+                    };
+                    if target.item.is_some() {
+                        return None;
+                    }
+                    let [item] = target.members.get(member)?.as_slice() else {
+                        return None;
+                    };
+                    Some(ResolvedName::SourceItem {
+                        import: index,
+                        item: *item,
+                    })
+                }
+                ResolvedName::HostModule(module) => self
+                    .resolved
+                    .hosts
+                    .resolve_in(module, member)
+                    .map(ResolvedName::HostFunction),
+                ResolvedName::StandardModule(module) => surface::standard_function(module, member)
+                    .map(|f| ResolvedName::StandardFunction(f.intrinsic)),
+                _ => None,
+            };
         }
         if let Some(id) = self.resolved.hosts.resolve(name) {
             return Some(ResolvedName::HostFunction(id));
         }
-        if let Some(id) = self.names.const_(name) {
-            return Some(ResolvedName::Const(id));
+        if let Some(module) = surface::standard_module(name) {
+            return Some(ResolvedName::StandardModule(module.kind));
         }
-        if let Some(id) = self.names.module(name) {
-            return Some(ResolvedName::Module(id));
-        }
-        if let Some(module) = self.names.standard_module(name) {
-            return Some(ResolvedName::StandardModule(module));
-        }
-        if let Some(intrinsic) = self.names.standard_function(name) {
-            return Some(ResolvedName::StandardFunction(intrinsic));
-        }
-        self.names.local_type(name)?.target()
+        let (module, member) = name.rsplit_once("::")?;
+        surface::standard_function(surface::standard_module(module)?.kind, member)
+            .map(|f| ResolvedName::StandardFunction(f.intrinsic))
     }
 
     fn bind_name(&mut self, name: &str, resolved: ResolvedName, visible_from: usize) {
@@ -354,35 +355,5 @@ impl<'a> BodyResolver<'a> {
             HirOwner::Body(current),
             "HIR traversal crossed a body boundary"
         );
-    }
-}
-
-trait TopLevelLookup {
-    fn function(&self, name: &str) -> Option<FunctionId>;
-    fn const_(&self, name: &str) -> Option<ConstId>;
-    fn module(&self, name: &str) -> Option<ModuleId>;
-    fn standard_module(&self, name: &str) -> Option<surface::StandardModule>;
-    fn standard_function(&self, name: &str) -> Option<surface::StandardIntrinsic>;
-}
-
-impl TopLevelLookup for NameTable {
-    fn function(&self, name: &str) -> Option<FunctionId> {
-        self.functions.get(name).copied()
-    }
-
-    fn const_(&self, name: &str) -> Option<ConstId> {
-        self.consts.get(name).copied()
-    }
-
-    fn module(&self, name: &str) -> Option<ModuleId> {
-        self.modules.get(name).copied()
-    }
-
-    fn standard_module(&self, name: &str) -> Option<surface::StandardModule> {
-        self.standard_modules.get(name).copied()
-    }
-
-    fn standard_function(&self, name: &str) -> Option<surface::StandardIntrinsic> {
-        self.standard_functions.get(name).copied()
     }
 }

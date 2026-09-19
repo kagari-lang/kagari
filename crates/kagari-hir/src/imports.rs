@@ -352,10 +352,12 @@ fn resolve_imports(
         .chain(module.module.traits.iter().map(|item| item.name.as_str()))
         .collect::<HashSet<_>>();
     let mut aliases = HashSet::new();
+    let mut ambiguous = HashSet::new();
     for import in &module.module.imports {
         cancel.check()?;
         let target =
             if local_items.contains(import.alias.as_str()) || !aliases.insert(&import.alias) {
+                ambiguous.insert(import.alias.as_str());
                 result.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::DuplicateImport {
                         name: import.alias.clone(),
@@ -394,6 +396,12 @@ fn resolve_imports(
             span: import.span,
             target,
         });
+    }
+    for entry in &mut result.entries {
+        cancel.check()?;
+        if ambiguous.contains(entry.alias.as_str()) {
+            entry.target = None;
+        }
     }
     Ok(result)
 }

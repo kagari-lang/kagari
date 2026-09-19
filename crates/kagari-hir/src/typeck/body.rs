@@ -1689,11 +1689,14 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn resolve_struct_id(&self, path: &str) -> Option<kagari_common::identity::DefinitionId> {
-        if let Some(binding) = self.declarations.names.local_type(path) {
-            let target @ ResolvedName::Struct(_) = binding.target()? else {
-                return None;
-            };
-            return self.declarations.definition(target).cloned();
+        if let Some(binding) = self.declarations.names.lookup(path) {
+            match binding.target()? {
+                target @ ResolvedName::Struct(_) => {
+                    return self.declarations.definition(target).cloned();
+                }
+                ResolvedName::SourceImport(_) => {}
+                _ => return None,
+            }
         }
         let TypeId::Struct(id) = &self.declarations.imported_types().get(path)?.ty else {
             return None;
@@ -1947,43 +1950,10 @@ impl<'a> BodyChecker<'a> {
         }
     }
     fn standard_function(&self, expr_id: ExprId) -> Option<StandardIntrinsic> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Name(name) = &expr.kind else {
-            return None;
-        };
-        if let Some(ResolvedName::StandardFunction(intrinsic)) = self.names.expr_resolution(expr_id)
-        {
-            return Some(intrinsic);
+        match self.names.expr_resolution(expr_id) {
+            Some(ResolvedName::StandardFunction(intrinsic)) => Some(intrinsic),
+            _ => None,
         }
-        self.standard_function_path(name)
-    }
-
-    fn standard_function_path(&self, name: &str) -> Option<StandardIntrinsic> {
-        if let Some((module_alias, function_name)) = name.rsplit_once("::")
-            && let Some(module) = self.standard_module_path(module_alias)
-        {
-            return surface::standard_function(module, function_name)
-                .map(|function| function.intrinsic);
-        }
-        None
-    }
-
-    fn standard_module_path(&self, path: &str) -> Option<surface::StandardModule> {
-        if let Some(module) = surface::standard_module(path).map(|module| module.kind) {
-            return Some(module);
-        }
-        if !path.contains("::")
-            && let Some(ResolvedName::StandardModule(module)) = self
-                .names
-                .items
-                .standard_modules
-                .get(path)
-                .copied()
-                .map(ResolvedName::StandardModule)
-        {
-            return Some(module);
-        }
-        None
     }
 
     fn standard_method(
@@ -2107,6 +2077,9 @@ impl<'a> BodyChecker<'a> {
         let ExprKind::Name(name) = &expr.kind else {
             return None;
         };
+        if self.names.items.lookup(name).is_some() {
+            return None;
+        }
         BuiltinFunction::from_name(name)
     }
 

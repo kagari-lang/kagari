@@ -41,15 +41,23 @@ do not prevent compilation of an independent root. Lifecycle semantics belong to
 [module-activation.md](module-activation.md).
 
 Declarations are collected for every module before signatures are checked.
-Local struct, enum and trait declarations share one type namespace. Repeated names,
-including collisions between different declaration kinds, produce
-`KG_RESOLVE_DUPLICATE_TYPE` on each subsequent declaration in source order.
+Local functions, constants, module declarations, structs, enums and traits share
+one module-level namespace. Repeated names, including collisions between kinds, produce
+`KG_RESOLVE_DUPLICATE_DECLARATION` on each subsequent declaration in source order.
 All declarations retain distinct identities for tooling, but an ambiguous name has
-no selected type target. Annotations, constructors, trait bounds and impl headers
+no selected target. Calls, annotations, constructors, trait bounds and impl headers
 consume the same declaration table; none chooses the first or last declaration.
 Unrelated declarations and function bodies remain queryable, while the module
 cannot enter code generation. Introducing or removing a collision invalidates
 dependent semantic queries without changing an existing snapshot.
+
+Import aliases enter that same declaration table. An invalid import blocks implicit
+host or standard-library fallback; a duplicate alias has no target in any of its
+import entries, including the first. Qualified expression paths resolve their root
+through lexical bindings before namespace lookup. A parameter or local named `api`
+therefore shadows `use std::math as api;` for `api::clamp(...)`, and normal lookup
+resumes outside its scope. Standard-library call targets are resolver facts shared
+by type checking and navigation, without a second textual lookup in the checker.
 
 Public struct, enum and trait types can be used in parameter, return, field and
 local annotations via direct imports and qualified namespace aliases. Type

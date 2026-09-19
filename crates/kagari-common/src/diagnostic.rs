@@ -99,10 +99,7 @@ pub enum DiagnosticKind {
     InvalidIndexTarget {
         type_name: String,
     },
-    DuplicateFunction {
-        name: String,
-    },
-    DuplicateType {
+    DuplicateDeclaration {
         name: String,
     },
     DuplicateField {
@@ -347,8 +344,7 @@ impl DiagnosticKind {
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
-            Self::DuplicateFunction { .. } => "KG_RESOLVE_DUPLICATE_FUNCTION",
-            Self::DuplicateType { .. } => "KG_RESOLVE_DUPLICATE_TYPE",
+            Self::DuplicateDeclaration { .. } => "KG_RESOLVE_DUPLICATE_DECLARATION",
             Self::DuplicateField { .. } => "KG_RESOLVE_DUPLICATE_FIELD",
             Self::DuplicateVariant { .. } => "KG_RESOLVE_DUPLICATE_VARIANT",
             Self::UnknownType { .. } => "KG_TYPE_UNKNOWN_TYPE",
@@ -501,8 +497,7 @@ impl Display for DiagnosticKind {
             Self::InvalidIndexTarget { type_name } => {
                 write!(f, "invalid index for type `{type_name}`")
             }
-            Self::DuplicateFunction { name } => write!(f, "duplicate function `{name}`"),
-            Self::DuplicateType { name } => write!(f, "ambiguous type declaration `{name}`"),
+            Self::DuplicateDeclaration { name } => write!(f, "ambiguous declaration `{name}`"),
             Self::DuplicateField { struct_name, name } => {
                 write!(f, "duplicate field `{struct_name}.{name}`")
             }
@@ -710,11 +705,11 @@ mod tests {
             "KG_PARSE_EXPECTED_BINDING_KEYWORD"
         );
         assert_eq!(
-            DiagnosticKind::DuplicateFunction {
+            DiagnosticKind::DuplicateDeclaration {
                 name: "main".to_owned()
             }
             .code(),
-            "KG_RESOLVE_DUPLICATE_FUNCTION"
+            "KG_RESOLVE_DUPLICATE_DECLARATION"
         );
         assert_eq!(
             DiagnosticKind::UnknownType {

@@ -31,6 +31,10 @@ fn main() -> kagari_embed::CompileResult<()> {
         "{} named declarations before body analysis",
         header.declarations().iter().count()
     );
+    println!(
+        "module name lookup: {:?}",
+        header.names().items.lookup("Point")
+    );
     let signatures = engine.signatures(engine.source_snapshot(), &Default::default())?;
     let signature = signatures.file(file).expect("source signatures");
     assert!(signature.diagnostics().is_empty());
@@ -179,7 +183,7 @@ fn main() -> kagari_embed::CompileResult<()> {
             .result()
             .diagnostics()
             .iter()
-            .any(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_TYPE")
+            .any(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_DECLARATION")
     );
     assert!(ambiguous_file.definition_at(annotation).is_none());
     assert!(ambiguous_file.definition_at(offset).is_some());
