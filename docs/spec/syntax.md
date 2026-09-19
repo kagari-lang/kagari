@@ -358,6 +358,15 @@ Rules:
 
 ### Types
 
+Type applications resolve their base name using the same bindings as named type
+annotations. A generic parameter, explicit declaration, or import shadows an
+unqualified standard type constructor (`Map`, `Set`, `Option`, or `Result`). An
+ambiguous or unresolved explicit binding does not fall back to a standard type.
+Explicit empty argument lists are invalid and are preserved during recovery;
+`T<>` is never interpreted as `T`. Failed applications retain any known base and
+argument declarations for tools, without making the application executable.
+Navigation within an unknown argument does not select the enclosing base type.
+
 ```ebnf
 type            ::= path generic_args?
                   | array_type

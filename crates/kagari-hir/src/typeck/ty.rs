@@ -107,6 +107,13 @@ pub(super) fn resolve_type_in(
             (!reference.ty.is_unresolved()).then_some(reference.ty)
         }
         hir::TypeKind::Generic { name, args } => {
+            let reference = resolve_named_type(name, context);
+            target = reference.target;
+            // An application has the same base binding as a named annotation.
+            // A declaration, binder or unresolved import blocks prelude fallback.
+            let prelude = reference.target.is_none()
+                && reference.ty.is_unresolved()
+                && context.declarations.names.lookup(name).is_none();
             // Visit every argument even if an earlier one cannot resolve.
             let args = args
                 .iter()
@@ -114,6 +121,7 @@ pub(super) fn resolve_type_in(
                 .collect::<Vec<_>>();
             args.into_iter()
                 .collect::<Option<Vec<_>>>()
+                .filter(|_| prelude)
                 .and_then(|args| surface::standard_generic_type(name, args))
         }
         hir::TypeKind::Tuple(elements) => {

@@ -244,5 +244,26 @@ fn main() -> kagari_embed::CompileResult<()> {
     println!(
         "type collision has no selected declaration; the good function and old snapshot remain queryable"
     );
+    let applied_text = format!("{text}\r\nfn applied<T>(value: T<>) {{}}");
+    engine.set_source(source_name, applied_text.clone(), SourceLayer::Overlay)?;
+    let applied = engine.analyze(
+        engine.source_snapshot(),
+        Default::default(),
+        &Default::default(),
+    )?;
+    let applied_file = applied.file(file).expect("edited source");
+    let application = applied_text.find("T<>").expect("empty type application");
+    assert_eq!(
+        applied_file.type_at(application),
+        Some(kagari_hir::types::TypeId::Error)
+    );
+    assert_eq!(
+        applied_file
+            .definition_at(application)
+            .expect("known base binder")
+            .name,
+        "T"
+    );
+    println!("invalid type application retains its binder target for navigation");
     Ok(())
 }

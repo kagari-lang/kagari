@@ -217,43 +217,43 @@ impl FileAnalysis {
                     _ => None,
                 }
             });
-        let types = facts
+        // Select the innermost annotation before resolving its target. An unknown
+        // type argument must not navigate to the enclosing application declaration.
+        if let Some((index, _)) = facts
             .lowered
             .source_map
             .type_spans()
             .iter()
             .enumerate()
-            .filter_map(|(index, span)| {
-                let target = facts
-                    .typed
-                    .type_table
-                    .type_ref(facts.lowered.source_map.type_id(index))?
-                    .target?;
-                let declaration = match target {
-                    crate::typeck::TypeTarget::Source(id) => facts
-                        .declarations
-                        .imported_types()
-                        .target(id)
-                        .map(|ty| &ty.declaration),
-                    crate::typeck::TypeTarget::Struct(id) => facts
-                        .declarations
-                        .target(crate::resolver::ResolvedName::Struct(id)),
-                    crate::typeck::TypeTarget::Enum(id) => facts
-                        .declarations
-                        .target(crate::resolver::ResolvedName::Enum(id)),
-                    crate::typeck::TypeTarget::Trait(id) => facts
-                        .declarations
-                        .target(crate::resolver::ResolvedName::Trait(id)),
-                    crate::typeck::TypeTarget::Generic(id) => {
-                        facts.declarations.generic_parameter(id)
-                    }
-                }?;
-                Some((*span, declaration))
-            });
+            .filter(|(_, span)| span.start <= offset && offset < span.end)
+            .min_by_key(|(_, span)| span.end - span.start)
+        {
+            let target = facts
+                .typed
+                .type_table
+                .type_ref(facts.lowered.source_map.type_id(index))?
+                .target?;
+            return match target {
+                crate::typeck::TypeTarget::Source(id) => facts
+                    .declarations
+                    .imported_types()
+                    .target(id)
+                    .map(|ty| &ty.declaration),
+                crate::typeck::TypeTarget::Struct(id) => facts
+                    .declarations
+                    .target(crate::resolver::ResolvedName::Struct(id)),
+                crate::typeck::TypeTarget::Enum(id) => facts
+                    .declarations
+                    .target(crate::resolver::ResolvedName::Enum(id)),
+                crate::typeck::TypeTarget::Trait(id) => facts
+                    .declarations
+                    .target(crate::resolver::ResolvedName::Trait(id)),
+                crate::typeck::TypeTarget::Generic(id) => facts.declarations.generic_parameter(id),
+            };
+        }
         expressions
             .chain(places)
             .chain(calls)
-            .chain(types)
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .min_by_key(|(span, _)| span.end - span.start)
             .map(|(_, target)| target)
@@ -617,6 +617,8 @@ mod trait_catalog_tests;
 mod trait_identity_tests;
 #[cfg(test)]
 mod trait_reference_tests;
+#[cfg(test)]
+mod type_application_tests;
 #[cfg(test)]
 mod type_name_tests;
 

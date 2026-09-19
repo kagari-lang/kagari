@@ -15,7 +15,7 @@ impl Lowerer {
                         .collect::<SmallVec<[_; 4]>>()
                 })
                 .unwrap_or_default();
-            if args.is_empty() {
+            if ty.generic_args().is_none() {
                 TypeKind::Named(name)
             } else {
                 TypeKind::Generic { name, args }

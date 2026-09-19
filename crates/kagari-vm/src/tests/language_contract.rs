@@ -349,6 +349,21 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     }
     for case in [
         Case::new(
+            "empty-type-application-is-not-erased",
+            "fn unused(x: i32<>) {} fn main() {}",
+            Expected::Diagnostic("KG_TYPE_UNKNOWN_TYPE"),
+        ),
+        Case::new(
+            "local-type-shadows-standard-constructor",
+            "struct Map {} fn unused(x: Map<i32, String>) {} fn main() {}",
+            Expected::Diagnostic("KG_TYPE_UNKNOWN_TYPE"),
+        ),
+        Case::new(
+            "binder-shadows-standard-type-constructor",
+            "fn unused<Option>(x: Option<i32>) {} fn main() {}",
+            Expected::Diagnostic("KG_TYPE_UNKNOWN_TYPE"),
+        ),
+        Case::new(
             "ambiguous-bound-method",
             "trait Left { fn get(self) -> i32; } trait Right { fn get(self) -> i32; } fn read<T: Left + Right>(x: T) -> i32 { x.get() } fn main() {}",
             Expected::Diagnostic("KG_TYPE_AMBIGUOUS_METHOD"),

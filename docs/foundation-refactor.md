@@ -217,6 +217,13 @@ Implemented foundation slices:
   errors, body-edit reuse and bound-change invalidation. The source_queries example
   exposes constraints before body analysis; execution fixtures forward checked
   where bounds through source, artifact and existing JIT fallback routes.
+  Type applications now resolve their base through the same declaration/binder
+  lookup as named annotations. Explicit bindings block standard constructor
+  fallback, and empty argument lists are retained instead of becoming bare types.
+  Invalid applications retain base and argument targets; navigation selects the
+  innermost annotation even when its target is unknown. Regressions cover all four
+  standard constructors, facades, partial arguments, signature rebasing and repair.
+  Concrete user-type applications and generic layout instantiation remain pending.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts
