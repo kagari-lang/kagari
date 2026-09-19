@@ -9,6 +9,66 @@ pub(super) struct TypeContext<'a> {
     pub self_type: Option<hir::TraitId>,
 }
 
+pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> ResolvedTypeRef {
+    let mut target = None;
+    let ty = (|| {
+        if let Some(param) = context
+            .generics
+            .iter()
+            .rev()
+            .find(|param| param.name == name)
+        {
+            target = Some(TypeTarget::Generic(param.id));
+            context
+                .declarations
+                .generic_type(param.id)
+                .map(TypeId::Generic)
+        } else if name == "Self" && context.self_type.is_some() {
+            target = context.self_type.map(TypeTarget::Trait);
+            context
+                .declarations
+                .definition(crate::resolver::ResolvedName::Trait(context.self_type?))
+                .cloned()
+                .map(TypeId::SelfType)
+        } else if let Some(ty) = TypeId::from_name(name) {
+            Some(ty)
+        } else if let Some(binding) = context.declarations.names.lookup(name) {
+            binding.target().and_then(|resolved| {
+                use crate::resolver::ResolvedName;
+                if let Some(imported) = context.declarations.imported_types().resolved(resolved) {
+                    target = Some(TypeTarget::Source(imported.id));
+                    return Some(imported.ty.clone());
+                }
+                let definition = context.declarations.definition(resolved)?.clone();
+                Some(match resolved {
+                    ResolvedName::Struct(id) => {
+                        target = Some(TypeTarget::Struct(id));
+                        TypeId::Struct(definition)
+                    }
+                    ResolvedName::Enum(id) => {
+                        target = Some(TypeTarget::Enum(id));
+                        TypeId::Enum(definition)
+                    }
+                    ResolvedName::Trait(id) => {
+                        target = Some(TypeTarget::Trait(id));
+                        TypeId::Trait(definition)
+                    }
+                    _ => return None,
+                })
+            })
+        } else if let Some(imported) = context.declarations.imported_types().get(name) {
+            target = Some(TypeTarget::Source(imported.id));
+            Some(imported.ty.clone())
+        } else {
+            None
+        }
+    })();
+    ResolvedTypeRef {
+        ty: ty.unwrap_or(TypeId::Error),
+        target,
+    }
+}
+
 pub(super) fn resolve_type(
     module: &hir::Module,
     ty: hir::TypeRefId,
@@ -42,57 +102,9 @@ pub(super) fn resolve_type_in(
     let mut target = None;
     let resolved = match &module.type_ref(ty).kind {
         hir::TypeKind::Named(name) => {
-            if let Some(param) = context
-                .generics
-                .iter()
-                .rev()
-                .find(|param| param.name == *name)
-            {
-                target = Some(TypeTarget::Generic(param.id));
-                context
-                    .declarations
-                    .generic_type(param.id)
-                    .map(TypeId::Generic)
-            } else if name == "Self" && context.self_type.is_some() {
-                target = context.self_type.map(TypeTarget::Trait);
-                context
-                    .declarations
-                    .definition(crate::resolver::ResolvedName::Trait(context.self_type?))
-                    .cloned()
-                    .map(TypeId::SelfType)
-            } else if let Some(ty) = TypeId::from_name(name) {
-                Some(ty)
-            } else if let Some(binding) = context.declarations.names.lookup(name) {
-                binding.target().and_then(|resolved| {
-                    use crate::resolver::ResolvedName;
-                    if let Some(imported) = context.declarations.imported_types().resolved(resolved)
-                    {
-                        target = Some(TypeTarget::Source(imported.id));
-                        return Some(imported.ty.clone());
-                    }
-                    let definition = context.declarations.definition(resolved)?.clone();
-                    Some(match resolved {
-                        ResolvedName::Struct(id) => {
-                            target = Some(TypeTarget::Struct(id));
-                            TypeId::Struct(definition)
-                        }
-                        ResolvedName::Enum(id) => {
-                            target = Some(TypeTarget::Enum(id));
-                            TypeId::Enum(definition)
-                        }
-                        ResolvedName::Trait(id) => {
-                            target = Some(TypeTarget::Trait(id));
-                            TypeId::Trait(definition)
-                        }
-                        _ => return None,
-                    })
-                })
-            } else if let Some(imported) = context.declarations.imported_types().get(name) {
-                target = Some(TypeTarget::Source(imported.id));
-                Some(imported.ty.clone())
-            } else {
-                None
-            }
+            let reference = resolve_named_type(name, context);
+            target = reference.target;
+            (!reference.ty.is_unresolved()).then_some(reference.ty)
         }
         hir::TypeKind::Generic { name, args } => {
             // Visit every argument even if an earlier one cannot resolve.

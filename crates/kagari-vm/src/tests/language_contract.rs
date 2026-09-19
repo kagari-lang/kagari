@@ -332,6 +332,27 @@ fn run(case: &Case, route: Route) {
 #[test]
 fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     for case in [
+        Case::new(
+            "applied-impl-trait-not-erased",
+            "trait View<T> {} struct Point {} impl View<i32> for Point {} fn main() {}",
+            Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE"),
+        ),
+        Case::new(
+            "generic-binder-shadows-trait",
+            "trait View {} struct Point {} impl<View> View for Point {} fn main() {}",
+            Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE"),
+        ),
+        Case::new(
+            "standard-constraint-cannot-be-implemented",
+            "struct Point {} impl HashKey for Point {} fn main() {}",
+            Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE"),
+        ),
+    ] {
+        for route in [Route::Source, Route::Artifact, Route::Jit] {
+            run(&case, route);
+        }
+    }
+    for case in [
         Case::new("resolved-runtime-helpers", "struct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(Value::I32(5))).effects(&["i32"], &["i32"]).reflection(),
         Case::new("shadowed-print-has-no-host-effect", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(6) }", Expected::Value(Value::I32(7))),
         Case::new("bare-function-is-not-return-value", "fn answer() -> i32 { 42 } fn main() -> i32 { answer }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),

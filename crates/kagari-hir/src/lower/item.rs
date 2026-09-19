@@ -241,7 +241,7 @@ impl Lowerer {
             generic_params,
             trait_ref: impl_block
                 .trait_ref()
-                .and_then(|trait_ref| trait_ref.path_text()),
+                .map(|trait_ref| self.lower_trait_ref(&trait_ref)),
             for_type,
             bounds: impl_block
                 .where_clause()
@@ -484,29 +484,27 @@ impl Lowerer {
     }
 
     fn lower_trait_refs(&mut self, refs: impl Iterator<Item = ast::TraitRef>) -> Vec<TraitRef> {
-        refs.map(|trait_ref| {
-            let name = trait_ref.path_text().unwrap_or_default();
-            let args: smallvec::SmallVec<[TypeRefId; 4]> = trait_ref
-                .generic_args()
-                .map(|args| args.args().map(|arg| self.lower_type(&arg)).collect())
-                .unwrap_or_default();
-            let kind = if args.is_empty() {
-                crate::hir::TypeKind::Named(name.clone())
-            } else {
-                crate::hir::TypeKind::Generic {
-                    name: name.clone(),
-                    args,
-                }
-            };
-            TraitRef {
-                name,
-                ty: self.alloc_type(
-                    crate::lower::context::token_span(&trait_ref),
-                    crate::hir::TypeData { kind },
-                ),
-            }
-        })
-        .collect::<Vec<_>>()
+        refs.map(|reference| self.lower_trait_ref(&reference))
+            .collect()
+    }
+
+    fn lower_trait_ref(&mut self, trait_ref: &ast::TraitRef) -> TraitRef {
+        let name = trait_ref.path_text().unwrap_or_default();
+        let args: smallvec::SmallVec<[TypeRefId; 4]> = trait_ref
+            .generic_args()
+            .map(|args| args.args().map(|arg| self.lower_type(&arg)).collect())
+            .unwrap_or_default();
+        let kind = if trait_ref.generic_args().is_none() {
+            crate::hir::TypeKind::Named(name)
+        } else {
+            crate::hir::TypeKind::Generic { name, args }
+        };
+        TraitRef {
+            ty: self.alloc_type(
+                crate::lower::context::token_span(trait_ref),
+                crate::hir::TypeData { kind },
+            ),
+        }
     }
 
     fn lower_const(&mut self, const_def: &ast::ConstDef) -> ConstItem {

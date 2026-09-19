@@ -188,7 +188,14 @@ Implemented foundation slices:
   Bare function/module/type items now fail with a structured HIR diagnostic rather
   than giving a bare function its return type and reaching an IR rejection.
   Source/artifact/JIT fixtures exercise helper effects, shadowed print and those
-  diagnostics. Imported traits and other semantic contracts retain the R04 audit.
+  diagnostics. Impl trait headers now retain the same typed references as bounds,
+  including generic arguments and exact source spans; validation and ABI lowering
+  consume the checked targets. Applied traits cannot silently erase arguments or
+  register an implementation, and generic binders shadow trait/standard-constraint
+  names consistently with annotations. Imported trait targets retain nominal
+  identity/navigation through facades while their execution remains explicitly
+  unsupported. Regressions cover recovery, signature-cache rebasing and cross-module
+  targets. Imported trait execution and other semantic contracts retain the R04 audit.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts

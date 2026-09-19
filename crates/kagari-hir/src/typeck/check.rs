@@ -522,27 +522,29 @@ fn validate_trait_surface(
 
     let mut seen_impls = HashSet::new();
     for impl_block in &lowered.module.impls {
-        let Some(trait_name) = impl_block.trait_ref.as_deref() else {
+        let Some(reference) = &impl_block.trait_ref else {
             continue;
         };
-        let trait_target = declarations
-            .names
-            .lookup(trait_name)
-            .and_then(|binding| binding.target());
-        let Some(trait_def) = trait_target.and_then(|target| {
-            let crate::resolver::ResolvedName::Trait(id) = target else {
-                return None;
-            };
-            lowered.module.traits.iter().find(|item| item.id == id)
-        }) else {
+        let trait_name = display_type(&lowered.module, reference.ty);
+        let Some(target) = table.constraint(reference.ty) else {
+            continue;
+        };
+        let super::ConstraintTarget::Trait(id) = target else {
             diagnostics.push(
-                Diagnostic::error(DiagnosticKind::UnknownTrait {
-                    trait_name: trait_name.to_string(),
+                Diagnostic::error(DiagnosticKind::InvalidTraitReference {
+                    trait_name: trait_name.clone(),
+                    reason: "standard constraints cannot be implemented by a trait impl",
                 })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
+                .with_span(lowered.source_map.type_span(reference.ty)),
             );
             continue;
         };
+        let trait_def = lowered
+            .module
+            .traits
+            .iter()
+            .find(|item| item.id == id)
+            .expect("resolved local trait");
 
         let Some(for_ty) = impl_block
             .for_type

@@ -80,9 +80,12 @@ impl Display for Player {
     assert_eq!(trait_function.params[0].name, "self");
 
     assert_eq!(lowered.module.impls.len(), 1);
-    assert_eq!(
-        lowered.module.impls[0].trait_ref.as_deref(),
-        Some("Display")
+    let reference = lowered.module.impls[0]
+        .trait_ref
+        .as_ref()
+        .expect("impl trait reference");
+    assert!(
+        matches!(&lowered.module.type_ref(reference.ty).kind, TypeKind::Named(name) if name == "Display")
     );
     let for_type = lowered.module.impls[0]
         .for_type

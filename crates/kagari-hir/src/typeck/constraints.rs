@@ -30,6 +30,20 @@ pub(super) fn resolve_constraints(
         );
     }
     for item in &lowered.module.impls {
+        if let Some(reference) = &item.trait_ref {
+            resolve_constraint(
+                lowered,
+                reference,
+                TypeContext {
+                    declarations,
+                    generics: &item.generic_params,
+                    self_type: None,
+                },
+                table,
+                diagnostics,
+                cancel,
+            );
+        }
         resolve_owner(
             lowered,
             &item.generic_params,
@@ -109,47 +123,49 @@ fn resolve_constraint(
     }
     // Generic trait applications require concrete type arguments and implementation
     // tables. Retain their argument facts, but never silently erase the arguments.
-    let applied =
-        if let hir::TypeKind::Generic { args, .. } = &lowered.module.type_ref(reference.ty).kind {
+    let (name, applied) = match &lowered.module.type_ref(reference.ty).kind {
+        hir::TypeKind::Generic { name, args } => {
             for arg in args {
                 resolve_type_in(&lowered.module, *arg, context, table, cancel);
             }
-            true
-        } else {
-            false
-        };
-    let target = surface::standard_constraint(&reference.name)
+            (name, true)
+        }
+        hir::TypeKind::Named(name) => (name, false),
+        _ => unreachable!("trait references have a named base"),
+    };
+    let mut resolved = super::ty::resolve_named_type(name, context);
+    // Standard constraints are a fallback, so a binder or explicit declaration
+    // cannot resolve differently here and in an ordinary type annotation.
+    let standard = (resolved.target.is_none() && context.declarations.names.lookup(name).is_none())
+        .then(|| surface::standard_constraint(name))
+        .flatten();
+    let target = standard
         .map(ConstraintTarget::Standard)
-        .or_else(|| {
-            let crate::resolver::ResolvedName::Trait(id) = context
-                .declarations
-                .names
-                .lookup(&reference.name)?
-                .target()?
-            else {
-                return None;
-            };
-            Some(ConstraintTarget::Trait(id))
+        .or(match resolved.target {
+            Some(TypeTarget::Trait(id)) if matches!(resolved.ty, TypeId::Trait(_)) => {
+                Some(ConstraintTarget::Trait(id))
+            }
+            _ => None,
         });
-    if let Some(ConstraintTarget::Trait(id)) = target {
-        table.insert_type_ref(
-            reference.ty,
-            ResolvedTypeRef {
-                ty: if applied {
-                    TypeId::Error
-                } else {
-                    context
-                        .declarations
-                        .definition(crate::resolver::ResolvedName::Trait(id))
-                        .cloned()
-                        .map(TypeId::Trait)
-                        .unwrap_or(TypeId::Error)
-                },
-                target: Some(TypeTarget::Trait(id)),
-            },
-        );
+    let reason = if applied {
+        Some("generic trait applications require concrete instantiation")
+    } else if matches!(target, Some(ConstraintTarget::Trait(id)) if lowered.module.traits.iter().any(|item| item.id == id && !item.generic_params.is_empty()))
+    {
+        Some("generic trait references require concrete type arguments")
+    } else if matches!(resolved.ty, TypeId::Trait(_)) && target.is_none() {
+        Some("imported trait constraints and implementations are not yet supported")
+    } else if !resolved.ty.is_unresolved() && target.is_none() {
+        Some("expected a trait, not another type or generic parameter")
+    } else {
+        None
+    };
+    if applied {
+        resolved.ty = TypeId::Error;
     }
-    let target = target.filter(|_| !applied);
+    if standard.is_none() || applied {
+        table.insert_type_ref(reference.ty, resolved);
+    }
+    let target = target.filter(|_| reason.is_none());
     table.insert_constraint(reference.ty, target);
     if target.is_none() {
         if table.type_ref(reference.ty).is_none() {
@@ -162,8 +178,15 @@ fn resolve_constraint(
             );
         }
         diagnostics.push(
-            Diagnostic::error(DiagnosticKind::UnknownTrait {
-                trait_name: super::ty::display_type(&lowered.module, reference.ty),
+            Diagnostic::error(if let Some(reason) = reason {
+                DiagnosticKind::InvalidTraitReference {
+                    trait_name: super::ty::display_type(&lowered.module, reference.ty),
+                    reason,
+                }
+            } else {
+                DiagnosticKind::UnknownTrait {
+                    trait_name: super::ty::display_type(&lowered.module, reference.ty),
+                }
             })
             .with_span(lowered.source_map.type_span(reference.ty)),
         );

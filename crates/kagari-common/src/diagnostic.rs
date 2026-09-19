@@ -99,6 +99,10 @@ pub enum DiagnosticKind {
     InvalidValueTarget {
         name: String,
     },
+    InvalidTraitReference {
+        trait_name: String,
+        reason: &'static str,
+    },
     InvalidIndexTarget {
         type_name: String,
     },
@@ -347,6 +351,7 @@ impl DiagnosticKind {
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
+            Self::InvalidTraitReference { .. } => "KG_TYPE_INVALID_TRAIT_REFERENCE",
             Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
             Self::DuplicateDeclaration { .. } => "KG_RESOLVE_DUPLICATE_DECLARATION",
             Self::DuplicateField { .. } => "KG_RESOLVE_DUPLICATE_FIELD",
@@ -499,6 +504,9 @@ impl Display for DiagnosticKind {
                 write!(f, "value of type `{type_name}` cannot be called")
             }
             Self::InvalidValueTarget { name } => write!(f, "`{name}` is not a value expression"),
+            Self::InvalidTraitReference { trait_name, reason } => {
+                write!(f, "invalid trait reference `{trait_name}`: {reason}")
+            }
             Self::InvalidIndexTarget { type_name } => {
                 write!(f, "invalid index for type `{type_name}`")
             }

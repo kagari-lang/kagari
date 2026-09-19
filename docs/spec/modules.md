@@ -69,6 +69,19 @@ subset. Bare function, module or type names produce `KG_TYPE_INVALID_VALUE_TARGE
 in HIR while retaining their resolution for tooling; unknown names still produce
 `KG_RESOLVE_UNKNOWN_NAME`. Enum unit-variant values retain their constructor rules.
 
+Trait references in impl headers and generic constraints share declaration-owned
+type references, source ranges and checked targets. Implementations and ABI
+lowering consume those facts rather than resolving an impl's trait spelling again.
+Type arguments (including an explicitly empty argument list) are preserved;
+unsupported applications produce `KG_TYPE_INVALID_TRAIT_REFERENCE` and cannot
+register an implementation; generic traits also cannot be used by omitting their
+arguments. Their argument types and resolved base declaration
+remain available for tooling. Generic binders and explicit declarations shadow
+standard constraint names. A standard constraint cannot itself be implemented by
+an impl. Imported trait references retain their nominal type and defining source
+location through aliases and facades; constraint/impl execution support remains
+pending and is diagnosed explicitly, instead of reporting a known trait as unknown.
+
 Public struct, enum and trait types can be used in parameter, return, field and
 local annotations via direct imports and qualified namespace aliases. Type
 facades and aliases of re-exported source modules retain the final declaration

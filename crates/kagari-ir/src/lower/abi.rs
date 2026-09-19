@@ -149,9 +149,16 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
     }
 
     for impl_block in &hir_module.impls {
-        let Some(trait_name) = &impl_block.trait_ref else {
+        let Some(reference) = &impl_block.trait_ref else {
             continue;
         };
+        let trait_name = module
+            .typed
+            .type_table
+            .type_ref(reference.ty)
+            .expect("checked impl trait reference")
+            .ty
+            .display_name();
         let for_type = impl_block
             .for_type
             .and_then(|ty| module.typed.type_table.type_ref(ty))

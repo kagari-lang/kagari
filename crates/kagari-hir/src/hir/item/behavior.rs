@@ -44,7 +44,7 @@ pub struct TraitMethod {
 pub struct Impl {
     pub id: ImplId,
     pub generic_params: GenericParamBuffer,
-    pub trait_ref: Option<String>,
+    pub trait_ref: Option<TraitRef>,
     pub for_type: Option<TypeRefId>,
     pub bounds: TraitBoundBuffer,
     pub methods: ImplMethodBuffer,
@@ -72,7 +72,6 @@ pub struct TraitBound {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitRef {
-    pub name: String,
     pub ty: TypeRefId,
 }
 

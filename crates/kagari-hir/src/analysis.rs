@@ -609,6 +609,8 @@ mod prelude_tests;
 #[cfg(test)]
 mod signature_tests;
 #[cfg(test)]
+mod trait_reference_tests;
+#[cfg(test)]
 mod type_name_tests;
 
 #[cfg(test)]

@@ -18,7 +18,9 @@ fn main() -> kagari_embed::CompileResult<()> {
     )?;
     // An erroneous neighbor does not prevent navigation in the correct function.
     let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }\r\nenum Mode { Ready, Running(Point, [String]) }\r\nfn mode(p: Point) -> Mode { Mode::Running(p, [\"active\"]) }";
-    let text = &format!("{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}");
+    let text = &format!(
+        "{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}\r\nimpl Show for Point {{ fn show(self) -> i32 {{ self.x }} }}"
+    );
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
     // Declaration discovery does not resolve bodies or evaluate constants.
     let headers = engine.declarations(engine.source_snapshot(), &Default::default())?;
@@ -147,6 +149,14 @@ fn main() -> kagari_embed::CompileResult<()> {
         .definition_at(text.find("T: Show").expect("trait bound") + 3)
         .expect("resolved trait constraint");
     println!("constraint {} -> {:?}", constraint.name, constraint.id);
+    let implementation = analysis
+        .definition_at(text.find("impl Show").expect("impl header") + 5)
+        .expect("checked impl trait target");
+    assert_eq!(implementation.id, constraint.id);
+    println!(
+        "impl trait {} -> {:?}",
+        implementation.name, implementation.id
+    );
 
     engine.set_source(
         source_name,
