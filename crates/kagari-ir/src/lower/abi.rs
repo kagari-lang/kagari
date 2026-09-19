@@ -72,6 +72,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 public_items.push(PublicAbiItem::Type(TypeAbi {
                     name: struct_item.name.clone(),
                     kind: TypeAbiKind::Struct,
+                    generic_params: generic_param_abi(module, &struct_item.generic_params),
                     fields: struct_item
                         .fields
                         .iter()
@@ -98,6 +99,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 public_items.push(PublicAbiItem::Type(TypeAbi {
                     name: enum_item.name.clone(),
                     kind: TypeAbiKind::Enum,
+                    generic_params: generic_param_abi(module, &enum_item.generic_params),
                     fields: Vec::new(),
                     variants: enum_item
                         .variants

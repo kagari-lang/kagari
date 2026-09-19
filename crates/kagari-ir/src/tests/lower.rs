@@ -8,6 +8,80 @@ use crate::{
 };
 
 #[test]
+fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
+    let checked = common::analyze_ok(
+        "struct Cell<T> { var value: T } enum Packet<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool) { val a = Cell { value: 1 }; val b = Cell { value: 2 }; val c = Cell { value: true }; val p = Packet::Data(a); (get(b), c.value) }",
+    );
+    let ir = lower_to_ir(
+        &checked,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 4,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ir.structures.len(), 2);
+    assert_eq!(ir.enumerations.len(), 1);
+    assert_eq!(ir.functions.len(), 2);
+    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    let Err(crate::IrLoweringError::Diagnostic(d)) = lower_to_ir(
+        &checked,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 3,
+            ..Default::default()
+        },
+    ) else {
+        panic!("function and layouts share the budget")
+    };
+    assert!(matches!(
+        d.kind,
+        kagari_common::DiagnosticKind::CompileLimitExceeded {
+            resource: "generic instances",
+            limit: 3
+        }
+    ));
+}
+
+#[test]
+fn growing_recursive_aggregate_layouts_are_bounded() {
+    let checked = common::analyze_ok(
+        "struct Grow<T> { val next: [Grow<[T]>] } fn accept(x: Grow<i32>) {} fn main() {}",
+    );
+    let Err(crate::IrLoweringError::Diagnostic(d)) = lower_to_ir(
+        &checked,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 3,
+            ..Default::default()
+        },
+    ) else {
+        panic!("growing layout graph must stop")
+    };
+    assert!(matches!(
+        d.kind,
+        kagari_common::DiagnosticKind::CompileLimitExceeded {
+            resource: "generic instances",
+            limit: 3
+        }
+    ));
+}
+
+#[test]
+fn unreachable_aggregate_constructors_do_not_consume_instance_budget() {
+    let checked = common::analyze_ok(
+        "struct Cell<T> { val value: T } fn main() { return; val c = Cell { value: 1 }; }",
+    );
+    let ir = lower_to_ir(
+        &checked,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(ir.structures.is_empty());
+}
+
+#[test]
 fn checked_enum_constructors_lower_to_nominal_layout_operands() {
     for expression in ["Event::Empty", "Event::Data(7)"] {
         let source =
@@ -30,7 +104,8 @@ fn checked_enum_constructors_lower_to_nominal_layout_operands() {
         else {
             unreachable!()
         };
-        assert_eq!(enumeration, &ir.enumerations[0].declaration);
+        assert_eq!(enumeration.declaration, ir.enumerations[0].declaration);
+        assert_eq!(enumeration.arguments, ir.enumerations[0].arguments);
         assert_eq!(
             fields.len(),
             ir.enumerations[0].variants[*variant].payload.len()

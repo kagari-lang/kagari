@@ -44,6 +44,7 @@ pub fn layout(
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule {
                     structures: vec![StructLayout {
+                        arguments: Vec::new(),
                         declaration,
                         fields,
                     }],

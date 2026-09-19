@@ -119,6 +119,30 @@ impl Declarations {
         self.analysis
     }
 
+    /// Parameters declared by this owner, in declaration order. Inherited method
+    /// binders keep their original owner and are not included here.
+    pub fn parameters_of(&self, owner: &DefinitionId) -> Vec<crate::types::GenericParameterType> {
+        let mut params = self
+            .iter()
+            .filter_map(|declaration| {
+                let DeclarationId::GenericParameter {
+                    owner: declared_owner,
+                    position,
+                } = &declaration.id
+                else {
+                    return None;
+                };
+                (declared_owner == owner).then(|| crate::types::GenericParameterType {
+                    owner: owner.clone(),
+                    position: *position,
+                    name: declaration.name.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        params.sort_by_key(|parameter| parameter.position);
+        params
+    }
+
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Name(name))
     }
@@ -219,6 +243,7 @@ impl Declarations {
                 &item.name,
                 map.struct_span(item.id),
             );
+            builder.generic_params(&owner, &item.generic_params, map);
             for field in &item.fields {
                 if cancel.check().is_err() {
                     return builder.result;
@@ -243,6 +268,7 @@ impl Declarations {
                 &item.name,
                 map.enum_span(item.id),
             );
+            builder.generic_params(&owner, &item.generic_params, map);
             for variant in &item.variants {
                 if cancel.check().is_err() {
                     return builder.result;

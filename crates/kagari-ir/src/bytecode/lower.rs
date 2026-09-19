@@ -129,11 +129,13 @@ impl BytecodeLoweringContext<'_> {
         self.host_interface.functions.push(declaration.clone());
         id
     }
-    fn structure_id(&self, id: &kagari_common::identity::DefinitionId) -> StructId {
+    fn structure_id(&self, id: &crate::module::abi::NominalAbiType) -> StructId {
         StructId::new(
             self.structures
                 .iter()
-                .position(|layout| &layout.declaration == id)
+                .position(|layout| {
+                    layout.declaration == id.declaration && layout.arguments == id.arguments
+                })
                 .expect("verified struct layout"),
         )
     }
@@ -580,7 +582,10 @@ fn lower_instruction(
                 context
                     .enumerations
                     .iter()
-                    .position(|layout| &layout.declaration == enumeration)
+                    .position(|layout| {
+                        layout.declaration == enumeration.declaration
+                            && layout.arguments == enumeration.arguments
+                    })
                     .expect("verified enum layout"),
             ),
             variant: *variant as u32,

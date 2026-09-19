@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 13 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 14 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 12 are rejected; no migration or compatibility
+format version. Versions 1 through 13 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
@@ -60,10 +60,14 @@ Public enum ABI records must match their executable variant names and payloads;
 recomputing an artifact checksum cannot authorize a contradictory ABI record.
 Version 13 records each nominal ABI type as a declaration identity plus ordered
 type arguments. Conversion from checked types and fingerprinting preserve nested
-arguments. Current executable layout tables describe zero-argument declarations;
-verification rejects an applied nominal payload instead of binding it to a bare
-layout. Generation and linking of applied layouts remain part of R07.
-The runtime ABI identity is `kagari-runtime-abi-v13`; the runtime-helper ABI is
+arguments. Version 14 adds concrete type arguments to struct and enum layouts;
+verification and program linking compare the complete instance identity. Public
+type records retain their generic parameter declarations. Public enum payload
+templates encode parameters by declaring owner and position, and must instantiate
+to each executable layout, including instances emitted only by an importer.
+Unused public templates still validate parameter ownership and position. Template
+parameters are rejected in executable layout arguments and enum payloads.
+The runtime ABI identity is `kagari-runtime-abi-v14`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and

@@ -2,6 +2,7 @@ mod abi;
 mod expr;
 mod function;
 mod instances;
+mod layouts;
 mod place;
 mod state;
 mod stmt;
@@ -72,45 +73,7 @@ pub fn lower_to_ir(
         )?);
     }
 
-    let mut structures = Vec::new();
-    for structure in module.aggregates.structures() {
-        planner.check()?;
-        let mut fields = Vec::new();
-        for field in &structure.fields {
-            planner.check()?;
-            fields.push(crate::module::StructFieldLayout {
-                declaration: field.id.clone(),
-                name: field.name.clone(),
-                ty: crate::module::ValueType::from_type_id(&field.ty),
-                mutable: field.writeability.is_var(),
-            });
-        }
-        structures.push(crate::module::StructLayout {
-            declaration: structure.id.clone(),
-            fields,
-        });
-    }
-
-    let mut enumerations = Vec::new();
-    for enumeration in module.aggregates.enumerations() {
-        planner.check()?;
-        let mut variants = Vec::new();
-        for variant in &enumeration.variants {
-            planner.check()?;
-            variants.push(crate::module::EnumVariantLayout {
-                declaration: variant.id.clone(),
-                payload: variant
-                    .payload
-                    .iter()
-                    .map(crate::module::abi::AbiType::from_checked_type)
-                    .collect(),
-            });
-        }
-        enumerations.push(crate::module::EnumLayout {
-            declaration: enumeration.id.clone(),
-            variants,
-        });
-    }
+    let (structures, enumerations) = layouts::collect(module, &mut planner)?;
 
     verify_ir(
         IrModule {

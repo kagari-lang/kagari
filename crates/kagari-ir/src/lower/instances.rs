@@ -45,6 +45,7 @@ pub(super) struct InstancePlanner<'a> {
     module: &'a AnalyzedModule,
     pub options: &'a IrLoweringOptions,
     pub instances: Vec<Instance>,
+    pub layout_roots: Vec<(TypeId, Span)>,
     keys: HashMap<FunctionInstance, InstanceId>,
     generic_count: usize,
     instruction_count: usize,
@@ -57,6 +58,7 @@ impl<'a> InstancePlanner<'a> {
             module,
             options,
             instances: Vec::new(),
+            layout_roots: Vec::new(),
             keys: HashMap::new(),
             generic_count: 0,
             instruction_count: 0,
@@ -87,6 +89,32 @@ impl<'a> InstancePlanner<'a> {
         } else {
             self.instruction_count += 1;
         }
+    }
+
+    pub(super) fn charge_layout_instance(&mut self, span: Span) -> Result<(), IrLoweringError> {
+        self.check()?;
+        if self.generic_count >= self.options.max_generic_instances {
+            return Err(IrLoweringError::diagnostic(limit_diagnostic(
+                "generic instances",
+                self.options.max_generic_instances,
+                span,
+            )));
+        }
+        self.generic_count += 1;
+        Ok(())
+    }
+
+    pub(super) fn record_layout_root(
+        &mut self,
+        ty: &TypeId,
+        substitution: &TypeSubstitution,
+        span: Span,
+    ) -> Result<(), IrLoweringError> {
+        let concrete = self
+            .arguments(std::slice::from_ref(ty), substitution, span)?
+            .remove(0);
+        self.layout_roots.push((concrete, span));
+        Ok(())
     }
 
     pub fn enqueue(
@@ -267,6 +295,21 @@ fn instantiate(
             kind: *kind,
             args: args.iter().map(&mut child).collect::<Result<_, _>>()?,
         },
+        TypeId::Struct(nominal) | TypeId::Enum(nominal) | TypeId::Trait(nominal) => {
+            let instance = kagari_hir::types::NominalType {
+                declaration: nominal.declaration.clone(),
+                arguments: nominal
+                    .arguments
+                    .iter()
+                    .map(&mut child)
+                    .collect::<Result<_, _>>()?,
+            };
+            match ty {
+                TypeId::Struct(_) => TypeId::Struct(instance),
+                TypeId::Enum(_) => TypeId::Enum(instance),
+                _ => TypeId::Trait(instance),
+            }
+        }
         _ => ty.clone(),
     })
 }

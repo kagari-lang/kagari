@@ -75,8 +75,14 @@ impl FunctionLowerer<'_, '_> {
                     .place_field(id)
                     .ok_or(IrLoweringError::MissingBinding("checked field assignment"))?;
                 let mut place = self.prepare_place_inner(base, true)?;
+                let receiver_ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .place_type(base)
+                    .ok_or(IrLoweringError::UnresolvedPlace(base))?;
                 place.projections.push(Projection {
-                    kind: ProjectionKind::Field(self.aggregate_field_ref(field)),
+                    kind: ProjectionKind::Field(self.aggregate_field_ref(field, &receiver_ty)?),
                     ty: self.place_type(id)?,
                     tuple_base: false,
                 });

@@ -331,6 +331,18 @@ fn run(case: &Case, route: Route) {
 
 #[test]
 fn language_contract_routes_preserve_values_diagnostics_and_effects() {
+    let generic_aggregates = Case::new(
+        "generic-aggregate-layout-instances",
+        "pub struct Cell<T> { var value: T } pub enum Packet<T> { Data(T) } pub enum Unused<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool, bool) { val a = Cell { value: 7 }; val b = Cell { value: true }; a.value = 8; (get(a), get(b), Packet::Data(7) == Packet::Data(7)) }",
+        Expected::Value(Value::Tuple(vec![
+            Value::I32(8),
+            Value::Bool(true),
+            Value::Bool(true),
+        ])),
+    );
+    for route in [Route::Source, Route::Artifact, Route::Jit] {
+        run(&generic_aggregates, route);
+    }
     let checked_where_bounds = Case::new(
         "checked-where-bounds-through-forwarding",
         "trait Get { fn get(self) -> i32; } struct P {} impl Get for P { fn get(self) -> i32 { 42 } } fn read<T>(value: T) -> i32 where T: Get { value.get() } fn wrap<U>(value: U) -> i32 where U: Get { read(value) } fn pass<T>(value: T) -> T where T: HashKey { value } fn main() -> (i32, i32) { (wrap(P {}), pass(7)) }",

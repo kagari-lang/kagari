@@ -134,7 +134,12 @@ impl<'a> TypeCatalog<'a> {
             declaration: declaration.clone(),
             ty: make_type(crate::types::NominalType {
                 declaration: identity.clone(),
-                arguments: Vec::new(),
+                arguments: module
+                    .declarations
+                    .parameters_of(identity)
+                    .into_iter()
+                    .map(TypeId::Generic)
+                    .collect(),
             }),
         }))
     }

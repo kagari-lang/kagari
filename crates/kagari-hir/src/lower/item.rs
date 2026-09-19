@@ -532,6 +532,10 @@ impl Lowerer {
 
     fn lower_struct(&mut self, struct_def: &ast::StructDef) -> Struct {
         let id = self.source_map.push_struct(syntax_span(struct_def));
+        let generic_params = struct_def
+            .generic_params()
+            .map(|params| self.lower_generic_params(&params))
+            .unwrap_or_default();
         let fields = struct_def
             .field_list()
             .map(|field_list| {
@@ -573,6 +577,7 @@ impl Lowerer {
                 Visibility::Private
             },
             name: struct_def.name_text().unwrap_or_default(),
+            generic_params,
             fields,
             methods: Vec::new(),
             impls: Vec::new(),
@@ -581,6 +586,10 @@ impl Lowerer {
 
     fn lower_enum(&mut self, enum_def: &ast::EnumDef) -> Enum {
         let id = self.source_map.push_enum(syntax_span(enum_def));
+        let generic_params = enum_def
+            .generic_params()
+            .map(|params| self.lower_generic_params(&params))
+            .unwrap_or_default();
         let variants = enum_def
             .variant_list()
             .map(|variant_list| {
@@ -618,6 +627,7 @@ impl Lowerer {
                 Visibility::Private
             },
             name: enum_def.name_text().unwrap_or_default(),
+            generic_params,
             variants,
             methods: Vec::new(),
             impls: Vec::new(),

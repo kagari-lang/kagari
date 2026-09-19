@@ -1,3 +1,4 @@
+mod applications;
 mod body;
 mod check;
 mod const_eval;
@@ -19,6 +20,7 @@ use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability};
 
 pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
+pub type GenericBounds = HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>>;
 
 pub(crate) use check::{check_bodies_controlled, check_signatures};
 pub use table::{
@@ -28,11 +30,18 @@ pub use table::{
 
 #[derive(Debug, Clone)]
 pub struct ModuleSignatures {
+    pub(crate) type_bounds: HashMap<kagari_common::identity::DefinitionId, GenericBounds>,
     pub(crate) functions: TypedFunctionBuffer,
     pub(crate) type_table: TypeTable,
 }
 
 impl ModuleSignatures {
+    pub fn type_bounds(
+        &self,
+        id: &kagari_common::identity::DefinitionId,
+    ) -> Option<&GenericBounds> {
+        self.type_bounds.get(id)
+    }
     #[cfg(test)]
     pub(crate) fn assert_same_source_facts(
         &self,
@@ -53,6 +62,7 @@ impl ModuleSignatures {
             }
         }
         assert_eq!(functions, other.functions);
+        assert_eq!(self.type_bounds, other.type_bounds);
         self.type_table
             .assert_same_source_facts(&other.type_table, arena, other_arena);
     }

@@ -13,7 +13,7 @@ pub struct IrValue {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AggregateFieldRef {
-    pub owner: kagari_common::identity::DefinitionId,
+    pub owner: super::abi::NominalAbiType,
     pub slot: usize,
 }
 
@@ -77,12 +77,12 @@ pub enum Instruction {
     },
     MakeStruct {
         dst: IrValue,
-        structure: kagari_common::identity::DefinitionId,
+        structure: super::abi::NominalAbiType,
         fields: StructFieldInitBuffer,
     },
     MakeEnum {
         dst: IrValue,
-        enumeration: kagari_common::identity::DefinitionId,
+        enumeration: super::abi::NominalAbiType,
         variant: usize,
         fields: ValueBuffer,
     },

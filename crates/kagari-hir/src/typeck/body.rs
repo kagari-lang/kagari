@@ -118,6 +118,15 @@ impl<'a> BodyChecker<'a> {
                         })
                     })
                     .unwrap_or_else(|| initializer_ty.clone());
+                super::applications::validate(
+                    &local_ty,
+                    &env.generic_bounds,
+                    self.aggregates,
+                    self.type_table,
+                    self.lowered.source_map.stmt_span(stmt_id),
+                    self.diagnostics,
+                    self.cancel,
+                );
                 // Empty containers acquire their concrete parameters from the
                 // annotation; keep that fact on the constructor expression too.
                 if ty.is_some()
@@ -680,6 +689,15 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Block(block) => self.infer_block_types(*block, env),
         };
 
+        super::applications::validate(
+            &ty,
+            &env.generic_bounds,
+            self.aggregates,
+            self.type_table,
+            self.lowered.source_map.expr_span(expr_id),
+            self.diagnostics,
+            self.cancel,
+        );
         env.exprs.insert(expr_id, ty.clone());
         self.type_table.insert_expr(expr_id, ty.clone());
         ty
@@ -1430,6 +1448,7 @@ impl<'a> BodyChecker<'a> {
             .find(|variant| variant.name == member.name)
             .cloned();
         let name = format!("{}::{}", signature.declaration.name, member.name);
+        let generic_params = signature.generic_params.clone();
         let target = super::ResolvedEnumConstructor {
             enumeration: enumeration.clone(),
             variant: variant.as_ref().map(|variant| variant.id.clone()),
@@ -1437,15 +1456,36 @@ impl<'a> BodyChecker<'a> {
         self.type_table
             .insert_enum_constructor(callee, target.clone());
         self.type_table.insert_enum_constructor(expression, target);
-        let result = TypeId::Enum(crate::types::NominalType {
-            declaration: enumeration,
-            arguments: Vec::new(),
-        });
-        self.type_table.insert_expr(callee, result.clone());
-        env.exprs.insert(callee, result.clone());
         // Every argument is checked once, even when the variant is absent or its
         // signature is erroneous. Known target facts survive argument failures.
         let actual = self.infer_call_args(args, env);
+        let mut substitution = crate::types::TypeSubstitution::new();
+        if let Some(variant) = &variant {
+            for (expected, (_, actual)) in variant.payload.iter().zip(&actual) {
+                super::inference::infer(expected, actual, &generic_params, &mut substitution);
+            }
+        }
+        let arguments = generic_params
+            .iter()
+            .map(|parameter| {
+                substitution.get(parameter).cloned().unwrap_or_else(|| {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                            function_name: name.clone(),
+                            parameter: parameter.name.clone(),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(callee)),
+                    );
+                    TypeId::Error
+                })
+            })
+            .collect();
+        let result = TypeId::Enum(crate::types::NominalType {
+            declaration: enumeration,
+            arguments,
+        });
+        self.type_table.insert_expr(callee, result.clone());
+        env.exprs.insert(callee, result.clone());
         if let Some(variant) = variant {
             if actual.len() != variant.payload.len() {
                 self.diagnostics.push(
@@ -1460,6 +1500,7 @@ impl<'a> BodyChecker<'a> {
             for (index, ((argument, actual), expected)) in
                 actual.iter().zip(&variant.payload).enumerate()
             {
+                let expected = expected.instantiate(&substitution);
                 if expected.conflicts_with(actual) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
@@ -1669,15 +1710,27 @@ impl<'a> BodyChecker<'a> {
         &self,
         receiver: &TypeId,
         field_name: &str,
-    ) -> Option<&crate::aggregates::FieldSignature> {
+    ) -> Option<crate::aggregates::FieldSignature> {
         let TypeId::Struct(id) = receiver else {
             return None;
         };
-        self.aggregates
-            .structure(&id.declaration)?
+        let structure = self.aggregates.structure(&id.declaration)?;
+        if structure.generic_params.len() != id.arguments.len() {
+            return None;
+        }
+        let substitution = structure
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(id.arguments.iter().cloned())
+            .collect();
+        let mut field = structure
             .fields
             .iter()
-            .find(|field| field.name == field_name)
+            .find(|field| field.name == field_name)?
+            .clone();
+        field.ty = field.ty.instantiate(&substitution);
+        Some(field)
     }
 
     fn resolve_struct_id(&self, path: &str) -> Option<kagari_common::identity::DefinitionId> {
@@ -1855,6 +1908,33 @@ impl<'a> BodyChecker<'a> {
             return TypeId::Error;
         };
 
+        let mut substitution = crate::types::TypeSubstitution::new();
+        for (name, _, actual) in &field_tys {
+            if let Some(field) = struct_def.fields.iter().find(|field| field.name == *name) {
+                super::inference::infer(
+                    &field.ty,
+                    actual,
+                    &struct_def.generic_params,
+                    &mut substitution,
+                );
+            }
+        }
+        let arguments = struct_def
+            .generic_params
+            .iter()
+            .map(|parameter| {
+                substitution.get(parameter).cloned().unwrap_or_else(|| {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                            function_name: path.to_owned(),
+                            parameter: parameter.name.clone(),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                    TypeId::Error
+                })
+            })
+            .collect();
         let mut seen = HashSet::new();
         let resolved = super::ResolvedStructInit {
             structure: struct_def.id.clone(),
@@ -1892,13 +1972,17 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
 
-            let Some(expected) = self.aggregates.field(field).map(|field| &field.ty) else {
+            let Some(expected) = self
+                .aggregates
+                .field(field)
+                .map(|field| field.ty.instantiate(&substitution))
+            else {
                 continue;
             };
             if expected.conflicts_with(value_ty) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                        expected: display_type_id(expected),
+                        expected: display_type_id(&expected),
                         found: display_type_id(value_ty),
                     })
                     .with_span(self.lowered.source_map.expr_span(*value_expr)),
@@ -1921,7 +2005,7 @@ impl<'a> BodyChecker<'a> {
 
         TypeId::Struct(crate::types::NominalType {
             declaration: struct_def.id,
-            arguments: Vec::new(),
+            arguments,
         })
     }
 

@@ -223,14 +223,24 @@ Implemented foundation slices:
   Invalid applications retain base and argument targets; navigation selects the
   innermost annotation even when its target is unknown. Regressions cover all four
   standard constructors, facades, partial arguments, signature rebasing and repair.
-  Concrete user-type applications and generic layout instantiation remain pending.
+  Source struct/enum applications now retain declaration-owned binders and check
+  arity and bounds. Constructors infer arguments from fields/payloads; field access
+  substitutes the receiver's arguments. Signature reuse preserves binder identity.
   Semantic Struct/Enum/Trait identities now carry a NominalType with declaration
   identity and ordered arguments. Substitution, inference, concreteness, recovery
   and display recurse through those arguments. ABI types preserve the same shape;
-  format 13/runtime ABI v13 reject older products. Layout verification rejects
+  format 14/runtime ABI v14 reject older products. Layout verification rejects
   applied nominal payloads until their concrete layout exists, rather than binding
-  them to zero-argument declarations. These are identity/encoding foundations;
-  source-level applied type checking and layout generation remain unfinished.
+  them to zero-argument declarations. Reachable struct/enum layouts are now emitted
+  per concrete instance and deduplicated. Layouts and function instances share the
+  program-wide instantiation budget; recursively growing layouts terminate with a
+  structured diagnostic. Public generic enum ABI templates validate against each
+  local/imported instance, including when the owner emits no instance. Tests cover
+  facades, distinct field representations, bounds, malformed binders, source/artifact/
+  JIT fallback behavior and the standard-library example. Explicit constructor type
+  arguments, contextual inference for phantom parameters, generic impl specialization
+  and interface tables remain pending. Applied-bound validation currently runs in
+  body/full analysis; independent signature-query diagnostics need the same catalog.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts
@@ -253,8 +263,8 @@ Implemented foundation slices:
   mutable-member identity and evaluation order share source/artifact/JIT-fallback
   conformance fixtures; embedding tests cover foreign runtimes, changed nested
   schemas, rooted old-version survival, same-named standard types and dependencies.
-  Format 12/runtime ABI v12 reject older products. Applied generic enum instantiation
-  and the remaining interface/layout contracts retain R07/R08 acceptance.
+  Format 14/runtime ABI v14 reject older products. Remaining interface/layout
+  contracts retain R07/R08 acceptance.
   Erroneous signatures retain parameter slots with Error types. Invalid local
   annotations, call targets and indices produce diagnostics; unresolved operands
   suppress dependent mismatch diagnostics. Empty Map/Set constructors retain
@@ -302,8 +312,8 @@ Implemented foundation slices:
   values before accounting. Old objects retain their layout; compatible layouts
   across versions require equal identities, slots and schemas. Initializer values
   are emitted in layout order after source-order evaluation. The layouts IR example
-  shows these contracts. Full nested nominal types, generic type layouts, interface
-  tables and dependency linking remain pending, so R07/R08 are not complete.
+  shows these contracts. Full nominal field schema verification and interface
+  tables remain pending, so R07/R08 are not complete.
   Calls now carry one HIR target and an explicit receiver. IR and reflection
   permission checks consume that target; duplicate Array/String method checking,
   backend builtin-name classification and fallback call dispatch were removed.
@@ -376,8 +386,8 @@ Implemented foundation slices:
   invalidate local signatures and bodies, including through unchanged facade files.
   Function exports may use types imported from another source module. Public facade
   target traversal is shared by type imports, imported calls and definition queries;
-  cyclic or stale targets cannot escape their snapshot. Applied user types, foreign
-  generic enum operations and imported trait method/implementation contracts remain pending.
+  cyclic or stale targets cannot escape their snapshot. Imported trait implementation
+  contracts and generic impl specialization remain pending.
   Aggregate contracts from reachable dependencies participate in body invalidation,
   including when a function's nominal return type stays unchanged but its fields
   change. Unrelated module results remain shared. Local body edits can reuse nominal
@@ -448,8 +458,10 @@ Implemented foundation slices:
   calls on existing concrete implementations use HIR implementation targets.
   Return/break/continue terminate block lowering, preventing later effects and
   unreachable generic calls from being emitted. Generic impl specialization,
-  applied trait/type arguments, generic concrete layouts and dynamic implementation
-  tables remain outstanding; public ABI labels still need linked identities.
+  applied trait arguments and dynamic implementation tables remain outstanding;
+  public ABI labels still need linked identities. Generic struct/enum instances
+  now have concrete layouts keyed by declaration and arguments; explicit constructor
+  arguments and contextual phantom-parameter inference remain outstanding.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

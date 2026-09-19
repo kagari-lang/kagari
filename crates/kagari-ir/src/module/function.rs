@@ -36,13 +36,10 @@ pub struct IrFunction {
 }
 
 impl IrModule {
-    pub fn structure(
-        &self,
-        declaration: &kagari_common::identity::DefinitionId,
-    ) -> Option<&super::StructLayout> {
-        self.structures
-            .iter()
-            .find(|layout| &layout.declaration == declaration)
+    pub fn structure(&self, instance: &super::abi::NominalAbiType) -> Option<&super::StructLayout> {
+        self.structures.iter().find(|layout| {
+            layout.declaration == instance.declaration && layout.arguments == instance.arguments
+        })
     }
 }
 

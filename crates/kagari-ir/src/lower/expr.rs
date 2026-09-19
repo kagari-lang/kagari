@@ -11,6 +11,17 @@ use crate::module::types::ValueType;
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         self.planner.check()?;
+        let ty = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_type(expr_id)
+            .ok_or(IrLoweringError::MissingExprType(expr_id))?;
+        self.planner.record_layout_root(
+            &ty,
+            &self.instance.substitution,
+            self.analyzed.lowered.source_map.expr_span(expr_id),
+        )?;
         if let Some(target) = self
             .analyzed
             .typed
@@ -40,7 +51,7 @@ impl FunctionLowerer<'_, '_> {
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::MakeEnum {
                 dst,
-                enumeration: target.enumeration,
+                enumeration: self.expr_nominal_instance(expr_id)?,
                 variant,
                 fields,
             });
@@ -387,7 +398,7 @@ impl FunctionLowerer<'_, '_> {
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeStruct {
             dst,
-            structure: target.structure,
+            structure: self.expr_nominal_instance(expr_id)?,
             fields,
         });
         Ok(dst)
@@ -404,7 +415,13 @@ impl FunctionLowerer<'_, '_> {
             .type_table
             .expr_field(expr_id)
             .ok_or(IrLoweringError::MissingBinding("checked field read"))?;
-        let field = self.aggregate_field_ref(field);
+        let receiver_ty = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_type(receiver)
+            .ok_or(IrLoweringError::MissingExprType(receiver))?;
+        let field = self.aggregate_field_ref(field, &receiver_ty)?;
         let base = self.lower_expr(receiver)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadAggregateField { dst, base, field });

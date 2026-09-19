@@ -93,7 +93,17 @@ pub fn lower_program_to_ir(
             .functions
             .iter()
             .filter(|f| !f.instance.arguments.is_empty())
-            .count();
+            .count()
+            + lowered
+                .structures
+                .iter()
+                .filter(|s| !s.arguments.is_empty())
+                .count()
+            + lowered
+                .enumerations
+                .iter()
+                .filter(|e| !e.arguments.is_empty())
+                .count();
         remaining.max_instructions -= lowered
             .functions
             .iter()
@@ -143,8 +153,10 @@ pub fn verify_program(
             cancel
                 .check()
                 .map_err(|_| error(&identity, ProgramErrorKind::Cancelled))?;
-            if let Some(previous) = layouts.insert(layout.declaration.clone(), layout.clone())
-                && previous != *layout
+            if let Some(previous) = layouts.insert(
+                (layout.declaration.clone(), layout.arguments.clone()),
+                layout.clone(),
+            ) && previous != *layout
             {
                 return Err(error(
                     &identity,
@@ -156,8 +168,10 @@ pub fn verify_program(
             cancel
                 .check()
                 .map_err(|_| error(&identity, ProgramErrorKind::Cancelled))?;
-            if let Some(previous) = enum_layouts.insert(layout.declaration.clone(), layout.clone())
-                && previous != *layout
+            if let Some(previous) = enum_layouts.insert(
+                (layout.declaration.clone(), layout.arguments.clone()),
+                layout.clone(),
+            ) && previous != *layout
             {
                 return Err(error(
                     &identity,

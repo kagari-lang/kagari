@@ -598,6 +598,8 @@ mod arena_tests;
 #[cfg(test)]
 mod constructor_tests;
 #[cfg(test)]
+mod generic_type_tests;
+#[cfg(test)]
 mod identity_tests;
 #[cfg(test)]
 mod member_tests;

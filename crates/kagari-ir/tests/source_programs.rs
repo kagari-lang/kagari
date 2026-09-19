@@ -61,6 +61,59 @@ fn fixture() -> CheckedProgram {
 }
 
 #[test]
+fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "types",
+        "pub struct Cell<T> { var value: T } pub enum Packet<T> { Data(T) } fn seed() { val c = Cell { value: true }; }",
+    );
+    insert(
+        &mut db,
+        "facade",
+        "pub use pkg::types::Cell; pub use pkg::types::Packet;",
+    );
+    let root = insert(
+        &mut db,
+        "root",
+        "use pkg::facade::Cell; use pkg::facade::Packet; fn main() -> Packet<i32> { val a = Cell { value: 7 }; val b = Cell { value: true }; Packet::Data(a.value) }",
+    );
+    let checked = checked(&db, root);
+    let ir = lower_program_to_ir(&checked, &Default::default()).unwrap();
+    let layouts = &ir.modules().last().unwrap().structures;
+    assert_eq!(layouts.len(), 2);
+    assert_eq!(layouts[0].declaration, layouts[1].declaration);
+    assert_ne!(layouts[0].arguments, layouts[1].arguments);
+    assert_ne!(layouts[0].fields[0].ty, layouts[1].fields[0].ty);
+    let mut program = kagari_ir::bytecode::lower_program_to_bytecode(&ir).unwrap();
+    kagari_ir::bytecode::verify_program(&program).unwrap();
+    // The owner need not execute an instance for its public template to be checked.
+    assert!(program.modules[0].enumerations.is_empty());
+    let kagari_ir::module::PublicAbiItem::Type(template) = program.modules[0]
+        .public_items
+        .iter_mut()
+        .find(|item| item.name() == "Packet")
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    template.variants[0].payload[0] =
+        kagari_ir::module::abi::AbiType::Builtin(kagari_hir::types::BuiltinType::Bool);
+    assert!(kagari_ir::bytecode::verify_program(&program).is_err());
+    let error = lower_program_to_ir(
+        &checked,
+        &IrLoweringOptions {
+            max_generic_instances: 3,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error.kind, ProgramErrorKind::Lowering(kagari_ir::IrLoweringError::Diagnostic(d)) if matches!(d.kind, DiagnosticKind::CompileLimitExceeded { resource: "generic instances", limit: 3 }))
+    );
+}
+
+#[test]
 fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts() {
     let checked = fixture();
     assert_eq!(

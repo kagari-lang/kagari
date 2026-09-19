@@ -5,6 +5,7 @@ use kagari_common::identity::DefinitionId;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumLayout {
     pub declaration: DefinitionId,
+    pub arguments: Vec<super::abi::AbiType>,
     pub variants: Vec<EnumVariantLayout>,
 }
 
@@ -26,32 +27,88 @@ pub(crate) fn enum_abi_matches(
         if ty.kind != super::TypeAbiKind::Enum {
             return true;
         }
+        // Unused public templates still cross the artifact trust boundary.
+        // Validate binders even when no executable instance exists in the owner.
+        let mut pending = ty
+            .variants
+            .iter()
+            .flat_map(|v| &v.payload)
+            .collect::<Vec<_>>();
+        while let Some(payload) = pending.pop() {
+            use super::abi::AbiType;
+            use kagari_common::identity::DefinitionKind;
+            match payload {
+                AbiType::Parameter { owner, position } => {
+                    if &owner.module != identity
+                        || *position >= ty.generic_params.len()
+                        || owner.path.len() != 1
+                        || !owner.path.last().is_some_and(|part| {
+                            part.kind == DefinitionKind::Enum
+                                && part.name == ty.name
+                                && part.occurrence == 0
+                        })
+                    {
+                        return false;
+                    }
+                }
+                AbiType::Builtin(_) => {}
+                AbiType::Tuple(types) => pending.extend(types),
+                AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
+                AbiType::Map { key, value } => {
+                    pending.push(key);
+                    pending.push(value);
+                }
+                AbiType::StandardEnum { kind, args } => {
+                    let arity = match kind {
+                        super::abi::StandardEnumKind::Option => 1,
+                        super::abi::StandardEnumKind::Result => 2,
+                    };
+                    if args.len() != arity {
+                        return false;
+                    }
+                    pending.extend(args);
+                }
+                AbiType::Struct(nominal) | AbiType::Enum(nominal) | AbiType::Trait(nominal) => {
+                    pending.extend(&nominal.arguments)
+                }
+            }
+        }
+        let instances = layouts
+            .iter()
+            .filter(|layout| {
+                &layout.declaration.module == identity
+                    && layout
+                        .declaration
+                        .path
+                        .last()
+                        .is_some_and(|part| part.name == ty.name)
+            })
+            .collect::<Vec<_>>();
         ty.fields.is_empty()
-            && layouts
-                .iter()
-                .find(|layout| {
-                    &layout.declaration.module == identity
-                        && layout
-                            .declaration
-                            .path
-                            .last()
-                            .is_some_and(|part| part.name == ty.name)
-                })
-                .is_some_and(|layout| {
-                    layout.variants.len() == ty.variants.len()
-                        && layout
-                            .variants
-                            .iter()
-                            .zip(&ty.variants)
-                            .all(|(layout, abi)| {
-                                layout
-                                    .declaration
-                                    .path
-                                    .last()
-                                    .is_some_and(|part| part.name == abi.name)
-                                    && layout.payload == abi.payload
-                            })
-                })
+            && (!ty.generic_params.is_empty() || !instances.is_empty())
+            && instances.into_iter().all(|layout| {
+                layout.arguments.len() == ty.generic_params.len()
+                    && layout.variants.len() == ty.variants.len()
+                    && layout
+                        .variants
+                        .iter()
+                        .zip(&ty.variants)
+                        .all(|(variant, abi)| {
+                            variant
+                                .declaration
+                                .path
+                                .last()
+                                .is_some_and(|part| part.name == abi.name)
+                                && abi
+                                    .payload
+                                    .iter()
+                                    .map(|ty| {
+                                        ty.instantiate(&layout.declaration, &layout.arguments)
+                                    })
+                                    .collect::<Option<Vec<_>>>()
+                                    == Some(variant.payload.clone())
+                        })
+            })
     })
 }
 
@@ -61,6 +118,11 @@ pub(crate) fn validate_enum_layouts(
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> Result<(), LayoutValidationError> {
     use kagari_common::identity::DefinitionKind;
+    let mut pending = structures
+        .iter()
+        .flat_map(|s| &s.arguments)
+        .chain(layouts.iter().flat_map(|e| &e.arguments))
+        .collect::<Vec<_>>();
     let mut identities = std::collections::HashSet::new();
     for layout in layouts {
         cancel
@@ -74,7 +136,7 @@ pub(crate) fn validate_enum_layouts(
                 .path
                 .last()
                 .is_some_and(|p| p.kind == DefinitionKind::Enum && !p.name.is_empty())
-            || !identities.insert(id)
+            || !identities.insert((id, &layout.arguments))
         {
             return Err(LayoutValidationError::Invalid);
         }
@@ -99,62 +161,61 @@ pub(crate) fn validate_enum_layouts(
             {
                 return Err(LayoutValidationError::Invalid);
             }
-            let mut pending = variant.payload.iter().collect::<Vec<_>>();
-            while let Some(ty) = pending.pop() {
-                cancel
-                    .check()
-                    .map_err(|_| LayoutValidationError::Cancelled)?;
-                use super::abi::{AbiType, StandardEnumKind};
-                match ty {
-                    AbiType::Builtin(_) => {}
-                    AbiType::Tuple(types) => pending.extend(types),
-                    AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
-                    AbiType::Map { key, value } => {
-                        pending.push(key);
-                        pending.push(value);
-                    }
-                    AbiType::StandardEnum { kind, args } => {
-                        let expected = match kind {
-                            StandardEnumKind::Option => 1,
-                            StandardEnumKind::Result => 2,
-                        };
-                        if args.len() != expected {
-                            return Err(LayoutValidationError::Invalid);
-                        }
-                        pending.extend(args);
-                    }
-                    AbiType::Struct(instance)
-                    | AbiType::Enum(instance)
-                    | AbiType::Trait(instance) => {
-                        // Executable layouts currently describe zero-argument
-                        // declarations. Never bind an applied type to that layout.
-                        if !instance.arguments.is_empty() {
-                            return Err(LayoutValidationError::Invalid);
-                        }
-                        let id = &instance.declaration;
-                        let kind = match ty {
-                            AbiType::Struct(_) => DefinitionKind::Struct,
-                            AbiType::Enum(_) => DefinitionKind::Enum,
-                            _ => DefinitionKind::Trait,
-                        };
-                        if id.module.package.0.is_empty()
-                            || id.module.path.is_empty()
-                            || id.module.path.iter().any(String::is_empty)
-                            || !id
-                                .path
-                                .last()
-                                .is_some_and(|p| p.kind == kind && !p.name.is_empty())
-                        {
-                            return Err(LayoutValidationError::Invalid);
-                        }
-                        if (kind == DefinitionKind::Struct
-                            && !structures.iter().any(|layout| &layout.declaration == id))
-                            || (kind == DefinitionKind::Enum
-                                && !layouts.iter().any(|layout| &layout.declaration == id))
-                        {
-                            return Err(LayoutValidationError::Invalid);
-                        }
-                    }
+            pending.extend(&variant.payload);
+        }
+    }
+    while let Some(ty) = pending.pop() {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        use super::abi::{AbiType, StandardEnumKind};
+        match ty {
+            AbiType::Parameter { .. } => return Err(LayoutValidationError::Invalid),
+            AbiType::Builtin(_) => {}
+            AbiType::Tuple(types) => pending.extend(types),
+            AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
+            AbiType::Map { key, value } => {
+                pending.push(key);
+                pending.push(value);
+            }
+            AbiType::StandardEnum { kind, args } => {
+                let expected = match kind {
+                    StandardEnumKind::Option => 1,
+                    StandardEnumKind::Result => 2,
+                };
+                if args.len() != expected {
+                    return Err(LayoutValidationError::Invalid);
+                }
+                pending.extend(args);
+            }
+            AbiType::Struct(instance) | AbiType::Enum(instance) | AbiType::Trait(instance) => {
+                pending.extend(&instance.arguments);
+                let id = &instance.declaration;
+                let kind = match ty {
+                    AbiType::Struct(_) => DefinitionKind::Struct,
+                    AbiType::Enum(_) => DefinitionKind::Enum,
+                    _ => DefinitionKind::Trait,
+                };
+                if id.module.package.0.is_empty()
+                    || id.module.path.is_empty()
+                    || id.module.path.iter().any(String::is_empty)
+                    || !id
+                        .path
+                        .last()
+                        .is_some_and(|p| p.kind == kind && !p.name.is_empty())
+                {
+                    return Err(LayoutValidationError::Invalid);
+                }
+                if (kind == DefinitionKind::Struct
+                    && !structures.iter().any(|layout| {
+                        &layout.declaration == id && layout.arguments == instance.arguments
+                    }))
+                    || (kind == DefinitionKind::Enum
+                        && !layouts.iter().any(|layout| {
+                            &layout.declaration == id && layout.arguments == instance.arguments
+                        }))
+                {
+                    return Err(LayoutValidationError::Invalid);
                 }
             }
         }
@@ -165,6 +226,7 @@ pub(crate) fn validate_enum_layouts(
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StructLayout {
     pub declaration: DefinitionId,
+    pub arguments: Vec<super::abi::AbiType>,
     pub fields: Vec<StructFieldLayout>,
 }
 
@@ -229,7 +291,7 @@ pub(crate) fn validate_layouts(
                 .path
                 .last()
                 .is_some_and(|part| part.kind == DefinitionKind::Struct && !part.name.is_empty())
-            || !identities.insert(id)
+            || !identities.insert((id, &structure.arguments))
         {
             return Err(LayoutValidationError::Invalid);
         }

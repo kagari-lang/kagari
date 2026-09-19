@@ -105,6 +105,29 @@ deduplicated by declaration and arguments, with configurable growth limits.
 Public functions require concrete signatures. Generic impl specialization and
 dynamic interface dispatch still require the remaining R07/R08 work.
 
+Struct and enum declarations retain generic binders and inline bounds in checked
+signatures. Type applications such as `Cell<i32>` resolve those binders, check
+arity, and preserve declaration identity through imports and facades. Full/body
+analysis checks applied bounds in signatures, annotations and constructors;
+independent signature-query bound diagnostics still need the aggregate catalog.
+Constructors infer arguments from field or variant payload values. Field access
+substitutes the receiver's concrete arguments. For example:
+
+```kagari
+struct Cell<T> { var value: T }
+enum Packet<T> { Data(T) }
+fn read<T>(cell: Cell<T>) -> T { cell.value }
+fn main() -> Packet<i32> { Packet::Data(read(Cell { value: 7 })) }
+```
+
+Reachable aggregate instances use layouts keyed by declaration plus arguments.
+They share the configurable instantiation budget with function instances, including
+across module boundaries. Recursive growth is rejected before execution. Explicit
+constructor arguments and contextual inference for parameters absent from a
+constructor's fields/payloads are not implemented yet; missing inferred arguments
+produce a diagnostic. Public generic type templates are permitted, while public
+function entries still require concrete signatures.
+
 ## Interface Value Types
 
 A trait name used as a value type denotes an interface value.

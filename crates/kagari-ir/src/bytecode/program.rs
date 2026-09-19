@@ -42,14 +42,15 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             return Err(invalid());
         }
         for layout in &module.structures {
-            if let Some(previous) = layouts.insert(&layout.declaration, layout)
+            if let Some(previous) = layouts.insert((&layout.declaration, &layout.arguments), layout)
                 && previous != layout
             {
                 return Err(BytecodeVerificationError::InvalidStructLayout);
             }
         }
         for layout in &module.enumerations {
-            if let Some(previous) = enum_layouts.insert(&layout.declaration, layout)
+            if let Some(previous) =
+                enum_layouts.insert((&layout.declaration, &layout.arguments), layout)
                 && previous != layout
             {
                 return Err(BytecodeVerificationError::InvalidEnumLayout);
@@ -69,6 +70,25 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             }
         }
         super::verifier::verify_module_with_program(module, Some(program))?;
+        for layout in &module.enumerations {
+            let Some(owner) = program
+                .modules
+                .iter()
+                .find(|owner| owner.identity == layout.declaration.module)
+            else {
+                continue;
+            };
+            let Some(template) = owner.public_items.iter().find(|item| {
+                matches!(item, crate::module::PublicAbiItem::Type(ty) if ty.kind == crate::module::TypeAbiKind::Enum && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
+            }) else { continue; };
+            if !crate::module::layout::enum_abi_matches(
+                std::slice::from_ref(layout),
+                &owner.identity,
+                std::slice::from_ref(template),
+            ) {
+                return Err(BytecodeVerificationError::InvalidEnumLayout);
+            }
+        }
         let mut reachable = HashSet::new();
         let mut pending = module.dependencies.clone();
         while let Some(dependency) = pending.pop() {

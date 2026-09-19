@@ -33,6 +33,8 @@ pub struct FieldSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructSignature {
     pub id: DefinitionId,
+    pub generic_params: Vec<crate::types::GenericParameterType>,
+    pub bounds: crate::typeck::GenericBounds,
     pub declaration: Declaration,
     pub fields: Vec<FieldSignature>,
 }
@@ -50,6 +52,8 @@ pub struct VariantSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumSignature {
     pub id: DefinitionId,
+    pub generic_params: Vec<crate::types::GenericParameterType>,
+    pub bounds: crate::typeck::GenericBounds,
     pub declaration: Declaration,
     pub variants: Vec<VariantSignature>,
 }
@@ -130,6 +134,11 @@ impl AggregateCatalog {
                 id.clone(),
                 Arc::new(StructSignature {
                     id: id.clone(),
+                    generic_params: declarations.parameters_of(id),
+                    bounds: signatures
+                        .type_bounds(id)
+                        .expect("checked type constraints")
+                        .clone(),
                     declaration: declaration.clone(),
                     fields,
                 }),
@@ -179,6 +188,11 @@ impl AggregateCatalog {
                 id.clone(),
                 Arc::new(EnumSignature {
                     id: id.clone(),
+                    generic_params: declarations.parameters_of(id),
+                    bounds: signatures
+                        .type_bounds(id)
+                        .expect("checked type constraints")
+                        .clone(),
                     declaration: declaration.clone(),
                     variants,
                 }),
@@ -248,7 +262,9 @@ impl AggregateCatalog {
             && self.enumerations.len() == other.enumerations.len()
             && self.enumerations.iter().all(|(id, a)| {
                 other.enumeration(id).is_some_and(|b| {
-                    a.variants.len() == b.variants.len()
+                    a.generic_params == b.generic_params
+                        && a.bounds == b.bounds
+                        && a.variants.len() == b.variants.len()
                         && a.variants.iter().zip(&b.variants).all(|(a, b)| {
                             a.id == b.id
                                 && a.slot == b.slot
@@ -260,7 +276,9 @@ impl AggregateCatalog {
             && self.structures.len() == other.structures.len()
             && self.structures.iter().all(|(id, a)| {
                 other.structure(id).is_some_and(|b| {
-                    a.fields.len() == b.fields.len()
+                    a.generic_params == b.generic_params
+                        && a.bounds == b.bounds
+                        && a.fields.len() == b.fields.len()
                         && a.fields.iter().zip(&b.fields).all(|(a, b)| {
                             a.id == b.id
                                 && a.slot == b.slot

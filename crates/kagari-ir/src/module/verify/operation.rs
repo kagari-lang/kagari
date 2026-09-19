@@ -135,7 +135,10 @@ pub(super) fn verify(
             let variant = module
                 .enumerations
                 .iter()
-                .find(|layout| &layout.declaration == enumeration)
+                .find(|layout| {
+                    layout.declaration == enumeration.declaration
+                        && layout.arguments == enumeration.arguments
+                })
                 .and_then(|layout| layout.variants.get(*variant))
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             if fields.len() != variant.payload.len() {

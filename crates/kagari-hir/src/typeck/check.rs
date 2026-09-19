@@ -35,6 +35,33 @@ pub(crate) fn check_signatures(
         cancel,
     );
 
+    let mut type_bounds = HashMap::new();
+    for (target, params) in lowered
+        .module
+        .structs
+        .iter()
+        .map(|s| (ResolvedName::Struct(s.id), &s.generic_params))
+        .chain(
+            lowered
+                .module
+                .enums
+                .iter()
+                .map(|e| (ResolvedName::Enum(e.id), &e.generic_params)),
+        )
+    {
+        if cancel.check().is_err() {
+            break;
+        }
+        let id = declarations
+            .definition(target)
+            .expect("type declaration")
+            .clone();
+        type_bounds.insert(
+            id,
+            super::constraints::parameter_bounds(params, declarations, &type_table),
+        );
+    }
+
     for structure in &lowered.module.structs {
         let mut field_names = HashSet::new();
         for field in &structure.fields {
@@ -50,10 +77,14 @@ pub(crate) fn check_signatures(
                     .with_span(lowered.source_map.field_span(field.id)),
                 );
             }
-            let ty = resolve_type(
+            let ty = resolve_type_in(
                 &lowered.module,
                 field.ty,
-                declarations,
+                TypeContext {
+                    declarations,
+                    generics: &structure.generic_params,
+                    self_type: None,
+                },
                 &mut type_table,
                 cancel,
             );
@@ -63,6 +94,17 @@ pub(crate) fn check_signatures(
                         type_name: display_type(&lowered.module, field.ty),
                     })
                     .with_span(lowered.source_map.type_span(field.ty)),
+                );
+            }
+            if let Some(ty) = &ty {
+                let id = declarations
+                    .definition(ResolvedName::Struct(structure.id))
+                    .expect("struct declaration");
+                validate_standard_type_constraints(
+                    ty,
+                    &type_bounds[id],
+                    lowered.source_map.type_span(field.ty),
+                    &mut diagnostics,
                 );
             }
             type_table.insert_field_type(field.id, ty.unwrap_or(TypeId::Error));
@@ -75,16 +117,22 @@ pub(crate) fn check_signatures(
                 if cancel.check().is_err() {
                     break;
                 }
-                match resolve_type(
+                match resolve_type_in(
                     &lowered.module,
                     *payload,
-                    declarations,
+                    TypeContext {
+                        declarations,
+                        generics: &enumeration.generic_params,
+                        self_type: None,
+                    },
                     &mut type_table,
                     cancel,
                 ) {
                     Some(ty) => validate_standard_type_constraints(
                         &ty,
-                        &HashMap::new(),
+                        &type_bounds[declarations
+                            .definition(ResolvedName::Enum(enumeration.id))
+                            .expect("enum declaration")],
                         lowered.source_map.type_span(*payload),
                         &mut diagnostics,
                     ),
@@ -259,6 +307,7 @@ pub(crate) fn check_signatures(
     );
     AnalysisResult {
         facts: super::ModuleSignatures {
+            type_bounds,
             functions,
             type_table,
         },
@@ -294,6 +343,13 @@ pub(crate) fn check_bodies_controlled(
     };
     let mut top_level_index = TopLevelTypeIndex::default();
     let mut type_table = signatures.facts.type_table.clone();
+    super::applications::validate_signatures(
+        lowered,
+        &signatures.facts,
+        aggregates,
+        &mut diagnostics,
+        cancel,
+    );
     {
         for const_item in &lowered.module.consts {
             let ty = match const_item.ty {
@@ -669,7 +725,7 @@ fn validate_standard_type_constraints(
     }
 }
 
-fn validate_standard_constraint_type(
+pub(super) fn validate_standard_constraint_type(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
     generic_bounds: &HashMap<crate::types::GenericParameterType, Vec<super::ConstraintTarget>>,

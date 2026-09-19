@@ -68,6 +68,7 @@ pub struct ConstAbi {
 pub struct TypeAbi {
     pub name: String,
     pub kind: TypeAbiKind,
+    pub generic_params: Vec<String>,
     pub fields: Vec<FieldAbi>,
     pub variants: Vec<VariantAbi>,
 }
@@ -93,14 +94,14 @@ pub struct VariantAbi {
 
 /// Semantic ABI types preserve nominal identity and container arguments, whereas
 /// ValueType describes only the representation used by instruction operands.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NominalAbiType {
     pub declaration: kagari_common::identity::DefinitionId,
     pub arguments: Vec<AbiType>,
 }
 
 impl NominalAbiType {
-    fn from_checked_type(ty: &kagari_hir::types::NominalType) -> Self {
+    pub(crate) fn from_checked_type(ty: &kagari_hir::types::NominalType) -> Self {
         Self {
             declaration: ty.declaration.clone(),
             arguments: ty
@@ -112,8 +113,13 @@ impl NominalAbiType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AbiType {
+    /// Valid only in a declaration template, never in an executable layout.
+    Parameter {
+        owner: kagari_common::identity::DefinitionId,
+        position: usize,
+    },
     Builtin(kagari_hir::types::BuiltinType),
     Tuple(Vec<AbiType>),
     Array(Box<AbiType>),
@@ -161,10 +167,61 @@ impl AbiType {
                 kind: *kind,
                 args: args.iter().map(Self::from_checked_type).collect(),
             },
-            TypeId::Unknown | TypeId::Error | TypeId::Generic(_) | TypeId::SelfType(_) => {
+            TypeId::Generic(parameter) => Self::Parameter {
+                owner: parameter.owner.clone(),
+                position: parameter.position,
+            },
+            TypeId::Unknown | TypeId::Error | TypeId::SelfType(_) => {
                 unreachable!("non-concrete type reached concrete ABI encoding")
             }
         }
+    }
+
+    pub(crate) fn instantiate(
+        &self,
+        owner: &kagari_common::identity::DefinitionId,
+        arguments: &[AbiType],
+    ) -> Option<Self> {
+        let nominal = |ty: &NominalAbiType| -> Option<NominalAbiType> {
+            Some(NominalAbiType {
+                declaration: ty.declaration.clone(),
+                arguments: ty
+                    .arguments
+                    .iter()
+                    .map(|ty| ty.instantiate(owner, arguments))
+                    .collect::<Option<_>>()?,
+            })
+        };
+        Some(match self {
+            Self::Parameter {
+                owner: parameter_owner,
+                position,
+            } if owner == parameter_owner => arguments.get(*position)?.clone(),
+            Self::Parameter { .. } => return None,
+            Self::Builtin(_) => self.clone(),
+            Self::Tuple(types) => Self::Tuple(
+                types
+                    .iter()
+                    .map(|ty| ty.instantiate(owner, arguments))
+                    .collect::<Option<_>>()?,
+            ),
+            Self::Array(ty) => Self::Array(Box::new(ty.instantiate(owner, arguments)?)),
+            Self::Set(ty) => Self::Set(Box::new(ty.instantiate(owner, arguments)?)),
+            Self::Map { key, value } => Self::Map {
+                key: Box::new(key.instantiate(owner, arguments)?),
+                value: Box::new(value.instantiate(owner, arguments)?),
+            },
+            Self::StandardEnum { kind, args } => Self::StandardEnum {
+                kind: *kind,
+                args: args
+                    .iter()
+                    .map(|ty| ty.instantiate(owner, arguments))
+                    .collect::<Option<_>>()?,
+            },
+            Self::Struct(ty) => Self::Struct(nominal(ty)?),
+            Self::Enum(ty) => Self::Enum(nominal(ty)?),
+            Self::Trait(ty) => Self::Trait(nominal(ty)?),
+        })
     }
 }
 

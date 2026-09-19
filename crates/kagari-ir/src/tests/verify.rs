@@ -18,6 +18,53 @@ fn raw(source: &str) -> IrModule {
 }
 
 #[test]
+fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
+    let original = common::bytecode_ok("pub enum Packet<T> { Data(T) } fn main() {}");
+    assert!(original.enumerations.is_empty());
+    for foreign_owner in [false, true] {
+        let mut bytecode = original.clone();
+        let crate::module::PublicAbiItem::Type(template) = &mut bytecode.public_items[0] else {
+            unreachable!()
+        };
+        let crate::module::abi::AbiType::Parameter { owner, position } =
+            &mut template.variants[0].payload[0]
+        else {
+            unreachable!()
+        };
+        if foreign_owner {
+            owner.module.path.push("foreign".into());
+        } else {
+            *position = 1;
+        }
+        assert!(crate::bytecode::verify_module(&bytecode).is_err());
+    }
+}
+
+#[test]
+fn template_parameters_cannot_enter_executable_layout_arguments() {
+    for source in [
+        "struct Cell<T> { val value: T } fn main() { val c = Cell { value: 1 }; }",
+        "enum Packet<T> { Data(T) } fn main() { val p = Packet::Data(1); }",
+    ] {
+        let mut bytecode = common::bytecode_ok(source);
+        if let Some(layout) = bytecode.structures.first_mut() {
+            layout.arguments[0] = crate::module::abi::AbiType::Parameter {
+                owner: layout.declaration.clone(),
+                position: 0,
+            };
+        } else {
+            let layout = &mut bytecode.enumerations[0];
+            layout.arguments[0] = crate::module::abi::AbiType::Parameter {
+                owner: layout.declaration.clone(),
+                position: 0,
+            };
+            layout.variants.clear();
+        }
+        assert!(crate::bytecode::verify_module(&bytecode).is_err());
+    }
+}
+
+#[test]
 fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     use crate::module::abi::{AbiType, NominalAbiType};
     use kagari_hir::types::{BuiltinType, NominalType, TypeId};
@@ -248,7 +295,7 @@ fn field_operands_require_an_existing_owner_slot_type_and_write_permission() {
         .flat_map(|b| &mut b.instructions)
     {
         if let Instruction::ReadAggregateField { field, .. } = instruction {
-            field.owner.module.path.push("different".into());
+            field.owner.declaration.module.path.push("different".into());
         }
     }
     assert_eq!(reject(module), Error::InvalidField);

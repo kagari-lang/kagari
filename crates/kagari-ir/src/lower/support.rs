@@ -103,16 +103,56 @@ impl FunctionLowerer<'_, '_> {
     pub(crate) fn aggregate_field_ref(
         &self,
         field: &kagari_common::identity::DefinitionId,
-    ) -> AggregateFieldRef {
+        receiver: &kagari_hir::types::TypeId,
+    ) -> Result<AggregateFieldRef, IrLoweringError> {
         let field = self
             .analyzed
             .aggregates
             .field(field)
             .expect("checked field contract");
-        AggregateFieldRef {
-            owner: field.owner.clone(),
-            slot: field.slot,
+        let owner = self.nominal_instance(receiver)?;
+        if owner.declaration != field.owner {
+            return Err(IrLoweringError::MissingBinding("field instance owner"));
         }
+        Ok(AggregateFieldRef {
+            owner,
+            slot: field.slot,
+        })
+    }
+
+    pub(crate) fn nominal_instance(
+        &self,
+        ty: &kagari_hir::types::TypeId,
+    ) -> Result<crate::module::abi::NominalAbiType, IrLoweringError> {
+        let types = self.planner.arguments(
+            std::slice::from_ref(ty),
+            &self.instance.substitution,
+            self.function.debug.source_span,
+        )?;
+        let ty = &types[0];
+        if !ty.is_concrete() {
+            return Err(IrLoweringError::MissingBinding("concrete nominal instance"));
+        }
+        let (kagari_hir::types::TypeId::Struct(ty)
+        | kagari_hir::types::TypeId::Enum(ty)
+        | kagari_hir::types::TypeId::Trait(ty)) = ty
+        else {
+            return Err(IrLoweringError::MissingBinding("nominal instance"));
+        };
+        Ok(crate::module::abi::NominalAbiType::from_checked_type(ty))
+    }
+
+    pub(crate) fn expr_nominal_instance(
+        &self,
+        id: hir::ExprId,
+    ) -> Result<crate::module::abi::NominalAbiType, IrLoweringError> {
+        let ty = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_type(id)
+            .ok_or(IrLoweringError::MissingExprType(id))?;
+        self.nominal_instance(&ty)
     }
     pub(crate) fn place_root(&self, place_id: hir::PlaceId) -> hir::PlaceId {
         match &self.analyzed.lowered.module.place(place_id).kind {

@@ -40,26 +40,32 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     return Some(imported.ty.clone());
                 }
                 let definition = context.declarations.definition(resolved)?.clone();
+                let arguments = context
+                    .declarations
+                    .parameters_of(&definition)
+                    .into_iter()
+                    .map(TypeId::Generic)
+                    .collect();
                 Some(match resolved {
                     ResolvedName::Struct(id) => {
                         target = Some(TypeTarget::Struct(id));
                         TypeId::Struct(crate::types::NominalType {
                             declaration: definition,
-                            arguments: Vec::new(),
+                            arguments,
                         })
                     }
                     ResolvedName::Enum(id) => {
                         target = Some(TypeTarget::Enum(id));
                         TypeId::Enum(crate::types::NominalType {
                             declaration: definition,
-                            arguments: Vec::new(),
+                            arguments,
                         })
                     }
                     ResolvedName::Trait(id) => {
                         target = Some(TypeTarget::Trait(id));
                         TypeId::Trait(crate::types::NominalType {
                             declaration: definition,
-                            arguments: Vec::new(),
+                            arguments,
                         })
                     }
                     _ => return None,
@@ -113,7 +119,14 @@ pub(super) fn resolve_type_in(
         hir::TypeKind::Named(name) => {
             let reference = resolve_named_type(name, context);
             target = reference.target;
-            (!reference.ty.is_unresolved()).then_some(reference.ty)
+            match &reference.ty {
+                TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty)
+                    if !ty.arguments.is_empty() =>
+                {
+                    None
+                }
+                _ => (!reference.ty.is_unresolved()).then_some(reference.ty),
+            }
         }
         hir::TypeKind::Generic { name, args } => {
             let reference = resolve_named_type(name, context);
@@ -130,8 +143,24 @@ pub(super) fn resolve_type_in(
                 .collect::<Vec<_>>();
             args.into_iter()
                 .collect::<Option<Vec<_>>>()
-                .filter(|_| prelude)
-                .and_then(|args| surface::standard_generic_type(name, args))
+                .and_then(|args| match reference.ty {
+                    TypeId::Struct(mut nominal)
+                        if !nominal.arguments.is_empty()
+                            && nominal.arguments.len() == args.len() =>
+                    {
+                        nominal.arguments = args;
+                        Some(TypeId::Struct(nominal))
+                    }
+                    TypeId::Enum(mut nominal)
+                        if !nominal.arguments.is_empty()
+                            && nominal.arguments.len() == args.len() =>
+                    {
+                        nominal.arguments = args;
+                        Some(TypeId::Enum(nominal))
+                    }
+                    _ if prelude => surface::standard_generic_type(name, args),
+                    _ => None,
+                })
         }
         hir::TypeKind::Tuple(elements) => {
             let elements = elements

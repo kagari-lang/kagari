@@ -18,6 +18,23 @@ pub(super) fn resolve_constraints(
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
+    for params in lowered
+        .module
+        .structs
+        .iter()
+        .map(|item| &item.generic_params)
+        .chain(lowered.module.enums.iter().map(|item| &item.generic_params))
+    {
+        resolve_owner(
+            lowered,
+            params,
+            &[],
+            declarations,
+            table,
+            diagnostics,
+            cancel,
+        );
+    }
     for item in &lowered.module.traits {
         resolve_owner(
             lowered,
@@ -203,20 +220,7 @@ pub(super) fn function_bounds(
     declarations: &crate::declarations::Declarations,
     table: &TypeTable,
 ) -> HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>> {
-    let mut result = function
-        .generic_params
-        .iter()
-        .filter_map(|param| {
-            Some((
-                declarations.generic_type(param.id)?,
-                param
-                    .bounds
-                    .iter()
-                    .filter_map(|reference| table.constraint(reference.ty))
-                    .collect::<Vec<_>>(),
-            ))
-        })
-        .collect::<HashMap<_, _>>();
+    let mut result = parameter_bounds(&function.generic_params, declarations, table);
     let inherited = module
         .impls
         .iter()
@@ -245,4 +249,24 @@ pub(super) fn function_bounds(
         );
     }
     result
+}
+
+pub(super) fn parameter_bounds(
+    params: &[hir::GenericParam],
+    declarations: &crate::declarations::Declarations,
+    table: &TypeTable,
+) -> super::GenericBounds {
+    params
+        .iter()
+        .filter_map(|param| {
+            Some((
+                declarations.generic_type(param.id)?,
+                param
+                    .bounds
+                    .iter()
+                    .filter_map(|reference| table.constraint(reference.ty))
+                    .collect(),
+            ))
+        })
+        .collect()
 }
