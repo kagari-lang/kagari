@@ -268,21 +268,9 @@ impl<'a> BodyResolver<'a> {
         {
             return match binding.target()? {
                 ResolvedName::SourceImport(index) => {
-                    let Some(crate::imports::ImportTarget::Source(target)) =
-                        &self.resolved.imports.entries[index].target
-                    else {
-                        return None;
-                    };
-                    if target.item.is_some() {
-                        return None;
-                    }
-                    let [item] = target.members.get(member)?.as_slice() else {
-                        return None;
-                    };
-                    Some(ResolvedName::SourceItem {
-                        import: index,
-                        item: *item,
-                    })
+                    self.resolved
+                        .imports
+                        .resolve_member(index, member, &self.resolved.hosts)
                 }
                 ResolvedName::HostModule(module) => self
                     .resolved

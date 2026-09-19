@@ -109,6 +109,27 @@ impl FileAnalysis {
             })
             .min_by_key(|(len, _)| *len)
             .and_then(|(_, host)| facts.names.hosts.function(host))
+            .or_else(|| {
+                facts
+                    .names
+                    .imports
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, import)| {
+                        if !(import.span.start <= offset && offset < import.span.end) {
+                            return None;
+                        }
+                        let crate::resolver::ResolvedName::HostFunction(host) = facts
+                            .names
+                            .imports
+                            .resolved_name(crate::resolver::ResolvedName::SourceImport(index))?
+                        else {
+                            return None;
+                        };
+                        facts.names.hosts.function(host)
+                    })
+            })
     }
     pub fn syntax(&self) -> kagari_syntax::ast::SourceFile {
         self.parsed.syntax()
@@ -502,7 +523,7 @@ impl AnalysisSnapshot {
         file: FileId,
         offset: usize,
     ) -> Option<crate::imports::SourceImport> {
-        use crate::{imports::ImportTarget, resolver::ResolvedName};
+        use crate::imports::ImportTarget;
         let facts = self.file(file)?.result.facts();
         let expression = facts
             .lowered
@@ -514,21 +535,11 @@ impl AnalysisSnapshot {
                 if !(span.start <= offset && offset < span.end) {
                     return None;
                 }
-                let (index, item) = match facts.names.expr_resolution(id)? {
-                    ResolvedName::SourceImport(index) => (index, None),
-                    ResolvedName::SourceItem { import, item } => (import, Some(item)),
-                    _ => return None,
-                };
-                let ImportTarget::Source(target) =
-                    facts.names.imports.entries.get(index)?.target.as_ref()?
-                else {
+                let binding = facts.names.expr_resolution(id)?;
+                let ImportTarget::Source(target) = facts.names.imports.binding(binding)? else {
                     return None;
                 };
-                let mut target = target.clone();
-                if item.is_some() {
-                    target.item = item;
-                }
-                Some((span.end - span.start, target))
+                Some((span.end - span.start, target.clone()))
             })
             .min_by_key(|(length, _)| *length)
             .map(|(_, target)| target);
@@ -554,10 +565,13 @@ impl AnalysisSnapshot {
             return Some(declaration);
         }
         use crate::{hir::ExportItem, resolver::ResolvedName};
-        let target = self
+        let crate::imports::ImportTarget::Source(target) = self
             .graph
-            .resolve_item(self.source_import_at(file, offset)?, &Default::default())
-            .ok()??;
+            .resolve_export(self.source_import_at(file, offset)?, &Default::default())
+            .ok()??
+        else {
+            return None;
+        };
         let file = self.file(target.file)?;
         let resolved = match target.item? {
             ExportItem::Function(id) => ResolvedName::Function(id),

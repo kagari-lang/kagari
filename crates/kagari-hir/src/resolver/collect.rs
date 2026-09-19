@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 
 use crate::AnalysisResult;
 use crate::hir::FunctionKind;
-use crate::imports::{ImportTarget, ModuleGraph, ModuleImports};
+use crate::imports::{ModuleGraph, ModuleImports};
 use crate::lower::LoweredModule;
 use crate::resolver::resolve::BodyResolver;
 use crate::resolver::table::NameTable;
@@ -124,20 +124,7 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        let target = match &import.target {
-            Some(ImportTarget::StandardModule(module)) => {
-                Some(ResolvedName::StandardModule(*module))
-            }
-            Some(ImportTarget::StandardFunction(function)) => {
-                Some(ResolvedName::StandardFunction(*function))
-            }
-            Some(ImportTarget::HostModule(module)) => Some(ResolvedName::HostModule(*module)),
-            Some(ImportTarget::HostFunction(function)) => {
-                Some(ResolvedName::HostFunction(*function))
-            }
-            Some(ImportTarget::Source(_)) => Some(ResolvedName::SourceImport(index)),
-            None => None,
-        };
+        let target = imports.resolved_name(ResolvedName::SourceImport(index));
         names.insert(import.alias.clone(), target);
     }
 

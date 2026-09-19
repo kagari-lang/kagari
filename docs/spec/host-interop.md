@@ -149,7 +149,8 @@ Host declaration revisions participate in analysis caching and body reuse.
 Snapshots retain their declaration catalog, signatures, documentation and scoped
 host IDs; a host ID from another catalog cannot resolve by coincident index.
 AnalysisSnapshot exposes both source revision and host revision. FileAnalysis's
-host_function_at query returns the declaration at a callee without executing code.
+host_function_at query returns the declaration at a callee or function import
+without executing code, including through source facades.
 Changing the catalog invalidates semantic reuse while unchanged source can reuse
 its parsed CST. Correct neighboring functions remain queryable after import or
 call errors. Host calls require the host-call language profile and are excluded
@@ -158,9 +159,16 @@ from scalar constant evaluation.
 The source call boundary currently supports scalar host signatures. Opaque host
 types remain declared offline but their use in source calls is rejected with
 KG_TYPE_UNSUPPORTED_HOST_TYPE. Composite declarations, nominal host type/member
-integration and facade re-export linking still require the remaining R06/R07 work.
-Public host re-exports currently return KG_RESOLVE_UNSUPPORTED_HOST_REEXPORT;
-they cannot silently compile into an artifact lacking the advertised export.
+integration still require the remaining R06/R07 work. Public host function and
+module re-exports retain their offline declaration identities through source
+facades. The import graph resolves the final binding once; name resolution,
+signature catalogs and navigation consume it. The original source dependency is
+retained for dependency-first initialization even when all calls target hosts.
+For example, `pub use demo::echo as call; pub use demo as service;` permits clients
+to import `call` or `service` from the facade, or call `facade::call(...)` and
+`facade::service::echo(...)` through a source module alias. These calls retain
+ordinary lexical shadowing and require the original host symbol's permission and
+matching runtime binding; re-exporting grants no additional authority.
 Run cargo run -p kagari-embed --example offline_compile to compile an imported
 host call without any runtime or callback registration.
 

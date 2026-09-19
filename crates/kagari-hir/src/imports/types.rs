@@ -36,17 +36,12 @@ impl ImportedTypes {
 }
 
 pub(crate) struct TypeCatalog<'a> {
-    graph: &'a ModuleGraph,
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
 }
 
 impl<'a> TypeCatalog<'a> {
-    pub(crate) fn new(
-        graph: &'a ModuleGraph,
-        modules: impl IntoIterator<Item = &'a DeclaredAnalysis>,
-    ) -> Self {
+    pub(crate) fn new(modules: impl IntoIterator<Item = &'a DeclaredAnalysis>) -> Self {
         Self {
-            graph,
             modules: modules
                 .into_iter()
                 .map(|m| (m.lowered.source.id(), m))
@@ -62,13 +57,12 @@ impl<'a> TypeCatalog<'a> {
         let mut result = ImportedTypes::default();
         for (index, import) in imports.entries.iter().enumerate() {
             cancel.check()?;
-            let Some(ImportTarget::Source(source)) = &import.target else {
+            let Some(ImportTarget::Source(source)) =
+                imports.binding(ResolvedName::SourceImport(index))
+            else {
                 continue;
             };
-            let Some(source) = self.graph.resolve_item(source.clone(), cancel)? else {
-                continue;
-            };
-            if let Some(ty) = self.resolve(source.clone(), cancel)? {
+            if let Some(ty) = self.resolve(source, cancel)? {
                 result.types.insert(import.alias.clone(), ty);
                 result
                     .resolutions
@@ -80,8 +74,13 @@ impl<'a> TypeCatalog<'a> {
                     let [item] = items.as_slice() else {
                         continue;
                     };
-                    let mut target = source.clone();
-                    target.item = Some(*item);
+                    let key = ResolvedName::SourceItem {
+                        import: index,
+                        item: *item,
+                    };
+                    let Some(ImportTarget::Source(target)) = imports.binding(key) else {
+                        continue;
+                    };
                     if let Some(ty) = self.resolve(target, cancel)? {
                         let name = format!("{}::{name}", import.alias);
                         result.resolutions.insert(
@@ -101,12 +100,10 @@ impl<'a> TypeCatalog<'a> {
 
     fn resolve(
         &self,
-        target: SourceImport,
+        target: &SourceImport,
         cancel: &CancellationToken,
     ) -> Result<Option<ImportedType>, Cancelled> {
-        let Some(target) = self.graph.resolve_item(target, cancel)? else {
-            return Ok(None);
-        };
+        cancel.check()?;
         let Some(module) = self.modules.get(&target.file) else {
             return Ok(None);
         };

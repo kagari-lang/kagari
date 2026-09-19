@@ -7,6 +7,8 @@ use std::{collections::HashMap, sync::Arc};
 use crate::types::{BuiltinType, TypeId};
 
 #[cfg(test)]
+mod facade_tests;
+#[cfg(test)]
 mod tests;
 
 /// Scoped to one immutable declaration input, never a runtime binding slot.

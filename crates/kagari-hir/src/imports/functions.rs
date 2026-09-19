@@ -31,17 +31,12 @@ impl ImportedFunctions {
 }
 
 pub(crate) struct FunctionCatalog<'a> {
-    graph: &'a ModuleGraph,
     modules: HashMap<FileId, &'a PreparedAnalysis>,
 }
 
 impl<'a> FunctionCatalog<'a> {
-    pub(crate) fn new(
-        graph: &'a ModuleGraph,
-        modules: impl IntoIterator<Item = &'a PreparedAnalysis>,
-    ) -> Self {
+    pub(crate) fn new(modules: impl IntoIterator<Item = &'a PreparedAnalysis>) -> Self {
         Self {
-            graph,
             modules: modules
                 .into_iter()
                 .map(|m| (m.lowered.source.id(), m))
@@ -55,34 +50,13 @@ impl<'a> FunctionCatalog<'a> {
         cancel: &CancellationToken,
     ) -> Result<ImportedFunctions, Cancelled> {
         let mut result = ImportedFunctions::default();
-        for (index, import) in imports.entries.iter().enumerate() {
+        for (binding, target) in &imports.bindings {
             cancel.check()?;
-            let Some(ImportTarget::Source(source)) = &import.target else {
+            let ImportTarget::Source(source) = target else {
                 continue;
             };
-            if let Some(function) = self.resolve(source.clone(), cancel)? {
-                result
-                    .functions
-                    .insert(ResolvedName::SourceImport(index), function);
-            }
-            if source.item.is_none() {
-                for items in source.members.values() {
-                    cancel.check()?;
-                    let [item] = items.as_slice() else {
-                        continue;
-                    };
-                    let mut target = source.clone();
-                    target.item = Some(*item);
-                    if let Some(function) = self.resolve(target, cancel)? {
-                        result.functions.insert(
-                            ResolvedName::SourceItem {
-                                import: index,
-                                item: *item,
-                            },
-                            function,
-                        );
-                    }
-                }
+            if let Some(function) = self.resolve(source, cancel)? {
+                result.functions.insert(*binding, function);
             }
         }
         Ok(result)
@@ -90,12 +64,10 @@ impl<'a> FunctionCatalog<'a> {
 
     fn resolve(
         &self,
-        target: SourceImport,
+        target: &SourceImport,
         cancel: &CancellationToken,
     ) -> Result<Option<ImportedFunction>, Cancelled> {
-        let Some(target) = self.graph.resolve_item(target, cancel)? else {
-            return Ok(None);
-        };
+        cancel.check()?;
         let Some(module) = self.modules.get(&target.file) else {
             return Ok(None);
         };

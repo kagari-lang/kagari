@@ -5,7 +5,7 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer},
 };
 
-fn declaration() -> HostFunctionDeclaration {
+pub(super) fn declaration() -> HostFunctionDeclaration {
     let mut declaration = HostFunctionDeclaration::new(
         "demo.echo",
         vec![HostParameter {
@@ -92,10 +92,6 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
 #[test]
 fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
     let cases = [
-        (
-            "pub use demo::echo; fn good() -> i32 { 42 }",
-            "KG_RESOLVE_UNSUPPORTED_HOST_REEXPORT",
-        ),
         (
             "use missing::echo; fn good() -> i32 { 42 }",
             "KG_RESOLVE_UNKNOWN_NAME",

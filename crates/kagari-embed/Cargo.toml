@@ -12,3 +12,6 @@ kagari-runtime.workspace = true
 kagari-syntax.workspace = true
 kagari-vm.workspace = true
 smallvec.workspace = true
+
+[dev-dependencies]
+kagari-jit-cranelift.workspace = true

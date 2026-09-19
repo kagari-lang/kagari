@@ -52,10 +52,8 @@ impl SignatureSnapshot {
         &self,
         cancel: &CancellationToken,
     ) -> Result<HashMap<FileId, BodyEnvironment>, Cancelled> {
-        let catalog = crate::imports::FunctionCatalog::new(
-            self.module_graph(),
-            self.files.values().map(|file| &file.prepared),
-        );
+        let catalog =
+            crate::imports::FunctionCatalog::new(self.files.values().map(|file| &file.prepared));
         let mut result = HashMap::new();
         for (id, file) in self.files.iter() {
             cancel.check()?;
@@ -128,7 +126,6 @@ impl AnalysisDatabase {
     ) -> Result<SignatureSnapshot, Cancelled> {
         let declarations = self.prepare_declarations(source, cancel)?;
         let catalog = crate::imports::TypeCatalog::new(
-            &declarations.graph,
             declarations.files.values().map(|file| &file.declared),
         );
         let mut imported_types = HashMap::new();

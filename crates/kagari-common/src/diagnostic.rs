@@ -87,9 +87,6 @@ pub enum DiagnosticKind {
     UnsupportedHostType {
         function: String,
     },
-    UnsupportedHostReExport {
-        name: String,
-    },
     UnknownTypeAnnotation {
         type_name: String,
     },
@@ -354,7 +351,6 @@ impl DiagnosticKind {
             Self::UnknownName { .. } => "KG_RESOLVE_UNKNOWN_NAME",
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnsupportedHostType { .. } => "KG_TYPE_UNSUPPORTED_HOST_TYPE",
-            Self::UnsupportedHostReExport { .. } => "KG_RESOLVE_UNSUPPORTED_HOST_REEXPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
@@ -503,9 +499,6 @@ impl Display for DiagnosticKind {
                 f,
                 "host function `{function}` uses a type unavailable in source signatures"
             ),
-            Self::UnsupportedHostReExport { name } => {
-                write!(f, "host re-export `{name}` requires module export linking")
-            }
             Self::UnknownTypeAnnotation { type_name } => {
                 write!(f, "unknown type annotation `{type_name}`")
             }

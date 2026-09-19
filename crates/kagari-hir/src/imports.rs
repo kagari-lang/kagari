@@ -1,7 +1,7 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
 use crate::{
     builtin::surface,
-    hir::{ExportItem, Visibility},
+    hir::ExportItem,
     host::{HostDeclarations, HostFunctionId, HostModuleId},
     lower::LoweredModule,
 };
@@ -13,6 +13,7 @@ use kagari_common::{
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
+mod bindings;
 mod functions;
 mod types;
 pub(crate) use types::TypeCatalog;
@@ -58,12 +59,20 @@ pub struct ResolvedImport {
 pub struct ModuleImports {
     pub entries: Vec<ResolvedImport>,
     pub diagnostics: Vec<Diagnostic>,
+    /// Final export targets, keyed by their local import or namespace member.
+    /// Entries retain the direct source edge for initialization and navigation.
+    bindings: HashMap<crate::resolver::ResolvedName, ImportTarget>,
 }
 
 impl ModuleImports {
     pub(crate) fn same_bindings(&self, other: &Self) -> bool {
         self.diagnostics.is_empty()
             && other.diagnostics.is_empty()
+            && self.bindings.len() == other.bindings.len()
+            && self
+                .bindings
+                .keys()
+                .all(|key| self.resolved_name(*key) == other.resolved_name(*key))
             && self.entries.len() == other.entries.len()
             && self
                 .entries
@@ -131,6 +140,7 @@ impl ModuleGraph {
         }
         let mut graph = Self { nodes };
         graph.mark_cycles(cancel)?;
+        graph.bind_exports(cancel)?;
         Ok(graph)
     }
 
@@ -141,12 +151,12 @@ impl ModuleGraph {
         self.nodes.iter()
     }
 
-    /// Follow public source re-exports in this graph, retaining the final source owner.
-    pub fn resolve_item(
+    /// Follow public re-exports, retaining the final source or offline host target.
+    pub fn resolve_export(
         &self,
         mut target: SourceImport,
         cancel: &CancellationToken,
-    ) -> Result<Option<SourceImport>, Cancelled> {
+    ) -> Result<Option<ImportTarget>, Cancelled> {
         let mut visited = HashSet::new();
         loop {
             cancel.check()?;
@@ -157,12 +167,12 @@ impl ModuleGraph {
                 return Ok(None);
             }
             let Some(ExportItem::Import(index)) = target.item else {
-                return Ok(Some(target));
+                return Ok(Some(ImportTarget::Source(target)));
             };
             if !visited.insert((target.file, index)) {
                 return Ok(None);
             }
-            let Some(ImportTarget::Source(next)) = node
+            let Some(next) = node
                 .imports
                 .entries
                 .get(index)
@@ -170,7 +180,10 @@ impl ModuleGraph {
             else {
                 return Ok(None);
             };
-            target = next.clone();
+            match next {
+                ImportTarget::Source(next) => target = next.clone(),
+                target => return Ok(Some(target.clone())),
+            }
         }
     }
 
@@ -367,22 +380,7 @@ fn resolve_imports(
                 None
             } else {
                 match resolve_path(&import.path, catalog, hosts) {
-                    Ok(target) => {
-                        if import.visibility == Visibility::Public
-                            && matches!(
-                                target,
-                                ImportTarget::HostFunction(_) | ImportTarget::HostModule(_)
-                            )
-                        {
-                            result.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::UnsupportedHostReExport {
-                                    name: import.alias.clone(),
-                                })
-                                .with_span(import.span),
-                            );
-                        }
-                        Some(target)
-                    }
+                    Ok(target) => Some(target),
                     Err(kind) => {
                         result
                             .diagnostics

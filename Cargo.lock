@@ -318,6 +318,7 @@ dependencies = [
  "kagari-common",
  "kagari-hir",
  "kagari-ir",
+ "kagari-jit-cranelift",
  "kagari-runtime",
  "kagari-syntax",
  "kagari-vm",

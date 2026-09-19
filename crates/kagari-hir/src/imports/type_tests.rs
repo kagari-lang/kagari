@@ -10,6 +10,44 @@ use kagari_common::{
 use std::sync::Arc;
 
 #[test]
+fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
+    let mut db = SourceDatabase::default();
+    let library = insert(
+        &mut db,
+        "library",
+        "pub struct Data { val value: i32 } pub fn answer() -> i32 { 7 }",
+    );
+    insert(
+        &mut db,
+        "facade",
+        "pub use pkg::library as api; pub use std::math::abs; pub use std::math as math;",
+    );
+    let text = "use pkg::facade::api as lib; use pkg::facade as facade; fn main() -> lib::Data { lib::Data { value: facade::abs(facade::math::abs(lib::answer())) } }";
+    let root = insert(&mut db, "root", text);
+    let snapshot = analyze(&db);
+    let file = snapshot.file(root).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    snapshot.check_program(root, &Default::default()).unwrap();
+    for spelling in ["lib::Data", "lib::answer()"] {
+        let target = snapshot
+            .definition_at(root, text.find(spelling).unwrap())
+            .unwrap();
+        assert_eq!(target.location.file, library);
+    }
+    assert_eq!(
+        file.source_function_at(text.find("lib::answer()").unwrap())
+            .unwrap()
+            .id
+            .file,
+        library
+    );
+}
+
+#[test]
 fn imported_annotations_preserve_nominal_identity_and_definition_locations() {
     let mut db = SourceDatabase::default();
     let types = insert(
@@ -105,7 +143,7 @@ fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
     assert!(
         first
             .module_graph()
-            .resolve_item(target.clone(), &Default::default())
+            .resolve_export(target.clone(), &Default::default())
             .unwrap()
             .is_some()
     );
@@ -119,13 +157,18 @@ fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
     assert!(
         second
             .module_graph()
-            .resolve_item(target.clone(), &Default::default())
+            .resolve_export(target.clone(), &Default::default())
             .unwrap()
             .is_none()
     );
     let cancel = kagari_common::cancellation::CancellationToken::default();
     cancel.cancel();
-    assert!(first.module_graph().resolve_item(target, &cancel).is_err());
+    assert!(
+        first
+            .module_graph()
+            .resolve_export(target, &cancel)
+            .is_err()
+    );
     let a = insert(&mut db, "a", "pub use pkg::b::Alias;");
     insert(&mut db, "b", "pub use pkg::a::Alias;");
     let cycle = analyze(&db);
@@ -133,7 +176,7 @@ fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
     assert!(
         cycle
             .module_graph()
-            .resolve_item(target, &Default::default())
+            .resolve_export(target, &Default::default())
             .unwrap()
             .is_none()
     );

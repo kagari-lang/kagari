@@ -274,11 +274,11 @@ pub fn analyze_source(
         imports,
         &Default::default(),
     );
-    let imported_types = imports::TypeCatalog::new(&graph, [&declared])
+    let imported_types = imports::TypeCatalog::new([&declared])
         .bindings(&declared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
     let mut prepared = declared.check_signatures(imported_types, None, &Default::default());
-    let imported_functions = imports::FunctionCatalog::new(&graph, [&prepared])
+    let imported_functions = imports::FunctionCatalog::new([&prepared])
         .bindings(&prepared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
     let mut aggregates = aggregates::AggregateCatalog::default();

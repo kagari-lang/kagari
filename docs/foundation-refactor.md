@@ -428,8 +428,16 @@ Implemented foundation slices:
   callee queries return offline declarations. The offline_compile embedding
   example needs no runtime registration. Host calls require the language profile
   and cannot execute in scalar constants. Composite declarations, nominal host
-  type/member integration and facade re-export linking remain outstanding; this
-  does not mark R06 complete.
+  type/member integration remain outstanding; this does not mark R06 complete.
+  Source facades now re-export host functions and modules using one final import
+  binding table. Name resolution, imported signature/type catalogs and navigation
+  share those targets; downstream facade traversal and the unsupported-host-export
+  diagnostic were removed. Original source edges preserve initialization order.
+  Offline query tests cover aliases, chained facades, namespace calls, shadowing,
+  duplicate exports and host revision invalidation. Embedding tests verify missing
+  bindings reject before publication, facade initialization runs once, and source,
+  encoded artifacts and existing JIT fallback produce the same host call trace.
+  The offline_compile example uses a source facade without runtime registration.
   Required host declarations now link at bytecode/artifact load and reload before
   publication, resource counters or initialization. Calls carry HostImportId and
   resolve to registry-owned slots; execution has no host-symbol fallback.
