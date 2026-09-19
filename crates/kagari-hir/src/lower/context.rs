@@ -17,10 +17,13 @@ pub(crate) struct Lowerer {
 
 impl Lowerer {
     pub(crate) fn new(cancel: kagari_common::cancellation::CancellationToken) -> Self {
+        let source_map = SourceMap::default();
+        let mut module = Module::default();
+        module.body.arena = source_map.arena();
         Self {
             cancel,
-            source_map: SourceMap::default(),
-            module: Module::default(),
+            source_map,
+            module,
         }
     }
 

@@ -91,10 +91,23 @@ fn signature_cache_reuses_and_rebases_without_any_complete_analysis() {
     let second = query(&mut db, &sources);
     assert!(second.file(id).unwrap().reused());
     let fresh = query(&mut AnalysisDatabase::default(), &sources);
-    assert_eq!(
-        second.file(id).unwrap().signatures().facts().type_table(),
-        fresh.file(id).unwrap().signatures().facts().type_table()
-    );
+    second
+        .file(id)
+        .unwrap()
+        .signatures()
+        .facts()
+        .assert_same_source_facts(
+            fresh.file(id).unwrap().signatures().facts(),
+            second
+                .file(id)
+                .unwrap()
+                .prepared
+                .lowered
+                .module
+                .body
+                .arena(),
+            fresh.file(id).unwrap().prepared.lowered.module.body.arena(),
+        );
     assert_eq!(
         second.file(id).unwrap().diagnostics(),
         fresh.file(id).unwrap().diagnostics()

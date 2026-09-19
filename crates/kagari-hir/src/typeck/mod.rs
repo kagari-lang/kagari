@@ -33,6 +33,29 @@ pub struct ModuleSignatures {
 }
 
 impl ModuleSignatures {
+    #[cfg(test)]
+    pub(crate) fn assert_same_source_facts(
+        &self,
+        other: &Self,
+        arena: crate::hir::HirArenaId,
+        other_arena: crate::hir::HirArenaId,
+    ) {
+        let mut functions = self.functions.clone();
+        for function in &mut functions {
+            for param in &mut function.params {
+                assert_eq!(param.id.arena(), arena);
+                param.id = ParamId::new(other_arena, param.id.index());
+            }
+        }
+        for function in &other.functions {
+            for param in &function.params {
+                assert_eq!(param.id.arena(), other_arena);
+            }
+        }
+        assert_eq!(functions, other.functions);
+        self.type_table
+            .assert_same_source_facts(&other.type_table, arena, other_arena);
+    }
     pub fn functions(&self) -> &[TypedFunction] {
         &self.functions
     }

@@ -121,6 +121,14 @@ Implemented foundation slices:
   Parameter/local identities include their body and analysis instance; stale local
   IDs cannot resolve in a new analysis. Definition navigation returns file/revision
   ranges and distinguishes same-spelled declarations in separate modules.
+  Raw expression/block/statement/place/pattern/local/parameter/type-reference IDs
+  now include the identity of their immutable lowering arena. Bare-index constructors
+  were removed; semantic lookups reject foreign IDs and node/source-map access checks
+  arena ownership before indexing. Body/signature reuse remaps IDs into the current
+  arena. Equal source revisions may still require remapping when independently
+  reconstructed lowerings meet caches at different query stages. Cross-lowering
+  collisions and that interleaved-query case have regression coverage. Per-function
+  HIR arena ownership remains outstanding; arenas currently belong to a lowering.
   Generic parameters now have owner/position identities and declaration ranges;
   inherited trait/impl parameters keep their original owner in method signatures.
   Snapshots now resolve standard, offline host and registered source imports through

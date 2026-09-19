@@ -162,13 +162,13 @@ impl FileAnalysis {
             .filter_map(|(index, span)| {
                 let target = facts
                     .names
-                    .place_resolution(crate::hir::PlaceId::new(index))
+                    .place_resolution(facts.lowered.source_map.place_id(index))
                     .and_then(|target| facts.declarations.target(target))
                     .or_else(|| {
                         facts
                             .typed
                             .type_table
-                            .place_field(crate::hir::PlaceId::new(index))
+                            .place_field(facts.lowered.source_map.place_id(index))
                             .and_then(|field| {
                                 facts
                                     .aggregates
@@ -209,7 +209,7 @@ impl FileAnalysis {
                 let target = facts
                     .typed
                     .type_table
-                    .type_ref(crate::hir::TypeRefId::new(index))?
+                    .type_ref(facts.lowered.source_map.type_id(index))?
                     .target?;
                 let declaration = match target {
                     crate::typeck::TypeTarget::Source(id) => facts
@@ -290,7 +290,7 @@ fn type_at_in(
                 return None;
             }
             table
-                .type_ref(crate::hir::TypeRefId::new(index))
+                .type_ref(lowered.source_map.type_id(index))
                 .map(|resolved| (span.end - span.start, resolved.ty.clone()))
         });
     expressions
@@ -389,6 +389,8 @@ impl AnalysisDatabase {
             let analysis = match self.files.get(&id) {
                 Some(previous)
                     if previous.source.revision() == file.revision()
+                        && previous.result.facts().lowered.module.body.arena()
+                            == prepared.lowered.module.body.arena()
                         && previous.profile == profile
                         && previous.result.facts().names.hosts.revision()
                             == self.hosts.revision()
@@ -573,6 +575,8 @@ impl AnalysisSnapshot {
     }
 }
 
+#[cfg(test)]
+mod arena_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]

@@ -119,6 +119,18 @@ fn main() -> kagari_embed::CompileResult<()> {
         &Default::default(),
     )?;
     assert!(edited.declaration(&target.id).is_none());
+    let old_facts = analysis.result().facts();
+    let old_expr = old_facts
+        .lowered
+        .module
+        .body
+        .expressions()
+        .find(|(id, _)| old_facts.typed.type_table.expr_type(*id).is_some())
+        .expect("typed expression")
+        .0;
+    let new_facts = edited.file(file).expect("edited source").result().facts();
+    assert_ne!(old_expr.arena(), new_facts.lowered.module.body.arena());
+    assert!(new_facts.typed.type_table.expr_type(old_expr).is_none());
     assert!(
         edited
             .file(file)

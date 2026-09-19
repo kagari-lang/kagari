@@ -3,11 +3,7 @@ use std::collections::HashMap;
 
 use kagari_common::{Span, cancellation::CancellationToken};
 
-use crate::{
-    AnalysisResult,
-    hir::{FunctionKind, TypeRefId},
-    lower::LoweredModule,
-};
+use crate::{AnalysisResult, hir::FunctionKind, lower::LoweredModule};
 
 use super::ModuleSignatures;
 
@@ -119,7 +115,7 @@ pub(crate) fn reuse_signatures(
             old_types
                 .entry(key)
                 .or_default()
-                .push(TypeRefId::new(index));
+                .push(previous.source_map.type_id(index));
         }
     }
     let mut new_types: HashMap<_, Vec<_>> = HashMap::new();
@@ -129,7 +125,7 @@ pub(crate) fn reuse_signatures(
             new_types
                 .entry(key)
                 .or_default()
-                .push(TypeRefId::new(index));
+                .push(current.source_map.type_id(index));
         }
     }
     if old_types.len() != new_types.len() {

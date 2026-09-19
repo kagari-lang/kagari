@@ -109,14 +109,14 @@ fn validate_interface_values(
         if module
             .typed
             .type_table
-            .has_constraint(crate::hir::TypeRefId::new(index))
+            .has_constraint(module.lowered.source_map.type_id(index))
         {
             continue;
         }
         if module
             .typed
             .type_table
-            .type_ref(crate::hir::TypeRefId::new(index))
+            .type_ref(module.lowered.source_map.type_id(index))
             .is_some_and(|resolved| matches!(resolved.ty, crate::types::TypeId::Trait(_)))
         {
             diagnostics.push(profile_error(
@@ -124,7 +124,7 @@ fn validate_interface_values(
                 module
                     .lowered
                     .source_map
-                    .type_span(crate::hir::TypeRefId::new(index)),
+                    .type_span(module.lowered.source_map.type_id(index)),
             ));
         }
     }

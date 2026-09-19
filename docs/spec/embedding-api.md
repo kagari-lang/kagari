@@ -186,6 +186,17 @@ unnamed impl owners use source-order occurrences. This is declaration identity,
 not an edit-tracking guarantee for renames or reordered duplicate/unnamed items.
 Parameters and locals additionally carry their owning body and an analysis instance
 identity. They must not be retained as bare arena indices across analyses.
+
+Raw HIR expression, block, statement, place, pattern, local, parameter and type
+reference IDs also carry an opaque `HirArenaId`. Their bare-index constructors are
+not public. Obtain them from the owning lowering; `index()` alone is not identity.
+An unchanged shared lowering retains its arena, while a newly constructed lowering
+has a distinct arena even when its source text/revision is identical. Semantic
+table lookups do not resolve foreign IDs. Low-level node and source-map access
+treats a foreign ID as a compiler invariant violation before indexing.
+Cache reuse explicitly rebases local IDs; arena IDs are not declaration identities
+and do not enter executable artifacts. Analysis-scoped binding handles still carry
+their own body/analysis identity. Per-function HIR arenas remain future R03 work.
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached
 analysis retains its local identities; text or profile changes create new ones.

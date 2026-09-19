@@ -71,6 +71,46 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
+    #[cfg(test)]
+    pub(crate) fn assert_same_source_facts(
+        &self,
+        other: &Self,
+        arena: crate::hir::HirArenaId,
+        other_arena: crate::hir::HirArenaId,
+    ) {
+        // Fresh analysis must have different local identities. Compare slot facts
+        // only after checking every key/receiver belongs to its actual lowering.
+        fn normalized(
+            table: &TypeTable,
+            from: crate::hir::HirArenaId,
+            to: crate::hir::HirArenaId,
+        ) -> TypeTable {
+            let mut result = table.clone();
+            macro_rules! keys {
+                ($($field:ident : $ty:ident),+ $(,)?) => {$(
+                    result.$field = result.$field.into_iter().map(|(id, fact)| {
+                        assert_eq!(id.arena(), from, "foreign key in {}", stringify!($field));
+                        (crate::hir::$ty::new(to, id.index()), fact)
+                    }).collect();
+                )+};
+            }
+            keys!(constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
+                place_fields: PlaceId, struct_inits: ExprId, exprs: ExprId, locals: LocalId,
+                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId);
+            for call in result.calls.values_mut() {
+                if let Some(receiver) = call.receiver {
+                    assert_eq!(receiver.arena(), from);
+                    call.receiver = Some(ExprId::new(to, receiver.index()));
+                }
+            }
+            result
+        }
+        assert_eq!(
+            normalized(self, arena, other_arena),
+            normalized(other, other_arena, other_arena)
+        );
+    }
+
     pub(super) fn remap_signature_types(
         &self,
         ids: &HashMap<crate::hir::TypeRefId, crate::hir::TypeRefId>,
@@ -224,7 +264,7 @@ impl TypeTable {
         };
         let expr_ids = exprs
             .iter()
-            .map(|(a, b)| (ExprId::new(*a), ExprId::new(*b)))
+            .map(|(a, b)| (old_map.expr_id(*a), new_map.expr_id(*b)))
             .collect::<HashMap<_, _>>();
         let mut calls = Vec::new();
         for (old_id, new_id) in &expr_ids {
@@ -250,42 +290,41 @@ impl TypeTable {
         }
         self.calls.extend(calls);
         for (a, b) in types {
-            if let Some(ty) = old.type_refs.get(&crate::hir::TypeRefId::new(a)) {
-                self.type_refs
-                    .insert(crate::hir::TypeRefId::new(b), ty.clone());
+            if let Some(ty) = old.type_refs.get(&old_map.type_id(a)) {
+                self.type_refs.insert(new_map.type_id(b), ty.clone());
             }
         }
         for (a, b) in patterns {
-            if let Some(value) = old.pattern_scalars.get(&PatternId::new(a)) {
+            if let Some(value) = old.pattern_scalars.get(&old_map.pattern_id(a)) {
                 self.pattern_scalars
-                    .insert(PatternId::new(b), value.clone());
+                    .insert(new_map.pattern_id(b), value.clone());
             }
         }
         for (a, b) in exprs {
-            if let Some(field) = old.expr_fields.get(&ExprId::new(a)) {
-                self.expr_fields.insert(ExprId::new(b), field.clone());
+            if let Some(field) = old.expr_fields.get(&old_map.expr_id(a)) {
+                self.expr_fields.insert(new_map.expr_id(b), field.clone());
             }
-            if let Some(target) = old.struct_inits.get(&ExprId::new(a)) {
-                self.struct_inits.insert(ExprId::new(b), target.clone());
+            if let Some(target) = old.struct_inits.get(&old_map.expr_id(a)) {
+                self.struct_inits.insert(new_map.expr_id(b), target.clone());
             }
-            if let Some(value) = old.scalars.get(&ExprId::new(a)) {
-                self.scalars.insert(ExprId::new(b), value.clone());
+            if let Some(value) = old.scalars.get(&old_map.expr_id(a)) {
+                self.scalars.insert(new_map.expr_id(b), value.clone());
             }
-            if let Some(ty) = old.exprs.get(&ExprId::new(a)) {
-                self.exprs.insert(ExprId::new(b), ty.clone());
+            if let Some(ty) = old.exprs.get(&old_map.expr_id(a)) {
+                self.exprs.insert(new_map.expr_id(b), ty.clone());
             }
         }
         for (a, b) in locals {
-            if let Some(ty) = old.locals.get(&LocalId::new(a)) {
-                self.locals.insert(LocalId::new(b), ty.clone());
+            if let Some(ty) = old.locals.get(&old_map.local_id(a)) {
+                self.locals.insert(new_map.local_id(b), ty.clone());
             }
         }
         for (a, b) in places {
-            if let Some(field) = old.place_fields.get(&PlaceId::new(a)) {
-                self.place_fields.insert(PlaceId::new(b), field.clone());
+            if let Some(field) = old.place_fields.get(&old_map.place_id(a)) {
+                self.place_fields.insert(new_map.place_id(b), field.clone());
             }
-            if let Some(ty) = old.places.get(&PlaceId::new(a)) {
-                self.places.insert(PlaceId::new(b), ty.clone());
+            if let Some(ty) = old.places.get(&old_map.place_id(a)) {
+                self.places.insert(new_map.place_id(b), ty.clone());
             }
         }
         true

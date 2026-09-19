@@ -121,7 +121,11 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     assert!(second.declarations().get(&old_local.id).is_none());
     assert_eq!(first.declarations().get(&old_local.id), Some(&old_local));
     let fresh = query(&mut AnalysisDatabase::default(), &sources, &good);
-    assert_eq!(second.type_table(), fresh.type_table());
+    second.type_table().assert_same_source_facts(
+        fresh.type_table(),
+        second.lowered().module.body.arena(),
+        fresh.lowered().module.body.arena(),
+    );
     assert_eq!(second.diagnostics(), fresh.diagnostics());
     sources
         .set(
@@ -209,7 +213,11 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
     );
     assert!(!second.diagnostics().is_empty());
     let fresh = query(&mut AnalysisDatabase::default(), &sources, &root_owner);
-    assert_eq!(second.type_table(), fresh.type_table());
+    second.type_table().assert_same_source_facts(
+        fresh.type_table(),
+        second.lowered().module.body.arena(),
+        fresh.lowered().module.body.arena(),
+    );
     assert_eq!(second.diagnostics(), fresh.diagnostics());
 }
 
@@ -263,7 +271,11 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
         assert_eq!(result.checked_bodies(), 0);
         assert_eq!(result.reused_bodies(), 1);
         let fresh = query(&mut AnalysisDatabase::default(), &sources, &method);
-        assert_eq!(result.type_table(), fresh.type_table());
+        result.type_table().assert_same_source_facts(
+            fresh.type_table(),
+            result.lowered().module.body.arena(),
+            fresh.lowered().module.body.arena(),
+        );
         assert_eq!(result.diagnostics(), fresh.diagnostics());
     }
 }

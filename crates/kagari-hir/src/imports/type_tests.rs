@@ -246,9 +246,18 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
     let file = changed.file(root).unwrap();
     assert!(!file.signatures_reused());
     let fresh = analyze(&db);
-    assert_eq!(
-        file.signatures().facts().functions(),
-        fresh.file(root).unwrap().signatures().facts().functions()
+    file.signatures().facts().assert_same_source_facts(
+        fresh.file(root).unwrap().signatures().facts(),
+        file.result().facts().lowered.module.body.arena(),
+        fresh
+            .file(root)
+            .unwrap()
+            .result()
+            .facts()
+            .lowered
+            .module
+            .body
+            .arena(),
     );
     assert_eq!(
         file.result().diagnostics(),

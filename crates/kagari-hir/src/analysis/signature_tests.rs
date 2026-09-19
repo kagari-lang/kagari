@@ -9,13 +9,10 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
     let fresh = snapshot(&mut AnalysisDatabase::default(), sources);
     let fresh = fresh.file(file.source().id()).unwrap();
-    assert_eq!(
-        file.signatures().facts().functions(),
-        fresh.signatures().facts().functions()
-    );
-    assert_eq!(
-        file.signatures().facts().type_table(),
-        fresh.signatures().facts().type_table()
+    file.signatures().facts().assert_same_source_facts(
+        fresh.signatures().facts(),
+        file.result().facts().lowered.module.body.arena(),
+        fresh.result().facts().lowered.module.body.arena(),
     );
     assert_eq!(
         file.signatures().diagnostics(),
@@ -32,10 +29,15 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
         .iter()
         .enumerate()
     {
-        let id = crate::hir::TypeRefId::new(index);
+        let id = file.result().facts().lowered.source_map.type_id(index);
         assert_eq!(
             file.result().facts().typed.type_table.type_ref(id),
-            fresh.result().facts().typed.type_table.type_ref(id)
+            fresh
+                .result()
+                .facts()
+                .typed
+                .type_table
+                .type_ref(fresh.result().facts().lowered.source_map.type_id(index))
         );
         let location = |analysis: &FileAnalysis| {
             analysis

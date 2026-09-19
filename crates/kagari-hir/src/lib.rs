@@ -113,6 +113,7 @@ impl DeclaredAnalysis {
             }
             if old.lowered.source.revision() == self.lowered.source.revision()
                 && old.lowered.source.module_identity() == self.lowered.source.module_identity()
+                && old.lowered.module.body.arena() == self.lowered.module.body.arena()
             {
                 Some(old.signatures.clone())
             } else {
