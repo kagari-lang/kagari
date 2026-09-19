@@ -41,6 +41,18 @@ fn main() -> kagari_embed::CompileResult<()> {
     let signatures = engine.signatures(engine.source_snapshot(), &Default::default())?;
     let signature = signatures.file(file).expect("source signatures");
     assert!(signature.diagnostics().is_empty());
+    let inspect = signature
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "inspect")
+        .expect("generic signature");
+    println!(
+        "checked generic bounds before body analysis: {:?}",
+        inspect.bounds
+    );
+    assert_eq!(inspect.bounds[&inspect.generic_params[0]].len(), 1);
     println!(
         "enum payload type before body analysis: {:?}",
         signature.type_at(text.find("Running(Point").expect("payload") + "Running(".len())

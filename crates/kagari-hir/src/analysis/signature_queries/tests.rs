@@ -14,6 +14,159 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapsh
 }
 
 #[test]
+fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
+    use crate::typeck::ConstraintTarget;
+    for header in ["impl<T: HashKey> Set<T>", "impl<T> Set<T> where T: HashKey"] {
+        let text = format!(
+            "trait Get {{ fn get(self) -> i32; }} {header} {{ fn size<T: Get>(self, value: T) -> i32 {{ value.get() }} }} fn bad() {{ missing }}"
+        );
+        let mut sources = SourceDatabase::default();
+        let id = sources.set("bounds.kgr", text, SourceLayer::Base).unwrap();
+        let mut db = AnalysisDatabase::default();
+        let snapshot = query(&mut db, &sources);
+        let file = snapshot.file(id).unwrap();
+        assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
+        let method = file
+            .signatures()
+            .facts()
+            .functions()
+            .iter()
+            .find(|f| f.name == "size")
+            .unwrap();
+        let TypeId::Set(element) = &method.params[0].ty else {
+            panic!("receiver");
+        };
+        let TypeId::Generic(outer) = element.as_ref() else {
+            panic!("impl binder");
+        };
+        let TypeId::Generic(inner) = &method.params[1].ty else {
+            panic!("method binder");
+        };
+        assert_ne!(outer, inner);
+        assert!(matches!(
+            method.bounds[outer].as_slice(),
+            [ConstraintTarget::Standard(_)]
+        ));
+        assert!(matches!(
+            method.bounds[inner].as_slice(),
+            [ConstraintTarget::Trait(_)]
+        ));
+        assert_eq!(method.bounds.len(), 2);
+        assert!(db.files.is_empty());
+        let full = db
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let analysis = full.file(id).unwrap();
+        assert_eq!(analysis.result().diagnostics().len(), 1);
+        assert_eq!(
+            analysis.result().diagnostics()[0].kind.code(),
+            "KG_RESOLVE_UNKNOWN_NAME"
+        );
+        let checked = analysis
+            .result()
+            .facts()
+            .typed
+            .functions
+            .iter()
+            .find(|f| f.name == "size")
+            .unwrap();
+        assert_eq!(method.bounds, checked.bounds);
+    }
+}
+
+#[test]
+fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls() {
+    let text = "trait Get { fn get(self) -> i32; } fn pass<T: HashKey>(x: T) -> T { x } fn main() -> i32 { pass(7) }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("bound-edit.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let old = query(&mut db, &sources);
+    let original = old
+        .file(id)
+        .unwrap()
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "pass")
+        .unwrap();
+    sources
+        .set(
+            "bound-edit.kgr",
+            text.replace("{ x }", "{ val same = x; same }"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let edited = query(&mut db, &sources);
+    assert!(edited.file(id).unwrap().reused());
+    let cached = edited
+        .file(id)
+        .unwrap()
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "pass")
+        .unwrap();
+    assert_eq!(original.bounds, cached.bounds);
+    let good = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    assert!(good.file(id).unwrap().result().diagnostics().is_empty());
+    sources
+        .set(
+            "bound-edit.kgr",
+            text.replace("T: HashKey", "T: Get"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let changed = query(&mut db, &sources);
+    assert!(!changed.file(id).unwrap().reused());
+    let current = changed
+        .file(id)
+        .unwrap()
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "pass")
+        .unwrap();
+    assert_ne!(original.bounds, current.bounds);
+    let bad = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let analysis = bad.file(id).unwrap();
+    assert_eq!(analysis.result().facts().typed.reused_bodies, 0);
+    assert!(
+        analysis
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| d.kind.code() == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")
+    );
+    let fresh = query(&mut AnalysisDatabase::default(), &sources);
+    changed
+        .file(id)
+        .unwrap()
+        .signatures()
+        .facts()
+        .assert_same_source_facts(
+            fresh.file(id).unwrap().signatures().facts(),
+            changed
+                .file(id)
+                .unwrap()
+                .prepared
+                .lowered
+                .module
+                .body
+                .arena(),
+            fresh.file(id).unwrap().prepared.lowered.module.body.arena(),
+        );
+}
+
+#[test]
 fn independent_signature_query_preserves_errors_without_body_analysis() {
     let mut sources = SourceDatabase::default();
     let text = "fn bad(x: Absent) -> Absent { missing } const BAD: i32 = 1 / 0; fn good(x: i32) -> i32 { val local = x; local }";

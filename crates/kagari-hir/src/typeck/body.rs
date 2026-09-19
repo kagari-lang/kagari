@@ -1556,24 +1556,17 @@ impl<'a> BodyChecker<'a> {
             .collect::<Vec<_>>();
         self.type_table
             .insert_type_arguments(call_expr, type_arguments);
-        let declaration = self
-            .lowered
-            .module
-            .functions
-            .iter()
-            .find(|function| function.id == id)
-            .expect("resolved function declaration");
-        let bounds = super::constraints::function_bounds(
-            &self.lowered.module,
-            declaration,
-            self.declarations,
-            self.type_table,
-        );
         for parameter in &function.generic_params {
             let Some(actual) = substitution.get(parameter) else {
                 continue;
             };
-            for constraint in bounds.get(parameter).into_iter().flatten().cloned() {
+            for constraint in function
+                .bounds
+                .get(parameter)
+                .into_iter()
+                .flatten()
+                .cloned()
+            {
                 match constraint {
                     super::ConstraintTarget::Standard(constraint) => {
                         self.check_standard_constraint(actual, constraint, env, callee)

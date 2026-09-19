@@ -210,6 +210,13 @@ Implemented foundation slices:
   unchanged caller-body reuse and dependency signature invalidation. Dependency
   source revisions still conservatively invalidate consumers, even for body-only
   dependency edits; this does not claim dependency-level incremental reuse.
+  Checked function signatures now own generic constraint maps. Parameter/return
+  validation, body environments, calls and method catalogs consume these maps;
+  repeated downstream HIR constraint reconstruction is removed. Signature-query
+  tests cover inline/where impl bounds under method shadowing, partial constraint
+  errors, body-edit reuse and bound-change invalidation. The source_queries example
+  exposes constraints before body analysis; execution fixtures forward checked
+  where bounds through source, artifact and existing JIT fallback routes.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts

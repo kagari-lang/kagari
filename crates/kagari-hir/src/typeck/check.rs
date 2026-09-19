@@ -139,6 +139,12 @@ pub(crate) fn check_signatures(
         }
         let mut params: TypedParameterBuffer = SmallVec::new();
         let context = function_type_context(&lowered.module, function, declarations);
+        let bounds = super::constraints::function_bounds(
+            &lowered.module,
+            function,
+            declarations,
+            &type_table,
+        );
         let function_name = if function.name.is_empty() {
             "<missing>".to_string()
         } else {
@@ -167,12 +173,7 @@ pub(crate) fn check_signatures(
                 Some(ty) => {
                     validate_standard_type_constraints(
                         &ty,
-                        &super::constraints::function_bounds(
-                            &lowered.module,
-                            function,
-                            declarations,
-                            &type_table,
-                        ),
+                        &bounds,
                         lowered.source_map.type_span(param.ty),
                         &mut diagnostics,
                     );
@@ -208,12 +209,7 @@ pub(crate) fn check_signatures(
                     Some(ty) => {
                         validate_standard_type_constraints(
                             &ty,
-                            &super::constraints::function_bounds(
-                                &lowered.module,
-                                function,
-                                declarations,
-                                &type_table,
-                            ),
+                            &bounds,
                             lowered.source_map.type_span(*ty_ref),
                             &mut diagnostics,
                         );
@@ -237,6 +233,7 @@ pub(crate) fn check_signatures(
         };
 
         let typed_function = TypedFunction {
+            bounds,
             generic_params: function
                 .generic_params
                 .iter()
@@ -408,12 +405,7 @@ pub(crate) fn check_bodies_controlled(
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
                 env.generics = function.generic_params.clone();
-                env.generic_bounds = super::constraints::function_bounds(
-                    &lowered.module,
-                    function,
-                    declarations,
-                    &type_table,
-                );
+                env.generic_bounds = typed_function.bounds.clone();
                 for param in &typed_function.params {
                     env.params.insert(param.id, param.ty.clone());
                 }

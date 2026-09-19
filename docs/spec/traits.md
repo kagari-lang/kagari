@@ -400,6 +400,11 @@ The initial trait system excludes:
 Semantic analysis stores trait and method declarations in the shared nominal
 catalog. A method contract contains its owning declaration, ordered parameters,
 generic parameter identities and bounds, return type, and source declaration.
+Function signatures own the checked constraint map, keyed by the parameter's
+declaring owner and position. Signature validation, function-body environments,
+call checking and the method catalog consume that map. Inline, `where`, and
+inherited impl bounds are assembled once during signature analysis, before any
+function body runs; method shadowing does not change the receiver's outer binder.
 Local and imported interface annotations use these same contracts for argument
 checking, Self substitution, and definition queries. Invalid parameter types retain
 Error facts without discarding later parameters or unrelated declarations.

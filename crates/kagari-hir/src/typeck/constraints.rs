@@ -197,7 +197,7 @@ fn resolve_constraint(
 
 /// Keep constraints attached to the declaring parameter, including when an
 /// implicit receiver still contains an outer parameter shadowed by the method.
-pub(crate) fn function_bounds(
+pub(super) fn function_bounds(
     module: &hir::Module,
     function: &hir::Function,
     declarations: &crate::declarations::Declarations,

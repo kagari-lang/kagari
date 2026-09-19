@@ -331,6 +331,14 @@ fn run(case: &Case, route: Route) {
 
 #[test]
 fn language_contract_routes_preserve_values_diagnostics_and_effects() {
+    let checked_where_bounds = Case::new(
+        "checked-where-bounds-through-forwarding",
+        "trait Get { fn get(self) -> i32; } struct P {} impl Get for P { fn get(self) -> i32 { 42 } } fn read<T>(value: T) -> i32 where T: Get { value.get() } fn wrap<U>(value: U) -> i32 where U: Get { read(value) } fn pass<T>(value: T) -> T where T: HashKey { value } fn main() -> (i32, i32) { (wrap(P {}), pass(7)) }",
+        Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(7)])),
+    );
+    for route in [Route::Source, Route::Artifact, Route::Jit] {
+        run(&checked_where_bounds, route);
+    }
     let distinct_trait_methods = Case::new(
         "nominal-trait-methods-on-one-receiver",
         "trait Left { fn get(self) -> i32; } trait Right { fn get(self) -> i32; } struct Point {} impl Left for Point { fn get(self) -> i32 { 11 } } impl Right for Point { fn get(self) -> i32 { 22 } } fn left<T: Left>(x: T) -> i32 { x.get() } fn right<T: Right>(x: T) -> i32 { x.get() } fn main() -> (i32, i32) { val p = Point {}; (left(p), right(p)) }",

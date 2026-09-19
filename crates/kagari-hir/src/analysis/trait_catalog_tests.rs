@@ -23,6 +23,45 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 }
 
 #[test]
+fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
+    use crate::typeck::ConstraintTarget;
+    let mut sources = SourceDatabase::default();
+    let root = insert(
+        &mut sources,
+        "root",
+        "trait Reader<T: HashKey> { fn read<U>(self, value: U) -> U where U: Missing + HashKey; }",
+    );
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(root).unwrap();
+    assert_eq!(file.result().diagnostics().len(), 1);
+    assert_eq!(
+        file.result().diagnostics()[0].kind.code(),
+        "KG_TYPE_UNKNOWN_TRAIT"
+    );
+    let facts = file.result().facts();
+    let method = &facts.aggregates.traits().next().unwrap().methods[0];
+    let signature = facts
+        .typed
+        .functions
+        .iter()
+        .find(|f| f.name == "read")
+        .unwrap();
+    assert_eq!(method.bounds, signature.bounds);
+    assert_eq!(method.bounds.len(), 2);
+    for parameter in &method.generic_params {
+        assert!(matches!(
+            method.bounds[parameter].as_slice(),
+            [ConstraintTarget::Standard(_)]
+        ));
+    }
+    assert_ne!(
+        method.generic_params[0].owner,
+        method.generic_params[1].owner
+    );
+    assert!(file.result().clone().into_codegen().is_err());
+}
+
+#[test]
 fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
     let mut sources = SourceDatabase::default();
     let left = insert(

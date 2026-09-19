@@ -2,7 +2,6 @@ mod body;
 mod check;
 mod const_eval;
 mod constraints;
-pub(crate) use constraints::function_bounds;
 mod inference;
 mod scalar;
 pub use scalar::ScalarValue;
@@ -78,6 +77,9 @@ pub struct TypedModule {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedFunction {
     pub generic_params: Vec<crate::types::GenericParameterType>,
+    /// Checked constraints keyed by the declaring parameter, including inherited
+    /// impl parameters shadowed by a method parameter with the same name.
+    pub bounds: HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>>,
     pub id: FunctionId,
     pub name: String,
     pub params: TypedParameterBuffer,

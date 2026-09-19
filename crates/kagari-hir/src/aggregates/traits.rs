@@ -15,7 +15,7 @@ pub struct MethodSignature {
     pub slot: usize,
     pub name: String,
     pub generic_params: Vec<GenericParameterType>,
-    pub bounds: Vec<(GenericParameterType, Vec<ConstraintTarget>)>,
+    pub bounds: std::collections::HashMap<GenericParameterType, Vec<ConstraintTarget>>,
     pub params: Vec<MethodParameter>,
     pub return_type: TypeId,
     pub declaration: Declaration,
@@ -97,18 +97,6 @@ impl AggregateCatalog {
                 let function = functions
                     .get(&method.function)
                     .expect("checked method signature");
-                let source = lowered
-                    .module
-                    .functions
-                    .iter()
-                    .find(|f| f.id == method.function)
-                    .expect("method generic binder");
-                let mut bounds = crate::typeck::function_bounds(
-                    &lowered.module,
-                    source,
-                    declarations,
-                    signatures.type_table(),
-                );
                 let mut params = Vec::new();
                 for param in &function.params {
                     cancel.check()?;
@@ -125,11 +113,7 @@ impl AggregateCatalog {
                     owner: id.clone(),
                     slot,
                     name: method.name.clone(),
-                    bounds: function
-                        .generic_params
-                        .iter()
-                        .map(|p| (p.clone(), bounds.remove(p).unwrap_or_default()))
-                        .collect(),
+                    bounds: function.bounds.clone(),
                     generic_params: function.generic_params.clone(),
                     params,
                     return_type: function.return_type.clone(),
