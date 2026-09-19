@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 15;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 16;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 
 fn codec() -> impl Options {
@@ -23,7 +23,7 @@ fn codec() -> impl Options {
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v16";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v17";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -291,7 +291,12 @@ impl ArtifactFingerprint {
             function.documentation.clear();
         }
         functions.sort_by(|a, b| a.id.cmp(&b.id));
-        Self::of_serialized(&("kagari-required-host-interface-v2", functions))
+        let mut types = interface.types.clone();
+        for ty in &mut types {
+            ty.clear_documentation();
+        }
+        types.sort_by(|a, b| a.id.cmp(&b.id));
+        Self::of_serialized(&("kagari-required-host-interface-v3", types, functions))
     }
 
     pub fn of_program_hosts(program: &BytecodeProgram) -> Self {
@@ -387,7 +392,7 @@ impl ArtifactTables {
             (ArtifactSectionId::Paths, count(|m| m.paths.len())),
             (
                 ArtifactSectionId::HostDependencies,
-                count(|m| m.host_interface.functions.len()),
+                count(|m| m.host_interface.functions.len() + m.host_interface.types.len()),
             ),
             (ArtifactSectionId::SourceFiles, program.modules.len()),
             (
@@ -954,6 +959,7 @@ mod canonical_tests {
             HostFunctionDeclaration, HostInterface, HostValueType, standard_log,
         };
         let interface = HostInterface {
+            types: Vec::new(),
             functions: vec![
                 standard_log(),
                 HostFunctionDeclaration::new("host.other", vec![], HostValueType::Unit),

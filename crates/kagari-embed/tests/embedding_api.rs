@@ -68,11 +68,7 @@ fn register_embedding_host_path_runtime(
             ..TypeRegistration::new("i32", TypeKind::Primitive)
         })
         .unwrap();
-    let mut host_type = HostTypeRegistration::new("game.Player", "game.Player");
-    host_type.ownership = HostTypeOwnership::HostRoot;
-    host_type.path_access = PathAccess::ReadWrite;
-    host_type.reflection = HostReflectionPolicy::Hidden;
-    host_type.abi_fingerprint = AbiFingerprint(102);
+    let host_type = HostTypeRegistration::new(player_type_declaration(), "game.Player");
     let player_id = runtime.register_host_type(host_type).unwrap();
     let root = runtime
         .runtime_mut()
@@ -152,6 +148,19 @@ fn host_path_artifact(
             root: kagari_ir::bytecode::ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 host_interface: kagari_common::host_interface::HostInterface {
+                    types: if instructions.iter().any(|instruction| {
+                        matches!(
+                            instruction,
+                            BytecodeInstruction::Call {
+                                callee: CallTarget::HostFunction(_),
+                                ..
+                            }
+                        )
+                    }) {
+                        vec![player_type_declaration()]
+                    } else {
+                        Vec::new()
+                    },
                     functions: if instructions.iter().any(|instruction| {
                         matches!(
                             instruction,
@@ -718,4 +727,12 @@ fn execution_context_denies_host_and_reflection_helpers() {
         .execute(&type_of_module, "main", &[], &reflection_allowed)
         .expect("reflection metadata should execute when profile and capability allow it");
     assert_eq!(report.return_value, Value::Str("i32".to_owned()));
+}
+
+fn player_type_declaration() -> kagari_common::host_interface::HostTypeDeclaration {
+    let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
+    declaration.ownership = HostTypeOwnership::HostRoot;
+    declaration.path_access = PathAccess::ReadWrite;
+    declaration.reflection = HostReflectionPolicy::Hidden;
+    declaration
 }

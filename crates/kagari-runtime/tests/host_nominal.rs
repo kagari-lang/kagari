@@ -33,10 +33,13 @@ fn runtime() -> Runtime {
 }
 
 fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionId) -> (TypeId, Value) {
-    let mut registration = HostTypeRegistration::new(symbol, "Object");
-    registration.declaration = declaration;
-    registration.ownership = HostTypeOwnership::HostRoot;
-    registration.path_access = PathAccess::ReadWrite;
+    let mut registration = HostTypeRegistration::new(
+        kagari_common::host_interface::HostTypeDeclaration::new(symbol),
+        "Object",
+    );
+    registration.declaration.id = declaration;
+    registration.declaration.ownership = HostTypeOwnership::HostRoot;
+    registration.declaration.path_access = PathAccess::ReadWrite;
     let ty = runtime.register_host_type(registration).unwrap();
     let value = Value::HostRoot(
         runtime
@@ -72,16 +75,22 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
         ty
     );
     let before = runtime.types().len();
-    let mut duplicate = HostTypeRegistration::new("other.Export", "Other");
-    duplicate.declaration = declaration;
+    let mut duplicate = HostTypeRegistration::new(
+        kagari_common::host_interface::HostTypeDeclaration::new("other.Export"),
+        "Other",
+    );
+    duplicate.declaration.id = declaration;
     assert_eq!(
         runtime.register_host_type(duplicate).unwrap_err().kind(),
         RuntimeErrorKind::MetadataConflict
     );
     assert_eq!(runtime.types().len(), before);
     assert!(runtime.types().get_by_name("other.Export").is_none());
-    let mut invalid = HostTypeRegistration::new("bad.Export", "Other");
-    invalid.declaration.path.clear();
+    let mut invalid = HostTypeRegistration::new(
+        kagari_common::host_interface::HostTypeDeclaration::new("bad.Export"),
+        "Other",
+    );
+    invalid.declaration.id.path.clear();
     assert!(runtime.register_host_type(invalid).is_err());
     assert_eq!(runtime.types().len(), before);
     let (next, _) = register(
@@ -107,10 +116,15 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
             panic!("linking cannot invoke callbacks")
         }))
         .unwrap();
+    let mut expected_type = kagari_common::host_interface::HostTypeDeclaration::new("export.Alias");
+    expected_type.id = host_type_identity("game.Player");
+    expected_type.ownership = HostTypeOwnership::HostRoot;
+    expected_type.path_access = PathAccess::ReadWrite;
     let program = BytecodeProgram {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             host_interface: HostInterface {
+                types: vec![expected_type],
                 functions: vec![declaration],
             },
             ..Default::default()

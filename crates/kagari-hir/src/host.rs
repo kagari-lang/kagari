@@ -1,6 +1,6 @@
 //! Declaration queries do not depend on the runtime or invoke host callbacks.
 use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostValueType,
+    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostTypeDeclaration, HostValueType,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -24,26 +24,40 @@ pub struct HostModuleId {
     index: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HostTypeId {
+    revision: u64,
+    index: usize,
+}
+
 #[derive(Debug)]
 pub struct HostDeclarations {
     revision: u64,
     interface: HostInterface,
     paths: HashMap<String, HostFunctionId>,
+    type_paths: HashMap<String, HostTypeId>,
+    type_identities: HashMap<kagari_common::identity::DefinitionId, HostTypeId>,
     modules: Vec<String>,
 }
 
 impl HostDeclarations {
     pub fn new(interface: HostInterface) -> Result<Arc<Self>, HostInterfaceError> {
         interface.validate()?;
-        if interface.functions.iter().any(|function| {
-            function.symbol.split('.').any(|segment| {
-                let mut chars = segment.chars();
-                !chars
-                    .next()
-                    .is_some_and(|ch| ch == '_' || ch.is_alphabetic())
-                    || !chars.all(|ch| ch == '_' || ch.is_alphanumeric())
-            }) || function.symbol.split('.').next() == Some("std")
-        }) {
+        if interface
+            .functions
+            .iter()
+            .map(|function| &function.symbol)
+            .chain(interface.types.iter().map(|ty| &ty.symbol))
+            .any(|symbol| {
+                symbol.split('.').any(|segment| {
+                    let mut chars = segment.chars();
+                    !chars
+                        .next()
+                        .is_some_and(|ch| ch == '_' || ch.is_alphabetic())
+                        || !chars.all(|ch| ch == '_' || ch.is_alphanumeric())
+                }) || symbol.split('.').next() == Some("std")
+            })
+        {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -66,19 +80,46 @@ impl HostDeclarations {
             })
             .collect();
         let mut modules = std::collections::BTreeSet::new();
-        for declaration in &interface.functions {
-            let path = declaration.symbol.replace('.', "::");
+        let type_paths: HashMap<_, _> = interface
+            .types
+            .iter()
+            .enumerate()
+            .map(|(index, declaration)| {
+                (
+                    declaration.symbol.replace('.', "::"),
+                    HostTypeId { revision, index },
+                )
+            })
+            .collect();
+        let type_identities = interface
+            .types
+            .iter()
+            .enumerate()
+            .map(|(index, declaration)| (declaration.id.clone(), HostTypeId { revision, index }))
+            .collect();
+        for symbol in interface
+            .functions
+            .iter()
+            .map(|function| &function.symbol)
+            .chain(interface.types.iter().map(|ty| &ty.symbol))
+        {
+            let path = symbol.replace('.', "::");
             for (offset, _) in path.match_indices("::") {
                 modules.insert(path[..offset].to_owned());
             }
         }
-        if modules.iter().any(|module| paths.contains_key(module)) {
+        if modules
+            .iter()
+            .any(|module| paths.contains_key(module) || type_paths.contains_key(module))
+        {
             return Err(HostInterfaceError::DuplicateDeclaration);
         }
         Ok(Arc::new(Self {
             revision,
             interface,
             paths,
+            type_paths,
+            type_identities,
             modules: modules.into_iter().collect(),
         }))
     }
@@ -115,6 +156,21 @@ impl HostDeclarations {
     }
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub fn resolve_type(&self, path: &str) -> Option<HostTypeId> {
+        self.type_paths.get(path).copied()
+    }
+    pub fn nominal_type(
+        &self,
+        declaration: &kagari_common::identity::DefinitionId,
+    ) -> Option<HostTypeId> {
+        self.type_identities.get(declaration).copied()
+    }
+    pub fn type_declaration(&self, id: HostTypeId) -> Option<&HostTypeDeclaration> {
+        (id.revision == self.revision)
+            .then(|| self.interface.types.get(id.index))
+            .flatten()
     }
 }
 

@@ -34,6 +34,7 @@ fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
     let mut db = AnalysisDatabase::default();
     db.set_host_declarations(
         crate::host::HostDeclarations::new(HostInterface {
+            types: Vec::new(),
             functions: vec![HostFunctionDeclaration::new(
                 "demo.number",
                 vec![],

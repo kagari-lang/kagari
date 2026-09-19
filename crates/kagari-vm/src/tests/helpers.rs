@@ -97,11 +97,7 @@ fn register_vm_host_path_runtime_with_capabilities(
             ..TypeRegistration::new("i32", TypeKind::Primitive)
         })
         .unwrap();
-    let mut host_type = HostTypeRegistration::new("game.Player", "game.Player");
-    host_type.ownership = HostTypeOwnership::HostRoot;
-    host_type.path_access = PathAccess::ReadWrite;
-    host_type.reflection = HostReflectionPolicy::Hidden;
-    host_type.abi_fingerprint = AbiFingerprint(2);
+    let host_type = HostTypeRegistration::new(player_type_declaration(), "game.Player");
     let player_id = runtime.register_host_type(host_type).unwrap();
     let root = runtime
         .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
@@ -185,6 +181,7 @@ fn path_module(
     };
     BytecodeModule {
         host_interface: kagari_common::host_interface::HostInterface {
+            types: vec![player_type_declaration()],
             functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.player",
                 vec![],
@@ -1599,4 +1596,12 @@ fn main() -> i32 {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(9));
+}
+
+fn player_type_declaration() -> kagari_common::host_interface::HostTypeDeclaration {
+    let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
+    declaration.ownership = HostTypeOwnership::HostRoot;
+    declaration.path_access = PathAccess::ReadWrite;
+    declaration.reflection = HostReflectionPolicy::Hidden;
+    declaration
 }

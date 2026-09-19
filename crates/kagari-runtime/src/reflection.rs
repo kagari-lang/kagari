@@ -161,8 +161,7 @@ mod tests {
         gc::GcHeapConfig,
         host::{
             DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-            HostPathSegment, HostRegistry, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
-            HostTypeOwnership,
+            HostPathSegment, HostRootHandle, HostSchemaEpoch, HostTypeOwnership,
         },
         metadata::{AbiFingerprint, FieldMetadataId, PathAccess, TypeId},
         value::InterfaceObjectId,
@@ -179,29 +178,19 @@ mod tests {
     }
 
     fn path_view_value(object_id: u64) -> Value {
-        let root_type = TypeId::new(0);
         let result_type = TypeId::new(1);
-        let mut registry = HostRegistry::default();
-        registry
-            .register_type(HostTypeInfo {
-                declaration: kagari_common::host_interface::host_type_identity("Player"),
-                type_id: root_type,
-                script_name: "Player".to_owned(),
-                rust_type_name: "Player".to_owned(),
-                ownership: HostTypeOwnership::HostRoot,
-                fields: Vec::new(),
-                methods: Vec::new(),
-                traits: Vec::new(),
-                path_access: PathAccess::ReadWrite,
-                reflection: crate::host::HostReflectionPolicy::Hidden,
-                abi_fingerprint: AbiFingerprint(1),
-            })
+        let mut runtime = crate::Runtime::default();
+        let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("Player");
+        declaration.ownership = HostTypeOwnership::HostRoot;
+        declaration.path_access = PathAccess::ReadWrite;
+        let root_type = runtime
+            .register_host_type(crate::HostTypeRegistration::new(declaration, "Player"))
             .unwrap();
-        let root = registry
-            .register_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
+        let root = runtime
+            .register_host_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
             .unwrap();
-        let descriptor = registry
-            .register_path_descriptor(HostPathDescriptorRegistration {
+        let descriptor = runtime
+            .register_host_path_descriptor(HostPathDescriptorRegistration {
                 root_type,
                 result_type,
                 segments: vec![HostPathSegment::Field {
@@ -219,7 +208,8 @@ mod tests {
             })
             .unwrap();
         Value::HostPathView(
-            registry
+            runtime
+                .host()
                 .make_path_view(root, descriptor, DynamicPathArguments::empty())
                 .unwrap(),
         )

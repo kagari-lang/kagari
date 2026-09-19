@@ -5,6 +5,50 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer},
 };
 
+#[test]
+fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
+    use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
+    let mut declaration = HostTypeDeclaration::new("model.Player");
+    declaration.fields.push(HostFieldDeclaration::new(
+        &declaration.id,
+        "score",
+        HostValueType::I32,
+    ));
+    declaration.fields[0].documentation = "Current score".into();
+    let interface = HostInterface {
+        types: vec![declaration.clone()],
+        functions: vec![],
+    };
+    let old =
+        HostDeclarations::new(HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap())
+            .unwrap();
+    let id = old.resolve_type("model::Player").unwrap();
+    assert_eq!(old.nominal_type(&declaration.id), Some(id));
+    assert_eq!(
+        old.type_declaration(id).unwrap().fields[0].documentation,
+        "Current score"
+    );
+    assert!(old.module("model").is_some());
+    declaration.fields[0].ty = HostValueType::I64;
+    let new = HostDeclarations::new(HostInterface {
+        types: vec![declaration],
+        functions: vec![],
+    })
+    .unwrap();
+    assert!(new.type_declaration(id).is_none());
+    assert_eq!(
+        new.type_declaration(new.resolve_type("model::Player").unwrap())
+            .unwrap()
+            .fields[0]
+            .ty,
+        HostValueType::I64
+    );
+    assert_eq!(
+        old.type_declaration(id).unwrap().fields[0].ty,
+        HostValueType::I32
+    );
+}
+
 pub(super) fn declaration() -> HostFunctionDeclaration {
     let mut declaration = HostFunctionDeclaration::new(
         "demo.echo",
@@ -28,6 +72,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
         .unwrap();
     let mut database = AnalysisDatabase::default();
     let original = HostDeclarations::new(HostInterface {
+        types: Vec::new(),
         functions: vec![declaration()],
     })
     .unwrap();
@@ -61,6 +106,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     changed.return_type = HostValueType::String;
     changed.documentation = "Now returns text".into();
     let updated = HostDeclarations::new(HostInterface {
+        types: Vec::new(),
         functions: vec![changed],
     })
     .unwrap();
@@ -117,6 +163,7 @@ fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
         let mut database = AnalysisDatabase::default();
         database.set_host_declarations(
             HostDeclarations::new(HostInterface {
+                types: Vec::new(),
                 functions: vec![declaration()],
             })
             .unwrap(),
@@ -154,6 +201,7 @@ fn host_catalog_rejects_ambiguous_or_unspellable_paths() {
     for name in ["std.echo", "demo::echo", "demo.2bad"] {
         assert!(
             HostDeclarations::new(HostInterface {
+                types: Vec::new(),
                 functions: vec![HostFunctionDeclaration::new(
                     name,
                     vec![],
@@ -165,6 +213,7 @@ fn host_catalog_rejects_ambiguous_or_unspellable_paths() {
     }
     assert!(
         HostDeclarations::new(HostInterface {
+            types: Vec::new(),
             functions: vec![
                 declaration(),
                 HostFunctionDeclaration::new("demo.echo.child", vec![], HostValueType::Unit)

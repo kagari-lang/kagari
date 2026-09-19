@@ -30,6 +30,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let required = declaration();
     let bytecode = BytecodeModule {
         host_interface: HostInterface {
+            types: Vec::new(),
             functions: vec![required.clone()],
         },
         ..Default::default()
@@ -189,6 +190,7 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
 fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     let declaration = declaration();
     let interface = HostInterface {
+        types: Vec::new(),
         functions: vec![declaration.clone()],
     };
     let encoded = interface.to_bytes().unwrap();
@@ -240,6 +242,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
             runtime
                 .host()
                 .link_interface(&HostInterface {
+                    types: Vec::new(),
                     functions: vec![expected]
                 })
                 .is_err()
@@ -254,6 +257,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
     runtime
         .host()
         .link_interface(&HostInterface {
+            types: Vec::new(),
             functions: vec![docs],
         })
         .unwrap();
@@ -262,6 +266,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
         runtime
             .host()
             .link_interface(&HostInterface {
+                types: Vec::new(),
                 functions: vec![absent]
             })
             .is_err()
@@ -273,11 +278,13 @@ fn offline_encoding_is_canonical_and_rejects_invalid_input() {
     let a = declaration();
     let b = HostFunctionDeclaration::new("game.other", vec![], HostValueType::Unit);
     let first = HostInterface {
+        types: Vec::new(),
         functions: vec![a.clone(), b.clone()],
     }
     .to_bytes()
     .unwrap();
     let second = HostInterface {
+        types: Vec::new(),
         functions: vec![b, a.clone()],
     }
     .to_bytes()
@@ -301,6 +308,7 @@ fn offline_encoding_is_canonical_and_rejects_invalid_input() {
         Err(HostInterfaceError::TooLarge)
     );
     let duplicate = HostInterface {
+        types: Vec::new(),
         functions: vec![a.clone(), a],
     };
     assert_eq!(

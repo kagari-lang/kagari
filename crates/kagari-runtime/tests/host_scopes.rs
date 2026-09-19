@@ -35,9 +35,12 @@ fn runtime() -> Runtime {
 }
 
 fn root(runtime: &mut Runtime) -> Value {
-    let mut registration = HostTypeRegistration::new("game.Object", "Object");
-    registration.ownership = HostTypeOwnership::HostRoot;
-    registration.path_access = PathAccess::ReadWrite;
+    let mut registration = HostTypeRegistration::new(
+        kagari_common::host_interface::HostTypeDeclaration::new("game.Object"),
+        "Object",
+    );
+    registration.declaration.ownership = HostTypeOwnership::HostRoot;
+    registration.declaration.path_access = PathAccess::ReadWrite;
     let ty = runtime.register_host_type(registration).unwrap();
     Value::HostRoot(
         runtime

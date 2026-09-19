@@ -166,6 +166,7 @@ fn host_fixture(
     );
     engine
         .set_host_interface(HostInterface {
+            types: Vec::new(),
             functions: vec![declaration.clone()],
         })
         .unwrap();

@@ -1,6 +1,6 @@
 pub use kagari_common::host_interface::{
     HostFunctionDeclaration, HostFunctionEffects, HostInterface, HostParameter, HostPassingStyle,
-    HostValueType,
+    HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership, HostValueType,
 };
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
@@ -9,10 +9,7 @@ use kagari_ir::bytecode::BinaryOp;
 
 use crate::{
     error::RuntimeError,
-    metadata::{
-        AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, PathAccess, TraitInfo, TypeId,
-        TypeKind, TypeRegistration,
-    },
+    metadata::{AbiFingerprint, FieldMetadataId, PathAccess, TypeId},
     security::CapabilitySet,
     value::Value,
 };
@@ -1066,96 +1063,27 @@ impl HostFunctionId {
         self.slot
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostTypeOwnership {
-    Opaque,
-    Owned,
-    HostRoot,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostReflectionPolicy {
-    Hidden,
-    TypeNameOnly,
-    Metadata,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostTypeRegistration {
-    pub declaration: DefinitionId,
-    pub script_name: String,
+    pub declaration: HostTypeDeclaration,
     pub rust_type_name: String,
-    pub ownership: HostTypeOwnership,
-    pub fields: Vec<FieldInfo>,
-    pub methods: Vec<MethodInfo>,
-    pub traits: Vec<TraitInfo>,
-    pub path_access: PathAccess,
-    pub reflection: HostReflectionPolicy,
-    pub abi_fingerprint: AbiFingerprint,
 }
 
 impl HostTypeRegistration {
-    pub fn new(script_name: impl Into<String>, rust_type_name: impl Into<String>) -> Self {
-        let script_name = script_name.into();
+    pub fn new(declaration: HostTypeDeclaration, rust_type_name: impl Into<String>) -> Self {
         Self {
-            declaration: kagari_common::host_interface::host_type_identity(&script_name),
-            script_name,
+            declaration,
             rust_type_name: rust_type_name.into(),
-            ownership: HostTypeOwnership::Opaque,
-            fields: Vec::new(),
-            methods: Vec::new(),
-            traits: Vec::new(),
-            path_access: PathAccess::None,
-            reflection: HostReflectionPolicy::Hidden,
-            abi_fingerprint: AbiFingerprint::default(),
-        }
-    }
-
-    pub(crate) fn to_type_registration(&self) -> TypeRegistration {
-        TypeRegistration {
-            name: self.script_name.clone(),
-            kind: TypeKind::HostObject,
-            epoch: None,
-            fields: self.fields.clone(),
-            variants: Vec::new(),
-            methods: self.methods.clone(),
-            traits: self.traits.clone(),
-            abi_fingerprint: self.abi_fingerprint,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostTypeInfo {
-    pub declaration: DefinitionId,
     pub type_id: TypeId,
-    pub script_name: String,
+    pub declaration: HostTypeDeclaration,
     pub rust_type_name: String,
-    pub ownership: HostTypeOwnership,
-    pub fields: Vec<FieldInfo>,
-    pub methods: Vec<MethodInfo>,
-    pub traits: Vec<TraitInfo>,
-    pub path_access: PathAccess,
-    pub reflection: HostReflectionPolicy,
     pub abi_fingerprint: AbiFingerprint,
-}
-
-impl HostTypeInfo {
-    pub fn from_registration(type_id: TypeId, registration: HostTypeRegistration) -> Self {
-        Self {
-            declaration: registration.declaration,
-            type_id,
-            script_name: registration.script_name,
-            rust_type_name: registration.rust_type_name,
-            ownership: registration.ownership,
-            fields: registration.fields,
-            methods: registration.methods,
-            traits: registration.traits,
-            path_access: registration.path_access,
-            reflection: registration.reflection,
-            abi_fingerprint: registration.abi_fingerprint,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1482,7 +1410,13 @@ impl HostRegistry {
             .map(|f| f.declaration.clone())
             .collect::<Vec<_>>();
         functions.sort_by(|a, b| a.id.cmp(&b.id));
-        HostInterface { functions }
+        let mut types = self
+            .types
+            .values()
+            .map(|info| info.declaration.clone())
+            .collect::<Vec<_>>();
+        types.sort_by(|a, b| a.id.cmp(&b.id));
+        HostInterface { types, functions }
     }
 
     /// Checks declarations without invoking any callback or changing registry state.
@@ -1493,24 +1427,24 @@ impl HostRegistry {
         interface
             .validate()
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        for required in &interface.types {
+            let actual = self.host_type_by_declaration(&required.id).ok_or_else(|| {
+                RuntimeError::metadata_conflict(format!(
+                    "missing host type binding `{}`",
+                    required.symbol
+                ))
+            })?;
+            if !required.matches_binding(&actual.declaration) {
+                return Err(RuntimeError::metadata_conflict(format!(
+                    "host type binding `{}` differs from its declaration",
+                    required.symbol
+                )));
+            }
+        }
         interface
             .functions
             .iter()
             .map(|required| {
-                for ty in required
-                    .params
-                    .iter()
-                    .map(|param| &param.ty)
-                    .chain(std::iter::once(&required.return_type))
-                {
-                    for declaration in ty.nominal_references() {
-                        if !self.type_declarations.contains_key(declaration) {
-                            return Err(RuntimeError::metadata_conflict(format!(
-                                "missing host type binding for {declaration:?}"
-                            )));
-                        }
-                    }
-                }
                 let bound = self
                     .function_declarations
                     .get(&required.id)
@@ -1534,18 +1468,14 @@ impl HostRegistry {
             .collect()
     }
 
-    pub fn register_type(&mut self, info: HostTypeInfo) -> Result<(), RuntimeError> {
-        self.validate_type_identity(&info.declaration, &info.script_name)?;
-        if self.types.contains_key(&info.type_id) || self.type_names.contains_key(&info.script_name)
-        {
-            return Err(RuntimeError::metadata_conflict(info.script_name));
+    pub(crate) fn install_types(&mut self, bindings: Vec<HostTypeInfo>) {
+        for info in bindings {
+            self.type_names
+                .insert(info.declaration.symbol.clone(), info.type_id);
+            self.type_declarations
+                .insert(info.declaration.id.clone(), info.type_id);
+            self.types.insert(info.type_id, info);
         }
-        self.type_names
-            .insert(info.script_name.clone(), info.type_id);
-        self.type_declarations
-            .insert(info.declaration.clone(), info.type_id);
-        self.types.insert(info.type_id, info);
-        Ok(())
     }
 
     pub(crate) fn validate_type_identity(
@@ -1592,12 +1522,12 @@ impl HostRegistry {
                 "host root type is not registered",
             ));
         };
-        if info.ownership != HostTypeOwnership::HostRoot {
+        if info.declaration.ownership != HostTypeOwnership::HostRoot {
             return Err(RuntimeError::typed_path_validation(
                 "host root type must use HostRoot ownership",
             ));
         }
-        validate_path_access(info.path_access, "host root type")?;
+        validate_path_access(info.declaration.path_access, "host root type")?;
         let root = HostRootHandle::new(
             self.owner,
             object_id,
@@ -1626,12 +1556,12 @@ impl HostRegistry {
                 "path descriptor root type is not registered",
             ));
         };
-        if root_type.ownership != HostTypeOwnership::HostRoot {
+        if root_type.declaration.ownership != HostTypeOwnership::HostRoot {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor root type must use HostRoot ownership",
             ));
         }
-        if !path_access_allows(root_type.path_access, registration.access) {
+        if !path_access_allows(root_type.declaration.path_access, registration.access) {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor access exceeds root type policy",
             ));

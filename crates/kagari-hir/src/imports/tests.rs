@@ -310,6 +310,7 @@ fn source_host_and_module_item_ambiguities_are_rejected() {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_host_declarations(
         HostDeclarations::new(kagari_common::host_interface::HostInterface {
+            types: Vec::new(),
             functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                 "pkg.api.external",
                 vec![],

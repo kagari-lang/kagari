@@ -61,20 +61,10 @@ pub enum TypeKind {
     DynamicInterfaceObject,
     HostObject,
     HostPathView,
+    Set,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Visibility {
-    Private,
-    Public,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathAccess {
-    None,
-    ReadOnly,
-    ReadWrite,
-}
+pub use kagari_common::host_interface::{PathAccess, Visibility};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldInfo {
@@ -172,12 +162,15 @@ pub struct TypeRegistry {
     inner: RefCell<TypeRegistryInner>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct TypeRegistryInner {
+    host_value_types: HashMap<kagari_common::host_interface::HostValueType, TypeId>,
     by_id: Vec<TypeInfo>,
     by_name: HashMap<String, TypeId>,
     public_abi_fingerprints: HashSet<AbiFingerprint>,
 }
+
+mod host;
 
 impl TypeRegistry {
     pub fn register(&self, registration: TypeRegistration) -> Result<TypeId, RuntimeError> {

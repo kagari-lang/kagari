@@ -332,6 +332,13 @@ impl KagariRuntime {
         self.vm.runtime_mut().register_host_type(registration)
     }
 
+    pub fn register_host_types(
+        &mut self,
+        registrations: Vec<HostTypeRegistration>,
+    ) -> Result<Vec<TypeId>, RuntimeError> {
+        self.vm.runtime_mut().register_host_types(registrations)
+    }
+
     pub fn load_program(
         &mut self,
         artifact: BytecodeArtifact,

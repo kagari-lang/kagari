@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 15 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 16 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 14 are rejected; no migration or compatibility
+format version. Versions 1 through 15 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
@@ -71,7 +71,11 @@ Version 15 stores host value types as bounded flat preorder nodes and supports
 nested tuple/container/standard-enum host contracts. Type encoding has a 4096-node
 and 64-depth limit, including during artifact decoding. Runtime call boundaries
 validate nested host arguments and results instead of accepting any heap object.
-The runtime ABI identity is `kagari-runtime-abi-v16`; the runtime-helper ABI is
+Version 16 includes portable host type/member declarations in each required host
+interface. Validation checks member ownership and referenced-type closure. Host
+interface fingerprints include those contracts with documentation removed; host
+section counts include both function and type declarations.
+The runtime ABI identity is `kagari-runtime-abi-v17`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -79,8 +83,9 @@ checked synchronous script reentry; v9 lacks session-owned frame stacks and
 nested execution observation; v10 lacks session-registered host resources, owned
 borrow tokens and contextual path callbacks; v11 lacks enum version handles and
 typed standard-enum tags. Runtime ABI v16 additionally requires nominal host type
-bindings and registry-owned host roots; v15 products are rejected despite sharing
-the current wire format. The helper ABI preserves cancellation
+bindings and registry-owned host roots. ABI v17 requires complete member contract
+linking and declaration-derived registration; all prior ABI products are rejected.
+The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration
 table. There is no arbitrary host-registry

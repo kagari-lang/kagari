@@ -1,11 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, HostExposurePolicy,
-    HostFunctionDeclaration, HostFunctionEffects, HostReflectionPolicy, HostTypeOwnership,
-    HostTypeRegistration, LanguageProfile, MethodInfo, MethodMetadataId, MethodOrigin,
-    ParameterInfo, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
-    TypeKind, TypeRegistration, Visibility,
+    AbiFingerprint, CapabilitySet, HostExposurePolicy, HostFunctionDeclaration,
+    HostFunctionEffects, HostReflectionPolicy, HostTypeOwnership, HostTypeRegistration,
+    LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
+    TypeKind, TypeRegistration,
     host::{
         HostError, HostFunction, HostObjectId, HostParameter, HostPassingStyle, HostSchemaEpoch,
     },
@@ -13,9 +12,12 @@ use kagari_runtime::{
 };
 
 fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
-    let mut registration = HostTypeRegistration::new("game.Player", "Player");
-    registration.ownership = HostTypeOwnership::HostRoot;
-    registration.path_access = PathAccess::ReadWrite;
+    let mut registration = HostTypeRegistration::new(
+        kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
+        "Player",
+    );
+    registration.declaration.ownership = HostTypeOwnership::HostRoot;
+    registration.declaration.path_access = PathAccess::ReadWrite;
     let ty = runtime.register_host_type(registration).unwrap();
     Value::HostRoot(
         runtime
@@ -235,36 +237,33 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
         })
         .unwrap();
 
+    use kagari_common::host_interface::{
+        HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration, HostValueType,
+    };
+    let mut declaration = HostTypeDeclaration::new("game.Player");
+    declaration.ownership = HostTypeOwnership::HostRoot;
+    declaration.path_access = PathAccess::ReadWrite;
+    declaration.reflection = HostReflectionPolicy::Metadata;
+    let mut field = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
+    field.writable = true;
+    field.path_access = PathAccess::ReadWrite;
+    declaration.fields.push(field);
+    declaration.methods.push(HostMethodDeclaration::new(
+        &declaration.id,
+        "heal",
+        vec![HostParameter {
+            name: "hp".into(),
+            ty: HostValueType::I32,
+            passing: HostPassingStyle::Owned,
+        }],
+        HostValueType::I32,
+    ));
+    let fingerprint = AbiFingerprint(declaration.fingerprint().unwrap());
     let type_id = runtime
-        .register_host_type(HostTypeRegistration {
-            ownership: HostTypeOwnership::HostRoot,
-            fields: vec![FieldInfo {
-                id: FieldMetadataId::new(0),
-                name: "hp".to_owned(),
-                ty: i32_id,
-                readable: true,
-                writable: true,
-                visibility: Visibility::Public,
-                path_access: PathAccess::ReadWrite,
-                abi_fingerprint: AbiFingerprint(11),
-            }],
-            methods: vec![MethodInfo {
-                id: MethodMetadataId::new(0),
-                name: "heal".to_owned(),
-                params: vec![ParameterInfo {
-                    name: "hp".to_owned(),
-                    ty: i32_id,
-                }],
-                return_type: i32_id,
-                origin: MethodOrigin::Host,
-                capability_requirements: CapabilitySet::default(),
-                abi_fingerprint: AbiFingerprint(12),
-            }],
-            path_access: PathAccess::ReadWrite,
-            reflection: HostReflectionPolicy::Metadata,
-            abi_fingerprint: AbiFingerprint(13),
-            ..HostTypeRegistration::new("game.Player", "crate::game::Player")
-        })
+        .register_host_type(HostTypeRegistration::new(
+            declaration,
+            "crate::game::Player",
+        ))
         .unwrap();
 
     let type_info = runtime.types().get(type_id).unwrap();
@@ -276,9 +275,14 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
     assert_eq!(type_info.fields[0].path_access, PathAccess::ReadWrite);
     assert_eq!(host_info.type_id, type_id);
     assert_eq!(named_host_info.rust_type_name, "crate::game::Player");
-    assert_eq!(host_info.ownership, HostTypeOwnership::HostRoot);
-    assert_eq!(host_info.reflection, HostReflectionPolicy::Metadata);
-    assert_eq!(host_info.abi_fingerprint, AbiFingerprint(13));
+    assert_eq!(host_info.declaration.ownership, HostTypeOwnership::HostRoot);
+    assert_eq!(
+        host_info.declaration.reflection,
+        HostReflectionPolicy::Metadata
+    );
+    assert_eq!(host_info.abi_fingerprint, fingerprint);
+    assert_eq!(type_info.fields[0].ty, i32_id);
+    assert_eq!(type_info.methods[0].params[0].ty, i32_id);
 }
 
 #[test]
@@ -286,14 +290,14 @@ fn rejects_duplicate_host_type_names() {
     let mut runtime = Runtime::default();
     runtime
         .register_host_type(HostTypeRegistration::new(
-            "game.Player",
+            kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
             "crate::game::Player",
         ))
         .unwrap();
 
     let error = runtime
         .register_host_type(HostTypeRegistration::new(
-            "game.Player",
+            kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
             "crate::game::OtherPlayer",
         ))
         .unwrap_err();

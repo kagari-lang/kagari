@@ -395,12 +395,17 @@ impl Runtime {
         &mut self,
         registration: HostTypeRegistration,
     ) -> Result<TypeId, RuntimeError> {
-        self.host
-            .validate_type_identity(&registration.declaration, &registration.script_name)?;
-        let type_id = self.types.register(registration.to_type_registration())?;
-        self.host
-            .register_type(HostTypeInfo::from_registration(type_id, registration))?;
-        Ok(type_id)
+        Ok(self.register_host_types(vec![registration])?[0])
+    }
+
+    pub fn register_host_types(
+        &mut self,
+        registrations: Vec<HostTypeRegistration>,
+    ) -> Result<Vec<TypeId>, RuntimeError> {
+        let bindings = self.types.register_host_types(&registrations, &self.host)?;
+        let ids = bindings.iter().map(|binding| binding.type_id).collect();
+        self.host.install_types(bindings);
+        Ok(ids)
     }
 
     pub fn register_host_root(
@@ -541,11 +546,11 @@ impl Runtime {
         };
         if !self
             .host_exposure()
-            .exposes_host_type(&root_type.script_name)
+            .exposes_host_type(&root_type.declaration.symbol)
         {
             return Err(RuntimeError::capability_denied(format!(
                 "host type `{}`",
-                root_type.script_name
+                root_type.declaration.symbol
             )));
         }
         if operation.writes() {

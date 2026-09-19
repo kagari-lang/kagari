@@ -1,7 +1,8 @@
 //! Compile against declarations without registering callbacks or starting services.
 use kagari_common::{
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
+        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostParameter,
+        HostPassingStyle, HostTypeDeclaration, HostValueType,
     },
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
@@ -10,7 +11,16 @@ use kagari_embed::{ArtifactOptions, CompileOptions, KagariEngine};
 use kagari_runtime::LanguageProfile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut player = HostTypeDeclaration::new("demo.Player");
+    player.fields.push(HostFieldDeclaration::new(
+        &player.id,
+        "score",
+        HostValueType::I32,
+    ));
+    player.documentation =
+        "Host-owned player metadata, available without business services.".into();
     let declarations = HostInterface {
+        types: vec![player],
         functions: vec![HostFunctionDeclaration::new(
             "demo.echo",
             vec![HostParameter {
@@ -23,8 +33,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     // A build process may read these bytes from the binding provider's interface file.
     let offline_bytes = declarations.to_bytes()?;
+    let offline = HostInterface::from_bytes(&offline_bytes)?;
+    println!(
+        "offline member: {}.{}",
+        offline.types[0].symbol, offline.types[0].fields[0].name
+    );
     let engine = KagariEngine::default();
-    engine.set_host_interface(HostInterface::from_bytes(&offline_bytes)?)?;
+    engine.set_host_interface(offline)?;
     let mut root = None;
     for (name, text) in [
         (

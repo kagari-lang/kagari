@@ -496,11 +496,14 @@ fn register_i32(runtime: &Runtime) -> TypeId {
 }
 
 fn register_host_root_type(runtime: &mut Runtime, name: &str, access: PathAccess) -> TypeId {
-    let mut registration = HostTypeRegistration::new(name, name);
-    registration.ownership = HostTypeOwnership::HostRoot;
-    registration.path_access = access;
-    registration.reflection = HostReflectionPolicy::Metadata;
-    registration.abi_fingerprint = AbiFingerprint(20);
+    let mut registration = HostTypeRegistration::new(
+        kagari_common::host_interface::HostTypeDeclaration::new(name),
+        name,
+    );
+    registration.declaration.ownership = HostTypeOwnership::HostRoot;
+    registration.declaration.path_access = access;
+    registration.declaration.reflection = HostReflectionPolicy::Metadata;
+
     runtime.register_host_type(registration).unwrap()
 }
 

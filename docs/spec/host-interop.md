@@ -51,15 +51,22 @@ Borrow-boundary management decides how Rust-owned data may be accessed safely du
 
 ## Type Registration
 
-Rust types are registered explicitly. `HostTypeRegistration` carries a nominal
-`declaration: DefinitionId` independently of its export label and Rust type name.
-The default constructor derives an identity in the application host namespace;
-providers can replace it with their own package/module declaration.
+Rust types are registered from a portable `HostTypeDeclaration`. It owns nominal
+type/member identities, export labels, structural signatures, read/write and path
+permissions, receiver/parameter passing styles, effects, capabilities and docs.
+Its default constructor derives an identity in the application host namespace;
+providers can supply their own package/module identity. The runtime binding adds
+only a Rust type name; callers no longer supply member slots or ABI fingerprints.
 
 ```rust
-let mut registration = HostTypeRegistration::new("game.Player", "Player");
-registration.declaration = host_type_identity("game.PlayerState");
-let type_id = runtime.register_host_type(registration)?;
+let mut declaration = HostTypeDeclaration::new("game.Player");
+declaration.id = host_type_identity("game.PlayerState");
+declaration.fields.push(HostFieldDeclaration::new(
+    &declaration.id, "score", HostValueType::I32,
+));
+let type_id = runtime.register_host_type(
+    HostTypeRegistration::new(declaration, "Player"),
+)?;
 ```
 
 Registration attaches at least:
@@ -67,21 +74,32 @@ Registration attaches at least:
 - script-visible type name
 - runtime `TypeId`
 - reflection metadata if enabled
-- trait metadata if enabled
+- checked field and method metadata
 - host access policy
 
 Registration rejects duplicate declaration identities even under different export
 labels. Identity validation runs before publishing general type metadata, so
 rejected registrations do not leave a partially registered type. Link validation
 requires every opaque signature type, including nested references, to have a
-binding. Calls check that root/borrow runtime slots correspond to the required
+binding. A HostInterface includes the complete closure of referenced type
+declarations. Linking compares the complete required member contract against the
+registered declaration; documentation changes do not alter this contract.
+Calls check that root/borrow runtime slots correspond to the required
 declaration; matching display names or value categories are insufficient.
 
 Root handles are created only by `register_host_root` and carry registry ownership.
 Host calls, temporary scopes and path-view chaining reject foreign roots even when
-object IDs, type slots, schemas and fingerprints coincide. Host type member
-descriptions still use runtime metadata; complete offline member declarations and
-source-level host type resolution remain R06 work.
+object IDs, type slots, schemas and fingerprints coincide.
+
+`register_host_types` accepts a batch, including mutually referencing types. It
+validates identities and members, resolves structural/nominal types and generates
+reflection slots in a temporary metadata table. Only a complete successful batch
+is published. Single-type registration uses the same path. Offline declarations
+can be serialized and queried without a runtime or service initialization; HIR
+catalog type IDs belong to one declaration revision and reject stale queries.
+Source-level host type resolution, method execution and trait implementation
+binding retain separate R06/R07 acceptance; member metadata is not an executable
+method callback.
 
 ## Function Registration
 
@@ -139,15 +157,17 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 2, fixed-width little-endian
-fields and a 4 MiB limit. Functions are sorted by declaration identity. Decoding
+Interface encoding uses the `KHI\0` magic and version 3, fixed-width little-endian
+fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. Function
 fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
 documentation is excluded. Binding checks compare the complete contract rather
 than treating a matching fingerprint as sufficient evidence. Each value type uses
 a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child
 counts, trailing nodes, excessive depth and invalid Map/Set key types are rejected.
-The fingerprint domain is `kagari-host-function-v2`. Version 1 is not decoded.
+The function fingerprint domain is `kagari-host-function-v2`; type, field and
+method fingerprints have separate v1 domains. Member declaration order is retained
+because it determines runtime slots. Versions 1 and 2 are not decoded.
 
 The source `print` entry and CLI log binding use the same `standard_log`
 declaration. Run `cargo run -p kagari-runtime --example offline_host` for an

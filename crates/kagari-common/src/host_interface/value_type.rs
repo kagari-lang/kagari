@@ -9,7 +9,7 @@ use serde::{
 const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 4096;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum HostValueType {
     Unit,
     Bool,
@@ -35,6 +35,15 @@ pub enum HostValueType {
 }
 
 impl HostValueType {
+    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
+        use bincode::Options;
+        let bytes = super::codec()
+            .serialize(self)
+            .map_err(|_| HostInterfaceError::Encoding)?;
+        Ok(super::hash(
+            b"kagari-host-value-v1\0".iter().copied().chain(bytes),
+        ))
+    }
     pub fn nominal_references(&self) -> Vec<&DefinitionId> {
         let mut pending = vec![self];
         let mut declarations = Vec::new();
@@ -246,6 +255,7 @@ mod tests {
         };
         let a = HostFunctionDeclaration::new("host.make", vec![], ty);
         let interface = HostInterface {
+            types: Vec::new(),
             functions: vec![a.clone()],
         };
         let mut bytes = interface.to_bytes().unwrap();

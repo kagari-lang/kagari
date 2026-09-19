@@ -8,11 +8,16 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 2;
+const VERSION: u16 = 3;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod value_type;
 pub use value_type::HostValueType;
+mod type_declaration;
+pub use type_declaration::{
+    HostFieldDeclaration, HostMethodDeclaration, HostReflectionPolicy, HostTypeDeclaration,
+    HostTypeOwnership, PathAccess, Visibility,
+};
 
 impl HostValueType {
     pub fn opaque(symbol: &str) -> Self {
@@ -131,32 +136,10 @@ impl HostFunctionDeclaration {
                 .path
                 .last()
                 .is_none_or(|p| p.kind != DefinitionKind::Function || p.name.is_empty())
-            || self.params.len() > u16::MAX as usize
         {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
-        let mut names = std::collections::HashSet::new();
-        for param in &self.params {
-            if param.name.is_empty() || !names.insert(&param.name) {
-                return Err(HostInterfaceError::InvalidDeclaration);
-            }
-            if param.passing != HostPassingStyle::Owned
-                && !matches!(param.ty, HostValueType::Opaque(_))
-                && !(param.passing == HostPassingStyle::SharedBorrow
-                    && param.ty == HostValueType::String)
-            {
-                return Err(HostInterfaceError::InvalidDeclaration);
-            }
-        }
-        for ty in self
-            .params
-            .iter()
-            .map(|p| &p.ty)
-            .chain(std::iter::once(&self.return_type))
-        {
-            ty.validate()?;
-        }
-        Ok(())
+        validate_signature(&self.params, &self.return_type)
     }
 
     /// Fixed-width little-endian, declaration-order encoding, domain-separated
@@ -180,8 +163,39 @@ impl HostFunctionDeclaration {
     }
 }
 
+fn validate_signature(
+    params: &[HostParameter],
+    return_type: &HostValueType,
+) -> Result<(), HostInterfaceError> {
+    if params.len() > u16::MAX as usize {
+        return Err(HostInterfaceError::TooLarge);
+    }
+    let mut names = std::collections::HashSet::new();
+    for param in params {
+        if param.name.is_empty() || !names.insert(&param.name) {
+            return Err(HostInterfaceError::InvalidDeclaration);
+        }
+        if param.passing != HostPassingStyle::Owned
+            && !matches!(param.ty, HostValueType::Opaque(_))
+            && !(param.passing == HostPassingStyle::SharedBorrow
+                && param.ty == HostValueType::String)
+        {
+            return Err(HostInterfaceError::InvalidDeclaration);
+        }
+    }
+    for ty in params
+        .iter()
+        .map(|p| &p.ty)
+        .chain(std::iter::once(return_type))
+    {
+        ty.validate()?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostInterface {
+    pub types: Vec<HostTypeDeclaration>,
     pub functions: Vec<HostFunctionDeclaration>,
 }
 
@@ -189,10 +203,46 @@ impl HostInterface {
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
         let mut ids = std::collections::HashSet::new();
         let mut symbols = std::collections::HashSet::new();
+        for ty in &self.types {
+            ty.validate()?;
+            if !ids.insert(&ty.id) || !symbols.insert(&ty.symbol) {
+                return Err(HostInterfaceError::DuplicateDeclaration);
+            }
+        }
+        let type_ids = self
+            .types
+            .iter()
+            .map(|ty| &ty.id)
+            .collect::<std::collections::HashSet<_>>();
         for function in &self.functions {
             function.validate()?;
             if !ids.insert(&function.id) || !symbols.insert(&function.symbol) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
+            }
+            for ty in function
+                .params
+                .iter()
+                .map(|param| &param.ty)
+                .chain(std::iter::once(&function.return_type))
+            {
+                if ty
+                    .nominal_references()
+                    .into_iter()
+                    .any(|id| !type_ids.contains(id))
+                {
+                    return Err(HostInterfaceError::InvalidDeclaration);
+                }
+            }
+        }
+        for declaration in &self.types {
+            for ty in declaration.value_types() {
+                if ty
+                    .nominal_references()
+                    .into_iter()
+                    .any(|id| !type_ids.contains(id))
+                {
+                    return Err(HostInterfaceError::InvalidDeclaration);
+                }
             }
         }
         Ok(())
@@ -202,8 +252,10 @@ impl HostInterface {
         // Canonical declaration order is independent of registration order.
         let mut functions = self.functions.iter().collect::<Vec<_>>();
         functions.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut types = self.types.iter().collect::<Vec<_>>();
+        types.sort_by(|a, b| a.id.cmp(&b.id));
         codec()
-            .serialize(&(MAGIC, VERSION, functions))
+            .serialize(&(MAGIC, VERSION, types, functions))
             .map_err(|_| HostInterfaceError::Encoding)
     }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, HostInterfaceError> {
@@ -215,10 +267,15 @@ impl HostInterface {
         {
             return Err(HostInterfaceError::Version);
         }
-        let (_, _, functions): ([u8; 4], u16, Vec<HostFunctionDeclaration>) = codec()
+        let (_, _, types, functions): (
+            [u8; 4],
+            u16,
+            Vec<HostTypeDeclaration>,
+            Vec<HostFunctionDeclaration>,
+        ) = codec()
             .deserialize(bytes)
             .map_err(|_| HostInterfaceError::Encoding)?;
-        let interface = Self { functions };
+        let interface = Self { types, functions };
         interface.validate()?;
         Ok(interface)
     }

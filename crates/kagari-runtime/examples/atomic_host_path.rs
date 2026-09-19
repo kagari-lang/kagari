@@ -37,13 +37,16 @@ fn main() {
         .types()
         .register(TypeRegistration::new("i32", TypeKind::Primitive))
         .unwrap();
-    let mut player = HostTypeRegistration::new("game.Player", "Player");
+    let mut player = HostTypeRegistration::new(
+        kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
+        "Player",
+    );
     // Nominal identity can differ from the export label and is shared with
     // offline host signatures; registration does not derive identity from slots.
-    player.declaration = kagari_common::host_interface::host_type_identity("game.PlayerState");
-    player.ownership = HostTypeOwnership::HostRoot;
-    player.path_access = PathAccess::ReadWrite;
-    player.abi_fingerprint = AbiFingerprint(1);
+    player.declaration.id = kagari_common::host_interface::host_type_identity("game.PlayerState");
+    player.declaration.ownership = HostTypeOwnership::HostRoot;
+    player.declaration.path_access = PathAccess::ReadWrite;
+
     let player = runtime.register_host_type(player).unwrap();
     let root = runtime
         .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
