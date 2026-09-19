@@ -193,10 +193,19 @@ not public. Obtain them from the owning lowering; `index()` alone is not identit
 An unchanged shared lowering retains its arena, while a newly constructed lowering
 has a distinct arena even when its source text/revision is identical. Semantic
 table lookups do not resolve foreign IDs. Low-level node and source-map access
-treats a foreign ID as a compiler invariant violation before indexing.
+treats a foreign ID as a compiler invariant violation before indexing. Local IDs
+also carry `HirOwner`, distinguishing a function/constant `BodyOwner` from shared
+declaration type references. Lowering assigns that owner, including for missing
+and synthetic nodes; it is not inferred from source spans. Node/source-map access
+checks the stored owner, and name resolution rejects cross-body edges and bindings.
+The module initializer is an ordinary function owner even though its source span
+can cover other declarations. An impl receiver can reference a declaration-owned
+type while its parameter and expressions belong to the method's function body.
 Cache reuse explicitly rebases local IDs; arena IDs are not declaration identities
 and do not enter executable artifacts. Analysis-scoped binding handles still carry
-their own body/analysis identity. Per-function HIR arenas remain future R03 work.
+their own body/analysis identity. HIR storage is shared at module granularity, while
+local IDs explicitly name the body that owns each node. `BodyOwner` is defined in
+`kagari_hir::hir` and is shared by lowering and semantic scopes.
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached
 analysis retains its local identities; text or profile changes create new ones.

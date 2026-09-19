@@ -5,6 +5,7 @@ use crate::hir::{
     Impl, ImplMethod, Import, Item, ModuleDecl, Param, Struct, TraitBound, TraitDef, TraitMethod,
     TraitRef, TypeRefId, Variant, Visibility, Writeability,
 };
+use crate::hir::{BodyOwner, HirOwner};
 use crate::lower::context::{Lowerer, syntax_span};
 
 impl Lowerer {
@@ -89,12 +90,17 @@ impl Lowerer {
             }
         }
 
-        let top_level_statements = module
-            .statements()
-            .map(|stmt| self.lower_stmt(&stmt))
-            .collect::<Vec<_>>();
-        let tail_expr = module.tail_expr().map(|expr| self.lower_expr(&expr));
-        if !top_level_statements.is_empty() || tail_expr.is_some() {
+        if module.statements().next().is_some() || module.tail_expr().is_some() {
+            let id = self.source_map.push_function(syntax_span(module));
+            let previous_owner = self
+                .source_map
+                .set_owner(HirOwner::Body(BodyOwner::Function(id)));
+            let top_level_statements = module
+                .statements()
+                .map(|stmt| self.lower_stmt(&stmt))
+                .collect::<Vec<_>>();
+            let tail_expr = module.tail_expr().map(|expr| self.lower_expr(&expr));
+
             let body = self.alloc_block(
                 syntax_span(module),
                 BlockData {
@@ -102,7 +108,7 @@ impl Lowerer {
                     tail_expr,
                 },
             );
-            let id = self.source_map.push_function(syntax_span(module));
+
             self.module.module_init = Some(id);
             self.module.functions.push(Function {
                 id,
@@ -115,6 +121,7 @@ impl Lowerer {
                 return_type: None,
                 body,
             });
+            self.source_map.set_owner(previous_owner);
         }
     }
 
@@ -290,6 +297,9 @@ impl Lowerer {
         inherited_generics: &[GenericParam],
     ) -> Function {
         let id = self.source_map.push_function(syntax_span(method));
+        let previous_owner = self
+            .source_map
+            .set_owner(HirOwner::Body(BodyOwner::Function(id)));
         let params = method
             .param_list()
             .map(|param_list| self.lower_method_params(&param_list, receiver_ty))
@@ -301,7 +311,7 @@ impl Lowerer {
                 .map(|params| self.lower_generic_params(&params))
                 .unwrap_or_default(),
         );
-        Function {
+        let result = Function {
             id,
             kind,
             visibility: if method.is_pub() {
@@ -329,7 +339,9 @@ impl Lowerer {
                         },
                     )
                 }),
-        }
+        };
+        self.source_map.set_owner(previous_owner);
+        result
     }
 
     fn lower_method_params(
@@ -366,6 +378,9 @@ impl Lowerer {
 
     fn lower_function(&mut self, function: &ast::FnDef) -> Function {
         let id = self.source_map.push_function(syntax_span(function));
+        let previous_owner = self
+            .source_map
+            .set_owner(HirOwner::Body(BodyOwner::Function(id)));
         let params = function
             .param_list()
             .map(|param_list| {
@@ -389,7 +404,7 @@ impl Lowerer {
             })
             .unwrap_or_default();
 
-        Function {
+        let result = Function {
             id,
             kind: FunctionKind::User,
             visibility: if function.is_pub() {
@@ -420,7 +435,9 @@ impl Lowerer {
                         },
                     )
                 }),
-        }
+        };
+        self.source_map.set_owner(previous_owner);
+        result
     }
 
     fn lower_generic_params(&mut self, params: &ast::GenericParamList) -> Vec<GenericParam> {
@@ -493,8 +510,12 @@ impl Lowerer {
     }
 
     fn lower_const(&mut self, const_def: &ast::ConstDef) -> ConstItem {
-        ConstItem {
-            id: self.source_map.push_const(syntax_span(const_def)),
+        let id = self.source_map.push_const(syntax_span(const_def));
+        let previous_owner = self
+            .source_map
+            .set_owner(HirOwner::Body(BodyOwner::Const(id)));
+        let result = ConstItem {
+            id,
             visibility: if const_def.is_pub() {
                 Visibility::Public
             } else {
@@ -506,7 +527,9 @@ impl Lowerer {
                 .initializer()
                 .map(|expr| self.lower_expr(&expr))
                 .unwrap_or_else(|| self.missing_expr()),
-        }
+        };
+        self.source_map.set_owner(previous_owner);
+        result
     }
 
     fn lower_struct(&mut self, struct_def: &ast::StructDef) -> Struct {

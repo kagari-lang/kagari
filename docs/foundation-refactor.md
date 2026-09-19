@@ -61,7 +61,7 @@ R05 acceptance evidence:
 Full analysis batches bodies through the same resolver/type checker used by the
 single-function query. Module constants remain shared semantic prerequisites and
 are checked when querying a body. This is bounded query caching, not a complete
-incremental dependency framework. R03 body arena scoping, R04 recovery coverage,
+incremental dependency framework. R03 member source identities, R04 recovery coverage,
 R15 resource limits and R18 performance measurements retain separate acceptance.
 
 R12 acceptance evidence:
@@ -112,7 +112,7 @@ Implemented foundation slices:
   same snapshots; disk loading, host text and overlays use one ingestion path.
   Relative paths resolve against a captured root; virtual URI schemes survive
   normalization. Embedding diagnostics carry file/revision ranges. Cross-module
-  aggregate/member linking and complete HIR body scoping remain outstanding.
+  aggregate/member source identities remain outstanding.
   Logical package/module bindings now belong to source documents and survive
   overlays. Rebinding invalidates analysis; duplicate source bindings are rejected.
   Source-based HIR carries its origin through IR, bytecode and artifact metadata.
@@ -127,8 +127,15 @@ Implemented foundation slices:
   arena ownership before indexing. Body/signature reuse remaps IDs into the current
   arena. Equal source revisions may still require remapping when independently
   reconstructed lowerings meet caches at different query stages. Cross-lowering
-  collisions and that interleaved-query case have regression coverage. Per-function
-  HIR arena ownership remains outstanding; arenas currently belong to a lowering.
+  collisions and that interleaved-query case have regression coverage. Local IDs
+  also carry an explicit HirOwner allocated during lowering: function, constant,
+  or shared declaration context. Module initializer identity is allocated before
+  its nodes, so interleaved declarations and synthetic spans cannot misassign it.
+  Resolver scopes share the same BodyOwner and reject cross-body edges/bindings;
+  nodes and source maps verify stored owners. Shared impl receiver types keep their
+  declaration owner. Storage remains in immutable module arenas, with each body's
+  ownership explicit in its IDs. Complete aggregate/member source identities still
+  need work: enum variants currently lack declaration IDs and source-map entries.
   Generic parameters now have owner/position identities and declaration ranges;
   inherited trait/impl parameters keep their original owner in method signatures.
   Snapshots now resolve standard, offline host and registered source imports through

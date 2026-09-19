@@ -44,7 +44,7 @@ impl ModuleSignatures {
         for function in &mut functions {
             for param in &mut function.params {
                 assert_eq!(param.id.arena(), arena);
-                param.id = ParamId::new(other_arena, param.id.index());
+                param.id = ParamId::new(other_arena, param.id.owner(), param.id.index());
             }
         }
         for function in &other.functions {

@@ -580,6 +580,8 @@ mod arena_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]
+mod owner_tests;
+#[cfg(test)]
 mod signature_tests;
 
 #[cfg(test)]

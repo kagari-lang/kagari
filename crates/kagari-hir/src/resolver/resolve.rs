@@ -3,7 +3,8 @@ use crate::hir::{
     BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
     PlaceId, PlaceKind, StmtId, StmtKind, StructId, TraitId,
 };
-use crate::resolver::{BodyOwner, LexicalScope, ScopeBinding};
+use crate::hir::{BodyOwner, HirOwner};
+use crate::resolver::{LexicalScope, ScopeBinding};
 use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
 use crate::source_map::SourceMap;
 use kagari_common::Span;
@@ -52,6 +53,11 @@ impl<'a> BodyResolver<'a> {
         params: impl Iterator<Item = (&'a str, ParamId)>,
         body: BlockId,
     ) {
+        assert_eq!(
+            body.owner(),
+            HirOwner::Body(BodyOwner::Function(function)),
+            "function body owner mismatch"
+        );
         let span = self.source_map.block_span(body);
         self.push_scope(
             self.source_map.function_span(function),
@@ -75,12 +81,18 @@ impl<'a> BodyResolver<'a> {
     }
 
     pub(crate) fn resolve_top_level_expr(&mut self, owner: ConstId, expr: ExprId) {
+        assert_eq!(
+            expr.owner(),
+            HirOwner::Body(BodyOwner::Const(owner)),
+            "constant body owner mismatch"
+        );
         self.push_scope(self.source_map.expr_span(expr), BodyOwner::Const(owner));
         self.resolve_expr(expr);
         self.pop_scope();
     }
 
     fn resolve_block(&mut self, block_id: BlockId) {
+        self.assert_current_owner(block_id.owner());
         let block = self.module.block(block_id);
         self.push_child_scope(self.source_map.block_span(block_id));
         for stmt in &block.statements {
@@ -96,6 +108,7 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn resolve_stmt(&mut self, stmt_id: StmtId) {
+        self.assert_current_owner(stmt_id.owner());
         if self.cancel.check().is_err() {
             return;
         }
@@ -136,6 +149,7 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn resolve_expr(&mut self, expr_id: ExprId) {
+        self.assert_current_owner(expr_id.owner());
         if self.cancel.check().is_err() {
             return;
         }
@@ -178,6 +192,7 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 self.resolve_expr(*scrutinee);
                 for arm in arms {
+                    self.assert_current_owner(arm.pattern.owner());
                     let span = self.source_map.expr_span(arm.expr);
                     self.push_child_scope(span);
                     if let PatternKind::Name { name, local } =
@@ -206,6 +221,7 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn resolve_place(&mut self, place_id: PlaceId) {
+        self.assert_current_owner(place_id.owner());
         let place = self.module.place(place_id);
         match &place.kind {
             PlaceKind::Name(name) => {
@@ -285,6 +301,11 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn bind_name(&mut self, name: &str, resolved: ResolvedName, visible_from: usize) {
+        match resolved {
+            ResolvedName::Param(id) => self.assert_current_owner(id.owner()),
+            ResolvedName::Local(id) => self.assert_current_owner(id.owner()),
+            _ => unreachable!("only local bindings enter a body scope"),
+        }
         if let Some(scope) = self.scopes.last_mut() {
             let bindings = &mut self.resolved.scopes[scope.id].bindings;
             scope.latest.insert(name.to_owned(), bindings.len());
@@ -319,6 +340,16 @@ impl<'a> BodyResolver<'a> {
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
+    }
+
+    fn assert_current_owner(&self, owner: HirOwner) {
+        let current =
+            self.resolved.scopes[self.scopes.last().expect("body owns its nodes").id].owner;
+        assert_eq!(
+            owner,
+            HirOwner::Body(current),
+            "HIR traversal crossed a body boundary"
+        );
     }
 }
 

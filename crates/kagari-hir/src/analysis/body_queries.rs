@@ -25,7 +25,7 @@ pub struct FunctionAnalysis {
 impl FunctionAnalysis {
     fn contains(&self, offset: usize) -> bool {
         self.names.scopes().iter().any(|scope| {
-            scope.owner == crate::resolver::BodyOwner::Function(self.function)
+            scope.owner == crate::hir::BodyOwner::Function(self.function)
                 && scope.span.start <= offset
                 && offset <= scope.span.end
                 && !scope

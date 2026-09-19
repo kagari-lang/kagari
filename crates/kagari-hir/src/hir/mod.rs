@@ -14,12 +14,12 @@ pub use expr::{
     MatchArm, MatchArmBuffer, PrefixOp,
 };
 pub(crate) use ids::BodySelection;
-pub use ids::HirArenaId;
 pub use ids::{
     BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, ImplId, LocalId,
     MethodId, ModuleId, ParamId, PatternId, PlaceId, StmtId, StructId, TraitId, TraitMethodId,
     TypeRefId,
 };
+pub use ids::{BodyOwner, HirArenaId, HirOwner};
 pub use item::{
     ConstBuffer, ConstItem, Enum, EnumBuffer, Export, ExportBuffer, ExportItem, Field, FieldBuffer,
     Function, FunctionBuffer, FunctionKind, GenericParam, GenericParamBuffer, Impl, ImplBuffer,

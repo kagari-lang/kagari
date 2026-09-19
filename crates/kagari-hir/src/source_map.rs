@@ -8,6 +8,7 @@ use crate::hir::{
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
     arena: crate::hir::HirArenaId,
+    owner: crate::hir::HirOwner,
     generic_param_spans: Vec<Span>,
     field_spans: std::collections::HashMap<crate::hir::FieldId, Span>,
     function_spans: Vec<Span>,
@@ -17,24 +18,36 @@ pub struct SourceMap {
     trait_method_spans: Vec<Span>,
     impl_spans: Vec<Span>,
     param_spans: Vec<Span>,
+    param_owners: Vec<crate::hir::HirOwner>,
     local_spans: Vec<Span>,
+    local_owners: Vec<crate::hir::HirOwner>,
     struct_spans: Vec<Span>,
     enum_spans: Vec<Span>,
     block_spans: Vec<Span>,
+    block_owners: Vec<crate::hir::HirOwner>,
     expr_spans: Vec<Span>,
+    expr_owners: Vec<crate::hir::HirOwner>,
     place_spans: Vec<Span>,
+    place_owners: Vec<crate::hir::HirOwner>,
     stmt_spans: Vec<Span>,
+    stmt_owners: Vec<crate::hir::HirOwner>,
     pattern_spans: Vec<Span>,
+    pattern_owners: Vec<crate::hir::HirOwner>,
     type_spans: Vec<Span>,
+    type_owners: Vec<crate::hir::HirOwner>,
 }
 
 impl SourceMap {
+    pub(crate) fn set_owner(&mut self, owner: crate::hir::HirOwner) -> crate::hir::HirOwner {
+        std::mem::replace(&mut self.owner, owner)
+    }
+
     pub(crate) fn type_id(&self, index: usize) -> TypeRefId {
         assert!(
             index < self.type_spans.len(),
             "HIR source slot out of bounds"
         );
-        TypeRefId::new(self.arena, index)
+        TypeRefId::new(self.arena, self.type_owners[index], index)
     }
 
     pub(crate) fn pattern_id(&self, index: usize) -> PatternId {
@@ -42,7 +55,7 @@ impl SourceMap {
             index < self.pattern_spans.len(),
             "HIR source slot out of bounds"
         );
-        PatternId::new(self.arena, index)
+        PatternId::new(self.arena, self.pattern_owners[index], index)
     }
 
     pub(crate) fn place_id(&self, index: usize) -> PlaceId {
@@ -50,7 +63,7 @@ impl SourceMap {
             index < self.place_spans.len(),
             "HIR source slot out of bounds"
         );
-        PlaceId::new(self.arena, index)
+        PlaceId::new(self.arena, self.place_owners[index], index)
     }
 
     pub(crate) fn expr_id(&self, index: usize) -> ExprId {
@@ -58,7 +71,7 @@ impl SourceMap {
             index < self.expr_spans.len(),
             "HIR source slot out of bounds"
         );
-        ExprId::new(self.arena, index)
+        ExprId::new(self.arena, self.expr_owners[index], index)
     }
 
     pub(crate) fn local_id(&self, index: usize) -> LocalId {
@@ -66,7 +79,7 @@ impl SourceMap {
             index < self.local_spans.len(),
             "HIR source slot out of bounds"
         );
-        LocalId::new(self.arena, index)
+        LocalId::new(self.arena, self.local_owners[index], index)
     }
 
     pub fn arena(&self) -> crate::hir::HirArenaId {
@@ -154,14 +167,16 @@ impl SourceMap {
     }
 
     pub(crate) fn push_param(&mut self, span: Span) -> ParamId {
-        let id = ParamId::new(self.arena, self.param_spans.len());
+        let id = ParamId::new(self.arena, self.owner, self.param_spans.len());
         self.param_spans.push(span);
+        self.param_owners.push(self.owner);
         id
     }
 
     pub(crate) fn push_local(&mut self, span: Span) -> LocalId {
-        let id = LocalId::new(self.arena, self.local_spans.len());
+        let id = LocalId::new(self.arena, self.owner, self.local_spans.len());
         self.local_spans.push(span);
+        self.local_owners.push(self.owner);
         id
     }
 
@@ -178,38 +193,44 @@ impl SourceMap {
     }
 
     pub(crate) fn push_block(&mut self, span: Span) -> BlockId {
-        let id = BlockId::new(self.arena, self.block_spans.len());
+        let id = BlockId::new(self.arena, self.owner, self.block_spans.len());
         self.block_spans.push(span);
+        self.block_owners.push(self.owner);
         id
     }
 
     pub(crate) fn push_expr(&mut self, span: Span) -> ExprId {
-        let id = ExprId::new(self.arena, self.expr_spans.len());
+        let id = ExprId::new(self.arena, self.owner, self.expr_spans.len());
         self.expr_spans.push(span);
+        self.expr_owners.push(self.owner);
         id
     }
 
     pub(crate) fn push_place(&mut self, span: Span) -> PlaceId {
-        let id = PlaceId::new(self.arena, self.place_spans.len());
+        let id = PlaceId::new(self.arena, self.owner, self.place_spans.len());
         self.place_spans.push(span);
+        self.place_owners.push(self.owner);
         id
     }
 
     pub(crate) fn push_stmt(&mut self, span: Span) -> StmtId {
-        let id = StmtId::new(self.arena, self.stmt_spans.len());
+        let id = StmtId::new(self.arena, self.owner, self.stmt_spans.len());
         self.stmt_spans.push(span);
+        self.stmt_owners.push(self.owner);
         id
     }
 
     pub(crate) fn push_pattern(&mut self, span: Span) -> PatternId {
-        let id = PatternId::new(self.arena, self.pattern_spans.len());
+        let id = PatternId::new(self.arena, self.owner, self.pattern_spans.len());
         self.pattern_spans.push(span);
+        self.pattern_owners.push(self.owner);
         id
     }
 
     pub(crate) fn push_type(&mut self, span: Span) -> TypeRefId {
-        let id = TypeRefId::new(self.arena, self.type_spans.len());
+        let id = TypeRefId::new(self.arena, self.owner, self.type_spans.len());
         self.type_spans.push(span);
+        self.type_owners.push(self.owner);
         id
     }
 
@@ -239,11 +260,21 @@ impl SourceMap {
 
     pub fn param_span(&self, id: ParamId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
+        assert_eq!(
+            id.owner(),
+            self.param_owners[id.index()],
+            "foreign HIR body source range"
+        );
         self.param_spans[id.index()]
     }
 
     pub fn local_span(&self, id: LocalId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
+        assert_eq!(
+            id.owner(),
+            self.local_owners[id.index()],
+            "foreign HIR body source range"
+        );
         self.local_spans[id.index()]
     }
 
@@ -257,31 +288,61 @@ impl SourceMap {
 
     pub fn block_span(&self, id: BlockId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
+        assert_eq!(
+            id.owner(),
+            self.block_owners[id.index()],
+            "foreign HIR body source range"
+        );
         self.block_spans[id.index()]
     }
 
     pub fn expr_span(&self, id: ExprId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
+        assert_eq!(
+            id.owner(),
+            self.expr_owners[id.index()],
+            "foreign HIR body source range"
+        );
         self.expr_spans[id.index()]
     }
 
     pub fn place_span(&self, id: PlaceId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
+        assert_eq!(
+            id.owner(),
+            self.place_owners[id.index()],
+            "foreign HIR body source range"
+        );
         self.place_spans[id.index()]
     }
 
     pub fn stmt_span(&self, id: StmtId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
+        assert_eq!(
+            id.owner(),
+            self.stmt_owners[id.index()],
+            "foreign HIR body source range"
+        );
         self.stmt_spans[id.index()]
     }
 
     pub fn pattern_span(&self, id: PatternId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
+        assert_eq!(
+            id.owner(),
+            self.pattern_owners[id.index()],
+            "foreign HIR body source range"
+        );
         self.pattern_spans[id.index()]
     }
 
     pub fn type_span(&self, id: TypeRefId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
+        assert_eq!(
+            id.owner(),
+            self.type_owners[id.index()],
+            "foreign HIR body source range"
+        );
         self.type_spans[id.index()]
     }
 }

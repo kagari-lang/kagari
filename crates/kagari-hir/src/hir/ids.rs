@@ -36,23 +36,41 @@ macro_rules! local_id_newtype {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name {
             arena: HirArenaId,
+            owner: HirOwner,
             index: u32,
         }
         impl $name {
-            pub(crate) fn new(arena: HirArenaId, index: usize) -> Self {
+            pub(crate) fn new(arena: HirArenaId, owner: HirOwner, index: usize) -> Self {
                 Self {
                     arena,
+                    owner,
                     index: u32::try_from(index).expect("HIR arena capacity exhausted"),
                 }
             }
             pub fn arena(self) -> HirArenaId {
                 self.arena
             }
+            pub fn owner(self) -> HirOwner {
+                self.owner
+            }
             pub fn index(self) -> usize {
                 self.index as usize
             }
         }
     };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BodyOwner {
+    Function(FunctionId),
+    Const(ConstId),
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum HirOwner {
+    #[default]
+    Declaration,
+    Body(BodyOwner),
 }
 
 id_newtype!(FunctionId);

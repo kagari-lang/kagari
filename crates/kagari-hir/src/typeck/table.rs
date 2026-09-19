@@ -90,7 +90,7 @@ impl TypeTable {
                 ($($field:ident : $ty:ident),+ $(,)?) => {$(
                     result.$field = result.$field.into_iter().map(|(id, fact)| {
                         assert_eq!(id.arena(), from, "foreign key in {}", stringify!($field));
-                        (crate::hir::$ty::new(to, id.index()), fact)
+                        (crate::hir::$ty::new(to, id.owner(), id.index()), fact)
                     }).collect();
                 )+};
             }
@@ -100,7 +100,7 @@ impl TypeTable {
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {
                     assert_eq!(receiver.arena(), from);
-                    call.receiver = Some(ExprId::new(to, receiver.index()));
+                    call.receiver = Some(ExprId::new(to, receiver.owner(), receiver.index()));
                 }
             }
             result

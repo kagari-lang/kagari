@@ -10,9 +10,9 @@ use kagari_common::{
 };
 
 use crate::{
-    hir::FunctionKind,
+    hir::{BodyOwner, FunctionKind},
     lower::LoweredModule,
-    resolver::{BodyOwner, ResolvedName, ResolvedNames},
+    resolver::{ResolvedName, ResolvedNames},
 };
 
 static NEXT_ANALYSIS: AtomicU64 = AtomicU64::new(1);

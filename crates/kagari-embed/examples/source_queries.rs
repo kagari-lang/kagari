@@ -46,6 +46,17 @@ fn main() -> kagari_embed::CompileResult<()> {
         .body(engine.source_snapshot(), good, &Default::default())?
         .expect("function body");
     assert_eq!(body.checked_bodies(), 1);
+    let selected = body
+        .lowered()
+        .module
+        .functions
+        .iter()
+        .find(|function| function.id == body.function())
+        .expect("selected function");
+    assert_eq!(
+        selected.body.owner(),
+        kagari_hir::hir::HirOwner::Body(kagari_hir::hir::BodyOwner::Function(body.function()))
+    );
     assert!(body.diagnostics().is_empty());
     println!(
         "queried one body: {:?}",

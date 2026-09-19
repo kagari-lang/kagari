@@ -7,11 +7,7 @@ use crate::hir::{
 use crate::resolver::table::NameTable;
 use kagari_common::Span;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BodyOwner {
-    Function(FunctionId),
-    Const(ConstId),
-}
+use crate::hir::BodyOwner;
 
 #[derive(Debug, Clone)]
 pub struct ScopeBinding {

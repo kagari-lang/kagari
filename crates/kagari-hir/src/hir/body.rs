@@ -6,12 +6,12 @@ use crate::hir::{
 #[derive(Debug, Clone, Default)]
 pub struct Body {
     pub(crate) arena: crate::hir::HirArenaId,
-    pub(crate) blocks: BlockDataBuffer,
-    pub(crate) stmts: StmtDataBuffer,
-    pub(crate) exprs: ExprDataBuffer,
-    pub(crate) places: PlaceDataBuffer,
-    pub(crate) patterns: PatternDataBuffer,
-    pub(crate) types: TypeDataBuffer,
+    pub(crate) blocks: Vec<(crate::hir::HirOwner, BlockData)>,
+    pub(crate) stmts: Vec<(crate::hir::HirOwner, StmtData)>,
+    pub(crate) exprs: Vec<(crate::hir::HirOwner, ExprData)>,
+    pub(crate) places: Vec<(crate::hir::HirOwner, PlaceData)>,
+    pub(crate) patterns: Vec<(crate::hir::HirOwner, PatternData)>,
+    pub(crate) types: Vec<(crate::hir::HirOwner, TypeData)>,
 }
 
 impl Body {
@@ -22,49 +22,58 @@ impl Body {
         self.exprs
             .iter()
             .enumerate()
-            .map(|(index, expr)| (ExprId::new(self.arena, index), expr))
+            .map(|(index, (owner, expr))| (ExprId::new(self.arena, *owner, index), expr))
     }
 
     pub fn blocks(&self) -> impl Iterator<Item = (BlockId, &BlockData)> {
         self.blocks
             .iter()
             .enumerate()
-            .map(|(index, block)| (BlockId::new(self.arena, index), block))
+            .map(|(index, (owner, block))| (BlockId::new(self.arena, *owner, index), block))
     }
     pub fn block(&self, id: BlockId) -> &BlockData {
         assert_eq!(id.arena(), self.arena, "foreign HIR block");
-        &self.blocks[id.index()]
+        let (owner, node) = &self.blocks[id.index()];
+        assert_eq!(id.owner(), *owner, "foreign HIR body node");
+        node
     }
 
     pub fn stmt(&self, id: StmtId) -> &StmtData {
         assert_eq!(id.arena(), self.arena, "foreign HIR statement");
-        &self.stmts[id.index()]
+        let (owner, node) = &self.stmts[id.index()];
+        assert_eq!(id.owner(), *owner, "foreign HIR body node");
+        node
     }
 
     pub fn expr(&self, id: ExprId) -> &ExprData {
         assert_eq!(id.arena(), self.arena, "foreign HIR expression");
-        &self.exprs[id.index()]
+        let (owner, node) = &self.exprs[id.index()];
+        assert_eq!(id.owner(), *owner, "foreign HIR body node");
+        node
     }
 
     pub fn place(&self, id: PlaceId) -> &PlaceData {
         assert_eq!(id.arena(), self.arena, "foreign HIR place");
-        &self.places[id.index()]
+        let (owner, node) = &self.places[id.index()];
+        assert_eq!(id.owner(), *owner, "foreign HIR body node");
+        node
     }
 
     pub fn pattern(&self, id: PatternId) -> &PatternData {
         assert_eq!(id.arena(), self.arena, "foreign HIR pattern");
-        &self.patterns[id.index()]
+        let (owner, node) = &self.patterns[id.index()];
+        assert_eq!(id.owner(), *owner, "foreign HIR body node");
+        node
     }
 
     pub fn type_ref(&self, id: TypeRefId) -> &TypeData {
         assert_eq!(id.arena(), self.arena, "foreign HIR type reference");
-        &self.types[id.index()]
+        let (owner, node) = &self.types[id.index()];
+        assert_eq!(id.owner(), *owner, "foreign HIR body node");
+        node
     }
 }
 
-pub type BlockDataBuffer = Vec<BlockData>;
 pub type StmtDataBuffer = Vec<StmtData>;
-pub type ExprDataBuffer = Vec<ExprData>;
 pub type PlaceDataBuffer = Vec<PlaceData>;
-pub type PatternDataBuffer = Vec<PatternData>;
 pub type TypeDataBuffer = Vec<TypeData>;
