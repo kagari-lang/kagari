@@ -12,6 +12,16 @@ pub struct FileSignatures {
 }
 
 impl FileSignatures {
+    /// Type annotations checked by this signature query; body annotations have
+    /// no facts until a body query checks them.
+    pub fn type_at(&self, offset: usize) -> Option<TypeId> {
+        type_at_in(
+            &self.prepared.lowered,
+            self.prepared.signatures.facts().type_table(),
+            offset,
+        )
+    }
+
     pub fn source(&self) -> &SourceFile {
         self.declaration.source()
     }

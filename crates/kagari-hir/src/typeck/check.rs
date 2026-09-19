@@ -69,6 +69,36 @@ pub(crate) fn check_signatures(
         }
     }
 
+    for enumeration in &lowered.module.enums {
+        for variant in &enumeration.variants {
+            for payload in &variant.payload {
+                if cancel.check().is_err() {
+                    break;
+                }
+                match resolve_type(
+                    &lowered.module,
+                    *payload,
+                    declarations,
+                    &mut type_table,
+                    cancel,
+                ) {
+                    Some(ty) => validate_standard_type_constraints(
+                        &ty,
+                        &HashMap::new(),
+                        lowered.source_map.type_span(*payload),
+                        &mut diagnostics,
+                    ),
+                    None => diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                            type_name: display_type(&lowered.module, *payload),
+                        })
+                        .with_span(lowered.source_map.type_span(*payload)),
+                    ),
+                }
+            }
+        }
+    }
+
     for implementation in &lowered.module.impls {
         if let Some(ty) = implementation.for_type {
             let resolved = resolve_type_in(

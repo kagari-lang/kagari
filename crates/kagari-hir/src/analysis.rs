@@ -587,6 +587,8 @@ mod member_tests;
 #[cfg(test)]
 mod owner_tests;
 #[cfg(test)]
+mod payload_tests;
+#[cfg(test)]
 mod signature_tests;
 
 #[cfg(test)]

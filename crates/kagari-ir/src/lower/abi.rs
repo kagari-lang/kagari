@@ -104,6 +104,20 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         .iter()
                         .map(|variant| VariantAbi {
                             name: variant.name.clone(),
+                            payload: variant
+                                .payload
+                                .iter()
+                                .map(|ty| {
+                                    crate::module::abi::AbiType::from_checked_type(
+                                        &module
+                                            .typed
+                                            .type_table
+                                            .type_ref(*ty)
+                                            .expect("checked enum payload type must exist")
+                                            .ty,
+                                    )
+                                })
+                                .collect(),
                         })
                         .collect(),
                 }));

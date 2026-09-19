@@ -41,12 +41,18 @@ KbcArtifact {
 }
 ```
 
-Format version 10 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 11 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 9 are rejected; no migration or compatibility
-decoder exists. Version 10 stores a complete dependency-first BytecodeProgram, its
+format version. Versions 1 through 10 are rejected; no migration or compatibility
+decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+Version 11 adds ordered enum payload types to public variant ABI records. These
+use structural `AbiType` encoding, preserving nominal declaration identity and
+container arguments instead of display strings or erased instruction ValueTypes.
+Changing a payload type therefore changes the public ABI fingerprint and rejects
+reload before publication. Body-only changes retain the same enum ABI. Payload
+ABI metadata does not yet supply executable enum layouts or constructor operands.
 The runtime ABI identity is `kagari-runtime-abi-v11`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;

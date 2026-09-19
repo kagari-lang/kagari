@@ -20,7 +20,7 @@ pub struct BuiltinTypeSpec {
     pub heap_backed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StandardEnum {
     Option,
     Result,

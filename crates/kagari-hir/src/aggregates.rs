@@ -35,13 +35,43 @@ pub struct StructSignature {
     pub fields: Vec<FieldSignature>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantSignature {
+    pub id: DefinitionId,
+    pub owner: DefinitionId,
+    pub slot: usize,
+    pub name: String,
+    pub payload: Vec<TypeId>,
+    pub declaration: Declaration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumSignature {
+    pub id: DefinitionId,
+    pub declaration: Declaration,
+    pub variants: Vec<VariantSignature>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AggregateCatalog {
     structures: BTreeMap<DefinitionId, Arc<StructSignature>>,
     fields: BTreeMap<DefinitionId, (DefinitionId, usize)>,
+    enumerations: BTreeMap<DefinitionId, Arc<EnumSignature>>,
+    variants: BTreeMap<DefinitionId, (DefinitionId, usize)>,
 }
 
 impl AggregateCatalog {
+    pub fn enumerations(&self) -> impl Iterator<Item = &EnumSignature> {
+        self.enumerations.values().map(AsRef::as_ref)
+    }
+    pub fn enumeration(&self, id: &DefinitionId) -> Option<&EnumSignature> {
+        self.enumerations.get(id).map(AsRef::as_ref)
+    }
+    pub fn variant(&self, id: &DefinitionId) -> Option<&VariantSignature> {
+        let (owner, slot) = self.variants.get(id)?;
+        self.enumeration(owner)?.variants.get(*slot)
+    }
+
     pub fn structures(&self) -> impl Iterator<Item = &StructSignature> {
         self.structures.values().map(AsRef::as_ref)
     }
@@ -101,6 +131,55 @@ impl AggregateCatalog {
                 }),
             );
         }
+        for enumeration in &lowered.module.enums {
+            cancel.check()?;
+            let declaration = declarations
+                .target(ResolvedName::Enum(enumeration.id))
+                .expect("lowered enum has a declaration");
+            let DeclarationId::Definition(id) = &declaration.id else {
+                unreachable!("enum has nominal identity");
+            };
+            let mut variants = Vec::new();
+            for variant in &enumeration.variants {
+                cancel.check()?;
+                let declaration = declarations
+                    .variant(variant.id)
+                    .expect("variant declaration");
+                let DeclarationId::Definition(variant_id) = &declaration.id else {
+                    unreachable!("variant has nominal identity");
+                };
+                let mut payload = Vec::new();
+                for ty in &variant.payload {
+                    cancel.check()?;
+                    payload.push(
+                        signatures
+                            .type_table()
+                            .type_ref(*ty)
+                            .expect("signature query visits every payload type")
+                            .ty
+                            .clone(),
+                    );
+                }
+                self.variants
+                    .insert(variant_id.clone(), (id.clone(), variants.len()));
+                variants.push(VariantSignature {
+                    id: variant_id.clone(),
+                    owner: id.clone(),
+                    slot: variant.id.slot(),
+                    name: variant.name.clone(),
+                    payload,
+                    declaration: declaration.clone(),
+                });
+            }
+            self.enumerations.insert(
+                id.clone(),
+                Arc::new(EnumSignature {
+                    id: id.clone(),
+                    declaration: declaration.clone(),
+                    variants,
+                }),
+            );
+        }
         Ok(())
     }
 
@@ -130,7 +209,7 @@ impl AggregateCatalog {
             };
             for (id, structure) in self
                 .structures
-                .range(start..)
+                .range(start.clone()..)
                 .take_while(|(id, _)| id.module == module)
             {
                 cancel.check()?;
@@ -140,12 +219,38 @@ impl AggregateCatalog {
                 }
                 result.structures.insert(id.clone(), structure.clone());
             }
+            for (id, enumeration) in self
+                .enumerations
+                .range(start..)
+                .take_while(|(id, _)| id.module == module)
+            {
+                cancel.check()?;
+                for (index, variant) in enumeration.variants.iter().enumerate() {
+                    cancel.check()?;
+                    result
+                        .variants
+                        .insert(variant.id.clone(), (id.clone(), index));
+                }
+                result.enumerations.insert(id.clone(), enumeration.clone());
+            }
         }
         Ok(result)
     }
 
     pub(crate) fn same_contracts(&self, other: &Self) -> bool {
-        self.structures.len() == other.structures.len()
+        self.enumerations.len() == other.enumerations.len()
+            && self.enumerations.iter().all(|(id, a)| {
+                other.enumeration(id).is_some_and(|b| {
+                    a.variants.len() == b.variants.len()
+                        && a.variants.iter().zip(&b.variants).all(|(a, b)| {
+                            a.id == b.id
+                                && a.slot == b.slot
+                                && a.name == b.name
+                                && a.payload == b.payload
+                        })
+                })
+            })
+            && self.structures.len() == other.structures.len()
             && self.structures.iter().all(|(id, a)| {
                 other.structure(id).is_some_and(|b| {
                     a.fields.len() == b.fields.len()

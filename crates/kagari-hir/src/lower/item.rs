@@ -602,6 +602,10 @@ impl Lowerer {
                         Variant {
                             id: variant_id,
                             name: variant.name_text().unwrap_or_default(),
+                            payload: variant
+                                .payload_types()
+                                .map(|types| types.types().map(|ty| self.lower_type(&ty)).collect())
+                                .unwrap_or_default(),
                         }
                     })
                     .collect::<Vec<_>>()

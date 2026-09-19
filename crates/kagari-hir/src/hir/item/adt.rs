@@ -34,6 +34,7 @@ pub struct Enum {
 pub struct Variant {
     pub id: crate::hir::VariantId,
     pub name: String,
+    pub payload: Vec<TypeRefId>,
 }
 
 pub type StructBuffer = Vec<Struct>;

@@ -60,8 +60,8 @@ R03 acceptance evidence:
 - The source_queries example exposes declaration-site member navigation alongside
   independent declaration, signature and function queries.
 
-This completes source identity and query provenance. Enum payload/constructor
-semantics, applied generic types and executable layouts retain R04/R07 acceptance;
+This completes source identity and query provenance. Enum constructor semantics,
+applied generic types and executable layouts retain R04/R07 acceptance;
 R03 does not imply those execution features are complete.
 
 R05 acceptance evidence:
@@ -174,6 +174,16 @@ Implemented foundation slices:
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
   represented explicitly, and codegen requires a sealed CheckedAnalysis. More
   semantic-target and source-owner integration remains outstanding.
+  Enum payload annotations now survive lowering as declaration-owned type references.
+  Signature checking retains every member, including missing/unknown Error facts,
+  and exposes types before body analysis. Nominal enum/variant payload contracts
+  enter the shared aggregate catalog for reachable dependencies; body-only edits
+  rebase their references and payload contract edits invalidate dependent body reuse.
+  Public variant ABI records encode checked structural/nominal payload types in
+  format 11, so changing payload types rejects reload before publication. HIR and
+  embedding regressions cover recovery, cache reuse, cross-module identity,
+  encoding round trips and unchanged runtime entry after ABI rejection. Enum
+  constructors, applied generic enums and executable layouts remain outstanding.
   Erroneous signatures retain parameter slots with Error types. Invalid local
   annotations, call targets and indices produce diagnostics; unresolved operands
   suppress dependent mismatch diagnostics. Empty Map/Set constructors retain

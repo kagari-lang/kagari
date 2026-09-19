@@ -216,10 +216,21 @@ so reordering uniquely named variants changes slots without changing declaration
 identity. Source maps retain exact member-name ranges. `FileDeclarations::member_at`
 and `Declarations::member_at` query those declaration sites without analyzing bodies;
 `FileAnalysis::definition_at` returns the same declaration there. This does not yet
-provide enum-constructor reference resolution or payload typing (R04/R07).
+provide enum-constructor reference resolution (R04/R07).
 Duplicate variant names retain separate identities and report
 `KG_RESOLVE_DUPLICATE_VARIANT` at the repeated name; erroneous declarations remain
 queryable, but cannot pass the checked-codegen boundary.
+
+Enum variants retain an ordered list of declaration-owned payload type references.
+Signature checking visits every payload annotation, preserving Error facts for
+unknown/missing types and usable facts for later members. `FileSignatures::type_at`
+queries those annotations before body analysis. Full analysis retains their type
+declaration targets for navigation. The shared aggregate catalog includes nominal
+enum/variant signatures and payload types for reachable source dependencies;
+payload contract changes invalidate dependent body reuse. Signature reuse after
+body edits remaps payload references with the other declaration type references.
+Public enum ABI metadata consumes these checked types. Generic enum instantiation,
+constructors and executable enum layouts remain R04/R07 work.
 
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached

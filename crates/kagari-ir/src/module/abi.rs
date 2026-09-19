@@ -87,6 +87,56 @@ pub struct FieldAbi {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VariantAbi {
     pub name: String,
+    pub payload: Vec<AbiType>,
+}
+
+/// Semantic ABI types preserve nominal identity and container arguments, whereas
+/// ValueType describes only the representation used by instruction operands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AbiType {
+    Builtin(kagari_hir::types::BuiltinType),
+    Tuple(Vec<AbiType>),
+    Array(Box<AbiType>),
+    Map {
+        key: Box<AbiType>,
+        value: Box<AbiType>,
+    },
+    Set(Box<AbiType>),
+    Struct(kagari_common::identity::DefinitionId),
+    Enum(kagari_common::identity::DefinitionId),
+    Trait(kagari_common::identity::DefinitionId),
+    StandardEnum {
+        kind: kagari_hir::builtin::surface::StandardEnum,
+        args: Vec<AbiType>,
+    },
+}
+
+impl AbiType {
+    pub(crate) fn from_checked_type(ty: &kagari_hir::types::TypeId) -> Self {
+        use kagari_hir::types::TypeId;
+        match ty {
+            TypeId::Builtin(ty) => Self::Builtin(*ty),
+            TypeId::Tuple(elements) => {
+                Self::Tuple(elements.iter().map(Self::from_checked_type).collect())
+            }
+            TypeId::Array(element) => Self::Array(Box::new(Self::from_checked_type(element))),
+            TypeId::Map { key, value } => Self::Map {
+                key: Box::new(Self::from_checked_type(key)),
+                value: Box::new(Self::from_checked_type(value)),
+            },
+            TypeId::Set(element) => Self::Set(Box::new(Self::from_checked_type(element))),
+            TypeId::Struct(id) => Self::Struct(id.clone()),
+            TypeId::Enum(id) => Self::Enum(id.clone()),
+            TypeId::Trait(id) => Self::Trait(id.clone()),
+            TypeId::StandardEnum { kind, args } => Self::StandardEnum {
+                kind: *kind,
+                args: args.iter().map(Self::from_checked_type).collect(),
+            },
+            TypeId::Unknown | TypeId::Error | TypeId::Generic(_) | TypeId::SelfType(_) => {
+                unreachable!("non-concrete type reached concrete ABI encoding")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
