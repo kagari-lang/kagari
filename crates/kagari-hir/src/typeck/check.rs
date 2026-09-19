@@ -651,7 +651,16 @@ fn validate_standard_type_constraints(
         TypeId::Array(element) => {
             validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
         }
-        TypeId::StandardEnum { args, .. } => {
+        TypeId::StandardEnum { args, .. }
+        | TypeId::Struct(crate::types::NominalType {
+            arguments: args, ..
+        })
+        | TypeId::Enum(crate::types::NominalType {
+            arguments: args, ..
+        })
+        | TypeId::Trait(crate::types::NominalType {
+            arguments: args, ..
+        }) => {
             for arg in args {
                 validate_standard_type_constraints(arg, generic_bounds, span, diagnostics);
             }
@@ -723,10 +732,23 @@ fn validate_interface_type(
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
+    if let TypeId::Struct(nominal) | TypeId::Enum(nominal) | TypeId::Trait(nominal) = ty {
+        for argument in &nominal.arguments {
+            validate_interface_type(
+                lowered,
+                declarations,
+                function_index,
+                argument,
+                span,
+                diagnostics,
+            );
+        }
+    }
     match ty {
         TypeId::Trait(trait_name) => {
             if let Some(trait_def) = lowered.module.traits.iter().find(|trait_def| {
-                declarations.definition(ResolvedName::Trait(trait_def.id)) == Some(trait_name)
+                declarations.definition(ResolvedName::Trait(trait_def.id))
+                    == Some(&trait_name.declaration)
             }) {
                 for method in &trait_def.methods {
                     if !trait_method_interface_compatible(lowered, function_index, method.function)

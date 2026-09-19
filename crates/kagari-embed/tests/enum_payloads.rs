@@ -233,7 +233,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         })
         .unwrap();
     assert!(
-        matches!(&variant.payload[0], AbiType::Struct(id) if id.module == module.identity && id.path[0].name == "Point")
+        matches!(&variant.payload[0], AbiType::Struct(id) if id.declaration.module == module.identity && id.declaration.path[0].name == "Point")
     );
     assert_eq!(
         variant.payload[1],

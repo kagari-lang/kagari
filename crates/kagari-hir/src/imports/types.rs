@@ -113,13 +113,12 @@ impl<'a> TypeCatalog<'a> {
         let Some(item) = target.item else {
             return Ok(None);
         };
-        let (resolved, make_type): (_, fn(kagari_common::identity::DefinitionId) -> TypeId) =
-            match item {
-                ExportItem::Struct(id) => (ResolvedName::Struct(id), TypeId::Struct),
-                ExportItem::Enum(id) => (ResolvedName::Enum(id), TypeId::Enum),
-                ExportItem::Trait(id) => (ResolvedName::Trait(id), TypeId::Trait),
-                _ => return Ok(None),
-            };
+        let (resolved, make_type): (_, fn(crate::types::NominalType) -> TypeId) = match item {
+            ExportItem::Struct(id) => (ResolvedName::Struct(id), TypeId::Struct),
+            ExportItem::Enum(id) => (ResolvedName::Enum(id), TypeId::Enum),
+            ExportItem::Trait(id) => (ResolvedName::Trait(id), TypeId::Trait),
+            _ => return Ok(None),
+        };
         let Some(declaration) = module.declarations.target(resolved) else {
             return Ok(None);
         };
@@ -133,7 +132,10 @@ impl<'a> TypeCatalog<'a> {
                 item,
             },
             declaration: declaration.clone(),
-            ty: make_type(identity.clone()),
+            ty: make_type(crate::types::NominalType {
+                declaration: identity.clone(),
+                arguments: Vec::new(),
+            }),
         }))
     }
 }

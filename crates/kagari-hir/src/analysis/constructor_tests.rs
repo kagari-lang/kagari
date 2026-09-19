@@ -25,7 +25,10 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     let wrong = text.rfind("Event::Data").unwrap();
     assert_eq!(
         analysis.type_at(good),
-        Some(TypeId::Enum(enumeration.id.clone()))
+        Some(TypeId::Enum(crate::types::NominalType {
+            declaration: enumeration.id.clone(),
+            arguments: Vec::new()
+        }))
     );
     assert_eq!(analysis.type_at(wrong), analysis.type_at(good));
     assert_eq!(analysis.definition_at(good), analysis.definition_at(wrong));

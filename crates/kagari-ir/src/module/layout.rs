@@ -123,7 +123,15 @@ pub(crate) fn validate_enum_layouts(
                         }
                         pending.extend(args);
                     }
-                    AbiType::Struct(id) | AbiType::Enum(id) | AbiType::Trait(id) => {
+                    AbiType::Struct(instance)
+                    | AbiType::Enum(instance)
+                    | AbiType::Trait(instance) => {
+                        // Executable layouts currently describe zero-argument
+                        // declarations. Never bind an applied type to that layout.
+                        if !instance.arguments.is_empty() {
+                            return Err(LayoutValidationError::Invalid);
+                        }
+                        let id = &instance.declaration;
                         let kind = match ty {
                             AbiType::Struct(_) => DefinitionKind::Struct,
                             AbiType::Enum(_) => DefinitionKind::Enum,

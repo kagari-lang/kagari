@@ -405,6 +405,10 @@ declaring owner and position. Signature validation, function-body environments,
 call checking and the method catalog consume that map. Inline, `where`, and
 inherited impl bounds are assembled once during signature analysis, before any
 function body runs; method shadowing does not change the receiver's outer binder.
+Semantic nominal types pair their declaration identity with ordered type
+arguments; the type kind also participates in identity. Substitution retains the
+declaration and recursively replaces arguments by their parameter owner/position.
+This representation does not by itself enable source-level applied trait types.
 Local and imported interface annotations use these same contracts for argument
 checking, Self substitution, and definition queries. Invalid parameter types retain
 Error facts without discarding later parameters or unrelated declarations.

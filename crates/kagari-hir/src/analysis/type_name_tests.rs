@@ -86,7 +86,10 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
                             .declarations
                             .definition(crate::resolver::ResolvedName::Trait(item.id))
                             .unwrap(),
-                        &TypeId::Struct(valid.id.clone())
+                        &TypeId::Struct(crate::types::NominalType {
+                            declaration: valid.id.clone(),
+                            arguments: Vec::new()
+                        })
                     )
                 );
             }

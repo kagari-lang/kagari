@@ -304,11 +304,14 @@ fn main(point: Point) -> Point {
 
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
-        Some(TypeId::Struct(common::definition(
-            &lowered,
-            kagari_common::identity::DefinitionKind::Struct,
-            "Point"
-        )))
+        Some(TypeId::Struct(crate::types::NominalType {
+            declaration: common::definition(
+                &lowered,
+                kagari_common::identity::DefinitionKind::Struct,
+                "Point"
+            ),
+            arguments: Vec::new()
+        }))
     );
 }
 
@@ -1463,11 +1466,14 @@ where T: Display
         .expect("expected show_interface");
     assert_eq!(
         show_interface.params[0].ty,
-        TypeId::Trait(common::definition(
-            &lowered,
-            kagari_common::identity::DefinitionKind::Trait,
-            "Display"
-        ))
+        TypeId::Trait(crate::types::NominalType {
+            declaration: common::definition(
+                &lowered,
+                kagari_common::identity::DefinitionKind::Trait,
+                "Display"
+            ),
+            arguments: Vec::new()
+        })
     );
     assert_eq!(
         show_interface.return_type,

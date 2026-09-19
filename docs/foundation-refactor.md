@@ -224,6 +224,13 @@ Implemented foundation slices:
   innermost annotation even when its target is unknown. Regressions cover all four
   standard constructors, facades, partial arguments, signature rebasing and repair.
   Concrete user-type applications and generic layout instantiation remain pending.
+  Semantic Struct/Enum/Trait identities now carry a NominalType with declaration
+  identity and ordered arguments. Substitution, inference, concreteness, recovery
+  and display recurse through those arguments. ABI types preserve the same shape;
+  format 13/runtime ABI v13 reject older products. Layout verification rejects
+  applied nominal payloads until their concrete layout exists, rather than binding
+  them to zero-argument declarations. These are identity/encoding foundations;
+  source-level applied type checking and layout generation remain unfinished.
   Enum payload annotations now survive lowering as declaration-owned type references.
   Signature checking retains every member, including missing/unknown Error facts,
   and exposes types before body analysis. Nominal enum/variant payload contracts

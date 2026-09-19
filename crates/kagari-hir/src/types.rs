@@ -2,6 +2,9 @@ use kagari_common::identity::DefinitionId;
 
 pub type TypeSubstitution = std::collections::HashMap<GenericParameterType, TypeId>;
 
+#[cfg(test)]
+mod nominal_tests;
+
 /// Names are diagnostic metadata; owner and position determine equality.
 #[derive(Debug, Clone)]
 pub struct GenericParameterType {
@@ -43,6 +46,42 @@ pub enum BuiltinType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NominalType {
+    pub declaration: DefinitionId,
+    pub arguments: Vec<TypeId>,
+}
+
+impl NominalType {
+    fn map_arguments(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
+        Self {
+            declaration: self.declaration.clone(),
+            arguments: self.arguments.iter().map(&mut map).collect(),
+        }
+    }
+
+    fn display_name(&self) -> String {
+        let name = &self
+            .declaration
+            .path
+            .last()
+            .expect("type declaration path")
+            .name;
+        if self.arguments.is_empty() {
+            name.clone()
+        } else {
+            format!(
+                "{name}<{}>",
+                self.arguments
+                    .iter()
+                    .map(TypeId::display_name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeId {
     Unknown,
     Error,
@@ -54,9 +93,9 @@ pub enum TypeId {
         value: Box<TypeId>,
     },
     Set(Box<TypeId>),
-    Struct(DefinitionId),
-    Enum(DefinitionId),
-    Trait(DefinitionId),
+    Struct(NominalType),
+    Enum(NominalType),
+    Trait(NominalType),
     Generic(GenericParameterType),
     SelfType(DefinitionId),
     StandardEnum {
@@ -69,6 +108,9 @@ impl TypeId {
     /// Substitute one binder layer; replacements can contain the caller's parameters.
     pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
         match self {
+            Self::Struct(ty) => Self::Struct(ty.map_arguments(|arg| arg.instantiate(substitution))),
+            Self::Enum(ty) => Self::Enum(ty.map_arguments(|arg| arg.instantiate(substitution))),
+            Self::Trait(ty) => Self::Trait(ty.map_arguments(|arg| arg.instantiate(substitution))),
             Self::Generic(parameter) => substitution
                 .get(parameter)
                 .cloned()
@@ -95,6 +137,9 @@ impl TypeId {
 
     pub fn is_concrete(&self) -> bool {
         match self {
+            Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                ty.arguments.iter().all(Self::is_concrete)
+            }
             Self::Unknown | Self::Error | Self::Generic(_) | Self::SelfType(_) => false,
             Self::Tuple(elements) | Self::StandardEnum { args: elements, .. } => {
                 elements.iter().all(Self::is_concrete)
@@ -106,6 +151,13 @@ impl TypeId {
     }
     pub(crate) fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
         match self {
+            Self::Struct(ty) => {
+                Self::Struct(ty.map_arguments(|arg| arg.with_self(owner, replacement)))
+            }
+            Self::Enum(ty) => Self::Enum(ty.map_arguments(|arg| arg.with_self(owner, replacement))),
+            Self::Trait(ty) => {
+                Self::Trait(ty.map_arguments(|arg| arg.with_self(owner, replacement)))
+            }
             Self::SelfType(id) if id == owner => replacement.clone(),
             Self::Tuple(elements) => Self::Tuple(
                 elements
@@ -167,6 +219,9 @@ impl TypeId {
     /// Recovery types suppress dependent diagnostics but never authorize codegen.
     pub fn is_unresolved(&self) -> bool {
         match self {
+            Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                ty.arguments.iter().any(Self::is_unresolved)
+            }
             Self::Unknown | Self::Error => true,
             Self::Tuple(elements) | Self::StandardEnum { args: elements, .. } => {
                 elements.iter().any(Self::is_unresolved)
@@ -205,9 +260,7 @@ impl TypeId {
                 format!("Map<{}, {}>", key.display_name(), value.display_name())
             }
             Self::Set(element) => format!("Set<{}>", element.display_name()),
-            Self::Struct(id) | Self::Enum(id) | Self::Trait(id) => {
-                id.path.last().expect("type declaration path").name.clone()
-            }
+            Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => ty.display_name(),
             Self::Generic(parameter) => parameter.name.clone(),
             Self::SelfType(_) => "Self".to_owned(),
             Self::StandardEnum { kind, args } => {

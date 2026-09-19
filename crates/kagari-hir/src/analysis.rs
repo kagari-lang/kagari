@@ -712,8 +712,8 @@ mod tests {
         assert!(!facts.result().diagnostics().is_empty());
         assert_eq!(
             facts.member_receiver_type(text.find("p. }").unwrap() + 2),
-            Some(TypeId::Struct(
-                facts
+            Some(TypeId::Struct(crate::types::NominalType {
+                declaration: facts
                     .result()
                     .facts()
                     .declarations
@@ -721,8 +721,9 @@ mod tests {
                         crate::hir::StructId::new(0)
                     ))
                     .unwrap()
-                    .clone()
-            ))
+                    .clone(),
+                arguments: Vec::new(),
+            }))
         );
         let offset = text.rfind("answer").unwrap();
         assert_eq!(

@@ -42,7 +42,9 @@ fn imported_annotations_preserve_nominal_identity_and_definition_locations() {
         .find(|f| f.name == "pass")
         .unwrap();
     assert_eq!(signature.params[0].ty, signature.return_type);
-    assert!(matches!(&signature.return_type, TypeId::Struct(id) if id.module.path == ["types"]));
+    assert!(
+        matches!(&signature.return_type, TypeId::Struct(id) if id.declaration.module.path == ["types"])
+    );
     for needle in [
         "[D]",
         "D)",

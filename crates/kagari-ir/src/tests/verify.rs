@@ -18,6 +18,41 @@ fn raw(source: &str) -> IrModule {
 }
 
 #[test]
+fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
+    use crate::module::abi::{AbiType, NominalAbiType};
+    use kagari_hir::types::{BuiltinType, NominalType, TypeId};
+    let source =
+        "struct Point {} enum Event { Data(Point) } fn main() -> Event { Event::Data(Point {}) }";
+    let mut module = raw(source);
+    let declaration = module.structures[0].declaration.clone();
+    let nominal = NominalType {
+        declaration: declaration.clone(),
+        arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
+    };
+    let encoded = AbiType::from_checked_type(&TypeId::Struct(nominal));
+    let expected = AbiType::Struct(NominalAbiType {
+        declaration,
+        arguments: vec![AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::I32)))],
+    });
+    assert_eq!(encoded, expected);
+    let bytes = bincode::serialize(&encoded).unwrap();
+    assert_eq!(bincode::deserialize::<AbiType>(&bytes).unwrap(), encoded);
+    let bare = &module.enumerations[0].variants[0].payload[0];
+    assert_ne!(
+        crate::bytecode::ArtifactFingerprint::of_serialized(&encoded),
+        crate::bytecode::ArtifactFingerprint::of_serialized(bare)
+    );
+    module.enumerations[0].variants[0].payload[0] = encoded.clone();
+    assert_eq!(reject(module), Error::InvalidEnumLayout);
+    let mut bytecode = crate::tests::common::bytecode_ok(source);
+    bytecode.enumerations[0].variants[0].payload[0] = encoded;
+    assert_eq!(
+        crate::bytecode::verify_module(&bytecode).unwrap_err(),
+        crate::bytecode::BytecodeVerificationError::InvalidEnumLayout
+    );
+}
+
+#[test]
 fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     let source = "enum Event { Data(i32) } fn main() -> Event { Event::Data(7) }";
     let mut public = crate::tests::common::bytecode_ok(&format!("pub {source}"));
@@ -35,7 +70,11 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     let mut module = raw(source);
     let mut absent = module.enumerations[0].declaration.clone();
     absent.path[0].name = "Absent".into();
-    module.enumerations[0].variants[0].payload[0] = crate::module::abi::AbiType::Enum(absent);
+    module.enumerations[0].variants[0].payload[0] =
+        crate::module::abi::AbiType::Enum(crate::module::abi::NominalAbiType {
+            declaration: absent,
+            arguments: Vec::new(),
+        });
     assert_eq!(reject(module), Error::InvalidEnumLayout);
     let mut module = raw(source);
     for instruction in module

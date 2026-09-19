@@ -94,6 +94,25 @@ pub struct VariantAbi {
 /// Semantic ABI types preserve nominal identity and container arguments, whereas
 /// ValueType describes only the representation used by instruction operands.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NominalAbiType {
+    pub declaration: kagari_common::identity::DefinitionId,
+    pub arguments: Vec<AbiType>,
+}
+
+impl NominalAbiType {
+    fn from_checked_type(ty: &kagari_hir::types::NominalType) -> Self {
+        Self {
+            declaration: ty.declaration.clone(),
+            arguments: ty
+                .arguments
+                .iter()
+                .map(AbiType::from_checked_type)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AbiType {
     Builtin(kagari_hir::types::BuiltinType),
     Tuple(Vec<AbiType>),
@@ -103,9 +122,9 @@ pub enum AbiType {
         value: Box<AbiType>,
     },
     Set(Box<AbiType>),
-    Struct(kagari_common::identity::DefinitionId),
-    Enum(kagari_common::identity::DefinitionId),
-    Trait(kagari_common::identity::DefinitionId),
+    Struct(NominalAbiType),
+    Enum(NominalAbiType),
+    Trait(NominalAbiType),
     StandardEnum {
         kind: kagari_hir::builtin::surface::StandardEnum,
         args: Vec<AbiType>,
@@ -135,9 +154,9 @@ impl AbiType {
                 value: Box::new(Self::from_checked_type(value)),
             },
             TypeId::Set(element) => Self::Set(Box::new(Self::from_checked_type(element))),
-            TypeId::Struct(id) => Self::Struct(id.clone()),
-            TypeId::Enum(id) => Self::Enum(id.clone()),
-            TypeId::Trait(id) => Self::Trait(id.clone()),
+            TypeId::Struct(ty) => Self::Struct(NominalAbiType::from_checked_type(ty)),
+            TypeId::Enum(ty) => Self::Enum(NominalAbiType::from_checked_type(ty)),
+            TypeId::Trait(ty) => Self::Trait(NominalAbiType::from_checked_type(ty)),
             TypeId::StandardEnum { kind, args } => Self::StandardEnum {
                 kind: *kind,
                 args: args.iter().map(Self::from_checked_type).collect(),

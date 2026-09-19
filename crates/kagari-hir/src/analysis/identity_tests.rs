@@ -374,12 +374,21 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
     let DeclarationId::Definition(id) = &declaration.id else {
         panic!("nominal declaration");
     };
-    assert_eq!(analysis.type_at(later), Some(TypeId::Struct(id.clone())));
+    assert_eq!(
+        analysis.type_at(later),
+        Some(TypeId::Struct(crate::types::NominalType {
+            declaration: id.clone(),
+            arguments: Vec::new()
+        }))
+    );
     let annotation = text.find("result: P").unwrap() + "result: ".len();
     assert_eq!(analysis.definition_at(annotation), Some(declaration));
     assert_eq!(
         analysis.type_at(annotation),
-        Some(TypeId::Struct(id.clone()))
+        Some(TypeId::Struct(crate::types::NominalType {
+            declaration: id.clone(),
+            arguments: Vec::new()
+        }))
     );
 }
 
@@ -514,7 +523,7 @@ fn same_spelled_nominal_types_in_different_modules_are_distinct() {
         assert_eq!(a.display_name(), b.display_name());
         assert_ne!(a, b);
         let definition = match &a {
-            TypeId::Struct(id) | TypeId::Enum(id) | TypeId::Trait(id) => id,
+            TypeId::Struct(id) | TypeId::Enum(id) | TypeId::Trait(id) => &id.declaration,
             _ => panic!("nominal type"),
         };
         assert_eq!(

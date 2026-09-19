@@ -29,15 +29,16 @@ fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
         ))
         .unwrap()
         .clone();
-    let point = TypeId::Struct(
-        facts
+    let point = TypeId::Struct(crate::types::NominalType {
+        declaration: facts
             .aggregates
             .structures()
             .find(|s| s.declaration.name == "Point")
             .unwrap()
             .id
             .clone(),
-    );
+        arguments: Vec::new(),
+    });
     (definition, method, point)
 }
 

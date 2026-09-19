@@ -69,7 +69,7 @@ fn incomplete_foreign_member_access_retains_the_nominal_receiver() {
     let file = snapshot.file(root).unwrap();
     assert!(!file.result().diagnostics().is_empty());
     assert!(
-        matches!(file.member_receiver_type(text.find("x.").unwrap() + 2), Some(TypeId::Struct(id)) if id.module.path == ["models"])
+        matches!(file.member_receiver_type(text.find("x.").unwrap() + 2), Some(TypeId::Struct(id)) if id.declaration.module.path == ["models"])
     );
     assert_eq!(
         file.type_at(text.find("42").unwrap()),

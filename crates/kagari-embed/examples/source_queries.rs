@@ -154,8 +154,9 @@ fn main() -> kagari_embed::CompileResult<()> {
     };
     assert_eq!(
         point_type.id,
-        kagari_hir::declarations::DeclarationId::Definition(definition.clone())
+        kagari_hir::declarations::DeclarationId::Definition(definition.declaration.clone())
     );
+    assert!(definition.arguments.is_empty());
     println!("nominal type -> {nominal:?}");
     let constraint = analysis
         .definition_at(text.find("T: Show").expect("trait bound") + 3)

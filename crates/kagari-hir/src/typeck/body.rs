@@ -1308,7 +1308,7 @@ impl<'a> BodyChecker<'a> {
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
         let trait_ids = match &receiver_ty {
-            TypeId::Trait(definition) => vec![definition.clone()],
+            TypeId::Trait(ty) => vec![ty.declaration.clone()],
             TypeId::Generic(parameter) => env
                 .generic_bounds
                 .get(parameter)?
@@ -1405,7 +1405,7 @@ impl<'a> BodyChecker<'a> {
         else {
             return None;
         };
-        Some(id.clone())
+        Some(id.declaration.clone())
     }
 
     fn infer_enum_constructor(
@@ -1437,7 +1437,10 @@ impl<'a> BodyChecker<'a> {
         self.type_table
             .insert_enum_constructor(callee, target.clone());
         self.type_table.insert_enum_constructor(expression, target);
-        let result = TypeId::Enum(enumeration);
+        let result = TypeId::Enum(crate::types::NominalType {
+            declaration: enumeration,
+            arguments: Vec::new(),
+        });
         self.type_table.insert_expr(callee, result.clone());
         env.exprs.insert(callee, result.clone());
         // Every argument is checked once, even when the variant is absent or its
@@ -1671,7 +1674,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         self.aggregates
-            .structure(id)?
+            .structure(&id.declaration)?
             .fields
             .iter()
             .find(|field| field.name == field_name)
@@ -1690,7 +1693,7 @@ impl<'a> BodyChecker<'a> {
         let TypeId::Struct(id) = &self.declarations.imported_types().get(path)?.ty else {
             return None;
         };
-        Some(id.clone())
+        Some(id.declaration.clone())
     }
 
     fn infer_binary_type(
@@ -1916,7 +1919,10 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        TypeId::Struct(struct_def.id)
+        TypeId::Struct(crate::types::NominalType {
+            declaration: struct_def.id,
+            arguments: Vec::new(),
+        })
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {

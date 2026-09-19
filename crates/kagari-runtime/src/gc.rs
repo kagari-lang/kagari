@@ -328,10 +328,10 @@ impl GcHeap {
                     pending.extend(values.into_iter().zip(types));
                 },
                 (Value::Struct(id), AbiType::Struct(expected)) => {
-                    if !self.struct_layout(id).is_some_and(|layout| owner.bytecode.structures.iter().any(|current| &current.declaration == expected && layout.layout() == current)) { return false; }
+                    if !expected.arguments.is_empty() || !self.struct_layout(id).is_some_and(|layout| owner.bytecode.structures.iter().any(|current| current.declaration == expected.declaration && layout.layout() == current)) { return false; }
                 },
                 (Value::Enum(id), AbiType::Enum(expected)) => {
-                    if !self.enum_snapshot(id).is_some_and(|value| matches!(value.tag, EnumTag::Declared(layout) if owner.bytecode.enumerations.iter().any(|current| &current.declaration == expected && layout.layout() == current))) { return false; }
+                    if !expected.arguments.is_empty() || !self.enum_snapshot(id).is_some_and(|value| matches!(value.tag, EnumTag::Declared(layout) if owner.bytecode.enumerations.iter().any(|current| current.declaration == expected.declaration && layout.layout() == current))) { return false; }
                 },
                 (Value::Array(id), AbiType::Array(element)) => {
                     let Some(values) = self.array_snapshot(id) else { return false; };

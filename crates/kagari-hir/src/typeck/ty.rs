@@ -43,15 +43,24 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                 Some(match resolved {
                     ResolvedName::Struct(id) => {
                         target = Some(TypeTarget::Struct(id));
-                        TypeId::Struct(definition)
+                        TypeId::Struct(crate::types::NominalType {
+                            declaration: definition,
+                            arguments: Vec::new(),
+                        })
                     }
                     ResolvedName::Enum(id) => {
                         target = Some(TypeTarget::Enum(id));
-                        TypeId::Enum(definition)
+                        TypeId::Enum(crate::types::NominalType {
+                            declaration: definition,
+                            arguments: Vec::new(),
+                        })
                     }
                     ResolvedName::Trait(id) => {
                         target = Some(TypeTarget::Trait(id));
-                        TypeId::Trait(definition)
+                        TypeId::Trait(crate::types::NominalType {
+                            declaration: definition,
+                            arguments: Vec::new(),
+                        })
                     }
                     _ => return None,
                 })
