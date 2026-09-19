@@ -5,6 +5,12 @@ It is a semantic API specification, not a commitment to exact Rust type names.
 
 ## Source snapshots
 
+`FileAnalysis::signatures_reused()` reports whether construction of that immutable
+file result reused an earlier checked signature query. Unchanged files share the
+original result and its statistic. Body edits can reuse signatures even when body
+or signature diagnostics exist; positions and type-reference IDs belong to the
+new source revision. The `source_queries` example exercises this behavior.
+
 An engine owns one source database and one analysis cache. `load_source` reads
 disk text, `set_source` supplies host text or an editor overlay, and
 `close_overlay` exposes the latest base text again. Relative file paths resolve

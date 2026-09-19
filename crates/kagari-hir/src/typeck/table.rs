@@ -53,7 +53,7 @@ pub struct ResolvedStructInit {
     pub fields: Vec<Option<DefinitionId>>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
     implementations: HashMap<(crate::hir::TraitId, TypeId), HashMap<FunctionId, FunctionId>>,
     constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
@@ -71,6 +71,23 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
+    pub(super) fn remap_signature_types(
+        &self,
+        ids: &HashMap<crate::hir::TypeRefId, crate::hir::TypeRefId>,
+    ) -> Option<Self> {
+        let mut result = self.clone();
+        result.type_refs = self
+            .type_refs
+            .iter()
+            .map(|(id, value)| Some((*ids.get(id)?, value.clone())))
+            .collect::<Option<_>>()?;
+        result.constraints = self
+            .constraints
+            .iter()
+            .map(|(id, value)| Some((*ids.get(id)?, *value)))
+            .collect::<Option<_>>()?;
+        Some(result)
+    }
     pub(crate) fn insert_implementation(
         &mut self,
         trait_id: crate::hir::TraitId,

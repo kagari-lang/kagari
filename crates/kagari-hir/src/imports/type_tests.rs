@@ -216,6 +216,53 @@ fn transitive_type_visibility_changes_invalidate_signatures_and_old_targets_rema
 }
 
 #[test]
+fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
+    let mut db = SourceDatabase::default();
+    insert(&mut db, "types", "pub struct Data { val value: i32 }");
+    insert(&mut db, "facade", "pub use pkg::types::Data;");
+    let text = "use pkg::facade::Data; fn pass(x: Data) -> Data { x } fn good() -> i32 { 42 }";
+    let root = insert(&mut db, "root", text);
+    let mut analysis = AnalysisDatabase::default();
+    analysis
+        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    db.set("mem://root", text.replace("42", "43"), SourceLayer::Overlay)
+        .unwrap();
+    let edited = analysis
+        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    assert!(edited.file(root).unwrap().signatures_reused());
+    db.set(
+        "mem://types",
+        "struct Data { val value: i32 }".into(),
+        SourceLayer::Overlay,
+    )
+    .unwrap();
+    db.set("mem://root", text.replace("42", "44"), SourceLayer::Overlay)
+        .unwrap();
+    let changed = analysis
+        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let file = changed.file(root).unwrap();
+    assert!(!file.signatures_reused());
+    let fresh = analyze(&db);
+    assert_eq!(
+        file.signatures().facts().functions(),
+        fresh.file(root).unwrap().signatures().facts().functions()
+    );
+    assert_eq!(
+        file.result().diagnostics(),
+        fresh.file(root).unwrap().result().diagnostics()
+    );
+    assert!(
+        file.signatures()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::UnknownType { .. }))
+    );
+}
+
+#[test]
 fn generic_parameters_shadow_type_imports_and_missing_annotations_keep_other_facts() {
     let mut db = SourceDatabase::default();
     insert(&mut db, "types", "pub struct Data { val value: i32 }");

@@ -16,6 +16,7 @@ pub use kagari_common::cancellation::{CancellationToken, Cancelled};
 
 #[derive(Debug)]
 pub struct FileAnalysis {
+    signatures_reused: bool,
     source: Arc<SourceFile>,
     profile: LanguageFeatureProfile,
     parsed: kagari_syntax::Parse,
@@ -29,6 +30,12 @@ pub struct BindingInfo {
 }
 
 impl FileAnalysis {
+    /// Whether constructing this result reused an earlier signature query.
+    /// An unchanged file shares its existing result and this original statistic.
+    pub fn signatures_reused(&self) -> bool {
+        self.signatures_reused
+    }
+
     pub fn signatures(&self) -> &Arc<AnalysisResult<crate::typeck::ModuleSignatures>> {
         &self.result.facts().signatures
     }
@@ -400,6 +407,7 @@ impl AnalysisDatabase {
             cancel.check()?;
             let prepared = declared.check_signatures(
                 imported_types.remove(&id).expect("declared type bindings"),
+                self.files.get(&id).map(|old| old.result.facts()),
                 cancel,
             );
             signatures.insert(id, (file, parsed, prepared));
@@ -447,6 +455,7 @@ impl AnalysisDatabase {
                     previous.clone()
                 }
                 _ => {
+                    let signatures_reused = prepared.signatures_reused;
                     let reuse = self
                         .files
                         .get(&id)
@@ -476,6 +485,7 @@ impl AnalysisDatabase {
                         cancel,
                     );
                     Arc::new(FileAnalysis {
+                        signatures_reused,
                         source: file,
                         profile,
                         parsed,
@@ -606,6 +616,8 @@ impl AnalysisSnapshot {
 
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod signature_tests;
 
 #[cfg(test)]
 mod tests {

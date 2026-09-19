@@ -195,8 +195,16 @@ Implemented foundation slices:
   scalar/composite argument checks preserve nominal declaration identity. Signature
   facts survive dependency body/constant errors. Transitive facade signature changes
   invalidate callers even when their direct import revisions did not change; unrelated
-  file results and unchanged local signature results remain shared. Fully independent
-  declaration/body queries and signature reuse across local body edits remain pending.
+  file results and unchanged local signature results remain shared. Edits confined
+  to user/impl function bodies now reuse checked signatures, including erroneous
+  signatures. Type-reference arena IDs and diagnostic ranges are rebased onto the
+  new lowering; generic/field/impl targets retain their declaration identities.
+  Declaration text, imported type bindings or host declaration changes invalidate
+  reuse. Cached and fresh analyses are compared for types, navigation, diagnostics
+  and emitted artifacts, including CRLF/Unicode edits and transitive type changes.
+  `FileAnalysis::signatures_reused()` reports reuse during result construction;
+  unchanged files share their original result and statistic. Fully independent
+  declaration/body queries remain pending.
   All module declarations are now available before signature checking. Public struct,
   enum and trait type annotations resolve through direct imports, qualified module
   aliases and source type facades. Parameter, return, field and local annotations

@@ -6,6 +6,8 @@ mod inference;
 mod scalar;
 pub use scalar::ScalarValue;
 mod reuse;
+mod signature_reuse;
+pub(crate) use signature_reuse::reuse_signatures;
 mod table;
 mod ty;
 pub use reuse::BodyReuse;

@@ -79,6 +79,7 @@ impl AnalysisResult<AnalyzedModule> {
 
 pub(crate) struct PreparedAnalysis {
     cached: bool,
+    signatures_reused: bool,
     lowered: lower::LoweredModule,
     names: AnalysisResult<resolver::ResolvedNames>,
     declarations: declarations::Declarations,
@@ -110,12 +111,23 @@ impl DeclaredAnalysis {
     fn check_signatures(
         mut self,
         imported_types: imports::ImportedTypes,
+        previous_analysis: Option<&AnalyzedModule>,
         cancel: &kagari_common::cancellation::CancellationToken,
     ) -> PreparedAnalysis {
         let previous = self
             .previous_signatures
             .filter(|_| self.declarations.imported_types == imported_types);
         self.declarations.imported_types = imported_types;
+        let previous = previous.or_else(|| {
+            let old = previous_analysis?;
+            (old.names.hosts.revision() == self.names.facts.hosts.revision()
+                && old.names.imports.same_bindings(&self.names.facts.imports)
+                && old.declarations.imported_types == self.declarations.imported_types)
+                .then(|| typeck::reuse_signatures(old, &self.lowered, cancel))
+                .flatten()
+                .map(std::sync::Arc::new)
+        });
+        let signatures_reused = previous.is_some();
         let signatures = previous.unwrap_or_else(|| {
             std::sync::Arc::new(typeck::check_signatures(
                 &self.lowered,
@@ -125,6 +137,7 @@ impl DeclaredAnalysis {
         });
         PreparedAnalysis {
             cached: self.cached,
+            signatures_reused,
             lowered: self.lowered,
             names: self.names,
             declarations: self.declarations,
@@ -160,6 +173,7 @@ fn analyze_prepared(
 ) -> AnalysisResult<AnalyzedModule> {
     let PreparedAnalysis {
         cached,
+        signatures_reused: _,
         lowered,
         names,
         declarations,
@@ -225,7 +239,7 @@ pub fn analyze_source(
     let imported_types = imports::TypeCatalog::new(&graph, [&declared])
         .bindings(&declared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
-    let prepared = declared.check_signatures(imported_types, &Default::default());
+    let prepared = declared.check_signatures(imported_types, None, &Default::default());
     let imported_functions = imports::FunctionCatalog::new(&graph, [&prepared])
         .bindings(&prepared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");

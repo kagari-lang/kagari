@@ -76,6 +76,13 @@ fn main() -> kagari_embed::CompileResult<()> {
         &Default::default(),
     )?;
     assert!(edited.declaration(&target.id).is_none());
+    assert!(
+        edited
+            .file(file)
+            .expect("edited source")
+            .signatures_reused()
+    );
+    println!("body edit reused checked signatures; local bindings belong to the new query");
     assert!(edited.declaration(&field.id).is_some());
     assert_eq!(snapshot.declaration(&target.id), Some(target));
     Ok(())

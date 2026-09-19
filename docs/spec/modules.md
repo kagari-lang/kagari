@@ -56,6 +56,15 @@ nominal declaration identity, including when two modules declare the same name.
 Signature queries retain errors independently of body and constant diagnostics.
 An invalid dependency body does not erase its usable function signatures.
 
+When only user or impl function bodies change, signature queries reuse the checked
+result if the declaration surface, module identity, imported type bindings and host
+declarations still match. Reuse remaps source-local type references and diagnostic
+ranges into the new lowering, including for erroneous signatures; it does not keep
+old local binding identities alive. Changes to dependencies, signatures or field
+contracts invalidate the affected queries. Cancelled or older analyses cannot
+replace a newer cached revision. Query reuse remains conservative: declarations
+and body checking are not yet independently scheduled queries.
+
 Struct construction and field access use a checked aggregate catalog for the root's
 reachable modules. Both local and imported targets carry nominal declaration IDs;
 field contracts include their declaring struct, declaration-order slot, type,
