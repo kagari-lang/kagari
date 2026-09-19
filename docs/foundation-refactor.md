@@ -22,7 +22,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [ ] R09: Canonical bounded artifact format and explicit fingerprint algorithm.
 - [ ] R10: Shared immutable generations and runtime-local state.
 - [ ] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
-- [ ] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
+- [x] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
 - [ ] R13: Failure-atomic standard mutation and dirty-record commit.
 - [ ] R14: Acyclic initialization and isolated prepare/initialize/publish.
 - [ ] R15: Compile-time capability and resource limits.
@@ -38,6 +38,30 @@ Focused tests accompany each semantic change. Final gates are `cargo fmt --all
 workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
+
+R12 acceptance evidence:
+
+- [Execution sessions](../crates/kagari-runtime/tests/execution_sessions.rs) cover
+  immutable root permissions, per-root budgets/peaks, cancellation, inherited
+  scopes and root-version retention; independent calls start fresh budgets.
+- [Execution frames](../crates/kagari-runtime/tests/execution_frames.rs) cover one
+  session-owned stack, suffix cleanup, GC roots and cleanup after quarantine.
+  Module instance borrows are confined to individual load/store/init operations;
+  the existing explicit executor remains the single script driver.
+- [Host scopes](../crates/kagari-runtime/tests/host_scopes.rs) cover registered
+  temporary roots/leases, retained root lifetime, ordinary error/termination/fault
+  cleanup, foreign and expired tokens, and declared borrow conflicts.
+- [VM session fixtures](../crates/kagari-vm/src/tests/sessions.rs) cover synchronous
+  reentry, GC-safe returned objects, nested cancellation/budget cleanup and pinned
+  epochs through direct/encoded interpreter and existing JIT fallback routes.
+  [Path fixtures](../crates/kagari-vm/src/tests/helpers.rs) also reenter during path
+  validation/read/preparation, while commit reentry still quarantines the runtime.
+- The host_reentry embedding example exercises rooted results, temporary scopes
+  and complete-stack observation. No async API or cross-thread execution was added.
+
+This completes R12, not R10/R11/R13/R17: nominal enum/interface/capture ownership,
+the wider engine-invariant audit, lexical debug visibility and remaining backend
+contracts retain their own acceptance requirements.
 
 R01 specifies target behavior. Remaining runtime behavior must not be described
 as conforming until its corresponding checkpoint and regression tests pass.
@@ -305,9 +329,8 @@ Implemented foundation slices:
   trap/budget exits release frame roots. Runtime callbacks are local to one thread
   and can retain explicit rooted values. The rooted_values example records pause
   data for a 10,000-object chain, recorded in [performance-baseline.md](performance-baseline.md).
-  Enum nominal identity, complete interface/capture
-  ownership and host reentry remain
-  open; this does not mark R11/R12 complete.
+  Enum nominal identity and complete interface/capture ownership remain open;
+  this does not mark R11 complete. Host reentry is covered by the R12 evidence above.
 - R12/R17: execution frames now carry their owning program member, and module-state
   access uses short borrows. Debug frames and breakpoints distinguish member IDs
   even when local function IDs coincide. BackendFunctionInput can only select a
@@ -332,8 +355,12 @@ Implemented foundation slices:
   The root observer shares debugger state through short borrows, and nested pauses
   contain suspended callers at the actual call instruction. Runtime tests cover
   stack/root ownership and invariant quarantine; direct/encoded interpreter and
-  JIT fallback fixtures cover nested breakpoints/traps. Full temporary host-resource
-  ownership audit, lexical visibility and stable debug frame identities remain open.
+  JIT fallback fixtures cover nested breakpoints/traps. Host resource scopes now
+  register temporary roots and object leases in the session; callback/path scopes
+  release both before dropping their session handle. Borrow ownership is checked
+  across runtimes and the unchecked host-frame entry is removed. Path callbacks
+  receive the same checked call context for synchronous reentry before commit.
+  Lexical visibility and stable debug frame identities remain R17 work.
   Tests cover direct/encoded
   programs, dependency-first initialization/failure caching, stale reloads, old
   dependency calls, malformed program rejection and interpreter/JIT fallback parity.
@@ -341,7 +368,7 @@ Implemented foundation slices:
   integer abs use checked operations. Existing native i32 add/subtract/multiply/
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
-  ABI is v10 and JIT helper ABI is v5. Path arithmetic failure produces no
+  ABI is v11 and JIT helper ABI is v5. Path arithmetic failure produces no
   commit action or dirty record. Heap allocations and standard container growth
   now share resource counters: validation, budget checks and capacity preparation
   precede mutation and accounting commit. Failed operations charge no units;
@@ -366,11 +393,10 @@ Implemented foundation slices:
   attempting an ordinary module-state write. Direct/encoded interpreter and JIT
   fallback fixtures cover both entry and initializer faults. Root sessions provide
   cancellation and shared budgets; synchronous callback reentry inherits them.
-  Frame stacks and nested debugging now share the session; remaining temporary
-  host-resource ownership requires the final R12 audit.
+  Frame stacks, nested debugging and temporary host-resource ownership now share
+  the session; the R12 audit is recorded above.
   Const evaluation shares checked arithmetic and
-  honors short circuit, with cancellation checks. Full execution-resource ownership,
-  narrower integer layouts and the other backend/
+  honors short circuit, with cancellation checks. Narrower integer layouts and the other backend/
   debugger contracts remain open; compile-time quotas are still pending R15.
   Assignment lowering now retains a location before RHS execution and resolves
   its projections afterwards. Tuple updates prepare temporary values before one

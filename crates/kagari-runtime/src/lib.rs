@@ -8,6 +8,7 @@ mod execution_state;
 mod frame;
 pub mod gc;
 pub mod host;
+mod host_scope;
 pub mod jit_abi;
 #[cfg(test)]
 #[path = "../tests/support/layouts.rs"]
@@ -50,6 +51,7 @@ pub use host::{
     HostPathViewHandle, HostReflectionPolicy, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
     HostTypeOwnership, HostTypeRegistration,
 };
+pub use host_scope::HostResourceScope;
 pub use metadata::{
     AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
     ParameterInfo, PathAccess, TraitInfo, TypeId, TypeInfo, TypeKind, TypeRegistration,
@@ -154,7 +156,7 @@ impl Runtime {
             gc: std::rc::Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
-            host_borrows: HostBorrowTable::default(),
+            host_borrows: HostBorrowTable::with_resources(&resources),
             security: config.security,
             host_exposure: std::rc::Rc::new(config.host_exposure),
             debug_visibility: config.debug_visibility,
@@ -364,12 +366,16 @@ impl Runtime {
         &mut self.host
     }
 
-    pub fn host_borrows(&self) -> &HostBorrowTable {
-        &self.host_borrows
+    pub fn validate_host_borrow(
+        &self,
+        token: FrameHostBorrowToken,
+        required: HostBorrowKind,
+    ) -> Result<(), RuntimeError> {
+        self.host_borrows.validate(token, required)
     }
 
-    pub fn enter_host_call(&self) -> HostCallGuard<'_> {
-        self.host_borrows.enter_frame()
+    pub fn host_scope(&self, values: &[Value]) -> Result<HostResourceScope<'_>, RuntimeError> {
+        HostResourceScope::new(self, values)
     }
 
     pub fn register_host_function(
@@ -461,7 +467,7 @@ impl Runtime {
         self.validate_host_path_capabilities(descriptor_id)?;
         let result = self
             .host
-            .read_path(&self.gc, root_or_view, descriptor_id, dynamic_args);
+            .read_path(self, root_or_view, descriptor_id, dynamic_args);
         self.resources.ensure_execution_allowed()?;
         result
     }
@@ -478,7 +484,7 @@ impl Runtime {
         self.validate_host_path_capabilities(descriptor_id)?;
         let result = self
             .host
-            .set_path(&self.gc, root_or_view, descriptor_id, dynamic_args, value);
+            .set_path(self, root_or_view, descriptor_id, dynamic_args, value);
         self.resources.ensure_execution_allowed()?;
         result
     }
@@ -494,14 +500,9 @@ impl Runtime {
         self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Modify(op))?;
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
-        let result = self.host.modify_path(
-            &self.gc,
-            root_or_view,
-            descriptor_id,
-            dynamic_args,
-            op,
-            value,
-        );
+        let result =
+            self.host
+                .modify_path(self, root_or_view, descriptor_id, dynamic_args, op, value);
         self.resources.ensure_execution_allowed()?;
         result
     }
@@ -1072,16 +1073,10 @@ impl Runtime {
             )
         })?;
         self.validate_bound_host_boundary(function.symbol(), Some(function))?;
-        let _arguments = self
-            .gc
-            .root_execution_values(args.to_vec())
-            .ok_or_else(|| {
-                RuntimeError::host_call_failure("invalid heap reference in host arguments")
-            })?;
-        let context = host::HostCallContext::new(self);
+        let context = host::HostCallContext::new(self, args)?;
         let result = function.invoke(&context, args);
         self.resources.ensure_execution_allowed()?;
-        let value = result.map_err(|error| RuntimeError::host_call_failure(error.message()))?;
+        let value = result?;
         HostBorrowTable::validate_no_escape(&value)?;
         if !self.gc.validate_value(&value) {
             return Err(RuntimeError::host_call_failure(

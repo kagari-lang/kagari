@@ -238,6 +238,8 @@ See [host-interop.md](host-interop.md) for scope and error rules. The `host_reen
 example demonstrates this boundary: `cargo run -p kagari-embed --example host_reentry`.
 It also installs an ExecutionObserver on an explicit root scope to observe both
 the suspended outer frame and the nested frame in the session-owned stack.
+The example keeps scratch values with HostCallContext::retain_temporaries and checks
+that ExecutionSession::host_scope_count returns to zero before ending the root.
 The `scoped_execution` embedding example demonstrates independent budgets and
 cancellation: `cargo run -p kagari-embed --example scoped_execution`.
 

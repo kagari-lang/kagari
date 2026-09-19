@@ -85,7 +85,8 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
         runtime.invoke_host("game.heal", &[]).unwrap_err().kind(),
         RuntimeErrorKind::HostBorrowEscape
     );
-    let frame = runtime.enter_host_call();
+    let resources = runtime.host_scope(&[]).unwrap();
+    let frame = resources.borrows();
     frame
         .borrow_unique(HostObjectId(1), TypeId::new(0))
         .unwrap();

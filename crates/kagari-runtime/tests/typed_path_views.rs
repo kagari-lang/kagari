@@ -43,6 +43,107 @@ fn path_mutation_config() -> RuntimeConfig {
 }
 
 #[test]
+fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
+    use std::{cell::Cell, rc::Rc};
+    let mut runtime = path_mutation_runtime();
+    let scalar = register_i32(&runtime);
+    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
+    let calls = Rc::new(Cell::new(0));
+    let read_calls = calls.clone();
+    runtime
+        .register_host_path_adapter(
+            descriptor,
+            HostPathAdapter::new()
+                .with_read(move |_, _| {
+                    read_calls.set(read_calls.get() + 1);
+                    Ok(Value::I32(10))
+                })
+                .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
+        )
+        .unwrap();
+    let scope = runtime.host_scope(&[]).unwrap();
+    scope
+        .borrows()
+        .borrow_unique(root.object_id(), root.type_id())
+        .unwrap();
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::HostBorrowConflict
+    );
+    assert_eq!(calls.get(), 0);
+    drop(scope);
+    let scope = runtime.host_scope(&[]).unwrap();
+    scope
+        .borrows()
+        .borrow_shared(root.object_id(), root.type_id())
+        .unwrap();
+    runtime
+        .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+        .unwrap();
+    assert_eq!(
+        runtime
+            .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::HostBorrowConflict
+    );
+    assert!(runtime.host_dirty_paths().is_empty());
+    drop(scope);
+    runtime
+        .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+        .unwrap();
+    assert_eq!(runtime.host_dirty_paths().len(), 1);
+    assert_eq!(runtime.gc().active_roots(), 0);
+}
+
+#[test]
+fn path_callback_borrows_cannot_escape_in_read_results() {
+    let mut runtime = path_mutation_runtime();
+    let scalar = register_i32(&runtime);
+    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
+    runtime
+        .register_host_path_adapter(
+            descriptor,
+            HostPathAdapter::new().with_read(move |call, _| {
+                let token = call
+                    .borrows()
+                    .borrow_shared(HostObjectId(2), owner)
+                    .unwrap();
+                Ok(Value::host_ref(token))
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::HostBorrowEscape
+    );
+    let scope = runtime.host_scope(&[]).unwrap();
+    scope
+        .borrows()
+        .borrow_unique(HostObjectId(1), owner)
+        .unwrap();
+    scope
+        .borrows()
+        .borrow_unique(HostObjectId(2), owner)
+        .unwrap();
+    assert_eq!(runtime.gc().active_roots(), 0);
+}
+
+#[test]
 fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchanged() {
     use std::{cell::Cell, rc::Rc};
     for stage in ["read", "validation", "preparation"] {
@@ -64,19 +165,19 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
             .register_host_path_adapter(
                 descriptor,
                 HostPathAdapter::new()
-                    .with_validate(move |_, _, _| {
+                    .with_validate(move |_, _, _, _| {
                         if stage == "validation" && validate_reject.get() {
                             return Err(HostError::new("rejected validation"));
                         }
                         Ok(())
                     })
-                    .with_read(move |_| {
+                    .with_read(move |_, _| {
                         if stage == "read" && read_reject.get() {
                             return Err(HostError::new("rejected read"));
                         }
                         Ok(Value::I32(read_target.get()))
                     })
-                    .with_prepare_write(move |_, record| {
+                    .with_prepare_write(move |_, _, record| {
                         if stage == "preparation" && prepare_reject.get() {
                             return Err(HostError::new("rejected preparation"));
                         }
@@ -150,8 +251,8 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
-                .with_read(move |_| Ok(Value::I32(read_target.get())))
-                .with_prepare_write(move |_, record| {
+                .with_read(move |_, _| Ok(Value::I32(read_target.get())))
+                .with_prepare_write(move |_, _, record| {
                     let Value::I32(next) = record.new_value else {
                         return Err(HostError::new("expected i32"));
                     };
@@ -172,6 +273,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
         .unwrap();
     assert_eq!(target.get(), 20);
     assert_eq!(runtime.host_dirty_paths().len(), 1);
+    assert_eq!(session.host_scope_count(), 0);
     assert_eq!(
         runtime.gc_safepoint().unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
@@ -200,8 +302,8 @@ fn nonstorable_previous_value_cannot_escape_through_the_dirty_ledger() {
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
-                .with_read(move |_| Ok(Value::HostRoot(root)))
-                .with_prepare_write(|_, _| {
+                .with_read(move |_, _| Ok(Value::HostRoot(root)))
+                .with_prepare_write(|_, _, _| {
                     panic!("invalid dirty payload must reject before host preparation")
                 }),
         )
@@ -242,8 +344,8 @@ fn dirty_record_limit_discards_prepared_resources_without_committing_target() {
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
-                .with_read(move |_| Ok(Value::I32(read_target.get())))
-                .with_prepare_write(move |_, record| {
+                .with_read(move |_, _| Ok(Value::I32(read_target.get())))
+                .with_prepare_write(move |_, _, record| {
                     let Value::I32(next) = record.new_value else {
                         return Err(HostError::new("expected i32"));
                     };
@@ -319,8 +421,8 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
             .register_host_path_adapter(
                 descriptor,
                 HostPathAdapter::new()
-                    .with_read(|_| Ok(Value::I32(10)))
-                    .with_prepare_write(move |_, _| {
+                    .with_read(|_, _| Ok(Value::I32(10)))
+                    .with_prepare_write(move |_, _, _| {
                         let access = prepare_access.clone();
                         let committed = prepare_committed.clone();
                         Ok(PreparedHostPathWrite::new(move || {
@@ -459,13 +561,13 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
-                .with_read(move |_| {
+                .with_read(move |_, _| {
                     let runtime = read_access.borrow().as_ref().unwrap().upgrade().unwrap();
                     let value = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
                     read_previous.set(Some(value));
                     Ok(Value::Array(value))
                 })
-                .with_prepare_write(move |_, record| {
+                .with_prepare_write(move |_, _, record| {
                     let value = record.new_value.clone();
                     let runtime = write_access.borrow().as_ref().unwrap().upgrade().unwrap();
                     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
@@ -628,7 +730,7 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
     );
 
     let borrow_table = HostBorrowTable::default();
-    let frame = borrow_table.enter_frame();
+    let frame = borrow_table.enter_frame().unwrap();
     let borrow = Value::host_ref(
         frame
             .borrow_shared(HostObjectId(99), i32_id)
@@ -662,7 +764,7 @@ fn host_paths_are_unavailable_until_exposed() {
     runtime
         .register_host_path_adapter(
             descriptor_id,
-            HostPathAdapter::new().with_read(move |_| {
+            HostPathAdapter::new().with_read(move |_, _| {
                 *calls_for_read.lock().expect("read counter should lock") += 1;
                 Ok(Value::I32(7))
             }),
@@ -720,7 +822,7 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
     runtime
         .register_host_path_adapter(
             descriptor_id,
-            HostPathAdapter::new().with_read(|context| {
+            HostPathAdapter::new().with_read(|_, context| {
                 let Value::I32(index) = &context.dynamic_args.as_slice()[0].value else {
                     return Err(HostError::new("inventory index must be i32"));
                 };
@@ -860,15 +962,15 @@ fn executes_path_read_prepare_commit_and_dirty_records_in_order() {
         .register_host_path_adapter(
             descriptor_id,
             HostPathAdapter::new()
-                .with_validate(move |_, operation, value| {
+                .with_validate(move |_, _, operation, value| {
                     validate_events
                         .lock()
                         .unwrap()
                         .push(format!("validate:{operation:?}:{}", value.is_some()));
                     Ok(())
                 })
-                .with_read(move |_| Ok(Value::I32(*read_hp.lock().unwrap())))
-                .with_prepare_write(move |_, record| {
+                .with_read(move |_, _| Ok(Value::I32(*read_hp.lock().unwrap())))
+                .with_prepare_write(move |_, _, record| {
                     let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
                     };
@@ -944,7 +1046,7 @@ fn path_execution_classifies_validation_failures() {
     runtime
         .register_host_path_adapter(
             read_only,
-            HostPathAdapter::new().with_read(|_| Ok(Value::I32(1))),
+            HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(1))),
         )
         .unwrap();
     let root_value = Value::HostRoot(root);
@@ -991,8 +1093,8 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
             .register_host_path_adapter(
                 descriptor,
                 HostPathAdapter::new()
-                    .with_read(move |_| Ok(Value::I32(*read_value.lock().unwrap())))
-                    .with_prepare_write(move |_, record| {
+                    .with_read(move |_, _| Ok(Value::I32(*read_value.lock().unwrap())))
+                    .with_prepare_write(move |_, _, record| {
                         let Value::I32(value) = record.new_value else {
                             return Err(HostError::new("expected i32"));
                         };
@@ -1054,7 +1156,7 @@ fn path_execution_enforces_descriptor_capabilities() {
     runtime
         .register_host_path_adapter(
             descriptor_id,
-            HostPathAdapter::new().with_read(|_| Ok(Value::I32(99))),
+            HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(99))),
         )
         .unwrap();
 

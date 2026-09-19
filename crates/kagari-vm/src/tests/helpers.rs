@@ -143,8 +143,8 @@ fn register_vm_host_path_runtime_with_capabilities(
         .register_host_path_adapter(
             descriptor_id,
             HostPathAdapter::new()
-                .with_read(move |_| Ok(Value::I32(*read_hp.lock().unwrap())))
-                .with_prepare_write(move |_, record| {
+                .with_read(move |_, _| Ok(Value::I32(*read_hp.lock().unwrap())))
+                .with_prepare_write(move |_, _, record| {
                     let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
                     };
@@ -322,8 +322,8 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     .register_host_path_adapter(
                         kagari_runtime::HostPathDescriptorId::new(0),
                         HostPathAdapter::new()
-                            .with_read(|_| Ok(Value::I32(10)))
-                            .with_prepare_write(move |_, record| {
+                            .with_read(|_, _| Ok(Value::I32(10)))
+                            .with_prepare_write(move |_, _, record| {
                                 let Value::I32(value) = record.new_value else {
                                     return Err(HostError::new("expected i32"));
                                 };
@@ -443,6 +443,129 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                 );
                 assert_eq!(vm.runtime().resources().counters(), before);
             }
+        }
+    }
+}
+
+#[test]
+fn typed_path_callbacks_reenter_the_root_session_before_commit() {
+    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    use std::{cell::RefCell, rc::Rc};
+    fn reenter(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
+        let root = call.runtime().execution_root().unwrap();
+        let scope = call
+            .runtime()
+            .begin_execution(&root, call.runtime().execution_options())
+            .unwrap();
+        assert_eq!(scope.host_scope_count(), 2);
+        let value = crate::reenter(call, &root, function, &[]).unwrap();
+        call.runtime().collect_garbage().unwrap();
+        let Value::Array(array) = value.value() else {
+            panic!("array")
+        };
+        assert_eq!(call.runtime().gc().array_get(array, 0), Some(Value::I32(7)));
+    }
+    for encoded in [false, true] {
+        for jit in [false, true] {
+            let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
+            let mut security = runtime.security();
+            security.profile.allow_jit = true;
+            security.capabilities.jit = true;
+            runtime.set_security_context(security);
+            let bytecode = compile_test_bytecode(
+                "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> [i32] { [7] }",
+            );
+            let compute = bytecode
+                .functions
+                .iter()
+                .find(|f| f.name == "compute")
+                .unwrap()
+                .id;
+            let descriptor = kagari_runtime::HostPathDescriptorId::new(0);
+            let root = runtime.host().root(HostObjectId(1)).unwrap();
+            let stages = Rc::new(RefCell::new(Vec::new()));
+            let validation = stages.clone();
+            let reading = stages.clone();
+            let preparing = stages.clone();
+            let write_hp = hp.clone();
+            runtime
+                .register_host_path_adapter(
+                    descriptor,
+                    HostPathAdapter::new()
+                        .with_validate(move |call, _, _, _| {
+                            reenter(call, compute);
+                            validation.borrow_mut().push("validate");
+                            Ok(())
+                        })
+                        .with_read(move |call, _| {
+                            reenter(call, compute);
+                            reading.borrow_mut().push("read");
+                            Ok(Value::I32(10))
+                        })
+                        .with_prepare_write(move |call, _, record| {
+                            reenter(call, compute);
+                            preparing.borrow_mut().push("prepare");
+                            let Value::I32(next) = record.new_value else {
+                                panic!("i32")
+                            };
+                            let hp = write_hp.clone();
+                            Ok(PreparedHostPathWrite::new(move || {
+                                *hp.lock().unwrap() = next
+                            }))
+                        }),
+                )
+                .unwrap();
+            runtime
+                .register_host_function(HostFunction::new(
+                    kagari_common::host_interface::standard_log(),
+                    move |call, _| {
+                        call.runtime()
+                            .set_host_path(
+                                &Value::HostRoot(root),
+                                descriptor,
+                                vec![],
+                                Value::I32(20),
+                            )
+                            .unwrap();
+                        Ok(Value::Unit)
+                    },
+                ))
+                .unwrap();
+            let mut program = BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![bytecode],
+            };
+            if encoded {
+                program = KbcArtifact::from_bytes(
+                    &KbcArtifact::from_program(program, Default::default())
+                        .to_bytes()
+                        .unwrap(),
+                )
+                .unwrap()
+                .program;
+            }
+            let loaded = runtime.load_program("path-reentry.kgr", program).unwrap();
+            let scope = runtime
+                .begin_execution(&loaded, runtime.execution_options())
+                .unwrap();
+            let mut vm = Vm::new(runtime);
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let report = if jit {
+                vm.execute_with_backend(&loaded, "main", &mut backend)
+            } else {
+                vm.execute(&loaded, "main")
+            }
+            .unwrap();
+            assert_eq!(report.return_value, Value::I32(42));
+            assert_eq!(*hp.lock().unwrap(), 20);
+            assert_eq!(*stages.borrow(), ["validate", "read", "prepare"]);
+            assert_eq!(scope.host_scope_count(), 0);
+            assert_eq!(scope.counters().current_call_depth, 0);
+            assert_eq!(vm.runtime().gc().active_roots(), 0);
+            drop(scope);
+            vm.runtime().collect_garbage().unwrap();
+            assert_eq!(vm.runtime().gc().allocated_objects(), 0);
+            assert_eq!(vm.runtime().host_dirty_paths().len(), 1);
         }
     }
 }

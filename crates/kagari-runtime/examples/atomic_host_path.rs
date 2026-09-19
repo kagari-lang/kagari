@@ -70,8 +70,8 @@ fn main() {
         .register_host_path_adapter(
             path,
             HostPathAdapter::new()
-                .with_read(move |_| Ok(Value::I32(read_hp.get())))
-                .with_prepare_write(move |_, record| {
+                .with_read(move |_, _| Ok(Value::I32(read_hp.get())))
+                .with_prepare_write(move |_, _, record| {
                     let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
                     };

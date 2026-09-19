@@ -412,6 +412,11 @@ one ExecutionFrame stack, including interpreter, nested callbacks and VM native
 entry scopes. ExecutionStack guards remember their stack base and unwind only their
 own suffix, releasing roots and depth counters even after termination/quarantine.
 Manual public call-depth entry/exit APIs are removed; only frame scopes update it.
+HostResourceScope registers host leases and temporary roots in the same session.
+Host calls and path callbacks use this scope, and cleanup removes its registration
+before dropping the session handle. Host scopes can outlive an outer session handle
+without resetting its budget or permissions. ExecutionSession::host_scope_count
+reports registered host scopes for diagnostics and cleanup assertions.
 Frames own their immutable loaded version; no borrowed bytecode lifetime crosses
 runtime entry. Invalid frame access, suspended-scope mutation and out-of-order
 scope destruction quarantine the runtime instead of resuming a damaged stack.

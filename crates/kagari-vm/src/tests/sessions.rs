@@ -142,7 +142,8 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                     .active_calls,
                 0
             );
-            let frame = vm.runtime().enter_host_call();
+            let resources = vm.runtime().host_scope(&[]).unwrap();
+            let frame = resources.borrows();
             frame
                 .borrow_unique(HostObjectId(1), TypeId::new(0))
                 .unwrap();
@@ -178,6 +179,10 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 let mut runtime = runtime(None);
                 runtime.register_host_function(HostFunction::new(standard_log(), move |context, args| {
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
+                    let temporary = Value::Array(context.runtime().alloc_array(vec![Value::I32(11)]).unwrap());
+                    context.retain_temporaries(std::slice::from_ref(&temporary)).unwrap();
+                    context.runtime().collect_garbage().unwrap();
+                    assert!(context.runtime().gc().validate_value(&temporary));
                     if args == [Value::Str("inner".into())] {
                         cancellation.cancel();
                     } else {
@@ -218,8 +223,10 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 );
                 assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
                 assert_eq!(vm.runtime().gc().active_roots(), 0);
+                assert_eq!(scope.host_scope_count(), 0);
                 drop(scope);
-                let frame = vm.runtime().enter_host_call();
+                let resources = vm.runtime().host_scope(&[]).unwrap();
+                let frame = resources.borrows();
                 frame
                     .borrow_unique(HostObjectId(2), TypeId::new(0))
                     .unwrap();

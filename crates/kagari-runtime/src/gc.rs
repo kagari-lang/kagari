@@ -1071,7 +1071,7 @@ mod tests {
 
     fn shared_borrow_value(object_id: u64) -> Value {
         let table = HostBorrowTable::default();
-        let guard = table.enter_frame();
+        let guard = table.enter_frame().unwrap();
         Value::host_ref(
             guard
                 .borrow_shared(HostObjectId(object_id), TypeId::new(0))
@@ -1081,7 +1081,7 @@ mod tests {
 
     fn unique_borrow_value(object_id: u64) -> Value {
         let table = HostBorrowTable::default();
-        let guard = table.enter_frame();
+        let guard = table.enter_frame().unwrap();
         Value::host_mut(
             guard
                 .borrow_unique(HostObjectId(object_id), TypeId::new(0))

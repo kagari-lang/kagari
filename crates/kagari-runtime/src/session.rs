@@ -39,6 +39,9 @@ pub trait ExecutionObserver: std::fmt::Debug {
 
 #[derive(Debug)]
 pub(crate) struct SessionState {
+    pub host_scopes: RefCell<
+        std::collections::HashMap<crate::HostFrameId, Rc<crate::host_scope::HostScopeState>>,
+    >,
     pub observer: RefCell<Option<Rc<dyn ExecutionObserver>>>,
     pub frames: RefCell<Vec<crate::ExecutionFrame>>,
     pub frame_scopes: RefCell<Vec<u64>>,
@@ -60,6 +63,7 @@ impl SessionState {
         baseline: ResourceCounters,
     ) -> Self {
         Self {
+            host_scopes: RefCell::new(std::collections::HashMap::new()),
             observer: RefCell::new(None),
             frames: RefCell::new(Vec::new()),
             frame_scopes: RefCell::new(Vec::new()),
@@ -124,6 +128,9 @@ pub struct ExecutionCounters {
 }
 
 impl ExecutionSession {
+    pub fn host_scope_count(&self) -> usize {
+        self.state.host_scopes.borrow().len()
+    }
     pub fn root(&self) -> &LoadedModule {
         &self.state.root
     }
@@ -156,9 +163,10 @@ impl Drop for ExecutionSession {
         if scopes == 1 {
             if self.resources.counters().current_call_depth
                 != self.state.baseline.current_call_depth
+                || !self.state.host_scopes.borrow().is_empty()
             {
                 self.resources
-                    .quarantine("execution session ended with active frames");
+                    .quarantine("execution session ended with active resources");
             }
             self.resources.end_execution(&self.state);
             self.modules

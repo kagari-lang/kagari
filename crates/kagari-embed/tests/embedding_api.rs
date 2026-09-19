@@ -115,8 +115,8 @@ fn register_embedding_host_path_runtime(
         .register_host_path_adapter(
             descriptor_id,
             HostPathAdapter::new()
-                .with_read(|_| Ok(Value::I32(10)))
-                .with_prepare_write(|_, record| {
+                .with_read(|_, _| Ok(Value::I32(10)))
+                .with_prepare_write(|_, _, record| {
                     if matches!(record.new_value, Value::I32(_)) {
                         Ok(kagari_runtime::host::PreparedHostPathWrite::new(|| {}))
                     } else {

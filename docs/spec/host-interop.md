@@ -81,7 +81,9 @@ string type names and `with_metadata` constructor have been removed.
 
 Callbacks receive `(&HostCallContext, &[Value])`. The context exposes the checked
 runtime and a call-scoped borrow guard; it cannot be constructed by hosts. Runtime
-entry owns argument roots and releases the borrow guard on every return. Borrowed
+entry registers a HostResourceScope in the active session and keeps argument roots
+and borrow leases there until the call ends. Callbacks can add temporary values with
+retain_temporaries; permanent retention still requires RootedValue. Borrowed
 results are rejected before their scope ends. The public registry/function invoke
 bypasses are removed; host invocation goes through Runtime permission, resource,
 signature and heap validation.
@@ -100,6 +102,20 @@ termination remains recorded for the root even if the host ignores the error.
 Nested calls share the session's frame stack and debugger observer. Breakpoint and
 trap snapshots include suspended callers at their actual call instruction, plus
 the nested frames. The synchronous callback path currently uses the interpreter.
+
+SharedBorrow/UniqueBorrow parameters acquire corresponding object leases when
+passed a HostRoot. Forwarded borrow tokens must belong to this runtime, still be
+live and satisfy the required mode; they cannot satisfy Owned passing. Conflicting
+arguments reject before invoking the callback, releasing leases already prepared
+for earlier arguments. Borrow tokens carry a table owner in addition to frame and
+epoch, so coincident frame numbers in other runtimes confer no authority.
+
+Runtime::host_scope creates explicit temporary scopes and validate_host_borrow
+checks tokens; the old enter_host_call and mutable borrow-table access are removed.
+Scopes participating in a root retain its options/version until the last scope
+ends. Root and lease cleanup is unconditional after traps, cancellation, budgets
+and quarantine. Direct host operations outside script execution use the same scope
+implementation with runtime defaults and do not implicitly create a script root.
 
 One declaration can be cloned into a `HostInterface` for offline tooling and into
 the runtime binding. `HostRegistry::link_interface` checks required declarations
@@ -240,7 +256,7 @@ This is the core safety rule.
 Conceptually:
 
 ```text
-HostCallGuard<'host> {
+HostCallGuard {
   frame_id: FrameId,
   borrow_table: BorrowTable
 }
@@ -249,6 +265,7 @@ HostCallGuard<'host> {
 Borrowed handles carry enough metadata to validate:
 
 - which frame created them
+- which runtime borrow table owns them
 - whether the borrow is shared or unique
 - which concrete host object they refer to
 
@@ -504,7 +521,7 @@ Conceptually:
 
 ```rust
 trait FromKagariArg<'frame>: Sized {
-    fn from_arg(arg: &Value, frame: &'frame HostCallGuard<'frame>) -> Result<Self>;
+    fn from_arg(arg: &Value, frame: &'frame HostCallGuard) -> Result<Self>;
 }
 
 trait IntoKagariValue {

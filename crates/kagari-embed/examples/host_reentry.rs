@@ -60,10 +60,14 @@ fn main() {
     let mut runtime = engine.runtime(context.clone());
     runtime
         .register_host_function(HostFunction::new(standard_log(), move |call, _| {
+            let scratch = Value::Array(call.runtime().alloc_array(vec![Value::I32(3)]).unwrap());
+            call.retain_temporaries(std::slice::from_ref(&scratch))
+                .unwrap();
             let root = call.runtime().execution_root().unwrap();
             let value = kagari_vm::reenter(call, &root, make, &[])
                 .map_err(|error| HostError::new(format!("script callback failed: {error:?}")))?;
             call.runtime().collect_garbage().unwrap();
+            assert!(call.runtime().gc().validate_value(&scratch));
             *output.borrow_mut() = Some(value);
             Ok(Value::Unit)
         }))
@@ -87,6 +91,7 @@ fn main() {
     );
     assert_eq!(depth.0.get(), 2);
     assert_eq!(session.counters().current_call_depth, 0);
+    assert_eq!(session.host_scope_count(), 0);
     drop(session);
     runtime.runtime().collect_garbage().unwrap();
     let Value::Array(id) = retained.borrow().as_ref().unwrap().value() else {

@@ -371,9 +371,14 @@ pub struct HostPathMutationRecord {
     pub new_value: Value,
 }
 
-pub type HostPathReadCallback = dyn Fn(&HostPathContext) -> Result<Value, HostError> + 'static;
+pub type HostPathReadCallback =
+    dyn Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError> + 'static;
 /// Preparation validates and reserves host resources without changing the target.
-pub type HostPathPrepareWriteCallback = dyn Fn(&HostPathContext, &HostPathMutationRecord) -> Result<PreparedHostPathWrite, HostError>
+pub type HostPathPrepareWriteCallback = dyn Fn(
+        &HostCallContext<'_>,
+        &HostPathContext,
+        &HostPathMutationRecord,
+    ) -> Result<PreparedHostPathWrite, HostError>
     + 'static;
 
 /// A prepared target update. The action must only commit prepared host state;
@@ -390,8 +395,13 @@ impl PreparedHostPathWrite {
         (self.0)()
     }
 }
-pub type HostPathValidateCallback =
-    dyn Fn(&HostPathContext, HostPathOperation, Option<&Value>) -> Result<(), HostError> + 'static;
+pub type HostPathValidateCallback = dyn Fn(
+        &HostCallContext<'_>,
+        &HostPathContext,
+        HostPathOperation,
+        Option<&Value>,
+    ) -> Result<(), HostError>
+    + 'static;
 
 #[derive(Clone, Default)]
 pub struct HostPathAdapter {
@@ -417,7 +427,7 @@ impl HostPathAdapter {
 
     pub fn with_read(
         mut self,
-        read: impl Fn(&HostPathContext) -> Result<Value, HostError> + 'static,
+        read: impl Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError> + 'static,
     ) -> Self {
         self.read = Some(Rc::new(read));
         self
@@ -426,6 +436,7 @@ impl HostPathAdapter {
     pub fn with_prepare_write(
         mut self,
         prepare: impl Fn(
+            &HostCallContext<'_>,
             &HostPathContext,
             &HostPathMutationRecord,
         ) -> Result<PreparedHostPathWrite, HostError>
@@ -437,7 +448,12 @@ impl HostPathAdapter {
 
     pub fn with_validate(
         mut self,
-        validate: impl Fn(&HostPathContext, HostPathOperation, Option<&Value>) -> Result<(), HostError>
+        validate: impl Fn(
+            &HostCallContext<'_>,
+            &HostPathContext,
+            HostPathOperation,
+            Option<&Value>,
+        ) -> Result<(), HostError>
         + 'static,
     ) -> Self {
         self.validate = Some(Rc::new(validate));
@@ -593,6 +609,7 @@ impl HostBorrowKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FrameHostBorrowToken {
+    owner: HostBorrowOwner,
     frame_id: HostFrameId,
     object_id: HostObjectId,
     borrow_kind: HostBorrowKind,
@@ -602,6 +619,7 @@ pub struct FrameHostBorrowToken {
 
 impl FrameHostBorrowToken {
     fn new(
+        owner: HostBorrowOwner,
         frame_id: HostFrameId,
         object_id: HostObjectId,
         borrow_kind: HostBorrowKind,
@@ -609,6 +627,7 @@ impl FrameHostBorrowToken {
         epoch: BorrowEpoch,
     ) -> Self {
         Self {
+            owner,
             frame_id,
             object_id,
             borrow_kind,
@@ -685,18 +704,86 @@ struct HostBorrowState {
     object_borrows: HashMap<HostObjectId, ObjectBorrowState>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct HostBorrowOwner(u64);
+impl Default for HostBorrowOwner {
+    fn default() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(
+            NEXT.fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |id| id.checked_add(1),
+            )
+            .expect("host borrow ownership exhausted"),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct HostBorrowTable {
-    state: RefCell<HostBorrowState>,
+    owner: HostBorrowOwner,
+    state: Rc<RefCell<HostBorrowState>>,
+    resources: Option<std::rc::Weak<crate::ResourceState>>,
 }
 
 impl HostBorrowTable {
-    pub fn enter_frame(&self) -> HostCallGuard<'_> {
+    pub(crate) fn with_resources(resources: &Rc<crate::ResourceState>) -> Self {
+        Self {
+            resources: Some(Rc::downgrade(resources)),
+            ..Default::default()
+        }
+    }
+
+    fn ensure_allowed(&self) -> Result<(), RuntimeError> {
+        if let Some(resources) = &self.resources {
+            resources
+                .upgrade()
+                .ok_or_else(|| RuntimeError::expired_host_borrow("host runtime has been released"))?
+                .ensure_execution_allowed()?;
+        }
+        Ok(())
+    }
+
+    fn invariant(&self, message: &'static str) -> RuntimeError {
+        self.resources
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
+            .map_or_else(
+                || RuntimeError::new(crate::RuntimeErrorKind::EngineFault, message),
+                |resources| resources.quarantine(message),
+            )
+    }
+
+    fn capacity_error(&self) -> RuntimeError {
+        self.resources
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
+            .map_or_else(
+                || RuntimeError::resource_limit("host borrow capacity"),
+                |resources| resources.limit("host borrow capacity"),
+            )
+    }
+
+    pub fn enter_frame(&self) -> Result<HostCallGuard, RuntimeError> {
+        self.ensure_allowed()?;
         let mut state = self.state.borrow_mut();
         let frame_id = HostFrameId(state.next_frame_id);
         let epoch = BorrowEpoch(state.next_epoch);
-        state.next_frame_id += 1;
-        state.next_epoch += 1;
+        let next_frame = state
+            .next_frame_id
+            .checked_add(1)
+            .ok_or_else(|| self.invariant("host frame identity exhausted"))?;
+        let next_epoch = state
+            .next_epoch
+            .checked_add(1)
+            .ok_or_else(|| self.invariant("host borrow epoch exhausted"))?;
+        state
+            .active_frames
+            .try_reserve(1)
+            .map_err(|_| self.capacity_error())?;
+        state.next_frame_id = next_frame;
+        state.next_epoch = next_epoch;
         state.active_frames.insert(
             frame_id,
             ActiveBorrowFrame {
@@ -704,11 +791,11 @@ impl HostBorrowTable {
                 borrows: Vec::new(),
             },
         );
-        HostCallGuard {
-            table: self,
+        Ok(HostCallGuard {
+            table: self.clone(),
             frame_id,
             epoch,
-        }
+        })
     }
 
     pub fn validate(
@@ -716,6 +803,12 @@ impl HostBorrowTable {
         token: FrameHostBorrowToken,
         required_kind: HostBorrowKind,
     ) -> Result<(), RuntimeError> {
+        self.ensure_allowed()?;
+        if token.owner != self.owner {
+            return Err(RuntimeError::expired_host_borrow(
+                "host borrow belongs to another runtime or table",
+            ));
+        }
         let state = self.state.borrow();
         let frame = state.active_frames.get(&token.frame_id).ok_or_else(|| {
             RuntimeError::expired_host_borrow(format!(
@@ -767,6 +860,7 @@ impl HostBorrowTable {
         borrow_kind: HostBorrowKind,
         type_id: TypeId,
     ) -> Result<FrameHostBorrowToken, RuntimeError> {
+        self.ensure_allowed()?;
         let mut state = self.state.borrow_mut();
         let frame = state.active_frames.get(&frame_id).ok_or_else(|| {
             RuntimeError::expired_host_borrow(format!(
@@ -781,6 +875,17 @@ impl HostBorrowTable {
             )));
         }
 
+        state
+            .active_frames
+            .get_mut(&frame_id)
+            .expect("validated host frame")
+            .borrows
+            .try_reserve(1)
+            .map_err(|_| self.capacity_error())?;
+        state
+            .object_borrows
+            .try_reserve(1)
+            .map_err(|_| self.capacity_error())?;
         let object_state = state.object_borrows.entry(object_id).or_default();
         match borrow_kind {
             HostBorrowKind::Shared if object_state.unique_count > 0 => {
@@ -790,7 +895,10 @@ impl HostBorrowTable {
                 )));
             }
             HostBorrowKind::Shared => {
-                object_state.shared_count += 1;
+                object_state.shared_count = object_state
+                    .shared_count
+                    .checked_add(1)
+                    .ok_or_else(|| self.invariant("host shared borrow count exhausted"))?;
             }
             HostBorrowKind::Unique
                 if object_state.shared_count > 0 || object_state.unique_count > 0 =>
@@ -805,7 +913,8 @@ impl HostBorrowTable {
             }
         }
 
-        let token = FrameHostBorrowToken::new(frame_id, object_id, borrow_kind, type_id, epoch);
+        let token =
+            FrameHostBorrowToken::new(self.owner, frame_id, object_id, borrow_kind, type_id, epoch);
         state
             .active_frames
             .get_mut(&frame_id)
@@ -818,11 +927,11 @@ impl HostBorrowTable {
     fn leave_frame(&self, frame_id: HostFrameId, epoch: BorrowEpoch) {
         let mut state = self.state.borrow_mut();
         let Some(frame) = state.active_frames.remove(&frame_id) else {
+            self.invariant("host borrow frame disappeared during cleanup");
             return;
         };
         if frame.epoch != epoch {
-            debug_assert_eq!(frame.epoch, epoch);
-            return;
+            self.invariant("host borrow frame epoch changed during cleanup");
         }
 
         for record in frame.borrows {
@@ -830,13 +939,23 @@ impl HostBorrowTable {
             if let Some(object_state) = state.object_borrows.get_mut(&record.object_id) {
                 match record.borrow_kind {
                     HostBorrowKind::Shared => {
-                        object_state.shared_count = object_state.shared_count.saturating_sub(1);
+                        object_state.shared_count =
+                            object_state.shared_count.checked_sub(1).unwrap_or_else(|| {
+                                self.invariant("host shared borrow count underflow");
+                                0
+                            });
                     }
                     HostBorrowKind::Unique => {
-                        object_state.unique_count = object_state.unique_count.saturating_sub(1);
+                        object_state.unique_count =
+                            object_state.unique_count.checked_sub(1).unwrap_or_else(|| {
+                                self.invariant("host unique borrow count underflow");
+                                0
+                            });
                     }
                 }
                 remove_object = object_state.is_empty();
+            } else {
+                self.invariant("host object borrow disappeared during cleanup");
             }
             if remove_object {
                 state.object_borrows.remove(&record.object_id);
@@ -846,13 +965,13 @@ impl HostBorrowTable {
 }
 
 #[derive(Debug)]
-pub struct HostCallGuard<'host> {
-    table: &'host HostBorrowTable,
+pub struct HostCallGuard {
+    table: HostBorrowTable,
     frame_id: HostFrameId,
     epoch: BorrowEpoch,
 }
 
-impl<'host> HostCallGuard<'host> {
+impl HostCallGuard {
     pub fn frame_id(&self) -> HostFrameId {
         self.frame_id
     }
@@ -909,7 +1028,7 @@ impl<'host> HostCallGuard<'host> {
     }
 }
 
-impl Drop for HostCallGuard<'_> {
+impl Drop for HostCallGuard {
     fn drop(&mut self) {
         self.table.leave_frame(self.frame_id, self.epoch);
     }
@@ -1049,24 +1168,23 @@ impl HostError {
 
 /// Available only while a checked runtime host call is active.
 pub struct HostCallContext<'a> {
-    runtime: &'a crate::Runtime,
-    borrows: HostCallGuard<'a>,
+    scope: crate::HostResourceScope<'a>,
 }
 
 impl<'a> HostCallContext<'a> {
-    pub(crate) fn new(runtime: &'a crate::Runtime) -> Self {
-        Self {
-            runtime,
-            borrows: runtime.enter_host_call(),
-        }
+    pub(crate) fn new(runtime: &'a crate::Runtime, args: &[Value]) -> Result<Self, RuntimeError> {
+        Ok(Self {
+            scope: runtime.host_scope(args)?,
+        })
     }
-
     pub fn runtime(&self) -> &'a crate::Runtime {
-        self.runtime
+        self.scope.runtime()
     }
-
-    pub fn borrows(&self) -> &HostCallGuard<'a> {
-        &self.borrows
+    pub fn borrows(&self) -> &HostCallGuard {
+        self.scope.borrows()
+    }
+    pub fn retain_temporaries(&self, values: &[Value]) -> Result<(), RuntimeError> {
+        self.scope.retain_values(values)
     }
 }
 
@@ -1125,20 +1243,54 @@ impl HostFunction {
         &self,
         context: &HostCallContext<'_>,
         args: &[Value],
-    ) -> Result<Value, HostError> {
+    ) -> Result<Value, RuntimeError> {
         if args.len() != self.declaration.params.len()
             || args
                 .iter()
                 .zip(&self.declaration.params)
                 .any(|(value, parameter)| !host_value_matches(value, &parameter.ty))
         {
-            return Err(HostError::new(
+            return Err(RuntimeError::host_call_failure(
                 "host arguments do not match the declared signature",
             ));
         }
-        let result = (self.handler)(context, args)?;
+        for (value, parameter) in args.iter().zip(&self.declaration.params) {
+            match (value, parameter.passing) {
+                (Value::HostRoot(root), HostPassingStyle::SharedBorrow) => {
+                    context
+                        .borrows()
+                        .borrow_shared(root.object_id(), root.type_id())?;
+                }
+                (Value::HostRoot(root), HostPassingStyle::UniqueBorrow) => {
+                    context
+                        .borrows()
+                        .borrow_unique(root.object_id(), root.type_id())?;
+                }
+                (
+                    Value::Ephemeral(
+                        crate::value::EphemeralValue::HostRef(token)
+                        | crate::value::EphemeralValue::HostMut(token),
+                    ),
+                    passing,
+                ) => {
+                    let required = match passing {
+                        HostPassingStyle::SharedBorrow => HostBorrowKind::Shared,
+                        HostPassingStyle::UniqueBorrow => HostBorrowKind::Unique,
+                        HostPassingStyle::Owned => {
+                            return Err(RuntimeError::host_borrow_escape(
+                                "borrowed host argument cannot satisfy owned passing",
+                            ));
+                        }
+                    };
+                    context.runtime().validate_host_borrow(*token, required)?;
+                }
+                _ => {}
+            }
+        }
+        let result = (self.handler)(context, args)
+            .map_err(|error| RuntimeError::host_call_failure(error.message()))?;
         if !host_value_matches(&result, &self.declaration.return_type) {
-            return Err(HostError::new(
+            return Err(RuntimeError::host_call_failure(
                 "host result does not match the declared signature",
             ));
         }
@@ -1161,7 +1313,13 @@ fn host_value_matches(value: &Value, ty: &HostValueType) -> bool {
             | (Value::F64(_), HostValueType::F64)
             | (Value::Str(_), HostValueType::String)
             | (Value::HostRoot(_), HostValueType::Opaque(_))
-            | (Value::Ephemeral(_), HostValueType::Opaque(_))
+            | (
+                Value::Ephemeral(
+                    crate::value::EphemeralValue::HostRef(_)
+                        | crate::value::EphemeralValue::HostMut(_)
+                ),
+                HostValueType::Opaque(_)
+            )
     )
 }
 
@@ -1433,30 +1591,35 @@ impl HostRegistry {
 
     pub(crate) fn read_path(
         &self,
-        gc: &crate::gc::GcHeap,
+        runtime: &crate::Runtime,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
     ) -> Result<Value, RuntimeError> {
+        let gc = runtime.gc();
         gc.ensure_execution_allowed()?;
-        let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, None)?;
+        let scope = Self::path_roots(runtime, root_or_view, &dynamic_args, None)?;
         let context = self.resolve_path_context(
             root_or_view,
             descriptor_id,
             dynamic_args,
             HostPathOperation::Read,
         )?;
+        scope
+            .borrows()
+            .borrow_shared(context.root.object_id(), context.root.type_id())?;
         let adapter = self.path_adapter(context.descriptor.id)?;
-        self.validate_path_operation(&adapter, &context, HostPathOperation::Read, None)?;
+        self.validate_path_operation(&adapter, &scope, &context, HostPathOperation::Read, None)?;
         let read = adapter.read.as_ref().ok_or_else(|| {
             RuntimeError::typed_path_validation("path descriptor does not support reads")
         })?;
-        let value = read(&context).map_err(|error| {
+        let value = read(&scope, &context).map_err(|error| {
             RuntimeError::typed_path_validation(format!(
                 "host path read failed: {}",
                 error.message()
             ))
         })?;
+        HostBorrowTable::validate_no_escape(&value)?;
         if !gc.validate_value(&value) {
             return Err(RuntimeError::typed_path_validation(
                 "invalid heap reference in path result",
@@ -1467,14 +1630,15 @@ impl HostRegistry {
 
     pub(crate) fn set_path(
         &self,
-        gc: &crate::gc::GcHeap,
+        runtime: &crate::Runtime,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
         value: Value,
     ) -> Result<(), RuntimeError> {
+        let gc = runtime.gc();
         gc.ensure_execution_allowed()?;
-        let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, Some(&value))?;
+        let scope = Self::path_roots(runtime, root_or_view, &dynamic_args, Some(&value))?;
         let context = self.resolve_path_context(
             root_or_view,
             descriptor_id,
@@ -1486,12 +1650,21 @@ impl HostRegistry {
                 "path set value must be a default heap payload",
             ));
         }
+        scope
+            .borrows()
+            .borrow_unique(context.root.object_id(), context.root.type_id())?;
         let adapter = self.path_adapter(context.descriptor.id)?;
-        self.validate_path_operation(&adapter, &context, HostPathOperation::Set, Some(&value))?;
+        self.validate_path_operation(
+            &adapter,
+            &scope,
+            &context,
+            HostPathOperation::Set,
+            Some(&value),
+        )?;
         let old_value = adapter
             .read
             .as_ref()
-            .map(|read| read(&context))
+            .map(|read| read(&scope, &context))
             .transpose()
             .map_err(|error| {
                 RuntimeError::typed_path_validation(format!(
@@ -1499,14 +1672,13 @@ impl HostRegistry {
                     error.message()
                 ))
             })?;
-        let _old = gc
-            .root_execution_values(old_value.iter().cloned().collect())
-            .ok_or_else(|| {
-                RuntimeError::typed_path_validation("invalid heap reference in previous path value")
-            })?;
+        scope
+            .retain_temporaries(&old_value.iter().cloned().collect::<Vec<_>>())
+            .map_err(path_scope_error)?;
         self.commit_path_write(
             gc,
             &adapter,
+            &scope,
             &context,
             HostPathMutationRecord {
                 root: context.root,
@@ -1522,15 +1694,16 @@ impl HostRegistry {
 
     pub(crate) fn modify_path(
         &self,
-        gc: &crate::gc::GcHeap,
+        runtime: &crate::Runtime,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
         op: BinaryOp,
         value: Value,
     ) -> Result<Value, RuntimeError> {
+        let gc = runtime.gc();
         gc.ensure_execution_allowed()?;
-        let _roots = Self::path_roots(gc, root_or_view, &dynamic_args, Some(&value))?;
+        let scope = Self::path_roots(runtime, root_or_view, &dynamic_args, Some(&value))?;
         let context = self.resolve_path_context(
             root_or_view,
             descriptor_id,
@@ -1542,9 +1715,13 @@ impl HostRegistry {
                 "path modify value must be a default heap payload",
             ));
         }
+        scope
+            .borrows()
+            .borrow_unique(context.root.object_id(), context.root.type_id())?;
         let adapter = self.path_adapter(context.descriptor.id)?;
         self.validate_path_operation(
             &adapter,
+            &scope,
             &context,
             HostPathOperation::Modify(op),
             Some(&value),
@@ -1552,21 +1729,20 @@ impl HostRegistry {
         let read = adapter.read.as_ref().ok_or_else(|| {
             RuntimeError::typed_path_validation("path descriptor does not support modify reads")
         })?;
-        let old_value = read(&context).map_err(|error| {
+        let old_value = read(&scope, &context).map_err(|error| {
             RuntimeError::typed_path_validation(format!(
                 "host path modify read failed: {}",
                 error.message()
             ))
         })?;
         let new_value = apply_path_modify(op, old_value.clone(), value)?;
-        let _values = gc
-            .root_execution_values(vec![old_value.clone(), new_value.clone()])
-            .ok_or_else(|| {
-                RuntimeError::typed_path_validation("invalid heap reference in path modification")
-            })?;
+        scope
+            .retain_temporaries(&[old_value.clone(), new_value.clone()])
+            .map_err(path_scope_error)?;
         self.commit_path_write(
             gc,
             &adapter,
+            &scope,
             &context,
             HostPathMutationRecord {
                 root: context.root,
@@ -1585,20 +1761,21 @@ impl HostRegistry {
         self.dirty_paths.borrow().clone()
     }
 
-    fn path_roots(
-        gc: &crate::gc::GcHeap,
+    fn path_roots<'a>(
+        runtime: &'a crate::Runtime,
         root: &Value,
         args: &[Value],
         value: Option<&Value>,
-    ) -> Result<crate::gc::RootSet, RuntimeError> {
+    ) -> Result<HostCallContext<'a>, RuntimeError> {
         let values = std::iter::once(root)
             .chain(args)
             .chain(value)
             .cloned()
-            .collect();
-        gc.root_execution_values(values).ok_or_else(|| {
-            RuntimeError::typed_path_validation("invalid heap reference in path arguments")
-        })
+            .collect::<Vec<_>>();
+        runtime
+            .host_scope(&values)
+            .map(|scope| HostCallContext { scope })
+            .map_err(path_scope_error)
     }
 
     pub fn clear_dirty_paths(&self) {
@@ -1688,12 +1865,13 @@ impl HostRegistry {
     fn validate_path_operation(
         &self,
         adapter: &HostPathAdapter,
+        call: &HostCallContext<'_>,
         context: &HostPathContext,
         operation: HostPathOperation,
         value: Option<&Value>,
     ) -> Result<(), RuntimeError> {
         if let Some(validate) = &adapter.validate {
-            validate(context, operation, value).map_err(|error| {
+            validate(call, context, operation, value).map_err(|error| {
                 RuntimeError::typed_path_validation(format!(
                     "host path validation failed: {}",
                     error.message()
@@ -1707,6 +1885,7 @@ impl HostRegistry {
         &self,
         gc: &crate::gc::GcHeap,
         adapter: &HostPathAdapter,
+        call: &HostCallContext<'_>,
         context: &HostPathContext,
         record: HostPathMutationRecord,
     ) -> Result<(), RuntimeError> {
@@ -1723,7 +1902,7 @@ impl HostRegistry {
             RuntimeError::typed_path_validation("path descriptor does not support writes")
         })?;
         // No registry or resource borrow spans preparation: it may collect GC.
-        let prepared = prepare(context, &record);
+        let prepared = prepare(call, context, &record);
         gc.ensure_execution_allowed()?;
         let prepared = prepared.map_err(|error| {
             RuntimeError::typed_path_validation(format!(
@@ -1797,5 +1976,13 @@ impl<'host, T: ?Sized> MutHostRef<'host, T> {
 
     pub fn get_mut(&mut self) -> &mut T {
         self.value
+    }
+}
+
+fn path_scope_error(error: RuntimeError) -> RuntimeError {
+    if error.kind() == crate::RuntimeErrorKind::HostCallFailure {
+        RuntimeError::typed_path_validation(error.message())
+    } else {
+        error
     }
 }

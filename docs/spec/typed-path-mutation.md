@@ -47,6 +47,21 @@ Typed path mutation does not provide:
 
 ## Core Model
 
+Runtime path operations register a HostResourceScope in the active execution
+session. Root/view arguments, dynamic arguments, incoming values and previous/new
+values remain rooted throughout validation and preparation. Read operations acquire
+a shared host-object lease; set/modify acquire a unique lease. They share conflict
+checks with declared host-function borrows and release leases on every exit.
+
+Adapter callbacks now receive HostCallContext followed by HostPathContext (then
+the operation/value or mutation record). Read, validate and prepare callbacks can
+reenter initialized functions in the pinned program, subject to the same borrow
+conflicts, permissions, cancellation and remaining budget. Borrowed read results
+cannot escape. PreparedHostPathWrite retains the existing infallible commit rule:
+its commit action cannot invoke scripts or runtime mutations. No resource-table
+borrow spans user callbacks; dropping a rejected prepared action releases its host
+reservations before the operation scope exits.
+
 For host-owned structured data, a field or index chain is compiled into a typed path.
 
 The source expression:

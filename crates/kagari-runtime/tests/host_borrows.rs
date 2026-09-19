@@ -8,7 +8,7 @@ fn shared_borrows_coexist_and_unique_conflicts_until_frame_exits() {
     let ty = TypeId::new(0);
 
     {
-        let frame = table.enter_frame();
+        let frame = table.enter_frame().unwrap();
         let first = frame.borrow_shared(HostObjectId(1), ty).unwrap();
         let second = frame.borrow_shared(HostObjectId(1), ty).unwrap();
 
@@ -20,7 +20,7 @@ fn shared_borrows_coexist_and_unique_conflicts_until_frame_exits() {
         );
     }
 
-    let next_frame = table.enter_frame();
+    let next_frame = table.enter_frame().unwrap();
     let unique = next_frame.borrow_unique(HostObjectId(1), ty).unwrap();
     next_frame.validate(unique, HostBorrowKind::Unique).unwrap();
 }
@@ -29,7 +29,7 @@ fn shared_borrows_coexist_and_unique_conflicts_until_frame_exits() {
 fn unique_borrow_blocks_shared_and_unique_aliases() {
     let table = HostBorrowTable::default();
     let ty = TypeId::new(0);
-    let frame = table.enter_frame();
+    let frame = table.enter_frame().unwrap();
 
     frame.borrow_unique(HostObjectId(1), ty).unwrap();
 
@@ -52,7 +52,7 @@ fn tokens_validate_current_frame_kind_and_expire_on_drop() {
     let unique;
 
     {
-        let frame = table.enter_frame();
+        let frame = table.enter_frame().unwrap();
         shared = frame.borrow_shared(HostObjectId(1), ty).unwrap();
         unique = frame.borrow_unique(HostObjectId(2), ty).unwrap();
 
@@ -81,9 +81,9 @@ fn tokens_validate_current_frame_kind_and_expire_on_drop() {
 fn guard_rejects_borrow_tokens_from_another_live_frame() {
     let table = HostBorrowTable::default();
     let ty = TypeId::new(0);
-    let first = table.enter_frame();
+    let first = table.enter_frame().unwrap();
     let token = first.borrow_shared(HostObjectId(1), ty).unwrap();
-    let second = table.enter_frame();
+    let second = table.enter_frame().unwrap();
 
     assert_eq!(
         second
@@ -97,7 +97,8 @@ fn guard_rejects_borrow_tokens_from_another_live_frame() {
 #[test]
 fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
     let runtime = Runtime::default();
-    let frame = runtime.enter_host_call();
+    let resources = runtime.host_scope(&[]).unwrap();
+    let frame = resources.borrows();
     let token = frame
         .borrow_shared(HostObjectId(1), TypeId::new(0))
         .unwrap();

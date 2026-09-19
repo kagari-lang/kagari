@@ -71,7 +71,7 @@ fn path_view_value(object_id: u64) -> Value {
 
 fn shared_borrow_value(object_id: u64) -> Value {
     let table = HostBorrowTable::default();
-    let guard = table.enter_frame();
+    let guard = table.enter_frame().unwrap();
     Value::host_ref(
         guard
             .borrow_shared(HostObjectId(object_id), TypeId::new(0))
