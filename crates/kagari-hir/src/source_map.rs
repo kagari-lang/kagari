@@ -11,6 +11,7 @@ pub struct SourceMap {
     owner: crate::hir::HirOwner,
     generic_param_spans: Vec<Span>,
     field_spans: std::collections::HashMap<crate::hir::FieldId, Span>,
+    variant_spans: std::collections::HashMap<crate::hir::VariantId, Span>,
     function_spans: Vec<Span>,
     const_spans: Vec<Span>,
     module_spans: Vec<Span>,
@@ -38,6 +39,12 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    pub(crate) fn insert_variant(&mut self, id: crate::hir::VariantId, span: Span) {
+        self.variant_spans.insert(id, span);
+    }
+    pub fn variant_span(&self, id: crate::hir::VariantId) -> Span {
+        self.variant_spans[&id]
+    }
     pub(crate) fn set_owner(&mut self, owner: crate::hir::HirOwner) -> crate::hir::HirOwner {
         std::mem::replace(&mut self.owner, owner)
     }

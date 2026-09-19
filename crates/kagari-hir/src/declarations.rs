@@ -57,6 +57,7 @@ pub struct Declarations {
 enum DeclarationKey {
     Name(ResolvedName),
     Field(crate::hir::FieldId),
+    Variant(crate::hir::VariantId),
     GenericParameter(crate::hir::GenericParamId),
 }
 
@@ -67,6 +68,20 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    pub fn variant(&self, id: crate::hir::VariantId) -> Option<&Declaration> {
+        self.targets.get(&DeclarationKey::Variant(id))
+    }
+
+    /// Member declaration names only, so an unresolved body reference never
+    /// accidentally navigates to an enclosing declaration's whole-file span.
+    pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
+        self.targets
+            .iter()
+            .filter(|(key, _)| matches!(key, DeclarationKey::Field(_) | DeclarationKey::Variant(_)))
+            .map(|(_, d)| d)
+            .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
+    }
+
     pub fn imported_types(&self) -> &crate::imports::ImportedTypes {
         &self.imported_types
     }
@@ -218,13 +233,25 @@ impl Declarations {
             if cancel.check().is_err() {
                 return builder.result;
             }
-            builder.definition(
+            let owner = builder.definition(
                 ResolvedName::Enum(item.id),
                 &[],
                 DefinitionKind::Enum,
                 &item.name,
                 map.enum_span(item.id),
             );
+            for variant in &item.variants {
+                if cancel.check().is_err() {
+                    return builder.result;
+                }
+                let id = builder.identity(&owner.path, DefinitionKind::Variant, &variant.name);
+                builder.insert(
+                    DeclarationKey::Variant(variant.id),
+                    DeclarationId::Definition(id),
+                    &variant.name,
+                    map.variant_span(variant.id),
+                );
+            }
         }
         for item in &module.traits {
             if cancel.check().is_err() {

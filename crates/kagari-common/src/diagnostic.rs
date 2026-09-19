@@ -106,6 +106,10 @@ pub enum DiagnosticKind {
         struct_name: String,
         name: String,
     },
+    DuplicateVariant {
+        enum_name: String,
+        name: String,
+    },
     UnknownType {
         type_name: String,
         function_name: String,
@@ -342,6 +346,7 @@ impl DiagnosticKind {
             Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
             Self::DuplicateFunction { .. } => "KG_RESOLVE_DUPLICATE_FUNCTION",
             Self::DuplicateField { .. } => "KG_RESOLVE_DUPLICATE_FIELD",
+            Self::DuplicateVariant { .. } => "KG_RESOLVE_DUPLICATE_VARIANT",
             Self::UnknownType { .. } => "KG_TYPE_UNKNOWN_TYPE",
             Self::UnknownConstType { .. } => "KG_TYPE_UNKNOWN_CONST_TYPE",
             Self::InvalidConstInitializer { .. } => "KG_TYPE_INVALID_CONST_INITIALIZER",
@@ -495,6 +500,9 @@ impl Display for DiagnosticKind {
             Self::DuplicateFunction { name } => write!(f, "duplicate function `{name}`"),
             Self::DuplicateField { struct_name, name } => {
                 write!(f, "duplicate field `{struct_name}.{name}`")
+            }
+            Self::DuplicateVariant { enum_name, name } => {
+                write!(f, "duplicate variant `{enum_name}::{name}`")
             }
             Self::UnknownType {
                 type_name,

@@ -120,6 +120,21 @@ pub(crate) fn collect_declarations(
         if !enum_def.name.is_empty() {
             names.insert_enum(enum_def.name.clone(), enum_def.id);
         }
+        let mut seen = std::collections::HashSet::new();
+        for variant in &enum_def.variants {
+            if cancel.check().is_err() {
+                break;
+            }
+            if !variant.name.is_empty() && !seen.insert(&variant.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateVariant {
+                        enum_name: enum_def.name.clone(),
+                        name: variant.name.clone(),
+                    })
+                    .with_span(lowered.source_map.variant_span(variant.id)),
+                );
+            }
+        }
     }
 
     for trait_def in &lowered.module.traits {

@@ -38,8 +38,14 @@ pub struct Module {
 }
 
 impl Module {
+    pub fn variant(&self, id: crate::hir::VariantId) -> &Variant {
+        assert_eq!(id.arena(), self.body.arena(), "foreign HIR variant");
+        &self.enums[id.owner().index()].variants[id.slot()]
+    }
+
     pub fn field(&self, id: crate::hir::FieldId) -> &Field {
-        &self.structs[id.owner.index()].fields[id.slot]
+        assert_eq!(id.arena(), self.body.arena(), "foreign HIR field");
+        &self.structs[id.owner().index()].fields[id.slot()]
     }
 
     pub fn block(&self, id: BlockId) -> &BlockData {

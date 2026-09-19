@@ -71,6 +71,7 @@ pub enum DefinitionKind {
     Impl,
     Method,
     ModuleInit,
+    Variant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

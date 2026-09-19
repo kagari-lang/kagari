@@ -17,12 +17,16 @@ fn main() -> kagari_embed::CompileResult<()> {
         },
     )?;
     // An erroneous neighbor does not prevent navigation in the correct function.
-    let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }";
+    let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }\r\nenum Mode { Ready, Running }";
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
     // Declaration discovery does not resolve bodies or evaluate constants.
     let headers = engine.declarations(engine.source_snapshot(), &Default::default())?;
     let header = headers.file(file).expect("source declarations");
     assert!(header.diagnostics().is_empty());
+    let variant = header
+        .member_at(text.find("Ready").expect("variant declaration"))
+        .expect("variant source identity");
+    println!("variant {} -> {:?}", variant.name, variant.id);
     println!(
         "{} named declarations before body analysis",
         header.declarations().iter().count()

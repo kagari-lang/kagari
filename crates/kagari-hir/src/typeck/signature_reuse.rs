@@ -165,7 +165,26 @@ pub(crate) fn reuse_signatures(
             param.id = new.id;
         }
     }
-    result.facts.type_table = result.facts.type_table.remap_signature_types(&ids)?;
+    let mut fields = HashMap::new();
+    if previous.module.structs.len() != current.module.structs.len() {
+        return None;
+    }
+    for (old, new) in previous.module.structs.iter().zip(&current.module.structs) {
+        cancel.check().ok()?;
+        if old.id != new.id || old.fields.len() != new.fields.len() {
+            return None;
+        }
+        fields.extend(
+            old.fields
+                .iter()
+                .zip(&new.fields)
+                .map(|(a, b)| (a.id, b.id)),
+        );
+    }
+    result.facts.type_table = result
+        .facts
+        .type_table
+        .remap_signature_types(&ids, &fields)?;
     for diagnostic in &mut result.diagnostics {
         cancel.check().ok()?;
         if let Some(span) = diagnostic.span {

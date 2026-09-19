@@ -19,7 +19,7 @@ pub use ids::{
     MethodId, ModuleId, ParamId, PatternId, PlaceId, StmtId, StructId, TraitId, TraitMethodId,
     TypeRefId,
 };
-pub use ids::{BodyOwner, HirArenaId, HirOwner};
+pub use ids::{BodyOwner, HirArenaId, HirOwner, VariantId};
 pub use item::{
     ConstBuffer, ConstItem, Enum, EnumBuffer, Export, ExportBuffer, ExportItem, Field, FieldBuffer,
     Function, FunctionBuffer, FunctionKind, GenericParam, GenericParamBuffer, Impl, ImplBuffer,

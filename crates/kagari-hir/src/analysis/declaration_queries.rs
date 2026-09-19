@@ -16,6 +16,10 @@ pub struct FileDeclarations {
 }
 
 impl FileDeclarations {
+    pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
+        self.declarations().member_at(offset)
+    }
+
     pub fn source(&self) -> &SourceFile {
         &self.declared.lowered.source
     }
@@ -24,7 +28,7 @@ impl FileDeclarations {
         self.parsed.syntax()
     }
 
-    /// Named declarations, fields and generic parameters; no local bindings.
+    /// Named declarations, fields, variants and generic parameters; no local bindings.
     pub fn declarations(&self) -> &Declarations {
         &self.declared.declarations
     }

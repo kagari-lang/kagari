@@ -32,6 +32,7 @@ pub struct Enum {
 
 #[derive(Debug, Clone)]
 pub struct Variant {
+    pub id: crate::hir::VariantId,
     pub name: String,
 }
 

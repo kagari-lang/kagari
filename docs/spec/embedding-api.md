@@ -206,6 +206,21 @@ and do not enter executable artifacts. Analysis-scoped binding handles still car
 their own body/analysis identity. HIR storage is shared at module granularity, while
 local IDs explicitly name the body that owns each node. `BodyOwner` is defined in
 `kagari_hir::hir` and is shared by lowering and semantic scopes.
+
+`FieldId` and `VariantId` contain their lowering arena, owning struct/enum and
+declaration-order slot, exposed through `arena()`, `owner()` and `slot()`. They
+cannot be constructed from public integers. Member lookup rejects foreign IDs;
+signature reuse remaps field type keys into the current arena. A variant's nominal
+declaration path contains its enum owner and a `Variant` name/occurrence segment,
+so reordering uniquely named variants changes slots without changing declaration
+identity. Source maps retain exact member-name ranges. `FileDeclarations::member_at`
+and `Declarations::member_at` query those declaration sites without analyzing bodies;
+`FileAnalysis::definition_at` returns the same declaration there. This does not yet
+provide enum-constructor reference resolution or payload typing (R04/R07).
+Duplicate variant names retain separate identities and report
+`KG_RESOLVE_DUPLICATE_VARIANT` at the repeated name; erroneous declarations remain
+queryable, but cannot pass the checked-codegen boundary.
+
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached
 analysis retains its local identities; text or profile changes create new ones.

@@ -132,6 +132,9 @@ impl FileAnalysis {
 
     pub fn definition_at(&self, offset: usize) -> Option<&crate::declarations::Declaration> {
         let facts = self.result.facts();
+        if let Some(member) = facts.declarations.member_at(offset) {
+            return Some(member);
+        }
         let expressions = facts
             .lowered
             .module
@@ -579,6 +582,8 @@ impl AnalysisSnapshot {
 mod arena_tests;
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod member_tests;
 #[cfg(test)]
 mod owner_tests;
 #[cfg(test)]

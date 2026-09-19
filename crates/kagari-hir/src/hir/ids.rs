@@ -104,9 +104,33 @@ impl BodySelection {
     }
 }
 
-/// A field slot within its declaring struct in this analysis's HIR.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FieldId {
-    pub owner: StructId,
-    pub slot: usize,
+macro_rules! member_id {
+    ($name:ident, $owner:ident) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $name {
+            arena: HirArenaId,
+            owner: $owner,
+            slot: u32,
+        }
+        impl $name {
+            pub(crate) fn new(arena: HirArenaId, owner: $owner, slot: usize) -> Self {
+                Self {
+                    arena,
+                    owner,
+                    slot: u32::try_from(slot).expect("HIR member capacity exhausted"),
+                }
+            }
+            pub fn arena(self) -> HirArenaId {
+                self.arena
+            }
+            pub fn owner(self) -> $owner {
+                self.owner
+            }
+            pub fn slot(self) -> usize {
+                self.slot as usize
+            }
+        }
+    };
 }
+member_id!(FieldId, StructId);
+member_id!(VariantId, EnumId);

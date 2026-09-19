@@ -82,7 +82,7 @@ impl AggregateCatalog {
                 fields.push(FieldSignature {
                     id: field_id.clone(),
                     owner: id.clone(),
-                    slot: field.id.slot,
+                    slot: field.id.slot(),
                     name: field.name.clone(),
                     writeability: field.writeability,
                     ty: signatures

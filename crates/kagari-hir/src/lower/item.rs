@@ -541,7 +541,7 @@ impl Lowerer {
                     .fields()
                     .enumerate()
                     .map(|(slot, field)| {
-                        let field_id = crate::hir::FieldId { owner: id, slot };
+                        let field_id = crate::hir::FieldId::new(self.source_map.arena(), id, slot);
                         self.source_map.insert_field(
                             field_id,
                             field
@@ -588,8 +588,21 @@ impl Lowerer {
             .map(|variant_list| {
                 variant_list
                     .variants()
-                    .map(|variant| Variant {
-                        name: variant.name_text().unwrap_or_default(),
+                    .enumerate()
+                    .map(|(slot, variant)| {
+                        let variant_id =
+                            crate::hir::VariantId::new(self.source_map.arena(), id, slot);
+                        self.source_map.insert_variant(
+                            variant_id,
+                            variant
+                                .name()
+                                .map(|name| syntax_span(&name))
+                                .unwrap_or_else(|| syntax_span(&variant)),
+                        );
+                        Variant {
+                            id: variant_id,
+                            name: variant.name_text().unwrap_or_default(),
+                        }
                     })
                     .collect::<Vec<_>>()
             })

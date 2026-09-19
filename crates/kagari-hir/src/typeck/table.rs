@@ -86,6 +86,14 @@ impl TypeTable {
             to: crate::hir::HirArenaId,
         ) -> TypeTable {
             let mut result = table.clone();
+            result.field_types = result
+                .field_types
+                .into_iter()
+                .map(|(id, fact)| {
+                    assert_eq!(id.arena(), from, "foreign field key");
+                    (FieldId::new(to, id.owner(), id.slot()), fact)
+                })
+                .collect();
             macro_rules! keys {
                 ($($field:ident : $ty:ident),+ $(,)?) => {$(
                     result.$field = result.$field.into_iter().map(|(id, fact)| {
@@ -114,8 +122,14 @@ impl TypeTable {
     pub(super) fn remap_signature_types(
         &self,
         ids: &HashMap<crate::hir::TypeRefId, crate::hir::TypeRefId>,
+        fields: &HashMap<FieldId, FieldId>,
     ) -> Option<Self> {
         let mut result = self.clone();
+        result.field_types = self
+            .field_types
+            .iter()
+            .map(|(id, value)| Some((*fields.get(id)?, value.clone())))
+            .collect::<Option<_>>()?;
         result.type_refs = self
             .type_refs
             .iter()

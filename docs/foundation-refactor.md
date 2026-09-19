@@ -13,7 +13,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 
 - [x] R01: Authoritative value, failure, and activation contracts.
 - [ ] R02: Source/result/diagnostic/host-effect conformance harness.
-- [ ] R03: Unified source database, revisions, identities, overlays, coordinates.
+- [x] R03: Unified source database, revisions, identities, overlays, coordinates.
 - [ ] R04: Recoverable HIR analysis; checked-only code generation.
 - [x] R05: Immutable queries, cancellation, parse/body reuse and invalidation.
 - [ ] R06: Offline host declarations and checked runtime bindings.
@@ -39,6 +39,31 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+R03 acceptance evidence:
+
+- [Source database tests](../crates/kagari-common/src/source_database.rs) cover
+  logical module bindings, captured project roots, virtual URIs, overlay precedence,
+  immutable revisions and checked Chinese/emoji/CRLF position conversions.
+- [Source snapshot integration](../crates/kagari-embed/tests/source_snapshots.rs)
+  covers compilation/tooling sharing, module rebinding, diagnostic provenance and
+  source/artifact identity. Disk files and host text enter the same database.
+- [Declaration navigation](../crates/kagari-hir/src/analysis/identity_tests.rs)
+  covers same-named modules, declaration kinds/owners, generic owner/position and
+  analysis-owned bindings. [Member tests](../crates/kagari-hir/src/analysis/member_tests.rs)
+  cover field/variant arena ownership, exact declaration ranges, stable nominal
+  identity after reordering, old snapshots and retained duplicate declarations.
+- [Arena tests](../crates/kagari-hir/src/analysis/arena_tests.rs) and
+  [body-owner tests](../crates/kagari-hir/src/analysis/owner_tests.rs) cover foreign
+  local IDs, interleaved cache reconstruction, explicit function/constant ownership,
+  synthetic nodes and rejection of cross-body edges. Declaration/signature/body
+  query tests prevent old revisions from replacing newer cached results.
+- The source_queries example exposes declaration-site member navigation alongside
+  independent declaration, signature and function queries.
+
+This completes source identity and query provenance. Enum payload/constructor
+semantics, applied generic types and executable layouts retain R04/R07 acceptance;
+R03 does not imply those execution features are complete.
+
 R05 acceptance evidence:
 
 - [Declaration queries](../crates/kagari-hir/src/analysis/declaration_queries/tests.rs)
@@ -61,7 +86,7 @@ R05 acceptance evidence:
 Full analysis batches bodies through the same resolver/type checker used by the
 single-function query. Module constants remain shared semantic prerequisites and
 are checked when querying a body. This is bounded query caching, not a complete
-incremental dependency framework. R03 member source identities, R04 recovery coverage,
+incremental dependency framework. R04 recovery coverage,
 R15 resource limits and R18 performance measurements retain separate acceptance.
 
 R12 acceptance evidence:
@@ -112,7 +137,7 @@ Implemented foundation slices:
   same snapshots; disk loading, host text and overlays use one ingestion path.
   Relative paths resolve against a captured root; virtual URI schemes survive
   normalization. Embedding diagnostics carry file/revision ranges. Cross-module
-  aggregate/member source identities remain outstanding.
+  aggregate/member declarations share the same identity model.
   Logical package/module bindings now belong to source documents and survive
   overlays. Rebinding invalidates analysis; duplicate source bindings are rejected.
   Source-based HIR carries its origin through IR, bytecode and artifact metadata.
@@ -134,8 +159,11 @@ Implemented foundation slices:
   Resolver scopes share the same BodyOwner and reject cross-body edges/bindings;
   nodes and source maps verify stored owners. Shared impl receiver types keep their
   declaration owner. Storage remains in immutable module arenas, with each body's
-  ownership explicit in its IDs. Complete aggregate/member source identities still
-  need work: enum variants currently lack declaration IDs and source-map entries.
+  ownership explicit in its IDs. Field and variant IDs also carry arena, owner and
+  slot; signature reuse remaps field keys. Enum variants have nominal owner/name
+  paths and exact source-map entries, including separate duplicate occurrences.
+  Declaration-site member queries work before body analysis; duplicate variants
+  remain queryable with diagnostics and cannot pass code generation.
   Generic parameters now have owner/position identities and declaration ranges;
   inherited trait/impl parameters keep their original owner in method signatures.
   Snapshots now resolve standard, offline host and registered source imports through
