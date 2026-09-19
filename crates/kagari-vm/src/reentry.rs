@@ -42,7 +42,7 @@ pub fn reenter(
             "reentry arguments do not match the linked signature",
         ));
     }
-    let mut executor = Executor::new(runtime, loaded, function, args, None)?;
+    let mut executor = Executor::new(runtime, loaded, function, args)?;
     let value = executor.run()?;
     if !value.has_representation(target.metadata.return_type) {
         return Err(invalid(

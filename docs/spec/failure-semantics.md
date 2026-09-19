@@ -17,6 +17,12 @@ temporary roots, and reentry state. Cleanup does not consume script fuel or invo
 arbitrary user code. The runtime may be reused after cleanup; completed business
 mutations are still present. Rust panic recovery is not a transaction mechanism.
 
+Frame scopes share one session-owned stack. Each scope unwinds only its own suffix
+on failure, preserving suspended callers that may handle an ordinary nested trap.
+Frame roots and call counters are released after cancellation and quarantine too.
+Invalid frame slots, mutation through a suspended scope and out-of-order scope
+destruction are engine invariant failures and quarantine the runtime.
+
 Initialization cleanup retains its authority after execution is quarantined.
 An unfinished initialization transitions to Failed and releases its version
 retention through its lifecycle guard; it does not request a new execution or

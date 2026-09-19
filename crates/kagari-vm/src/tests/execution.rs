@@ -767,10 +767,10 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
         .expect_err("unreachable should trap");
 
     assert!(matches!(error, VmError::Trap("unreachable")));
-    let pauses = vm
+    let debug = vm
         .debug_session()
-        .expect("debug session should be attached")
-        .pauses();
+        .expect("debug session should be attached");
+    let pauses = debug.pauses();
     assert!(
         pauses
             .iter()

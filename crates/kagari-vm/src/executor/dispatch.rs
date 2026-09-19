@@ -195,7 +195,7 @@ impl<'a> Executor<'a> {
 
     fn read_path_args(&self, args: &[Register]) -> Result<Vec<Value>, VmError> {
         args.iter()
-            .map(|arg| self.current_frame()?.read_register(*arg))
+            .map(|arg| Ok::<_, VmError>(self.current_frame()?.read_register(*arg)?))
             .collect()
     }
 
@@ -207,7 +207,7 @@ impl<'a> Executor<'a> {
     ) -> Result<(), VmError> {
         let arg_values = args
             .iter()
-            .map(|arg| self.current_frame()?.read_register(*arg))
+            .map(|arg| Ok::<_, VmError>(self.current_frame()?.read_register(*arg)?))
             .collect::<Result<Vec<_>, _>>()?;
 
         match callee {
@@ -226,7 +226,8 @@ impl<'a> Executor<'a> {
                     .functions
                     .get(id.index())
                     .ok_or(VmError::InvalidFunctionRef(id))?;
-                self.push_frame(self.current_frame()?.module, function, &arg_values, dst)
+                let module = self.current_frame()?.module();
+                self.push_frame(module, function, &arg_values, dst)
             }
             CallTarget::HostFunction(import) => {
                 let binding = self

@@ -407,8 +407,19 @@ Nested module entries must belong to its pinned dependency program. ModuleStore
 shares its interior state so owned scopes can retain/release versions without a
 mutable borrow spanning execution. Synchronous host callbacks reenter the existing
 explicit driver with the same runtime and root options. Each host context owns its
-borrow guard; outer scopes remain active during nested execution. Unified session
-ownership of frame stacks and nested debugger events remain open.
+borrow guard; outer scopes remain active during nested execution. The session owns
+one ExecutionFrame stack, including interpreter, nested callbacks and VM native
+entry scopes. ExecutionStack guards remember their stack base and unwind only their
+own suffix, releasing roots and depth counters even after termination/quarantine.
+Manual public call-depth entry/exit APIs are removed; only frame scopes update it.
+Frames own their immutable loaded version; no borrowed bytecode lifetime crosses
+runtime entry. Invalid frame access, suspended-scope mutation and out-of-order
+scope destruction quarantine the runtime instead of resuming a damaged stack.
+
+The root observer receives the complete stack at instruction and trap boundaries.
+It cannot be replaced by nested execution or first installed while frames are
+running. Observations hold short immutable stack borrows and must not invoke script
+execution. The VM uses this boundary for shared debugger events during host reentry.
 
 Cancellation and an optional monotonic wall-time budget are checked cooperatively
 at instruction safepoints and before resource-consuming operations. They cannot

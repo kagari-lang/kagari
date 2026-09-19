@@ -325,8 +325,15 @@ Implemented foundation slices:
   argument/result representations and returns an explicit rooted result. Tests
   cover GC during nested calls, retained results, borrow conflicts and cleanup,
   swallowed termination, ordinary nested traps and rejection of other epochs.
-  Direct registry invocation bypasses are removed. Session-owned frame stacks,
-  nested debugger integration and lexical debugger visibility remain pending.
+  Direct registry invocation bypasses are removed. The session now owns one frame
+  stack across interpreter, reentry and VM native scopes. Scope guards unwind only
+  their own suffix after traps, cancellation or quarantine. Frames retain their
+  loaded version and roots; the old VM frame type and native depth guard are gone.
+  The root observer shares debugger state through short borrows, and nested pauses
+  contain suspended callers at the actual call instruction. Runtime tests cover
+  stack/root ownership and invariant quarantine; direct/encoded interpreter and
+  JIT fallback fixtures cover nested breakpoints/traps. Full temporary host-resource
+  ownership audit, lexical visibility and stable debug frame identities remain open.
   Tests cover direct/encoded
   programs, dependency-first initialization/failure caching, stale reloads, old
   dependency calls, malformed program rejection and interpreter/JIT fallback parity.
@@ -334,7 +341,7 @@ Implemented foundation slices:
   integer abs use checked operations. Existing native i32 add/subtract/multiply/
   negate check each operation, including intermediate overflow, and preserve
   structured resource/trap errors. IR records trapping arithmetic effects. Runtime
-  ABI is v9 and JIT helper ABI is v5. Path arithmetic failure produces no
+  ABI is v10 and JIT helper ABI is v5. Path arithmetic failure produces no
   commit action or dirty record. Heap allocations and standard container growth
   now share resource counters: validation, budget checks and capacity preparation
   precede mutation and accounting commit. Failed operations charge no units;
@@ -359,7 +366,8 @@ Implemented foundation slices:
   attempting an ordinary module-state write. Direct/encoded interpreter and JIT
   fallback fixtures cover both entry and initializer faults. Root sessions provide
   cancellation and shared budgets; synchronous callback reentry inherits them.
-  Session-owned frame stacks still require R12 work.
+  Frame stacks and nested debugging now share the session; remaining temporary
+  host-resource ownership requires the final R12 audit.
   Const evaluation shares checked arithmetic and
   honors short circuit, with cancellation checks. Full execution-resource ownership,
   narrower integer layouts and the other backend/

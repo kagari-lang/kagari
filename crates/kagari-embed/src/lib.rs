@@ -819,10 +819,6 @@ impl EmbeddingError {
             },
             VmError::BytecodeVerification(_) => RuntimeFailureKind::BytecodeVerification,
             VmError::InvalidFunctionRef(_)
-            | VmError::InvalidFrameArity { .. }
-            | VmError::InvalidJumpTarget(_)
-            | VmError::InvalidRegister(_)
-            | VmError::InvalidLocal(_)
             | VmError::InvalidModuleSlot(_)
             | VmError::UnsupportedCallTarget(_)
             | VmError::UnsupportedInstruction(_) => RuntimeFailureKind::BytecodeVerification,

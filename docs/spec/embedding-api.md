@@ -236,6 +236,8 @@ initialized LoadedModule and FunctionRef from the pinned root program. Its retur
 RootedValue remains alive across collection; ordinary raw Value copies do not.
 See [host-interop.md](host-interop.md) for scope and error rules. The `host_reentry`
 example demonstrates this boundary: `cargo run -p kagari-embed --example host_reentry`.
+It also installs an ExecutionObserver on an explicit root scope to observe both
+the suspended outer frame and the nested frame in the session-owned stack.
 The `scoped_execution` embedding example demonstrates independent budgets and
 cancellation: `cargo run -p kagari-embed --example scoped_execution`.
 

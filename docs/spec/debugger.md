@@ -64,6 +64,16 @@ They adapt tool requests into this debugger control surface.
 
 ## Debug Sessions
 
+The current VM keeps debugger state behind short Ref/RefMut guards. Its root
+execution observer is shared with synchronous host reentry; an executor does not
+hold a mutable debugger borrow across a host call. Breakpoints are resolved for the
+pinned dependency program before execution. Nested instruction and trap events
+inspect the complete session-owned stack. Suspended callers report the active call
+instruction, while the executing frame advances to its next program point only
+when it resumes. Snapshot values keep their explicit GC roots after frame cleanup.
+Native code still follows the existing debug-metadata fallback policy. Lexical
+visibility and stable frame identity across snapshots remain separate R17 work.
+
 A debug session is created by the host.
 
 The session records:

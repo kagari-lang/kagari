@@ -97,8 +97,9 @@ Outer frames and borrow guards remain live while nested calls run. Borrow confli
 are checked across these scopes, and each scope releases only its own resources.
 An ordinary nested trap may be handled by the host. Cancellation or budget
 termination remains recorded for the root even if the host ignores the error.
-Nested debugger event integration and unified session ownership of frame stacks
-remain pending; the synchronous callback path currently uses the interpreter.
+Nested calls share the session's frame stack and debugger observer. Breakpoint and
+trap snapshots include suspended callers at their actual call instruction, plus
+the nested frames. The synchronous callback path currently uses the interpreter.
 
 One declaration can be cloned into a `HostInterface` for offline tooling and into
 the runtime binding. `HostRegistry::link_interface` checks required declarations

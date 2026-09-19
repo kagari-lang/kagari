@@ -1,12 +1,31 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use kagari_common::{SourceFile, host_interface::standard_log};
 use kagari_embed::{CompileOptions, ExecutionContext, KagariEngine};
 use kagari_runtime::{
+    ExecutionEvent, ExecutionFrame, ExecutionObserver, Runtime, RuntimeError,
     host::{HostError, HostFunction},
     value::Value,
 };
+
+#[derive(Debug, Default)]
+struct StackDepth(Cell<usize>);
+
+impl ExecutionObserver for StackDepth {
+    fn observe(
+        &self,
+        _: &Runtime,
+        _: ExecutionEvent,
+        frames: &[ExecutionFrame],
+    ) -> Result<(), RuntimeError> {
+        self.0.set(self.0.get().max(frames.len()));
+        Ok(())
+    }
+}
 
 fn main() {
     let engine = KagariEngine::default();
@@ -50,6 +69,15 @@ fn main() {
         }))
         .unwrap();
     let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let session = runtime
+        .runtime()
+        .begin_execution(&loaded, runtime.runtime().execution_options())
+        .unwrap();
+    let depth = Rc::new(StackDepth::default());
+    runtime
+        .runtime()
+        .attach_execution_observer(depth.clone())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -57,6 +85,9 @@ fn main() {
             .return_value,
         Value::I32(42)
     );
+    assert_eq!(depth.0.get(), 2);
+    assert_eq!(session.counters().current_call_depth, 0);
+    drop(session);
     runtime.runtime().collect_garbage().unwrap();
     let Value::Array(id) = retained.borrow().as_ref().unwrap().value() else {
         panic!("array result")

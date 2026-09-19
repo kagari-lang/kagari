@@ -2,7 +2,6 @@ mod debug;
 mod debug_protocol;
 mod error;
 mod executor;
-mod frame;
 mod reentry;
 mod vm;
 

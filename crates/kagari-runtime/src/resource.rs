@@ -183,7 +183,7 @@ impl ResourceState {
         Ok(())
     }
 
-    pub fn enter_call(&self) -> Result<(), RuntimeError> {
+    pub(crate) fn enter_call(&self) -> Result<(), RuntimeError> {
         self.poll_execution()?;
         let mut counters = self.counters.borrow_mut();
         let next = counters
@@ -205,9 +205,13 @@ impl ResourceState {
         Ok(())
     }
 
-    pub fn leave_call(&self) {
+    pub(crate) fn leave_call(&self) {
         let mut counters = self.counters.borrow_mut();
-        counters.current_call_depth = counters.current_call_depth.saturating_sub(1);
+        if let Some(depth) = counters.current_call_depth.checked_sub(1) {
+            counters.current_call_depth = depth;
+        } else {
+            self.quarantine("call depth underflow during frame cleanup");
+        }
     }
 
     pub(crate) fn prepare_heap_growth(&self, units: usize) -> Result<HeapGrowth<'_>, RuntimeError> {

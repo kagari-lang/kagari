@@ -5,6 +5,7 @@ pub mod builtin;
 pub mod cache;
 pub mod error;
 mod execution_state;
+mod frame;
 pub mod gc;
 pub mod host;
 pub mod jit_abi;
@@ -39,6 +40,7 @@ pub use cache::{
     ReloadDependencySnapshot, ReloadInvalidation,
 };
 pub use error::{RuntimeError, RuntimeErrorKind};
+pub use frame::{ExecutionFrame, ExecutionStack};
 pub use host::{
     BorrowEpoch, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
     DynamicPathParameter, FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallGuard,
@@ -62,7 +64,9 @@ pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
 pub use security::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext,
 };
-pub use session::{ExecutionCounters, ExecutionOptions, ExecutionSession};
+pub use session::{
+    ExecutionCounters, ExecutionEvent, ExecutionObserver, ExecutionOptions, ExecutionSession,
+};
 
 use crate::{
     builtin::BuiltinError,
@@ -130,7 +134,7 @@ impl Drop for ModuleInitializationGuard<'_> {
 
 #[derive(Debug)]
 pub struct Runtime {
-    gc: GcHeap,
+    gc: std::rc::Rc<GcHeap>,
     types: TypeRegistry,
     host: HostRegistry,
     host_borrows: HostBorrowTable,
@@ -147,7 +151,7 @@ impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
         let resources = std::rc::Rc::new(ResourceState::new(config.resources));
         Self {
-            gc: GcHeap::new(config.gc, resources.clone()),
+            gc: std::rc::Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
             host_borrows: HostBorrowTable::default(),
@@ -169,6 +173,71 @@ impl Runtime {
         self.resources
             .active_session()
             .map(|session| session.root.clone())
+    }
+
+    /// Install once for the root call. Nested drivers inherit the same observer.
+    pub fn attach_execution_observer(
+        &self,
+        observer: std::rc::Rc<dyn ExecutionObserver>,
+    ) -> Result<bool, RuntimeError> {
+        self.resources.ensure_execution_allowed()?;
+        let session = self.resources.active_session().ok_or_else(|| {
+            RuntimeError::module_validation("execution observer requires an active session")
+        })?;
+        let mut active = session.observer.borrow_mut();
+        if let Some(existing) = active.as_ref() {
+            if !std::rc::Rc::ptr_eq(existing, &observer) {
+                return Err(RuntimeError::module_validation(
+                    "nested execution cannot replace the root observer",
+                ));
+            }
+            return Ok(false);
+        }
+        if !session
+            .frames
+            .try_borrow()
+            .map_err(|_| {
+                self.resources
+                    .quarantine("observer installation encountered a borrowed stack")
+            })?
+            .is_empty()
+        {
+            return Err(RuntimeError::module_validation(
+                "cannot attach an observer during frame execution",
+            ));
+        }
+        *active = Some(observer);
+        Ok(true)
+    }
+
+    pub fn observe_execution(&self, event: ExecutionEvent) -> Result<(), RuntimeError> {
+        let Some(session) = self.resources.active_session() else {
+            return Ok(());
+        };
+        let Some(observer) = session.observer.borrow().clone() else {
+            return Ok(());
+        };
+        let frames = session.frames.try_borrow().map_err(|_| {
+            self.resources
+                .quarantine("observer encountered a borrowed execution stack")
+        })?;
+        let result = observer.observe(self, event, &frames);
+        if result
+            .as_ref()
+            .is_err_and(|error| error.kind() == RuntimeErrorKind::EngineFault)
+        {
+            self.resources
+                .quarantine("execution observer encountered an engine fault");
+        }
+        result
+    }
+
+    pub fn enter_execution_stack(
+        &self,
+        module: &LoadedModule,
+    ) -> Result<ExecutionStack, RuntimeError> {
+        let session = self.begin_execution(module, self.execution_options())?;
+        ExecutionStack::new(session, self.gc.clone())
     }
 
     pub fn execution_options(&self) -> ExecutionOptions {
@@ -976,14 +1045,6 @@ impl Runtime {
 
     pub fn consume_instruction_step(&self) -> Result<(), RuntimeError> {
         self.resources.consume_instruction_step()
-    }
-
-    pub fn enter_call(&self) -> Result<(), RuntimeError> {
-        self.resources.enter_call()
-    }
-
-    pub fn leave_call(&self) {
-        self.resources.leave_call();
     }
 
     pub fn invoke_host(

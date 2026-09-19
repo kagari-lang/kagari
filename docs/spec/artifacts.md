@@ -47,11 +47,12 @@ format version. Versions 1 through 9 are rejected; no migration or compatibility
 decoder exists. Version 10 stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
-The runtime ABI identity is `kagari-runtime-abi-v9`; the runtime-helper ABI is
+The runtime ABI identity is `kagari-runtime-abi-v10`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
-checked synchronous script reentry. The helper ABI preserves cancellation
+checked synchronous script reentry; v9 lacks session-owned frame stacks and
+nested execution observation. The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration
 table. There is no arbitrary host-registry

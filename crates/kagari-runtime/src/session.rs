@@ -20,8 +20,29 @@ pub struct ExecutionOptions {
     pub cancellation: CancellationToken,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionEvent {
+    BeforeInstruction,
+    Trap,
+}
+
+/// Observers inspect the complete root stack between instructions. They must not
+/// drive script execution while the frame view is borrowed.
+pub trait ExecutionObserver: std::fmt::Debug {
+    fn observe(
+        &self,
+        runtime: &crate::Runtime,
+        event: ExecutionEvent,
+        frames: &[crate::ExecutionFrame],
+    ) -> Result<(), RuntimeError>;
+}
+
 #[derive(Debug)]
 pub(crate) struct SessionState {
+    pub observer: RefCell<Option<Rc<dyn ExecutionObserver>>>,
+    pub frames: RefCell<Vec<crate::ExecutionFrame>>,
+    pub frame_scopes: RefCell<Vec<u64>>,
+    pub next_frame_scope: Cell<u64>,
     pub scopes: Cell<usize>,
     pub peak_call_depth: Cell<u32>,
     pub peak_heap_units: Cell<usize>,
@@ -39,6 +60,10 @@ impl SessionState {
         baseline: ResourceCounters,
     ) -> Self {
         Self {
+            observer: RefCell::new(None),
+            frames: RefCell::new(Vec::new()),
+            frame_scopes: RefCell::new(Vec::new()),
+            next_frame_scope: Cell::new(0),
             scopes: Cell::new(0),
             peak_call_depth: Cell::new(baseline.current_call_depth),
             peak_heap_units: Cell::new(baseline.current_heap_units),

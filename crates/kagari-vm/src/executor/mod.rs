@@ -5,16 +5,13 @@ mod value_ops;
 use kagari_ir::bytecode::{BytecodeInstruction, FunctionRef, ModuleRef};
 use kagari_runtime::{LoadedModule, Runtime, value::Value};
 
-use crate::debug::DebugSession;
 use crate::error::VmError;
-use crate::frame::Frame;
+use kagari_runtime::{ExecutionFrame, ExecutionStack};
 
-#[derive(Debug)]
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
     loaded: &'a LoadedModule,
-    frames: Vec<Frame<'a>>,
-    debug_session: Option<&'a mut DebugSession>,
+    stack: ExecutionStack,
 }
 
 impl<'a> Executor<'a> {
@@ -23,7 +20,6 @@ impl<'a> Executor<'a> {
         loaded: &'a LoadedModule,
         entry: FunctionRef,
         args: &[Value],
-        debug_session: Option<&'a mut DebugSession>,
     ) -> Result<Self, VmError> {
         let module = &loaded.bytecode;
         let function = module
@@ -34,8 +30,7 @@ impl<'a> Executor<'a> {
         let mut executor = Self {
             runtime,
             loaded,
-            frames: Vec::new(),
-            debug_session,
+            stack: runtime.enter_execution_stack(loaded)?,
         };
         executor.push_frame(loaded.slot(), function, args, None)?;
         Ok(executor)
@@ -44,13 +39,13 @@ impl<'a> Executor<'a> {
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
         loop {
             self.runtime.gc_safepoint().map_err(VmError::RuntimeError)?;
-            if let Some(debug_session) = self.debug_session.as_deref_mut() {
-                debug_session.before_instruction(self.runtime, self.loaded, &self.frames)?;
-            }
+            self.current_frame_mut()?.prepare_instruction();
+            self.runtime
+                .observe_execution(kagari_runtime::ExecutionEvent::BeforeInstruction)?;
 
             let instruction = {
-                let frame = self.current_frame_mut()?;
-                frame.next_instruction().cloned()
+                let mut frame = self.current_frame_mut()?;
+                frame.next_instruction()
             };
 
             let Some(instruction) = instruction else {
@@ -69,7 +64,8 @@ impl<'a> Executor<'a> {
                     };
                     let return_dst = self.current_frame()?.return_dst();
                     self.pop_frame()?;
-                    if let Some(frame) = self.frames.last_mut() {
+                    if !self.stack.is_empty()? {
+                        let mut frame = self.current_frame_mut()?;
                         if let Some(dst) = return_dst {
                             frame.write_register(dst, value)?;
                         }
@@ -79,9 +75,8 @@ impl<'a> Executor<'a> {
                 }
                 instruction => {
                     if let Err(error) = self.dispatch_instruction(instruction) {
-                        if let Some(debug_session) = self.debug_session.as_deref_mut() {
-                            debug_session.record_trap(self.runtime, self.loaded, &self.frames)?;
-                        }
+                        self.runtime
+                            .observe_execution(kagari_runtime::ExecutionEvent::Trap)?;
                         return Err(error);
                     }
                 }
@@ -93,24 +88,22 @@ impl<'a> Executor<'a> {
         &self,
     ) -> Result<&'a kagari_runtime::module::LinkedModule, VmError> {
         self.loaded
-            .member_data(self.current_frame()?.module)
+            .member_data(self.current_frame()?.module())
             .ok_or(VmError::UnsupportedInstruction("invalid module slot"))
     }
     pub(crate) fn current_loaded(&self) -> Result<LoadedModule, VmError> {
         self.loaded
-            .member(self.current_frame()?.module)
+            .member(self.current_frame()?.module())
             .ok_or(VmError::UnsupportedInstruction("invalid module slot"))
     }
-    pub(crate) fn current_frame(&self) -> Result<&Frame<'a>, VmError> {
-        self.frames
-            .last()
-            .ok_or(VmError::UnsupportedInstruction("missing_frame"))
+    pub(crate) fn current_frame(&self) -> Result<std::cell::Ref<'_, ExecutionFrame>, VmError> {
+        Ok(self.stack.current()?)
     }
 
-    pub(crate) fn current_frame_mut(&mut self) -> Result<&mut Frame<'a>, VmError> {
-        self.frames
-            .last_mut()
-            .ok_or(VmError::UnsupportedInstruction("missing_frame"))
+    pub(crate) fn current_frame_mut(
+        &self,
+    ) -> Result<std::cell::RefMut<'_, ExecutionFrame>, VmError> {
+        Ok(self.stack.current_mut()?)
     }
 
     pub(crate) fn push_frame(
@@ -120,32 +113,10 @@ impl<'a> Executor<'a> {
         args: &[Value],
         return_dst: Option<kagari_ir::bytecode::Register>,
     ) -> Result<(), VmError> {
-        self.runtime.enter_call().map_err(VmError::RuntimeError)?;
-        match Frame::new(self.runtime.gc(), module, function, args, return_dst) {
-            Ok(frame) => {
-                self.frames.push(frame);
-                Ok(())
-            }
-            Err(error) => {
-                self.runtime.leave_call();
-                Err(error)
-            }
-        }
+        Ok(self.stack.push(module, function.id, args, return_dst)?)
     }
 
     fn pop_frame(&mut self) -> Result<(), VmError> {
-        self.frames
-            .pop()
-            .ok_or(VmError::UnsupportedInstruction("missing_frame"))?;
-        self.runtime.leave_call();
-        Ok(())
-    }
-}
-
-impl Drop for Executor<'_> {
-    fn drop(&mut self) {
-        while self.frames.pop().is_some() {
-            self.runtime.leave_call();
-        }
+        Ok(self.stack.pop()?)
     }
 }

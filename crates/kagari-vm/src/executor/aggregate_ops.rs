@@ -8,7 +8,7 @@ impl Executor<'_> {
     pub(crate) fn make_tuple(&self, elements: &[Register]) -> Result<Value, VmError> {
         elements
             .iter()
-            .map(|element| self.current_frame()?.read_register(*element))
+            .map(|element| Ok::<_, VmError>(self.current_frame()?.read_register(*element)?))
             .collect::<Result<Vec<_>, _>>()
             .map(Value::Tuple)
     }
@@ -16,7 +16,7 @@ impl Executor<'_> {
     pub(crate) fn make_array(&self, elements: &[Register]) -> Result<Value, VmError> {
         let elements = elements
             .iter()
-            .map(|element| self.current_frame()?.read_register(*element))
+            .map(|element| Ok::<_, VmError>(self.current_frame()?.read_register(*element)?))
             .collect::<Result<Vec<_>, _>>()?;
         if !elements.iter().all(Value::is_default_heap_payload) {
             return Err(VmError::TypeMismatch(
@@ -37,7 +37,7 @@ impl Executor<'_> {
     ) -> Result<Value, VmError> {
         let fields = fields
             .iter()
-            .map(|field| self.current_frame()?.read_register(*field))
+            .map(|field| Ok::<_, VmError>(self.current_frame()?.read_register(*field)?))
             .collect::<Result<Vec<_>, VmError>>()?;
         let layout = self
             .current_loaded()?
@@ -158,7 +158,8 @@ impl Executor<'_> {
                 };
                 *slot = value;
                 self.current_frame_mut()?
-                    .write_register(base, Value::Tuple(elements))
+                    .write_register(base, Value::Tuple(elements))?;
+                Ok(())
             }
             _ => Err(VmError::TypeMismatch(
                 "write_index expects array or tuple value",

@@ -7,15 +7,19 @@ use kagari_runtime::{
     ReloadDependencySnapshot, Runtime, value::Value,
 };
 
-use crate::debug::DebugSession;
+use crate::debug::{DebugSession, SharedDebugSession};
 use crate::error::VmError;
 use crate::executor::Executor;
+use std::{
+    cell::{Ref, RefMut},
+    rc::Rc,
+};
 
 #[derive(Debug)]
 pub struct Vm {
     runtime: Runtime,
     module_failures: HashMap<ModuleKey, VmError>,
-    debug_session: Option<DebugSession>,
+    debug_session: Option<Rc<SharedDebugSession>>,
 }
 
 #[derive(Debug)]
@@ -63,16 +67,46 @@ impl Vm {
         self.runtime
             .validate_debug_attach_boundary()
             .map_err(VmError::RuntimeError)?;
-        self.debug_session = Some(session);
+        self.debug_session = Some(Rc::new(SharedDebugSession(std::cell::RefCell::new(
+            session,
+        ))));
         Ok(())
     }
 
-    pub fn debug_session(&self) -> Option<&DebugSession> {
-        self.debug_session.as_ref()
+    pub fn debug_session(&self) -> Option<Ref<'_, DebugSession>> {
+        self.debug_session
+            .as_ref()
+            .map(|session| session.0.borrow())
     }
 
-    pub fn debug_session_mut(&mut self) -> Option<&mut DebugSession> {
-        self.debug_session.as_mut()
+    pub fn debug_session_mut(&mut self) -> Option<RefMut<'_, DebugSession>> {
+        self.debug_session
+            .as_ref()
+            .map(|session| session.0.borrow_mut())
+    }
+
+    fn begin_execution(
+        &self,
+        module: &LoadedModule,
+    ) -> Result<kagari_runtime::ExecutionSession, VmError> {
+        let session = self
+            .runtime
+            .begin_execution(module, self.runtime.execution_options())?;
+        if let Some(debug) = &self.debug_session
+            && self.runtime.attach_execution_observer(debug.clone())?
+        {
+            let mut debug = debug.0.borrow_mut();
+            for member in session.root().members() {
+                debug.resolve_module(
+                    member.id,
+                    &member.name,
+                    member.epoch.0,
+                    &member.bytecode,
+                    &self.runtime,
+                )?;
+            }
+        }
+        Ok(session)
     }
 
     pub fn execute(
@@ -80,34 +114,16 @@ impl Vm {
         module: &LoadedModule,
         entry: &str,
     ) -> Result<ExecutionReport, VmError> {
-        let _session = self
-            .runtime
-            .begin_execution(module, self.runtime.execution_options())
-            .map_err(VmError::RuntimeError)?;
+        let _session = self.begin_execution(module)?;
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
         self.execute_module(module)?;
-        if let Some(debug_session) = self.debug_session.as_mut() {
-            debug_session.resolve_module(
-                module.id,
-                &module.name,
-                module.epoch.0,
-                &module.bytecode,
-                &self.runtime,
-            )?;
-        }
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
-        let mut executor = Executor::new(
-            &self.runtime,
-            module,
-            entry,
-            &[],
-            self.debug_session.as_mut(),
-        )?;
+        let mut executor = Executor::new(&self.runtime, module, entry, &[])?;
         let return_value = executor.run()?;
 
         Ok(ExecutionReport {
@@ -125,24 +141,12 @@ impl Vm {
         entry: &str,
         backend: &mut B,
     ) -> Result<ExecutionReport, VmError> {
-        let _session = self
-            .runtime
-            .begin_execution(module, self.runtime.execution_options())
-            .map_err(VmError::RuntimeError)?;
+        let _session = self.begin_execution(module)?;
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
         self.execute_module(module)?;
-        if let Some(debug_session) = self.debug_session.as_mut() {
-            debug_session.resolve_module(
-                module.id,
-                &module.name,
-                module.epoch.0,
-                &module.bytecode,
-                &self.runtime,
-            )?;
-        }
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
@@ -169,10 +173,7 @@ impl Vm {
     }
 
     pub fn execute_module(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
-        let _session = self
-            .runtime
-            .begin_execution(module, self.runtime.execution_options())
-            .map_err(VmError::RuntimeError)?;
+        let _session = self.begin_execution(module)?;
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
@@ -230,15 +231,6 @@ impl Vm {
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
-        if let Some(debug_session) = self.debug_session.as_mut() {
-            debug_session.resolve_module(
-                module.id,
-                &module.name,
-                module.epoch.0,
-                &module.bytecode,
-                &self.runtime,
-            )?;
-        }
         let key = module.key();
         if let Some(instance) = self.runtime.module_instance_snapshot(module) {
             match instance.state {
@@ -266,13 +258,7 @@ impl Vm {
 
         let result = match module.bytecode.module_init {
             Some(module_init) => {
-                let mut executor = Executor::new(
-                    &self.runtime,
-                    module,
-                    module_init,
-                    &[],
-                    self.debug_session.as_mut(),
-                );
+                let mut executor = Executor::new(&self.runtime, module, module_init, &[]);
                 match executor {
                     Ok(ref mut executor) => executor.run(),
                     Err(error) => Err(error),
@@ -348,7 +334,8 @@ impl Vm {
                     ),
                 }])
             })?;
-        let _call_guard = RuntimeCallGuard::new(&self.runtime)?;
+        let stack = self.runtime.enter_execution_stack(module)?;
+        stack.push(module.slot(), entry, &[], None)?;
         match backend.invoke_function(&artifact, &self.runtime) {
             Ok(value) => Ok(JitEntryResult::Native {
                 value,
@@ -403,13 +390,7 @@ impl Vm {
         module: &LoadedModule,
         entry: FunctionRef,
     ) -> Result<Value, VmError> {
-        let mut executor = Executor::new(
-            &self.runtime,
-            module,
-            entry,
-            &[],
-            self.debug_session.as_mut(),
-        )?;
+        let mut executor = Executor::new(&self.runtime, module, entry, &[])?;
         executor.run()
     }
 }
@@ -420,29 +401,6 @@ enum JitEntryResult {
         report: JitExecutionReport,
     },
     Fallback(JitExecutionReport),
-}
-
-struct RuntimeCallGuard<'a> {
-    runtime: &'a Runtime,
-    entered: bool,
-}
-
-impl<'a> RuntimeCallGuard<'a> {
-    fn new(runtime: &'a Runtime) -> Result<Self, VmError> {
-        runtime.enter_call().map_err(VmError::RuntimeError)?;
-        Ok(Self {
-            runtime,
-            entered: true,
-        })
-    }
-}
-
-impl Drop for RuntimeCallGuard<'_> {
-    fn drop(&mut self) {
-        if self.entered {
-            self.runtime.leave_call();
-        }
-    }
 }
 
 fn find_function_ref(module: &BytecodeModule, name: &str) -> Option<FunctionRef> {

@@ -251,13 +251,13 @@ impl<S: DebugAdapterEventSink> DebugProtocolAdapter<S> {
     }
 }
 
-fn session(vm: &Vm) -> Result<&DebugSession, VmError> {
+fn session(vm: &Vm) -> Result<std::cell::Ref<'_, DebugSession>, VmError> {
     vm.debug_session().ok_or(VmError::UnsupportedInstruction(
         "debug_session_not_attached",
     ))
 }
 
-fn session_mut(vm: &mut Vm) -> Result<&mut DebugSession, VmError> {
+fn session_mut(vm: &mut Vm) -> Result<std::cell::RefMut<'_, DebugSession>, VmError> {
     vm.debug_session_mut()
         .ok_or(VmError::UnsupportedInstruction(
             "debug_session_not_attached",

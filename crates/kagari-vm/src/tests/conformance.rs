@@ -142,9 +142,10 @@ fn main() -> i32 {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
     assert_eq!(report.return_value, Value::I32(12));
 
-    let pause = vm
+    let debug = vm
         .debug_session()
-        .expect("debug session should be attached")
+        .expect("debug session should be attached");
+    let pause = debug
         .pauses()
         .iter()
         .find(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint))

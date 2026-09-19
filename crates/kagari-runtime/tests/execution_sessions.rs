@@ -172,29 +172,21 @@ fn each_root_gets_an_allocation_budget_while_live_heap_and_cumulative_counts_per
 }
 
 #[test]
-fn root_peak_counters_do_not_reuse_a_previous_roots_peak() {
+fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
     let mut runtime = Runtime::default();
     let module = load(&mut runtime, "main");
     for depth in [2, 1] {
         let session = runtime
             .begin_execution(&module, runtime.execution_options())
             .unwrap();
-        for _ in 0..depth {
-            runtime.enter_call().unwrap();
-        }
-        for _ in 0..depth {
-            runtime.leave_call();
-        }
         let array = runtime
             .alloc_array(vec![Value::Unit; depth as usize])
             .unwrap();
-        assert_eq!(session.counters().peak_call_depth, depth);
         assert_eq!(session.counters().peak_heap_units, depth as usize + 1);
         runtime.collect_garbage().unwrap();
         assert!(runtime.gc().array_len(array).is_none());
         drop(session);
     }
-    assert_eq!(runtime.resources().counters().peak_call_depth, 2);
     assert_eq!(runtime.resources().counters().peak_heap_units, 3);
 }
 

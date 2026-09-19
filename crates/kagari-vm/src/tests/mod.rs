@@ -7,6 +7,7 @@ mod helpers;
 mod jit;
 mod language_contract;
 mod mutation_resources;
+mod reentry_debug;
 mod security;
 mod sessions;
 mod source_programs;

@@ -6,7 +6,8 @@ use kagari_runtime::{
     DebugVisibilityPolicy, ModuleId, Runtime, RuntimeError, SecurityContext, value::Value,
 };
 
-use crate::{VmError, frame::Frame};
+use crate::VmError;
+use kagari_runtime::ExecutionFrame;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugFrameId(u64);
@@ -287,13 +288,12 @@ impl DebugSession {
     pub(crate) fn before_instruction(
         &mut self,
         runtime: &Runtime,
-        loaded: &kagari_runtime::LoadedModule,
-        frames: &[Frame<'_>],
+        frames: &[ExecutionFrame],
     ) -> Result<(), VmError> {
         let Some(frame) = frames.last() else {
             return Ok(());
         };
-        let member = loaded.member_data(frame.module).expect("frame module");
+        let member = frame.loaded();
         let module_id = member.id;
         let epoch = member.epoch.0;
         let module_name = &member.name;
@@ -326,7 +326,7 @@ impl DebugSession {
             runtime
                 .validate_debug_module_visible(module_name)
                 .map_err(VmError::RuntimeError)?;
-            self.record_pause(runtime, reason, loaded, frames)?;
+            self.record_pause(runtime, reason, frames)?;
         }
         if let Some(id) = breakpoint {
             let temporary = self
@@ -346,13 +346,12 @@ impl DebugSession {
     pub(crate) fn record_trap(
         &mut self,
         runtime: &Runtime,
-        loaded: &kagari_runtime::LoadedModule,
-        frames: &[Frame<'_>],
+        frames: &[ExecutionFrame],
     ) -> Result<(), VmError> {
         runtime
             .validate_debug_pause_boundary()
             .map_err(VmError::RuntimeError)?;
-        self.record_pause(runtime, DebugPauseReason::Trap, loaded, frames)
+        self.record_pause(runtime, DebugPauseReason::Trap, frames)
     }
 
     fn step_reason(&mut self, depth: usize) -> Option<DebugPauseReason> {
@@ -378,8 +377,7 @@ impl DebugSession {
         &mut self,
         runtime: &Runtime,
         reason: DebugPauseReason,
-        loaded: &kagari_runtime::LoadedModule,
-        frames: &[Frame<'_>],
+        frames: &[ExecutionFrame],
     ) -> Result<(), VmError> {
         runtime
             .validate_debug_stack_inspection_boundary()
@@ -389,7 +387,7 @@ impl DebugSession {
             frames: frames
                 .iter()
                 .map(|frame| {
-                    let member = loaded.member_data(frame.module).expect("frame module");
+                    let member = frame.loaded();
                     runtime
                         .validate_debug_module_visible(&member.name)
                         .map_err(VmError::RuntimeError)?;
@@ -406,7 +404,7 @@ impl DebugSession {
         runtime: &Runtime,
         module_id: ModuleId,
         epoch: u64,
-        frame: &Frame<'_>,
+        frame: &ExecutionFrame,
     ) -> Result<DebugFrame, VmError> {
         let id = DebugFrameId(self.next_frame_id);
         self.next_frame_id += 1;
@@ -526,4 +524,36 @@ fn source_span_for(function: &BytecodeFunction, instruction_offset: usize) -> Sp
         .find(|span| span.instruction_offset == instruction_offset)
         .map(|span| span.span)
         .unwrap_or_default()
+}
+
+#[derive(Debug)]
+pub(crate) struct SharedDebugSession(pub std::cell::RefCell<DebugSession>);
+
+impl kagari_runtime::ExecutionObserver for SharedDebugSession {
+    fn observe(
+        &self,
+        runtime: &Runtime,
+        event: kagari_runtime::ExecutionEvent,
+        frames: &[ExecutionFrame],
+    ) -> Result<(), RuntimeError> {
+        let mut session = self.0.try_borrow_mut().map_err(|_| {
+            RuntimeError::new(
+                kagari_runtime::RuntimeErrorKind::EngineFault,
+                "debug session borrowed across execution",
+            )
+        })?;
+        let result = match event {
+            kagari_runtime::ExecutionEvent::BeforeInstruction => {
+                session.before_instruction(runtime, frames)
+            }
+            kagari_runtime::ExecutionEvent::Trap => session.record_trap(runtime, frames),
+        };
+        result.map_err(|error| match error {
+            VmError::RuntimeError(error) => error,
+            error => RuntimeError::new(
+                kagari_runtime::RuntimeErrorKind::EngineFault,
+                format!("debug observation failed: {error:?}"),
+            ),
+        })
+    }
 }

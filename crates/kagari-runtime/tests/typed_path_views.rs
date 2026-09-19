@@ -362,10 +362,6 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
         assert_eq!(runtime.resources().counters().instruction_steps, 0);
         assert_eq!(runtime.resources().counters().allocation_units, 2);
         assert_eq!(
-            runtime.enter_call().unwrap_err().kind(),
-            RuntimeErrorKind::EngineFault
-        );
-        assert_eq!(
             runtime.alloc_array(vec![]).unwrap_err().kind(),
             RuntimeErrorKind::EngineFault
         );

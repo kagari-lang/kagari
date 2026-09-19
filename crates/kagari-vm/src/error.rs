@@ -1,6 +1,4 @@
-use kagari_ir::bytecode::{
-    BytecodeVerificationError, CallTarget, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, Register,
-};
+use kagari_ir::bytecode::{BytecodeVerificationError, CallTarget, FunctionRef, ModuleSlot};
 use kagari_runtime::{
     BackendDiagnostic, BackendInvocationError, ModuleKey, RuntimeError, builtin::BuiltinError,
     host::HostError, reflection::ReflectionError,
@@ -11,14 +9,6 @@ pub enum VmError {
     MissingFunction(String),
     MissingField(String),
     InvalidFunctionRef(FunctionRef),
-    InvalidFrameArity {
-        function: FunctionRef,
-        expected: usize,
-        found: usize,
-    },
-    InvalidJumpTarget(JumpTarget),
-    InvalidRegister(Register),
-    InvalidLocal(LocalSlot),
     InvalidModuleSlot(ModuleSlot),
     ImmutableModuleSlot(ModuleSlot),
     ModuleInitializing(ModuleKey),
@@ -44,5 +34,11 @@ impl From<BuiltinError> for VmError {
         } else {
             Self::RuntimeError(error.into_runtime_error())
         }
+    }
+}
+
+impl From<RuntimeError> for VmError {
+    fn from(error: RuntimeError) -> Self {
+        Self::RuntimeError(error)
     }
 }

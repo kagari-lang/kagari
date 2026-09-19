@@ -40,8 +40,9 @@ reopens execution nor retries initialization. Initialization shares the root-cal
 session's budget and cancellation with the entry; its lifecycle guard establishes
 the failure cleanup boundary. Synchronous host reentry only calls already
 initialized members of the pinned program. Reentry into initializing, failed or
-uninitialized members is rejected without retrying initialization. Full session
-ownership of frame stacks remains R12 work.
+uninitialized members is rejected without retrying initialization. Initializers,
+entries and synchronous nested calls use scopes of the session-owned frame stack;
+failure unwinds the failing scope before initialization failure cleanup runs.
 
 Top-level val/var remain private initialization bindings, not durable globals.
 Existing scalar const-safe restrictions remain in force. Persistent state and
