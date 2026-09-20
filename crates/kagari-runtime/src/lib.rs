@@ -1174,7 +1174,7 @@ impl Runtime {
         let bindings = bytecode
             .modules
             .iter()
-            .map(|module| self.host.link_interface(&module.host_interface))
+            .map(|module| self.host.link_module(module, &self.types))
             .collect::<Result<Vec<_>, _>>()?;
         self.resources
             .record_loaded_modules(self.modules.loaded_count() + bytecode.modules.len())?;
@@ -1231,7 +1231,7 @@ impl Runtime {
         let bindings = bytecode
             .modules
             .iter()
-            .map(|module| self.host.link_interface(&module.host_interface))
+            .map(|module| self.host.link_module(module, &self.types))
             .collect::<Result<Vec<_>, _>>()
             .map_err(ReloadValidationError::Runtime)?;
         self.resources

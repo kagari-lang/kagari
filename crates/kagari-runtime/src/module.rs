@@ -107,7 +107,13 @@ pub struct LinkedModule {
     pub epoch: ModuleEpoch,
     pub bytecode: BytecodeModule,
     registry_owner: crate::host::HostRegistryId,
-    host_bindings: Vec<crate::host::HostFunctionId>,
+    host_bindings: LinkedHostBindings,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct LinkedHostBindings {
+    pub functions: Vec<crate::host::HostFunctionId>,
+    pub paths: Vec<crate::host::HostPathDescriptorId>,
 }
 
 impl Deref for LoadedModule {
@@ -174,7 +180,14 @@ impl LoadedModule {
         &self,
         import: kagari_ir::bytecode::HostImportId,
     ) -> Option<crate::host::HostFunctionId> {
-        self.host_bindings.get(import.index()).copied()
+        self.host_bindings.functions.get(import.index()).copied()
+    }
+
+    pub fn path_binding(
+        &self,
+        path: kagari_ir::bytecode::PathId,
+    ) -> Option<crate::host::HostPathDescriptorId> {
+        self.host_bindings.paths.get(path.index()).copied()
     }
 
     pub(crate) fn belongs_to(&self, owner: crate::host::HostRegistryId) -> bool {
@@ -316,7 +329,7 @@ impl ModuleStore {
         epoch: ModuleEpoch,
         bytecode: BytecodeProgram,
         registry_owner: crate::host::HostRegistryId,
-        host_bindings: Vec<Vec<crate::host::HostFunctionId>>,
+        host_bindings: Vec<LinkedHostBindings>,
     ) -> LoadedModule {
         assert_eq!(
             bytecode.modules.len(),
@@ -479,7 +492,7 @@ mod tests {
                 modules: vec![BytecodeModule::default()],
             },
             crate::host::HostRegistryId::default(),
-            vec![vec![]],
+            vec![LinkedHostBindings::default()],
         );
         let second = store.load_program(
             "game.player",
@@ -489,7 +502,7 @@ mod tests {
                 modules: vec![BytecodeModule::default()],
             },
             crate::host::HostRegistryId::default(),
-            vec![vec![]],
+            vec![LinkedHostBindings::default()],
         );
         let other = store.load_program(
             "game.world",
@@ -499,7 +512,7 @@ mod tests {
                 modules: vec![BytecodeModule::default()],
             },
             crate::host::HostRegistryId::default(),
-            vec![vec![]],
+            vec![LinkedHostBindings::default()],
         );
 
         assert_eq!(first.id, second.id);
@@ -521,7 +534,7 @@ mod tests {
                 modules: vec![BytecodeModule::default()],
             },
             crate::host::HostRegistryId::default(),
-            vec![vec![]],
+            vec![LinkedHostBindings::default()],
         );
 
         let instance = store.instance_snapshot(module.key()).unwrap();
@@ -543,7 +556,7 @@ mod tests {
                 modules: vec![BytecodeModule::default()],
             },
             crate::host::HostRegistryId::default(),
-            vec![vec![]],
+            vec![LinkedHostBindings::default()],
         );
 
         {
@@ -565,7 +578,7 @@ mod tests {
                 modules: vec![BytecodeModule::default()],
             },
             crate::host::HostRegistryId::default(),
-            vec![vec![]],
+            vec![LinkedHostBindings::default()],
         );
         {
             let mut instance = store.instance_mut(next.key()).unwrap();
@@ -588,7 +601,7 @@ mod tests {
                 modules: vec![BytecodeModule::default()],
             },
             crate::host::HostRegistryId::default(),
-            vec![vec![]],
+            vec![LinkedHostBindings::default()],
         );
         let second = store.load_program(
             "game.player",
@@ -598,7 +611,7 @@ mod tests {
                 modules: vec![BytecodeModule::default()],
             },
             crate::host::HostRegistryId::default(),
-            vec![vec![]],
+            vec![LinkedHostBindings::default()],
         );
 
         assert!(store.is_reachable(second.key()));

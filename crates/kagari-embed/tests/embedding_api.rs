@@ -131,6 +131,7 @@ fn register_embedding_host_path_runtime(
 }
 
 fn host_path_artifact(
+    contract: &kagari_runtime::HostPathDescriptor,
     source_name: &str,
     path_debug_name: &str,
     instructions: Vec<BytecodeInstruction>,
@@ -192,10 +193,11 @@ fn host_path_artifact(
                 constants,
                 types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
                 paths: vec![PathRecord {
+                    contract_fingerprint: contract.abi_fingerprint.0,
                     id: PathId::new(0),
                     root_ty: ValueType::HostHandle,
                     result_ty: ValueType::I32,
-                    read_only: false,
+                    read_only: contract.access == PathAccess::ReadOnly,
                     debug_name: path_debug_name.to_owned(),
                 }],
                 function_table: vec![FunctionRecord {
@@ -447,14 +449,30 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
 fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    register_embedding_host_path_runtime(
+        &mut runtime,
+        PathAccess::ReadWrite,
+        CapabilitySet::default(),
+    );
+    let contract = runtime
+        .runtime()
+        .host()
+        .path_descriptor(HostPathDescriptorId::new(0))
+        .unwrap()
+        .clone();
     let first = host_path_artifact(
+        &contract,
         "reload_paths.kgr",
         "game.Player.hp",
         vec![BytecodeInstruction::Return(None)],
         vec![],
         ValueType::Unit,
     );
+    let mut changed = contract.clone();
+    changed.abi_fingerprint.0 ^= 1;
     let candidate = host_path_artifact(
+        &changed,
         "reload_paths.kgr",
         "game.Player.mp",
         vec![BytecodeInstruction::Return(None)],
@@ -462,7 +480,6 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
         ValueType::Unit,
     );
 
-    let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
             first,
@@ -536,7 +553,20 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
 fn execution_context_denies_host_path_mutation_with_structured_error() {
     let engine = KagariEngine::default();
     let context = host_call_context();
+    let mut runtime = engine.runtime(context.clone());
+    register_embedding_host_path_runtime(
+        &mut runtime,
+        PathAccess::ReadWrite,
+        CapabilitySet::default(),
+    );
+    let contract = runtime
+        .runtime()
+        .host()
+        .path_descriptor(HostPathDescriptorId::new(0))
+        .unwrap()
+        .clone();
     let artifact = host_path_artifact(
+        &contract,
         "set_path.kgr",
         "game.Player.hp",
         vec![
@@ -559,12 +589,6 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         ],
         vec![ValueType::HostHandle, ValueType::I32],
         ValueType::Unit,
-    );
-    let mut runtime = engine.runtime(context.clone());
-    register_embedding_host_path_runtime(
-        &mut runtime,
-        PathAccess::ReadWrite,
-        CapabilitySet::default(),
     );
     let loaded = runtime
         .load_program(
@@ -594,7 +618,23 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
 fn host_path_capability_denials_surface_as_structured_runtime_errors() {
     let engine = KagariEngine::default();
     let context = host_call_context();
+    let mut runtime = engine.runtime(context.clone());
+    register_embedding_host_path_runtime(
+        &mut runtime,
+        PathAccess::ReadOnly,
+        CapabilitySet {
+            reflection_read: true,
+            ..CapabilitySet::default()
+        },
+    );
+    let contract = runtime
+        .runtime()
+        .host()
+        .path_descriptor(HostPathDescriptorId::new(0))
+        .unwrap()
+        .clone();
     let artifact = host_path_artifact(
+        &contract,
         "read_secure_path.kgr",
         "game.Player.secure_hp",
         vec![
@@ -613,15 +653,6 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         ],
         vec![ValueType::HostHandle, ValueType::I32],
         ValueType::I32,
-    );
-    let mut runtime = engine.runtime(context.clone());
-    register_embedding_host_path_runtime(
-        &mut runtime,
-        PathAccess::ReadOnly,
-        CapabilitySet {
-            reflection_read: true,
-            ..CapabilitySet::default()
-        },
     );
     let loaded = runtime
         .load_program(

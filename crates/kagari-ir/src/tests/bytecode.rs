@@ -510,6 +510,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
             modules: vec![BytecodeModule {
                 types: vec![ValueType::HostHandle, ValueType::I32],
                 paths: vec![PathRecord {
+                    contract_fingerprint: 0,
                     id: PathId::new(0),
                     root_ty: ValueType::HostHandle,
                     result_ty: ValueType::I32,
@@ -531,6 +532,20 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         path_artifact.verification.typed_path_fingerprints,
         path_artifact.verification.loader.typed_path_fingerprints
     );
+    let mut renamed = path_artifact.program.clone();
+    renamed.modules[0].paths[0].debug_name = "diagnostic label only".into();
+    let renamed = KbcArtifact::from_program(renamed, ArtifactBuildOptions::default()).unwrap();
+    assert_eq!(
+        path_artifact.verification.typed_path_fingerprints,
+        renamed.verification.typed_path_fingerprints
+    );
+    let mut changed = renamed.program;
+    changed.modules[0].paths[0].contract_fingerprint = 42;
+    let changed = KbcArtifact::from_program(changed, ArtifactBuildOptions::default()).unwrap();
+    assert_ne!(
+        path_artifact.verification.typed_path_fingerprints,
+        changed.verification.typed_path_fingerprints
+    );
 }
 
 #[test]
@@ -551,6 +566,7 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
         "kagari-runtime-abi-v17",
         "kagari-runtime-abi-v18",
         "kagari-runtime-abi-v19",
+        "kagari-runtime-abi-v20",
     ] {
         let artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {
@@ -852,6 +868,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
     let unresolved_path = BytecodeModule {
         types: vec![ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
+            contract_fingerprint: 0,
             id: PathId::new(0),
             root_ty: ValueType::HostHandle,
             result_ty: ValueType::I32,
@@ -899,6 +916,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
     let read_only_path = BytecodeModule {
         types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
+            contract_fingerprint: 0,
             id: PathId::new(0),
             root_ty: ValueType::HostHandle,
             result_ty: ValueType::I32,
@@ -1134,6 +1152,7 @@ fn verifier_accepts_resolved_typed_path_instructions() {
     let mut module = BytecodeModule {
         types: vec![ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
+            contract_fingerprint: 0,
             id: PathId::new(0),
             root_ty: ValueType::HostHandle,
             result_ty: ValueType::I32,

@@ -152,7 +152,8 @@ impl BytecodeLoweringContext<'_> {
 
     fn path_id(&mut self, path: &PathRef) -> PathId {
         if let Some(record) = self.paths.iter().find(|record| {
-            record.root_ty == path.root_ty
+            record.contract_fingerprint == path.contract_fingerprint
+                && record.root_ty == path.root_ty
                 && record.result_ty == path.result_ty
                 && record.read_only == path.read_only
                 && record.debug_name == path.debug_name
@@ -161,6 +162,7 @@ impl BytecodeLoweringContext<'_> {
         }
         let id = PathId::new(self.paths.len());
         self.paths.push(PathRecord {
+            contract_fingerprint: path.contract_fingerprint,
             id,
             root_ty: path.root_ty,
             result_ty: path.result_ty,

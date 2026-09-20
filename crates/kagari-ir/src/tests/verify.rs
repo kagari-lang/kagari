@@ -582,6 +582,7 @@ fn readonly_path_modification_is_rejected_before_effects_or_flow() {
         dst: Some(value),
         root_or_view: value,
         path: crate::module::PathRef {
+            contract_fingerprint: 0,
             root_ty: ValueType::I32,
             result_ty: ValueType::I32,
             read_only: true,

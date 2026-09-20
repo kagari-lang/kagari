@@ -34,6 +34,7 @@ pub struct BytecodeModuleSlot {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathRecord {
+    pub contract_fingerprint: u64,
     pub id: PathId,
     pub root_ty: ValueType,
     pub result_ty: ValueType,

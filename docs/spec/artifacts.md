@@ -41,12 +41,20 @@ KbcArtifact {
 }
 ```
 
-Format version 19 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 20 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 18 are rejected; no migration or compatibility
+format version. Versions 1 through 19 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 20 adds the required host path contract fingerprint to each IR/bytecode
+path record. Loading links each module-local path to exactly one registered runtime
+descriptor with that contract, checks operand representations and write access,
+and stores the resulting binding in the immutable executable version. Missing or
+ambiguous bindings reject publication. Path IDs are never runtime descriptor IDs.
+Reload path fingerprints cover the contract and operand shape; diagnostic labels
+are excluded.
 Version 11 adds ordered enum payload types to public variant ABI records. These
 use structural `AbiType` encoding, preserving nominal declaration identity and
 container arguments instead of display strings or erased instruction ValueTypes.
@@ -96,7 +104,7 @@ Version 19 permits required host call records with member declaration identities
 These records must equal the declaring host type's generated method contract,
 including its explicit nominal receiver and passing style. KHI v4 carries the
 same checked method call contracts; old interface versions are rejected.
-The runtime ABI identity is `kagari-runtime-abi-v20`; the runtime-helper ABI is
+The runtime ABI identity is `kagari-runtime-abi-v21`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -108,7 +116,8 @@ bindings and registry-owned host roots. ABI v17 requires complete member contrac
 linking and declaration-derived registration. ABI v18 requires structured public
 type and bound contracts for reload validation. ABI v19 requires the distinct host
 handle representation and source nominal host contracts. ABI v20 requires
-declaration-derived method binding and receiver contracts; all prior ABI products
+declaration-derived method binding and receiver contracts. ABI v21 requires
+contract-linked path slots; all prior ABI products
 are rejected.
 The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.

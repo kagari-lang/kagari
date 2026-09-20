@@ -160,6 +160,7 @@ fn register_vm_host_path_runtime_with_capabilities(
 }
 
 fn path_module(
+    runtime: &Runtime,
     name: &str,
     instructions: Vec<BytecodeInstruction>,
     return_type: ValueType,
@@ -197,6 +198,12 @@ fn path_module(
         constants: instructions_constants,
         types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
+            contract_fingerprint: runtime
+                .host()
+                .path_descriptor(kagari_runtime::HostPathDescriptorId::new(0))
+                .unwrap()
+                .abi_fingerprint
+                .0,
             id: PathId::new(0),
             root_ty: ValueType::HostHandle,
             result_ty: ValueType::I32,
@@ -355,6 +362,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                 let mut program = BytecodeProgram {
                     root: ModuleRef::new(0),
                     modules: vec![path_module(
+                        &runtime,
                         "main",
                         vec![
                             BytecodeInstruction::Call {
@@ -581,6 +589,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![path_module(
+                    &runtime,
                     "main",
                     vec![
                         BytecodeInstruction::Call {
@@ -643,12 +652,13 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
 #[test]
 fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadOnly);
-    let loaded = runtime
+    let error = runtime
         .load_program(
             "readonly_path.kbc",
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![path_module(
+                    &runtime,
                     "main",
                     vec![
                         BytecodeInstruction::Call {
@@ -674,16 +684,9 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
                 )],
             },
         )
-        .unwrap();
+        .unwrap_err();
 
-    let mut vm = Vm::new(runtime);
-    let error = vm.execute(&loaded, "main").unwrap_err();
-
-    assert!(matches!(
-        error,
-        crate::VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::TypedPathValidation
-    ));
+    assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
 }
 
 #[test]
@@ -701,6 +704,7 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![path_module(
+                    &runtime,
                     "main",
                     vec![
                         BytecodeInstruction::Call {
@@ -1616,4 +1620,116 @@ fn player_type_declaration() -> kagari_common::host_interface::HostTypeDeclarati
     declaration.fields.push(hp);
     declaration.reflection = HostReflectionPolicy::Hidden;
     declaration
+}
+
+#[test]
+fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
+    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    for encoded in [false, true] {
+        for jit in [false, true] {
+            let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
+            let original = runtime
+                .host()
+                .path_descriptor(kagari_runtime::HostPathDescriptorId::new(0))
+                .unwrap()
+                .clone();
+            let declaration = runtime
+                .host()
+                .host_type(original.root_type)
+                .unwrap()
+                .declaration
+                .fields[0]
+                .id
+                .clone();
+            let registration = HostPathDescriptorRegistration {
+                root_type: original.root_type,
+                result_type: original.result_type,
+                segments: vec![HostPathSegmentRegistration::Field { declaration }],
+                access: PathAccess::ReadOnly,
+                schema_epoch: HostSchemaEpoch::new(0),
+                capability_requirements: Default::default(),
+            };
+            let target = runtime
+                .register_host_path_descriptor(registration.clone())
+                .unwrap();
+            assert_eq!(target.index(), 1);
+            runtime
+                .register_host_path_adapter(
+                    target,
+                    HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(73))),
+                )
+                .unwrap();
+            let mut bytecode = path_module(
+                &runtime,
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::ReadPath {
+                        dst: Register::new(1),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(1))),
+                ],
+                ValueType::I32,
+            );
+            bytecode.paths[0].contract_fingerprint = runtime
+                .host()
+                .path_descriptor(target)
+                .unwrap()
+                .abi_fingerprint
+                .0;
+            bytecode.paths[0].read_only = true;
+            bytecode.paths[0].debug_name = "deliberately unrelated diagnostic label".into();
+            let program = BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![bytecode],
+            };
+            let mut missing = program.clone();
+            missing.modules[0].paths[0].contract_fingerprint ^= 1;
+            assert_eq!(
+                runtime.load_program("missing", missing).unwrap_err().kind(),
+                RuntimeErrorKind::TypedPathValidation
+            );
+            assert_eq!(runtime.modules().loaded_count(), 0);
+            let program = if encoded {
+                let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
+                KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+                    .unwrap()
+                    .program
+            } else {
+                program
+            };
+            let loaded = runtime.load_program("linked", program.clone()).unwrap();
+            assert_eq!(loaded.path_binding(PathId::new(0)), Some(target));
+            // Later registrations cannot retarget an already linked version.
+            runtime.register_host_path_descriptor(registration).unwrap();
+            assert_eq!(
+                runtime
+                    .load_program("ambiguous", program)
+                    .unwrap_err()
+                    .kind(),
+                RuntimeErrorKind::TypedPathValidation
+            );
+            assert_eq!(runtime.modules().loaded_count(), 1);
+            let mut security = runtime.security();
+            security.profile.allow_jit = true;
+            security.capabilities.jit = true;
+            runtime.set_security_context(security);
+            let mut vm = Vm::new(runtime);
+            let value = if jit {
+                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                vm.execute_with_backend(&loaded, "main", &mut backend)
+                    .unwrap()
+            } else {
+                vm.execute(&loaded, "main").unwrap()
+            };
+            assert_eq!(value.return_value, Value::I32(73));
+        }
+    }
 }

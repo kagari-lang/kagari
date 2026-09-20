@@ -141,7 +141,7 @@ impl<'a> Executor<'a> {
                 let dynamic_args = self.read_path_args(&dynamic_args)?;
                 let value = self
                     .runtime
-                    .read_host_path(&root_or_view, descriptor_id(path), dynamic_args)
+                    .read_host_path(&root_or_view, self.descriptor_id(path)?, dynamic_args)
                     .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
@@ -155,7 +155,12 @@ impl<'a> Executor<'a> {
                 let dynamic_args = self.read_path_args(&dynamic_args)?;
                 let value = self.current_frame()?.read_register(value)?;
                 self.runtime
-                    .set_host_path(&root_or_view, descriptor_id(path), dynamic_args, value)
+                    .set_host_path(
+                        &root_or_view,
+                        self.descriptor_id(path)?,
+                        dynamic_args,
+                        value,
+                    )
                     .map_err(VmError::RuntimeError)?;
             }
             BytecodeInstruction::ModifyPath {
@@ -171,7 +176,13 @@ impl<'a> Executor<'a> {
                 let value = self.current_frame()?.read_register(value)?;
                 let value = self
                     .runtime
-                    .modify_host_path(&root_or_view, descriptor_id(path), dynamic_args, op, value)
+                    .modify_host_path(
+                        &root_or_view,
+                        self.descriptor_id(path)?,
+                        dynamic_args,
+                        op,
+                        value,
+                    )
                     .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?.write_register(dst, value)?;
@@ -189,7 +200,7 @@ impl<'a> Executor<'a> {
                     .runtime
                     .make_host_path_view_from_value(
                         &root_or_view,
-                        descriptor_id(path),
+                        self.descriptor_id(path)?,
                         dynamic_args,
                     )
                     .map_err(VmError::RuntimeError)?;
@@ -357,6 +368,10 @@ impl<'a> Executor<'a> {
     }
 }
 
-fn descriptor_id(path: PathId) -> HostPathDescriptorId {
-    HostPathDescriptorId::new(path.index())
+impl Executor<'_> {
+    fn descriptor_id(&self, path: PathId) -> Result<HostPathDescriptorId, VmError> {
+        self.current_loaded()?
+            .path_binding(path)
+            .ok_or(VmError::Trap("missing linked path"))
+    }
 }

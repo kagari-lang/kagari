@@ -3,6 +3,48 @@ use super::*;
 use crate::metadata::TypeRegistry;
 
 impl HostRegistry {
+    pub(crate) fn link_module(
+        &self,
+        module: &kagari_ir::bytecode::BytecodeModule,
+        types: &TypeRegistry,
+    ) -> Result<crate::module::LinkedHostBindings, RuntimeError> {
+        let functions = self.link_interface(&module.host_interface)?;
+        let paths = module
+            .paths
+            .iter()
+            .map(|required| {
+                let mut candidates = self
+                    .path_descriptors()
+                    .filter(|path| path.abi_fingerprint.0 == required.contract_fingerprint);
+                let actual = candidates.next().ok_or_else(|| {
+                    RuntimeError::typed_path_validation("required path contract is not registered")
+                })?;
+                if candidates.next().is_some() {
+                    return Err(RuntimeError::typed_path_validation(
+                        "required path contract has ambiguous bindings",
+                    ));
+                }
+                let result = self
+                    .host_type(actual.result_type)
+                    .map(|ty| HostValueType::Opaque(ty.declaration.id.clone()))
+                    .or_else(|| types.host_value_type(actual.result_type))
+                    .ok_or_else(|| {
+                        RuntimeError::typed_path_validation("missing path result contract")
+                    })?;
+                if required.root_ty != kagari_ir::module::ValueType::HostHandle
+                    || required.result_ty != kagari_ir::module::ValueType::from_host_type(&result)
+                    || (!required.read_only && actual.access != PathAccess::ReadWrite)
+                {
+                    return Err(RuntimeError::typed_path_validation(
+                        "path operand contract differs from its binding",
+                    ));
+                }
+                Ok(actual.id)
+            })
+            .collect::<Result<Vec<_>, RuntimeError>>()?;
+        Ok(crate::module::LinkedHostBindings { functions, paths })
+    }
+
     pub(super) fn path_fingerprint(
         &self,
         registration: &HostPathDescriptorRegistration,

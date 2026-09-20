@@ -565,6 +565,12 @@ or display strings. Types without such contracts reject registration. Field
 declaration fingerprints and the root contract exclude documentation. Reordering
 unrelated runtime type registrations therefore does not change a path fingerprint.
 
+Bytecode path records require that contract fingerprint. The loader resolves all
+records before publishing the program, rejects missing/ambiguous contracts and
+checks result representation and write access. Each loaded version holds its own
+path bindings. VM path operations consume those bindings; registering descriptors
+later cannot retarget an existing version. Debug names are diagnostic text only.
+
 Example:
 
 ```kagari

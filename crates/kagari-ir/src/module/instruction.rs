@@ -19,6 +19,7 @@ pub struct AggregateFieldRef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRef {
+    pub contract_fingerprint: u64,
     pub root_ty: ValueType,
     pub result_ty: ValueType,
     pub read_only: bool,
