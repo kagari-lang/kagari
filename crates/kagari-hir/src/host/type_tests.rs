@@ -21,6 +21,7 @@ fn interface() -> HostInterface {
         HostValueType::I32,
     );
     HostInterface {
+        field_paths: vec![],
         types: vec![left, right],
         functions: vec![make, take],
     }

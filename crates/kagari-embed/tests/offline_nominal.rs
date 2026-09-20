@@ -37,6 +37,7 @@ fn interface() -> HostInterface {
         HostValueType::I32,
     );
     HostInterface {
+        field_paths: vec![],
         types: vec![item, related, HostTypeDeclaration::new("unused.Other")],
         functions: vec![make, take],
     }

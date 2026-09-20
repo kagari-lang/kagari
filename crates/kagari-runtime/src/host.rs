@@ -263,6 +263,7 @@ pub struct HostPathDescriptorRegistration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPathDescriptor {
+    pub field_declaration: Option<kagari_common::host_interface::HostFieldPathDeclaration>,
     pub id: HostPathDescriptorId,
     pub root_type: TypeId,
     pub result_type: TypeId,
@@ -280,6 +281,7 @@ impl HostPathDescriptor {
         registration: HostPathDescriptorRegistration,
         segments: Vec<HostPathSegment>,
         abi_fingerprint: AbiFingerprint,
+        field_declaration: Option<kagari_common::host_interface::HostFieldPathDeclaration>,
     ) -> Result<Self, RuntimeError> {
         validate_path_access(registration.access, "path descriptor")?;
         let dynamic_parameters = collect_dynamic_parameters(&segments)?;
@@ -317,6 +319,7 @@ impl HostPathDescriptor {
         }
         Ok(Self {
             id,
+            field_declaration,
             root_type: registration.root_type,
             result_type: registration.result_type,
             segments,
@@ -1466,6 +1469,15 @@ impl HostRegistry {
     }
 
     pub fn interface(&self) -> HostInterface {
+        let mut field_paths = Vec::new();
+        for declaration in self
+            .path_descriptors()
+            .filter_map(|path| path.field_declaration.as_ref())
+        {
+            if !field_paths.contains(declaration) {
+                field_paths.push(declaration.clone());
+            }
+        }
         let mut functions = self
             .functions
             .iter()
@@ -1478,7 +1490,11 @@ impl HostRegistry {
             .map(|info| info.declaration.clone())
             .collect::<Vec<_>>();
         types.sort_by(|a, b| a.id.cmp(&b.id));
-        HostInterface { types, functions }
+        HostInterface {
+            field_paths,
+            types,
+            functions,
+        }
     }
 
     /// Checks declarations without invoking any callback or changing registry state.
@@ -1489,6 +1505,25 @@ impl HostRegistry {
         interface
             .validate()
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        for required in &interface.field_paths {
+            let fingerprint = required
+                .contract(interface)
+                .and_then(|contract| contract.fingerprint())
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+            if self
+                .path_descriptors()
+                .filter(|path| {
+                    path.abi_fingerprint.0 == fingerprint
+                        && path.field_declaration.as_ref() == Some(required)
+                })
+                .count()
+                != 1
+            {
+                return Err(RuntimeError::typed_path_validation(
+                    "required field path has missing or ambiguous bindings",
+                ));
+            }
+        }
         for required in &interface.types {
             let actual = self.host_type_by_declaration(&required.id).ok_or_else(|| {
                 RuntimeError::metadata_conflict(format!(
@@ -1701,12 +1736,70 @@ impl HostRegistry {
             segments.push(resolved);
         }
         let id = HostPathDescriptorId::new(self.next_path_descriptor_id);
+        let field_declaration = registration
+            .segments
+            .iter()
+            .map(|segment| match segment {
+                HostPathSegmentRegistration::Field { declaration } => Some(declaration.clone()),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(
+                |fields| kagari_common::host_interface::HostFieldPathDeclaration {
+                    root: root_type.declaration.id.clone(),
+                    fields,
+                    access: registration.access,
+                    schema_epoch: registration.schema_epoch.0,
+                    capabilities: registration.capability_requirements,
+                },
+            );
         let fingerprint = self.path_fingerprint(&registration, &segments, types)?;
-        let descriptor =
-            HostPathDescriptor::from_registration(id, registration, segments, fingerprint)?;
+        let descriptor = HostPathDescriptor::from_registration(
+            id,
+            registration,
+            segments,
+            fingerprint,
+            field_declaration,
+        )?;
         self.next_path_descriptor_id += 1;
         self.path_descriptors.insert(id, descriptor);
         Ok(id)
+    }
+
+    pub(crate) fn register_field_path(
+        &mut self,
+        declaration: &kagari_common::host_interface::HostFieldPathDeclaration,
+        types: &crate::metadata::TypeRegistry,
+    ) -> Result<HostPathDescriptorId, RuntimeError> {
+        let contract = declaration
+            .contract(&self.interface())
+            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
+        let root_type = self
+            .host_type_by_declaration(&declaration.root)
+            .ok_or_else(|| RuntimeError::typed_path_validation("missing field path root"))?
+            .type_id;
+        let result_type = match &contract.result {
+            HostValueType::Opaque(id) => self.host_type_by_declaration(id).map(|ty| ty.type_id),
+            ty => types.host_value_type_id(ty),
+        }
+        .ok_or_else(|| RuntimeError::typed_path_validation("missing field path result type"))?;
+        self.register_path_descriptor(
+            HostPathDescriptorRegistration {
+                root_type,
+                result_type,
+                segments: declaration
+                    .fields
+                    .iter()
+                    .map(|id| HostPathSegmentRegistration::Field {
+                        declaration: id.clone(),
+                    })
+                    .collect(),
+                access: declaration.access,
+                schema_epoch: HostSchemaEpoch(declaration.schema_epoch),
+                capability_requirements: declaration.capabilities,
+            },
+            types,
+        )
     }
 
     pub fn register_path_adapter(

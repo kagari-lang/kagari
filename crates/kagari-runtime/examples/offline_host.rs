@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     declaration.effects.may_trap = true;
     declaration.documentation = "Return the supplied integer.".into();
     let bytes = HostInterface {
+        field_paths: vec![],
         types: Vec::new(),
         functions: vec![declaration.clone()],
     }

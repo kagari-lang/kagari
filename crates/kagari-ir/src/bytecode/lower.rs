@@ -66,6 +66,7 @@ fn lower_linked_module(
         structures: &ir.structures,
         enumerations: &ir.enumerations,
         host_interface: kagari_common::host_interface::HostInterface {
+            field_paths: vec![],
             types: ir.host_types.clone(),
             functions: Vec::new(),
         },

@@ -8,11 +8,13 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 4;
+const VERSION: u16 = 5;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod path;
-pub use path::{HostPathContract, HostPathInput, HostPathSegmentContract};
+pub use path::{
+    HostFieldPathDeclaration, HostPathContract, HostPathInput, HostPathSegmentContract,
+};
 mod value_type;
 pub use value_type::HostValueType;
 mod type_declaration;
@@ -212,6 +214,7 @@ fn validate_signature(
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostInterface {
+    pub field_paths: Vec<HostFieldPathDeclaration>,
     pub types: Vec<HostTypeDeclaration>,
     pub functions: Vec<HostFunctionDeclaration>,
 }
@@ -275,6 +278,23 @@ impl HostInterface {
                 }
             }
         }
+        let mut paths = std::collections::BTreeSet::new();
+        for path in &self.field_paths {
+            self.resolve_field_path(
+                &path.root,
+                &path.fields,
+                path.access,
+                path.schema_epoch,
+                path.capabilities,
+            )?;
+            if !paths.insert(
+                codec()
+                    .serialize(path)
+                    .map_err(|_| HostInterfaceError::Encoding)?,
+            ) {
+                return Err(HostInterfaceError::DuplicateDeclaration);
+            }
+        }
         Ok(())
     }
     pub fn to_bytes(&self) -> Result<Vec<u8>, HostInterfaceError> {
@@ -284,8 +304,23 @@ impl HostInterface {
         functions.sort_by(|a, b| a.id.cmp(&b.id));
         let mut types = self.types.iter().collect::<Vec<_>>();
         types.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut field_paths = self
+            .field_paths
+            .iter()
+            .map(|path| {
+                codec()
+                    .serialize(path)
+                    .map(|key| (key, path))
+                    .map_err(|_| HostInterfaceError::Encoding)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        field_paths.sort_by(|a, b| a.0.cmp(&b.0));
+        let field_paths = field_paths
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect::<Vec<_>>();
         codec()
-            .serialize(&(MAGIC, VERSION, types, functions))
+            .serialize(&(MAGIC, VERSION, types, functions, field_paths))
             .map_err(|_| HostInterfaceError::Encoding)
     }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, HostInterfaceError> {
@@ -297,15 +332,20 @@ impl HostInterface {
         {
             return Err(HostInterfaceError::Version);
         }
-        let (_, _, types, functions): (
+        let (_, _, types, functions, field_paths): (
             [u8; 4],
             u16,
             Vec<HostTypeDeclaration>,
             Vec<HostFunctionDeclaration>,
+            Vec<HostFieldPathDeclaration>,
         ) = codec()
             .deserialize(bytes)
             .map_err(|_| HostInterfaceError::Encoding)?;
-        let interface = Self { types, functions };
+        let interface = Self {
+            types,
+            functions,
+            field_paths,
+        };
         interface.validate()?;
         Ok(interface)
     }

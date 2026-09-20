@@ -157,7 +157,7 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 4, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 5, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. Function
 fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
@@ -167,7 +167,7 @@ a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child
 counts, trailing nodes, excessive depth and invalid Map/Set key types are rejected.
 The function fingerprint domain is `kagari-host-function-v2`; type, field and
 method fingerprints have separate v1 domains. Member declaration order is retained
-because it determines runtime slots. Versions 1 through 3 are not decoded.
+because it determines runtime slots. Versions 1 through 4 are not decoded.
 
 The source `print` entry and CLI log binding use the same `standard_log`
 declaration. Run `cargo run -p kagari-runtime --example offline_host` for an
@@ -568,6 +568,16 @@ and member fingerprint. Types use portable host type contracts, never runtime ID
 or display strings. Types without such contracts reject registration. Field
 declaration fingerprints and the root contract exclude documentation. Reordering
 unrelated runtime type registrations therefore does not change a path fingerprint.
+
+KHI v5 stores `HostInterface.field_paths` as portable `HostFieldPathDeclaration`
+records: nominal root, ordered field identities, access, schema epoch and required
+capabilities. Encoding sorts these records independently of registration order;
+duplicate records, invalid chains and chains longer than 256 fields are rejected.
+`Runtime::register_host_field_path` consumes the same declaration after its types
+are registered and derives the runtime descriptor. Exported runtime interfaces
+retain registered field path declarations. Linking checks these required contracts
+even if a module has no path instruction; missing or ambiguous bindings reject
+publication. Source field syntax and index/virtual path declarations remain pending.
 
 Bytecode path records require that contract fingerprint. The loader resolves all
 records before publishing the program, rejects missing/ambiguous contracts and

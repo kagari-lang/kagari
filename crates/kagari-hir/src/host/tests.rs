@@ -16,6 +16,7 @@ fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
     ));
     declaration.fields[0].documentation = "Current score".into();
     let interface = HostInterface {
+        field_paths: vec![],
         types: vec![declaration.clone()],
         functions: vec![],
     };
@@ -31,6 +32,7 @@ fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
     assert!(old.module("model").is_some());
     declaration.fields[0].ty = HostValueType::I64;
     let new = HostDeclarations::new(HostInterface {
+        field_paths: vec![],
         types: vec![declaration],
         functions: vec![],
     })
@@ -72,6 +74,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
         .unwrap();
     let mut database = AnalysisDatabase::default();
     let original = HostDeclarations::new(HostInterface {
+        field_paths: vec![],
         types: Vec::new(),
         functions: vec![declaration()],
     })
@@ -106,6 +109,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     changed.return_type = HostValueType::String;
     changed.documentation = "Now returns text".into();
     let updated = HostDeclarations::new(HostInterface {
+        field_paths: vec![],
         types: Vec::new(),
         functions: vec![changed],
     })
@@ -163,6 +167,7 @@ fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
         let mut database = AnalysisDatabase::default();
         database.set_host_declarations(
             HostDeclarations::new(HostInterface {
+                field_paths: vec![],
                 types: Vec::new(),
                 functions: vec![declaration()],
             })
@@ -201,6 +206,7 @@ fn host_catalog_rejects_ambiguous_or_unspellable_paths() {
     for name in ["std.echo", "demo::echo", "demo.2bad"] {
         assert!(
             HostDeclarations::new(HostInterface {
+                field_paths: vec![],
                 types: Vec::new(),
                 functions: vec![HostFunctionDeclaration::new(
                     name,
@@ -213,6 +219,7 @@ fn host_catalog_rejects_ambiguous_or_unspellable_paths() {
     }
     assert!(
         HostDeclarations::new(HostInterface {
+            field_paths: vec![],
             types: Vec::new(),
             functions: vec![
                 declaration(),

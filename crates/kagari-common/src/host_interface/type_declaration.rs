@@ -280,6 +280,7 @@ mod tests {
         let call = owner.method_contract(&owner.methods[0].id).unwrap();
         assert_eq!(call.method_owner(), Some(owner.id.clone()));
         let valid = HostInterface {
+            field_paths: vec![],
             types: vec![owner.clone()],
             functions: vec![call],
         };
@@ -318,17 +319,19 @@ mod tests {
             HostValueType::Opaque(b.id.clone()),
         ));
         let first = HostInterface {
+            field_paths: vec![],
             types: vec![a.clone(), b.clone()],
             functions: vec![],
         };
         let second = HostInterface {
+            field_paths: vec![],
             types: vec![b, a],
             functions: vec![],
         };
         let bytes = first.to_bytes().unwrap();
         assert_eq!(bytes, second.to_bytes().unwrap());
         assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), first);
-        for version in [1_u16, 2, 3] {
+        for version in [1_u16, 2, 3, 4] {
             let mut old = bytes.clone();
             old[4..6].copy_from_slice(&version.to_le_bytes());
             assert_eq!(
@@ -370,6 +373,7 @@ mod tests {
         a.methods.clear();
         a.fields[0].ty = HostValueType::Opaque(b.id.clone());
         let mut interface = HostInterface {
+            field_paths: vec![],
             types: vec![a],
             functions: vec![],
         };

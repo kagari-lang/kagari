@@ -29,7 +29,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         vec![],
         HostValueType::I32,
     ));
+    let path_declaration = kagari_common::host_interface::HostFieldPathDeclaration {
+        root: player.id.clone(),
+        fields: vec![player.fields[0].id.clone()],
+        access: PathAccess::ReadOnly,
+        schema_epoch: 0,
+        capabilities: Default::default(),
+    };
     let declarations = HostInterface {
+        field_paths: vec![path_declaration],
         types: vec![player],
         functions: vec![HostFunctionDeclaration::new(
             "demo.echo",
@@ -44,13 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A build process may read these bytes from the binding provider's interface file.
     let offline_bytes = declarations.to_bytes()?;
     let offline = HostInterface::from_bytes(&offline_bytes)?;
-    let path = offline.field_path_contract(
-        &offline.types[0].id,
-        &[offline.types[0].fields[0].id.clone()],
-        PathAccess::ReadOnly,
-        0,
-        Default::default(),
-    )?;
+    let path = offline.field_paths[0].contract(&offline)?;
     println!(
         "offline field path fingerprint: {:016x}",
         path.fingerprint()?

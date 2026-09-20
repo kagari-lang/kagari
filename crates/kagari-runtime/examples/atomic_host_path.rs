@@ -1,9 +1,8 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
 use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
-    HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
+    CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter, HostSchemaEpoch,
     HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, ResourcePolicy, Runtime,
-    RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind, TypeRegistration,
+    RuntimeConfig, RuntimeErrorKind, SecurityContext,
     host::{HostError, PreparedHostPathWrite},
     value::Value,
 };
@@ -33,10 +32,6 @@ fn main() {
         },
         ..Default::default()
     });
-    let scalar = runtime
-        .types()
-        .register(TypeRegistration::new("i32", TypeKind::Primitive))
-        .unwrap();
     let mut player = HostTypeRegistration::new(
         kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
         "Player",
@@ -56,22 +51,18 @@ fn main() {
     let hp_declaration = hp.id.clone();
     player.declaration.fields.push(hp);
 
+    let path_declaration = kagari_common::host_interface::HostFieldPathDeclaration {
+        root: player.declaration.id.clone(),
+        fields: vec![hp_declaration],
+        access: PathAccess::ReadWrite,
+        schema_epoch: 0,
+        capabilities: CapabilitySet::default(),
+    };
     let player = runtime.register_host_type(player).unwrap();
     let root = runtime
         .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
         .unwrap();
-    let path = runtime
-        .register_host_path_descriptor(HostPathDescriptorRegistration {
-            root_type: player,
-            result_type: scalar,
-            segments: vec![HostPathSegmentRegistration::Field {
-                declaration: hp_declaration,
-            }],
-            access: PathAccess::ReadWrite,
-            schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
-        })
-        .unwrap();
+    let path = runtime.register_host_field_path(&path_declaration).unwrap();
     let hp = Rc::new(Cell::new(10));
     let read_hp = hp.clone();
     let prepare_hp = hp.clone();

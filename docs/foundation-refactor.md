@@ -229,7 +229,7 @@ Implemented foundation slices:
   Semantic Struct/Enum/Trait identities now carry a NominalType with declaration
   identity and ordered arguments. Substitution, inference, concreteness, recovery
   and display recurse through those arguments. ABI types preserve the same shape;
-  format 20/runtime ABI v21 reject older products. Layout verification rejects
+  format 21/runtime ABI v22 reject older products. Layout verification rejects
   applied nominal payloads until their concrete layout exists, rather than binding
   them to zero-argument declarations. Reachable struct/enum layouts are now emitted
   per concrete instance and deduplicated. Layouts and function instances share the
@@ -267,7 +267,7 @@ Implemented foundation slices:
   mutable-member identity and evaluation order share source/artifact/JIT-fallback
   conformance fixtures; embedding tests cover foreign runtimes, changed nested
   schemas, rooted old-version survival, same-named standard types and dependencies.
-  Format 20/runtime ABI v21 reject older products. Remaining interface/layout
+  Format 21/runtime ABI v22 reject older products. Remaining interface/layout
   contracts retain R07/R08 acceptance.
   Erroneous signatures retain parameter slots with Error types. Invalid local
   annotations, call targets and indices produce diagnostics; unresolved operands
@@ -429,8 +429,8 @@ Implemented foundation slices:
   example needs no runtime registration. Host calls require the language profile
   and cannot execute in scalar constants. Composite scalar/container declarations
   now cover Tuple, Array, Map, Set, Option and Result; HIR retains nested types and
-  runtime boundaries check complete member shapes with cancellation. KHI v4 and
-  artifact format 20/runtime ABI v21 reject old products; host types use bounded flat nodes
+  runtime boundaries check complete member shapes with cancellation. KHI v5 and
+  artifact format 21/runtime ABI v22 reject old products; host types use bounded flat nodes
   with 4096-node and 64-depth limits. Tests cover malformed type encodings, nested
   source mismatches, wrong callback results, nested borrow escape, foreign/stale
   handles, callback GC and retained roots through source/artifact/JIT fallback.
@@ -452,7 +452,7 @@ Implemented foundation slices:
   Runtime registration consumes this definition and generates slots/fingerprints;
   the old caller-supplied runtime member/fingerprint registration model was removed.
   Batches support mutual references and publish metadata only after all types
-  resolve. KHI v4 and artifact format 20 carry type declarations; linking verifies
+  resolve. KHI v5 and artifact format 21 carry type declarations; linking verifies
   the complete contract and ignores documentation for ABI comparison. Offline
   queries reject stale catalog IDs, and offline_compile reads field declarations
   without a runtime. Tests cover canonical encoding, invalid member owners,
@@ -499,6 +499,12 @@ Implemented foundation slices:
   ownership/access checks. Tests compare offline and registered fingerprints,
   nested interface round trips and invalid chains; offline_compile generates a
   field path contract without starting a runtime. Source lowering remains pending.
+  KHI v5 now persists HostFieldPathDeclaration records with nominal field chains,
+  schema, access and capabilities. Runtime field-path registration consumes these
+  declarations, exported interfaces retain them, and linking rejects missing or
+  ambiguous required paths. Canonical-order, duplicate, length-limit and binding
+  tests plus offline_compile/atomic_host_path exercise the same declaration model.
+  Format 21/runtime ABI v22 reject prior products; source field syntax is pending.
   IR/bytecode path records now require the contract fingerprint. Load and reload
   link module-local paths to runtime descriptors before publication, reject missing
   or ambiguous bindings and validate operand/write contracts. VM execution consumes
@@ -508,11 +514,11 @@ Implemented foundation slices:
   successful bindings and rejection without module publication.
   Source-bytecode, encoded-artifact and existing JIT fallback tests bind path 0 to
   descriptor 1, ignore debug labels and preserve old bindings after registration.
-  Artifact path ABI hashes exclude diagnostic labels. Format 20/runtime ABI v21
+  Artifact path ABI hashes exclude diagnostic labels. Format 21/runtime ABI v22
   reject previous products; source field lowering remains pending.
   Runtime path registration also rejects disconnected field owners
   and index collections before publishing or consuming a descriptor slot; tests
-  cover both root and intermediate mismatches. Format 20/runtime ABI v21
+  cover both root and intermediate mismatches. Format 21/runtime ABI v22
   reject prior products. R06 remains unchecked.
   Source facades now re-export host functions and modules using one final import
   binding table. Name resolution, imported signature/type catalogs and navigation
@@ -536,7 +542,7 @@ Implemented foundation slices:
   sorted and deduplicated. Renaming a binder or reordering equivalent constraints
   preserves ABI. Shared IR/bytecode validation rejects foreign/free parameters,
   escaped Self, wrong nominal kinds and invalid standard-enum arity; exported
-  top-level functions still require concrete signatures. Format 20/runtime ABI v21
+  top-level functions still require concrete signatures. Format 21/runtime ABI v22
   reject previous products. Tests cover artifact round trips, distinct same-named
   dependency types, malformed signatures and ABI rejection before reload publication
   with the old entry intact. The source_modules example inspects a dependency-owned

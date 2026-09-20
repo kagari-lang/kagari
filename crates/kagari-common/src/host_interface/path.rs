@@ -4,6 +4,29 @@ use super::{
     HostValueType, PathAccess, Visibility,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HostFieldPathDeclaration {
+    pub root: DefinitionId,
+    pub fields: Vec<DefinitionId>,
+    pub access: PathAccess,
+    pub schema_epoch: u64,
+    pub capabilities: CapabilitySet,
+}
+impl HostFieldPathDeclaration {
+    pub fn contract(
+        &self,
+        interface: &HostInterface,
+    ) -> Result<HostPathContract, HostInterfaceError> {
+        interface.field_path_contract(
+            &self.root,
+            &self.fields,
+            self.access,
+            self.schema_epoch,
+            self.capabilities,
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostPathInput {
     Field {
@@ -95,6 +118,19 @@ impl HostInterface {
         capabilities: CapabilitySet,
     ) -> Result<HostPathContract, HostInterfaceError> {
         self.validate()?;
+        self.resolve_field_path(root, fields, access, schema_epoch, capabilities)
+    }
+    pub(super) fn resolve_field_path(
+        &self,
+        root: &DefinitionId,
+        fields: &[DefinitionId],
+        access: PathAccess,
+        schema_epoch: u64,
+        capabilities: CapabilitySet,
+    ) -> Result<HostPathContract, HostInterfaceError> {
+        if fields.len() > 256 {
+            return Err(HostInterfaceError::TooLarge);
+        }
         let root = self
             .types
             .iter()
@@ -251,6 +287,7 @@ mod tests {
         nested.path_access = PathAccess::ReadOnly;
         root.fields.push(nested.clone());
         let catalog = HostInterface {
+            field_paths: vec![],
             types: vec![root.clone(), child],
             functions: vec![],
         };
@@ -264,6 +301,36 @@ mod tests {
                 CapabilitySet::default(),
             )
             .unwrap();
+        let declaration = HostFieldPathDeclaration {
+            root: root.id.clone(),
+            fields: fields.to_vec(),
+            access: PathAccess::ReadOnly,
+            schema_epoch: 7,
+            capabilities: CapabilitySet::default(),
+        };
+        let mut published = catalog.clone();
+        let mut next_schema = declaration.clone();
+        next_schema.schema_epoch = 8;
+        published.field_paths = vec![declaration.clone(), next_schema];
+        let encoded = published.to_bytes().unwrap();
+        published.field_paths.reverse();
+        assert_eq!(encoded, published.to_bytes().unwrap());
+        let decoded_paths = HostInterface::from_bytes(&encoded).unwrap();
+        assert_eq!(decoded_paths.field_paths.len(), 2);
+        assert!(
+            decoded_paths
+                .field_paths
+                .iter()
+                .all(|path| path.contract(&decoded_paths).is_ok())
+        );
+        published.field_paths.push(declaration.clone());
+        assert_eq!(
+            published.validate(),
+            Err(HostInterfaceError::DuplicateDeclaration)
+        );
+        published.field_paths = vec![declaration];
+        published.field_paths[0].fields = vec![count.id.clone(); 257];
+        assert_eq!(published.validate(), Err(HostInterfaceError::TooLarge));
         assert_eq!(contract.result, HostValueType::I32);
         assert_eq!(contract.segments.len(), 2);
         let decoded = HostInterface::from_bytes(&catalog.to_bytes().unwrap()).unwrap();

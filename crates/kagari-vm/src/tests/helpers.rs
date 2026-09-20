@@ -186,6 +186,7 @@ fn path_module(
     };
     BytecodeModule {
         host_interface: kagari_common::host_interface::HostInterface {
+            field_paths: vec![],
             types: vec![player_type_declaration()],
             functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.player",

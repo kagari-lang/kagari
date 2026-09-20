@@ -30,6 +30,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let required = declaration();
     let bytecode = BytecodeModule {
         host_interface: HostInterface {
+            field_paths: vec![],
             types: Vec::new(),
             functions: vec![required.clone()],
         },
@@ -190,6 +191,7 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
 fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     let declaration = declaration();
     let interface = HostInterface {
+        field_paths: vec![],
         types: Vec::new(),
         functions: vec![declaration.clone()],
     };
@@ -242,6 +244,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
             runtime
                 .host()
                 .link_interface(&HostInterface {
+                    field_paths: vec![],
                     types: Vec::new(),
                     functions: vec![expected]
                 })
@@ -257,6 +260,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
     runtime
         .host()
         .link_interface(&HostInterface {
+            field_paths: vec![],
             types: Vec::new(),
             functions: vec![docs],
         })
@@ -266,6 +270,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
         runtime
             .host()
             .link_interface(&HostInterface {
+                field_paths: vec![],
                 types: Vec::new(),
                 functions: vec![absent]
             })
@@ -278,12 +283,14 @@ fn offline_encoding_is_canonical_and_rejects_invalid_input() {
     let a = declaration();
     let b = HostFunctionDeclaration::new("game.other", vec![], HostValueType::Unit);
     let first = HostInterface {
+        field_paths: vec![],
         types: Vec::new(),
         functions: vec![a.clone(), b.clone()],
     }
     .to_bytes()
     .unwrap();
     let second = HostInterface {
+        field_paths: vec![],
         types: Vec::new(),
         functions: vec![b, a.clone()],
     }
@@ -308,6 +315,7 @@ fn offline_encoding_is_canonical_and_rejects_invalid_input() {
         Err(HostInterfaceError::TooLarge)
     );
     let duplicate = HostInterface {
+        field_paths: vec![],
         types: Vec::new(),
         functions: vec![a.clone(), a],
     };

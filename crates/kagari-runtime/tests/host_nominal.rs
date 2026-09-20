@@ -124,6 +124,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             host_interface: HostInterface {
+                field_paths: vec![],
                 types: vec![expected_type],
                 functions: vec![declaration],
             },
@@ -349,6 +350,13 @@ fn path_fields_are_derived_from_nominal_declarations() {
     let disabled = HostFieldDeclaration::new(&owner.id, "disabled", HostValueType::I32);
     owner.fields = vec![hp.clone(), hidden.clone(), disabled.clone()];
     let catalog = HostInterface {
+        field_paths: vec![kagari_common::host_interface::HostFieldPathDeclaration {
+            root: owner.id.clone(),
+            fields: vec![hp.id.clone()],
+            access: PathAccess::ReadOnly,
+            schema_epoch: 0,
+            capabilities: CapabilitySet::default(),
+        }],
         types: vec![owner.clone()],
         functions: vec![],
     };
@@ -409,9 +417,12 @@ fn path_fields_are_derived_from_nominal_declarations() {
         );
         assert_eq!(runtime.host().path_descriptors().count(), 0);
     }
+    assert!(runtime.host().link_interface(&offline).is_err());
     let id = runtime
-        .register_host_path_descriptor(registration(hp.id, PathAccess::ReadOnly, scalar))
+        .register_host_field_path(&offline.field_paths[0])
         .unwrap();
+    assert!(runtime.host().link_interface(&offline).is_ok());
+    assert_eq!(runtime.host().interface().field_paths, offline.field_paths);
     let descriptor = runtime.host().path_descriptor(id).unwrap();
     assert_eq!(
         descriptor.abi_fingerprint.0,
