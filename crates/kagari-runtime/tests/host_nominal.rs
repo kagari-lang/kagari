@@ -278,7 +278,8 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
 #[test]
 fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
     use kagari_runtime::{
-        AbiFingerprint, DynamicPathArguments, HostPathDescriptorRegistration, HostPathSegment,
+        AbiFingerprint, DynamicPathArguments, HostPathDescriptorRegistration,
+        HostPathSegmentRegistration,
     };
     let mut local = runtime();
     let mut foreign = runtime();
@@ -293,7 +294,7 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
             .register_host_path_descriptor(HostPathDescriptorRegistration {
                 root_type: ty,
                 result_type: ty,
-                segments: vec![HostPathSegment::Virtual {
+                segments: vec![HostPathSegmentRegistration::Virtual {
                     name: "self".into(),
                     result_type: ty,
                     access: PathAccess::ReadOnly,
@@ -330,4 +331,70 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
     );
     assert!(local.host_scope(&[local_view]).is_ok());
     assert!(local.host_scope(&[foreign_view]).is_err());
+}
+#[test]
+fn path_fields_are_derived_from_nominal_declarations() {
+    use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
+    use kagari_runtime::{
+        AbiFingerprint, HostPathDescriptorRegistration, HostPathSegment,
+        HostPathSegmentRegistration, Visibility,
+    };
+    let mut runtime = runtime();
+    let mut owner = HostTypeDeclaration::new("game.Player");
+    owner.ownership = HostTypeOwnership::HostRoot;
+    owner.path_access = PathAccess::ReadWrite;
+    let mut hp = HostFieldDeclaration::new(&owner.id, "hp", HostValueType::I32);
+    hp.path_access = PathAccess::ReadOnly;
+    let mut hidden = HostFieldDeclaration::new(&owner.id, "hidden", HostValueType::I32);
+    hidden.path_access = PathAccess::ReadOnly;
+    hidden.visibility = Visibility::Private;
+    let disabled = HostFieldDeclaration::new(&owner.id, "disabled", HostValueType::I32);
+    owner.fields = vec![hp.clone(), hidden.clone(), disabled.clone()];
+    let owner_type = runtime
+        .register_host_type(HostTypeRegistration::new(owner.clone(), "Player"))
+        .unwrap();
+    let scalar = runtime.types().get(owner_type).unwrap().fields[0].ty;
+    let registration = |declaration, access, result_type| HostPathDescriptorRegistration {
+        root_type: owner_type,
+        result_type,
+        segments: vec![HostPathSegmentRegistration::Field { declaration }],
+        access,
+        schema_epoch: HostSchemaEpoch::new(0),
+        abi_fingerprint: AbiFingerprint(10),
+        capability_requirements: CapabilitySet::default(),
+    };
+    let other = HostTypeDeclaration::new("other.Player");
+    let foreign_hp = HostFieldDeclaration::new(&other.id, "hp", HostValueType::I32);
+    for bad in [
+        registration(foreign_hp.id, PathAccess::ReadOnly, scalar),
+        registration(hidden.id, PathAccess::ReadOnly, scalar),
+        registration(disabled.id, PathAccess::ReadOnly, scalar),
+        registration(hp.id.clone(), PathAccess::ReadWrite, scalar),
+        registration(hp.id.clone(), PathAccess::ReadOnly, owner_type),
+    ] {
+        assert_eq!(
+            runtime
+                .register_host_path_descriptor(bad)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::TypedPathValidation
+        );
+        assert_eq!(runtime.host().path_descriptors().count(), 0);
+    }
+    let id = runtime
+        .register_host_path_descriptor(registration(hp.id, PathAccess::ReadOnly, scalar))
+        .unwrap();
+    let descriptor = runtime.host().path_descriptor(id).unwrap();
+    let metadata = runtime.types().get(owner_type).unwrap();
+    assert_eq!(
+        descriptor.segments,
+        vec![HostPathSegment::Field {
+            name: "hp".into(),
+            field_id: metadata.fields[0].id,
+            owner_type,
+            result_type: scalar,
+            access: PathAccess::ReadOnly,
+            abi_fingerprint: metadata.fields[0].abi_fingerprint,
+        }]
+    );
 }

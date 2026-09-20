@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use kagari_ir::bytecode::BinaryOp;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
-    FieldMetadataId, HostBorrowTable, HostExposurePolicy, HostObjectId, HostPathAdapter,
-    HostPathDescriptorId, HostPathDescriptorRegistration, HostPathOperation, HostPathSegment,
+    HostBorrowTable, HostExposurePolicy, HostObjectId, HostPathAdapter, HostPathDescriptorId,
+    HostPathDescriptorRegistration, HostPathOperation, HostPathSegmentRegistration,
     HostReflectionPolicy, HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration,
     LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
     TypeKind, TypeRegistration, host::HostError, value::Value,
@@ -502,6 +502,17 @@ fn register_host_root_type(runtime: &mut Runtime, name: &str, access: PathAccess
     );
     registration.declaration.ownership = HostTypeOwnership::HostRoot;
     registration.declaration.path_access = access;
+    for name in ["hp", "secure_hp", "count"] {
+        let mut field = kagari_common::host_interface::HostFieldDeclaration::new(
+            &registration.declaration.id,
+            name,
+            kagari_common::host_interface::HostValueType::I32,
+        );
+        field.writable = access == PathAccess::ReadWrite;
+        field.path_access = access;
+        registration.declaration.fields.push(field);
+    }
+
     registration.declaration.reflection = HostReflectionPolicy::Metadata;
 
     runtime.register_host_type(registration).unwrap()
@@ -517,13 +528,18 @@ fn register_hp_descriptor(
         .register_host_path_descriptor(HostPathDescriptorRegistration {
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegment::Field {
-                name: "hp".to_owned(),
-                field_id: FieldMetadataId::new(0),
-                owner_type: player_id,
-                result_type: i32_id,
-                access,
-                abi_fingerprint: AbiFingerprint(21),
+            segments: vec![HostPathSegmentRegistration::Field {
+                declaration: runtime
+                    .host()
+                    .host_type(player_id)
+                    .unwrap()
+                    .declaration
+                    .fields
+                    .iter()
+                    .find(|field| field.name == "hp")
+                    .unwrap()
+                    .id
+                    .clone(),
             }],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
@@ -540,11 +556,22 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
         rc::{Rc, Weak},
     };
     let mut runtime = path_mutation_runtime();
-    let result_type = runtime
-        .types()
-        .register(TypeRegistration::new("[i32]", TypeKind::Array))
+    use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration, HostValueType};
+    let mut declaration = HostTypeDeclaration::new("game.Player");
+    declaration.ownership = HostTypeOwnership::HostRoot;
+    declaration.path_access = PathAccess::ReadWrite;
+    let mut hp = HostFieldDeclaration::new(
+        &declaration.id,
+        "hp",
+        HostValueType::Array(Box::new(HostValueType::I32)),
+    );
+    hp.writable = true;
+    hp.path_access = PathAccess::ReadWrite;
+    declaration.fields.push(hp);
+    let player_type = runtime
+        .register_host_type(HostTypeRegistration::new(declaration, "Player"))
         .unwrap();
-    let player_type = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let result_type = runtime.types().get(player_type).unwrap().fields[0].ty;
     let root = runtime
         .register_host_root(HostObjectId(1), player_type, HostSchemaEpoch::new(0))
         .unwrap();
@@ -622,15 +649,19 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
     let player = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
-    let field = |owner_type| HostPathSegment::Field {
-        name: "hp".into(),
-        field_id: FieldMetadataId::new(0),
-        owner_type,
-        result_type: scalar,
-        access: PathAccess::ReadWrite,
-        abi_fingerprint: AbiFingerprint(21),
+    let field = |owner_type| HostPathSegmentRegistration::Field {
+        declaration: kagari_common::host_interface::HostFieldDeclaration::new(
+            &kagari_common::host_interface::host_type_identity(if owner_type == player {
+                "game.Player"
+            } else {
+                "game.Other"
+            }),
+            "hp",
+            kagari_common::host_interface::HostValueType::I32,
+        )
+        .id,
     };
-    let index = |collection_type| HostPathSegment::Index {
+    let index = |collection_type| HostPathSegmentRegistration::Index {
         slot: DynamicPathArgSlot::new(0),
         collection_type,
         index_type: scalar,
@@ -685,13 +716,18 @@ fn registers_typed_host_roots_and_simple_path_views() {
         .register_host_path_descriptor(HostPathDescriptorRegistration {
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegment::Field {
-                name: "hp".to_owned(),
-                field_id: FieldMetadataId::new(0),
-                owner_type: player_id,
-                result_type: i32_id,
-                access: PathAccess::ReadWrite,
-                abi_fingerprint: AbiFingerprint(21),
+            segments: vec![HostPathSegmentRegistration::Field {
+                declaration: runtime
+                    .host()
+                    .host_type(player_id)
+                    .unwrap()
+                    .declaration
+                    .fields
+                    .iter()
+                    .find(|field| field.name == "hp")
+                    .unwrap()
+                    .id
+                    .clone(),
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
@@ -719,13 +755,7 @@ fn registers_typed_host_roots_and_simple_path_views() {
 fn validates_dynamic_index_argument_shape_for_path_views() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
-    let item_id = runtime
-        .types()
-        .register(TypeRegistration {
-            abi_fingerprint: AbiFingerprint(11),
-            ..TypeRegistration::new("game.Item", TypeKind::HostPathView)
-        })
-        .unwrap();
+    let item_id = register_host_root_type(&mut runtime, "game.Item", PathAccess::ReadWrite);
     let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let root = runtime
         .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
@@ -735,7 +765,7 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
             root_type: player_id,
             result_type: i32_id,
             segments: vec![
-                HostPathSegment::Index {
+                HostPathSegmentRegistration::Index {
                     slot: DynamicPathArgSlot::new(0),
                     collection_type: player_id,
                     index_type: i32_id,
@@ -743,13 +773,18 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
                     access: PathAccess::ReadWrite,
                     abi_fingerprint: AbiFingerprint(31),
                 },
-                HostPathSegment::Field {
-                    name: "count".to_owned(),
-                    field_id: FieldMetadataId::new(1),
-                    owner_type: item_id,
-                    result_type: i32_id,
-                    access: PathAccess::ReadWrite,
-                    abi_fingerprint: AbiFingerprint(32),
+                HostPathSegmentRegistration::Field {
+                    declaration: runtime
+                        .host()
+                        .host_type(item_id)
+                        .unwrap()
+                        .declaration
+                        .fields
+                        .iter()
+                        .find(|field| field.name == "count")
+                        .unwrap()
+                        .id
+                        .clone(),
                 },
             ],
             access: PathAccess::ReadWrite,
@@ -862,7 +897,7 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
         .register_host_path_descriptor(HostPathDescriptorRegistration {
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegment::Index {
+            segments: vec![HostPathSegmentRegistration::Index {
                 slot: DynamicPathArgSlot::new(0),
                 collection_type: player_id,
                 index_type: i32_id,
@@ -934,13 +969,18 @@ fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
             .register_host_path_descriptor(HostPathDescriptorRegistration {
                 root_type: read_only_id,
                 result_type: i32_id,
-                segments: vec![HostPathSegment::Field {
-                    name: "hp".to_owned(),
-                    field_id: FieldMetadataId::new(0),
-                    owner_type: read_only_id,
-                    result_type: i32_id,
-                    access: PathAccess::ReadOnly,
-                    abi_fingerprint: AbiFingerprint(41),
+                segments: vec![HostPathSegmentRegistration::Field {
+                    declaration: runtime
+                        .host()
+                        .host_type(read_only_id)
+                        .unwrap()
+                        .declaration
+                        .fields
+                        .iter()
+                        .find(|field| field.name == "hp")
+                        .unwrap()
+                        .id
+                        .clone()
                 }],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
@@ -965,13 +1005,18 @@ fn rejects_root_schema_mismatch_when_creating_views() {
         .register_host_path_descriptor(HostPathDescriptorRegistration {
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegment::Field {
-                name: "hp".to_owned(),
-                field_id: FieldMetadataId::new(0),
-                owner_type: player_id,
-                result_type: i32_id,
-                access: PathAccess::ReadWrite,
-                abi_fingerprint: AbiFingerprint(51),
+            segments: vec![HostPathSegmentRegistration::Field {
+                declaration: runtime
+                    .host()
+                    .host_type(player_id)
+                    .unwrap()
+                    .declaration
+                    .fields
+                    .iter()
+                    .find(|field| field.name == "hp")
+                    .unwrap()
+                    .id
+                    .clone(),
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
@@ -1188,13 +1233,18 @@ fn path_execution_enforces_descriptor_capabilities() {
         .register_host_path_descriptor(HostPathDescriptorRegistration {
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegment::Field {
-                name: "secure_hp".to_owned(),
-                field_id: FieldMetadataId::new(2),
-                owner_type: player_id,
-                result_type: i32_id,
-                access: PathAccess::ReadOnly,
-                abi_fingerprint: AbiFingerprint(61),
+            segments: vec![HostPathSegmentRegistration::Field {
+                declaration: runtime
+                    .host()
+                    .host_type(player_id)
+                    .unwrap()
+                    .declaration
+                    .fields
+                    .iter()
+                    .find(|field| field.name == "secure_hp")
+                    .unwrap()
+                    .id
+                    .clone(),
             }],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),

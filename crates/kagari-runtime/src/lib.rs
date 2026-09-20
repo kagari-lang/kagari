@@ -48,8 +48,8 @@ pub use host::{
     HostFrameId, HostFunctionDeclaration, HostFunctionEffects, HostFunctionId, HostObjectId,
     HostPathAdapter, HostPathContext, HostPathDescriptor, HostPathDescriptorId,
     HostPathDescriptorRegistration, HostPathMutationRecord, HostPathOperation, HostPathSegment,
-    HostPathViewHandle, HostReflectionPolicy, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
-    HostTypeOwnership, HostTypeRegistration,
+    HostPathSegmentRegistration, HostPathViewHandle, HostReflectionPolicy, HostRootHandle,
+    HostSchemaEpoch, HostTypeInfo, HostTypeOwnership, HostTypeRegistration,
 };
 pub use host_scope::HostResourceScope;
 pub use metadata::{
@@ -421,7 +421,8 @@ impl Runtime {
         &mut self,
         registration: host::HostPathDescriptorRegistration,
     ) -> Result<host::HostPathDescriptorId, RuntimeError> {
-        self.host.register_path_descriptor(registration)
+        self.host
+            .register_path_descriptor(registration, &self.types)
     }
 
     pub fn register_host_path_adapter(

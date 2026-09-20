@@ -1,7 +1,7 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
 use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, FieldMetadataId, HostExposurePolicy, HostObjectId,
-    HostPathAdapter, HostPathDescriptorRegistration, HostPathSegment, HostSchemaEpoch,
+    AbiFingerprint, CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
+    HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
     HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, ResourcePolicy, Runtime,
     RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind, TypeRegistration,
     host::{HostError, PreparedHostPathWrite},
@@ -46,6 +46,15 @@ fn main() {
     player.declaration.id = kagari_common::host_interface::host_type_identity("game.PlayerState");
     player.declaration.ownership = HostTypeOwnership::HostRoot;
     player.declaration.path_access = PathAccess::ReadWrite;
+    let mut hp = kagari_common::host_interface::HostFieldDeclaration::new(
+        &player.declaration.id,
+        "hp",
+        kagari_common::host_interface::HostValueType::I32,
+    );
+    hp.writable = true;
+    hp.path_access = PathAccess::ReadWrite;
+    let hp_declaration = hp.id.clone();
+    player.declaration.fields.push(hp);
 
     let player = runtime.register_host_type(player).unwrap();
     let root = runtime
@@ -55,13 +64,8 @@ fn main() {
         .register_host_path_descriptor(HostPathDescriptorRegistration {
             root_type: player,
             result_type: scalar,
-            segments: vec![HostPathSegment::Field {
-                name: "hp".into(),
-                field_id: FieldMetadataId::new(0),
-                owner_type: player,
-                result_type: scalar,
-                access: PathAccess::ReadWrite,
-                abi_fingerprint: AbiFingerprint(2),
+            segments: vec![HostPathSegmentRegistration::Field {
+                declaration: hp_declaration,
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),

@@ -7,8 +7,8 @@ use kagari_runtime::host::PreparedHostPathWrite;
 use std::sync::{Arc, Mutex};
 
 use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, FieldMetadataId, HostExposurePolicy, HostObjectId,
-    HostPathAdapter, HostPathDescriptorRegistration, HostPathSegment, HostReflectionPolicy,
+    AbiFingerprint, CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
+    HostPathDescriptorRegistration, HostPathSegmentRegistration, HostReflectionPolicy,
     HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess,
     ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind,
     TypeRegistration,
@@ -116,13 +116,18 @@ fn register_vm_host_path_runtime_with_capabilities(
         .register_host_path_descriptor(HostPathDescriptorRegistration {
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegment::Field {
-                name: "hp".to_owned(),
-                field_id: FieldMetadataId::new(0),
-                owner_type: player_id,
-                result_type: i32_id,
-                access,
-                abi_fingerprint: AbiFingerprint(3),
+            segments: vec![HostPathSegmentRegistration::Field {
+                declaration: runtime
+                    .host()
+                    .host_type(player_id)
+                    .unwrap()
+                    .declaration
+                    .fields
+                    .iter()
+                    .find(|field| field.name == "hp")
+                    .unwrap()
+                    .id
+                    .clone(),
             }],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
@@ -1602,6 +1607,14 @@ fn player_type_declaration() -> kagari_common::host_interface::HostTypeDeclarati
     let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
+    let mut hp = kagari_common::host_interface::HostFieldDeclaration::new(
+        &declaration.id,
+        "hp",
+        kagari_common::host_interface::HostValueType::I32,
+    );
+    hp.writable = true;
+    hp.path_access = PathAccess::ReadWrite;
+    declaration.fields.push(hp);
     declaration.reflection = HostReflectionPolicy::Hidden;
     declaration
 }

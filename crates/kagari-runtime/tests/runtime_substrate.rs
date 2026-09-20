@@ -8,7 +8,7 @@ use kagari_runtime::{
     TraitInfo, TypeId, TypeKind, TypeRegistration, Visibility,
     host::{
         DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-        HostPathSegment, HostSchemaEpoch, HostTypeOwnership,
+        HostPathSegmentRegistration, HostSchemaEpoch, HostTypeOwnership,
     },
     value::{Value, ValueCategory},
 };
@@ -26,6 +26,14 @@ fn path_view_value(object_id: u64) -> Value {
     let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("Player");
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
+    let mut hp = kagari_common::host_interface::HostFieldDeclaration::new(
+        &declaration.id,
+        "hp",
+        kagari_common::host_interface::HostValueType::I32,
+    );
+    hp.writable = true;
+    hp.path_access = PathAccess::ReadWrite;
+    declaration.fields.push(hp);
     let root_type = runtime
         .register_host_type(kagari_runtime::HostTypeRegistration::new(
             declaration,
@@ -39,13 +47,18 @@ fn path_view_value(object_id: u64) -> Value {
         .register_host_path_descriptor(HostPathDescriptorRegistration {
             root_type,
             result_type,
-            segments: vec![HostPathSegment::Field {
-                name: "hp".to_owned(),
-                field_id: FieldMetadataId::new(0),
-                owner_type: root_type,
-                result_type,
-                access: PathAccess::ReadWrite,
-                abi_fingerprint: AbiFingerprint(2),
+            segments: vec![HostPathSegmentRegistration::Field {
+                declaration: runtime
+                    .host()
+                    .host_type(root_type)
+                    .unwrap()
+                    .declaration
+                    .fields
+                    .iter()
+                    .find(|field| field.name == "hp")
+                    .unwrap()
+                    .id
+                    .clone(),
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),

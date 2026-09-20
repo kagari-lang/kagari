@@ -480,8 +480,15 @@ Implemented foundation slices:
   callbacks, capability denial, exclusive receiver reentry conflicts and repeat
   execution after cleanup across source/artifact/JIT fallback routes. The
   offline_compile example compiles a declared method without runtime registration.
-  Host field/path binding, host trait implementations and generated typed paths
-  remain pending. Runtime path registration now rejects disconnected field owners
+  Field path registration now accepts declaration identities instead of hand-written
+  slots, types, permissions and member fingerprints. It resolves fields against the
+  current nominal owner and generates runtime segments from declaration metadata.
+  Tests reject same-named foreign fields, private/disabled fields, access escalation
+  and wrong result types before publication. Existing VM, embedding and GC path
+  fixtures now declare their actual fields; atomic_host_path keeps the field ID
+  directly from its declaration. Source field lowering, host trait implementations,
+  declared index/virtual paths and whole-path fingerprint generation remain pending.
+  Runtime path registration also rejects disconnected field owners
   and index collections before publishing or consuming a descriptor slot; tests
   cover both root and intermediate mismatches. Format 19/runtime ABI v20
   reject prior products. R06 remains unchecked.

@@ -539,11 +539,20 @@ Rules:
 - host-backed field and index chains lower to typed path operations where appropriate
 - frame-scoped host borrow handles are not the script-visible model for nested field access
 
-Runtime path registration checks type continuity before publishing a descriptor:
-the first field owner or index collection must match the root type, and each
-subsequent field owner or index collection must match the preceding segment's
-result. A rejected registration does not consume a descriptor slot. This check
-does not replace declaration-derived member identity and access validation.
+Runtime path registration accepts `HostPathSegmentRegistration`. Its `Field`
+variant contains only a field declaration identity. Registration resolves that
+identity against the current path owner's declared fields and generates the
+field slot, name, result type, path permission and member fingerprint from the
+registered declaration metadata. Private fields and fields without path access
+are rejected. The old caller-supplied field metadata input is removed.
+
+Registration also checks type continuity before publishing a descriptor: an index
+collection must match the preceding segment's result (or the root for the first
+segment), and field identities must belong to that current owner. The requested
+result type and access must agree with the generated segments. Rejection neither
+publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
+output exposed to adapters. Index and virtual segment declarations, whole-path
+fingerprint generation and source field lowering remain separate pending work.
 
 Example:
 

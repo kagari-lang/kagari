@@ -229,10 +229,31 @@ impl HostPathSegment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostPathSegmentRegistration {
+    Field {
+        declaration: DefinitionId,
+    },
+    Index {
+        slot: DynamicPathArgSlot,
+        collection_type: TypeId,
+        index_type: TypeId,
+        result_type: TypeId,
+        access: PathAccess,
+        abi_fingerprint: AbiFingerprint,
+    },
+    Virtual {
+        name: String,
+        result_type: TypeId,
+        access: PathAccess,
+        abi_fingerprint: AbiFingerprint,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPathDescriptorRegistration {
     pub root_type: TypeId,
     pub result_type: TypeId,
-    pub segments: Vec<HostPathSegment>,
+    pub segments: Vec<HostPathSegmentRegistration>,
     pub access: PathAccess,
     pub schema_epoch: HostSchemaEpoch,
     pub abi_fingerprint: AbiFingerprint,
@@ -256,10 +277,11 @@ impl HostPathDescriptor {
     fn from_registration(
         id: HostPathDescriptorId,
         registration: HostPathDescriptorRegistration,
+        segments: Vec<HostPathSegment>,
     ) -> Result<Self, RuntimeError> {
         validate_path_access(registration.access, "path descriptor")?;
-        let dynamic_parameters = collect_dynamic_parameters(&registration.segments)?;
-        let Some(last_segment) = registration.segments.last() else {
+        let dynamic_parameters = collect_dynamic_parameters(&segments)?;
+        let Some(last_segment) = segments.last() else {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor must contain at least one segment",
             ));
@@ -270,7 +292,7 @@ impl HostPathDescriptor {
             ));
         }
         let mut current_type = registration.root_type;
-        for segment in &registration.segments {
+        for segment in &segments {
             let input_type = match segment {
                 HostPathSegment::Field { owner_type, .. } => *owner_type,
                 HostPathSegment::Index {
@@ -295,7 +317,7 @@ impl HostPathDescriptor {
             id,
             root_type: registration.root_type,
             result_type: registration.result_type,
-            segments: registration.segments,
+            segments,
             dynamic_parameters,
             access: registration.access,
             schema_epoch: registration.schema_epoch,
@@ -1585,9 +1607,10 @@ impl HostRegistry {
         self.roots.values().copied()
     }
 
-    pub fn register_path_descriptor(
+    pub(crate) fn register_path_descriptor(
         &mut self,
         registration: HostPathDescriptorRegistration,
+        types: &crate::metadata::TypeRegistry,
     ) -> Result<HostPathDescriptorId, RuntimeError> {
         let Some(root_type) = self.types.get(&registration.root_type) else {
             return Err(RuntimeError::typed_path_validation(
@@ -1605,8 +1628,78 @@ impl HostRegistry {
             ));
         }
 
+        let mut current = registration.root_type;
+        let mut segments = Vec::with_capacity(registration.segments.len());
+        for segment in &registration.segments {
+            let resolved = match segment {
+                HostPathSegmentRegistration::Field { declaration } => {
+                    let owner = self.types.get(&current).ok_or_else(|| {
+                        RuntimeError::typed_path_validation(
+                            "field owner is not a declared host type",
+                        )
+                    })?;
+                    let slot = owner
+                        .declaration
+                        .fields
+                        .iter()
+                        .position(|field| &field.id == declaration)
+                        .ok_or_else(|| {
+                            RuntimeError::typed_path_validation(
+                                "field declaration does not belong to path owner",
+                            )
+                        })?;
+                    let metadata = types.get(current).ok_or_else(|| {
+                        RuntimeError::typed_path_validation("missing host type metadata")
+                    })?;
+                    let field = metadata.fields.get(slot).ok_or_else(|| {
+                        RuntimeError::typed_path_validation("missing host field metadata")
+                    })?;
+                    if field.visibility != crate::metadata::Visibility::Public {
+                        return Err(RuntimeError::typed_path_validation(
+                            "private host fields cannot be exposed as paths",
+                        ));
+                    }
+                    HostPathSegment::Field {
+                        name: field.name.clone(),
+                        field_id: field.id,
+                        owner_type: current,
+                        result_type: field.ty,
+                        access: field.path_access,
+                        abi_fingerprint: field.abi_fingerprint,
+                    }
+                }
+                HostPathSegmentRegistration::Index {
+                    slot,
+                    collection_type,
+                    index_type,
+                    result_type,
+                    access,
+                    abi_fingerprint,
+                } => HostPathSegment::Index {
+                    slot: *slot,
+                    collection_type: *collection_type,
+                    index_type: *index_type,
+                    result_type: *result_type,
+                    access: *access,
+                    abi_fingerprint: *abi_fingerprint,
+                },
+                HostPathSegmentRegistration::Virtual {
+                    name,
+                    result_type,
+                    access,
+                    abi_fingerprint,
+                } => HostPathSegment::Virtual {
+                    name: name.clone(),
+                    result_type: *result_type,
+                    access: *access,
+                    abi_fingerprint: *abi_fingerprint,
+                },
+            };
+            current = resolved.result_type();
+            segments.push(resolved);
+        }
         let id = HostPathDescriptorId::new(self.next_path_descriptor_id);
-        let descriptor = HostPathDescriptor::from_registration(id, registration)?;
+        let descriptor = HostPathDescriptor::from_registration(id, registration, segments)?;
         self.next_path_descriptor_id += 1;
         self.path_descriptors.insert(id, descriptor);
         Ok(id)
