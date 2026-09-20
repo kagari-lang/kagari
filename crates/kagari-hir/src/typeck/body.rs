@@ -605,13 +605,12 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Index { receiver, index } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
                 let index_ty = self.infer_expr_type(*index, env);
-                if receiver_ty.is_unresolved() || index_ty.is_unresolved() {
+                if matches!(receiver_ty, TypeId::Unknown | TypeId::Error)
+                    || index_ty.is_unresolved()
+                {
                     TypeId::Error
                 } else {
-                    let integer_index = index_ty.is_integer();
-                    integer_index
-                        .then(|| self.resolve_index_type(*index, &receiver_ty))
-                        .flatten()
+                    self.resolve_index_type(*index, &receiver_ty)
                         .unwrap_or_else(|| {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::InvalidIndexTarget {

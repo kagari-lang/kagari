@@ -3,6 +3,67 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn indexing_partial_composites_preserves_the_selected_member() {
+    for (text, expected, invalid_index) in [
+        (
+            "fn bad() { (7, missing)[0]; }",
+            TypeId::Builtin(BuiltinType::I32),
+            false,
+        ),
+        (
+            "fn bad(value: (i32, Missing)) { value[0]; }",
+            TypeId::Builtin(BuiltinType::I32),
+            false,
+        ),
+        (
+            "fn bad(value: [(i32, Missing)]) { value[0][0]; }",
+            TypeId::Builtin(BuiltinType::I32),
+            false,
+        ),
+        (
+            "fn bad(value: (i32, Missing)) { value[1]; }",
+            TypeId::Error,
+            false,
+        ),
+        (
+            "fn bad(value: (i32, Missing)) { value[2]; }",
+            TypeId::Error,
+            true,
+        ),
+        (
+            "fn bad(value: (i32, Missing)) { value[true]; }",
+            TypeId::Error,
+            true,
+        ),
+    ] {
+        let source = SourceFile::new("index-recovery.kgr", text);
+        let analysis = crate::analyze_source(&source, Default::default());
+        let facts = analysis.facts();
+        let ty = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter(|(_, expr)| matches!(expr.kind, crate::hir::ExprKind::Index { .. }))
+            .max_by_key(|(id, _)| {
+                let span = facts.lowered.source_map.expr_span(*id);
+                span.end - span.start
+            })
+            .and_then(|(id, _)| facts.typed.type_table.expr_type(id));
+        assert_eq!(ty, Some(expected), "{text}");
+        assert_eq!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
+            )),
+            invalid_index,
+            "{text}"
+        );
+        assert!(analysis.into_codegen().is_err(), "{text}");
+    }
+}
+
+#[test]
 fn composite_annotations_retain_structure_without_authorizing_codegen() {
     for annotation in [
         "(i32, Missing)",

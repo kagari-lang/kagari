@@ -189,6 +189,9 @@ Implemented foundation slices:
   fields, enum payloads, local annotations and constants retain facts and report
   unresolved-type diagnostics; a 24-case matrix verifies queries and codegen
   rejection. The old optional whole-annotation result is removed.
+  Index analysis uses the known outer composite shape even if an unrelated member
+  is erroneous. Tuple and nested-array queries retain selected member types;
+  out-of-range and noninteger tuple indexes still diagnose and reject codegen.
   All local module-level declarations and import aliases now share an immutable
   name table. Calls, annotations, constructors, bounds and impl headers consume
   it; duplicate names retain identities but have no winning target or codegen.
