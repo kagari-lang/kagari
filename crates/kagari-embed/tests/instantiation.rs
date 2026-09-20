@@ -3,13 +3,44 @@ use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine};
 
 #[test]
 fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
+    execute_contextual_source(
+        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty(); val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }",
+        84,
+    );
+}
+
+#[test]
+fn trait_calls_use_checked_parameter_context() {
+    execute_contextual_source(
+        r#"
+        struct Marker<T> { val value: i32 }
+        enum Token<T> { Empty }
+        trait Take { fn take(self, marker: Marker<i32>, token: Token<bool>) -> i32; }
+        struct Actor { val offset: i32 }
+        impl Take for Actor {
+            fn take(self, marker: Marker<i32>, token: Token<bool>) -> i32 { self.offset + marker.value }
+        }
+        fn invoke<T: Take>(value: T) -> i32 { value.take(Marker { value: 40 }, Token::Empty) }
+        fn main() -> i32 { invoke(Actor { offset: 2 }) }
+    "#,
+        42,
+    );
+}
+
+fn execute_contextual_source(source: &str, expected: i32) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.capabilities.jit = true;
-    let artifact = engine.compile_to_artifact(SourceFile::new("context.kgr",
-        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty(); val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }"
-    ), kagari_embed::CompileOptions { language_profile: context.language_profile }, Default::default()).unwrap();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("context.kgr", source),
+            kagari_embed::CompileOptions {
+                language_profile: context.language_profile,
+            },
+            Default::default(),
+        )
+        .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             kagari_embed::BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -30,7 +61,10 @@ fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(result.return_value, kagari_runtime::value::Value::I32(84));
+        assert_eq!(
+            result.return_value,
+            kagari_runtime::value::Value::I32(expected)
+        );
     }
 }
 

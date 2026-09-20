@@ -3,6 +3,41 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn trait_parameter_context_keeps_targets_through_invalid_payloads() {
+    for (arguments, valid) in [
+        ("Marker { value: 7 }, Token::Empty", true),
+        ("Marker { value: true }, Token::Empty", false),
+        ("Marker { value: 7 }", false),
+        ("Marker { value: 7 }, Token::Empty, missing", false),
+    ] {
+        let source = SourceFile::new(
+            "trait-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} enum Token<T> {{ Empty }} trait Take {{ fn take(self, marker: Marker<i32>, token: Token<bool>) -> i32; }} fn invoke<T: Take>(value: T) -> i32 {{ value.take({arguments}) }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{arguments}: {:?}",
+            analysis.diagnostics()
+        );
+        let facts = analysis.facts();
+        assert!(facts.lowered.module.body.expressions().any(|(id, _)| {
+            facts
+                .typed
+                .type_table
+                .call_resolution(id)
+                .is_some_and(|call| {
+                    matches!(call.target, crate::typeck::CallTarget::TraitMethod(_))
+                })
+        }));
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn concrete_call_parameters_supply_constructor_context_and_keep_errors() {
     for (body, valid) in [
         ("take(Marker { value: 7 }, Token::Empty);", true),

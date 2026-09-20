@@ -380,8 +380,9 @@ unit variants with or without parentheses. Known payload types propagate context
 to nested constructors; arity, payload types and generic bounds remain checked.
 Concrete parameter types of resolved local and imported functions supply argument
 context, including through source facades. Extra arguments are still checked.
-Context requiring inference of the callee's generic parameters and trait-method
-argument context are not implemented yet.
+Trait methods use the same argument-context rules after substituting the receiver
+for `Self`. Only concrete parameter types supply context; inference involving
+unresolved callee generic parameters remains unimplemented.
 
 ```ebnf
 type            ::= path generic_args?

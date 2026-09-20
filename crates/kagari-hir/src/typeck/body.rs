@@ -1442,7 +1442,11 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .filter(|param| param.name != "self")
             .collect::<Vec<_>>();
-        let arg_tys = self.infer_call_args(args, env);
+        let param_types = params
+            .iter()
+            .map(|param| param.ty.with_self(self_owner, &self_ty))
+            .collect::<Vec<_>>();
+        let arg_tys = self.infer_typed_args(args, param_types.iter().cloned(), env);
         if params.len() != arg_tys.len() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CallArityMismatch {
@@ -1455,13 +1459,13 @@ impl<'a> BodyChecker<'a> {
         }
         for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
             if let Some(param) = params.get(index) {
-                let expected = param.ty.with_self(self_owner, &self_ty);
+                let expected = &param_types[index];
                 if expected.conflicts_with(arg_ty) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                             function_name: name.clone(),
                             parameter_name: param.name.clone(),
-                            expected: display_type_id(&expected),
+                            expected: display_type_id(expected),
                             found: display_type_id(arg_ty),
                         })
                         .with_span(self.lowered.source_map.expr_span(*arg_expr)),
@@ -1626,7 +1630,11 @@ impl<'a> BodyChecker<'a> {
             .expr_resolution(callee)
             .and_then(|name| self.imported_functions.get(name))
         {
-            let arg_tys = self.infer_function_args(args, &imported.signature, env);
+            let arg_tys = self.infer_typed_args(
+                args,
+                imported.signature.params.iter().map(|p| p.ty.clone()),
+                env,
+            );
             self.type_table
                 .insert_call(call_expr, CallTarget::SourceFunction(imported.id), None);
             if !imported.signature.generic_params.is_empty() {
@@ -1663,7 +1671,8 @@ impl<'a> BodyChecker<'a> {
             self.infer_call_args(args, env);
             return self.infer_expr_type(callee, env);
         };
-        let arg_tys = self.infer_function_args(args, function, env);
+        let arg_tys =
+            self.infer_typed_args(args, function.params.iter().map(|p| p.ty.clone()), env);
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
         let mut substitution = crate::types::TypeSubstitution::new();
@@ -2431,20 +2440,16 @@ impl<'a> BodyChecker<'a> {
             _ => None,
         }
     }
-    fn infer_function_args(
+    fn infer_typed_args(
         &mut self,
         args: &[ExprId],
-        signature: &super::TypedFunction,
+        expected: impl Iterator<Item = TypeId>,
         env: &mut BodyTypeEnv,
     ) -> Vec<(ExprId, TypeId)> {
         args.iter()
-            .enumerate()
-            .map(|(index, argument)| {
-                let expected = signature
-                    .params
-                    .get(index)
-                    .map(|parameter| &parameter.ty)
-                    .filter(|ty| ty.is_concrete());
+            .zip(expected.map(Some).chain(std::iter::repeat(None)))
+            .map(|(argument, expected)| {
+                let expected = expected.as_ref().filter(|ty| ty.is_concrete());
                 (
                     *argument,
                     self.infer_expr_type_expected(*argument, env, expected),

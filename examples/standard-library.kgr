@@ -9,6 +9,12 @@ enum Packet<T> { Data(T) }
 enum Token<T> { Empty }
 fn token() -> Token<bool> { Token::Empty }
 fn marker_value(marker: Marker<bool>, token: Token<bool>) -> i32 { marker.value }
+trait ReadMarker { fn read(self, marker: Marker<bool>) -> i32; }
+struct MarkerReader { val offset: i32 }
+impl ReadMarker for MarkerReader {
+    fn read(self, marker: Marker<bool>) -> i32 { self.offset + marker.value }
+}
+fn read_marker<T: ReadMarker>(reader: T) -> i32 { reader.read(Marker { value: 40 }) }
 fn read_cell<T>(cell: Cell<T>) -> T { cell.value }
 
 // Declared functions take precedence over unqualified helper names.
@@ -22,6 +28,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };
+    std::debug::assert_eq(read_marker(MarkerReader { offset: 2 }), 42, "trait parameter supplies constructor context");
     val empty: Token<bool> = Token::Empty();
     std::debug::assert(empty == token(), "enum context supplies phantom type argument");
     std::debug::assert_eq(marker_value(Marker { value: 42 }, Token::Empty), 42, "call signature supplies constructor context");
