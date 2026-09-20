@@ -157,7 +157,7 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 3, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 4, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. Function
 fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
@@ -167,7 +167,7 @@ a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child
 counts, trailing nodes, excessive depth and invalid Map/Set key types are rejected.
 The function fingerprint domain is `kagari-host-function-v2`; type, field and
 method fingerprints have separate v1 domains. Member declaration order is retained
-because it determines runtime slots. Versions 1 and 2 are not decoded.
+because it determines runtime slots. Versions 1 through 3 are not decoded.
 
 The source `print` entry and CLI log binding use the same `standard_log`
 declaration. Run `cargo run -p kagari-runtime --example offline_host` for an
@@ -221,8 +221,29 @@ contracts before publication, even if there are no host calls in the program.
 `HostHandle` is a separate execution representation; script heap objects cannot
 satisfy an opaque host parameter's representation. Runtime nominal identity,
 ownership, borrow and escape checks still apply. This does not authorize host
-handles or borrows as default script heap payloads. Executable host member/trait
-bindings and generated typed paths remain R06/R07 work.
+handles or borrows as default script heap payloads. Host field/path binding, host trait implementations and generated typed paths
+remain R06/R07 work.
+Host methods are callable through their receiver: `player.read_score()`.
+`HostTypeDeclaration::method_contract` derives the executable contract from the
+member identity, signature, receiver passing style, effects, capabilities and cost.
+The first argument is an explicit `self` of the declaring nominal host type;
+member parameters cannot also use that reserved name. There is no second editable
+method signature. `HostFunction::method` binds a callback to that definition.
+Registration requires its declaring host type to be installed and checks the
+derived contract before publishing the callback slot. Required method imports
+must match their type's member declaration; a missing method callback rejects
+loading even if the type metadata is registered.
+Analysis catalogs derive method call targets without starting a runtime. HIR owns
+the receiver expression and member call identity, including when arguments have
+errors; `host_function_at` returns the generated contract and original member docs.
+Lowering evaluates the receiver first and each explicit argument once, then emits
+the existing linked host call operand. Methods cannot be imported as free functions
+through the type's label. Calls use the generated `type-symbol.method-name` label
+for host exposure policy and preserve the declared capability/effect checks.
+Receiver borrow leases use the ordinary host call scope, including cleanup after
+failure and rejection of conflicting synchronous reentry. Method source calls,
+artifacts and existing JIT fallback share this execution path. Opaque receivers
+remain roots or valid borrow tokens; this does not make path views opaque objects.
 Public host function, type and module re-exports retain their offline declaration
 identities through source facades. The import graph resolves the final binding once; name resolution,
 signature catalogs and navigation consume it. The original source dependency is

@@ -1154,6 +1154,16 @@ impl fmt::Debug for HostFunction {
 }
 
 impl HostFunction {
+    pub fn method(
+        owner: &HostTypeDeclaration,
+        method: &DefinitionId,
+        handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static,
+    ) -> Result<Self, RuntimeError> {
+        let declaration = owner
+            .method_contract(method)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        Ok(Self::new(declaration, handler))
+    }
     pub fn new(
         declaration: HostFunctionDeclaration,
         handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static,
@@ -1382,6 +1392,20 @@ impl HostRegistry {
             .declaration
             .validate()
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        if let Some(owner) = function.declaration.method_owner() {
+            let ty = self.host_type_by_declaration(&owner).ok_or_else(|| {
+                RuntimeError::metadata_conflict("host method owner is not registered")
+            })?;
+            let required = ty
+                .declaration
+                .method_contract(&function.declaration.id)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+            if !required.matches_binding(&function.declaration) {
+                return Err(RuntimeError::metadata_conflict(
+                    "host method binding differs from its member declaration",
+                ));
+            }
+        }
         let symbol = function.declaration.symbol.to_owned();
         if self.function_names.contains_key(&symbol)
             || self

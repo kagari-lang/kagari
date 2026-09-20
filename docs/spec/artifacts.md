@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 18 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 19 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 17 are rejected; no migration or compatibility
+format version. Versions 1 through 18 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
@@ -92,7 +92,11 @@ including the transitive closure of member references. IR and bytecode validatio
 reject semantic host references absent from the required interface, including
 annotation-only public signatures and concrete layout arguments. Registration and
 linking still validate full declaration contracts before execution.
-The runtime ABI identity is `kagari-runtime-abi-v19`; the runtime-helper ABI is
+Version 19 permits required host call records with member declaration identities.
+These records must equal the declaring host type's generated method contract,
+including its explicit nominal receiver and passing style. KHI v4 carries the
+same checked method call contracts; old interface versions are rejected.
+The runtime ABI identity is `kagari-runtime-abi-v20`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -103,7 +107,8 @@ typed standard-enum tags. Runtime ABI v16 additionally requires nominal host typ
 bindings and registry-owned host roots. ABI v17 requires complete member contract
 linking and declaration-derived registration. ABI v18 requires structured public
 type and bound contracts for reload validation. ABI v19 requires the distinct host
-handle representation and source nominal host contracts; all prior ABI products
+handle representation and source nominal host contracts. ABI v20 requires
+declaration-derived method binding and receiver contracts; all prior ABI products
 are rejected.
 The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.

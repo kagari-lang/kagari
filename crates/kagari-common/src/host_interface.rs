@@ -8,7 +8,7 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 3;
+const VERSION: u16 = 4;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod value_type;
@@ -87,6 +87,14 @@ pub struct HostFunctionDeclaration {
 }
 
 impl HostFunctionDeclaration {
+    pub fn method_owner(&self) -> Option<DefinitionId> {
+        if self.id.path.last()?.kind != DefinitionKind::Method {
+            return None;
+        }
+        let mut owner = self.id.clone();
+        owner.path.pop();
+        Some(owner)
+    }
     pub fn matches_binding(&self, actual: &Self) -> bool {
         self.id == actual.id
             && self.symbol == actual.symbol
@@ -131,13 +139,20 @@ impl HostFunctionDeclaration {
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
         if self.symbol.is_empty()
             || self.symbol.split('.').any(str::is_empty)
-            || self
-                .id
-                .path
-                .last()
-                .is_none_or(|p| p.kind != DefinitionKind::Function || p.name.is_empty())
+            || self.id.path.last().is_none_or(|p| {
+                !matches!(p.kind, DefinitionKind::Function | DefinitionKind::Method)
+                    || p.name.is_empty()
+            })
         {
             return Err(HostInterfaceError::InvalidDeclaration);
+        }
+        if let Some(owner) = self.method_owner() {
+            validate_host_type_identity(&owner)?;
+            if self.params.first().is_none_or(|receiver| {
+                receiver.name != "self" || receiver.ty != HostValueType::Opaque(owner)
+            }) {
+                return Err(HostInterfaceError::InvalidDeclaration);
+            }
         }
         validate_signature(&self.params, &self.return_type)
     }
@@ -216,6 +231,19 @@ impl HostInterface {
             .collect::<std::collections::HashSet<_>>();
         for function in &self.functions {
             function.validate()?;
+            if let Some(owner) = function.method_owner() {
+                let declaration = self
+                    .types
+                    .iter()
+                    .find(|ty| ty.id == owner)
+                    .ok_or(HostInterfaceError::InvalidDeclaration)?;
+                if !declaration
+                    .method_contract(&function.id)?
+                    .matches_binding(function)
+                {
+                    return Err(HostInterfaceError::InvalidDeclaration);
+                }
+            }
             if !ids.insert(&function.id) || !symbols.insert(&function.symbol) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }

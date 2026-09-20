@@ -122,6 +122,36 @@ pub struct HostTypeDeclaration {
 }
 
 impl HostTypeDeclaration {
+    /// Executable contract derived solely from this member declaration.
+    pub fn method_contract(
+        &self,
+        id: &DefinitionId,
+    ) -> Result<super::HostFunctionDeclaration, HostInterfaceError> {
+        self.validate()?;
+        let method = self
+            .methods
+            .iter()
+            .find(|method| &method.id == id)
+            .ok_or(HostInterfaceError::InvalidDeclaration)?;
+        let mut params = vec![HostParameter {
+            name: "self".into(),
+            ty: HostValueType::Opaque(self.id.clone()),
+            passing: method.receiver,
+        }];
+        params.extend(method.params.iter().cloned());
+        let function = super::HostFunctionDeclaration {
+            id: method.id.clone(),
+            symbol: format!("{}.{}", self.symbol, method.name),
+            params,
+            return_type: method.return_type.clone(),
+            capability_requirements: method.capability_requirements,
+            resource_cost_hint: method.resource_cost_hint,
+            effects: method.effects,
+            documentation: method.documentation.clone(),
+        };
+        function.validate()?;
+        Ok(function)
+    }
     pub fn new(symbol: impl Into<String>) -> Self {
         let symbol = symbol.into();
         Self {
@@ -164,6 +194,11 @@ impl HostTypeDeclaration {
             }
             // Parameter and result rules are the same as standalone functions.
             super::validate_signature(&method.params, &method.return_type)?;
+            if method.params.len() >= u16::MAX as usize
+                || method.params.iter().any(|param| param.name == "self")
+            {
+                return Err(HostInterfaceError::InvalidDeclaration);
+            }
         }
         Ok(())
     }
@@ -237,6 +272,43 @@ mod tests {
     use crate::host_interface::HostInterface;
 
     #[test]
+    fn callable_method_contracts_cannot_override_their_declaring_member() {
+        let mut owner = HostTypeDeclaration::new("demo.Counter");
+        let mut method = HostMethodDeclaration::new(&owner.id, "add", vec![], HostValueType::I32);
+        method.receiver = HostPassingStyle::UniqueBorrow;
+        owner.methods.push(method);
+        let call = owner.method_contract(&owner.methods[0].id).unwrap();
+        assert_eq!(call.method_owner(), Some(owner.id.clone()));
+        let valid = HostInterface {
+            types: vec![owner.clone()],
+            functions: vec![call],
+        };
+        assert_eq!(
+            HostInterface::from_bytes(&valid.to_bytes().unwrap()).unwrap(),
+            valid
+        );
+        for corruption in 0..5 {
+            let mut invalid = valid.clone();
+            match corruption {
+                0 => invalid.functions[0].params[0].passing = HostPassingStyle::Owned,
+                1 => invalid.functions[0].effects.may_mutate_host_state = true,
+                2 => invalid.functions[0].symbol = "other.add".into(),
+                3 => {
+                    invalid.types.clear();
+                }
+                _ => invalid.functions[0].id.path.last_mut().unwrap().name = "missing".into(),
+            }
+            assert!(invalid.validate().is_err(), "corruption {corruption}");
+        }
+        owner.methods[0].params.push(HostParameter {
+            name: "self".into(),
+            ty: HostValueType::I32,
+            passing: HostPassingStyle::Owned,
+        });
+        assert!(owner.validate().is_err());
+    }
+
+    #[test]
     fn interface_encoding_is_canonical_and_rejects_old_memberless_formats() {
         let mut a = HostTypeDeclaration::new("pkg.A");
         let b = HostTypeDeclaration::new("pkg.B");
@@ -256,7 +328,7 @@ mod tests {
         let bytes = first.to_bytes().unwrap();
         assert_eq!(bytes, second.to_bytes().unwrap());
         assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), first);
-        for version in [1_u16, 2] {
+        for version in [1_u16, 2, 3] {
             let mut old = bytes.clone();
             old[4..6].copy_from_slice(&version.to_le_bytes());
             assert_eq!(

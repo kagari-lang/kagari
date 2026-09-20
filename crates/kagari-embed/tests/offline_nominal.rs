@@ -43,6 +43,184 @@ fn interface() -> HostInterface {
 }
 
 #[test]
+fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once() {
+    use kagari_common::host_interface::HostMethodDeclaration;
+    let mut interface = interface();
+    let mut method = HostMethodDeclaration::new(
+        &interface.types[0].id,
+        "add",
+        vec![HostParameter {
+            name: "amount".into(),
+            ty: HostValueType::I32,
+            passing: HostPassingStyle::Owned,
+        }],
+        HostValueType::I32,
+    );
+    method.receiver = HostPassingStyle::UniqueBorrow;
+    method.effects.may_mutate_host_state = true;
+    method.capability_requirements.fs_write = true;
+    let method_id = method.id.clone();
+    interface.types[0].methods.push(method);
+    let rhs = HostFunctionDeclaration::new("left.rhs", vec![], HostValueType::I32);
+    interface.functions.push(rhs.clone());
+    let engine = KagariEngine::default();
+    engine.set_host_interface(interface.clone()).unwrap();
+    let profile = LanguageProfile {
+        allow_host_calls: true,
+        allow_jit: true,
+        ..Default::default()
+    };
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "method.kgr",
+                "use left as api; fn main() -> i32 { api::make().add(api::rhs()) }",
+            ),
+            CompileOptions {
+                language_profile: profile,
+            },
+            Default::default(),
+        )
+        .unwrap();
+    let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
+    let call = required
+        .functions
+        .iter()
+        .find(|f| f.id == method_id)
+        .unwrap();
+    assert_eq!(
+        call,
+        &interface.types[0].method_contract(&method_id).unwrap()
+    );
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        let context = ExecutionContext {
+            language_profile: profile,
+            capabilities: CapabilitySet {
+                host_calls: true,
+                jit: true,
+                fs_write: true,
+                ..Default::default()
+            },
+            host_policy: HostExposurePolicy {
+                allowed_host_functions: vec![
+                    "left.make".into(),
+                    "left.rhs".into(),
+                    "left.Item.add".into(),
+                ],
+                ..Default::default()
+            },
+            jit_policy: if jit {
+                kagari_embed::JitPolicy::Enabled
+            } else {
+                kagari_embed::JitPolicy::Disabled
+            },
+            ..Default::default()
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let types = runtime
+            .register_host_types(
+                interface.types[..2]
+                    .iter()
+                    .cloned()
+                    .map(|ty| HostTypeRegistration::new(ty, "Object"))
+                    .collect(),
+            )
+            .unwrap();
+        let root = runtime
+            .runtime_mut()
+            .register_host_root(HostObjectId(8), types[0], HostSchemaEpoch::new(0))
+            .unwrap();
+        let trace = Rc::new(RefCell::new(Vec::new()));
+        let calls = trace.clone();
+        runtime
+            .register_host_function(HostFunction::new(
+                interface.functions[0].clone(),
+                move |_, _| {
+                    calls.borrow_mut().push("receiver");
+                    Ok(Value::HostRoot(root))
+                },
+            ))
+            .unwrap();
+        let calls = trace.clone();
+        runtime
+            .register_host_function(HostFunction::new(rhs.clone(), move |_, _| {
+                calls.borrow_mut().push("argument");
+                Ok(Value::I32(2))
+            }))
+            .unwrap();
+        assert!(
+            runtime
+                .load_program(artifact.clone(), Default::default())
+                .is_err()
+        );
+        assert!(trace.borrow().is_empty());
+        let mut wrong = interface.types[0].method_contract(&method_id).unwrap();
+        wrong.params[0].passing = HostPassingStyle::Owned;
+        assert!(
+            runtime
+                .register_host_function(HostFunction::new(wrong, |_, _| panic!(
+                    "invalid member binding"
+                )))
+                .is_err()
+        );
+        let total = Rc::new(std::cell::Cell::new(40));
+        let state = total.clone();
+        let calls = trace.clone();
+        runtime
+            .register_host_function(
+                HostFunction::method(&interface.types[0], &method_id, move |context, args| {
+                    calls.borrow_mut().push("method");
+                    assert!(
+                        context
+                            .runtime()
+                            .invoke_host("left.Item.add", args)
+                            .is_err(),
+                        "the receiver's exclusive lease prevents recursive access"
+                    );
+                    let Value::I32(amount) = args[1] else {
+                        panic!("checked parameter")
+                    };
+                    state.set(state.get() + amount);
+                    context.runtime().collect_garbage().unwrap();
+                    Ok(Value::I32(state.get()))
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let mut denied = context.clone();
+        denied.jit_policy = kagari_embed::JitPolicy::Disabled;
+        denied.capabilities.fs_write = false;
+        assert!(runtime.execute(&loaded, "main", &[], &denied).is_err());
+        assert_eq!(total.get(), 40);
+        assert_eq!(*trace.borrow(), ["receiver", "argument"]);
+        trace.borrow_mut().clear();
+        let mut backend = jit.then(|| kagari_jit_cranelift::CraneliftBackend::for_host().unwrap());
+        for expected in [42, 44] {
+            let result = if let Some(backend) = &mut backend {
+                runtime.execute_with_backend(&loaded, "main", &[], &context, backend)
+            } else {
+                runtime.execute(&loaded, "main", &[], &context)
+            }
+            .unwrap();
+            assert_eq!(result.return_value, Value::I32(expected));
+        }
+        assert_eq!(
+            *trace.borrow(),
+            [
+                "receiver", "argument", "method", "receiver", "argument", "method"
+            ]
+        );
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    }
+}
+
+#[test]
 fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
     let interface = interface();
     let engine = KagariEngine::default();

@@ -95,7 +95,15 @@ impl FileAnalysis {
             .module
             .body
             .expressions()
-            .filter_map(|(id, _)| {
+            .filter_map(|(id, expr)| {
+                if let ExprKind::Call { callee, .. } = expr.kind
+                    && let Some(call) = facts.typed.type_table.call_resolution(id)
+                    && let crate::typeck::CallTarget::HostFunction(host) = call.target
+                {
+                    let span = facts.lowered.source_map.expr_span(callee);
+                    return (span.start <= offset && offset < span.end)
+                        .then_some((span.end - span.start, host));
+                }
                 let span = facts.lowered.source_map.expr_span(id);
                 if !(span.start <= offset && offset < span.end) {
                     return None;

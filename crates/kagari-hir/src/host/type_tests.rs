@@ -27,6 +27,77 @@ fn interface() -> HostInterface {
 }
 
 #[test]
+fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
+    let mut declarations = interface();
+    let owner = &mut declarations.types[0];
+    let mut method = kagari_common::host_interface::HostMethodDeclaration::new(
+        &owner.id,
+        "add",
+        vec![HostParameter {
+            name: "amount".into(),
+            ty: HostValueType::I32,
+            passing: HostPassingStyle::Owned,
+        }],
+        HostValueType::I32,
+    );
+    method.documentation = "Add to the host counter".into();
+    let identity = method.id.clone();
+    owner.methods.push(method);
+    for argument in ["2", "true", "", "2, 3"] {
+        let text = format!("use left as api; fn main() -> i32 {{ api::make().add({argument}) }}");
+        let mut sources = SourceDatabase::default();
+        let root = sources
+            .set("mem://method", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let mut db = AnalysisDatabase::default();
+        db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
+        let snapshot = db
+            .snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile {
+                    allow_host_calls: true,
+                    ..Default::default()
+                },
+                &Default::default(),
+            )
+            .unwrap();
+        let file = snapshot.file(root).unwrap();
+        assert_eq!(
+            file.result().diagnostics().is_empty(),
+            argument == "2",
+            "{:?}",
+            file.result().diagnostics()
+        );
+        let target = file.host_function_at(text.find("add(").unwrap()).unwrap();
+        if argument.is_empty() {
+            assert!(
+                file.result()
+                    .diagnostics()
+                    .iter()
+                    .any(|diagnostic| matches!(
+                        diagnostic.kind,
+                        kagari_common::DiagnosticKind::CallArityMismatch {
+                            expected: 1,
+                            found: 0,
+                            ..
+                        }
+                    ))
+            );
+        }
+        assert_eq!(target.id, identity);
+        assert_eq!(target.documentation, "Add to the host counter");
+        assert_eq!(
+            target.params[0].ty,
+            HostValueType::Opaque(declarations.types[0].id.clone())
+        );
+        assert_eq!(
+            snapshot.check_program(root, &Default::default()).is_ok(),
+            argument == "2"
+        );
+    }
+}
+
+#[test]
 fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
     let mut sources = SourceDatabase::default();
     sources

@@ -553,6 +553,8 @@ impl<'a> BodyChecker<'a> {
                     ty
                 } else if let Some(ty) = self.infer_host_call_type(expr_id, *callee, args, env) {
                     ty
+                } else if let Some(ty) = self.infer_host_method_call(expr_id, *callee, args, env) {
+                    ty
                 } else if let Some(standard_ty) =
                     self.infer_standard_call_type(expr_id, *callee, args, env)
                 {
@@ -1185,6 +1187,29 @@ impl<'a> BodyChecker<'a> {
             .insert_call(call, CallTarget::HostFunction(id), None);
         Some(self.infer_host_signature(&declaration, &declaration.symbol, callee, args, env))
     }
+    fn infer_host_method_call(
+        &mut self,
+        call: ExprId,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let ExprKind::Field { receiver, name } = &self.lowered.module.expr(callee).kind else {
+            return None;
+        };
+        let receiver = *receiver;
+        let ty = self.infer_expr_type(receiver, env);
+        let TypeId::Host(owner) = ty else {
+            return None;
+        };
+        let id = self.names.hosts.method(&owner, name)?;
+        let declaration = self.names.hosts.function(id)?.clone();
+        self.type_table
+            .insert_call(call, CallTarget::HostFunction(id), Some(receiver));
+        let mut operands = vec![receiver];
+        operands.extend_from_slice(args);
+        Some(self.infer_host_signature(&declaration, &declaration.symbol, callee, &operands, env))
+    }
 
     fn infer_host_signature(
         &mut self,
@@ -1196,7 +1221,13 @@ impl<'a> BodyChecker<'a> {
     ) -> TypeId {
         let args = self.infer_call_args(args, env);
         if args.len() != declaration.params.len() {
-            self.check_builtin_arity(name, declaration.params.len(), args.len(), callee);
+            let implicit = usize::from(declaration.method_owner().is_some());
+            self.check_builtin_arity(
+                name,
+                declaration.params.len() - implicit,
+                args.len().saturating_sub(implicit),
+                callee,
+            );
             return TypeId::Error;
         }
         for ((arg, found), parameter) in args.iter().zip(&declaration.params) {

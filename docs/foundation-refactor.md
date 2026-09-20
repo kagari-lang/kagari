@@ -229,7 +229,7 @@ Implemented foundation slices:
   Semantic Struct/Enum/Trait identities now carry a NominalType with declaration
   identity and ordered arguments. Substitution, inference, concreteness, recovery
   and display recurse through those arguments. ABI types preserve the same shape;
-  format 18/runtime ABI v19 reject older products. Layout verification rejects
+  format 19/runtime ABI v20 reject older products. Layout verification rejects
   applied nominal payloads until their concrete layout exists, rather than binding
   them to zero-argument declarations. Reachable struct/enum layouts are now emitted
   per concrete instance and deduplicated. Layouts and function instances share the
@@ -267,7 +267,7 @@ Implemented foundation slices:
   mutable-member identity and evaluation order share source/artifact/JIT-fallback
   conformance fixtures; embedding tests cover foreign runtimes, changed nested
   schemas, rooted old-version survival, same-named standard types and dependencies.
-  Format 18/runtime ABI v19 reject older products. Remaining interface/layout
+  Format 19/runtime ABI v20 reject older products. Remaining interface/layout
   contracts retain R07/R08 acceptance.
   Erroneous signatures retain parameter slots with Error types. Invalid local
   annotations, call targets and indices produce diagnostics; unresolved operands
@@ -429,8 +429,8 @@ Implemented foundation slices:
   example needs no runtime registration. Host calls require the language profile
   and cannot execute in scalar constants. Composite scalar/container declarations
   now cover Tuple, Array, Map, Set, Option and Result; HIR retains nested types and
-  runtime boundaries check complete member shapes with cancellation. KHI v3 and
-  artifact format 18/runtime ABI v19 reject old products; host types use bounded flat nodes
+  runtime boundaries check complete member shapes with cancellation. KHI v4 and
+  artifact format 19/runtime ABI v20 reject old products; host types use bounded flat nodes
   with 4096-node and 64-depth limits. Tests cover malformed type encodings, nested
   source mismatches, wrong callback results, nested borrow escape, foreign/stale
   handles, callback GC and retained roots through source/artifact/JIT fallback.
@@ -438,7 +438,7 @@ Implemented foundation slices:
   compiles array contracts through a facade. Artifact and verification-metadata
   constructors are now fallible and verify before fingerprinting. In-memory loader
   checks reject malformed host types before serialization; invalid root fallback
-  metadata was removed. Executable host member/trait integration
+  metadata was removed. Host field/path and trait integration
   remains outstanding; this does not mark R06 complete.
   Host type registrations now carry declaration identities independent of labels.
   Duplicate/invalid identities reject before general metadata registration, and
@@ -452,7 +452,7 @@ Implemented foundation slices:
   Runtime registration consumes this definition and generates slots/fingerprints;
   the old caller-supplied runtime member/fingerprint registration model was removed.
   Batches support mutual references and publish metadata only after all types
-  resolve. KHI v3 and artifact format 16 carry type declarations; linking verifies
+  resolve. KHI v4 and artifact format 19 carry type declarations; linking verifies
   the complete contract and ignores documentation for ABI comparison. Offline
   queries reject stale catalog IDs, and offline_compile reads field declarations
   without a runtime. Tests cover canonical encoding, invalid member owners,
@@ -469,8 +469,19 @@ Implemented foundation slices:
   transitive linking, callback GC and source/artifact/existing-JIT fallback call
   traces. The offline_compile example exports a facade-typed host signature without
   runtime registration. The obsolete unsupported-host-type diagnostic and duplicate
-  IR host-contract validation path are removed. Executable host member/trait binding
-  and generated typed path integration remain pending; format 18/runtime ABI v19
+  IR host-contract validation path are removed. Host methods now derive executable
+  contracts from their member declarations, with explicit nominal receivers and
+  declared borrowing, effects, capabilities and resource cost. Offline analysis
+  resolves receiver calls and preserves their target/docs under argument errors.
+  Registration rejects missing owners or changed contracts before installing
+  callbacks, and linking rejects missing methods. Lowering evaluates receivers
+  before arguments once and uses existing linked host slots. Common/HIR/embedding
+  tests cover corrupted contracts, offline queries, failed registration, missing
+  callbacks, capability denial, exclusive receiver reentry conflicts and repeat
+  execution after cleanup across source/artifact/JIT fallback routes. The
+  offline_compile example compiles a declared method without runtime registration.
+  Host field/path binding, host trait implementations and generated typed paths
+  remain pending; format 19/runtime ABI v20
   reject prior products. R06 remains unchecked.
   Source facades now re-export host functions and modules using one final import
   binding table. Name resolution, imported signature/type catalogs and navigation
@@ -494,7 +505,7 @@ Implemented foundation slices:
   sorted and deduplicated. Renaming a binder or reordering equivalent constraints
   preserves ABI. Shared IR/bytecode validation rejects foreign/free parameters,
   escaped Self, wrong nominal kinds and invalid standard-enum arity; exported
-  top-level functions still require concrete signatures. Format 18/runtime ABI v19
+  top-level functions still require concrete signatures. Format 19/runtime ABI v20
   reject previous products. Tests cover artifact round trips, distinct same-named
   dependency types, malformed signatures and ABI rejection before reload publication
   with the old entry intact. The source_modules example inspects a dependency-owned

@@ -1,8 +1,8 @@
 //! Compile against declarations without registering callbacks or starting services.
 use kagari_common::{
     host_interface::{
-        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostParameter,
-        HostPassingStyle, HostTypeDeclaration, HostValueType,
+        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
+        HostParameter, HostPassingStyle, HostTypeDeclaration, HostValueType,
     },
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
@@ -19,6 +19,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     player.documentation =
         "Host-owned player metadata, available without business services.".into();
+    player.methods.push(HostMethodDeclaration::new(
+        &player.id,
+        "read_score",
+        vec![],
+        HostValueType::I32,
+    ));
     let declarations = HostInterface {
         types: vec![player],
         functions: vec![HostFunctionDeclaration::new(
@@ -48,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api as api; pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");

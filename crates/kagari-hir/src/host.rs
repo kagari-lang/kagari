@@ -37,13 +37,27 @@ pub struct HostDeclarations {
     revision: u64,
     interface: HostInterface,
     paths: HashMap<String, HostFunctionId>,
+    methods: HashMap<(kagari_common::identity::DefinitionId, String), HostFunctionId>,
     type_paths: HashMap<String, HostTypeId>,
     type_identities: HashMap<kagari_common::identity::DefinitionId, HostTypeId>,
     modules: Vec<String>,
 }
 
 impl HostDeclarations {
-    pub fn new(interface: HostInterface) -> Result<Arc<Self>, HostInterfaceError> {
+    pub fn new(mut interface: HostInterface) -> Result<Arc<Self>, HostInterfaceError> {
+        interface.validate()?;
+        let mut present = interface
+            .functions
+            .iter()
+            .map(|f| f.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        for owner in &interface.types {
+            for method in &owner.methods {
+                if present.insert(method.id.clone()) {
+                    interface.functions.push(owner.method_contract(&method.id)?);
+                }
+            }
+        }
         interface.validate()?;
         if interface
             .functions
@@ -74,11 +88,26 @@ impl HostDeclarations {
             .functions
             .iter()
             .enumerate()
+            .filter(|(_, declaration)| declaration.method_owner().is_none())
             .map(|(index, declaration)| {
                 (
                     declaration.symbol.replace('.', "::"),
                     HostFunctionId { revision, index },
                 )
+            })
+            .collect();
+        let methods = interface
+            .functions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                Some((
+                    (
+                        declaration.method_owner()?,
+                        declaration.id.path.last()?.name.clone(),
+                    ),
+                    HostFunctionId { revision, index },
+                ))
             })
             .collect();
         let mut modules = std::collections::BTreeSet::new();
@@ -102,6 +131,7 @@ impl HostDeclarations {
         for symbol in interface
             .functions
             .iter()
+            .filter(|function| function.method_owner().is_none())
             .map(|function| &function.symbol)
             .chain(interface.types.iter().map(|ty| &ty.symbol))
         {
@@ -120,6 +150,7 @@ impl HostDeclarations {
             revision,
             interface,
             paths,
+            methods,
             type_paths,
             type_identities,
             modules: modules.into_iter().collect(),
@@ -135,6 +166,13 @@ impl HostDeclarations {
 
     pub fn resolve(&self, path: &str) -> Option<HostFunctionId> {
         self.paths.get(path).copied()
+    }
+    pub fn method(
+        &self,
+        owner: &kagari_common::identity::DefinitionId,
+        name: &str,
+    ) -> Option<HostFunctionId> {
+        self.methods.get(&(owner.clone(), name.to_owned())).copied()
     }
     pub fn module(&self, path: &str) -> Option<HostModuleId> {
         self.modules
