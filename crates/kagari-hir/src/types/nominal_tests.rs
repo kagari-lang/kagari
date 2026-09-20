@@ -92,7 +92,9 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
         let substituted_error =
             template.instantiate(&[(parameter.clone(), TypeId::Error)].into_iter().collect());
         assert!(substituted_error.is_unresolved());
-        assert!(!substituted_error.conflicts_with(&twice));
+        // The error in the first member does not hide the independent mismatch
+        // between the foreign binder and i32 in the second member.
+        assert!(substituted_error.conflicts_with(&twice));
     }
 }
 

@@ -192,6 +192,9 @@ Implemented foundation slices:
   Index analysis uses the known outer composite shape even if an unrelated member
   is erroneous. Tuple and nested-array queries retain selected member types;
   out-of-range and noninteger tuple indexes still diagnose and reject codegen.
+  Type-conflict checks now compare known composite structure recursively. Recovery
+  members suppress only their own dependent mismatch; unrelated member conflicts,
+  nominal identities and arity differences remain diagnosable.
   All local module-level declarations and import aliases now share an immutable
   name table. Calls, annotations, constructors, bounds and impl headers consume
   it; duplicate names retain identities but have no winning target or codegen.

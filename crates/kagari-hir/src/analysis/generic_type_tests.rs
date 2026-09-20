@@ -3,6 +3,32 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn recovery_members_do_not_hide_independent_argument_mismatches() {
+    for (actual, mismatch) in [
+        ("(missing, true)", true),
+        ("(missing, 2)", false),
+        ("(true, missing)", true),
+        ("(1, missing)", false),
+    ] {
+        let source = SourceFile::new(
+            "partial-conflict.kgr",
+            format!("fn take(value: (i32, i32)) {{}} fn bad() {{ take({actual}); }}"),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
+            )),
+            mismatch,
+            "{actual}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
 fn indexing_partial_composites_preserves_the_selected_member() {
     for (text, expected, invalid_index) in [
         (

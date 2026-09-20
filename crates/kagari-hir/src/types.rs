@@ -237,7 +237,30 @@ impl TypeId {
     }
 
     pub fn conflicts_with(&self, other: &Self) -> bool {
-        !self.is_unresolved() && !other.is_unresolved() && self != other
+        fn members_conflict(left: &[TypeId], right: &[TypeId]) -> bool {
+            left.len() != right.len() || left.iter().zip(right).any(|(a, b)| a.conflicts_with(b))
+        }
+        match (self, other) {
+            (Self::Unknown | Self::Error, _) | (_, Self::Unknown | Self::Error) => false,
+            (Self::Tuple(left), Self::Tuple(right)) => members_conflict(left, right),
+            (Self::Array(left), Self::Array(right)) | (Self::Set(left), Self::Set(right)) => {
+                left.conflicts_with(right)
+            }
+            (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
+                lk.conflicts_with(rk) || lv.conflicts_with(rv)
+            }
+            (Self::Struct(left), Self::Struct(right))
+            | (Self::Enum(left), Self::Enum(right))
+            | (Self::Trait(left), Self::Trait(right)) => {
+                left.declaration != right.declaration
+                    || members_conflict(&left.arguments, &right.arguments)
+            }
+            (
+                Self::StandardEnum { kind: lk, args: la },
+                Self::StandardEnum { kind: rk, args: ra },
+            ) => lk != rk || members_conflict(la, ra),
+            _ => self != other,
+        }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
