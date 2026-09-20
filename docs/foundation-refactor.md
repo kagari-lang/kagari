@@ -493,6 +493,12 @@ Implemented foundation slices:
   contracts reject registration. Tests prove unrelated runtime slot shifts and
   documentation edits preserve fingerprints, while field type, permissions,
   capabilities and schema changes alter them.
+  The canonical encoder now lives in common declarations as HostPathContract;
+  runtime registration no longer owns a separate encoding implementation.
+  HostInterface::field_path_contract resolves offline nominal field chains with
+  ownership/access checks. Tests compare offline and registered fingerprints,
+  nested interface round trips and invalid chains; offline_compile generates a
+  field path contract without starting a runtime. Source lowering remains pending.
   IR/bytecode path records now require the contract fingerprint. Load and reload
   link module-local paths to runtime descriptors before publication, reject missing
   or ambiguous bindings and validate operand/write contracts. VM execution consumes

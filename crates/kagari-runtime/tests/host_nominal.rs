@@ -348,6 +348,37 @@ fn path_fields_are_derived_from_nominal_declarations() {
     hidden.visibility = Visibility::Private;
     let disabled = HostFieldDeclaration::new(&owner.id, "disabled", HostValueType::I32);
     owner.fields = vec![hp.clone(), hidden.clone(), disabled.clone()];
+    let catalog = HostInterface {
+        types: vec![owner.clone()],
+        functions: vec![],
+    };
+    let offline = HostInterface::from_bytes(&catalog.to_bytes().unwrap()).unwrap();
+    let contract = offline
+        .field_path_contract(
+            &owner.id,
+            std::slice::from_ref(&hp.id),
+            PathAccess::ReadOnly,
+            0,
+            CapabilitySet::default(),
+        )
+        .unwrap();
+    for (field, access) in [
+        (&hidden.id, PathAccess::ReadOnly),
+        (&disabled.id, PathAccess::ReadOnly),
+        (&hp.id, PathAccess::ReadWrite),
+    ] {
+        assert!(
+            offline
+                .field_path_contract(
+                    &owner.id,
+                    std::slice::from_ref(field),
+                    access,
+                    0,
+                    CapabilitySet::default()
+                )
+                .is_err()
+        );
+    }
     let owner_type = runtime
         .register_host_type(HostTypeRegistration::new(owner.clone(), "Player"))
         .unwrap();
@@ -382,6 +413,10 @@ fn path_fields_are_derived_from_nominal_declarations() {
         .register_host_path_descriptor(registration(hp.id, PathAccess::ReadOnly, scalar))
         .unwrap();
     let descriptor = runtime.host().path_descriptor(id).unwrap();
+    assert_eq!(
+        descriptor.abi_fingerprint.0,
+        contract.fingerprint().unwrap()
+    );
     let metadata = runtime.types().get(owner_type).unwrap();
     assert_eq!(
         descriptor.segments,

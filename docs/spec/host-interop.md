@@ -554,8 +554,12 @@ publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
 output exposed to adapters. Index and virtual segment declarations and source
 field lowering remain separate pending work.
 
-The runtime generates the whole-path ABI fingerprint; registration cannot supply
-one. The `kagari-host-path-v1\0` encoding uses FNV-1a 64 over fixed-order fields:
+The common declaration layer owns `HostPathContract` and the whole-path ABI encoder;
+runtime registration cannot supply its own fingerprint. `HostInterface::field_path_contract`
+resolves a field chain by declaration identity, validates root ownership, visibility
+and path access, and returns its result type and portable contract without callbacks
+or runtime registration. Runtime registration uses the same encoder. The
+`kagari-host-path-v1\0` encoding uses FNV-1a 64 over fixed-order fields:
 root declaration fingerprint, result type fingerprint, schema epoch, access,
 capability flags, segment count, then ordered segment records. Integers and lengths
 are little-endian u64; tags and flags are bytes; virtual names are length-prefixed

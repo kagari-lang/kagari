@@ -2,7 +2,8 @@
 use kagari_common::{
     host_interface::{
         HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
-        HostParameter, HostPassingStyle, HostTypeDeclaration, HostValueType,
+        HostParameter, HostPassingStyle, HostTypeDeclaration, HostTypeOwnership, HostValueType,
+        PathAccess,
     },
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
@@ -12,11 +13,14 @@ use kagari_runtime::LanguageProfile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut player = HostTypeDeclaration::new("demo.Player");
+    player.ownership = HostTypeOwnership::HostRoot;
+    player.path_access = PathAccess::ReadOnly;
     player.fields.push(HostFieldDeclaration::new(
         &player.id,
         "score",
         HostValueType::I32,
     ));
+    player.fields[0].path_access = PathAccess::ReadOnly;
     player.documentation =
         "Host-owned player metadata, available without business services.".into();
     player.methods.push(HostMethodDeclaration::new(
@@ -40,6 +44,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A build process may read these bytes from the binding provider's interface file.
     let offline_bytes = declarations.to_bytes()?;
     let offline = HostInterface::from_bytes(&offline_bytes)?;
+    let path = offline.field_path_contract(
+        &offline.types[0].id,
+        &[offline.types[0].fields[0].id.clone()],
+        PathAccess::ReadOnly,
+        0,
+        Default::default(),
+    )?;
+    println!(
+        "offline field path fingerprint: {:016x}",
+        path.fingerprint()?
+    );
     println!(
         "offline member: {}.{}",
         offline.types[0].symbol, offline.types[0].fields[0].name

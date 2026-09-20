@@ -11,6 +11,8 @@ const MAGIC: [u8; 4] = *b"KHI\0";
 const VERSION: u16 = 4;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
+mod path;
+pub use path::{HostPathContract, HostPathInput, HostPathSegmentContract};
 mod value_type;
 pub use value_type::HostValueType;
 mod type_declaration;
