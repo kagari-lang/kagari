@@ -2,6 +2,39 @@ use kagari_common::SourceFile;
 use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine};
 
 #[test]
+fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
+    let engine = KagariEngine::default();
+    let mut context = kagari_embed::ExecutionContext::default();
+    context.language_profile.allow_jit = true;
+    context.capabilities.jit = true;
+    let artifact = engine.compile_to_artifact(SourceFile::new("context.kgr",
+        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; a.marker.value + b.marker.value }"
+    ), kagari_embed::CompileOptions { language_profile: context.language_profile }, Default::default()).unwrap();
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            kagari_embed::BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        context.jit_policy = if jit {
+            kagari_embed::JitPolicy::Enabled
+        } else {
+            kagari_embed::JitPolicy::Disabled
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let result = if jit {
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+        } else {
+            runtime.execute(&loaded, "main", &[], &context)
+        }
+        .unwrap();
+        assert_eq!(result.return_value, kagari_runtime::value::Value::I32(42));
+    }
+}
+
+#[test]
 fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilation() {
     let engine = KagariEngine::default();
     let checked = engine

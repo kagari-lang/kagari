@@ -93,31 +93,31 @@ impl<'a> BodyChecker<'a> {
                 initializer,
                 ..
             } => {
-                let mut initializer_ty = self.infer_expr_type(*initializer, env);
-                let local_ty = ty
-                    .map(|ty| {
-                        let resolved = resolve_type_in(
-                            &self.lowered.module,
-                            ty,
-                            TypeContext {
-                                declarations: self.declarations,
-                                generics: &env.generics,
-                                self_type: None,
-                            },
-                            self.type_table,
-                            self.cancel,
+                let annotation = ty.map(|ty| {
+                    let resolved = resolve_type_in(
+                        &self.lowered.module,
+                        ty,
+                        TypeContext {
+                            declarations: self.declarations,
+                            generics: &env.generics,
+                            self_type: None,
+                        },
+                        self.type_table,
+                        self.cancel,
+                    );
+                    if resolved.is_unresolved() {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                                type_name: display_type(&self.lowered.module, ty),
+                            })
+                            .with_span(self.lowered.source_map.type_span(ty)),
                         );
-                        if resolved.is_unresolved() {
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
-                                    type_name: display_type(&self.lowered.module, ty),
-                                })
-                                .with_span(self.lowered.source_map.type_span(ty)),
-                            );
-                        }
-                        resolved
-                    })
-                    .unwrap_or_else(|| initializer_ty.clone());
+                    }
+                    resolved
+                });
+                let mut initializer_ty =
+                    self.infer_expr_type_expected(*initializer, env, annotation.as_ref());
+                let local_ty = annotation.unwrap_or_else(|| initializer_ty.clone());
                 super::applications::validate(
                     &local_ty,
                     &env.generic_bounds,
@@ -435,6 +435,15 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn infer_expr_type(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> TypeId {
+        self.infer_expr_type_expected(expr_id, env, None)
+    }
+
+    fn infer_expr_type_expected(
+        &mut self,
+        expr_id: ExprId,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
         if self.cancel.check().is_err() {
             return TypeId::Unknown;
         }
@@ -672,7 +681,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::StructInit { path, fields } => {
-                self.infer_struct_init_type(path, fields, expr_id, env)
+                self.infer_struct_init_type(path, fields, expr_id, env, expected)
             }
             ExprKind::Tuple(elements) => TypeId::Tuple(
                 elements
@@ -2070,23 +2079,16 @@ impl<'a> BodyChecker<'a> {
         fields: &[crate::hir::FieldInit],
         expr_id: ExprId,
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> TypeId {
-        let field_tys = fields
-            .iter()
-            .map(|field| {
-                (
-                    field.name.as_str(),
-                    field.value,
-                    self.infer_expr_type(field.value, env),
-                )
-            })
-            .collect::<Vec<_>>();
-
         let Some(struct_def) = self
             .resolve_struct_id(path)
             .and_then(|id| self.aggregates.structure(&id))
             .cloned()
         else {
+            for field in fields {
+                self.infer_expr_type(field.value, env);
+            }
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
                     struct_name: path.to_owned(),
@@ -2098,6 +2100,34 @@ impl<'a> BodyChecker<'a> {
         };
 
         let mut substitution = crate::types::TypeSubstitution::new();
+        if let Some(TypeId::Struct(nominal)) = expected
+            && nominal.declaration == struct_def.id
+            && nominal.arguments.len() == struct_def.generic_params.len()
+        {
+            substitution.extend(
+                struct_def
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(nominal.arguments.iter().cloned()),
+            );
+        }
+        let field_tys = fields
+            .iter()
+            .map(|field| {
+                let expected = struct_def
+                    .fields
+                    .iter()
+                    .find(|member| member.name == field.name)
+                    .filter(|_| substitution.len() == struct_def.generic_params.len())
+                    .map(|member| member.ty.instantiate(&substitution));
+                (
+                    field.name.as_str(),
+                    field.value,
+                    self.infer_expr_type_expected(field.value, env, expected.as_ref()),
+                )
+            })
+            .collect::<Vec<_>>();
         for (name, _, actual) in &field_tys {
             if let Some(field) = struct_def.fields.iter().find(|field| field.name == *name) {
                 super::inference::infer(

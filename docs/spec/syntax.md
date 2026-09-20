@@ -367,6 +367,14 @@ Explicit empty argument lists are invalid and are preserved during recovery;
 argument declarations for tools, without making the application executable.
 Navigation within an unknown argument does not select the enclosing base type.
 
+A local binding annotation supplies type arguments to a Struct initializer with
+the same declaration identity, including parameters absent from its fields.
+For example, `val marker: Marker<bool> = Marker { value: 42 };` fixes `T = bool`
+for `struct Marker<T> { val value: i32 }`. Known field types propagate this context
+to nested Struct initializers. Field types and generic bounds are still checked;
+an unrelated annotated type cannot supply constructor arguments. Context from
+return types, call arguments and enum constructors is not implemented yet.
+
 ```ebnf
 type            ::= path generic_args?
                   | array_type

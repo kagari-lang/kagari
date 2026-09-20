@@ -263,7 +263,7 @@ Implemented foundation slices:
   local/imported instance, including when the owner emits no instance. Tests cover
   facades, distinct field representations, bounds, malformed binders, source/artifact/
   JIT fallback behavior and the standard-library example. Explicit constructor type
-  arguments, contextual inference for phantom parameters, generic impl specialization
+  arguments, contextual inference outside annotated local Struct constructors, generic impl specialization
   and interface tables remain pending. Independent signature queries now construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
   analysis consumes that result instead of repeating header validation. Tests cover
@@ -625,7 +625,12 @@ Implemented foundation slices:
   applied trait arguments and dynamic implementation tables remain outstanding;
   public ABI labels still need linked identities. Generic struct/enum instances
   now have concrete layouts keyed by declaration and arguments; explicit constructor
-  arguments and contextual phantom-parameter inference remain outstanding.
+  arguments and contextual inference for returns, call arguments and enum constructors
+  remain outstanding. Annotated locals now supply Struct type arguments, including
+  phantom parameters, and propagate checked context into nested Struct fields.
+  Declaration identity must match; fields and bounds retain normal validation.
+  HIR rejection cases, source/artifact/JIT fallback execution and the standard-library
+  example cover this inference boundary.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

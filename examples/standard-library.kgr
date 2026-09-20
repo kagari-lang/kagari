@@ -3,6 +3,7 @@ const MIN_I32: i32 = -2147483648;
 
 enum Sample { Empty, Count(i32), Values([i32]) }
 struct Cell<T> { var value: T }
+struct Marker<T> { val value: i32 }
 enum Packet<T> { Data(T) }
 fn read_cell<T>(cell: Cell<T>) -> T { cell.value }
 
@@ -17,6 +18,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };
+    val marker: Marker<bool> = Marker { value: 42 };
+    std::debug::assert_eq(marker.value, 42, "annotation supplies phantom type argument");
     counter.value += 1;
     std::debug::assert_eq(read_cell(counter), 8, "concrete generic field slot");
     std::debug::assert(read_cell(flag), "separate bool layout instance");

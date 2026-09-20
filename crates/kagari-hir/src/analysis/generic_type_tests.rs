@@ -3,6 +3,35 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn annotated_struct_constructors_infer_phantom_parameters_and_check_fields() {
+    for (body, valid) in [
+        ("val marker: Marker<i32> = Marker { value: 7 };", true),
+        (
+            "val outer: Outer<i32> = Outer { marker: Marker { value: 7 } };",
+            true,
+        ),
+        ("val marker: Marker<i32> = Marker { value: true };", false),
+        ("val marker = Marker { value: 7 };", false),
+        ("val marker: Other<i32> = Marker { value: 7 };", false),
+    ] {
+        let source = SourceFile::new(
+            "context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} struct Outer<T> {{ val marker: Marker<T> }} struct Other<T> {{ val value: i32 }} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn branch_and_array_merges_recover_complementary_member_facts() {
     for (expression, array, conflict) in [
         (
