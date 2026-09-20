@@ -1237,7 +1237,6 @@ impl<'a> BodyChecker<'a> {
                 args.len().saturating_sub(implicit),
                 callee,
             );
-            return TypeId::Error;
         }
         for ((arg, found), parameter) in args.iter().zip(&declaration.params) {
             let expected = crate::host::signature_type(&parameter.ty);

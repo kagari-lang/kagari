@@ -176,6 +176,107 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
 }
 
 #[test]
+fn erroneous_host_calls_retain_return_types_and_member_facts() {
+    use kagari_common::{
+        DiagnosticKind,
+        host_interface::{
+            HostFieldDeclaration, HostFieldPathDeclaration, HostMethodDeclaration,
+            HostTypeOwnership, PathAccess,
+        },
+    };
+    let mut declarations = interface();
+    let parameter = HostParameter {
+        name: "amount".into(),
+        ty: HostValueType::I32,
+        passing: HostPassingStyle::Owned,
+    };
+    declarations.functions[0].params.push(parameter.clone());
+    let owner = &mut declarations.types[0];
+    owner.ownership = HostTypeOwnership::HostRoot;
+    owner.path_access = PathAccess::ReadOnly;
+    owner.methods.push(HostMethodDeclaration::new(
+        &owner.id,
+        "next",
+        vec![parameter],
+        HostValueType::Opaque(owner.id.clone()),
+    ));
+    let mut field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
+    field.path_access = PathAccess::ReadOnly;
+    owner.fields.push(field.clone());
+    declarations.field_paths.push(HostFieldPathDeclaration {
+        root: owner.id.clone(),
+        fields: vec![field.id.clone()],
+        access: PathAccess::ReadOnly,
+        schema_epoch: 0,
+        capabilities: Default::default(),
+    });
+    let host_type = TypeId::Host(owner.id.clone());
+    for call in [
+        "left::make()",
+        "left::make(true, 2)",
+        "value.next()",
+        "value.next(true, 2)",
+    ] {
+        let text =
+            format!("fn bad(value: left::Item) -> i32 {{ {call}.score }} fn good() -> i32 {{ 7 }}");
+        let mut sources = SourceDatabase::default();
+        let root = sources
+            .set("mem://recovery", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let mut db = AnalysisDatabase::default();
+        db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
+        let snapshot = db
+            .snapshot(
+                sources.snapshot(),
+                LanguageFeatureProfile {
+                    allow_host_calls: true,
+                    ..Default::default()
+                },
+                &Default::default(),
+            )
+            .unwrap();
+        let file = snapshot.file(root).unwrap();
+        assert!(file.result().diagnostics().iter().any(|d| matches!(
+            d.kind,
+            DiagnosticKind::CallArityMismatch { expected: 1, .. }
+        )));
+        // The available first argument must still be checked when arity is wrong.
+        if call.contains("true") {
+            assert!(
+                file.result().diagnostics().iter().any(|d| matches!(
+                    &d.kind,
+                    DiagnosticKind::ArgumentTypeMismatch { parameter_name, .. }
+                        if parameter_name == "amount"
+                )),
+                "{:?}",
+                file.result().diagnostics()
+            );
+        }
+        let facts = file.result().facts();
+        let call_type = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, expr)| {
+                matches!(expr.kind, crate::hir::ExprKind::Call { .. })
+                    .then(|| facts.typed.type_table.expr_type(id))
+                    .flatten()
+            });
+        assert_eq!(call_type, Some(host_type.clone()));
+        assert_eq!(
+            file.host_field_at(text.find("score").unwrap()),
+            Some(&field)
+        );
+        assert_eq!(
+            file.type_at(text.rfind('7').unwrap()),
+            Some(TypeId::Builtin(BuiltinType::I32))
+        );
+        assert!(snapshot.check_program(root, &Default::default()).is_err());
+    }
+}
+
+#[test]
 fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_constructors() {
     for broken in [
         "use right::Item; fn bad(value: Item) -> i32 { left::take(value) }",

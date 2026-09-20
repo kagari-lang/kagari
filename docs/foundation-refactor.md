@@ -174,6 +174,10 @@ Implemented foundation slices:
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
   represented explicitly, and codegen requires a sealed CheckedAnalysis. More
   semantic-target and source-owner integration remains outstanding.
+  Host calls with missing or extra arguments preserve their declared return type
+  and downstream member facts. Available arguments still receive type checking;
+  arity/type diagnostics reject code generation. Free-function and method recovery
+  tests retain neighboring function queries and known host field declarations.
   All local module-level declarations and import aliases now share an immutable
   name table. Calls, annotations, constructors, bounds and impl headers consume
   it; duplicate names retain identities but have no winning target or codegen.
