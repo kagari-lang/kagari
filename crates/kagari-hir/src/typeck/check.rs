@@ -478,7 +478,11 @@ pub(crate) fn check_bodies_controlled(
                     &typed_function.name,
                     typed_function.return_type.clone(),
                 );
-                let body_ty = checker.infer_block_types(function.body, &mut env);
+                let body_ty = checker.infer_block_types_expected(
+                    function.body,
+                    &mut env,
+                    Some(&typed_function.return_type),
+                );
                 if matches!(function.kind, FunctionKind::ModuleInit) {
                     if let Some(indexed) = function_index.by_id.get_mut(&function.id) {
                         indexed.return_type = body_ty.clone();

@@ -65,6 +65,15 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn infer_block_types(&mut self, block_id: BlockId, env: &mut BodyTypeEnv) -> TypeId {
+        self.infer_block_types_expected(block_id, env, None)
+    }
+
+    pub(crate) fn infer_block_types_expected(
+        &mut self,
+        block_id: BlockId,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
         let block = self.lowered.module.block(block_id);
         for stmt in &block.statements {
             if self.cancel.check().is_err() {
@@ -76,7 +85,7 @@ impl<'a> BodyChecker<'a> {
         block
             .tail_expr
             .map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
-                self.infer_expr_type(expr, env)
+                self.infer_expr_type_expected(expr, env, expected)
             })
     }
 
@@ -189,8 +198,9 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             StmtKind::Return { expr } => {
+                let expected = self.expected_return.clone();
                 let found = expr.map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
-                    self.infer_expr_type(expr, env)
+                    self.infer_expr_type_expected(expr, env, Some(&expected))
                 });
                 if found.conflicts_with(&self.expected_return) {
                     self.diagnostics.push(
@@ -637,10 +647,10 @@ impl<'a> BodyChecker<'a> {
                 else_branch,
             } => {
                 self.check_condition_type(*condition, "if", env);
-                let mut then_ty = self.infer_block_types(*then_branch, env);
+                let mut then_ty = self.infer_block_types_expected(*then_branch, env, expected);
                 match else_branch {
                     Some(else_expr) => {
-                        let else_ty = self.infer_expr_type(*else_expr, env);
+                        let else_ty = self.infer_expr_type_expected(*else_expr, env, expected);
                         if then_ty.conflicts_with(&else_ty) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
@@ -661,21 +671,23 @@ impl<'a> BodyChecker<'a> {
                 let mut arm_iter = arms.iter();
                 match arm_iter.next() {
                     Some(first_arm) => {
-                        let mut expected = self.infer_match_arm_type(first_arm, &scrutinee_ty, env);
+                        let mut result =
+                            self.infer_match_arm_type(first_arm, &scrutinee_ty, env, expected);
                         for arm in arm_iter {
-                            let found = self.infer_match_arm_type(arm, &scrutinee_ty, env);
-                            if found.conflicts_with(&expected) {
+                            let found =
+                                self.infer_match_arm_type(arm, &scrutinee_ty, env, expected);
+                            if found.conflicts_with(&result) {
                                 self.diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
-                                        expected: display_type_id(&expected),
+                                        expected: display_type_id(&result),
                                         found: display_type_id(&found),
                                     })
                                     .with_span(self.lowered.source_map.expr_span(arm.expr)),
                                 );
                             }
-                            expected.recover_from(&found);
+                            result.recover_from(&found);
                         }
-                        expected
+                        result
                     }
                     None => TypeId::Builtin(BuiltinType::Unit),
                 }
@@ -686,13 +698,28 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Tuple(elements) => TypeId::Tuple(
                 elements
                     .iter()
-                    .map(|expr| self.infer_expr_type(*expr, env))
+                    .enumerate()
+                    .map(|(index, expr)| {
+                        let member = match expected {
+                            Some(TypeId::Tuple(types)) if types.len() == elements.len() => {
+                                types.get(index)
+                            }
+                            _ => None,
+                        };
+                        self.infer_expr_type_expected(*expr, env, member)
+                    })
                     .collect::<Vec<_>>(),
             ),
             ExprKind::Array(elements) => {
                 let element_types = elements
                     .iter()
-                    .map(|expr| (*expr, self.infer_expr_type(*expr, env)))
+                    .map(|expr| {
+                        let member = match expected {
+                            Some(TypeId::Array(element)) => Some(element.as_ref()),
+                            _ => None,
+                        };
+                        (*expr, self.infer_expr_type_expected(*expr, env, member))
+                    })
                     .collect::<Vec<_>>();
                 let mut element_ty = element_types
                     .first()
@@ -712,7 +739,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 TypeId::Array(Box::new(element_ty))
             }
-            ExprKind::Block(block) => self.infer_block_types(*block, env),
+            ExprKind::Block(block) => self.infer_block_types_expected(*block, env, expected),
         };
 
         super::applications::validate(
@@ -734,6 +761,7 @@ impl<'a> BodyChecker<'a> {
         arm: &MatchArm,
         scrutinee_ty: &TypeId,
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> TypeId {
         let mut arm_env = env.clone();
         if let PatternKind::Literal(literal) = &self.lowered.module.pattern(arm.pattern).kind {
@@ -763,7 +791,7 @@ impl<'a> BodyChecker<'a> {
             arm_env.locals.insert(local, scrutinee_ty.clone());
             self.type_table.insert_local(local, scrutinee_ty.clone());
         }
-        self.infer_expr_type(arm.expr, &mut arm_env)
+        self.infer_expr_type_expected(arm.expr, &mut arm_env, expected)
     }
 
     fn infer_standard_call_type(

@@ -8,7 +8,7 @@ fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
     context.language_profile.allow_jit = true;
     context.capabilities.jit = true;
     let artifact = engine.compile_to_artifact(SourceFile::new("context.kgr",
-        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; a.marker.value + b.marker.value }"
+        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value }"
     ), kagari_embed::CompileOptions { language_profile: context.language_profile }, Default::default()).unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -30,7 +30,7 @@ fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(result.return_value, kagari_runtime::value::Value::I32(42));
+        assert_eq!(result.return_value, kagari_runtime::value::Value::I32(84));
     }
 }
 

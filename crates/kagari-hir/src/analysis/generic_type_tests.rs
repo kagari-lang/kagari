@@ -3,6 +3,31 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn return_context_reaches_control_flow_and_composite_constructors() {
+    for body in [
+        "fn build() -> Marker<i32> { Marker { value: 7 } }",
+        "fn build<T>() -> Marker<T> { Marker { value: 7 } }",
+        "fn build() -> Marker<i32> { if true { return Marker { value: 7 }; }; Marker { value: 8 } }",
+        "fn build() -> Marker<i32> { if true { Marker { value: 7 } } else { Marker { value: 8 } } }",
+        "fn build() -> Marker<i32> { match 0 { 0 => Marker { value: 7 }, _ => Marker { value: 8 } } }",
+        "fn build() -> (Marker<i32>, [Marker<bool>]) { (Marker { value: 7 }, [Marker { value: 8 }]) }",
+        "fn build() { val result: Marker<i32> = if true { Marker { value: 7 } } else { Marker { value: 8 } }; }",
+    ] {
+        let source = SourceFile::new(
+            "return-context.kgr",
+            format!("struct Marker<T> {{ val value: i32 }} {body}"),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_ok());
+    }
+}
+
+#[test]
 fn annotated_struct_constructors_infer_phantom_parameters_and_check_fields() {
     for (body, valid) in [
         ("val marker: Marker<i32> = Marker { value: 7 };", true),

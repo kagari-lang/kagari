@@ -372,8 +372,10 @@ the same declaration identity, including parameters absent from its fields.
 For example, `val marker: Marker<bool> = Marker { value: 42 };` fixes `T = bool`
 for `struct Marker<T> { val value: i32 }`. Known field types propagate this context
 to nested Struct initializers. Field types and generic bounds are still checked;
-an unrelated annotated type cannot supply constructor arguments. Context from
-return types, call arguments and enum constructors is not implemented yet.
+an unrelated annotated type cannot supply constructor arguments. Function return
+annotations also supply context to tail expressions and explicit return operands.
+Context propagates through blocks, if/match branches, Tuple members and Array
+elements. Call-argument context and enum-constructor inference are not implemented yet.
 
 ```ebnf
 type            ::= path generic_args?
