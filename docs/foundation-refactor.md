@@ -178,6 +178,9 @@ Implemented foundation slices:
   and downstream member facts. Available arguments still receive type checking;
   arity/type diagnostics reject code generation. Free-function and method recovery
   tests retain neighboring function queries and known host field declarations.
+  Failed generic-call inference substitutes error arguments into the return type
+  as well as the recorded instantiation. Callee binders cannot leak into callers;
+  known arguments, caller-owned binders and nominal member identities survive.
   All local module-level declarations and import aliases now share an immutable
   name table. Calls, annotations, constructors, bounds and impl headers consume
   it; duplicate names retain identities but have no winning target or codegen.

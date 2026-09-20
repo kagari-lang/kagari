@@ -1624,6 +1624,15 @@ impl<'a> BodyChecker<'a> {
                 })
             })
             .collect::<Vec<_>>();
+        // Recovery arguments must also replace missing binders in parameters
+        // and the return type; callee-owned generics cannot escape into callers.
+        substitution.extend(
+            function
+                .generic_params
+                .iter()
+                .cloned()
+                .zip(type_arguments.iter().cloned()),
+        );
         self.type_table
             .insert_type_arguments(call_expr, type_arguments);
         for parameter in &function.generic_params {

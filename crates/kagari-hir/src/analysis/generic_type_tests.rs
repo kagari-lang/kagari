@@ -3,6 +3,76 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn failed_call_inference_substitutes_error_without_leaking_callee_binders() {
+    for argument in ["", "missing"] {
+        let text = format!(
+            "struct Cell<T> {{ val value: T }} fn wrap<T>(value: T) -> Cell<T> {{ Cell {{ value: value }} }} fn bad() {{ val cell = wrap({argument}); cell.value; }} fn good() -> i32 {{ 7 }}"
+        );
+        let source = SourceFile::new("recovery.kgr", text);
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert!(!analysis.diagnostics().is_empty());
+        let facts = analysis.facts();
+        let call = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, expr)| {
+                matches!(expr.kind, crate::hir::ExprKind::Call { .. }).then_some(id)
+            })
+            .unwrap();
+        let TypeId::Struct(result) = facts.typed.type_table.expr_type(call).unwrap() else {
+            panic!("known nominal return type must survive inference failure");
+        };
+        assert_eq!(result.arguments, [TypeId::Error]);
+        let field = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, expr)| {
+                matches!(expr.kind, crate::hir::ExprKind::Field { .. }).then_some(id)
+            })
+            .unwrap();
+        assert_eq!(facts.typed.type_table.expr_type(field), Some(TypeId::Error));
+        assert!(facts.typed.type_table.expr_field(field).is_some());
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
+fn partial_call_inference_preserves_known_and_caller_owned_arguments() {
+    let source = SourceFile::new(
+        "partial.kgr",
+        "fn pair<A, B>(a: A, b: B) -> (A, B) { (a, b) } fn bad<T>(value: T) { pair(value); } fn concrete() { pair(1); }",
+    );
+    let analysis = crate::analyze_source(&source, Default::default());
+    let facts = analysis.facts();
+    let calls: Vec<_> = facts
+        .lowered
+        .module
+        .body
+        .expressions()
+        .filter(|(_, expr)| matches!(expr.kind, crate::hir::ExprKind::Call { .. }))
+        .map(|(id, _)| facts.typed.type_table.expr_type(id).unwrap())
+        .collect();
+    assert_eq!(calls.len(), 2);
+    let TypeId::Tuple(arguments) = &calls[0] else {
+        panic!("tuple result");
+    };
+    let TypeId::Generic(parameter) = &arguments[0] else {
+        panic!("caller binder");
+    };
+    assert_eq!(parameter.name, "T");
+    assert_eq!(arguments[1], TypeId::Error);
+    assert_eq!(
+        calls[1],
+        TypeId::Tuple(vec![TypeId::Builtin(BuiltinType::I32), TypeId::Error])
+    );
+    assert!(analysis.into_codegen().is_err());
+}
+
+#[test]
 fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_parameters() {
     for text in [
         "struct Key<T: HashKey> { val value: T } fn bad(x: Key<f32>) {}",
