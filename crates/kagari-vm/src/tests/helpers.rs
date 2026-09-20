@@ -1733,3 +1733,112 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
         }
     }
 }
+
+#[test]
+fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
+    use kagari_ir::bytecode::{BytecodeProgram, ModuleRef};
+    use kagari_runtime::DynamicPathArgSlot;
+    let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
+    let field = runtime
+        .host()
+        .path_descriptor(kagari_runtime::HostPathDescriptorId::new(0))
+        .unwrap()
+        .clone();
+    let target = runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: field.root_type,
+            result_type: field.result_type,
+            segments: vec![HostPathSegmentRegistration::Index {
+                slot: DynamicPathArgSlot::new(0),
+                collection_type: field.root_type,
+                index_type: field.result_type,
+                result_type: field.result_type,
+                access: PathAccess::ReadWrite,
+                abi_fingerprint: AbiFingerprint(711),
+            }],
+            access: PathAccess::ReadWrite,
+            schema_epoch: HostSchemaEpoch::new(0),
+            capability_requirements: Default::default(),
+        })
+        .unwrap();
+    let fingerprint = runtime
+        .host()
+        .path_descriptor(target)
+        .unwrap()
+        .abi_fingerprint
+        .0;
+    for operation in 0..4 {
+        for args in [
+            vec![],
+            vec![Register::new(1), Register::new(1)],
+            vec![Register::new(0)],
+            vec![Register::new(1)],
+        ] {
+            let valid = args == vec![Register::new(1)];
+            let instruction = match operation {
+                0 => BytecodeInstruction::ReadPath {
+                    dst: Register::new(2),
+                    root_or_view: Register::new(0),
+                    path: PathId::new(0),
+                    dynamic_args: args,
+                },
+                1 => BytecodeInstruction::SetPath {
+                    root_or_view: Register::new(0),
+                    path: PathId::new(0),
+                    dynamic_args: args,
+                    value: Register::new(1),
+                },
+                2 => BytecodeInstruction::ModifyPath {
+                    dst: Some(Register::new(2)),
+                    root_or_view: Register::new(0),
+                    path: PathId::new(0),
+                    dynamic_args: args,
+                    op: BinaryOp::Add,
+                    value: Register::new(1),
+                },
+                _ => BytecodeInstruction::MakePathView {
+                    dst: Register::new(5),
+                    root_or_view: Register::new(0),
+                    path: PathId::new(0),
+                    dynamic_args: args,
+                },
+            };
+            let mut module = path_module(
+                &runtime,
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(1),
+                        constant: ConstantOperand::I32(3),
+                    },
+                    instruction,
+                    BytecodeInstruction::Return(None),
+                ],
+                ValueType::Unit,
+            );
+            module.paths[0].contract_fingerprint = fingerprint;
+            let before = runtime.modules().loaded_count();
+            let result = runtime.load_program(
+                format!("operation{operation}"),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                },
+            );
+            if valid {
+                assert_eq!(result.unwrap().path_binding(PathId::new(0)), Some(target));
+            } else {
+                assert_eq!(
+                    result.unwrap_err().kind(),
+                    RuntimeErrorKind::TypedPathValidation
+                );
+                assert_eq!(runtime.modules().loaded_count(), before);
+            }
+        }
+    }
+}

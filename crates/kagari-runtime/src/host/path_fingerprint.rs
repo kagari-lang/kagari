@@ -42,6 +42,53 @@ impl HostRegistry {
                 Ok(actual.id)
             })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
+        for function in &module.functions {
+            for instruction in &function.instructions {
+                use kagari_ir::bytecode::BytecodeInstruction as I;
+                let (path, args) = match instruction {
+                    I::ReadPath {
+                        path, dynamic_args, ..
+                    }
+                    | I::SetPath {
+                        path, dynamic_args, ..
+                    }
+                    | I::ModifyPath {
+                        path, dynamic_args, ..
+                    }
+                    | I::MakePathView {
+                        path, dynamic_args, ..
+                    } => (path, dynamic_args),
+                    _ => continue,
+                };
+                let descriptor = paths
+                    .get(path.index())
+                    .and_then(|id| self.path_descriptor(*id))
+                    .ok_or_else(|| {
+                        RuntimeError::typed_path_validation("missing linked path descriptor")
+                    })?;
+                if args.len() != descriptor.dynamic_parameters.len() {
+                    return Err(RuntimeError::typed_path_validation(
+                        "path dynamic argument count differs from its binding",
+                    ));
+                }
+                for (argument, parameter) in args.iter().zip(&descriptor.dynamic_parameters) {
+                    let expected = self
+                        .host_type(parameter.ty)
+                        .map(|ty| HostValueType::Opaque(ty.declaration.id.clone()))
+                        .or_else(|| types.host_value_type(parameter.ty))
+                        .ok_or_else(|| {
+                            RuntimeError::typed_path_validation("missing path parameter contract")
+                        })?;
+                    if function.metadata.registers.get(argument.index()).copied()
+                        != Some(kagari_ir::module::ValueType::from_host_type(&expected))
+                    {
+                        return Err(RuntimeError::typed_path_validation(
+                            "path dynamic argument type differs from its binding",
+                        ));
+                    }
+                }
+            }
+        }
         Ok(crate::module::LinkedHostBindings { functions, paths })
     }
 

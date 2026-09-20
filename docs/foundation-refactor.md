@@ -497,6 +497,9 @@ Implemented foundation slices:
   link module-local paths to runtime descriptors before publication, reject missing
   or ambiguous bindings and validate operand/write contracts. VM execution consumes
   immutable version bindings instead of casting PathId to a descriptor number.
+  Linking also checks dynamic index argument counts and register representations
+  for all four path operations; tests cover missing/extra/wrong-type arguments,
+  successful bindings and rejection without module publication.
   Source-bytecode, encoded-artifact and existing JIT fallback tests bind path 0 to
   descriptor 1, ignore debug labels and preserve old bindings after registration.
   Artifact path ABI hashes exclude diagnostic labels. Format 20/runtime ABI v21

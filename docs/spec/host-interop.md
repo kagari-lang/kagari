@@ -570,6 +570,10 @@ records before publishing the program, rejects missing/ambiguous contracts and
 checks result representation and write access. Each loaded version holds its own
 path bindings. VM path operations consume those bindings; registering descriptors
 later cannot retarget an existing version. Debug names are diagnostic text only.
+For every read, set, modify and view instruction, linking also checks dynamic
+argument count and register representations against the bound descriptor's index
+parameters. An incompatible instruction rejects the whole program before publication;
+runtime checks still validate actual argument values and ownership during execution.
 
 Example:
 
