@@ -3,6 +3,35 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn concrete_call_parameters_supply_constructor_context_and_keep_errors() {
+    for (body, valid) in [
+        ("take(Marker { value: 7 }, Token::Empty);", true),
+        ("take(Marker { value: true }, Token::Empty);", false),
+        ("take(Marker { value: 7 });", false),
+        ("take(Marker { value: 7 }, Token::Empty, missing);", false),
+        (
+            "val take = 1; take(Marker { value: 7 }, Token::Empty);",
+            false,
+        ),
+    ] {
+        let source = SourceFile::new(
+            "call-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} enum Token<T> {{ Empty }} fn take(value: Marker<i32>, token: Token<bool>) {{}} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn enum_context_resolves_unit_variants_and_nested_payload_constructors() {
     for (body, valid) in [
         ("fn make() -> Packet<i32> { Packet::Empty }", true),

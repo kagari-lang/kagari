@@ -111,6 +111,58 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
 }
 
 #[test]
+fn facade_call_signatures_supply_context_to_nominal_constructors() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "types",
+        "pub struct Marker<T> { val value: i32 } pub enum Token<T> { Empty } pub fn take(value: Marker<i32>, token: Token<bool>) -> i32 { value.value }",
+    );
+    insert(
+        &engine,
+        "facade",
+        "pub use pkg::types::{Marker, Token, take};",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::facade::{Marker, Token, take}; fn main() -> i32 { take(Marker { value: 42 }, Token::Empty) }",
+    );
+    let mut context = ExecutionContext::default();
+    context.language_profile.allow_jit = true;
+    context.capabilities.jit = true;
+    let artifact = compile(
+        &engine,
+        root,
+        CompileOptions {
+            language_profile: context.language_profile,
+        },
+    );
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        context.jit_policy = if jit {
+            kagari_embed::JitPolicy::Enabled
+        } else {
+            kagari_embed::JitPolicy::Disabled
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let report = if jit {
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+        } else {
+            runtime.execute(&loaded, "main", &[], &context)
+        }
+        .unwrap();
+        assert_eq!(report.return_value, Value::I32(42));
+    }
+}
+
+#[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
     let engine = KagariEngine::default();
     let dependency = insert(

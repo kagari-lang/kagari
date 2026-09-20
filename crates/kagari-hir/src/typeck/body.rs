@@ -1621,12 +1621,12 @@ impl<'a> BodyChecker<'a> {
         args: &[ExprId],
         env: &mut BodyTypeEnv,
     ) -> TypeId {
-        let arg_tys = self.infer_call_args(args, env);
         if let Some(imported) = self
             .names
             .expr_resolution(callee)
             .and_then(|name| self.imported_functions.get(name))
         {
+            let arg_tys = self.infer_function_args(args, &imported.signature, env);
             self.type_table
                 .insert_call(call_expr, CallTarget::SourceFunction(imported.id), None);
             if !imported.signature.generic_params.is_empty() {
@@ -1647,6 +1647,7 @@ impl<'a> BodyChecker<'a> {
             return imported.signature.return_type.clone();
         }
         let Some(ResolvedName::Function(id)) = self.names.expr_resolution(callee) else {
+            self.infer_call_args(args, env);
             let callee_ty = self.infer_expr_type(callee, env);
             if !callee_ty.is_unresolved() {
                 self.diagnostics.push(
@@ -1659,8 +1660,10 @@ impl<'a> BodyChecker<'a> {
             return TypeId::Error;
         };
         let Some(function) = self.function_index.by_id.get(&id) else {
+            self.infer_call_args(args, env);
             return self.infer_expr_type(callee, env);
         };
+        let arg_tys = self.infer_function_args(args, function, env);
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
         let mut substitution = crate::types::TypeSubstitution::new();
@@ -2428,6 +2431,28 @@ impl<'a> BodyChecker<'a> {
             _ => None,
         }
     }
+    fn infer_function_args(
+        &mut self,
+        args: &[ExprId],
+        signature: &super::TypedFunction,
+        env: &mut BodyTypeEnv,
+    ) -> Vec<(ExprId, TypeId)> {
+        args.iter()
+            .enumerate()
+            .map(|(index, argument)| {
+                let expected = signature
+                    .params
+                    .get(index)
+                    .map(|parameter| &parameter.ty)
+                    .filter(|ty| ty.is_concrete());
+                (
+                    *argument,
+                    self.infer_expr_type_expected(*argument, env, expected),
+                )
+            })
+            .collect()
+    }
+
     fn infer_call_args(&mut self, args: &[ExprId], env: &mut BodyTypeEnv) -> Vec<(ExprId, TypeId)> {
         args.iter()
             .map(|arg| (*arg, self.infer_expr_type(*arg, env)))

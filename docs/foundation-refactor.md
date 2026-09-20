@@ -263,7 +263,7 @@ Implemented foundation slices:
   local/imported instance, including when the owner emits no instance. Tests cover
   facades, distinct field representations, bounds, malformed binders, source/artifact/
   JIT fallback behavior and the standard-library example. Explicit constructor type
-  arguments, contextual call-argument inference, generic impl specialization
+  arguments, contextual generic-call/trait-method argument inference, generic impl specialization
   and interface tables remain pending. Independent signature queries now construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
   analysis consumes that result instead of repeating header validation. Tests cover
@@ -625,7 +625,7 @@ Implemented foundation slices:
   applied trait arguments and dynamic implementation tables remain outstanding;
   public ABI labels still need linked identities. Generic struct/enum instances
   now have concrete layouts keyed by declaration and arguments; explicit constructor
-  arguments and contextual inference for call arguments
+  arguments and contextual inference for generic-call and trait-method arguments
   remain outstanding. Annotated locals now supply Struct type arguments, including
   phantom parameters, and propagate checked context into nested Struct fields.
   Declaration identity must match; fields and bounds retain normal validation.
@@ -638,6 +638,10 @@ Implemented foundation slices:
   variants infer phantom arguments; instantiated payload types supply nested
   constructor context. Arity, payload and foreign-declaration failures reject
   codegen; source/artifact/JIT fallback exercises unit equality and nested payloads.
+  Concrete local/imported function parameter types now provide constructor context
+  before argument checking, including source facades. Extra arguments still get
+  checked; shadowing cannot borrow another function's signature. Regressions cover
+  arity/type failures and source/artifact/JIT fallback for imported constructors.
   The checker still treats a function without a tail expression as returning Unit
   even when an explicit return terminates it; control-flow completion remains open.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR

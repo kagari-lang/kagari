@@ -378,7 +378,10 @@ Context propagates through blocks, if/match branches, Tuple members and Array
 elements. Enum constructors also consume matching nominal context, including
 unit variants with or without parentheses. Known payload types propagate context
 to nested constructors; arity, payload types and generic bounds remain checked.
-Call-argument context is not implemented yet.
+Concrete parameter types of resolved local and imported functions supply argument
+context, including through source facades. Extra arguments are still checked.
+Context requiring inference of the callee's generic parameters and trait-method
+argument context are not implemented yet.
 
 ```ebnf
 type            ::= path generic_args?
