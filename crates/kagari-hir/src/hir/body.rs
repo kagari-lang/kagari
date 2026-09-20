@@ -25,6 +25,13 @@ impl Body {
             .map(|(index, (owner, expr))| (ExprId::new(self.arena, *owner, index), expr))
     }
 
+    pub fn places(&self) -> impl Iterator<Item = (PlaceId, &PlaceData)> {
+        self.places
+            .iter()
+            .enumerate()
+            .map(|(index, (owner, place))| (PlaceId::new(self.arena, *owner, index), place))
+    }
+
     pub fn blocks(&self) -> impl Iterator<Item = (BlockId, &BlockData)> {
         self.blocks
             .iter()

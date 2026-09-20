@@ -55,6 +55,14 @@ impl FileAnalysis {
                 }
                 Some((span.end - span.start, facts.names.hosts.field(field)?))
             })
+            .chain(facts.lowered.module.body.places().filter_map(|(id, _)| {
+                let field = facts.typed.type_table.place_field(id)?;
+                let span = facts.lowered.source_map.place_span(id);
+                if !(span.start <= offset && offset < span.end) {
+                    return None;
+                }
+                Some((span.end - span.start, facts.names.hosts.field(field)?))
+            }))
             .min_by_key(|(length, _)| *length)
             .map(|(_, field)| field)
     }

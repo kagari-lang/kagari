@@ -519,6 +519,9 @@ Implemented foundation slices:
   after division by zero, overflow or RHS target deletion; completed RHS effects
   remain. Source/artifact/JIT fallback and reused-body place-ID checks pass.
   offline_compile includes parameter-rooted assignment and compound assignment.
+  Protocol-independent host field queries also consume assignment-place facts,
+  including readonly-path diagnostics and reused bodies. Tests retain the old
+  snapshot's queries after edits and declaration changes.
   IR/bytecode path records now require the contract fingerprint. Load and reload
   link module-local paths to runtime descriptors before publication, reject missing
   or ambiguous bindings and validate operand/write contracts. VM execution consumes

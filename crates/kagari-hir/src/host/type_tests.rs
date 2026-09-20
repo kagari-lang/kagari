@@ -369,6 +369,12 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .snapshot(sources.snapshot(), profile, &Default::default())
         .unwrap();
     old.check_program(root, &Default::default()).unwrap();
+    assert_eq!(
+        old.file(root)
+            .unwrap()
+            .host_field_at(text.find("score").unwrap()),
+        Some(&field)
+    );
     let old_table = &old.file(root).unwrap().result().facts().typed.type_table;
     let old_place = old_table.host_write_places().next().unwrap();
     let old_path = old_table.host_place_path(old_place).unwrap().clone();
@@ -389,6 +395,12 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     let path = table.host_place_path(place).unwrap();
     assert_ne!(old_path.root, path.root);
     assert_eq!(old_path.declaration, path.declaration);
+    let changed = text.replace("{ 1 }", "{ 10 + 20 }");
+    assert_eq!(
+        file.host_field_at(changed.find("score").unwrap()),
+        Some(&field)
+    );
+    assert_eq!(file.host_field_at(changed.find("neighbor").unwrap()), None);
     new.check_program(root, &Default::default()).unwrap();
     declarations.field_paths[0].access = PathAccess::ReadOnly;
     db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
@@ -408,4 +420,17 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
             ))
     );
     assert!(readonly.check_program(root, &Default::default()).is_err());
+    assert_eq!(
+        readonly
+            .file(root)
+            .unwrap()
+            .host_field_at(changed.find("score").unwrap()),
+        Some(&field)
+    );
+    assert_eq!(
+        old.file(root)
+            .unwrap()
+            .host_field_at(text.find("score").unwrap()),
+        Some(&field)
+    );
 }
