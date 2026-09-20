@@ -434,3 +434,82 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         Some(&field)
     );
 }
+
+#[test]
+fn mixed_field_chains_resolve_the_complete_host_suffix() {
+    use kagari_common::host_interface::{
+        HostFieldDeclaration, HostFieldPathDeclaration, HostTypeOwnership, PathAccess,
+    };
+    let mut declarations = interface();
+    let mut related = HostFieldDeclaration::new(
+        &declarations.types[0].id,
+        "related",
+        HostValueType::Opaque(declarations.types[1].id.clone()),
+    );
+    let mut count =
+        HostFieldDeclaration::new(&declarations.types[1].id, "count", HostValueType::I32);
+    for field in [&mut related, &mut count] {
+        field.writable = true;
+        field.path_access = PathAccess::ReadWrite;
+    }
+    declarations.types[0].ownership = HostTypeOwnership::HostRoot;
+    declarations.types[0].path_access = PathAccess::ReadWrite;
+    declarations.types[0].fields.push(related.clone());
+    declarations.types[1].fields.push(count.clone());
+    let path = HostFieldPathDeclaration {
+        root: declarations.types[0].id.clone(),
+        fields: vec![related.id, count.id],
+        access: PathAccess::ReadWrite,
+        schema_epoch: 0,
+        capabilities: Default::default(),
+    };
+    declarations.field_paths.push(path.clone());
+    // Query abstract signatures without constructing a script heap object that
+    // contains a host handle (which execution deliberately rejects).
+    let text = "struct Box { val host: left::Item } struct Outer { val inner: Box } fn read(value: Outer) -> i32 { value.inner.host.related.count } fn write(value: Outer) { value.inner.host.related.count += 1; }";
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("mem://mixed", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
+    let snapshot = db
+        .snapshot(
+            sources.snapshot(),
+            LanguageFeatureProfile {
+                allow_path_mutation: true,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .unwrap();
+    let file = snapshot.file(root).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let facts = file.result().facts();
+    let reads: Vec<_> = facts
+        .lowered
+        .module
+        .body
+        .expressions()
+        .filter_map(|(id, _)| facts.typed.type_table.host_path(id))
+        .collect();
+    let writes: Vec<_> = facts
+        .lowered
+        .module
+        .body
+        .places()
+        .filter_map(|(id, _)| facts.typed.type_table.host_place_path(id))
+        .collect();
+    assert_eq!(reads.len(), 1);
+    assert_eq!(writes.len(), 1);
+    assert_eq!(reads[0].declaration, path);
+    assert_eq!(writes[0].declaration, path);
+    let read_span = facts.lowered.source_map.expr_span(reads[0].root);
+    let write_span = facts.lowered.source_map.place_span(writes[0].root);
+    assert_eq!(&text[read_span.start..read_span.end], "value.inner.host");
+    assert_eq!(&text[write_span.start..write_span.end], "value.inner.host");
+}

@@ -522,6 +522,12 @@ Implemented foundation slices:
   Protocol-independent host field queries also consume assignment-place facts,
   including readonly-path diagnostics and reused bodies. Tests retain the old
   snapshot's queries after edits and declaration changes.
+  Mixed script/host field-chain analysis now finds the first host receiver and
+  resolves its complete suffix, without requiring independently declared prefix
+  paths. This preserves abstract member facts; host handles remain prohibited as
+  script heap payloads. Execution tests replace a local host root during RHS and
+  verify that successful writes and failed updates still address the captured root
+  across source bytecode, encoded artifacts and existing JIT fallback.
   IR/bytecode path records now require the contract fingerprint. Load and reload
   link module-local paths to runtime descriptors before publication, reject missing
   or ambiguous bindings and validate operand/write contracts. VM execution consumes

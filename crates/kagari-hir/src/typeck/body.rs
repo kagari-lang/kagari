@@ -1733,11 +1733,7 @@ impl<'a> BodyChecker<'a> {
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        let PlaceKind::Field {
-            base: immediate,
-            name,
-        } = self.lowered.module.place(place_id).kind.clone()
-        else {
+        let PlaceKind::Field { .. } = self.lowered.module.place(place_id).kind else {
             return None;
         };
         let mut root = place_id;
@@ -1748,14 +1744,13 @@ impl<'a> BodyChecker<'a> {
         }
         chain.reverse();
         let mut ty = self.resolve_readable_place_type(root, env)?;
-        if !matches!(ty, TypeId::Host(_)) {
-            if root == immediate {
-                return None;
-            }
-            root = immediate;
+        let mut prefix = 0;
+        while !matches!(ty, TypeId::Host(_)) && prefix + 1 < chain.len() {
+            root = chain[prefix].0;
             ty = self.resolve_readable_place_type(root, env)?;
-            chain = vec![(place_id, name)];
+            prefix += 1;
         }
+        chain.drain(..prefix);
         let TypeId::Host(owner) = &ty else {
             return None;
         };
@@ -1815,11 +1810,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn infer_host_field_read(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> Option<TypeId> {
-        let ExprKind::Field {
-            receiver: immediate,
-            name,
-        } = self.lowered.module.expr(expr_id).kind.clone()
-        else {
+        let ExprKind::Field { .. } = self.lowered.module.expr(expr_id).kind else {
             return None;
         };
         let mut root = expr_id;
@@ -1830,14 +1821,13 @@ impl<'a> BodyChecker<'a> {
         }
         chain.reverse();
         let mut ty = self.infer_expr_type(root, env);
-        if !matches!(ty, TypeId::Host(_)) {
-            if root == immediate {
-                return None;
-            }
-            root = immediate;
+        let mut prefix = 0;
+        while !matches!(ty, TypeId::Host(_)) && prefix + 1 < chain.len() {
+            root = chain[prefix].0;
             ty = self.infer_expr_type(root, env);
-            chain = vec![(expr_id, name)];
+            prefix += 1;
         }
+        chain.drain(..prefix);
         let TypeId::Host(owner) = &ty else {
             return None;
         };
