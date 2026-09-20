@@ -481,7 +481,9 @@ Implemented foundation slices:
   execution after cleanup across source/artifact/JIT fallback routes. The
   offline_compile example compiles a declared method without runtime registration.
   Host field/path binding, host trait implementations and generated typed paths
-  remain pending; format 19/runtime ABI v20
+  remain pending. Runtime path registration now rejects disconnected field owners
+  and index collections before publishing or consuming a descriptor slot; tests
+  cover both root and intermediate mismatches. Format 19/runtime ABI v20
   reject prior products. R06 remains unchecked.
   Source facades now re-export host functions and modules using one final import
   binding table. Name resolution, imported signature/type catalogs and navigation

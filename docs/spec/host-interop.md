@@ -539,6 +539,12 @@ Rules:
 - host-backed field and index chains lower to typed path operations where appropriate
 - frame-scoped host borrow handles are not the script-visible model for nested field access
 
+Runtime path registration checks type continuity before publishing a descriptor:
+the first field owner or index collection must match the root type, and each
+subsequent field owner or index collection must match the preceding segment's
+result. A rejected registration does not consume a descriptor slot. This check
+does not replace declaration-derived member identity and access validation.
+
 Example:
 
 ```kagari

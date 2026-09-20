@@ -618,6 +618,61 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
 }
 
 #[test]
+fn rejects_disconnected_path_types_before_publishing_descriptors() {
+    let mut runtime = path_mutation_runtime();
+    let scalar = register_i32(&runtime);
+    let player = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let field = |owner_type| HostPathSegment::Field {
+        name: "hp".into(),
+        field_id: FieldMetadataId::new(0),
+        owner_type,
+        result_type: scalar,
+        access: PathAccess::ReadWrite,
+        abi_fingerprint: AbiFingerprint(21),
+    };
+    let index = |collection_type| HostPathSegment::Index {
+        slot: DynamicPathArgSlot::new(0),
+        collection_type,
+        index_type: scalar,
+        result_type: scalar,
+        access: PathAccess::ReadWrite,
+        abi_fingerprint: AbiFingerprint(22),
+    };
+    for segments in [
+        vec![field(scalar)],
+        vec![index(scalar)],
+        vec![field(player), field(player)],
+        vec![field(player), index(player)],
+    ] {
+        let result = runtime.register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: player,
+            result_type: scalar,
+            segments,
+            access: PathAccess::ReadWrite,
+            schema_epoch: HostSchemaEpoch::new(0),
+            abi_fingerprint: AbiFingerprint(23),
+            capability_requirements: CapabilitySet::default(),
+        });
+        assert_eq!(
+            result.unwrap_err().kind(),
+            RuntimeErrorKind::TypedPathValidation
+        );
+    }
+    // Failed registrations neither publish descriptors nor consume their slots.
+    let actual = register_hp_descriptor(&mut runtime, player, scalar, PathAccess::ReadWrite);
+    let mut fresh = path_mutation_runtime();
+    let fresh_scalar = register_i32(&fresh);
+    let fresh_player = register_host_root_type(&mut fresh, "game.Player", PathAccess::ReadWrite);
+    let expected = register_hp_descriptor(
+        &mut fresh,
+        fresh_player,
+        fresh_scalar,
+        PathAccess::ReadWrite,
+    );
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn registers_typed_host_roots_and_simple_path_views() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);

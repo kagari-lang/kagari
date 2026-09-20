@@ -269,13 +269,27 @@ impl HostPathDescriptor {
                 "path descriptor result type does not match its final segment",
             ));
         }
+        let mut current_type = registration.root_type;
         for segment in &registration.segments {
+            let input_type = match segment {
+                HostPathSegment::Field { owner_type, .. } => *owner_type,
+                HostPathSegment::Index {
+                    collection_type, ..
+                } => *collection_type,
+                HostPathSegment::Virtual { .. } => current_type,
+            };
+            if input_type != current_type {
+                return Err(RuntimeError::typed_path_validation(
+                    "path segment input type does not match the preceding result",
+                ));
+            }
             validate_path_access(segment.access(), "path segment")?;
             if !path_access_allows(segment.access(), registration.access) {
                 return Err(RuntimeError::typed_path_validation(
                     "path descriptor access exceeds a segment access policy",
                 ));
             }
+            current_type = segment.result_type();
         }
         Ok(Self {
             id,
