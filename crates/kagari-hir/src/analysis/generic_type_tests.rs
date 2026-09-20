@@ -322,6 +322,53 @@ fn incomplete_whole_type_does_not_poison_later_inference() {
 }
 
 #[test]
+fn repeated_generic_arguments_merge_partial_types_without_hiding_conflicts() {
+    for (arguments, conflict) in [
+        ("(1, missing), (missing, true)", false),
+        ("(missing, true), (1, missing)", false),
+        ("(1, missing), (false, true)", true),
+    ] {
+        let source = SourceFile::new(
+            "repeated.kgr",
+            format!(
+                "fn choose<T>(first: T, second: T) -> T {{ first }} fn bad() {{ choose({arguments}); }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        let facts = analysis.facts();
+        let result = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, expr)| {
+                matches!(expr.kind, crate::hir::ExprKind::Call { .. })
+                    .then(|| facts.typed.type_table.expr_type(id))
+                    .flatten()
+            });
+        assert_eq!(
+            result,
+            Some(TypeId::Tuple(vec![
+                TypeId::Builtin(BuiltinType::I32),
+                if conflict {
+                    TypeId::Error
+                } else {
+                    TypeId::Builtin(BuiltinType::Bool)
+                }
+            ]))
+        );
+        assert_eq!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
+            )),
+            conflict
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
 fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_parameters() {
     for text in [
         "struct Key<T: HashKey> { val value: T } fn bad(x: Key<f32>) {}",

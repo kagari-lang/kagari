@@ -182,8 +182,9 @@ Implemented foundation slices:
   as well as the recorded instantiation. Callee binders cannot leak into callers;
   known arguments, caller-owned binders and nominal member identities survive.
   Inference traverses partially erroneous composite arguments to use their valid
-  members. Incomplete whole-type candidates do not prevent later complete
-  arguments from fixing a binder. Tuple and nominal-constructor regressions cover
+  members. Partial whole-type candidates merge complementary facts from later
+  arguments through structural recovery, while conflicts remain diagnosable.
+  Tuple and nominal-constructor regressions cover
   this recovery. Annotation resolution now returns recoverable types directly,
   preserving composite shapes containing unknown members. Parameters, returns,
   fields, enum payloads, local annotations and constants retain facts and report

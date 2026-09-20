@@ -22,11 +22,10 @@ pub(super) fn infer(
                 infer(expected, actual, parameters, substitution);
             }
         }
-        (TypeId::Generic(parameter), _)
-            if parameters.contains(parameter) && !actual.is_unresolved() =>
-        {
+        (TypeId::Generic(parameter), _) if parameters.contains(parameter) => {
             substitution
                 .entry(parameter.clone())
+                .and_modify(|inferred| inferred.recover_from(actual))
                 .or_insert_with(|| actual.clone());
         }
         (TypeId::Tuple(expected), TypeId::Tuple(actual)) if expected.len() == actual.len() => {
