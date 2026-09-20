@@ -96,7 +96,7 @@ impl<'a> BodyChecker<'a> {
                 let mut initializer_ty = self.infer_expr_type(*initializer, env);
                 let local_ty = ty
                     .map(|ty| {
-                        resolve_type_in(
+                        let resolved = resolve_type_in(
                             &self.lowered.module,
                             ty,
                             TypeContext {
@@ -106,16 +106,16 @@ impl<'a> BodyChecker<'a> {
                             },
                             self.type_table,
                             self.cancel,
-                        )
-                        .unwrap_or_else(|| {
+                        );
+                        if resolved.is_unresolved() {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                                     type_name: display_type(&self.lowered.module, ty),
                                 })
                                 .with_span(self.lowered.source_map.type_span(ty)),
                             );
-                            TypeId::Error
-                        })
+                        }
+                        resolved
                     })
                     .unwrap_or_else(|| initializer_ty.clone());
                 super::applications::validate(

@@ -184,8 +184,11 @@ Implemented foundation slices:
   Inference traverses partially erroneous composite arguments to use their valid
   members. Incomplete whole-type candidates do not prevent later complete
   arguments from fixing a binder. Tuple and nominal-constructor regressions cover
-  this recovery. Annotation resolution still collapses a composite containing an
-  unknown type argument; preserving that shape and its diagnostics remains open.
+  this recovery. Annotation resolution now returns recoverable types directly,
+  preserving composite shapes containing unknown members. Parameters, returns,
+  fields, enum payloads, local annotations and constants retain facts and report
+  unresolved-type diagnostics; a 24-case matrix verifies queries and codegen
+  rejection. The old optional whole-annotation result is removed.
   All local module-level declarations and import aliases now share an immutable
   name table. Calls, annotations, constructors, bounds and impl headers consume
   it; duplicate names retain identities but have no winning target or codegen.

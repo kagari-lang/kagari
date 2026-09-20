@@ -88,7 +88,7 @@ pub(crate) fn check_signatures(
                 &mut type_table,
                 cancel,
             );
-            if ty.is_none() {
+            if ty.is_unresolved() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                         type_name: display_type(&lowered.module, field.ty),
@@ -96,7 +96,8 @@ pub(crate) fn check_signatures(
                     .with_span(lowered.source_map.type_span(field.ty)),
                 );
             }
-            if let Some(ty) = &ty {
+            if !ty.is_unresolved() {
+                let ty = &ty;
                 let id = declarations
                     .definition(ResolvedName::Struct(structure.id))
                     .expect("struct declaration");
@@ -107,7 +108,7 @@ pub(crate) fn check_signatures(
                     &mut diagnostics,
                 );
             }
-            type_table.insert_field_type(field.id, ty.unwrap_or(TypeId::Error));
+            type_table.insert_field_type(field.id, ty);
         }
     }
 
@@ -128,7 +129,7 @@ pub(crate) fn check_signatures(
                     &mut type_table,
                     cancel,
                 ) {
-                    Some(ty) => validate_standard_type_constraints(
+                    ty if !ty.is_unresolved() => validate_standard_type_constraints(
                         &ty,
                         &type_bounds[declarations
                             .definition(ResolvedName::Enum(enumeration.id))
@@ -136,7 +137,7 @@ pub(crate) fn check_signatures(
                         lowered.source_map.type_span(*payload),
                         &mut diagnostics,
                     ),
-                    None => diagnostics.push(
+                    _ => diagnostics.push(
                         Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                             type_name: display_type(&lowered.module, *payload),
                         })
@@ -160,7 +161,10 @@ pub(crate) fn check_signatures(
                 &mut type_table,
                 cancel,
             );
-            if resolved.is_none() && implementation.trait_ref.is_none() && cancel.check().is_ok() {
+            if resolved.is_unresolved()
+                && implementation.trait_ref.is_none()
+                && cancel.check().is_ok()
+            {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                         type_name: display_type(&lowered.module, ty),
@@ -213,12 +217,12 @@ pub(crate) fn check_signatures(
                 type_table
                     .type_ref(param.ty)
                     .map(|resolved| resolved.ty.clone())
-                    .filter(|ty| !ty.is_unresolved())
+                    .unwrap_or(TypeId::Error)
             } else {
                 resolve_type_in(&lowered.module, param.ty, context, &mut type_table, cancel)
             };
             match param_type {
-                Some(ty) => {
+                ty if !ty.is_unresolved() => {
                     validate_standard_type_constraints(
                         &ty,
                         &bounds,
@@ -232,12 +236,12 @@ pub(crate) fn check_signatures(
                         ty,
                     });
                 }
-                None => {
+                ty => {
                     params.push(TypedParameter {
                         id: param.id,
                         writeability: param.writeability,
                         name: param_name,
-                        ty: TypeId::Error,
+                        ty,
                     });
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::UnknownType {
@@ -254,7 +258,7 @@ pub(crate) fn check_signatures(
         let return_type = match &function.return_type {
             Some(ty_ref) => {
                 match resolve_type_in(&lowered.module, *ty_ref, context, &mut type_table, cancel) {
-                    Some(ty) => {
+                    ty if !ty.is_unresolved() => {
                         validate_standard_type_constraints(
                             &ty,
                             &bounds,
@@ -263,7 +267,7 @@ pub(crate) fn check_signatures(
                         );
                         ty
                     }
-                    None => {
+                    ty => {
                         let ty_name = display_type(&lowered.module, *ty_ref);
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownType {
@@ -273,7 +277,7 @@ pub(crate) fn check_signatures(
                             })
                             .with_span(lowered.source_map.type_span(*ty_ref)),
                         );
-                        TypeId::Error
+                        ty
                     }
                 }
             }
@@ -354,7 +358,7 @@ pub(crate) fn check_bodies_controlled(
                         &mut type_table,
                         cancel,
                     ) {
-                        Some(ty) => {
+                        ty if !ty.is_unresolved() => {
                             validate_standard_type_constraints(
                                 &ty,
                                 &HashMap::new(),
@@ -363,7 +367,7 @@ pub(crate) fn check_bodies_controlled(
                             );
                             ty
                         }
-                        None => {
+                        ty => {
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnknownConstType {
                                     const_name: const_item.name.clone(),
@@ -371,7 +375,7 @@ pub(crate) fn check_bodies_controlled(
                                 })
                                 .with_span(lowered.source_map.const_span(const_item.id)),
                             );
-                            TypeId::Error
+                            ty
                         }
                     }
                 }

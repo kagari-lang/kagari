@@ -101,7 +101,7 @@ pub(super) fn resolve_type(
     declarations: &crate::declarations::Declarations,
     table: &mut TypeTable,
     cancel: &CancellationToken,
-) -> Option<TypeId> {
+) -> TypeId {
     resolve_type_in(
         module,
         ty,
@@ -121,9 +121,9 @@ pub(super) fn resolve_type_in(
     context: TypeContext<'_>,
     table: &mut TypeTable,
     cancel: &CancellationToken,
-) -> Option<TypeId> {
+) -> TypeId {
     if cancel.check().is_err() {
-        return None;
+        return TypeId::Error;
     }
     let mut target = None;
     let resolved = match &module.type_ref(ty).kind {
@@ -134,9 +134,9 @@ pub(super) fn resolve_type_in(
                 TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty)
                     if !ty.arguments.is_empty() =>
                 {
-                    None
+                    TypeId::Error
                 }
-                _ => (!reference.ty.is_unresolved()).then_some(reference.ty),
+                _ => reference.ty,
             }
         }
         hir::TypeKind::Generic { name, args } => {
@@ -152,50 +152,42 @@ pub(super) fn resolve_type_in(
                 .iter()
                 .map(|arg| resolve_type_in(module, *arg, context, table, cancel))
                 .collect::<Vec<_>>();
-            args.into_iter()
-                .collect::<Option<Vec<_>>>()
-                .and_then(|args| match reference.ty {
-                    TypeId::Struct(mut nominal)
-                        if !nominal.arguments.is_empty()
-                            && nominal.arguments.len() == args.len() =>
-                    {
-                        nominal.arguments = args;
-                        Some(TypeId::Struct(nominal))
-                    }
-                    TypeId::Enum(mut nominal)
-                        if !nominal.arguments.is_empty()
-                            && nominal.arguments.len() == args.len() =>
-                    {
-                        nominal.arguments = args;
-                        Some(TypeId::Enum(nominal))
-                    }
-                    _ if prelude => surface::standard_generic_type(name, args),
-                    _ => None,
-                })
+            match reference.ty {
+                TypeId::Struct(mut nominal)
+                    if !nominal.arguments.is_empty() && nominal.arguments.len() == args.len() =>
+                {
+                    nominal.arguments = args;
+                    TypeId::Struct(nominal)
+                }
+                TypeId::Enum(mut nominal)
+                    if !nominal.arguments.is_empty() && nominal.arguments.len() == args.len() =>
+                {
+                    nominal.arguments = args;
+                    TypeId::Enum(nominal)
+                }
+                _ if prelude => surface::standard_generic_type(name, args).unwrap_or(TypeId::Error),
+                _ => TypeId::Error,
+            }
         }
         hir::TypeKind::Tuple(elements) => {
             let elements = elements
                 .iter()
                 .map(|element| resolve_type_in(module, *element, context, table, cancel))
                 .collect::<Vec<_>>();
-            elements
-                .into_iter()
-                .collect::<Option<Vec<_>>>()
-                .map(|elements| {
-                    if elements.is_empty() {
-                        TypeId::from_name("()").expect("unit builtin")
-                    } else {
-                        TypeId::Tuple(elements)
-                    }
-                })
+            if elements.is_empty() {
+                TypeId::from_name("()").expect("unit builtin")
+            } else {
+                TypeId::Tuple(elements)
+            }
         }
-        hir::TypeKind::Array(element) => resolve_type_in(module, *element, context, table, cancel)
-            .map(|element| TypeId::Array(Box::new(element))),
+        hir::TypeKind::Array(element) => TypeId::Array(Box::new(resolve_type_in(
+            module, *element, context, table, cancel,
+        ))),
     };
     table.insert_type_ref(
         ty,
         ResolvedTypeRef {
-            ty: resolved.clone().unwrap_or(TypeId::Error),
+            ty: resolved.clone(),
             target,
         },
     );

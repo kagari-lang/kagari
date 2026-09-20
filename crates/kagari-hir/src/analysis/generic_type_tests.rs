@@ -3,6 +3,52 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn composite_annotations_retain_structure_without_authorizing_codegen() {
+    for annotation in [
+        "(i32, Missing)",
+        "[Missing]",
+        "Map<i32, Missing>",
+        "Cell<Missing>",
+    ] {
+        for declaration in [
+            format!("fn bad(value: {annotation}) {{}}"),
+            format!("fn bad() -> {annotation} {{}}"),
+            format!("struct Bad {{ val value: {annotation} }}"),
+            format!("enum Bad {{ Value({annotation}) }}"),
+            format!("fn bad() {{ val value: {annotation} = (); }}"),
+            format!("const bad: {annotation} = ();"),
+        ] {
+            let text =
+                format!("struct Cell<T> {{ val value: T }} {declaration} fn good() -> i32 {{ 7 }}");
+            let mut sources = SourceDatabase::default();
+            let root = sources
+                .set("annotations.kgr", text.clone(), SourceLayer::Base)
+                .unwrap();
+            let mut db = AnalysisDatabase::default();
+            let snapshot = db
+                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .unwrap();
+            let file = snapshot.file(root).unwrap();
+            assert!(!file.result().diagnostics().is_empty(), "{declaration}");
+            let ty = file.type_at(text.find(annotation).unwrap()).unwrap();
+            assert!(ty.is_unresolved(), "{declaration}: {ty:?}");
+            assert!(
+                !matches!(ty, TypeId::Error | TypeId::Unknown),
+                "{declaration}: {ty:?}"
+            );
+            assert_eq!(
+                file.type_at(text.rfind('7').unwrap()),
+                Some(TypeId::Builtin(BuiltinType::I32))
+            );
+            assert!(
+                snapshot.check_program(root, &Default::default()).is_err(),
+                "{declaration}"
+            );
+        }
+    }
+}
+
+#[test]
 fn failed_call_inference_substitutes_error_without_leaking_callee_binders() {
     for argument in ["", "missing"] {
         let text = format!(
@@ -77,6 +123,7 @@ fn inference_uses_valid_members_of_partially_erroneous_arguments() {
     for source in [
         "fn identity<A, B>(value: (A, B)) -> (A, B) { value } fn bad() { identity((1, missing)); }",
         "struct Pair<A, B> { val first: A, val second: B } fn identity<A, B>(value: Pair<A, B>) -> Pair<A, B> { value } fn bad() { identity(Pair { first: 1, second: missing }); }",
+        "struct Pair<A, B> { val first: A, val second: B } fn identity<A, B>(value: Pair<A, B>) -> Pair<A, B> { value } fn bad(value: Pair<i32, Missing>) { identity(value); }",
     ] {
         let source = SourceFile::new("partial-members.kgr", source);
         let analysis = crate::analyze_source(&source, Default::default());
