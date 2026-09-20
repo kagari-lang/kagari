@@ -1,6 +1,6 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
 use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
+    CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
     HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
     HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, ResourcePolicy, Runtime,
     RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind, TypeRegistration,
@@ -69,7 +69,6 @@ fn main() {
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(3),
             capability_requirements: CapabilitySet::default(),
         })
         .unwrap();

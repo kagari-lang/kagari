@@ -62,7 +62,6 @@ fn path_view_value(object_id: u64) -> Value {
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(3),
             capability_requirements: CapabilitySet::default(),
         })
         .unwrap();

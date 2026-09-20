@@ -131,7 +131,6 @@ fn register_vm_host_path_runtime_with_capabilities(
             }],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(4),
             capability_requirements,
         })
         .unwrap();

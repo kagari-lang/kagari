@@ -551,8 +551,19 @@ collection must match the preceding segment's result (or the root for the first
 segment), and field identities must belong to that current owner. The requested
 result type and access must agree with the generated segments. Rejection neither
 publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
-output exposed to adapters. Index and virtual segment declarations, whole-path
-fingerprint generation and source field lowering remain separate pending work.
+output exposed to adapters. Index and virtual segment declarations and source
+field lowering remain separate pending work.
+
+The runtime generates the whole-path ABI fingerprint; registration cannot supply
+one. The `kagari-host-path-v1\0` encoding uses FNV-1a 64 over fixed-order fields:
+root declaration fingerprint, result type fingerprint, schema epoch, access,
+capability flags, segment count, then ordered segment records. Integers and lengths
+are little-endian u64; tags and flags are bytes; virtual names are length-prefixed
+UTF-8. Each segment includes its kind-specific input contract, result type, access
+and member fingerprint. Types use portable host type contracts, never runtime IDs
+or display strings. Types without such contracts reject registration. Field
+declaration fingerprints and the root contract exclude documentation. Reordering
+unrelated runtime type registrations therefore does not change a path fingerprint.
 
 Example:
 

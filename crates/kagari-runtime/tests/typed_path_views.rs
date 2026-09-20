@@ -543,7 +543,6 @@ fn register_hp_descriptor(
             }],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(22),
             capability_requirements: CapabilitySet::default(),
         })
         .unwrap()
@@ -681,7 +680,6 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
             segments,
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(23),
             capability_requirements: CapabilitySet::default(),
         });
         assert_eq!(
@@ -731,7 +729,6 @@ fn registers_typed_host_roots_and_simple_path_views() {
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(22),
             capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
@@ -789,7 +786,6 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
             ],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(33),
             capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
@@ -907,7 +903,6 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
             }],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(72),
             capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
@@ -984,7 +979,6 @@ fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
                 }],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
-                abi_fingerprint: AbiFingerprint(42),
                 capability_requirements: CapabilitySet::default(),
             })
             .unwrap_err()
@@ -1020,7 +1014,6 @@ fn rejects_root_schema_mismatch_when_creating_views() {
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(52),
             capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
@@ -1248,7 +1241,6 @@ fn path_execution_enforces_descriptor_capabilities() {
             }],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(62),
             capability_requirements: CapabilitySet {
                 reflection_read: true,
                 ..CapabilitySet::default()

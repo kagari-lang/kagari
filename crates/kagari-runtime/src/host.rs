@@ -7,6 +7,8 @@ use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 use kagari_common::identity::DefinitionId;
 use kagari_ir::bytecode::BinaryOp;
 
+mod path_fingerprint;
+
 use crate::{
     error::RuntimeError,
     metadata::{AbiFingerprint, FieldMetadataId, PathAccess, TypeId},
@@ -256,7 +258,6 @@ pub struct HostPathDescriptorRegistration {
     pub segments: Vec<HostPathSegmentRegistration>,
     pub access: PathAccess,
     pub schema_epoch: HostSchemaEpoch,
-    pub abi_fingerprint: AbiFingerprint,
     pub capability_requirements: CapabilitySet,
 }
 
@@ -278,6 +279,7 @@ impl HostPathDescriptor {
         id: HostPathDescriptorId,
         registration: HostPathDescriptorRegistration,
         segments: Vec<HostPathSegment>,
+        abi_fingerprint: AbiFingerprint,
     ) -> Result<Self, RuntimeError> {
         validate_path_access(registration.access, "path descriptor")?;
         let dynamic_parameters = collect_dynamic_parameters(&segments)?;
@@ -321,7 +323,7 @@ impl HostPathDescriptor {
             dynamic_parameters,
             access: registration.access,
             schema_epoch: registration.schema_epoch,
-            abi_fingerprint: registration.abi_fingerprint,
+            abi_fingerprint,
             capability_requirements: registration.capability_requirements,
         })
     }
@@ -1699,7 +1701,9 @@ impl HostRegistry {
             segments.push(resolved);
         }
         let id = HostPathDescriptorId::new(self.next_path_descriptor_id);
-        let descriptor = HostPathDescriptor::from_registration(id, registration, segments)?;
+        let fingerprint = self.path_fingerprint(&registration, &segments, types)?;
+        let descriptor =
+            HostPathDescriptor::from_registration(id, registration, segments, fingerprint)?;
         self.next_path_descriptor_id += 1;
         self.path_descriptors.insert(id, descriptor);
         Ok(id)

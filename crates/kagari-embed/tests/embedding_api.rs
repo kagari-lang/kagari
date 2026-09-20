@@ -107,7 +107,6 @@ fn register_embedding_host_path_runtime(
             }],
             access: path_access,
             schema_epoch: HostSchemaEpoch::new(0),
-            abi_fingerprint: AbiFingerprint(104),
             capability_requirements,
         })
         .unwrap();

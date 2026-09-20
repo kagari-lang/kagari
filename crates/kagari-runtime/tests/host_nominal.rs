@@ -302,7 +302,6 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
                 }],
                 access: PathAccess::ReadOnly,
                 schema_epoch: HostSchemaEpoch::new(0),
-                abi_fingerprint: AbiFingerprint(1),
                 capability_requirements: Default::default(),
             })
             .unwrap();
@@ -336,8 +335,7 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
 fn path_fields_are_derived_from_nominal_declarations() {
     use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
     use kagari_runtime::{
-        AbiFingerprint, HostPathDescriptorRegistration, HostPathSegment,
-        HostPathSegmentRegistration, Visibility,
+        HostPathDescriptorRegistration, HostPathSegment, HostPathSegmentRegistration, Visibility,
     };
     let mut runtime = runtime();
     let mut owner = HostTypeDeclaration::new("game.Player");
@@ -360,7 +358,6 @@ fn path_fields_are_derived_from_nominal_declarations() {
         segments: vec![HostPathSegmentRegistration::Field { declaration }],
         access,
         schema_epoch: HostSchemaEpoch::new(0),
-        abi_fingerprint: AbiFingerprint(10),
         capability_requirements: CapabilitySet::default(),
     };
     let other = HostTypeDeclaration::new("other.Player");
@@ -397,4 +394,111 @@ fn path_fields_are_derived_from_nominal_declarations() {
             abi_fingerprint: metadata.fields[0].abi_fingerprint,
         }]
     );
+}
+#[test]
+fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
+    use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
+    use kagari_runtime::{
+        HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind, TypeRegistration,
+    };
+    let fingerprint = |padding: usize,
+                       docs: &str,
+                       writable: bool,
+                       epoch: usize,
+                       capability: bool,
+                       ty: HostValueType| {
+        let mut runtime = runtime();
+        for index in 0..padding {
+            runtime
+                .types()
+                .register(TypeRegistration::new(
+                    format!("unused{index}"),
+                    TypeKind::Primitive,
+                ))
+                .unwrap();
+        }
+        let mut owner = HostTypeDeclaration::new("game.Player");
+        owner.ownership = HostTypeOwnership::HostRoot;
+        owner.path_access = PathAccess::ReadWrite;
+        owner.documentation = docs.into();
+        let mut field = HostFieldDeclaration::new(&owner.id, "生命", ty);
+        field.writable = writable;
+        field.path_access = if writable {
+            PathAccess::ReadWrite
+        } else {
+            PathAccess::ReadOnly
+        };
+        field.documentation = docs.into();
+        let declaration = field.id.clone();
+        owner.fields.push(field);
+        let root_type = runtime
+            .register_host_type(HostTypeRegistration::new(owner, "Player"))
+            .unwrap();
+        let result_type = runtime.types().get(root_type).unwrap().fields[0].ty;
+        let id = runtime
+            .register_host_path_descriptor(HostPathDescriptorRegistration {
+                root_type,
+                result_type,
+                segments: vec![HostPathSegmentRegistration::Field { declaration }],
+                access: PathAccess::ReadOnly,
+                schema_epoch: HostSchemaEpoch::new(epoch),
+                capability_requirements: CapabilitySet {
+                    fs_read: capability,
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        runtime.host().path_descriptor(id).unwrap().abi_fingerprint
+    };
+    let base = fingerprint(0, "", false, 0, false, HostValueType::I32);
+    assert_eq!(
+        base,
+        fingerprint(3, "changed docs", false, 0, false, HostValueType::I32)
+    );
+    assert_ne!(base, fingerprint(0, "", true, 0, false, HostValueType::I32));
+    assert_ne!(
+        base,
+        fingerprint(0, "", false, 1, false, HostValueType::I32)
+    );
+    assert_ne!(base, fingerprint(0, "", false, 0, true, HostValueType::I32));
+    assert_ne!(
+        base,
+        fingerprint(0, "", false, 0, false, HostValueType::I64)
+    );
+}
+#[test]
+fn paths_reject_types_without_portable_contracts_before_publication() {
+    use kagari_runtime::{
+        AbiFingerprint, HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind,
+        TypeRegistration,
+    };
+    let mut runtime = runtime();
+    let mut owner = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
+    owner.ownership = HostTypeOwnership::HostRoot;
+    owner.path_access = PathAccess::ReadOnly;
+    let root_type = runtime
+        .register_host_type(HostTypeRegistration::new(owner, "Player"))
+        .unwrap();
+    let result_type = runtime
+        .types()
+        .register(TypeRegistration::new("Unspecified", TypeKind::Primitive))
+        .unwrap();
+    let result = runtime.register_host_path_descriptor(HostPathDescriptorRegistration {
+        root_type,
+        result_type,
+        segments: vec![HostPathSegmentRegistration::Virtual {
+            name: "value".into(),
+            result_type,
+            access: PathAccess::ReadOnly,
+            abi_fingerprint: AbiFingerprint(1),
+        }],
+        access: PathAccess::ReadOnly,
+        schema_epoch: HostSchemaEpoch::new(0),
+        capability_requirements: Default::default(),
+    });
+    assert_eq!(
+        result.unwrap_err().kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    assert_eq!(runtime.host().path_descriptors().count(), 0);
 }

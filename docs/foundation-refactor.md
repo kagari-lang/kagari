@@ -487,7 +487,12 @@ Implemented foundation slices:
   and wrong result types before publication. Existing VM, embedding and GC path
   fixtures now declare their actual fields; atomic_host_path keeps the field ID
   directly from its declaration. Source field lowering, host trait implementations,
-  declared index/virtual paths and whole-path fingerprint generation remain pending.
+  and declared index/virtual paths remain pending. Whole-path fingerprints now use
+  a versioned fixed-order encoding of resolved contracts, permissions and schema;
+  the caller-supplied fingerprint input is removed. Types without portable host
+  contracts reject registration. Tests prove unrelated runtime slot shifts and
+  documentation edits preserve fingerprints, while field type, permissions,
+  capabilities and schema changes alter them.
   Runtime path registration also rejects disconnected field owners
   and index collections before publishing or consuming a descriptor slot; tests
   cover both root and intermediate mismatches. Format 19/runtime ABI v20

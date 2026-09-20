@@ -1112,7 +1112,6 @@ mod tests {
                 }],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
-                abi_fingerprint: AbiFingerprint(3),
                 capability_requirements: crate::security::CapabilitySet::default(),
             })
             .unwrap();
