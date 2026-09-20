@@ -10,6 +10,8 @@ use crate::types::{BuiltinType, TypeId};
 mod facade_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod type_tests;
 
 /// Scoped to one immutable declaration input, never a runtime binding slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -143,16 +145,28 @@ impl HostDeclarations {
                 index,
             })
     }
-    pub fn resolve_in(&self, module: HostModuleId, path: &str) -> Option<HostFunctionId> {
-        if module.revision != self.revision {
-            return None;
-        }
-        self.resolve(&format!("{}::{path}", self.modules.get(module.index)?))
-    }
     pub fn function(&self, id: HostFunctionId) -> Option<&HostFunctionDeclaration> {
         (id.revision == self.revision)
             .then(|| self.interface.functions.get(id.index))
             .flatten()
+    }
+    pub(crate) fn resolve_name_in(
+        &self,
+        module: HostModuleId,
+        path: &str,
+    ) -> Option<crate::resolver::ResolvedName> {
+        if module.revision != self.revision {
+            return None;
+        }
+        self.resolve_name(&format!("{}::{path}", self.modules.get(module.index)?))
+    }
+    pub(crate) fn resolve_name(&self, path: &str) -> Option<crate::resolver::ResolvedName> {
+        self.resolve(path)
+            .map(crate::resolver::ResolvedName::HostFunction)
+            .or_else(|| {
+                self.resolve_type(path)
+                    .map(crate::resolver::ResolvedName::HostType)
+            })
     }
     pub fn revision(&self) -> u64 {
         self.revision
@@ -174,26 +188,24 @@ impl HostDeclarations {
     }
 }
 
-pub(crate) fn signature_type(ty: &HostValueType) -> Option<TypeId> {
-    Some(match ty {
-        HostValueType::Tuple(types) => {
-            TypeId::Tuple(types.iter().map(signature_type).collect::<Option<_>>()?)
-        }
-        HostValueType::Array(element) => TypeId::Array(Box::new(signature_type(element)?)),
+pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
+    match ty {
+        HostValueType::Tuple(types) => TypeId::Tuple(types.iter().map(signature_type).collect()),
+        HostValueType::Array(element) => TypeId::Array(Box::new(signature_type(element))),
         HostValueType::Map { key, value } => TypeId::Map {
-            key: Box::new(signature_type(key)?),
-            value: Box::new(signature_type(value)?),
+            key: Box::new(signature_type(key)),
+            value: Box::new(signature_type(value)),
         },
-        HostValueType::Set(element) => TypeId::Set(Box::new(signature_type(element)?)),
+        HostValueType::Set(element) => TypeId::Set(Box::new(signature_type(element))),
         HostValueType::Option(element) => TypeId::StandardEnum {
             kind: crate::builtin::surface::StandardEnum::Option,
-            args: vec![signature_type(element)?],
+            args: vec![signature_type(element)],
         },
         HostValueType::Result { ok, error } => TypeId::StandardEnum {
             kind: crate::builtin::surface::StandardEnum::Result,
-            args: vec![signature_type(ok)?, signature_type(error)?],
+            args: vec![signature_type(ok), signature_type(error)],
         },
-        HostValueType::Opaque(_) => return None,
+        HostValueType::Opaque(id) => TypeId::Host(id.clone()),
         scalar => TypeId::Builtin(match scalar {
             HostValueType::Unit => BuiltinType::Unit,
             HostValueType::Bool => BuiltinType::Bool,
@@ -204,5 +216,5 @@ pub(crate) fn signature_type(ty: &HostValueType) -> Option<TypeId> {
             HostValueType::String => BuiltinType::String,
             _ => unreachable!("composite handled above"),
         }),
-    })
+    }
 }

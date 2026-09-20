@@ -75,7 +75,7 @@ pub(crate) fn binary_result(
     expect_type(rhs, lhs, "binary rhs")?;
     match op {
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div if numeric(lhs) => Ok(lhs),
-        BinaryOp::Eq | BinaryOp::NotEq => Ok(ValueType::Bool),
+        BinaryOp::Eq | BinaryOp::NotEq if lhs != ValueType::HostHandle => Ok(ValueType::Bool),
         BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge if numeric(lhs) => {
             Ok(ValueType::Bool)
         }

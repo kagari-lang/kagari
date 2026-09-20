@@ -188,12 +188,8 @@ fn declare_analysis(
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> DeclaredAnalysis {
     let names = resolver::collect_declarations(&lowered, hosts, imports, cancel);
-    let declarations = declarations::Declarations::collect_named(
-        &lowered.source,
-        &lowered,
-        names.facts.items.clone(),
-        cancel,
-    );
+    let declarations =
+        declarations::Declarations::collect_named(&lowered.source, &lowered, &names.facts, cancel);
     DeclaredAnalysis {
         lowered,
         names,

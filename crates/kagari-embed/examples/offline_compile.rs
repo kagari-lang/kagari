@@ -44,11 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (name, text) in [
         (
             "api",
-            "pub use demo::echo as echo; pub use demo as service;",
+            "pub use demo::echo as echo; pub use demo::Player; pub use demo as service;",
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; fn main() -> [i32] { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api as api; pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");
@@ -90,6 +90,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .functions
             .len(),
         artifact.to_bytes()?.len()
+    );
+    let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
+    assert_eq!(required.types.len(), 1);
+    println!(
+        "public signature requires {} without registering a runtime",
+        required.types[0].symbol
     );
     Ok(())
 }

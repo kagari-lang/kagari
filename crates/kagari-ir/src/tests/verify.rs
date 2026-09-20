@@ -193,12 +193,7 @@ fn conflicting_host_contracts_cannot_be_hidden_by_import_interning() {
         });
     calls.next().unwrap();
     calls.next().unwrap().effects.may_mutate_host_state = false;
-    assert!(matches!(
-        reject(module),
-        Error::Contract(ContractError::InvalidOperation {
-            reason: "conflicting host declarations"
-        })
-    ));
+    assert!(matches!(reject(module), Error::InvalidHostInterface));
 }
 
 fn reject(module: IrModule) -> Error {

@@ -272,18 +272,16 @@ impl<'a> BodyResolver<'a> {
                         .imports
                         .resolve_member(index, member, &self.resolved.hosts)
                 }
-                ResolvedName::HostModule(module) => self
-                    .resolved
-                    .hosts
-                    .resolve_in(module, member)
-                    .map(ResolvedName::HostFunction),
+                ResolvedName::HostModule(module) => {
+                    self.resolved.hosts.resolve_name_in(module, member)
+                }
                 ResolvedName::StandardModule(module) => surface::standard_function(module, member)
                     .map(|f| ResolvedName::StandardFunction(f.intrinsic)),
                 _ => None,
             };
         }
-        if let Some(id) = self.resolved.hosts.resolve(name) {
-            return Some(ResolvedName::HostFunction(id));
+        if let Some(resolved) = self.resolved.hosts.resolve_name(name) {
+            return Some(resolved);
         }
         if let Some(module) = surface::standard_module(name) {
             return Some(ResolvedName::StandardModule(module.kind));

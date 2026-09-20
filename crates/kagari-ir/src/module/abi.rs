@@ -117,6 +117,7 @@ impl NominalAbiType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AbiType {
+    Host(kagari_common::identity::DefinitionId),
     /// Receiver template in a trait signature, never an executable value layout.
     SelfType(kagari_common::identity::DefinitionId),
     /// Valid only in a declaration template, never in an executable layout.
@@ -144,6 +145,7 @@ pub enum AbiType {
 impl AbiType {
     pub fn representation(&self) -> super::ValueType {
         match self {
+            Self::Host(_) => super::ValueType::HostHandle,
             Self::Builtin(ty) => {
                 super::ValueType::from_type_id(&kagari_hir::types::TypeId::Builtin(*ty))
             }
@@ -154,6 +156,7 @@ impl AbiType {
     pub(crate) fn from_checked_type(ty: &kagari_hir::types::TypeId) -> Self {
         use kagari_hir::types::TypeId;
         match ty {
+            TypeId::Host(id) => Self::Host(id.clone()),
             TypeId::Builtin(ty) => Self::Builtin(*ty),
             TypeId::Tuple(elements) => {
                 Self::Tuple(elements.iter().map(Self::from_checked_type).collect())
@@ -203,7 +206,7 @@ impl AbiType {
                 position,
             } if owner == parameter_owner => arguments.get(*position)?.clone(),
             Self::Parameter { .. } | Self::SelfType(_) => return None,
-            Self::Builtin(_) => self.clone(),
+            Self::Builtin(_) | Self::Host(_) => self.clone(),
             Self::Tuple(types) => Self::Tuple(
                 types
                     .iter()

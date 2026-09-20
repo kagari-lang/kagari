@@ -49,6 +49,8 @@ pub struct Declaration {
 pub struct Declarations {
     pub(crate) imported_types: crate::imports::ImportedTypes,
     pub(crate) names: std::sync::Arc<crate::resolver::NameTable>,
+    pub(crate) hosts: std::sync::Arc<crate::host::HostDeclarations>,
+    imports: std::sync::Arc<crate::imports::ModuleImports>,
     analysis: AnalysisId,
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
@@ -69,6 +71,27 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    pub(crate) fn host_type(&self, name: &str) -> Option<crate::host::HostTypeId> {
+        let resolved = if let Some(binding) = self.names.lookup(name) {
+            binding.target()
+        } else if let Some((alias, member)) = name.split_once("::")
+            && let Some(binding) = self.names.lookup(alias)
+        {
+            match binding.target()? {
+                ResolvedName::HostModule(module) => self.hosts.resolve_name_in(module, member),
+                ResolvedName::SourceImport(index) => {
+                    self.imports.resolve_member(index, member, &self.hosts)
+                }
+                _ => None,
+            }
+        } else {
+            self.hosts.resolve_name(name)
+        };
+        match resolved? {
+            ResolvedName::HostType(id) => Some(id),
+            _ => None,
+        }
+    }
     pub fn variant(&self, id: crate::hir::VariantId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Variant(id))
     }
@@ -168,7 +191,7 @@ impl Declarations {
     pub(crate) fn collect_named(
         source: &SourceFile,
         lowered: &LoweredModule,
-        names: std::sync::Arc<crate::resolver::NameTable>,
+        names: &crate::resolver::DeclarationNames,
         cancel: &kagari_common::cancellation::CancellationToken,
     ) -> Self {
         let analysis = AnalysisId(
@@ -181,7 +204,9 @@ impl Declarations {
             cancel,
             result: Self {
                 imported_types: Default::default(),
-                names,
+                names: names.items.clone(),
+                hosts: names.hosts.clone(),
+                imports: names.imports.clone(),
                 analysis,
                 targets: HashMap::new(),
                 identities: HashMap::new(),

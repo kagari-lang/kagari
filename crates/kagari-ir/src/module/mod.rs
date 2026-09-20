@@ -3,6 +3,7 @@ pub use kagari_hir::builtin::surface::StandardIntrinsic;
 pub mod abi;
 pub mod contracts;
 pub mod function;
+pub(crate) mod host;
 pub mod ids;
 pub mod instruction;
 pub mod layout;

@@ -508,10 +508,10 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         crate::bytecode::BytecodeProgram {
             root: crate::bytecode::ModuleRef::new(0),
             modules: vec![BytecodeModule {
-                types: vec![ValueType::HeapObject, ValueType::I32],
+                types: vec![ValueType::HostHandle, ValueType::I32],
                 paths: vec![PathRecord {
                     id: PathId::new(0),
-                    root_ty: ValueType::HeapObject,
+                    root_ty: ValueType::HostHandle,
                     result_ty: ValueType::I32,
                     read_only: false,
                     debug_name: "Actor.health".to_owned(),
@@ -549,6 +549,7 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
         "kagari-runtime-abi-v15",
         "kagari-runtime-abi-v16",
         "kagari-runtime-abi-v17",
+        "kagari-runtime-abi-v18",
     ] {
         let artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {
@@ -848,10 +849,10 @@ fn verifier_rejects_invalid_aggregate_writes() {
 #[test]
 fn verifier_rejects_unresolved_and_read_only_typed_paths() {
     let unresolved_path = BytecodeModule {
-        types: vec![ValueType::HeapObject, ValueType::I32],
+        types: vec![ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
             id: PathId::new(0),
-            root_ty: ValueType::HeapObject,
+            root_ty: ValueType::HostHandle,
             result_ty: ValueType::I32,
             read_only: false,
             debug_name: "Actor.health".to_owned(),
@@ -859,7 +860,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
         function_table: vec![crate::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             name: "read_missing_path".to_owned(),
-            params: vec![ValueType::HeapObject],
+            params: vec![ValueType::HostHandle],
             return_type: ValueType::I32,
             effects: crate::module::EffectSet::path_read(),
         }],
@@ -870,10 +871,10 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
             local_count: 1,
             register_count: 2,
             metadata: FunctionMetadata {
-                params: vec![ValueType::HeapObject],
+                params: vec![ValueType::HostHandle],
                 return_type: ValueType::I32,
-                locals: vec![ValueType::HeapObject],
-                registers: vec![ValueType::HeapObject, ValueType::I32],
+                locals: vec![ValueType::HostHandle],
+                registers: vec![ValueType::HostHandle, ValueType::I32],
                 effects: crate::module::EffectSet::path_read(),
                 ..Default::default()
             },
@@ -895,10 +896,10 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
     ));
 
     let read_only_path = BytecodeModule {
-        types: vec![ValueType::Unit, ValueType::HeapObject, ValueType::I32],
+        types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
             id: PathId::new(0),
-            root_ty: ValueType::HeapObject,
+            root_ty: ValueType::HostHandle,
             result_ty: ValueType::I32,
             read_only: true,
             debug_name: "Actor.id".to_owned(),
@@ -906,7 +907,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
         function_table: vec![crate::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             name: "write_readonly_path".to_owned(),
-            params: vec![ValueType::HeapObject, ValueType::I32],
+            params: vec![ValueType::HostHandle, ValueType::I32],
             return_type: ValueType::Unit,
             effects: crate::module::EffectSet::path_write(),
         }],
@@ -917,10 +918,10 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
             local_count: 2,
             register_count: 2,
             metadata: FunctionMetadata {
-                params: vec![ValueType::HeapObject, ValueType::I32],
+                params: vec![ValueType::HostHandle, ValueType::I32],
                 return_type: ValueType::Unit,
-                locals: vec![ValueType::HeapObject, ValueType::I32],
-                registers: vec![ValueType::HeapObject, ValueType::I32],
+                locals: vec![ValueType::HostHandle, ValueType::I32],
+                registers: vec![ValueType::HostHandle, ValueType::I32],
                 effects: crate::module::EffectSet::path_write(),
                 ..Default::default()
             },
@@ -1129,11 +1130,11 @@ fn main() -> () {
 
 #[test]
 fn verifier_accepts_resolved_typed_path_instructions() {
-    let module = BytecodeModule {
-        types: vec![ValueType::HeapObject, ValueType::I32],
+    let mut module = BytecodeModule {
+        types: vec![ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
             id: PathId::new(0),
-            root_ty: ValueType::HeapObject,
+            root_ty: ValueType::HostHandle,
             result_ty: ValueType::I32,
             read_only: false,
             debug_name: "Actor.health".to_owned(),
@@ -1141,7 +1142,7 @@ fn verifier_accepts_resolved_typed_path_instructions() {
         function_table: vec![crate::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             name: "read_health".to_owned(),
-            params: vec![ValueType::HeapObject],
+            params: vec![ValueType::HostHandle],
             return_type: ValueType::I32,
             effects: crate::module::EffectSet::path_read(),
         }],
@@ -1152,10 +1153,10 @@ fn verifier_accepts_resolved_typed_path_instructions() {
             local_count: 1,
             register_count: 2,
             metadata: FunctionMetadata {
-                params: vec![ValueType::HeapObject],
+                params: vec![ValueType::HostHandle],
                 return_type: ValueType::I32,
-                locals: vec![ValueType::HeapObject],
-                registers: vec![ValueType::HeapObject, ValueType::I32],
+                locals: vec![ValueType::HostHandle],
+                registers: vec![ValueType::HostHandle, ValueType::I32],
                 effects: crate::module::EffectSet::path_read(),
                 ..Default::default()
             },
@@ -1173,6 +1174,11 @@ fn verifier_accepts_resolved_typed_path_instructions() {
     };
 
     assert!(verify_module(&module).is_ok());
+    module.paths[0].root_ty = ValueType::HeapObject;
+    assert_eq!(
+        verify_module(&module),
+        Err(BytecodeVerificationError::InvalidPathLayout)
+    );
 }
 
 #[test]

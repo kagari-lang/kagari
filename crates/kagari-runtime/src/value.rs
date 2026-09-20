@@ -158,6 +158,12 @@ impl Value {
                 | (Self::F64(_), T::F64)
                 | (Self::Str(_), T::Str)
                 | (
+                    Self::HostRoot(_)
+                        | Self::HostPathView(_)
+                        | Self::Ephemeral(EphemeralValue::HostRef(_) | EphemeralValue::HostMut(_)),
+                    T::HostHandle
+                )
+                | (
                     Self::Tuple(_)
                         | Self::Array(_)
                         | Self::Map(_)

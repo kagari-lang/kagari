@@ -36,6 +36,7 @@ pub enum ResolvedName {
     },
     HostModule(crate::host::HostModuleId),
     HostFunction(crate::host::HostFunctionId),
+    HostType(crate::host::HostTypeId),
     Function(FunctionId),
     Const(ConstId),
     Param(ParamId),

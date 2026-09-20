@@ -207,6 +207,7 @@ pub(super) fn verify(
             path,
             ..
         } => {
+            context.expect(path.root_ty, ValueType::HostHandle, "path representation")?;
             context.expect(root_or_view.ty, path.root_ty, "path root")?;
             context.expect(dst.ty, path.result_ty, "path result")?;
         }
@@ -216,8 +217,9 @@ pub(super) fn verify(
             path,
             ..
         } => {
+            context.expect(path.root_ty, ValueType::HostHandle, "path representation")?;
             context.expect(root_or_view.ty, path.root_ty, "path root")?;
-            context.expect(dst.ty, ValueType::HeapObject, "path view")?;
+            context.expect(dst.ty, ValueType::HostHandle, "path view")?;
         }
         SetPath {
             root_or_view,
@@ -234,6 +236,7 @@ pub(super) fn verify(
             if path.read_only {
                 return Err(context.error(Error::ReadOnlyPath));
             }
+            context.expect(path.root_ty, ValueType::HostHandle, "path representation")?;
             context.expect(root_or_view.ty, path.root_ty, "path root")?;
             context.expect(value.ty, path.result_ty, "path value")?;
             if let ModifyPath { dst, op, .. } = instruction {

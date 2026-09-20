@@ -84,9 +84,6 @@ pub enum DiagnosticKind {
     DuplicateImport {
         name: String,
     },
-    UnsupportedHostType {
-        function: String,
-    },
     UnknownTypeAnnotation {
         type_name: String,
     },
@@ -350,7 +347,6 @@ impl DiagnosticKind {
             Self::MissingFunctionName => "KG_RESOLVE_MISSING_FUNCTION_NAME",
             Self::UnknownName { .. } => "KG_RESOLVE_UNKNOWN_NAME",
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
-            Self::UnsupportedHostType { .. } => "KG_TYPE_UNSUPPORTED_HOST_TYPE",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
@@ -495,10 +491,6 @@ impl Display for DiagnosticKind {
             Self::DuplicateImport { name } => {
                 write!(f, "import `{name}` conflicts with another declaration")
             }
-            Self::UnsupportedHostType { function } => write!(
-                f,
-                "host function `{function}` uses a type unavailable in source signatures"
-            ),
             Self::UnknownTypeAnnotation { type_name } => {
                 write!(f, "unknown type annotation `{type_name}`")
             }

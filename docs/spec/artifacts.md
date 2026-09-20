@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 17 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 18 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 16 are rejected; no migration or compatibility
+format version. Versions 1 through 17 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
@@ -86,7 +86,13 @@ bytecode validation rejects unbound/foreign template parameters, noncanonical
 bounds, invalid nominal kinds and wrong standard-enum argument counts. Public
 top-level functions remain concrete. Names retained on members are declaration
 labels; display strings no longer encode the types of public members.
-The runtime ABI identity is `kagari-runtime-abi-v18`; the runtime-helper ABI is
+Version 18 adds `AbiType::Host(DefinitionId)` and the distinct `HostHandle`
+operand representation. Source lowering carries required portable host types,
+including the transitive closure of member references. IR and bytecode validation
+reject semantic host references absent from the required interface, including
+annotation-only public signatures and concrete layout arguments. Registration and
+linking still validate full declaration contracts before execution.
+The runtime ABI identity is `kagari-runtime-abi-v19`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -96,7 +102,9 @@ borrow tokens and contextual path callbacks; v11 lacks enum version handles and
 typed standard-enum tags. Runtime ABI v16 additionally requires nominal host type
 bindings and registry-owned host roots. ABI v17 requires complete member contract
 linking and declaration-derived registration. ABI v18 requires structured public
-type and bound contracts for reload validation; all prior ABI products are rejected.
+type and bound contracts for reload validation. ABI v19 requires the distinct host
+handle representation and source nominal host contracts; all prior ABI products
+are rejected.
 The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration

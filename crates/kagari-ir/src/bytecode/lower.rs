@@ -65,6 +65,10 @@ fn lower_linked_module(
         program,
         structures: &ir.structures,
         enumerations: &ir.enumerations,
+        host_interface: kagari_common::host_interface::HostInterface {
+            types: ir.host_types.clone(),
+            functions: Vec::new(),
+        },
         ..Default::default()
     };
     let functions = ir

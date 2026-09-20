@@ -229,6 +229,11 @@ fn type_valid(
                 }
             }
             AbiType::Builtin(_) => {}
+            AbiType::Host(id) => {
+                if kagari_common::host_interface::validate_host_type_identity(id).is_err() {
+                    return false;
+                }
+            }
             AbiType::Tuple(types) => pending.extend(types),
             AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
             AbiType::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),

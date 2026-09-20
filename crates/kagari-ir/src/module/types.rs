@@ -15,6 +15,7 @@ pub enum ValueType {
     // broader than HIR's full TypeId and covers tuples, arrays, structs, enums, and
     // future runtime-managed objects such as closures or reflected values.
     HeapObject,
+    HostHandle,
 }
 
 impl ValueType {
@@ -28,8 +29,8 @@ impl ValueType {
             Host::F32 => Self::F32,
             Host::F64 => Self::F64,
             Host::String => Self::Str,
-            Host::Opaque(_)
-            | Host::Tuple(_)
+            Host::Opaque(_) => Self::HostHandle,
+            Host::Tuple(_)
             | Host::Array(_)
             | Host::Map { .. }
             | Host::Set(_)
@@ -39,6 +40,7 @@ impl ValueType {
     }
     pub fn from_type_id(type_id: &TypeId) -> Self {
         match type_id {
+            TypeId::Host(_) => Self::HostHandle,
             TypeId::Unknown | TypeId::Error | TypeId::Generic(_) | TypeId::SelfType(_) => {
                 unreachable!("unchecked type reached code generation")
             }

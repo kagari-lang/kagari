@@ -117,8 +117,10 @@ spans. During source compilation, encoding or verification-state limits become
 `KG_COMPILE_LIMIT_EXCEEDED` diagnostics.
 
 This boundary validates declared layouts but does not yet prove the exact nominal
-type of a heap-valued operand, dynamic interface dispatch, host nominal object
-types or GC root maps. Heap-valued field representations do not yet encode their
+type of a heap-valued operand, dynamic interface dispatch or complete GC root
+maps. Runtime host calls validate nominal object types against their linked
+declarations; ordinary script call operands still carry representation contracts.
+Heap-valued field representations do not yet encode their
 complete nested nominal types. Those require the R06–R11 linking and
 ownership work. The artifact loader still runs bytecode verification independently;
 the IR handle is neither serialized nor a substitute for artifact validation.
@@ -776,3 +778,12 @@ and mutation of loaded bytecode are unavailable. Handles and linked host slots
 carry registry ownership and reject another runtime, even when numeric module
 keys or slots coincide. Complete dependency pinning and state reclamation still
 belong to the remaining R10/R14 work.
+
+Source nominal host types use `ValueType::HostHandle`, separate from `HeapObject`.
+Opaque host call operands/results must match that representation; general equality
+is invalid for it. Host identity remains in `AbiType::Host` and the required host
+declaration table, never in a display-string fallback. Signature-only references
+and member reference closure participate in mandatory linking. This representation
+does not enable storing host handles in default script-owned heap payloads.
+Path table roots and `MakePathView` destinations also require `HostHandle`; path
+tables carrying the former heap-object representation are rejected before execution.

@@ -86,6 +86,9 @@ pub(super) fn collect(
             continue;
         }
         match ty {
+            TypeId::Host(id) => {
+                planner.host_types.insert(id);
+            }
             TypeId::Struct(nominal) => {
                 let template = module
                     .aggregates

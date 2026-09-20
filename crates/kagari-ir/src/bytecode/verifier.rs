@@ -15,6 +15,7 @@ pub enum BytecodeVerificationError {
     InvalidStructLayout,
     InvalidEnumLayout,
     InvalidPublicAbi,
+    InvalidPathLayout,
     InvalidStructId {
         function: FunctionRef,
         structure: StructId,
@@ -107,6 +108,7 @@ impl BytecodeVerificationError {
             Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
             Self::InvalidEnumLayout => "KG_BYTECODE_INVALID_ENUM_LAYOUT",
             Self::InvalidPublicAbi => "KG_BYTECODE_INVALID_PUBLIC_ABI",
+            Self::InvalidPathLayout => "KG_BYTECODE_INVALID_PATH_LAYOUT",
             Self::InvalidStructId { .. } => "KG_BYTECODE_INVALID_STRUCT_ID",
             Self::InvalidHostInterface(_) => "KG_BYTECODE_INVALID_HOST_INTERFACE",
             Self::InvalidHostImport { .. } => "KG_BYTECODE_INVALID_HOST_IMPORT",
@@ -143,6 +145,7 @@ impl Display for BytecodeVerificationError {
             Self::InvalidStructLayout => write!(f, "invalid struct layouts"),
             Self::InvalidEnumLayout => write!(f, "invalid enum layouts"),
             Self::InvalidPublicAbi => write!(f, "invalid public ABI"),
+            Self::InvalidPathLayout => write!(f, "invalid host path layout"),
             Self::InvalidStructId {
                 function,
                 structure,
@@ -253,6 +256,14 @@ pub(super) fn verify_module_with_program(
     module: &BytecodeModule,
     program: Option<&super::BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
+    if module
+        .paths
+        .iter()
+        .enumerate()
+        .any(|(index, path)| path.id.index() != index || path.root_ty != ValueType::HostHandle)
+    {
+        return Err(BytecodeVerificationError::InvalidPathLayout);
+    }
     crate::module::abi::verify::validate(
         &module.public_items,
         &module.identity,
@@ -274,10 +285,14 @@ pub(super) fn verify_module_with_program(
         &Default::default(),
     )
     .map_err(|_| BytecodeVerificationError::InvalidEnumLayout)?;
-    module
-        .host_interface
-        .validate()
-        .map_err(|error| BytecodeVerificationError::InvalidHostInterface(error.to_string()))?;
+    crate::module::host::validate(
+        &module.host_interface,
+        &module.public_items,
+        &module.structures,
+        &module.enumerations,
+        &Default::default(),
+    )
+    .map_err(|error| BytecodeVerificationError::InvalidHostInterface(format!("{error:?}")))?;
     if module.function_table.len() != module.functions.len() {
         return Err(BytecodeVerificationError::FunctionTableLengthMismatch {
             functions: module.functions.len(),
@@ -642,7 +657,7 @@ fn verify_instruction(
             dynamic_args,
         } => {
             let path = path_record(module, function, *path)?;
-            expect_register_ty(function, *dst, ValueType::HeapObject, "path view dst")?;
+            expect_register_ty(function, *dst, ValueType::HostHandle, "path view dst")?;
             expect_register_ty(function, *root_or_view, path.root_ty, "path root")?;
             verify_dynamic_path_args(function, dynamic_args)?;
         }

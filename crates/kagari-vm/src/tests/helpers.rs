@@ -170,12 +170,12 @@ fn path_module(
     let metadata = kagari_ir::bytecode::FunctionMetadata {
         return_type,
         registers: vec![
-            ValueType::HeapObject,
+            ValueType::HostHandle,
             ValueType::I32,
             ValueType::I32,
             ValueType::I32,
             ValueType::I32,
-            ValueType::HeapObject,
+            ValueType::HostHandle,
         ],
         ..Default::default()
     };
@@ -191,10 +191,10 @@ fn path_module(
         module_init: None,
         module_slots: vec![],
         constants: instructions_constants,
-        types: vec![ValueType::Unit, ValueType::HeapObject, ValueType::I32],
+        types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
             id: PathId::new(0),
-            root_ty: ValueType::HeapObject,
+            root_ty: ValueType::HostHandle,
             result_ty: ValueType::I32,
             read_only: false,
             debug_name: "game.Player.hp".to_owned(),

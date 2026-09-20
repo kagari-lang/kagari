@@ -67,6 +67,7 @@ impl FunctionLowerer<'_, '_> {
             | ResolvedName::HostFunction(_)
             | ResolvedName::SourceItem { .. }
             | ResolvedName::SourceImport(_)
+            | ResolvedName::HostType(_)
             | ResolvedName::HostModule(_)
             | ResolvedName::StandardFunction(_)
             | ResolvedName::RuntimeHelper(_)
@@ -217,6 +218,7 @@ impl FunctionLowerer<'_, '_> {
             ResolvedName::HostFunction(_)
             | ResolvedName::SourceItem { .. }
             | ResolvedName::SourceImport(_)
+            | ResolvedName::HostType(_)
             | ResolvedName::HostModule(_)
             | ResolvedName::StandardFunction(_)
             | ResolvedName::RuntimeHelper(_) => Err(IrLoweringError::UnsupportedExpr(

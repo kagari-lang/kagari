@@ -96,6 +96,7 @@ pub enum TypeId {
     Struct(NominalType),
     Enum(NominalType),
     Trait(NominalType),
+    Host(DefinitionId),
     Generic(GenericParameterType),
     SelfType(DefinitionId),
     StandardEnum {
@@ -200,9 +201,12 @@ impl TypeId {
     }
     pub fn supports_equality(&self) -> bool {
         match self {
-            Self::Unknown | Self::Error | Self::Trait(_) | Self::Generic(_) | Self::SelfType(_) => {
-                false
-            }
+            Self::Unknown
+            | Self::Error
+            | Self::Trait(_)
+            | Self::Host(_)
+            | Self::Generic(_)
+            | Self::SelfType(_) => false,
             Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
                 members.iter().all(Self::supports_equality)
             }
@@ -244,6 +248,7 @@ impl TypeId {
         match self {
             Self::Unknown => "<unknown>".to_owned(),
             Self::Error => "<error>".to_owned(),
+            Self::Host(id) => id.path.last().expect("host type identity").name.clone(),
             Self::Builtin(ty) => crate::builtin::surface::builtin_type_spec(*ty)
                 .map(|spec| spec.name.to_owned())
                 .unwrap_or("<builtin>".to_owned()),
@@ -287,6 +292,7 @@ impl TypeId {
             | Self::Struct(_)
             | Self::Enum(_)
             | Self::Trait(_)
+            | Self::Host(_)
             | Self::Generic(_)
             | Self::SelfType(_)
             | Self::StandardEnum { .. } => true,

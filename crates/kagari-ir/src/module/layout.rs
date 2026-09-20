@@ -52,7 +52,7 @@ pub(crate) fn enum_abi_matches(
                         return false;
                     }
                 }
-                AbiType::Builtin(_) => {}
+                AbiType::Builtin(_) | AbiType::Host(_) => {}
                 AbiType::Tuple(types) => pending.extend(types),
                 AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
                 AbiType::Map { key, value } => {
@@ -174,7 +174,7 @@ pub(crate) fn validate_enum_layouts(
             AbiType::Parameter { .. } | AbiType::SelfType(_) => {
                 return Err(LayoutValidationError::Invalid);
             }
-            AbiType::Builtin(_) => {}
+            AbiType::Builtin(_) | AbiType::Host(_) => {}
             AbiType::Tuple(types) => pending.extend(types),
             AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
             AbiType::Map { key, value } => {

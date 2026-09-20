@@ -264,6 +264,7 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::Function(_)
                         | ResolvedName::SourceItem { .. }
                         | ResolvedName::SourceImport(_)
+                        | ResolvedName::HostType(_)
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::StandardModule(_)
@@ -317,6 +318,7 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Function(_)
                         | ResolvedName::SourceItem { .. }
                         | ResolvedName::SourceImport(_)
+                        | ResolvedName::HostType(_)
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::StandardModule(_)
@@ -376,6 +378,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     ResolvedName::SourceItem { .. }
                     | ResolvedName::SourceImport(_)
+                    | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_) => "module item is not assignable".to_string(),
                     ResolvedName::StandardModule(_) => {
@@ -458,6 +461,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::RuntimeHelper(_)
                     | ResolvedName::SourceItem { .. }
                     | ResolvedName::SourceImport(_)
+                    | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)
                     | ResolvedName::StandardModule(_)
@@ -1196,29 +1200,12 @@ impl<'a> BodyChecker<'a> {
             return TypeId::Error;
         }
         for ((arg, found), parameter) in args.iter().zip(&declaration.params) {
-            let Some(expected) = crate::host::signature_type(&parameter.ty) else {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnsupportedHostType {
-                        function: declaration.symbol.clone(),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
-                );
-                return TypeId::Error;
-            };
+            let expected = crate::host::signature_type(&parameter.ty);
             if found.conflicts_with(&expected) {
                 self.emit_arg_mismatch(name, &parameter.name, &expected, found, *arg);
             }
         }
-        let result = crate::host::signature_type(&declaration.return_type);
-        if result.is_none() {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::UnsupportedHostType {
-                    function: declaration.symbol.clone(),
-                })
-                .with_span(self.lowered.source_map.expr_span(callee)),
-            );
-        }
-        result.unwrap_or(TypeId::Error)
+        crate::host::signature_type(&declaration.return_type)
     }
 
     fn infer_runtime_helper_call_type(

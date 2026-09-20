@@ -2,7 +2,7 @@
 use crate::{
     builtin::surface,
     hir::ExportItem,
-    host::{HostDeclarations, HostFunctionId, HostModuleId},
+    host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,
 };
 use kagari_common::{
@@ -45,6 +45,7 @@ pub enum ImportTarget {
     StandardFunction(surface::StandardIntrinsic),
     HostModule(HostModuleId),
     HostFunction(HostFunctionId),
+    HostType(HostTypeId),
     Source(SourceImport),
 }
 
@@ -421,6 +422,9 @@ fn resolve_path(
     }
     if let Some(function) = hosts.resolve(path) {
         candidates.push(ImportTarget::HostFunction(function));
+    }
+    if let Some(ty) = hosts.resolve_type(path) {
+        candidates.push(ImportTarget::HostType(ty));
     }
     if let Some(module) = hosts.module(path) {
         candidates.push(ImportTarget::HostModule(module));

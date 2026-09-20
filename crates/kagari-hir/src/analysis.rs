@@ -131,6 +131,59 @@ impl FileAnalysis {
                     })
             })
     }
+    /// Portable host documentation has no synthetic source-file location.
+    pub fn host_type_at(
+        &self,
+        offset: usize,
+    ) -> Option<&kagari_common::host_interface::HostTypeDeclaration> {
+        use crate::{resolver::ResolvedName, typeck::TypeTarget};
+        let facts = self.result.facts();
+        if let Some((index, _)) = facts
+            .lowered
+            .source_map
+            .type_spans()
+            .iter()
+            .enumerate()
+            .filter(|(_, span)| span.start <= offset && offset < span.end)
+            .min_by_key(|(_, span)| span.end - span.start)
+        {
+            let Some(TypeTarget::Host(id)) = facts
+                .typed
+                .type_table
+                .type_ref(facts.lowered.source_map.type_id(index))?
+                .target
+            else {
+                return None;
+            };
+            return facts.names.hosts.type_declaration(id);
+        }
+        if let Some(TypeId::Host(id)) = self.type_at(offset) {
+            return facts
+                .names
+                .hosts
+                .nominal_type(&id)
+                .and_then(|id| facts.names.hosts.type_declaration(id));
+        }
+        facts
+            .names
+            .imports
+            .entries
+            .iter()
+            .enumerate()
+            .find_map(|(index, import)| {
+                if !(import.span.start <= offset && offset < import.span.end) {
+                    return None;
+                }
+                let ResolvedName::HostType(id) = facts
+                    .names
+                    .imports
+                    .resolved_name(ResolvedName::SourceImport(index))?
+                else {
+                    return None;
+                };
+                facts.names.hosts.type_declaration(id)
+            })
+    }
     pub fn syntax(&self) -> kagari_syntax::ast::SourceFile {
         self.parsed.syntax()
     }
@@ -255,6 +308,7 @@ impl FileAnalysis {
                 .type_ref(facts.lowered.source_map.type_id(index))?
                 .target?;
             return match target {
+                crate::typeck::TypeTarget::Host(_) => None,
                 crate::typeck::TypeTarget::Source(id) => facts
                     .declarations
                     .imported_types()

@@ -9,6 +9,7 @@ use crate::module::{
 
 #[derive(Debug, Clone)]
 pub struct IrModule {
+    pub host_types: Vec<kagari_common::host_interface::HostTypeDeclaration>,
     pub dependencies: Vec<kagari_common::identity::ModuleIdentity>,
     pub structures: Vec<super::StructLayout>,
     pub enumerations: Vec<super::EnumLayout>,

@@ -1,6 +1,7 @@
 mod abi;
 mod expr;
 mod function;
+mod host;
 mod instances;
 mod layouts;
 mod place;
@@ -74,9 +75,26 @@ pub fn lower_to_ir(
     }
 
     let (structures, enumerations) = layouts::collect(module, &mut planner)?;
+    let abi = abi::collect_module_abi(module);
+    planner.host_types.extend(
+        crate::module::host::references(
+            &abi.public_items,
+            &structures,
+            &enumerations,
+            &options.cancel,
+        )
+        .map_err(|_| IrLoweringError::Cancelled)?,
+    );
+    let host_types = host::collect(
+        &module.names.hosts,
+        planner.host_types,
+        &functions,
+        &options.cancel,
+    )?;
 
     verify_ir(
         IrModule {
+            host_types,
             dependencies: module
                 .names
                 .imports
@@ -99,7 +117,7 @@ pub fn lower_to_ir(
             source_name: module.lowered.source.name().to_owned(),
             module_init,
             module_slots: Vec::new(),
-            abi: abi::collect_module_abi(module),
+            abi,
             functions,
         },
         &options.cancel,

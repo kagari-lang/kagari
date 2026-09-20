@@ -35,6 +35,12 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
         } else if let Some(binding) = context.declarations.names.lookup(name) {
             binding.target().and_then(|resolved| {
                 use crate::resolver::ResolvedName;
+                if let ResolvedName::HostType(id) = resolved {
+                    target = Some(TypeTarget::Host(id));
+                    return Some(TypeId::Host(
+                        context.declarations.hosts.type_declaration(id)?.id.clone(),
+                    ));
+                }
                 if let Some(imported) = context.declarations.imported_types().resolved(resolved) {
                     target = Some(TypeTarget::Source(imported.id));
                     return Some(imported.ty.clone());
@@ -74,6 +80,11 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
         } else if let Some(imported) = context.declarations.imported_types().get(name) {
             target = Some(TypeTarget::Source(imported.id));
             Some(imported.ty.clone())
+        } else if let Some(id) = context.declarations.host_type(name) {
+            target = Some(TypeTarget::Host(id));
+            Some(TypeId::Host(
+                context.declarations.hosts.type_declaration(id)?.id.clone(),
+            ))
         } else {
             None
         }

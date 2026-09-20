@@ -184,10 +184,10 @@ fn host_path_artifact(
                 module_init: None,
                 module_slots: vec![],
                 constants,
-                types: vec![ValueType::Unit, ValueType::HeapObject, ValueType::I32],
+                types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
                 paths: vec![PathRecord {
                     id: PathId::new(0),
-                    root_ty: ValueType::HeapObject,
+                    root_ty: ValueType::HostHandle,
                     result_ty: ValueType::I32,
                     read_only: false,
                     debug_name: path_debug_name.to_owned(),
@@ -551,7 +551,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
             },
             BytecodeInstruction::Return(None),
         ],
-        vec![ValueType::HeapObject, ValueType::I32],
+        vec![ValueType::HostHandle, ValueType::I32],
         ValueType::Unit,
     );
     let mut runtime = engine.runtime(context.clone());
@@ -605,7 +605,7 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
             },
             BytecodeInstruction::Return(Some(Register::new(1))),
         ],
-        vec![ValueType::HeapObject, ValueType::I32],
+        vec![ValueType::HostHandle, ValueType::I32],
         ValueType::I32,
     );
     let mut runtime = engine.runtime(context.clone());

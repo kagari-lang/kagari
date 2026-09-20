@@ -14,6 +14,7 @@ pub enum ConstraintTarget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeTarget {
+    Host(crate::host::HostTypeId),
     Source(crate::imports::SourceTypeId),
     Struct(crate::hir::StructId),
     Enum(crate::hir::EnumId),

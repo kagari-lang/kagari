@@ -206,12 +206,25 @@ and result checks inspect nested members and standard enum tags, reject foreign
 or stale heap references, and observe execution termination while traversing.
 Argument mismatch prevents callback execution. A result mismatch rejects the
 result without rolling back effects already performed by the callback.
-Opaque host
-types remain declared offline but their use in source calls is rejected with
-KG_TYPE_UNSUPPORTED_HOST_TYPE, including when nested. Nominal host type/member
-integration still requires the remaining R06/R07 work. Public host function and
-module re-exports retain their offline declaration identities through source
-facades. The import graph resolves the final binding once; name resolution,
+Opaque host types resolve in source annotations and call signatures by declaration
+identity. Direct imports, module aliases and source facade re-exports share the
+same semantic targets. Host types are distinct from script structs, even when
+their names coincide; they do not support script construction or generic equality.
+`host_type_at` exposes the offline declaration and documentation without inventing
+a source location. Erroneous applications retain the base target, and immutable
+snapshots retain their original host catalog after interface input changes.
+Nominal host references survive public ABI encoding and generic function
+instantiation. Lowering collects required type declarations and their transitive
+member references in identity order, including dependencies used only in source
+signatures. Unused catalog types are omitted. Linking checks these complete
+contracts before publication, even if there are no host calls in the program.
+`HostHandle` is a separate execution representation; script heap objects cannot
+satisfy an opaque host parameter's representation. Runtime nominal identity,
+ownership, borrow and escape checks still apply. This does not authorize host
+handles or borrows as default script heap payloads. Executable host member/trait
+bindings and generated typed paths remain R06/R07 work.
+Public host function, type and module re-exports retain their offline declaration
+identities through source facades. The import graph resolves the final binding once; name resolution,
 signature catalogs and navigation consume it. The original source dependency is
 retained for dependency-first initialization even when all calls target hosts.
 For example, `pub use demo::echo as call; pub use demo as service;` permits clients
