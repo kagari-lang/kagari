@@ -195,6 +195,9 @@ Implemented foundation slices:
   Type-conflict checks now compare known composite structure recursively. Recovery
   members suppress only their own dependent mismatch; unrelated member conflicts,
   nominal identities and arity differences remain diagnosable.
+  If/match branches and array elements merge complementary recovery facts through
+  the same structural operation. Original diagnostics continue to reject codegen;
+  subsequent real conflicts remain errors and cannot overwrite established facts.
   All local module-level declarations and import aliases now share an immutable
   name table. Calls, annotations, constructors, bounds and impl headers consume
   it; duplicate names retain identities but have no winning target or codegen.

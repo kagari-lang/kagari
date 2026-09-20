@@ -236,6 +236,41 @@ impl TypeId {
         }
     }
 
+    /// Fill recovery holes from another checked expression, preserving known facts.
+    pub(crate) fn recover_from(&mut self, other: &Self) {
+        if matches!(other, Self::Unknown | Self::Error) || self.conflicts_with(other) {
+            return;
+        }
+        match (self, other) {
+            (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
+            (Self::Tuple(left), Self::Tuple(right)) => {
+                for (left, right) in left.iter_mut().zip(right) {
+                    left.recover_from(right);
+                }
+            }
+            (Self::Array(left), Self::Array(right)) | (Self::Set(left), Self::Set(right)) => {
+                left.recover_from(right);
+            }
+            (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
+                lk.recover_from(rk);
+                lv.recover_from(rv);
+            }
+            (Self::Struct(left), Self::Struct(right))
+            | (Self::Enum(left), Self::Enum(right))
+            | (Self::Trait(left), Self::Trait(right)) => {
+                for (left, right) in left.arguments.iter_mut().zip(&right.arguments) {
+                    left.recover_from(right);
+                }
+            }
+            (Self::StandardEnum { args: left, .. }, Self::StandardEnum { args: right, .. }) => {
+                for (left, right) in left.iter_mut().zip(right) {
+                    left.recover_from(right);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn conflicts_with(&self, other: &Self) -> bool {
         fn members_conflict(left: &[TypeId], right: &[TypeId]) -> bool {
             left.len() != right.len() || left.iter().zip(right).any(|(a, b)| a.conflicts_with(b))

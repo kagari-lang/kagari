@@ -628,7 +628,7 @@ impl<'a> BodyChecker<'a> {
                 else_branch,
             } => {
                 self.check_condition_type(*condition, "if", env);
-                let then_ty = self.infer_block_types(*then_branch, env);
+                let mut then_ty = self.infer_block_types(*then_branch, env);
                 match else_branch {
                     Some(else_expr) => {
                         let else_ty = self.infer_expr_type(*else_expr, env);
@@ -641,6 +641,7 @@ impl<'a> BodyChecker<'a> {
                                 .with_span(self.lowered.source_map.expr_span(*else_expr)),
                             );
                         }
+                        then_ty.recover_from(&else_ty);
                         then_ty
                     }
                     None => TypeId::Builtin(BuiltinType::Unit),
@@ -651,7 +652,7 @@ impl<'a> BodyChecker<'a> {
                 let mut arm_iter = arms.iter();
                 match arm_iter.next() {
                     Some(first_arm) => {
-                        let expected = self.infer_match_arm_type(first_arm, &scrutinee_ty, env);
+                        let mut expected = self.infer_match_arm_type(first_arm, &scrutinee_ty, env);
                         for arm in arm_iter {
                             let found = self.infer_match_arm_type(arm, &scrutinee_ty, env);
                             if found.conflicts_with(&expected) {
@@ -663,6 +664,7 @@ impl<'a> BodyChecker<'a> {
                                     .with_span(self.lowered.source_map.expr_span(arm.expr)),
                                 );
                             }
+                            expected.recover_from(&found);
                         }
                         expected
                     }
@@ -683,12 +685,12 @@ impl<'a> BodyChecker<'a> {
                     .iter()
                     .map(|expr| (*expr, self.infer_expr_type(*expr, env)))
                     .collect::<Vec<_>>();
-                let element_ty = element_types
+                let mut element_ty = element_types
                     .first()
                     .map(|(_, ty)| ty.clone())
                     .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
                 for (expr, ty) in element_types.iter().skip(1) {
-                    if *ty != element_ty {
+                    if ty.conflicts_with(&element_ty) {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::ArrayElementTypeMismatch {
                                 expected: display_type_id(&element_ty),
@@ -697,6 +699,7 @@ impl<'a> BodyChecker<'a> {
                             .with_span(self.lowered.source_map.expr_span(*expr)),
                         );
                     }
+                    element_ty.recover_from(ty);
                 }
                 TypeId::Array(Box::new(element_ty))
             }

@@ -3,6 +3,60 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn branch_and_array_merges_recover_complementary_member_facts() {
+    for (expression, array, conflict) in [
+        (
+            "if true { (missing, true) } else { (1, missing) }",
+            false,
+            false,
+        ),
+        (
+            "match 0 { 0 => (missing, true), _ => (1, missing) }",
+            false,
+            false,
+        ),
+        ("[(missing, true), (1, missing)]", true, false),
+        ("[(missing, true), (1, missing), (false, true)]", true, true),
+    ] {
+        let text = format!("fn bad() {{ val combined = {expression}; combined; }}");
+        let mut sources = SourceDatabase::default();
+        let root = sources
+            .set("merge.kgr", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let mut db = AnalysisDatabase::default();
+        let snapshot = db
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let file = snapshot.file(root).unwrap();
+        let pair = TypeId::Tuple(vec![
+            TypeId::Builtin(BuiltinType::I32),
+            TypeId::Builtin(BuiltinType::Bool),
+        ]);
+        let expected = if array {
+            TypeId::Array(Box::new(pair))
+        } else {
+            pair
+        };
+        assert_eq!(
+            file.type_at(text.rfind("combined").unwrap()),
+            Some(expected),
+            "{expression}"
+        );
+        assert_eq!(
+            file.result().diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::ArrayElementTypeMismatch { .. }
+                    | kagari_common::DiagnosticKind::IfBranchTypeMismatch { .. }
+                    | kagari_common::DiagnosticKind::MatchArmTypeMismatch { .. }
+            )),
+            conflict,
+            "{expression}"
+        );
+        assert!(snapshot.check_program(root, &Default::default()).is_err());
+    }
+}
+
+#[test]
 fn recovery_members_do_not_hide_independent_argument_mismatches() {
     for (actual, mismatch) in [
         ("(missing, true)", true),
