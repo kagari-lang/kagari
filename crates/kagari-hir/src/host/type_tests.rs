@@ -224,3 +224,112 @@ fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_const
         assert!(snapshot.check_program(root, &Default::default()).is_err());
     }
 }
+
+#[test]
+fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
+    use kagari_common::host_interface::{
+        HostFieldDeclaration, HostFieldPathDeclaration, HostTypeOwnership, PathAccess,
+    };
+    let mut declarations = interface();
+    let owner = &mut declarations.types[0];
+    owner.ownership = HostTypeOwnership::HostRoot;
+    owner.path_access = PathAccess::ReadOnly;
+    let mut field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
+    field.path_access = PathAccess::ReadOnly;
+    field.documentation = "Offline score documentation".into();
+    owner.fields.push(field.clone());
+    let path = HostFieldPathDeclaration {
+        root: owner.id.clone(),
+        fields: vec![field.id.clone()],
+        access: PathAccess::ReadOnly,
+        schema_epoch: 2,
+        capabilities: Default::default(),
+    };
+    declarations.field_paths.push(path.clone());
+    let mut sources = SourceDatabase::default();
+    let text = "fn neighbor() -> i32 { 1 } fn read() -> i32 { left::make().score }";
+    let root = sources
+        .set("mem://field", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
+    let profile = LanguageFeatureProfile {
+        allow_host_calls: true,
+        ..Default::default()
+    };
+    let old = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    let old_file = old.file(root).unwrap();
+    assert!(old_file.result().diagnostics().is_empty());
+    assert_eq!(
+        old_file.host_field_at(text.find("score").unwrap()).unwrap(),
+        &field
+    );
+    let changed = text.replace("{ 1 }", "{ 10 + 20 }");
+    sources
+        .set("mem://field", changed.clone(), SourceLayer::Base)
+        .unwrap();
+    let new = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    let new_file = new.file(root).unwrap();
+    assert_eq!(new_file.result().facts().typed.reused_bodies, 1);
+    let path_fact = |file: &crate::analysis::FileAnalysis| {
+        let facts = file.result().facts();
+        facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, _)| facts.typed.type_table.host_path(id).cloned())
+            .unwrap()
+    };
+    let old_path = path_fact(old_file);
+    let new_path = path_fact(new_file);
+    assert_ne!(old_path.root, new_path.root);
+    assert_eq!(old_path.declaration, new_path.declaration);
+    new.check_program(root, &Default::default()).unwrap();
+    for ambiguous in [false, true] {
+        let mut invalid = declarations.clone();
+        if ambiguous {
+            let mut other = path.clone();
+            other.schema_epoch = 3;
+            invalid.field_paths.push(other);
+        } else {
+            invalid.field_paths.clear();
+        }
+        db.set_host_declarations(HostDeclarations::new(invalid).unwrap());
+        let snapshot = db
+            .snapshot(sources.snapshot(), profile, &Default::default())
+            .unwrap();
+        let file = snapshot.file(root).unwrap();
+        assert!(file.result().diagnostics().iter().any(|d| matches!(
+            d.kind,
+            kagari_common::DiagnosticKind::InvalidHostPath { .. }
+        )));
+        assert_eq!(
+            file.host_field_at(changed.find("score").unwrap()).unwrap(),
+            &field
+        );
+        assert!(snapshot.check_program(root, &Default::default()).is_err());
+    }
+    db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
+    let incomplete = "fn bad() { left::make(). } fn good() -> i32 { 7 }";
+    sources
+        .set("mem://field", incomplete.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    let file = snapshot.file(root).unwrap();
+    assert!(!file.result().diagnostics().is_empty());
+    assert_eq!(
+        file.type_at(incomplete.find("left::make()").unwrap()),
+        Some(TypeId::Host(path.root))
+    );
+    assert_eq!(
+        file.type_at(incomplete.rfind('7').unwrap()),
+        Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+    );
+}

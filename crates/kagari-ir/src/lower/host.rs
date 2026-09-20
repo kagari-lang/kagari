@@ -15,6 +15,12 @@ pub(super) fn collect(
         .flat_map(|b| &b.instructions)
     {
         cancel.check().map_err(|_| IrLoweringError::Cancelled)?;
+        if let Some(declaration) = instruction
+            .path_reference()
+            .and_then(|path| path.field_declaration.as_ref())
+        {
+            pending.push(declaration.root.clone());
+        }
         if let crate::module::Instruction::Call {
             callee: crate::module::CallTarget::HostFunction(function),
             ..

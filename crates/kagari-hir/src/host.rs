@@ -210,6 +210,32 @@ impl HostDeclarations {
         self.revision
     }
 
+    pub(crate) fn field_path(
+        &self,
+        root: &kagari_common::identity::DefinitionId,
+        fields: &[kagari_common::identity::DefinitionId],
+    ) -> Result<
+        (
+            kagari_common::host_interface::HostFieldPathDeclaration,
+            kagari_common::host_interface::HostPathContract,
+        ),
+        &'static str,
+    > {
+        let mut matches = self
+            .interface
+            .field_paths
+            .iter()
+            .filter(|path| &path.root == root && path.fields == fields);
+        let declaration = matches.next().ok_or("field chain has no declared path")?;
+        if matches.next().is_some() {
+            return Err("field chain has ambiguous path declarations");
+        }
+        let contract = declaration
+            .contract(&self.interface)
+            .map_err(|_| "invalid declared path")?;
+        Ok((declaration.clone(), contract))
+    }
+
     pub fn resolve_type(&self, path: &str) -> Option<HostTypeId> {
         self.type_paths.get(path).copied()
     }
@@ -223,6 +249,17 @@ impl HostDeclarations {
         (id.revision == self.revision)
             .then(|| self.interface.types.get(id.index))
             .flatten()
+    }
+    pub fn field(
+        &self,
+        id: &kagari_common::identity::DefinitionId,
+    ) -> Option<&kagari_common::host_interface::HostFieldDeclaration> {
+        let mut owner = id.clone();
+        owner.path.pop()?;
+        self.type_declaration(self.nominal_type(&owner)?)?
+            .fields
+            .iter()
+            .find(|field| &field.id == id)
     }
 }
 

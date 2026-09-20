@@ -37,6 +37,27 @@ pub struct BindingInfo {
 }
 
 impl FileAnalysis {
+    pub fn host_field_at(
+        &self,
+        offset: usize,
+    ) -> Option<&kagari_common::host_interface::HostFieldDeclaration> {
+        let facts = self.result.facts();
+        facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter_map(|(id, _)| {
+                let field = facts.typed.type_table.expr_field(id)?;
+                let span = facts.lowered.source_map.expr_span(id);
+                if !(span.start <= offset && offset < span.end) {
+                    return None;
+                }
+                Some((span.end - span.start, facts.names.hosts.field(field)?))
+            })
+            .min_by_key(|(length, _)| *length)
+            .map(|(_, field)| field)
+    }
     /// Whether this result's signature query reused earlier checked facts.
     /// An unchanged file shares its existing result and this original statistic.
     pub fn signatures_reused(&self) -> bool {

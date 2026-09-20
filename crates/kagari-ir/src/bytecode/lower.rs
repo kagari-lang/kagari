@@ -152,6 +152,11 @@ impl BytecodeLoweringContext<'_> {
     }
 
     fn path_id(&mut self, path: &PathRef) -> PathId {
+        if let Some(declaration) = &path.field_declaration
+            && !self.host_interface.field_paths.contains(declaration)
+        {
+            self.host_interface.field_paths.push(declaration.clone());
+        }
         if let Some(record) = self.paths.iter().find(|record| {
             record.contract_fingerprint == path.contract_fingerprint
                 && record.root_ty == path.root_ty

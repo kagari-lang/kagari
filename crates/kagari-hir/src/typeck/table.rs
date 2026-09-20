@@ -63,6 +63,7 @@ pub struct ResolvedEnumConstructor {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
+    host_paths: HashMap<ExprId, ResolvedHostPath>,
     implementations: HashMap<(DefinitionId, TypeId), HashMap<DefinitionId, FunctionId>>,
     constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
     type_refs: HashMap<crate::hir::TypeRefId, ResolvedTypeRef>,
@@ -79,7 +80,20 @@ pub struct TypeTable {
     pattern_scalars: HashMap<PatternId, ScalarValue>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedHostPath {
+    pub root: ExprId,
+    pub declaration: kagari_common::host_interface::HostFieldPathDeclaration,
+    pub contract: kagari_common::host_interface::HostPathContract,
+}
+
 impl TypeTable {
+    pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath> {
+        self.host_paths.get(&expr)
+    }
+    pub(crate) fn insert_host_path(&mut self, expr: ExprId, path: ResolvedHostPath) {
+        self.host_paths.insert(expr, path);
+    }
     #[cfg(test)]
     pub(crate) fn assert_same_source_facts(
         &self,
@@ -111,7 +125,7 @@ impl TypeTable {
                     }).collect();
                 )+};
             }
-            keys!(constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
+            keys!(host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId);
             for call in result.calls.values_mut() {
@@ -119,6 +133,10 @@ impl TypeTable {
                     assert_eq!(receiver.arena(), from);
                     call.receiver = Some(ExprId::new(to, receiver.owner(), receiver.index()));
                 }
+            }
+            for path in result.host_paths.values_mut() {
+                assert_eq!(path.root.arena(), from);
+                path.root = ExprId::new(to, path.root.owner(), path.root.index());
             }
             result
         }
@@ -291,7 +309,21 @@ impl TypeTable {
             .map(|(a, b)| (old_map.expr_id(*a), new_map.expr_id(*b)))
             .collect::<HashMap<_, _>>();
         let mut calls = Vec::new();
+        let mut host_paths = Vec::new();
         for (old_id, new_id) in &expr_ids {
+            if let Some(path) = old.host_paths.get(old_id) {
+                let Some(root) = expr_ids.get(&path.root) else {
+                    return false;
+                };
+                host_paths.push((
+                    *new_id,
+                    ResolvedHostPath {
+                        root: *root,
+                        declaration: path.declaration.clone(),
+                        contract: path.contract.clone(),
+                    },
+                ));
+            }
             if let Some(call) = old.calls.get(old_id) {
                 let receiver = match call.receiver {
                     Some(id) => match expr_ids.get(&id) {
@@ -313,6 +345,7 @@ impl TypeTable {
             }
         }
         self.calls.extend(calls);
+        self.host_paths.extend(host_paths);
         for (a, b) in types {
             if let Some(ty) = old.type_refs.get(&old_map.type_id(a)) {
                 self.type_refs.insert(new_map.type_id(b), ty.clone());

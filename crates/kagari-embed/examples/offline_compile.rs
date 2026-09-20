@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api as api; pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");
@@ -116,6 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
     assert_eq!(required.types.len(), 1);
+    assert_eq!(required.field_paths.len(), 1);
     println!(
         "public signature requires {} without registering a runtime",
         required.types[0].symbol

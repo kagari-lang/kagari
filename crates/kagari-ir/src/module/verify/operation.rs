@@ -13,6 +13,28 @@ pub(super) fn verify(
 ) -> Result<(), IrVerificationError> {
     use Instruction::*;
     let contract = |error| context.error(Error::Contract(error));
+    if let Some(path) = instruction.path_reference()
+        && let Some(declaration) = &path.field_declaration
+    {
+        let catalog = kagari_common::host_interface::HostInterface {
+            types: module.host_types.clone(),
+            ..Default::default()
+        };
+        let resolved = declaration
+            .contract(&catalog)
+            .map_err(|_| context.error(Error::InvalidHostInterface))?;
+        if resolved
+            .fingerprint()
+            .map_err(|_| context.error(Error::InvalidHostInterface))?
+            != path.contract_fingerprint
+            || path.root_ty != ValueType::HostHandle
+            || path.result_ty != ValueType::from_host_type(&resolved.result)
+            || (!path.read_only
+                && declaration.access != kagari_common::host_interface::PathAccess::ReadWrite)
+        {
+            return Err(context.error(Error::InvalidHostInterface));
+        }
+    }
     match instruction {
         LoadConst { dst, constant } => {
             let ty = match constant {

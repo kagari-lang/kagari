@@ -19,6 +19,7 @@ pub struct AggregateFieldRef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRef {
+    pub field_declaration: Option<kagari_common::host_interface::HostFieldPathDeclaration>,
     pub contract_fingerprint: u64,
     pub root_ty: ValueType,
     pub result_ty: ValueType,
@@ -285,6 +286,15 @@ impl EffectSet {
 }
 
 impl Instruction {
+    pub fn path_reference(&self) -> Option<&PathRef> {
+        match self {
+            Self::ReadPath { path, .. }
+            | Self::SetPath { path, .. }
+            | Self::ModifyPath { path, .. }
+            | Self::MakePathView { path, .. } => Some(path),
+            _ => None,
+        }
+    }
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::LoadConst { .. } | Self::Move { .. } => EffectSet::default(),

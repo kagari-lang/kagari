@@ -409,6 +409,28 @@ impl FunctionLowerer<'_, '_> {
         expr_id: hir::ExprId,
         receiver: hir::ExprId,
     ) -> Result<IrValue, IrLoweringError> {
+        if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
+            let root_or_view = self.lower_expr(checked.root)?;
+            let dst = self.alloc_temp(self.expr_type(expr_id)?);
+            let fingerprint = checked
+                .contract
+                .fingerprint()
+                .map_err(|_| IrLoweringError::MissingBinding("checked host path contract"))?;
+            self.emit(Instruction::ReadPath {
+                dst,
+                root_or_view,
+                dynamic_args: Default::default(),
+                path: crate::module::PathRef {
+                    field_declaration: Some(checked.declaration),
+                    contract_fingerprint: fingerprint,
+                    root_ty: root_or_view.ty,
+                    result_ty: dst.ty,
+                    read_only: true,
+                    debug_name: "host field read".into(),
+                },
+            });
+            return Ok(dst);
+        }
         let field = self
             .analyzed
             .typed

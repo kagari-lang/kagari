@@ -552,7 +552,7 @@ segment), and field identities must belong to that current owner. The requested
 result type and access must agree with the generated segments. Rejection neither
 publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
 output exposed to adapters. Index and virtual segment declarations and source
-field lowering remain separate pending work.
+field writes remain separate pending work.
 
 The common declaration layer owns `HostPathContract` and the whole-path ABI encoder;
 runtime registration cannot supply its own fingerprint. `HostInterface::field_path_contract`
@@ -577,13 +577,22 @@ duplicate records, invalid chains and chains longer than 256 fields are rejected
 are registered and derives the runtime descriptor. Exported runtime interfaces
 retain registered field path declarations. Linking checks these required contracts
 even if a module has no path instruction; missing or ambiguous bindings reject
-publication. Source field syntax and index/virtual path declarations remain pending.
+publication. Source field writes and index/virtual path declarations remain pending.
 
 Bytecode path records require that contract fingerprint. The loader resolves all
 records before publishing the program, rejects missing/ambiguous contracts and
 checks result representation and write access. Each loaded version holds its own
 path bindings. VM path operations consume those bindings; registering descriptors
 later cannot retarget an existing version. Debug names are diagnostic text only.
+
+Source field reads select a unique declared nominal field chain. HIR owns the
+field identities, result types, root expression and selected contract; missing or
+ambiguous paths produce `KG_HOST_PATH_INVALID` while keeping known field facts
+available to tools. Offline field documentation is available through
+`FileAnalysis::host_field_at`. Nested chains lower to one `ReadPath`, evaluating
+the root exactly once. IR validates the selected contract against required host
+types; bytecode carries the required field declaration and linked path record.
+Reusing an unchanged function body remaps its path root to the new analysis arena.
 For every read, set, modify and view instruction, linking also checks dynamic
 argument count and register representations against the bound descriptor's index
 parameters. An incompatible instruction rejects the whole program before publication;

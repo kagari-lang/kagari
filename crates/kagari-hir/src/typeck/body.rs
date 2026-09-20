@@ -438,6 +438,11 @@ impl<'a> BodyChecker<'a> {
             return ty;
         }
 
+        if let Some(ty) = self.infer_host_field_read(expr_id, env) {
+            env.exprs.insert(expr_id, ty.clone());
+            self.type_table.insert_expr(expr_id, ty.clone());
+            return ty;
+        }
         let expr = self.lowered.module.expr(expr_id);
         let ty = match &expr.kind {
             ExprKind::Missing => {
@@ -1717,6 +1722,82 @@ impl<'a> BodyChecker<'a> {
             }
             _ => None,
         }
+    }
+
+    fn infer_host_field_read(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> Option<TypeId> {
+        let ExprKind::Field {
+            receiver: immediate,
+            name,
+        } = self.lowered.module.expr(expr_id).kind.clone()
+        else {
+            return None;
+        };
+        let mut root = expr_id;
+        let mut chain = Vec::new();
+        while let ExprKind::Field { receiver, name } = &self.lowered.module.expr(root).kind {
+            chain.push((root, name.clone()));
+            root = *receiver;
+        }
+        chain.reverse();
+        let mut ty = self.infer_expr_type(root, env);
+        if !matches!(ty, TypeId::Host(_)) {
+            if root == immediate {
+                return None;
+            }
+            root = immediate;
+            ty = self.infer_expr_type(root, env);
+            chain = vec![(expr_id, name)];
+        }
+        let TypeId::Host(owner) = &ty else {
+            return None;
+        };
+        let owner = owner.clone();
+        let mut fields = Vec::new();
+        for (expr, name) in chain {
+            let field = if let TypeId::Host(id) = &ty {
+                self.names
+                    .hosts
+                    .nominal_type(id)
+                    .and_then(|id| self.names.hosts.type_declaration(id))
+                    .and_then(|owner| owner.fields.iter().find(|field| field.name == name))
+                    .cloned()
+            } else {
+                None
+            };
+            let Some(field) = field else {
+                self.diagnostics.push(
+                    Diagnostic::error(if name.is_empty() {
+                        DiagnosticKind::ExpectedFieldName
+                    } else {
+                        DiagnosticKind::UnknownName { name }
+                    })
+                    .with_span(self.lowered.source_map.expr_span(expr)),
+                );
+                return Some(TypeId::Error);
+            };
+            self.type_table.insert_expr_field(expr, field.id.clone());
+            fields.push(field.id);
+            ty = crate::host::signature_type(&field.ty);
+            self.type_table.insert_expr(expr, ty.clone());
+            env.exprs.insert(expr, ty.clone());
+        }
+        match self.names.hosts.field_path(&owner, &fields) {
+            Ok((declaration, contract)) => self.type_table.insert_host_path(
+                expr_id,
+                super::ResolvedHostPath {
+                    root,
+                    declaration,
+                    contract,
+                },
+            ),
+            Err(reason) => self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidHostPath {
+                    reason: reason.into(),
+                })
+                .with_span(self.lowered.source_map.expr_span(expr_id)),
+            ),
+        }
+        Some(ty)
     }
 
     fn resolve_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
