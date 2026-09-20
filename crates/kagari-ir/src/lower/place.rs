@@ -3,6 +3,7 @@ use crate::module::{AggregateFieldRef, Instruction, IrValue, LocalId, ValueType}
 use kagari_hir::{hir, types::TypeId};
 
 pub(super) struct PreparedPlace {
+    host_path: Option<crate::module::PathRef>,
     root: Root,
     projections: Vec<Projection>,
 }
@@ -29,6 +30,36 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         id: hir::PlaceId,
     ) -> Result<PreparedPlace, IrLoweringError> {
+        if let Some(checked) = self.analyzed.typed.type_table.host_place_path(id).cloned() {
+            let prepared = self.prepare_place_inner(checked.root, true)?;
+            let mut value = match prepared.root {
+                Root::Value(value) => value,
+                Root::Local { local, ty } => {
+                    let dst = self.alloc_temp(ty);
+                    self.emit(Instruction::LoadLocal { dst, local });
+                    dst
+                }
+            };
+            for projection in &prepared.projections {
+                value = self.read_projection(value, projection);
+            }
+            let path = crate::module::PathRef {
+                field_declaration: Some(checked.declaration),
+                contract_fingerprint: checked
+                    .contract
+                    .fingerprint()
+                    .map_err(|_| IrLoweringError::MissingBinding("checked host write contract"))?,
+                root_ty: value.ty,
+                result_ty: self.place_type(id)?,
+                read_only: false,
+                debug_name: "host field write".into(),
+            };
+            return Ok(PreparedPlace {
+                host_path: Some(path),
+                root: Root::Value(value),
+                projections: Vec::new(),
+            });
+        }
         self.prepare_place_inner(id, false)
     }
 
@@ -59,11 +90,13 @@ impl FunctionLowerer<'_, '_> {
                     Root::Local { local, ty }
                 };
                 Ok(PreparedPlace {
+                    host_path: None,
                     root,
                     projections: Vec::new(),
                 })
             }
             hir::PlaceKind::Expr(expr) => Ok(PreparedPlace {
+                host_path: None,
                 root: Root::Value(self.lower_expr(expr)?),
                 projections: Vec::new(),
             }),
@@ -110,6 +143,29 @@ impl FunctionLowerer<'_, '_> {
         op: Option<hir::BinaryOp>,
         rhs: IrValue,
     ) -> Result<(), IrLoweringError> {
+        if let Some(path) = place.host_path {
+            let Root::Value(root_or_view) = place.root else {
+                return Err(IrLoweringError::MissingBinding("prepared host root"));
+            };
+            if let Some(op) = op {
+                self.emit(Instruction::ModifyPath {
+                    dst: None,
+                    root_or_view,
+                    path,
+                    dynamic_args: Default::default(),
+                    op: Self::lower_binary_op(op),
+                    value: rhs,
+                });
+            } else {
+                self.emit(Instruction::SetPath {
+                    root_or_view,
+                    path,
+                    dynamic_args: Default::default(),
+                    value: rhs,
+                });
+            }
+            return Ok(());
+        }
         // Rebinding an object variable still targets the slot, not its old object.
         let root = match place.root {
             Root::Local { local, ty } => {

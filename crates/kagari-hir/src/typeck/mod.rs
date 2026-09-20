@@ -26,7 +26,7 @@ pub type GenericBounds = HashMap<crate::types::GenericParameterType, Vec<Constra
 pub(crate) use check::{check_bodies_controlled, check_signatures};
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
-    ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,
+    ResolvedHostPlacePath, ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,
 };
 
 #[derive(Debug, Clone)]

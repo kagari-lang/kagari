@@ -42,6 +42,14 @@ pub fn validate_profile(
     let mut diagnostics = DiagnosticBuffer::new();
     validate_reflection_calls(module, profile, &mut diagnostics);
     validate_interface_values(module, profile, &mut diagnostics);
+    if !profile.allow_path_mutation {
+        for place in module.typed.type_table.host_write_places() {
+            diagnostics.push(profile_error(
+                "host path mutation",
+                module.lowered.source_map.place_span(place),
+            ));
+        }
+    }
 
     if diagnostics.is_empty() {
         Ok(())

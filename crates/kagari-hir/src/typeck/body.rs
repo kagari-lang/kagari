@@ -241,6 +241,10 @@ impl<'a> BodyChecker<'a> {
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
+        if let Some(ty) = self.infer_host_field_write(place_id, env) {
+            self.type_table.insert_place(place_id, ty.clone());
+            return Some(ty);
+        }
         let ty = match &self.lowered.module.place(place_id).kind {
             PlaceKind::Expr(expr) => {
                 self.infer_expr_type(*expr, env);
@@ -1722,6 +1726,92 @@ impl<'a> BodyChecker<'a> {
             }
             _ => None,
         }
+    }
+
+    fn infer_host_field_write(
+        &mut self,
+        place_id: PlaceId,
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let PlaceKind::Field {
+            base: immediate,
+            name,
+        } = self.lowered.module.place(place_id).kind.clone()
+        else {
+            return None;
+        };
+        let mut root = place_id;
+        let mut chain = Vec::new();
+        while let PlaceKind::Field { base, name } = &self.lowered.module.place(root).kind {
+            chain.push((root, name.clone()));
+            root = *base;
+        }
+        chain.reverse();
+        let mut ty = self.resolve_readable_place_type(root, env)?;
+        if !matches!(ty, TypeId::Host(_)) {
+            if root == immediate {
+                return None;
+            }
+            root = immediate;
+            ty = self.resolve_readable_place_type(root, env)?;
+            chain = vec![(place_id, name)];
+        }
+        let TypeId::Host(owner) = &ty else {
+            return None;
+        };
+        let owner = owner.clone();
+        let mut fields = Vec::new();
+        for (place, name) in chain {
+            let field = if let TypeId::Host(id) = &ty {
+                self.names
+                    .hosts
+                    .nominal_type(id)
+                    .and_then(|id| self.names.hosts.type_declaration(id))
+                    .and_then(|owner| owner.fields.iter().find(|field| field.name == name))
+                    .cloned()
+            } else {
+                None
+            };
+            let Some(field) = field else {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownName { name })
+                        .with_span(self.lowered.source_map.place_span(place)),
+                );
+                return Some(TypeId::Error);
+            };
+            self.type_table.insert_place_field(place, field.id.clone());
+            fields.push(field.id);
+            ty = crate::host::signature_type(&field.ty);
+            self.type_table.insert_place(place, ty.clone());
+        }
+        let resolved =
+            self.names
+                .hosts
+                .field_path(&owner, &fields)
+                .and_then(|(declaration, contract)| {
+                    if declaration.access != kagari_common::host_interface::PathAccess::ReadWrite {
+                        Err("field path is read-only")
+                    } else {
+                        Ok((declaration, contract))
+                    }
+                });
+        match resolved {
+            Ok((declaration, contract)) => self.type_table.insert_host_place_path(
+                place_id,
+                super::ResolvedHostPlacePath {
+                    root,
+                    declaration,
+                    contract,
+                },
+            ),
+            Err(reason) => self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidHostPath {
+                    reason: reason.into(),
+                })
+                .with_span(self.lowered.source_map.place_span(place_id)),
+            ),
+        }
+        Some(ty)
     }
 
     fn infer_host_field_read(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> Option<TypeId> {

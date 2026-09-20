@@ -486,7 +486,7 @@ Implemented foundation slices:
   Tests reject same-named foreign fields, private/disabled fields, access escalation
   and wrong result types before publication. Existing VM, embedding and GC path
   fixtures now declare their actual fields; atomic_host_path keeps the field ID
-  directly from its declaration. Source field writes, host trait implementations,
+  directly from its declaration. Host trait implementations
   and declared index/virtual paths remain pending. Whole-path fingerprints now use
   a versioned fixed-order encoding of resolved contracts, permissions and schema;
   the caller-supplied fingerprint input is removed. Types without portable host
@@ -498,13 +498,13 @@ Implemented foundation slices:
   HostInterface::field_path_contract resolves offline nominal field chains with
   ownership/access checks. Tests compare offline and registered fingerprints,
   nested interface round trips and invalid chains; offline_compile generates a
-  field path contract without starting a runtime. Source field writes remain pending.
+  field path contract without starting a runtime. Source host index paths remain pending.
   KHI v5 now persists HostFieldPathDeclaration records with nominal field chains,
   schema, access and capabilities. Runtime field-path registration consumes these
   declarations, exported interfaces retain them, and linking rejects missing or
   ambiguous required paths. Canonical-order, duplicate, length-limit and binding
   tests plus offline_compile/atomic_host_path exercise the same declaration model.
-  Format 21/runtime ABI v22 reject prior products; source field writes are pending.
+  Format 21/runtime ABI v22 reject prior products; source host index paths are pending.
   Source host field reads now resolve a unique declared chain in HIR, preserving
   member/type facts and offline docs under missing/ambiguous-path diagnostics.
   Body reuse remaps path root IDs. IR consumes the checked root/contract and emits
@@ -512,6 +512,13 @@ Implemented foundation slices:
   into bytecode and linking. Tests cover root-once order, capability denial, GC
   cleanup, source/artifact/JIT fallback agreement and snapshot reuse. offline_compile
   now compiles both field reads and method calls without runtime registration.
+  Source field writes and compound assignments now own checked root-place/path
+  facts in HIR and lower to SetPath/ModifyPath after capturing the root before RHS.
+  Readonly paths and disabled path-mutation profiles reject compilation. Tests
+  verify root/RHS/read/prepare/commit order, dirty old/new values, and no final write
+  after division by zero, overflow or RHS target deletion; completed RHS effects
+  remain. Source/artifact/JIT fallback and reused-body place-ID checks pass.
+  offline_compile includes parameter-rooted assignment and compound assignment.
   IR/bytecode path records now require the contract fingerprint. Load and reload
   link module-local paths to runtime descriptors before publication, reject missing
   or ambiguous bindings and validate operand/write contracts. VM execution consumes
@@ -522,7 +529,7 @@ Implemented foundation slices:
   Source-bytecode, encoded-artifact and existing JIT fallback tests bind path 0 to
   descriptor 1, ignore debug labels and preserve old bindings after registration.
   Artifact path ABI hashes exclude diagnostic labels. Format 21/runtime ABI v22
-  reject previous products; source field writes remain pending.
+  reject previous products; source host index paths remain pending.
   Runtime path registration also rejects disconnected field owners
   and index collections before publishing or consuming a descriptor slot; tests
   cover both root and intermediate mismatches. Format 21/runtime ABI v22

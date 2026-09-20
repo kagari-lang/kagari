@@ -518,3 +518,192 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }
+
+#[test]
+fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_failure() {
+    use kagari_common::host_interface::{HostFieldPathDeclaration, PathAccess};
+    use kagari_runtime::host::{HostError, PreparedHostPathWrite};
+    use std::cell::Cell;
+    let mut declarations = interface();
+    declarations.types[0].path_access = PathAccess::ReadWrite;
+    declarations.types[0].fields[0].path_access = PathAccess::ReadWrite;
+    declarations.types[0].fields[0].writable = true;
+    let mut count =
+        HostFieldDeclaration::new(&declarations.types[1].id, "count", HostValueType::I32);
+    count.path_access = PathAccess::ReadWrite;
+    count.writable = true;
+    let path = HostFieldPathDeclaration {
+        root: declarations.types[0].id.clone(),
+        fields: vec![declarations.types[0].fields[0].id.clone(), count.id.clone()],
+        access: PathAccess::ReadWrite,
+        schema_epoch: 0,
+        capabilities: Default::default(),
+    };
+    declarations.types[1].fields.push(count);
+    declarations.field_paths.push(path.clone());
+    let rhs = HostFunctionDeclaration::new("left.rhs", vec![], HostValueType::I32);
+    declarations.functions.push(rhs.clone());
+    let engine = KagariEngine::default();
+    engine.set_host_interface(declarations.clone()).unwrap();
+    let profile = LanguageProfile {
+        allow_host_calls: true,
+        allow_path_mutation: true,
+        allow_jit: true,
+        ..Default::default()
+    };
+    for (op, rhs_value, after_rhs, deleted, expected) in [
+        ("=", 2, 100, false, Some(2)),
+        ("+=", 2, 100, false, Some(102)),
+        ("/=", 0, 100, false, None),
+        ("+=", 1, i32::MAX, false, None),
+        ("+=", 2, 100, true, None),
+    ] {
+        let text =
+            format!("use left as api; fn main() {{ api::make().related.count {op} api::rhs(); }}");
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("write.kgr", text.clone()),
+                CompileOptions {
+                    language_profile: profile,
+                },
+                Default::default(),
+            )
+            .unwrap();
+        assert!(
+            engine
+                .compile_to_artifact(
+                    SourceFile::new("denied.kgr", text),
+                    CompileOptions {
+                        language_profile: LanguageProfile {
+                            allow_path_mutation: false,
+                            ..profile
+                        }
+                    },
+                    Default::default()
+                )
+                .is_err()
+        );
+        for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+            let artifact = if encoded {
+                kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            } else {
+                artifact.clone()
+            };
+            let context = ExecutionContext {
+                language_profile: profile,
+                capabilities: CapabilitySet {
+                    host_calls: true,
+                    path_mutation: true,
+                    jit: true,
+                    ..Default::default()
+                },
+                host_policy: HostExposurePolicy {
+                    allowed_host_functions: vec!["left.make".into(), "left.rhs".into()],
+                    allowed_host_types: vec!["left.Item".into()],
+                    allow_host_path_reads: true,
+                    allow_host_path_mutation: true,
+                    ..Default::default()
+                },
+                jit_policy: if jit {
+                    kagari_embed::JitPolicy::Enabled
+                } else {
+                    kagari_embed::JitPolicy::Disabled
+                },
+                ..Default::default()
+            };
+            let mut runtime = engine.runtime(context.clone());
+            let ids = runtime
+                .register_host_types(
+                    declarations.types[..2]
+                        .iter()
+                        .cloned()
+                        .map(|ty| HostTypeRegistration::new(ty, "Object"))
+                        .collect(),
+                )
+                .unwrap();
+            let root = runtime
+                .runtime_mut()
+                .register_host_root(HostObjectId(7), ids[0], HostSchemaEpoch::new(0))
+                .unwrap();
+            let trace = Rc::new(RefCell::new(Vec::new()));
+            let state = Rc::new(Cell::new(10));
+            let removed = Rc::new(Cell::new(false));
+            let calls = trace.clone();
+            runtime
+                .register_host_function(HostFunction::new(
+                    declarations.functions[0].clone(),
+                    move |_, _| {
+                        calls.borrow_mut().push("root");
+                        Ok(Value::HostRoot(root))
+                    },
+                ))
+                .unwrap();
+            let (calls, value, absent) = (trace.clone(), state.clone(), removed.clone());
+            runtime
+                .register_host_function(HostFunction::new(rhs.clone(), move |_, _| {
+                    calls.borrow_mut().push("rhs");
+                    value.set(after_rhs);
+                    absent.set(deleted);
+                    Ok(Value::I32(rhs_value))
+                }))
+                .unwrap();
+            let descriptor = runtime
+                .runtime_mut()
+                .register_host_field_path(&path)
+                .unwrap();
+            let (reads, value, absent) = (trace.clone(), state.clone(), removed.clone());
+            let (writes, target) = (trace.clone(), state.clone());
+            runtime
+                .runtime_mut()
+                .register_host_path_adapter(
+                    descriptor,
+                    kagari_runtime::HostPathAdapter::new()
+                        .with_read(move |_, _| {
+                            reads.borrow_mut().push("read");
+                            if absent.get() {
+                                return Err(HostError::new("target removed by RHS"));
+                            }
+                            Ok(Value::I32(value.get()))
+                        })
+                        .with_prepare_write(move |context, _, record| {
+                            writes.borrow_mut().push("prepare");
+                            context.runtime().collect_garbage().unwrap();
+                            let Value::I32(next) = record.new_value else {
+                                return Err(HostError::new("expected i32"));
+                            };
+                            let (writes, target) = (writes.clone(), target.clone());
+                            Ok(PreparedHostPathWrite::new(move || {
+                                writes.borrow_mut().push("commit");
+                                target.set(next);
+                            }))
+                        }),
+                )
+                .unwrap();
+            let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+            let result = if jit {
+                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            } else {
+                runtime.execute(&loaded, "main", &[], &context)
+            };
+            if let Some(expected) = expected {
+                result.unwrap();
+                assert_eq!(state.get(), expected);
+                assert_eq!(
+                    *trace.borrow(),
+                    ["root", "rhs", "read", "prepare", "commit"]
+                );
+                let records = runtime.runtime().host_dirty_paths();
+                assert_eq!(records.len(), 1);
+                assert_eq!(records[0].old_value, Some(Value::I32(after_rhs)));
+                assert_eq!(records[0].new_value, Value::I32(expected));
+            } else {
+                assert!(result.is_err());
+                assert_eq!(state.get(), after_rhs);
+                assert_eq!(*trace.borrow(), ["root", "rhs", "read"]);
+                assert!(runtime.runtime().host_dirty_paths().is_empty());
+            }
+            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        }
+    }
+}

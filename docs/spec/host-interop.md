@@ -552,7 +552,7 @@ segment), and field identities must belong to that current owner. The requested
 result type and access must agree with the generated segments. Rejection neither
 publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
 output exposed to adapters. Index and virtual segment declarations and source
-field writes remain separate pending work.
+host index paths remain separate pending work.
 
 The common declaration layer owns `HostPathContract` and the whole-path ABI encoder;
 runtime registration cannot supply its own fingerprint. `HostInterface::field_path_contract`
@@ -577,7 +577,7 @@ duplicate records, invalid chains and chains longer than 256 fields are rejected
 are registered and derives the runtime descriptor. Exported runtime interfaces
 retain registered field path declarations. Linking checks these required contracts
 even if a module has no path instruction; missing or ambiguous bindings reject
-publication. Source field writes and index/virtual path declarations remain pending.
+publication. Index/virtual path declarations and source host index paths remain pending.
 
 Bytecode path records require that contract fingerprint. The loader resolves all
 records before publishing the program, rejects missing/ambiguous contracts and
@@ -593,6 +593,15 @@ available to tools. Offline field documentation is available through
 the root exactly once. IR validates the selected contract against required host
 types; bytecode carries the required field declaration and linked path record.
 Reusing an unchanged function body remaps its path root to the new analysis arena.
+
+Source field assignments and compound assignments use checked writable path
+declarations. HIR records the target's root place and contract; readonly paths
+produce diagnostics, and the language profile must allow path mutation. Lowering
+captures the root before evaluating the RHS, then emits SetPath or ModifyPath.
+The runtime validates and reads the current target after RHS evaluation and prepares
+the update before committing the target and dirty record. Arithmetic failure or
+target removal by the RHS prevents the final write while retaining completed RHS
+effects. Body reuse remaps write-root place IDs as well as read-root expression IDs.
 For every read, set, modify and view instruction, linking also checks dynamic
 argument count and register representations against the bound descriptor's index
 parameters. An incompatible instruction rejects the whole program before publication;

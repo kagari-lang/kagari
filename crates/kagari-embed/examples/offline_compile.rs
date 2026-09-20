@@ -14,13 +14,14 @@ use kagari_runtime::LanguageProfile;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut player = HostTypeDeclaration::new("demo.Player");
     player.ownership = HostTypeOwnership::HostRoot;
-    player.path_access = PathAccess::ReadOnly;
+    player.path_access = PathAccess::ReadWrite;
     player.fields.push(HostFieldDeclaration::new(
         &player.id,
         "score",
         HostValueType::I32,
     ));
-    player.fields[0].path_access = PathAccess::ReadOnly;
+    player.fields[0].path_access = PathAccess::ReadWrite;
+    player.fields[0].writable = true;
     player.documentation =
         "Host-owned player metadata, available without business services.".into();
     player.methods.push(HostMethodDeclaration::new(
@@ -32,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path_declaration = kagari_common::host_interface::HostFieldPathDeclaration {
         root: player.id.clone(),
         fields: vec![player.fields[0].id.clone()],
-        access: PathAccess::ReadOnly,
+        access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),
     };
@@ -71,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api as api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");
@@ -97,6 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             CompileOptions {
                 language_profile: LanguageProfile {
                     allow_host_calls: true,
+                    allow_path_mutation: true,
                     ..Default::default()
                 },
             },

@@ -333,3 +333,79 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         Some(TypeId::Builtin(crate::types::BuiltinType::I32))
     );
 }
+
+#[test]
+fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
+    use kagari_common::host_interface::{
+        HostFieldDeclaration, HostFieldPathDeclaration, HostTypeOwnership, PathAccess,
+    };
+    let mut declarations = interface();
+    let owner = &mut declarations.types[0];
+    owner.ownership = HostTypeOwnership::HostRoot;
+    owner.path_access = PathAccess::ReadWrite;
+    let mut field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
+    field.writable = true;
+    field.path_access = PathAccess::ReadWrite;
+    owner.fields.push(field.clone());
+    declarations.field_paths.push(HostFieldPathDeclaration {
+        root: owner.id.clone(),
+        fields: vec![field.id.clone()],
+        access: PathAccess::ReadWrite,
+        schema_epoch: 0,
+        capabilities: Default::default(),
+    });
+    let mut sources = SourceDatabase::default();
+    let text = "fn neighbor() -> i32 { 1 } fn update(target: left::Item) { target.score += 2; }";
+    let root = sources
+        .set("mem://write", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
+    let profile = LanguageFeatureProfile {
+        allow_path_mutation: true,
+        ..Default::default()
+    };
+    let old = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    old.check_program(root, &Default::default()).unwrap();
+    let old_table = &old.file(root).unwrap().result().facts().typed.type_table;
+    let old_place = old_table.host_write_places().next().unwrap();
+    let old_path = old_table.host_place_path(old_place).unwrap().clone();
+    sources
+        .set(
+            "mem://write",
+            text.replace("{ 1 }", "{ 10 + 20 }"),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let new = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    let file = new.file(root).unwrap();
+    assert_eq!(file.result().facts().typed.reused_bodies, 1);
+    let table = &file.result().facts().typed.type_table;
+    let place = table.host_write_places().next().unwrap();
+    let path = table.host_place_path(place).unwrap();
+    assert_ne!(old_path.root, path.root);
+    assert_eq!(old_path.declaration, path.declaration);
+    new.check_program(root, &Default::default()).unwrap();
+    declarations.field_paths[0].access = PathAccess::ReadOnly;
+    db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
+    let readonly = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    assert!(
+        readonly
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::InvalidHostPath { .. }
+            ))
+    );
+    assert!(readonly.check_program(root, &Default::default()).is_err());
+}

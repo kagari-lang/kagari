@@ -63,6 +63,7 @@ pub struct ResolvedEnumConstructor {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
+    host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
     host_paths: HashMap<ExprId, ResolvedHostPath>,
     implementations: HashMap<(DefinitionId, TypeId), HashMap<DefinitionId, FunctionId>>,
     constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
@@ -87,7 +88,23 @@ pub struct ResolvedHostPath {
     pub contract: kagari_common::host_interface::HostPathContract,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedHostPlacePath {
+    pub root: PlaceId,
+    pub declaration: kagari_common::host_interface::HostFieldPathDeclaration,
+    pub contract: kagari_common::host_interface::HostPathContract,
+}
+
 impl TypeTable {
+    pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
+        self.host_place_paths.keys().copied()
+    }
+    pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath> {
+        self.host_place_paths.get(&place)
+    }
+    pub(crate) fn insert_host_place_path(&mut self, place: PlaceId, path: ResolvedHostPlacePath) {
+        self.host_place_paths.insert(place, path);
+    }
     pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath> {
         self.host_paths.get(&expr)
     }
@@ -125,7 +142,7 @@ impl TypeTable {
                     }).collect();
                 )+};
             }
-            keys!(host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
+            keys!(host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId);
             for call in result.calls.values_mut() {
@@ -137,6 +154,10 @@ impl TypeTable {
             for path in result.host_paths.values_mut() {
                 assert_eq!(path.root.arena(), from);
                 path.root = ExprId::new(to, path.root.owner(), path.root.index());
+            }
+            for path in result.host_place_paths.values_mut() {
+                assert_eq!(path.root.arena(), from);
+                path.root = PlaceId::new(to, path.root.owner(), path.root.index());
             }
             result
         }
@@ -309,6 +330,26 @@ impl TypeTable {
             .map(|(a, b)| (old_map.expr_id(*a), new_map.expr_id(*b)))
             .collect::<HashMap<_, _>>();
         let mut calls = Vec::new();
+        let place_ids = places
+            .iter()
+            .map(|(a, b)| (old_map.place_id(*a), new_map.place_id(*b)))
+            .collect::<HashMap<_, _>>();
+        let mut host_place_paths = Vec::new();
+        for (old_id, new_id) in &place_ids {
+            if let Some(path) = old.host_place_paths.get(old_id) {
+                let Some(root) = place_ids.get(&path.root) else {
+                    return false;
+                };
+                host_place_paths.push((
+                    *new_id,
+                    ResolvedHostPlacePath {
+                        root: *root,
+                        declaration: path.declaration.clone(),
+                        contract: path.contract.clone(),
+                    },
+                ));
+            }
+        }
         let mut host_paths = Vec::new();
         for (old_id, new_id) in &expr_ids {
             if let Some(path) = old.host_paths.get(old_id) {
@@ -345,6 +386,7 @@ impl TypeTable {
             }
         }
         self.calls.extend(calls);
+        self.host_place_paths.extend(host_place_paths);
         self.host_paths.extend(host_paths);
         for (a, b) in types {
             if let Some(ty) = old.type_refs.get(&old_map.type_id(a)) {
