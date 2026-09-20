@@ -476,7 +476,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Unknown
             }
             ExprKind::Name(_) if self.enum_member_owner(expr_id).is_some() => self
-                .infer_enum_constructor(expr_id, expr_id, &[], env)
+                .infer_enum_constructor(expr_id, expr_id, &[], env, expected)
                 .expect("resolved enum member owner"),
             ExprKind::Name(name) => self
                 .names
@@ -577,7 +577,8 @@ impl<'a> BodyChecker<'a> {
                 self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty, env)
             }
             ExprKind::Call { callee, args } => {
-                if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env) {
+                if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env, expected)
+                {
                     ty
                 } else if let Some(ty) = self.infer_host_call_type(expr_id, *callee, args, env) {
                     ty
@@ -1497,6 +1498,7 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> Option<TypeId> {
         let enumeration = self.enum_member_owner(callee)?;
         let member = self
@@ -1523,8 +1525,33 @@ impl<'a> BodyChecker<'a> {
         self.type_table.insert_enum_constructor(expression, target);
         // Every argument is checked once, even when the variant is absent or its
         // signature is erroneous. Known target facts survive argument failures.
-        let actual = self.infer_call_args(args, env);
         let mut substitution = crate::types::TypeSubstitution::new();
+        if let Some(TypeId::Enum(nominal)) = expected
+            && nominal.declaration == enumeration
+            && nominal.arguments.len() == generic_params.len()
+        {
+            substitution.extend(
+                generic_params
+                    .iter()
+                    .cloned()
+                    .zip(nominal.arguments.iter().cloned()),
+            );
+        }
+        let actual = args
+            .iter()
+            .enumerate()
+            .map(|(index, argument)| {
+                let expected = variant
+                    .as_ref()
+                    .and_then(|variant| variant.payload.get(index))
+                    .filter(|_| substitution.len() == generic_params.len())
+                    .map(|ty| ty.instantiate(&substitution));
+                (
+                    *argument,
+                    self.infer_expr_type_expected(*argument, env, expected.as_ref()),
+                )
+            })
+            .collect::<Vec<_>>();
         if let Some(variant) = &variant {
             for (expected, (_, actual)) in variant.payload.iter().zip(&actual) {
                 super::inference::infer(expected, actual, &generic_params, &mut substitution);

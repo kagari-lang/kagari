@@ -6,6 +6,8 @@ struct Cell<T> { var value: T }
 struct Marker<T> { val value: i32 }
 fn make_marker() -> Marker<bool> { Marker { value: 42 } }
 enum Packet<T> { Data(T) }
+enum Token<T> { Empty }
+fn token() -> Token<bool> { Token::Empty }
 fn read_cell<T>(cell: Cell<T>) -> T { cell.value }
 
 // Declared functions take precedence over unqualified helper names.
@@ -19,6 +21,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };
+    val empty: Token<bool> = Token::Empty();
+    std::debug::assert(empty == token(), "enum context supplies phantom type argument");
     val marker: Marker<bool> = Marker { value: 42 };
     std::debug::assert_eq(marker.value, 42, "annotation supplies phantom type argument");
     std::debug::assert_eq(make_marker().value, 42, "return type supplies phantom type argument");

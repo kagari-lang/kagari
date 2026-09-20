@@ -375,7 +375,10 @@ to nested Struct initializers. Field types and generic bounds are still checked;
 an unrelated annotated type cannot supply constructor arguments. Function return
 annotations also supply context to tail expressions and explicit return operands.
 Context propagates through blocks, if/match branches, Tuple members and Array
-elements. Call-argument context and enum-constructor inference are not implemented yet.
+elements. Enum constructors also consume matching nominal context, including
+unit variants with or without parentheses. Known payload types propagate context
+to nested constructors; arity, payload types and generic bounds remain checked.
+Call-argument context is not implemented yet.
 
 ```ebnf
 type            ::= path generic_args?

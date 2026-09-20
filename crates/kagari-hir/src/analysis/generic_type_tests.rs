@@ -3,6 +3,44 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn enum_context_resolves_unit_variants_and_nested_payload_constructors() {
+    for (body, valid) in [
+        ("fn make() -> Packet<i32> { Packet::Empty }", true),
+        ("fn make() -> Packet<i32> { Packet::Empty() }", true),
+        (
+            "fn make<T>() -> Packet<T> { Packet::Data(Marker { value: 7 }) }",
+            true,
+        ),
+        (
+            "fn make() { val value: Packet<bool> = Packet::Data(Marker { value: 7 }); }",
+            true,
+        ),
+        ("fn make() { val value = Packet::Empty; }", false),
+        ("fn make() -> Packet<i32> { Packet::Empty(7) }", false),
+        (
+            "fn make() -> Packet<i32> { Packet::Data(Marker { value: true }) }",
+            false,
+        ),
+        ("fn make() -> Packet<i32> { Other::Empty }", false),
+    ] {
+        let source = SourceFile::new(
+            "enum-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} enum Packet<T> {{ Empty, Data(Marker<T>) }} enum Other<T> {{ Empty }} {body}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn return_context_reaches_control_flow_and_composite_constructors() {
     for body in [
         "fn build() -> Marker<i32> { Marker { value: 7 } }",
