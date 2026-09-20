@@ -181,6 +181,11 @@ Implemented foundation slices:
   Failed generic-call inference substitutes error arguments into the return type
   as well as the recorded instantiation. Callee binders cannot leak into callers;
   known arguments, caller-owned binders and nominal member identities survive.
+  Inference traverses partially erroneous composite arguments to use their valid
+  members. Incomplete whole-type candidates do not prevent later complete
+  arguments from fixing a binder. Tuple and nominal-constructor regressions cover
+  this recovery. Annotation resolution still collapses a composite containing an
+  unknown type argument; preserving that shape and its diagnostics remains open.
   All local module-level declarations and import aliases now share an immutable
   name table. Calls, annotations, constructors, bounds and impl headers consume
   it; duplicate names retain identities but have no winning target or codegen.

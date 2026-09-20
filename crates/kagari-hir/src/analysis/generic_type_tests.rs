@@ -73,6 +73,67 @@ fn partial_call_inference_preserves_known_and_caller_owned_arguments() {
 }
 
 #[test]
+fn inference_uses_valid_members_of_partially_erroneous_arguments() {
+    for source in [
+        "fn identity<A, B>(value: (A, B)) -> (A, B) { value } fn bad() { identity((1, missing)); }",
+        "struct Pair<A, B> { val first: A, val second: B } fn identity<A, B>(value: Pair<A, B>) -> Pair<A, B> { value } fn bad() { identity(Pair { first: 1, second: missing }); }",
+    ] {
+        let source = SourceFile::new("partial-members.kgr", source);
+        let analysis = crate::analyze_source(&source, Default::default());
+        let facts = analysis.facts();
+        let result = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, expr)| {
+                matches!(expr.kind, crate::hir::ExprKind::Call { .. })
+                    .then(|| facts.typed.type_table.expr_type(id))
+                    .flatten()
+            })
+            .unwrap();
+        let arguments = match result {
+            TypeId::Tuple(arguments) => arguments,
+            TypeId::Struct(ty) => ty.arguments,
+            _ => panic!("known composite result"),
+        };
+        assert_eq!(
+            arguments,
+            [TypeId::Builtin(BuiltinType::I32), TypeId::Error]
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
+fn incomplete_whole_type_does_not_poison_later_inference() {
+    let source = SourceFile::new(
+        "later-argument.kgr",
+        "fn choose<T>(first: T, second: T) -> T { second } fn bad() { choose((1, missing), (2, true)); }",
+    );
+    let analysis = crate::analyze_source(&source, Default::default());
+    let facts = analysis.facts();
+    let result = facts
+        .lowered
+        .module
+        .body
+        .expressions()
+        .find_map(|(id, expr)| {
+            matches!(expr.kind, crate::hir::ExprKind::Call { .. })
+                .then(|| facts.typed.type_table.expr_type(id))
+                .flatten()
+        });
+    assert_eq!(
+        result,
+        Some(TypeId::Tuple(vec![
+            TypeId::Builtin(BuiltinType::I32),
+            TypeId::Builtin(BuiltinType::Bool)
+        ]))
+    );
+    assert!(analysis.into_codegen().is_err());
+}
+
+#[test]
 fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_parameters() {
     for text in [
         "struct Key<T: HashKey> { val value: T } fn bad(x: Key<f32>) {}",

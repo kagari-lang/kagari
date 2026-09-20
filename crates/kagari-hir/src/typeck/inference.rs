@@ -8,7 +8,7 @@ pub(super) fn infer(
     parameters: &[GenericParameterType],
     substitution: &mut TypeSubstitution,
 ) {
-    if actual.is_unresolved() {
+    if matches!(actual, TypeId::Unknown | TypeId::Error) {
         return;
     }
     match (expected, actual) {
@@ -22,7 +22,9 @@ pub(super) fn infer(
                 infer(expected, actual, parameters, substitution);
             }
         }
-        (TypeId::Generic(parameter), _) if parameters.contains(parameter) => {
+        (TypeId::Generic(parameter), _)
+            if parameters.contains(parameter) && !actual.is_unresolved() =>
+        {
             substitution
                 .entry(parameter.clone())
                 .or_insert_with(|| actual.clone());
