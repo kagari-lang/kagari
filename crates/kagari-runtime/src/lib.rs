@@ -122,6 +122,7 @@ pub struct ModuleInitializationGuard<'a> {
 
 impl ModuleInitializationGuard<'_> {
     pub fn finish(mut self, value: Value) -> Result<Value, RuntimeError> {
+        self.runtime.validate_instance_access(&self.module)?;
         self.runtime
             .validate_heap_payloads(std::slice::from_ref(&value))?;
         let result = value.clone();
@@ -150,7 +151,7 @@ impl Drop for ModuleInitializationGuard<'_> {
     fn drop(&mut self) {
         if !self.finished {
             // Failure cleanup is permitted after execution has been disabled.
-            let _ = self.runtime.fail_module_initialization(&self.module);
+            let _ = self.runtime.fail_initialization_during_unwind(&self.module);
         }
         self.runtime
             .modules
@@ -1062,11 +1063,21 @@ impl Runtime {
         self.modules.instance_snapshot(module.key())
     }
 
+    fn validate_instance_access(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
+        if !self.modules.allows_instance_access(module.key()) {
+            return Err(RuntimeError::capability_denied(
+                "external module state during candidate initialization",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn begin_module_initialization(
         &self,
         module: &LoadedModule,
     ) -> Result<ModuleInitializationGuard<'_>, RuntimeError> {
         self.validate_loaded_module(module)?;
+        self.validate_instance_access(module)?;
         {
             let mut instance = self.modules.instance_mut(module.key()).ok_or_else(|| {
                 self.resources
@@ -1090,15 +1101,23 @@ impl Runtime {
 
     /// Records failed initialization during unwinding, without reopening execution.
     pub fn fail_module_initialization(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
+        self.validate_instance_access(module)?;
+        self.fail_initialization_during_unwind(module)
+    }
+
+    fn fail_initialization_during_unwind(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
         if !module.belongs_to(self.host.owner()) {
             return Err(RuntimeError::module_validation(
                 "module belongs to another runtime",
             ));
         }
-        let mut instance = self.modules.instance_mut(module.key()).ok_or_else(|| {
-            self.resources
-                .quarantine("failed module instance disappeared during cleanup")
-        })?;
+        let mut instance = self
+            .modules
+            .instance_mut_for_cleanup(module.key())
+            .ok_or_else(|| {
+                self.resources
+                    .quarantine("failed module instance disappeared during cleanup")
+            })?;
         if instance.state == ModuleInitializationState::Initialized {
             return Err(RuntimeError::module_validation(
                 "completed initialization cannot be failed by cleanup",

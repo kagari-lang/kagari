@@ -481,7 +481,10 @@ Implemented foundation slices:
   Script-visible reads of external mutable objects are also rejected, including
   snapshots and struct fields. Collector tracing retains its internal access so
   old roots survive candidate collection. Host results undergo ownership checks
-  before shape traversal. Remaining module-state and other ingress paths need audit.
+  before shape traversal. Module snapshots and mutable instance borrows are limited
+  to the candidate program at the store boundary. Public initialization operations
+  reject external instances, while existing lifecycle guards retain an internal
+  failure-cleanup path. Remaining publication and other ingress paths need audit.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

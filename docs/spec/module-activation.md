@@ -76,7 +76,10 @@ The heap mutation boundary also enforces candidate ownership, including direct
 container and struct slot edits made by host callbacks through runtime APIs.
 Script-visible container and struct reads obey the same ownership restriction.
 Collector tracing remains independent of that restriction and retains rooted old
-objects while a candidate runs. This runtime boundary
+objects while a candidate runs.
+Module instance snapshots and mutable borrows are likewise restricted to the
+candidate's pinned program. Existing initialization guards may still record failure
+when unwound; that internal cleanup does not grant ordinary access to old state. This runtime boundary
 supplements the trusted host's obligation to honor its declared effects.
 
 Candidate failure leaves the active entry and external business state unchanged.

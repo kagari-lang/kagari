@@ -452,11 +452,31 @@ impl ModuleStore {
         inner.loaded.get(key).cloned()
     }
 
+    pub(crate) fn allows_instance_access(&self, key: ModuleKey) -> bool {
+        self.resources.active_session().is_none_or(|session| {
+            session.options.phase != crate::ExecutionPhase::CandidateInitialization
+                || session.root.members().any(|member| member.key() == key)
+        })
+    }
+
     pub fn instance_snapshot(&self, key: ModuleKey) -> Option<ModuleInstance> {
+        if !self.allows_instance_access(key) {
+            return None;
+        }
         self.inner.borrow().instances.get(&key).cloned()
     }
 
     pub fn instance_mut(&self, key: ModuleKey) -> Option<RefMut<'_, ModuleInstance>> {
+        if !self.allows_instance_access(key) {
+            return None;
+        }
+        self.instance_mut_for_cleanup(key)
+    }
+
+    pub(crate) fn instance_mut_for_cleanup(
+        &self,
+        key: ModuleKey,
+    ) -> Option<RefMut<'_, ModuleInstance>> {
         RefMut::filter_map(self.inner.borrow_mut(), |inner| {
             inner.instances.get_mut(&key)
         })
