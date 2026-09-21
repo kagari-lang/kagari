@@ -538,9 +538,7 @@ impl AnalysisDatabase {
                         .files
                         .get(&id)
                         .filter(|old| {
-                            old.result.diagnostics().is_empty()
-                                && old.result.facts().names.hosts.revision()
-                                    == self.hosts.revision()
+                            old.result.facts().names.hosts.revision() == self.hosts.revision()
                                 && old.result.facts().names.imports.same_bindings(&imports)
                                 && old.result.facts().imported_functions == imported_functions
                                 && old.result.facts().aggregates.same_contracts(&aggregates)
@@ -549,6 +547,7 @@ impl AnalysisDatabase {
                                 && old.source.module_identity() == file.module_identity()
                         })
                         .map(|old| crate::typeck::BodyReuse {
+                            previous_diagnostics: old.result.diagnostics(),
                             previous_lowered: &old.result.facts().lowered,
                             previous_types: &old.result.facts().typed.type_table,
                             old_text: old.source.text(),

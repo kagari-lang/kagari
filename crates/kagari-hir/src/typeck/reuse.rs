@@ -6,6 +6,7 @@ use crate::{
 };
 
 pub struct BodyReuse<'a> {
+    pub previous_diagnostics: &'a [kagari_common::Diagnostic],
     pub previous_lowered: &'a LoweredModule,
     pub previous_types: &'a TypeTable,
     pub old_text: &'a str,
@@ -14,7 +15,20 @@ pub struct BodyReuse<'a> {
 
 impl BodyReuse<'_> {
     pub(crate) fn environment_matches(&self, current: &LoweredModule) -> bool {
-        self.previous_lowered.source.module_identity() == current.source.module_identity()
+        self.previous_diagnostics.iter().all(|diagnostic| {
+            diagnostic.span.is_some_and(|span| {
+                self.previous_lowered
+                    .module
+                    .functions
+                    .iter()
+                    .any(|function| {
+                        let owner = self.previous_lowered.source_map.function_span(function.id);
+                        matches!(function.kind, FunctionKind::User | FunctionKind::ImplMethod)
+                            && owner.start <= span.start
+                            && span.end <= owner.end
+                    })
+            })
+        }) && self.previous_lowered.source.module_identity() == current.source.module_identity()
             && environment(self.previous_lowered, self.old_text)
                 == environment(current, self.new_text)
     }
@@ -37,6 +51,18 @@ impl BodyReuse<'_> {
             return false;
         };
         let old_span = self.previous_lowered.source_map.function_span(old.id);
+        for diagnostic in self.previous_diagnostics {
+            let Some(span) = diagnostic.span else {
+                return false;
+            };
+            if (span.start < old_span.end && old_span.start < span.end)
+                || (span.start == span.end
+                    && old_span.start <= span.start
+                    && span.start <= old_span.end)
+            {
+                return false;
+            }
+        }
         let new_span = current.source_map.function_span(function.id);
         let Some(old_text) = self.old_text.get(old_span.start..old_span.end) else {
             return false;

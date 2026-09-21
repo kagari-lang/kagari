@@ -637,6 +637,11 @@ Implemented foundation slices:
   invalid bounds and conflicting context reject before code generation. Tests
   cover facade imports, caller binders, distinct concrete instances, lossless
   syntax and type queries after body reuse across snapshot revisions.
+  Error-bearing files no longer disable all body reuse. Unchanged functions with
+  no owned diagnostics can reuse their facts while erroneous functions recheck;
+  unowned or file-level diagnostics conservatively prevent reuse. Navigation tests
+  distinguish enum owner, type argument and variant after payload/type errors,
+  preserve old snapshots, and verify repair beside a reused correct function.
   Annotated locals now supply Struct type arguments, including
   phantom parameters, and propagate checked context into nested Struct fields.
   Declaration identity must match; fields and bounds retain normal validation.

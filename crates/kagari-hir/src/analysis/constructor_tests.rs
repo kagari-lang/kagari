@@ -11,6 +11,88 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 }
 
 #[test]
+fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors() {
+    let text = "enum Event<T> { Empty, Data(T) } fn good() { Event<bool>::Data(true); } fn wrong() { Event<i32>::Data(false); } fn unknown() { Event<Missing>::Data(missing); }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("explicit-navigation.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let old = analyze(&mut db, &sources);
+    assert!(old.check_program(file, &Default::default()).is_err());
+    let changed = text.replace("Data(false)", "Data(1)");
+    sources
+        .set(
+            "explicit-navigation.kgr",
+            changed.clone(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let new = analyze(&mut db, &sources);
+    assert!(new.check_program(file, &Default::default()).is_err());
+    for (snapshot, text) in [(&old, text), (&new, changed.as_str())] {
+        let analysis = snapshot.file(file).unwrap();
+        let enumeration = analysis
+            .result()
+            .facts()
+            .aggregates
+            .enumerations()
+            .next()
+            .unwrap();
+        for argument in ["bool", "i32", "Missing"] {
+            let start = text.find(&format!("Event<{argument}>")).unwrap();
+            assert_eq!(
+                analysis.definition_at(start),
+                Some(&enumeration.declaration)
+            );
+            let variant = start + format!("Event<{argument}>::").len();
+            assert_eq!(
+                analysis.definition_at(variant),
+                Some(&enumeration.variants[1].declaration)
+            );
+            let Some(TypeId::Enum(ty)) = analysis.type_at(variant) else {
+                panic!("variant type fact");
+            };
+            assert_eq!(ty.declaration, enumeration.id);
+            assert_eq!(ty.arguments.len(), 1);
+        }
+        assert!(
+            analysis
+                .definition_at(text.find("Missing").unwrap())
+                .is_none()
+        );
+        assert_eq!(
+            analysis.type_at(text.find("bool>").unwrap()),
+            Some(TypeId::Builtin(BuiltinType::Bool))
+        );
+        assert_eq!(
+            analysis.type_at(text.find("i32>").unwrap()),
+            Some(TypeId::Builtin(BuiltinType::I32))
+        );
+        assert!(!analysis.result().diagnostics().is_empty());
+    }
+    assert_eq!(
+        new.file(file).unwrap().result().facts().typed.reused_bodies,
+        1
+    );
+    for (snapshot, has_mismatch) in [(&old, true), (&new, false)] {
+        assert_eq!(
+            snapshot
+                .file(file)
+                .unwrap()
+                .result()
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| matches!(
+                    diagnostic.kind,
+                    kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
+                )),
+            has_mismatch
+        );
+    }
+}
+
+#[test]
 fn constructors_retain_nominal_targets_through_argument_errors() {
     let text = "enum Event { Empty, Data(i32, String) } fn good() -> Event { Event::Data(1, \"ok\") } fn empty() -> Event { Event::Empty } fn wrong() -> Event { Event::Data(true) } fn unknown() -> Event { Event::Absent(missing) }";
     let mut sources = SourceDatabase::default();

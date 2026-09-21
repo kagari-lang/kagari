@@ -155,6 +155,7 @@ impl AnalysisDatabase {
                             .same_contracts(&environment.aggregates)
                 })
                 .map(|old| crate::typeck::BodyReuse {
+                    previous_diagnostics: old.diagnostics(),
                     previous_lowered: old.lowered(),
                     previous_types: old.type_table(),
                     old_text: old.source().text(),
