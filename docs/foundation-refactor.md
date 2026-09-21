@@ -299,6 +299,10 @@ Implemented foundation slices:
   validation. Result facts and field/payload diagnostics use identical recovery
   types; known sibling conflicts still diagnose after missing positions become
   Error. The former function-only substitution update is removed.
+  Profile-gated set_field/set_index helpers now pass checked target types to their
+  RHS expressions and compare known members using the same conflict predicate
+  as assignment. Missing members suppress dependent mismatches without hiding
+  independent conflicts; analysis and source/artifact/JIT fixtures cover both.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

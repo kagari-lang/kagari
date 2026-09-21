@@ -1239,3 +1239,59 @@ fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn reflective_writes_share_target_context_and_recovery_member_comparison() {
+    for (body, valid, mismatch) in [
+        (
+            "set_field(box, \"value\", Marker { value: 42 });",
+            true,
+            false,
+        ),
+        ("set_index(array, 0, Marker { value: 42 });", true, false),
+        (
+            "set_field(box, \"value\", Marker<bool> { value: 42 });",
+            false,
+            true,
+        ),
+        (
+            "set_index(array, 0, Marker<bool> { value: 42 });",
+            false,
+            true,
+        ),
+        ("set_field(box, \"pair\", (1, missing));", false, false),
+        ("set_field(box, \"pair\", (true, missing));", false, true),
+        ("set_index(pairs, 0, (1, missing));", false, false),
+        ("set_index(pairs, 0, (true, missing));", false, true),
+    ] {
+        let source = SourceFile::new(
+            "reflective-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: [Marker<i32>] = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(
+            &source,
+            crate::LanguageFeatureProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(
+            analysis.diagnostics().iter().any(|diagnostic| matches!(
+                diagnostic.kind,
+                kagari_common::DiagnosticKind::AssignmentTypeMismatch { .. }
+            )),
+            mismatch,
+            "{body}"
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+    }
+}

@@ -8,6 +8,10 @@ a non-callable local produces a call-target diagnostic. Reflection permissions
 apply to resolved reflection helper calls. Standard methods and qualified standard
 functions share one semantic intrinsic target, with method receivers evaluated
 before explicit arguments according to [value-semantics.md](value-semantics.md).
+When permitted by the active reflection profile, `set_field` with a statically
+known field name and `set_index` with a known element type supply that target
+type as RHS context. They use ordinary assignment's known-member conflict rules:
+erroneous members do not suppress mismatches in independently known members.
 String length uses `len_bytes()` or `len_chars()`; the obsolete standalone
 `String.len()` path is removed without an alias.
 It describes language-level standard capabilities and standard modules, not host application APIs.

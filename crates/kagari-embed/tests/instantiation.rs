@@ -243,10 +243,16 @@ fn explicit_struct_arguments_emit_distinct_phantom_layouts() {
 }
 
 fn execute_contextual_source(source: &str, expected: i32) {
+    execute_contextual_source_with_writes(source, expected, false);
+}
+
+fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection_write: bool) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.language_profile.allow_reflection = true;
+    context.language_profile.allow_reflection_write = reflection_write;
+    context.capabilities.reflection_write = reflection_write;
     context.capabilities.jit = true;
     let artifact = engine
         .compile_to_artifact(
@@ -375,5 +381,14 @@ fn partial_constructor_member_context_executes_for_structs_and_enums() {
     execute_contextual_source(
         "enum Token<T> { Empty } struct Pair<T> { val pair: (Token<i32>, T) } enum Payload<T> { Pair((Token<i32>, T)) } fn main() -> i32 { val item = Pair { pair: (Token::Empty, 20) }; val payload = Payload::Pair((Token::Empty, 22)); if payload == Payload<i32>::Pair((Token<i32>::Empty, 22)) { item.pair[1] + 22 } else { 0 } }",
         42,
+    );
+}
+
+#[test]
+fn reflective_write_targets_supply_generic_constructor_context() {
+    execute_contextual_source_with_writes(
+        "struct Marker<T> { val value: i32 } struct Box { var value: Marker<i32> } fn main() -> i32 { val box = Box { value: Marker { value: 0 } }; val array: [Marker<i32>] = [Marker { value: 0 }]; set_field(box, \"value\", Marker { value: 20 }); set_index(array, 0, Marker { value: 22 }); box.value.value + array[0].value }",
+        42,
+        true,
     );
 }

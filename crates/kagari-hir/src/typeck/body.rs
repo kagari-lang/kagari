@@ -1391,10 +1391,14 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self.infer_expr_type(*base, env);
                 self.check_const_write(*base);
                 let _ = self.infer_expr_type(*field_name_expr, env);
-                let value_ty = self.infer_expr_type(*value, env);
-                let field_name = self.string_literal_value(*field_name_expr)?;
-                if let Some(expected) = self.resolve_field_type(&base_ty, &field_name)
-                    && expected != value_ty
+                let field_name = self.string_literal_value(*field_name_expr);
+                let expected = field_name
+                    .as_ref()
+                    .and_then(|name| self.resolve_field_type(&base_ty, name));
+                let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
+                field_name?;
+                if let Some(expected) = expected
+                    && expected.conflicts_with(&value_ty)
                 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
@@ -1413,9 +1417,10 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self.infer_expr_type(*base, env);
                 self.check_const_write(*base);
                 self.infer_expr_type(*index, env);
-                let value_ty = self.infer_expr_type(*value, env);
-                if let Some(expected) = self.resolve_index_type(*index, &base_ty)
-                    && expected != value_ty
+                let expected = self.resolve_index_type(*index, &base_ty);
+                let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
+                if let Some(expected) = expected
+                    && expected.conflicts_with(&value_ty)
                 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
