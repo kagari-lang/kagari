@@ -403,6 +403,9 @@ signatures, including nested containers and forwarded generic constraints.
 Struct fields and enum payloads also update inference in source order: an earlier
 member can supply context to a later nested constructor. A member whose type is
 already known does not wait for unrelated generic parameters to be inferred.
+This also applies within composite members: a field or enum payload declared
+`(Token<i32>, T)` preserves the first tuple element's context while inferring
+`T` from the second element.
 
 ```ebnf
 type            ::= path generic_args?

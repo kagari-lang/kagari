@@ -1109,3 +1109,42 @@ fn generic_parameter_context_preserves_known_members_beside_uninferred_binders()
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
     }
 }
+
+#[test]
+fn constructor_fields_share_partial_argument_context_and_reject_unseeded_members() {
+    for (body, valid) in [
+        ("val item = Pair { pair: (Token::Empty, true) };", true),
+        ("val item = Payload::Pair((Token::Empty, true));", true),
+        (
+            "val item = Pair { pair: (Token<bool>::Empty, true) };",
+            false,
+        ),
+        (
+            "val item = Payload::Pair((Token<bool>::Empty, true));",
+            false,
+        ),
+        (
+            "val item = Pair { pair: (Token::Empty, Token::Empty) };",
+            false,
+        ),
+        (
+            "val item = Pair { pair: (Token::Empty, std::map::new()) };",
+            false,
+        ),
+    ] {
+        let source = SourceFile::new(
+            "partial-field-context.kgr",
+            format!(
+                "enum Token<T> {{ Empty }} struct Pair<T> {{ val pair: (Token<i32>, T) }} enum Payload<T> {{ Pair((Token<i32>, T)) }} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+    }
+}

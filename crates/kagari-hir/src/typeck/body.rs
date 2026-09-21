@@ -2303,25 +2303,21 @@ impl<'a> BodyChecker<'a> {
                     .zip(nominal.arguments.iter().cloned()),
             );
         }
-        let caller_parameters = env
-            .generics
-            .iter()
-            .filter_map(|parameter| self.declarations.generic_type(parameter.id))
-            .collect::<Vec<_>>();
         let mut field_tys = Vec::with_capacity(fields.len());
         for field in fields {
+            if self.cancel.check().is_err() {
+                return TypeId::Unknown;
+            }
             let parameter = struct_def
                 .fields
                 .iter()
                 .find(|member| member.name == field.name);
-            let expected = parameter.map(|member| member.ty.instantiate(&substitution));
-            let actual = self.infer_expr_type_expected(
-                field.value,
-                env,
-                expected
-                    .as_ref()
-                    .filter(|ty| ty.is_resolved_in(&caller_parameters)),
-            );
+            let expected = parameter.map(|member| {
+                member
+                    .ty
+                    .argument_context(&substitution, &struct_def.generic_params)
+            });
+            let actual = self.infer_expr_type_expected(field.value, env, expected.as_ref());
             if let Some(parameter) = parameter
                 && super::inference::infer(
                     &parameter.ty,
@@ -2586,11 +2582,9 @@ impl<'a> BodyChecker<'a> {
                 break;
             }
             let parameter = parameters.next();
-            let mut context = substitution.clone();
-            for generic in generics {
-                context.entry(generic.clone()).or_insert(TypeId::Unknown);
-            }
-            let expected = parameter.as_ref().map(|ty| ty.instantiate(&context));
+            let expected = parameter
+                .as_ref()
+                .map(|ty| ty.argument_context(substitution, generics));
             let ty = self.infer_expr_type_expected(*argument, env, expected.as_ref());
             if !generics.is_empty()
                 && let Some(parameter) = parameter

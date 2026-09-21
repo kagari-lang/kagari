@@ -114,6 +114,20 @@ impl TypeId {
         })
     }
 
+    /// Preserve known argument context without exposing uninferred callee binders.
+    pub(crate) fn argument_context(
+        &self,
+        substitution: &TypeSubstitution,
+        parameters: &[GenericParameterType],
+    ) -> Self {
+        self.substitute_once(|ty| match ty {
+            Self::Generic(parameter) => substitution
+                .get(parameter)
+                .or_else(|| parameters.contains(parameter).then_some(&Self::Unknown)),
+            _ => None,
+        })
+    }
+
     /// Rebuild one binding layer, copying inserted types without revisiting them
     /// as substitution targets. Both generic binders and trait Self use this walk.
     fn substitute_once<'a>(&'a self, replacement: impl Fn(&Self) -> Option<&'a Self>) -> Self {

@@ -369,3 +369,11 @@ fn partially_inferred_parameters_preserve_independent_constructor_context() {
         42,
     );
 }
+
+#[test]
+fn partial_constructor_member_context_executes_for_structs_and_enums() {
+    execute_contextual_source(
+        "enum Token<T> { Empty } struct Pair<T> { val pair: (Token<i32>, T) } enum Payload<T> { Pair((Token<i32>, T)) } fn main() -> i32 { val item = Pair { pair: (Token::Empty, 20) }; val payload = Payload::Pair((Token::Empty, 22)); if payload == Payload<i32>::Pair((Token<i32>::Empty, 22)) { item.pair[1] + 22 } else { 0 } }",
+        42,
+    );
+}

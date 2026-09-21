@@ -286,6 +286,11 @@ Implemented foundation slices:
   Error members retain their existing diagnostics. Source/artifact/JIT fixtures
   exercise independently contextual enum and struct members in tuple arguments,
   while unseeded constructors and containers remain rejected.
+  Struct fields now use that same context operation as call and enum payload
+  arguments, preserving independent tuple members even before the enclosing
+  binder is inferred. Context reconstruction reads substitutions directly instead
+  of cloning the substitution map per argument. Struct/enum execution fixtures
+  and negative constructor cases cover the unified path.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

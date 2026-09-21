@@ -8,6 +8,7 @@ struct ComparablePair<T: Comparable> { val value: T }
 fn comparable_pair<T: Comparable>(value: T) -> ComparablePair<(T, i32)> {
     ComparablePair { value: (value, 42) }
 }
+struct PartialMarker<T> { val pair: (Marker<i32>, T) }
 struct SeededMarker<T> { val seed: T, val marker: Marker<T> }
 fn partial_marker<T>(pair: (Marker<i32>, T)) -> i32 { pair[0].value }
 fn make_marker() -> Marker<bool> { Marker { value: 42 } }
@@ -44,6 +45,8 @@ pub fn add_i32(lhs: i32, rhs: i32) -> i32 { add(lhs, rhs) }
 
 fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert_eq(partial_marker((Marker { value: 42 }, true)), 42, "known member context beside inferred generic");
+    val partial = PartialMarker { pair: (Marker { value: 42 }, true) };
+    std::debug::assert_eq(partial.pair[0].value, 42, "partial field context");
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };
