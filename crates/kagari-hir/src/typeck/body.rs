@@ -1657,6 +1657,9 @@ impl<'a> BodyChecker<'a> {
             &mut substitution,
             env,
         );
+        if self.cancel.check().is_err() {
+            return Some(TypeId::Unknown);
+        }
         let arguments = generic_params
             .iter()
             .map(|parameter| {
@@ -1771,14 +1774,17 @@ impl<'a> BodyChecker<'a> {
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
         let mut substitution = crate::types::TypeSubstitution::new();
-        if let Some(expected) = expected {
-            super::inference::infer(
+        if let Some(expected) = expected
+            && super::inference::infer(
                 &function.return_type,
                 expected,
                 &function.generic_params,
                 &mut substitution,
                 self.cancel,
-            );
+            )
+            .is_err()
+        {
+            return TypeId::Unknown;
         }
         let arg_tys = self.infer_generic_args(
             args,
@@ -1787,6 +1793,9 @@ impl<'a> BodyChecker<'a> {
             &mut substitution,
             env,
         );
+        if self.cancel.check().is_err() {
+            return TypeId::Unknown;
+        }
         let type_arguments = function
             .generic_params
             .iter()
@@ -2301,14 +2310,17 @@ impl<'a> BodyChecker<'a> {
                     .as_ref()
                     .filter(|ty| ty.is_resolved_in(&caller_parameters)),
             );
-            if let Some(parameter) = parameter {
-                super::inference::infer(
+            if let Some(parameter) = parameter
+                && super::inference::infer(
                     &parameter.ty,
                     &actual,
                     &struct_def.generic_params,
                     &mut substitution,
                     self.cancel,
-                );
+                )
+                .is_err()
+            {
+                return TypeId::Unknown;
             }
             field_tys.push((field.name.as_str(), field.value, actual));
         }
@@ -2573,8 +2585,10 @@ impl<'a> BodyChecker<'a> {
             );
             if !generics.is_empty()
                 && let Some(parameter) = parameter
+                && super::inference::infer(&parameter, &ty, generics, substitution, self.cancel)
+                    .is_err()
             {
-                super::inference::infer(&parameter, &ty, generics, substitution, self.cancel);
+                break;
             }
             actual.push((*argument, ty));
         }

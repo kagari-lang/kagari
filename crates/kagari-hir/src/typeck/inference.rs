@@ -8,12 +8,10 @@ pub(super) fn infer(
     parameters: &[GenericParameterType],
     substitution: &mut TypeSubstitution,
     cancel: &kagari_common::cancellation::CancellationToken,
-) {
+) -> Result<(), kagari_common::cancellation::Cancelled> {
     let mut pending = vec![(expected, actual)];
     while let Some((expected, actual)) = pending.pop() {
-        if cancel.check().is_err() {
-            return;
-        }
+        cancel.check()?;
         if matches!(actual, TypeId::Unknown | TypeId::Error) {
             continue;
         }
@@ -58,6 +56,7 @@ pub(super) fn infer(
             _ => {}
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -97,7 +96,8 @@ mod tests {
             std::slice::from_ref(&parameter),
             &mut substitution,
             &cancelled,
-        );
+        )
+        .unwrap_err();
         assert!(substitution.is_empty());
         infer(
             &expected,
@@ -105,7 +105,8 @@ mod tests {
             std::slice::from_ref(&parameter),
             &mut substitution,
             &Default::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(substitution[&parameter], TypeId::Builtin(BuiltinType::I32));
         // Drop the synthetic deep inputs iteratively too; this test isolates traversal.
         for mut ty in [expected, actual] {
@@ -123,7 +124,8 @@ mod tests {
             std::slice::from_ref(&parameter),
             &mut substitution,
             &Default::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(substitution[&parameter], TypeId::Builtin(BuiltinType::I32));
     }
 
@@ -158,7 +160,8 @@ mod tests {
                 std::slice::from_ref(&parameter),
                 &mut substitution,
                 &Default::default(),
-            );
+            )
+            .unwrap();
             assert_eq!(template.instantiate(&substitution), actual);
             assert_eq!(substitution.len(), 1);
             let mut foreign = declaration.clone();
@@ -186,7 +189,8 @@ mod tests {
                     std::slice::from_ref(&parameter),
                     &mut substitution,
                     &Default::default(),
-                );
+                )
+                .unwrap();
                 assert!(substitution.is_empty());
             }
         }

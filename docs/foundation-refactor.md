@@ -271,6 +271,9 @@ Implemented foundation slices:
   between members, preserving left-to-right inference precedence. A 10,000-level
   synthetic composite test covers traversal without recursive stack growth; type
   cloning and other operations retain their separate depth-limit work.
+  Constraint inference returns explicit cancellation; return-context, constructor
+  field and generic-call consumers stop before deriving missing-argument diagnostics
+  or instantiations from a cancelled argument batch.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
