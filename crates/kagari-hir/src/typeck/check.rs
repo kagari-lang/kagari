@@ -106,6 +106,7 @@ pub(crate) fn check_signatures(
                     &type_bounds[id],
                     lowered.source_map.type_span(field.ty),
                     &mut diagnostics,
+                    cancel,
                 );
             }
             type_table.insert_field_type(field.id, ty);
@@ -136,6 +137,7 @@ pub(crate) fn check_signatures(
                             .expect("enum declaration")],
                         lowered.source_map.type_span(*payload),
                         &mut diagnostics,
+                        cancel,
                     ),
                     ty => {
                         validate_standard_type_constraints(
@@ -145,6 +147,7 @@ pub(crate) fn check_signatures(
                                 .expect("enum declaration")],
                             lowered.source_map.type_span(*payload),
                             &mut diagnostics,
+                            cancel,
                         );
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
@@ -236,6 +239,7 @@ pub(crate) fn check_signatures(
                 &bounds,
                 lowered.source_map.type_span(param.ty),
                 &mut diagnostics,
+                cancel,
             );
             if param_type.is_unresolved() {
                 diagnostics.push(
@@ -264,6 +268,7 @@ pub(crate) fn check_signatures(
                     &bounds,
                     lowered.source_map.type_span(*ty_ref),
                     &mut diagnostics,
+                    cancel,
                 );
                 if ty.is_unresolved() {
                     diagnostics.push(
@@ -360,6 +365,7 @@ pub(crate) fn check_bodies_controlled(
                                 &HashMap::new(),
                                 lowered.source_map.type_span(ty_ref),
                                 &mut diagnostics,
+                                cancel,
                             );
                             ty
                         }
@@ -369,6 +375,7 @@ pub(crate) fn check_bodies_controlled(
                                 &HashMap::new(),
                                 lowered.source_map.type_span(ty_ref),
                                 &mut diagnostics,
+                                cancel,
                             );
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnknownConstType {
@@ -686,52 +693,49 @@ pub(super) fn validate_standard_type_constraints(
     generic_bounds: &HashMap<crate::types::GenericParameterType, Vec<super::ConstraintTarget>>,
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+    cancel: &kagari_common::cancellation::CancellationToken,
 ) {
-    match ty {
-        TypeId::Map { key, value } => {
-            validate_standard_constraint_type(
-                key,
-                StandardTypeConstraint::HashKey,
-                generic_bounds,
-                span,
-                diagnostics,
-            );
-            validate_standard_type_constraints(key, generic_bounds, span, diagnostics);
-            validate_standard_type_constraints(value, generic_bounds, span, diagnostics);
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        if cancel.check().is_err() {
+            return;
         }
-        TypeId::Set(element) => {
-            validate_standard_constraint_type(
-                element,
-                StandardTypeConstraint::HashKey,
-                generic_bounds,
-                span,
-                diagnostics,
-            );
-            validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
-        }
-        TypeId::Tuple(elements) => {
-            for element in elements {
-                validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
+        match ty {
+            TypeId::Map { key, value } => {
+                validate_standard_constraint_type(
+                    key,
+                    StandardTypeConstraint::HashKey,
+                    generic_bounds,
+                    span,
+                    diagnostics,
+                );
+                pending.push(value);
+                pending.push(key);
             }
-        }
-        TypeId::Array(element) => {
-            validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
-        }
-        TypeId::StandardEnum { args, .. }
-        | TypeId::Struct(crate::types::NominalType {
-            arguments: args, ..
-        })
-        | TypeId::Enum(crate::types::NominalType {
-            arguments: args, ..
-        })
-        | TypeId::Trait(crate::types::NominalType {
-            arguments: args, ..
-        }) => {
-            for arg in args {
-                validate_standard_type_constraints(arg, generic_bounds, span, diagnostics);
+            TypeId::Set(element) => {
+                validate_standard_constraint_type(
+                    element,
+                    StandardTypeConstraint::HashKey,
+                    generic_bounds,
+                    span,
+                    diagnostics,
+                );
+                pending.push(element);
             }
+            TypeId::Tuple(elements) => pending.extend(elements.iter().rev()),
+            TypeId::Array(element) => pending.push(element),
+            TypeId::StandardEnum { args, .. }
+            | TypeId::Struct(crate::types::NominalType {
+                arguments: args, ..
+            })
+            | TypeId::Enum(crate::types::NominalType {
+                arguments: args, ..
+            })
+            | TypeId::Trait(crate::types::NominalType {
+                arguments: args, ..
+            }) => pending.extend(args.iter().rev()),
+            _ => {}
         }
-        _ => {}
     }
 }
 
@@ -1239,5 +1243,50 @@ fn validate_const_initializers(
     };
     for const_item in &lowered.module.consts {
         validator.validate_const(const_item.id);
+    }
+}
+
+#[cfg(test)]
+mod constraint_traversal_tests {
+    use super::*;
+    use kagari_common::cancellation::CancellationToken;
+
+    #[test]
+    fn deep_container_validation_uses_explicit_stack_and_honors_cancellation() {
+        let mut ty = TypeId::Map {
+            key: Box::new(TypeId::Builtin(BuiltinType::F32)),
+            value: Box::new(TypeId::Error),
+        };
+        for _ in 0..10_000 {
+            ty = TypeId::Array(Box::new(ty));
+        }
+        let mut diagnostics = SmallVec::new();
+        let cancelled = CancellationToken::default();
+        cancelled.cancel();
+        validate_standard_type_constraints(
+            &ty,
+            &HashMap::new(),
+            Default::default(),
+            &mut diagnostics,
+            &cancelled,
+        );
+        let cancelled_count = diagnostics.len();
+        validate_standard_type_constraints(
+            &ty,
+            &HashMap::new(),
+            Default::default(),
+            &mut diagnostics,
+            &Default::default(),
+        );
+        // Drop the synthetic deep input iteratively as well: this test exercises
+        // validation, not the recursive representation's destructor.
+        while let TypeId::Array(inner) = ty {
+            ty = *inner;
+        }
+        assert_eq!(cancelled_count, 0);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(matches!(&diagnostics[0].kind,
+            DiagnosticKind::StandardConstraintNotSatisfied { type_name, .. } if type_name == "f32"
+        ));
     }
 }

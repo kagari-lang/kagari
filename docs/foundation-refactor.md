@@ -740,6 +740,10 @@ Implemented foundation slices:
   loop; Array element types merge during traversal without retaining a second
   full element list. Existing partial-type recovery and query cancellation tests
   cover these shared paths.
+  Standard container constraint traversal also uses an explicit stack with
+  cancellation checks between type nodes. A synthetic 10,000-level Array input
+  verifies traversal depth independently of parser limits, and a cancelled input
+  produces no constraint diagnostics. Source-order constraint reporting is retained.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

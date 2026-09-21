@@ -127,6 +127,7 @@ impl<'a> BodyChecker<'a> {
                         &env.generic_bounds,
                         self.lowered.source_map.type_span(ty),
                         self.diagnostics,
+                        self.cancel,
                     );
                     resolved
                 });
@@ -1577,6 +1578,7 @@ impl<'a> BodyChecker<'a> {
             &env.generic_bounds,
             self.lowered.source_map.type_span(ty),
             self.diagnostics,
+            self.cancel,
         );
         resolved
     }
