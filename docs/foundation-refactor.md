@@ -461,6 +461,9 @@ Implemented foundation slices:
   and exhaustion is rejected before installation. Source and encoded program tests
   cover forbidden host effects, initializer traps, successful pre-publication
   initialization, old-call restoration and retained old-version execution.
+  Ordinary execution rejects unpublished modules at session entry, so a candidate
+  handle cannot bypass effect restrictions. Candidate sessions borrow their staged
+  owner; publication also rejects candidates with an active execution session.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

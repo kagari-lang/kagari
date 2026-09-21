@@ -336,6 +336,8 @@ its instances and module quota. VM reload performs these steps automatically.
 Candidate sessions inherit permissions and cancellation, apply host-effect restrictions,
 and restore a suspended ordinary root when they end. Drivers must finish every nested
 candidate execution scope before dropping the candidate session.
+The candidate session borrows its staged owner. Ordinary execution rejects staged
+module handles, and publication requires candidate execution to have ended.
 
 `KagariRuntime::execute` runs through the interpreter.
 `KagariRuntime::execute_with_backend` uses a host-supplied `CodegenBackend` after validating JIT capability and artifact policy.

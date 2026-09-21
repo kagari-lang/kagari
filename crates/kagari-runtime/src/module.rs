@@ -463,6 +463,10 @@ impl ModuleStore {
         .ok()
     }
 
+    pub(crate) fn is_staged(&self, module: &LoadedModule) -> bool {
+        self.inner.borrow().staged.contains(&module.program_key())
+    }
+
     pub fn loaded_count(&self) -> usize {
         self.inner.borrow().loaded.len()
     }

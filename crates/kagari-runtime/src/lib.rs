@@ -279,10 +279,10 @@ impl Runtime {
         }
     }
 
-    pub fn begin_candidate_initialization(
+    pub fn begin_candidate_initialization<'candidate>(
         &self,
-        candidate: &StagedReload,
-    ) -> Result<session::CandidateSession, RuntimeError> {
+        candidate: &'candidate StagedReload,
+    ) -> Result<session::CandidateSession<'candidate>, RuntimeError> {
         self.validate_loaded_module(candidate.module())?;
         if self.is_candidate_initialization() {
             return Err(RuntimeError::capability_denied(
@@ -293,6 +293,7 @@ impl Runtime {
         options.phase = ExecutionPhase::CandidateInitialization;
         let previous = self.resources.replace_session(None);
         let mut guard = session::CandidateSession {
+            _candidate: candidate,
             execution: None,
             previous,
             resources: self.resources.clone(),
@@ -307,6 +308,15 @@ impl Runtime {
         options: ExecutionOptions,
     ) -> Result<ExecutionSession, RuntimeError> {
         self.validate_loaded_module(module)?;
+        let phase = self
+            .resources
+            .active_session()
+            .map_or(options.phase, |session| session.options.phase);
+        if self.modules.is_staged(module) && phase != ExecutionPhase::CandidateInitialization {
+            return Err(RuntimeError::capability_denied(
+                "staged modules require candidate initialization execution",
+            ));
+        }
         let state = if let Some(session) = self.resources.active_session() {
             if options.phase == ExecutionPhase::CandidateInitialization
                 && session.options.phase != ExecutionPhase::CandidateInitialization
@@ -1399,6 +1409,16 @@ impl Runtime {
             .map_err(ReloadValidationError::Runtime)?;
         self.validate_loaded_module(program.module())
             .map_err(ReloadValidationError::Runtime)?;
+        if self
+            .execution_root()
+            .is_some_and(|root| root.program_root().key() == program.module().program_root().key())
+        {
+            return Err(ReloadValidationError::Runtime(
+                RuntimeError::module_validation(
+                    "candidate execution must finish before publication",
+                ),
+            ));
+        }
         let latest = self.modules.latest(&baseline.name);
         if latest.as_ref().map(LoadedModule::key) != Some(baseline.key()) {
             return Err(ReloadValidationError::ModuleNotActive {

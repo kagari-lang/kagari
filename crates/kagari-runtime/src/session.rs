@@ -185,12 +185,13 @@ impl Drop for ExecutionSession {
 }
 
 /// A separate initialization root that restores a suspended ordinary call on exit.
-pub struct CandidateSession {
+pub struct CandidateSession<'candidate> {
+    pub(crate) _candidate: &'candidate crate::StagedReload,
     pub(crate) execution: Option<ExecutionSession>,
     pub(crate) previous: Option<Rc<SessionState>>,
     pub(crate) resources: Rc<ResourceState>,
 }
-impl Drop for CandidateSession {
+impl Drop for CandidateSession<'_> {
     fn drop(&mut self) {
         if self
             .execution

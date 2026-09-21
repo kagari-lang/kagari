@@ -696,3 +696,58 @@ fn reload_initializes_before_publication_and_restores_the_old_session_on_failure
         );
     }
 }
+
+#[test]
+fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
+    use std::{cell::Cell, rc::Rc};
+    for encoded in [false, true] {
+        let program = || {
+            route(
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![compile_test_bytecode("fn main() { print(\"forbidden\"); }")],
+                },
+                encoded,
+            )
+        };
+        let calls = Rc::new(Cell::new(0));
+        let observed = calls.clone();
+        let mut runtime = runtime(None);
+        runtime
+            .register_host_function(HostFunction::new(standard_log(), move |_, _| {
+                observed.set(observed.get() + 1);
+                Ok(Value::Unit)
+            }))
+            .unwrap();
+        let old = runtime.load_program("staged.kgr", program()).unwrap();
+        let candidate = runtime
+            .stage_reload_program(&old, "staged.kgr", program())
+            .unwrap();
+        let mut vm = Vm::new(runtime);
+        let error = vm.execute(candidate.module(), "main").unwrap_err();
+        assert!(
+            matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+        );
+        assert!(vm.runtime().execution_root().is_none());
+        assert_eq!(calls.get(), 0);
+        let session = vm
+            .runtime()
+            .begin_candidate_initialization(&candidate)
+            .unwrap();
+        assert!(
+            vm.runtime()
+                .begin_candidate_initialization(&candidate)
+                .is_err()
+        );
+        let error = vm.execute(candidate.module(), "main").unwrap_err();
+        assert!(
+            matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+        );
+        assert_eq!(calls.get(), 0);
+        drop(session);
+        drop(candidate);
+        assert_eq!(vm.runtime().resources().counters().loaded_modules, 1);
+        assert!(vm.runtime().execution_root().is_none());
+        assert!(!vm.runtime().is_quarantined());
+    }
+}
