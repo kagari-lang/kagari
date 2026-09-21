@@ -1663,16 +1663,20 @@ impl<'a> BodyChecker<'a> {
         let arguments = generic_params
             .iter()
             .map(|parameter| {
-                substitution.get(parameter).cloned().unwrap_or_else(|| {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
-                            function_name: name.clone(),
-                            parameter: parameter.name.clone(),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(callee)),
-                    );
-                    TypeId::Error
-                })
+                substitution
+                    .get(parameter)
+                    .filter(|ty| !ty.contains_unknown())
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                                function_name: name.clone(),
+                                parameter: parameter.name.clone(),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(callee)),
+                        );
+                        TypeId::Error
+                    })
             })
             .collect();
         let result = TypeId::Enum(crate::types::NominalType {
@@ -1800,18 +1804,26 @@ impl<'a> BodyChecker<'a> {
             .generic_params
             .iter()
             .map(|parameter| {
-                substitution.get(parameter).cloned().unwrap_or_else(|| {
-                    if !arg_tys.iter().any(|(_, ty)| ty.is_unresolved()) {
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
-                                function_name: function.name.clone(),
-                                parameter: parameter.name.clone(),
-                            })
-                            .with_span(self.lowered.source_map.expr_span(callee)),
-                        );
-                    }
-                    TypeId::Error
-                })
+                substitution
+                    .get(parameter)
+                    .filter(|ty| !ty.contains_unknown())
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        if substitution
+                            .get(parameter)
+                            .is_some_and(TypeId::contains_unknown)
+                            || !arg_tys.iter().any(|(_, ty)| ty.is_unresolved())
+                        {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                                    function_name: function.name.clone(),
+                                    parameter: parameter.name.clone(),
+                                })
+                                .with_span(self.lowered.source_map.expr_span(callee)),
+                            );
+                        }
+                        TypeId::Error
+                    })
             })
             .collect::<Vec<_>>();
         // Recovery arguments must also replace missing binders in parameters
@@ -2328,16 +2340,20 @@ impl<'a> BodyChecker<'a> {
             .generic_params
             .iter()
             .map(|parameter| {
-                substitution.get(parameter).cloned().unwrap_or_else(|| {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
-                            function_name: path.to_owned(),
-                            parameter: parameter.name.clone(),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(expr_id)),
-                    );
-                    TypeId::Error
-                })
+                substitution
+                    .get(parameter)
+                    .filter(|ty| !ty.contains_unknown())
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                                function_name: path.to_owned(),
+                                parameter: parameter.name.clone(),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        );
+                        TypeId::Error
+                    })
             })
             .collect();
         let mut seen = HashSet::new();
@@ -2563,11 +2579,6 @@ impl<'a> BodyChecker<'a> {
         substitution: &mut crate::types::TypeSubstitution,
         env: &mut BodyTypeEnv,
     ) -> Vec<(ExprId, TypeId)> {
-        let caller_parameters = env
-            .generics
-            .iter()
-            .filter_map(|parameter| self.declarations.generic_type(parameter.id))
-            .collect::<Vec<_>>();
         let mut parameters = parameters.fuse();
         let mut actual = Vec::new();
         for argument in args {
@@ -2575,14 +2586,12 @@ impl<'a> BodyChecker<'a> {
                 break;
             }
             let parameter = parameters.next();
-            let expected = parameter.as_ref().map(|ty| ty.instantiate(substitution));
-            let ty = self.infer_expr_type_expected(
-                *argument,
-                env,
-                expected
-                    .as_ref()
-                    .filter(|ty| ty.is_resolved_in(&caller_parameters)),
-            );
+            let mut context = substitution.clone();
+            for generic in generics {
+                context.entry(generic.clone()).or_insert(TypeId::Unknown);
+            }
+            let expected = parameter.as_ref().map(|ty| ty.instantiate(&context));
+            let ty = self.infer_expr_type_expected(*argument, env, expected.as_ref());
             if !generics.is_empty()
                 && let Some(parameter) = parameter
                 && super::inference::infer(&parameter, &ty, generics, substitution, self.cancel)

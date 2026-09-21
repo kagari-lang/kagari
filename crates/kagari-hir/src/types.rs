@@ -272,6 +272,29 @@ impl TypeId {
         }
     }
 
+    /// Unknown inference holes still need a diagnostic; Error already has one.
+    pub(crate) fn contains_unknown(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Unknown => return true,
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items)
+                }
+                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments)
+                }
+                Self::Array(element) | Self::Set(element) => pending.push(element),
+                Self::Map { key, value } => {
+                    pending.push(key);
+                    pending.push(value);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     /// Fill recovery holes from another checked expression, preserving known facts.
     pub(crate) fn recover_from(&mut self, other: &Self) {
         let mut pending = vec![(self, other)];

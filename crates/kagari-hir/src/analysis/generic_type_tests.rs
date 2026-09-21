@@ -1082,3 +1082,30 @@ fn generic_type_parameters_navigate_and_rebase_without_losing_their_owner() {
         Some(TypeId::Builtin(BuiltinType::I32))
     ));
 }
+
+#[test]
+fn generic_parameter_context_preserves_known_members_beside_uninferred_binders() {
+    for (body, valid) in [
+        ("take((Token::Empty, true));", true),
+        ("take((Token<i32>::Empty, true));", true),
+        ("take((Token<bool>::Empty, true));", false),
+        ("unseeded(Token::Empty);", false),
+        ("identity(std::map::new());", false),
+        ("identity(std::set::new());", false),
+    ] {
+        let source = SourceFile::new(
+            "partial-parameter-context.kgr",
+            format!(
+                "enum Token<T> {{ Empty }} fn take<T>(pair: (Token<i32>, T)) {{}} fn unseeded<T>(value: Token<T>) {{}} fn identity<T>(value: T) -> T {{ value }} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+    }
+}

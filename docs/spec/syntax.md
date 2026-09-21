@@ -387,6 +387,12 @@ available to subsequent arguments. Later arguments do not yet provide context
 backwards to earlier constructors. Caller-owned generic binders are valid context,
 including after trait `Self` substitution; unresolved callee binders are not.
 Binder ownership, rather than parameter spelling, controls this distinction.
+Uninferred binders leave unknown positions in an argument's context without
+removing its independently known members. For example, a parameter
+`(Token<i32>, T)` supplies `Token<i32>` to the first member of
+`(Token::Empty, true)` while inferring `T` from the second member. Unknown
+positions must be resolved before a generic call or constructor is accepted;
+merely carrying an unknown position through a container does not infer it.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the

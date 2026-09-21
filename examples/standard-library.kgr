@@ -9,6 +9,7 @@ fn comparable_pair<T: Comparable>(value: T) -> ComparablePair<(T, i32)> {
     ComparablePair { value: (value, 42) }
 }
 struct SeededMarker<T> { val seed: T, val marker: Marker<T> }
+fn partial_marker<T>(pair: (Marker<i32>, T)) -> i32 { pair[0].value }
 fn make_marker() -> Marker<bool> { Marker { value: 42 } }
 fn returned_marker(flag: bool) -> Marker<bool> {
     if flag { return Marker { value: 42 }; } else { Marker { value: 0 } }
@@ -42,6 +43,7 @@ fn add<T: OrderedNumber>(lhs: T, rhs: T) -> T { lhs + rhs }
 pub fn add_i32(lhs: i32, rhs: i32) -> i32 { add(lhs, rhs) }
 
 fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
+    std::debug::assert_eq(partial_marker((Marker { value: 42 }, true)), 42, "known member context beside inferred generic");
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };

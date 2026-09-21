@@ -280,6 +280,12 @@ Implemented foundation slices:
   Constraint inference returns explicit cancellation; return-context, constructor
   field and generic-call consumers stop before deriving missing-argument diagnostics
   or instantiations from a cancelled argument batch.
+  Parameter contexts retain known composite members beside uninferred callee
+  binders, which enter the context as Unknown holes rather than escaping into
+  caller facts. Constructor/call finalization diagnoses remaining Unknown holes;
+  Error members retain their existing diagnostics. Source/artifact/JIT fixtures
+  exercise independently contextual enum and struct members in tuple arguments,
+  while unseeded constructors and containers remain rejected.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

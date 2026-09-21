@@ -361,3 +361,11 @@ fn unresolved_container_inference_is_a_diagnostic_at_codegen() {
     };
     assert_eq!(diagnostics[0].code, "KG_COMPILE_UNRESOLVED_TYPE");
 }
+
+#[test]
+fn partially_inferred_parameters_preserve_independent_constructor_context() {
+    execute_contextual_source(
+        "enum Token<T> { Empty } struct Marker<T> { val value: i32 } fn take<T>(pair: (Token<i32>, T)) -> T { pair[1] } fn read<T>(pair: (Marker<i32>, T)) -> i32 { pair[0].value } fn main() -> i32 { val first = take((Token::Empty, 20)); first + read((Marker { value: 22 }, true)) }",
+        42,
+    );
+}
