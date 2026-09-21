@@ -416,3 +416,11 @@ fn standard_equality_rhs_uses_left_constructor_context() {
         42,
     );
 }
+
+#[test]
+fn binary_context_preserves_constructor_inference_and_left_to_right_evaluation() {
+    execute_contextual_source(
+        "enum Token<T> { Empty } struct Count { var value: i32 } fn left(count: Count) -> Token<i32> { count.value = count.value * 10 + 1; Token::Empty } fn right<T>(count: Count) -> Token<T> { count.value = count.value * 10 + 2; Token::Empty } fn main() -> i32 { val count = Count { value: 0 }; if left(count) == right(count) && Token<i32>::Empty == Token::Empty { count.value + 30 } else { 0 } }",
+        42,
+    );
+}

@@ -563,7 +563,11 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 let lhs_ty = self.infer_expr_type(*lhs, env);
-                let rhs_ty = self.infer_expr_type(*rhs, env);
+                let rhs_context = match op {
+                    BinaryOp::AndAnd | BinaryOp::OrOr => TypeId::Builtin(BuiltinType::Bool),
+                    _ => lhs_ty.clone(),
+                };
+                let rhs_ty = self.infer_expr_type_expected(*rhs, env, Some(&rhs_context));
                 self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty, env)
             }
             ExprKind::Call { callee, args } => {

@@ -409,6 +409,11 @@ Comparison and logical expressions retain their bool result type for tooling eve
 when operands contain errors. Known operand conflicts and equality-capability
 failures remain diagnostic; unknown positions alone do not create duplicate
 operator errors. Recovery types do not authorize code generation.
+Binary expressions check the left operand first and pass its type as RHS context
+for arithmetic and comparisons. Logical operators provide bool context instead.
+This allows `Token<i32>::Empty == Token::Empty` and contextual generic calls;
+explicit RHS type arguments remain authoritative and are checked for conflicts.
+Runtime evaluation remains left-to-right and short-circuit behavior is unchanged.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the

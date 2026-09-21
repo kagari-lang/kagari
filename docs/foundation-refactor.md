@@ -356,6 +356,11 @@ Implemented foundation slices:
   operands' Comparable constraints and known-member conflicts. The first operand
   supplies context to subsequent matching operands, with enum RHS constructor
   inference verified across source/artifact/JIT execution.
+  Ordinary binary operators now pass the checked left type into RHS inference;
+  logical operators supply bool context. Explicit constructor arguments still
+  determine their own type and mismatches remain errors. Enum/tuple cases cover
+  contextual constructors, and execution fixtures count left/right calls to
+  verify source order and single evaluation through all existing execution routes.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

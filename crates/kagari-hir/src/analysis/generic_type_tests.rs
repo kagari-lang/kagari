@@ -1521,3 +1521,27 @@ fn standard_math_and_equality_check_each_known_operand_after_recovery() {
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn binary_rhs_uses_left_type_without_overriding_explicit_constructor_arguments() {
+    for (body, valid) in [
+        ("Token<i32>::Empty == Token::Empty", true),
+        ("Token<i32>::Empty != Token::Empty", true),
+        ("(Token<i32>::Empty, true) == (Token::Empty, true)", true),
+        ("Token<i32>::Empty == Token<bool>::Empty", false),
+        ("(Token<i32>::Empty, true) == (Token::Empty, 7)", false),
+    ] {
+        let source = SourceFile::new(
+            "binary-context.kgr",
+            format!("enum Token<T> {{ Empty }} fn main() -> bool {{ {body} }}"),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
