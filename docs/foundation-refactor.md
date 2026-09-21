@@ -187,6 +187,9 @@ Implemented foundation slices:
   Recovery now fills independent member holes even when another member conflicts;
   established facts and conflict diagnostics remain intact. Different nominal owners,
   kinds and arities cannot contribute recovery facts across their shape boundary.
+  Member recovery and conflict comparison also use explicit stacks; a 10,000-level
+  regression checks hole filling, compatible comparison, conflicting leaves and
+  preservation of established facts without recursive member traversal.
   Tuple and nominal-constructor regressions cover
   this recovery. Annotation resolution now returns recoverable types directly,
   preserving composite shapes containing unknown members. Parameters, returns,

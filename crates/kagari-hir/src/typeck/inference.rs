@@ -130,6 +130,29 @@ mod tests {
     }
 
     #[test]
+    fn deep_recovery_and_conflicts_use_iterative_member_walks() {
+        let mut recovering = TypeId::Error;
+        let mut integer = TypeId::Builtin(BuiltinType::I32);
+        let mut boolean = TypeId::Builtin(BuiltinType::Bool);
+        for _ in 0..10_000 {
+            recovering = TypeId::Array(Box::new(recovering));
+            integer = TypeId::Array(Box::new(integer));
+            boolean = TypeId::Array(Box::new(boolean));
+        }
+        assert!(!recovering.conflicts_with(&integer));
+        recovering.recover_from(&integer);
+        assert!(!recovering.conflicts_with(&integer));
+        assert!(recovering.conflicts_with(&boolean));
+        recovering.recover_from(&boolean);
+        assert!(!recovering.conflicts_with(&integer));
+        for mut ty in [recovering, integer, boolean] {
+            while let TypeId::Array(element) = ty {
+                ty = *element;
+            }
+        }
+    }
+
+    #[test]
     fn recovery_keeps_independent_facts_without_crossing_shape_boundaries() {
         let mut value = TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::I32)),

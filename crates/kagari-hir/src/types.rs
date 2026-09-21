@@ -246,76 +246,90 @@ impl TypeId {
 
     /// Fill recovery holes from another checked expression, preserving known facts.
     pub(crate) fn recover_from(&mut self, other: &Self) {
-        if matches!(other, Self::Unknown | Self::Error) {
-            return;
-        }
-        match (self, other) {
-            (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
-            (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
-                for (left, right) in left.iter_mut().zip(right) {
-                    left.recover_from(right);
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            if matches!(right, Self::Unknown | Self::Error) {
+                continue;
+            }
+            match (left, right) {
+                (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
+                (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
+                    pending.extend(left.iter_mut().zip(right).rev());
                 }
-            }
-            (Self::Array(left), Self::Array(right)) | (Self::Set(left), Self::Set(right)) => {
-                left.recover_from(right);
-            }
-            (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
-                lk.recover_from(rk);
-                lv.recover_from(rv);
-            }
-            (Self::Struct(left), Self::Struct(right))
-            | (Self::Enum(left), Self::Enum(right))
-            | (Self::Trait(left), Self::Trait(right))
-                if left.declaration == right.declaration
-                    && left.arguments.len() == right.arguments.len() =>
-            {
-                for (left, right) in left.arguments.iter_mut().zip(&right.arguments) {
-                    left.recover_from(right);
+                (Self::Array(left), Self::Array(right)) | (Self::Set(left), Self::Set(right)) => {
+                    pending.push((left, right));
                 }
-            }
-            (
-                Self::StandardEnum {
-                    kind: lk,
-                    args: left,
-                },
-                Self::StandardEnum {
-                    kind: rk,
-                    args: right,
-                },
-            ) if lk == rk && left.len() == right.len() => {
-                for (left, right) in left.iter_mut().zip(right) {
-                    left.recover_from(right);
+                (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
+                    pending.push((lv, rv));
+                    pending.push((lk, rk));
                 }
+                (Self::Struct(left), Self::Struct(right))
+                | (Self::Enum(left), Self::Enum(right))
+                | (Self::Trait(left), Self::Trait(right))
+                    if left.declaration == right.declaration
+                        && left.arguments.len() == right.arguments.len() =>
+                {
+                    pending.extend(left.arguments.iter_mut().zip(&right.arguments).rev());
+                }
+                (
+                    Self::StandardEnum {
+                        kind: lk,
+                        args: left,
+                    },
+                    Self::StandardEnum {
+                        kind: rk,
+                        args: right,
+                    },
+                ) if lk == rk && left.len() == right.len() => {
+                    pending.extend(left.iter_mut().zip(right).rev());
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 
     pub fn conflicts_with(&self, other: &Self) -> bool {
-        fn members_conflict(left: &[TypeId], right: &[TypeId]) -> bool {
-            left.len() != right.len() || left.iter().zip(right).any(|(a, b)| a.conflicts_with(b))
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (Self::Unknown | Self::Error, _) | (_, Self::Unknown | Self::Error) => {}
+                (Self::Tuple(left), Self::Tuple(right)) => {
+                    if left.len() != right.len() {
+                        return true;
+                    }
+                    pending.extend(left.iter().zip(right).rev());
+                }
+                (Self::Array(left), Self::Array(right)) | (Self::Set(left), Self::Set(right)) => {
+                    pending.push((left, right));
+                }
+                (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
+                    pending.push((lv, rv));
+                    pending.push((lk, rk));
+                }
+                (Self::Struct(left), Self::Struct(right))
+                | (Self::Enum(left), Self::Enum(right))
+                | (Self::Trait(left), Self::Trait(right)) => {
+                    if left.declaration != right.declaration
+                        || left.arguments.len() != right.arguments.len()
+                    {
+                        return true;
+                    }
+                    pending.extend(left.arguments.iter().zip(&right.arguments).rev());
+                }
+                (
+                    Self::StandardEnum { kind: lk, args: la },
+                    Self::StandardEnum { kind: rk, args: ra },
+                ) => {
+                    if lk != rk || la.len() != ra.len() {
+                        return true;
+                    }
+                    pending.extend(la.iter().zip(ra).rev());
+                }
+                _ if left != right => return true,
+                _ => {}
+            }
         }
-        match (self, other) {
-            (Self::Unknown | Self::Error, _) | (_, Self::Unknown | Self::Error) => false,
-            (Self::Tuple(left), Self::Tuple(right)) => members_conflict(left, right),
-            (Self::Array(left), Self::Array(right)) | (Self::Set(left), Self::Set(right)) => {
-                left.conflicts_with(right)
-            }
-            (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
-                lk.conflicts_with(rk) || lv.conflicts_with(rv)
-            }
-            (Self::Struct(left), Self::Struct(right))
-            | (Self::Enum(left), Self::Enum(right))
-            | (Self::Trait(left), Self::Trait(right)) => {
-                left.declaration != right.declaration
-                    || members_conflict(&left.arguments, &right.arguments)
-            }
-            (
-                Self::StandardEnum { kind: lk, args: la },
-                Self::StandardEnum { kind: rk, args: ra },
-            ) => lk != rk || members_conflict(la, ra),
-            _ => self != other,
-        }
+        false
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
