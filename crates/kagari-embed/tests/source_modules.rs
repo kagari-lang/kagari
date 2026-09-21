@@ -595,3 +595,125 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         1
     );
 }
+
+#[test]
+fn failed_reload_dependency_discards_the_entire_candidate_program() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "shared",
+        "val staged = [1, 2]; pub fn value() -> i32 { 7 }",
+    );
+    insert(&engine, "left", "use pkg::shared; val ready = 0;");
+    insert(&engine, "right", "use pkg::shared;");
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::left; use pkg::right; use pkg::shared::value; fn main() -> i32 { value() }",
+    );
+    let original = compile(&engine, root, Default::default());
+    insert(
+        &engine,
+        "shared",
+        "val staged = [1, 2]; pub fn value() -> i32 { 9 }",
+    );
+    insert(&engine, "left", "use pkg::shared; val ready = 1 / 0;");
+    let failing = compile(&engine, root, Default::default());
+    insert(&engine, "left", "use pkg::shared; val ready = 0;");
+    let replacement = compile(&engine, root, Default::default());
+    for encoded in [false, true] {
+        let route = |artifact: &BytecodeArtifact| {
+            if encoded {
+                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            } else {
+                artifact.clone()
+            }
+        };
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let old = runtime
+            .load_program(route(&original), Default::default())
+            .unwrap();
+        assert_eq!(
+            runtime
+                .execute(&old, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(7)
+        );
+        runtime.runtime().collect_garbage().unwrap();
+        let retained = runtime
+            .runtime()
+            .begin_execution(&old, runtime.runtime().execution_options())
+            .unwrap();
+        let before = runtime.runtime().modules().loaded_count();
+        for _ in 0..2 {
+            assert!(matches!(
+                runtime.reload_program(&old, route(&failing), Default::default()),
+                Err(EmbeddingError::Runtime { .. })
+            ));
+            assert_eq!(
+                runtime.runtime().modules().latest(&old.name).unwrap().key(),
+                old.key()
+            );
+            assert_eq!(runtime.runtime().execution_root().unwrap().key(), old.key());
+            assert_eq!(runtime.runtime().modules().loaded_count(), before);
+            assert_eq!(
+                runtime.runtime().resources().counters().loaded_modules,
+                before
+            );
+            assert_eq!(
+                runtime.runtime().resources().counters().current_call_depth,
+                0
+            );
+            assert!(
+                runtime
+                    .runtime()
+                    .collect_garbage()
+                    .unwrap()
+                    .reclaimed_objects
+                    >= 1
+            );
+            assert_eq!(
+                runtime
+                    .execute(&old, "main", &[], &context)
+                    .unwrap()
+                    .return_value,
+                Value::I32(7)
+            );
+        }
+        let new = runtime
+            .reload_program(&old, route(&replacement), Default::default())
+            .unwrap();
+        assert!(new.members().all(|member| {
+            runtime
+                .runtime()
+                .module_instance_snapshot(&member)
+                .unwrap()
+                .state
+                == kagari_runtime::ModuleInitializationState::Initialized
+        }));
+        assert_eq!(
+            runtime
+                .execute(&old, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(7)
+        );
+        drop(retained);
+        assert_eq!(
+            runtime
+                .execute(&new, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(9)
+        );
+        assert_eq!(
+            runtime
+                .execute(&old, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(7)
+        );
+    }
+}

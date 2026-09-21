@@ -488,7 +488,13 @@ Implemented foundation slices:
   and initialization result against the candidate allocation owner after the session
   ends. Late external references inside candidate containers reject publication and
   release candidate quota without changing the active entry. Other ingress paths
-  and complete checkpoint acceptance remain under audit.
+  and complete checkpoint acceptance remain under audit. Embedding tests now exercise
+  a diamond program whose shared dependency allocates before a later dependency
+  traps: all candidate members and quota are released, unreachable candidate objects
+  are collected, and repeated fresh attempts leave the old root usable. A subsequent
+  successful reload initializes every member before publication; old/new root calls
+  continue to observe their own dependency implementations, for source and encoded
+  artifacts.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints
