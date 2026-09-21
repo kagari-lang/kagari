@@ -387,6 +387,8 @@ available to subsequent arguments. Later arguments do not yet provide context
 backwards to earlier constructors. Caller-owned generic binders are valid context,
 including after trait `Self` substitution; unresolved callee binders are not.
 Binder ownership, rather than parameter spelling, controls this distinction.
+Assignment RHS expressions receive the checked target type as context, including
+local, field and index targets. This does not change target writeability checks.
 
 ```ebnf
 type            ::= path generic_args?

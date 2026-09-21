@@ -66,6 +66,29 @@ fn caller_binders_and_trait_self_supply_constructor_context() {
     );
 }
 
+#[test]
+fn assignment_targets_supply_constructor_context() {
+    execute_contextual_source(
+        r#"
+        struct Marker<T> { val value: i32 }
+        struct Box { var marker: Marker<i32> }
+        enum Token<T> { Empty }
+        fn main() -> i32 {
+            var local: Marker<i32> = Marker { value: 0 };
+            val object = Box { marker: Marker { value: 0 } };
+            val array: [Marker<bool>] = [Marker { value: 0 }];
+            var token: Token<i32> = Token::Empty;
+            local = Marker { value: 10 };
+            object.marker = Marker { value: 12 };
+            array[0] = Marker { value: 20 };
+            token = Token::Empty();
+            local.value + object.marker.value + array[0].value
+        }
+    "#,
+        42,
+    );
+}
+
 fn execute_contextual_source(source: &str, expected: i32) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();

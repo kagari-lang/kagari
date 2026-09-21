@@ -31,6 +31,9 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };
+    var assigned: Marker<bool> = make_marker();
+    assigned = Marker { value: 42 };
+    std::debug::assert_eq(assigned.value, 42, "assignment target supplies constructor context");
     val contextual: Marker<i32> = identity(Marker { value: 42 });
     val forwarded: Marker<bool> = forwarded_marker();
     std::debug::assert_eq(forwarded.value, 42, "caller-owned generic context");

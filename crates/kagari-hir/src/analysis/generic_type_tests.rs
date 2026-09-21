@@ -3,6 +3,51 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn assignment_context_uses_checked_target_types_without_bypassing_writeability() {
+    for (body, valid) in [
+        (
+            "var value: Marker<i32> = Marker { value: 1 }; value = Marker { value: 2 };",
+            true,
+        ),
+        (
+            "val value: Box = Box { marker: Marker { value: 1 } }; value.marker = Marker { value: 2 };",
+            true,
+        ),
+        (
+            "val values: [Marker<i32>] = [Marker { value: 1 }]; values[0] = Marker { value: 2 };",
+            true,
+        ),
+        (
+            "var value: Marker<i32> = Marker { value: 1 }; value = Marker { value: true };",
+            false,
+        ),
+        (
+            "val value: Marker<i32> = Marker { value: 1 }; value = Marker { value: 2 };",
+            false,
+        ),
+        (
+            "var value: Token<i32> = Token::Empty; value = Token::Empty();",
+            true,
+        ),
+    ] {
+        let source = SourceFile::new(
+            "assignment-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} struct Box {{ var marker: Marker<i32> }} enum Token<T> {{ Empty }} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn caller_owned_binders_are_context_but_uninferred_callee_binders_are_not() {
     for (body, valid) in [
         (

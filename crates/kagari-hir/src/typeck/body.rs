@@ -175,7 +175,7 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Assign { target, value, op } => {
                 let target_ty = self.resolve_assignment_target_type(*target, env);
-                let value_ty = self.infer_expr_type(*value, env);
+                let value_ty = self.infer_expr_type_expected(*value, env, target_ty.as_ref());
                 if let (Some(op), Some(expected)) = (op, &target_ty) {
                     self.infer_binary_type(*op, *value, expected.clone(), value_ty.clone(), env);
                 }

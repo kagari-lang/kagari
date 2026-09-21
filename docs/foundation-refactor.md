@@ -652,6 +652,9 @@ Implemented foundation slices:
   established by preceding operands into later constructors. Source/artifact/JIT
   fixtures cover phantom function results and nested constructors. Later operands
   do not yet constrain earlier constructors; no argument is analyzed twice.
+  Assignment RHS inference now consumes the checked target type. Local, field,
+  array-index and enum replacement fixtures cover source/artifact/JIT fallback;
+  immutable targets and incompatible payloads remain compilation errors.
   The checker still treats a function without a tail expression as returning Unit
   even when an explicit return terminates it; control-flow completion remains open.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
