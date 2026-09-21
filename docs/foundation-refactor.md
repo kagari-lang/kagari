@@ -320,6 +320,11 @@ Implemented foundation slices:
   path, including invalid writes; same-spelled fields remain distinct. Tests
   verify navigation after body reuse and Unicode/CRLF shifts and retain old
   snapshot locations without changing the field-name expression's String type.
+  Ordinary and reflection field reads now share member resolution, target fact
+  recording and missing-member recovery. A known Struct with erroneous generic
+  arguments still diagnoses absent fields, while valid fields keep their types
+  and declaration targets. A wholly unknown receiver suppresses dependent errors;
+  incomplete dot access retains its explicit missing-name diagnostic.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

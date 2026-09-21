@@ -398,6 +398,10 @@ only unresolved positions become error types after the diagnostic. Such results
 remain unavailable to code generation.
 Constructor field and payload checks use the same finalized recovery types as
 result queries; unresolved positions do not hide conflicts in known siblings.
+Member lookup likewise uses a known nominal declaration even if some of its type
+arguments are erroneous: absent fields still diagnose, and existing fields retain
+their declaration identities and substituted types. Only a wholly unknown or
+error receiver suppresses dependent missing-member diagnostics.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the

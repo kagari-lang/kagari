@@ -289,3 +289,46 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
         assert_eq!(current.location.revision, reused.source().revision());
     }
 }
+
+#[test]
+fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
+    for (receiver, missing_fields) in [("Box<Missing>", 2), ("Missing", 0)] {
+        let text = format!(
+            "struct Box<T> {{ val known: i32, val unknown: T }} fn bad(value: {receiver}) {{ value.absent; get_field(value, \"absent\"); value.known; value.unknown; }} fn good() -> i32 {{ 42 }}"
+        );
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("partial-member.kgr", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(
+                sources.snapshot(),
+                crate::LanguageFeatureProfile {
+                    allow_reflection: true,
+                    ..Default::default()
+                },
+                &Default::default(),
+            )
+            .unwrap();
+        let file = snapshot.file(id).unwrap();
+        assert_eq!(file.result().diagnostics().iter().filter(|diagnostic| matches!(
+            &diagnostic.kind, kagari_common::DiagnosticKind::UnknownName { name } if name == "absent"
+        )).count(), missing_fields, "{receiver}: {:?}", file.result().diagnostics());
+        if missing_fields != 0 {
+            let known = text.rfind("value.known").unwrap() + "value.".len();
+            let unknown = text.rfind("value.unknown").unwrap() + "value.".len();
+            assert_eq!(
+                file.type_at(known),
+                Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+            );
+            assert_eq!(file.type_at(unknown), Some(TypeId::Error));
+            assert!(file.definition_at(known).is_some());
+            assert!(file.definition_at(unknown).is_some());
+        }
+        assert_eq!(
+            file.type_at(text.rfind("42").unwrap()),
+            Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+        );
+        assert!(snapshot.check_program(id, &Default::default()).is_err());
+    }
+}

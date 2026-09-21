@@ -588,24 +588,14 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Field { receiver, name } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
-                if let Some((field, ty)) = self
-                    .resolve_field(&receiver_ty, name)
-                    .map(|field| (field.id.clone(), field.ty.clone()))
-                {
-                    self.type_table.insert_expr_field(expr_id, field);
-                    ty
-                } else {
-                    if !receiver_ty.is_unresolved() || name.is_empty() {
-                        self.diagnostics.push(
-                            Diagnostic::error(if name.is_empty() {
-                                DiagnosticKind::ExpectedFieldName
-                            } else {
-                                DiagnosticKind::UnknownName { name: name.clone() }
-                            })
+                if name.is_empty() {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::ExpectedFieldName)
                             .with_span(self.lowered.source_map.expr_span(expr_id)),
-                        );
-                    }
+                    );
                     TypeId::Error
+                } else {
+                    self.checked_member_type(&receiver_ty, name, expr_id, false)
                 }
             }
             ExprKind::Index { receiver, index } => {
@@ -1382,12 +1372,7 @@ impl<'a> BodyChecker<'a> {
                 else {
                     return Some(TypeId::Error);
                 };
-                Some(self.checked_reflection_field_type(
-                    &base_ty,
-                    &field_name,
-                    *field_name_expr,
-                    false,
-                ))
+                Some(self.checked_member_type(&base_ty, &field_name, *field_name_expr, false))
             }
             BuiltinFunction::SetField => {
                 let [base, field_name_expr, value] = args else {
@@ -1397,9 +1382,9 @@ impl<'a> BodyChecker<'a> {
                 self.check_const_write(*base);
                 let field_name =
                     self.checked_reflection_field_name(*field_name_expr, env, "set_field");
-                let expected = field_name.as_ref().map(|name| {
-                    self.checked_reflection_field_type(&base_ty, name, *field_name_expr, true)
-                });
+                let expected = field_name
+                    .as_ref()
+                    .map(|name| self.checked_member_type(&base_ty, name, *field_name_expr, true));
                 let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
                 if field_name.is_none() {
                     return Some(TypeId::Error);
@@ -1484,7 +1469,7 @@ impl<'a> BodyChecker<'a> {
         name
     }
 
-    fn checked_reflection_field_type(
+    fn checked_member_type(
         &mut self,
         receiver: &TypeId,
         name: &str,
