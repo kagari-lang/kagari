@@ -246,12 +246,12 @@ impl TypeId {
 
     /// Fill recovery holes from another checked expression, preserving known facts.
     pub(crate) fn recover_from(&mut self, other: &Self) {
-        if matches!(other, Self::Unknown | Self::Error) || self.conflicts_with(other) {
+        if matches!(other, Self::Unknown | Self::Error) {
             return;
         }
         match (self, other) {
             (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
-            (Self::Tuple(left), Self::Tuple(right)) => {
+            (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
                 for (left, right) in left.iter_mut().zip(right) {
                     left.recover_from(right);
                 }
@@ -265,12 +265,24 @@ impl TypeId {
             }
             (Self::Struct(left), Self::Struct(right))
             | (Self::Enum(left), Self::Enum(right))
-            | (Self::Trait(left), Self::Trait(right)) => {
+            | (Self::Trait(left), Self::Trait(right))
+                if left.declaration == right.declaration
+                    && left.arguments.len() == right.arguments.len() =>
+            {
                 for (left, right) in left.arguments.iter_mut().zip(&right.arguments) {
                     left.recover_from(right);
                 }
             }
-            (Self::StandardEnum { args: left, .. }, Self::StandardEnum { args: right, .. }) => {
+            (
+                Self::StandardEnum {
+                    kind: lk,
+                    args: left,
+                },
+                Self::StandardEnum {
+                    kind: rk,
+                    args: right,
+                },
+            ) if lk == rk && left.len() == right.len() => {
                 for (left, right) in left.iter_mut().zip(right) {
                     left.recover_from(right);
                 }

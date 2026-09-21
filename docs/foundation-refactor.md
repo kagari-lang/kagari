@@ -184,6 +184,9 @@ Implemented foundation slices:
   Inference traverses partially erroneous composite arguments to use their valid
   members. Partial whole-type candidates merge complementary facts from later
   arguments through structural recovery, while conflicts remain diagnosable.
+  Recovery now fills independent member holes even when another member conflicts;
+  established facts and conflict diagnostics remain intact. Different nominal owners,
+  kinds and arities cannot contribute recovery facts across their shape boundary.
   Tuple and nominal-constructor regressions cover
   this recovery. Annotation resolution now returns recoverable types directly,
   preserving composite shapes containing unknown members. Parameters, returns,

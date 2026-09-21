@@ -944,11 +944,7 @@ fn repeated_generic_arguments_merge_partial_types_without_hiding_conflicts() {
             result,
             Some(TypeId::Tuple(vec![
                 TypeId::Builtin(BuiltinType::I32),
-                if conflict {
-                    TypeId::Error
-                } else {
-                    TypeId::Builtin(BuiltinType::Bool)
-                }
+                TypeId::Builtin(BuiltinType::Bool)
             ]))
         );
         assert_eq!(

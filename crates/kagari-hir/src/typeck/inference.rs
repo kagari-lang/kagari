@@ -130,6 +130,60 @@ mod tests {
     }
 
     #[test]
+    fn recovery_keeps_independent_facts_without_crossing_shape_boundaries() {
+        let mut value = TypeId::Map {
+            key: Box::new(TypeId::Builtin(BuiltinType::I32)),
+            value: Box::new(TypeId::Tuple(vec![
+                TypeId::Error,
+                TypeId::Builtin(BuiltinType::Bool),
+            ])),
+        };
+        let other = TypeId::Map {
+            key: Box::new(TypeId::Builtin(BuiltinType::Bool)),
+            value: Box::new(TypeId::Tuple(vec![
+                TypeId::Builtin(BuiltinType::I32),
+                TypeId::Builtin(BuiltinType::I32),
+            ])),
+        };
+        value.recover_from(&other);
+        assert_eq!(
+            value,
+            TypeId::Map {
+                key: Box::new(TypeId::Builtin(BuiltinType::I32)),
+                value: Box::new(TypeId::Tuple(vec![
+                    TypeId::Builtin(BuiltinType::I32),
+                    TypeId::Builtin(BuiltinType::Bool)
+                ])),
+            }
+        );
+        assert!(value.conflicts_with(&other));
+        let mut different_arity = TypeId::Tuple(vec![TypeId::Error]);
+        different_arity.recover_from(&TypeId::Tuple(vec![TypeId::Builtin(BuiltinType::I32); 2]));
+        assert_eq!(different_arity, TypeId::Tuple(vec![TypeId::Error]));
+        let declaration = DefinitionId {
+            module: ModuleIdentity::single_file("a.kgr"),
+            path: vec![],
+        };
+        let mut nominal = TypeId::Struct(NominalType {
+            declaration: declaration.clone(),
+            arguments: vec![TypeId::Error],
+        });
+        let before = nominal.clone();
+        nominal.recover_from(&TypeId::Enum(NominalType {
+            declaration: declaration.clone(),
+            arguments: vec![TypeId::Builtin(BuiltinType::I32)],
+        }));
+        assert_eq!(nominal, before);
+        let mut foreign = declaration;
+        foreign.module = ModuleIdentity::single_file("b.kgr");
+        nominal.recover_from(&TypeId::Struct(NominalType {
+            declaration: foreign,
+            arguments: vec![TypeId::Builtin(BuiltinType::I32)],
+        }));
+        assert_eq!(nominal, before);
+    }
+
+    #[test]
     fn nominal_inference_requires_matching_declaration_kind_and_arity() {
         let declaration = DefinitionId {
             module: ModuleIdentity::single_file("generic.kgr"),
