@@ -905,6 +905,12 @@ impl GcHeap {
         if slot.generation != id.generation {
             return None;
         }
+        if let Some(session) = self.resources.active_session().filter(|session| {
+            session.options.phase == crate::ExecutionPhase::CandidateInitialization
+        }) && slot.initialization_owner != Some(session.root.program_root().key())
+        {
+            return None;
+        }
         slot.object.as_mut()
     }
 

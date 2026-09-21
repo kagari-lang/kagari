@@ -408,3 +408,54 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     runtime.publish_staged_reload(candidate).unwrap();
     assert!(runtime.invoke_host("old", &[]).is_ok());
 }
+
+#[test]
+fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
+    let mut runtime = Runtime::default();
+    let array = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
+    let map = runtime
+        .alloc_map(vec![(Value::I32(1), Value::I32(7))])
+        .unwrap();
+    let set = runtime.alloc_set(vec![Value::I32(7)]).unwrap();
+    let baseline = load(&mut runtime, "main");
+    let candidate = runtime
+        .stage_reload_program(
+            &baseline,
+            "main",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![baseline.bytecode.clone()],
+            },
+        )
+        .unwrap();
+    let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+    let before = runtime.resources().counters();
+    let heap = runtime.gc();
+    assert!(heap.array_push(array, Value::I32(9)).is_err());
+    assert!(heap.array_insert(array, 0, Value::I32(9)).is_err());
+    assert!(heap.array_set(array, 0, Value::I32(9)).is_none());
+    assert!(heap.array_pop(array).is_none());
+    assert!(heap.array_remove(array, 0).is_none());
+    assert!(heap.array_clear(array).is_none());
+    assert!(heap.map_insert(map, Value::I32(1), Value::I32(9)).is_err());
+    assert!(heap.map_remove(map, &Value::I32(1)).is_none());
+    assert!(heap.map_clear(map).is_none());
+    assert!(heap.set_insert(set, Value::I32(9)).is_err());
+    assert!(heap.set_remove(set, &Value::I32(7)).is_none());
+    assert!(heap.set_clear(set).is_none());
+    assert_eq!(heap.array_snapshot(array).unwrap(), vec![Value::I32(7)]);
+    assert_eq!(
+        heap.map_snapshot(map).unwrap(),
+        vec![(Value::I32(1), Value::I32(7))]
+    );
+    assert_eq!(heap.set_snapshot(set).unwrap(), vec![Value::I32(7)]);
+    assert_eq!(runtime.resources().counters(), before);
+    let local = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
+    heap.array_push(local, Value::I32(2)).unwrap();
+    assert_eq!(heap.array_len(local), Some(2));
+    drop(session);
+    drop(candidate);
+    runtime.gc().array_push(array, Value::I32(9)).unwrap();
+    assert_eq!(runtime.gc().array_len(array), Some(2));
+    assert!(!runtime.is_quarantined());
+}

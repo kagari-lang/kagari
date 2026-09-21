@@ -71,7 +71,9 @@ effects still cause candidate execution to reject the call.
 Candidate host-call arguments/results and script-call arguments cannot introduce
 mutable objects from another generation's allocation scope. Validation traverses
 reachable values, including enum payloads and fresh wrappers around old objects.
-Pure host allocators may return candidate-owned objects. This runtime boundary
+Pure host allocators may return candidate-owned objects.
+The heap mutation boundary also enforces candidate ownership, including direct
+container and struct slot edits made by host callbacks through runtime APIs. This runtime boundary
 supplements the trusted host's obligation to honor its declared effects.
 
 Candidate failure leaves the active entry and external business state unchanged.

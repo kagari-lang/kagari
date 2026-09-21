@@ -475,7 +475,10 @@ Implemented foundation slices:
   objects allocated outside that candidate, including old objects inside fresh
   wrappers. Immutable enums are traversed by member rules. Candidate allocations
   remain usable through collection and publication; ordinary execution is unchanged.
-  Direct host heap mutation and all remaining object ingress paths still need audit.
+  All mutable object access now checks candidate ownership before opening the target
+  for writes. Direct array/map/set edits against preexisting objects fail without
+  changing values or resource counters; candidate-owned edits remain permitted.
+  Remaining object ingress and external read paths still need audit.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints
