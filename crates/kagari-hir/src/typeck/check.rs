@@ -96,7 +96,7 @@ pub(crate) fn check_signatures(
                     .with_span(lowered.source_map.type_span(field.ty)),
                 );
             }
-            if !ty.is_unresolved() {
+            {
                 let ty = &ty;
                 let id = declarations
                     .definition(ResolvedName::Struct(structure.id))
@@ -137,12 +137,22 @@ pub(crate) fn check_signatures(
                         lowered.source_map.type_span(*payload),
                         &mut diagnostics,
                     ),
-                    _ => diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
-                            type_name: display_type(&lowered.module, *payload),
-                        })
-                        .with_span(lowered.source_map.type_span(*payload)),
-                    ),
+                    ty => {
+                        validate_standard_type_constraints(
+                            &ty,
+                            &type_bounds[declarations
+                                .definition(ResolvedName::Enum(enumeration.id))
+                                .expect("enum declaration")],
+                            lowered.source_map.type_span(*payload),
+                            &mut diagnostics,
+                        );
+                        diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                                type_name: display_type(&lowered.module, *payload),
+                            })
+                            .with_span(lowered.source_map.type_span(*payload)),
+                        );
+                    }
                 }
             }
         }
@@ -221,65 +231,51 @@ pub(crate) fn check_signatures(
             } else {
                 resolve_type_in(&lowered.module, param.ty, context, &mut type_table, cancel)
             };
-            match param_type {
-                ty if !ty.is_unresolved() => {
-                    validate_standard_type_constraints(
-                        &ty,
-                        &bounds,
-                        lowered.source_map.type_span(param.ty),
-                        &mut diagnostics,
-                    );
-                    params.push(TypedParameter {
-                        id: param.id,
-                        writeability: param.writeability,
-                        name: param_name,
-                        ty,
-                    });
-                }
-                ty => {
-                    params.push(TypedParameter {
-                        id: param.id,
-                        writeability: param.writeability,
-                        name: param_name,
-                        ty,
-                    });
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::UnknownType {
-                            type_name: param_ty_name,
-                            function_name: function_name.clone(),
-                            position: TypePosition::Parameter,
-                        })
-                        .with_span(lowered.source_map.type_span(param.ty)),
-                    );
-                }
+            validate_standard_type_constraints(
+                &param_type,
+                &bounds,
+                lowered.source_map.type_span(param.ty),
+                &mut diagnostics,
+            );
+            if param_type.is_unresolved() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownType {
+                        type_name: param_ty_name,
+                        function_name: function_name.clone(),
+                        position: TypePosition::Parameter,
+                    })
+                    .with_span(lowered.source_map.type_span(param.ty)),
+                );
             }
+            params.push(TypedParameter {
+                id: param.id,
+                writeability: param.writeability,
+                name: param_name,
+                ty: param_type,
+            });
         }
 
         let return_type = match &function.return_type {
             Some(ty_ref) => {
-                match resolve_type_in(&lowered.module, *ty_ref, context, &mut type_table, cancel) {
-                    ty if !ty.is_unresolved() => {
-                        validate_standard_type_constraints(
-                            &ty,
-                            &bounds,
-                            lowered.source_map.type_span(*ty_ref),
-                            &mut diagnostics,
-                        );
-                        ty
-                    }
-                    ty => {
-                        let ty_name = display_type(&lowered.module, *ty_ref);
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::UnknownType {
-                                type_name: ty_name,
-                                function_name: function_name.clone(),
-                                position: TypePosition::Return,
-                            })
-                            .with_span(lowered.source_map.type_span(*ty_ref)),
-                        );
-                        ty
-                    }
+                let ty =
+                    resolve_type_in(&lowered.module, *ty_ref, context, &mut type_table, cancel);
+                validate_standard_type_constraints(
+                    &ty,
+                    &bounds,
+                    lowered.source_map.type_span(*ty_ref),
+                    &mut diagnostics,
+                );
+                if ty.is_unresolved() {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownType {
+                            type_name: display_type(&lowered.module, *ty_ref),
+                            function_name: function_name.clone(),
+                            position: TypePosition::Return,
+                        })
+                        .with_span(lowered.source_map.type_span(*ty_ref)),
+                    );
                 }
+                ty
             }
             None => TypeId::Builtin(BuiltinType::Unit),
         };
@@ -368,6 +364,12 @@ pub(crate) fn check_bodies_controlled(
                             ty
                         }
                         ty => {
+                            validate_standard_type_constraints(
+                                &ty,
+                                &HashMap::new(),
+                                lowered.source_map.type_span(ty_ref),
+                                &mut diagnostics,
+                            );
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnknownConstType {
                                     const_name: const_item.name.clone(),
@@ -694,6 +696,7 @@ pub(super) fn validate_standard_type_constraints(
                 span,
                 diagnostics,
             );
+            validate_standard_type_constraints(key, generic_bounds, span, diagnostics);
             validate_standard_type_constraints(value, generic_bounds, span, diagnostics);
         }
         TypeId::Set(element) => {
@@ -704,6 +707,7 @@ pub(super) fn validate_standard_type_constraints(
                 span,
                 diagnostics,
             );
+            validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
         }
         TypeId::Tuple(elements) => {
             for element in elements {
@@ -738,6 +742,9 @@ pub(super) fn validate_standard_constraint_type(
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
+    if matches!(ty, TypeId::Unknown | TypeId::Error) {
+        return;
+    }
     let ok = match ty {
         TypeId::Generic(name) => generic_bounds
             .get(name)

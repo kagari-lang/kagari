@@ -121,14 +121,13 @@ impl<'a> BodyChecker<'a> {
                             })
                             .with_span(self.lowered.source_map.type_span(ty)),
                         );
-                    } else {
-                        super::check::validate_standard_type_constraints(
-                            &resolved,
-                            &env.generic_bounds,
-                            self.lowered.source_map.type_span(ty),
-                            self.diagnostics,
-                        );
                     }
+                    super::check::validate_standard_type_constraints(
+                        &resolved,
+                        &env.generic_bounds,
+                        self.lowered.source_map.type_span(ty),
+                        self.diagnostics,
+                    );
                     resolved
                 });
                 let initializer_ty =
@@ -736,14 +735,13 @@ impl<'a> BodyChecker<'a> {
                             })
                             .with_span(self.lowered.source_map.type_span(ty)),
                         );
-                    } else {
-                        super::check::validate_standard_type_constraints(
-                            &resolved,
-                            &env.generic_bounds,
-                            self.lowered.source_map.type_span(ty),
-                            self.diagnostics,
-                        );
                     }
+                    super::check::validate_standard_type_constraints(
+                        &resolved,
+                        &env.generic_bounds,
+                        self.lowered.source_map.type_span(ty),
+                        self.diagnostics,
+                    );
                     resolved
                 });
                 self.infer_struct_init_type(

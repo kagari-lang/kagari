@@ -667,6 +667,11 @@ Implemented foundation slices:
   Local container annotations now share the signature HashKey validator. Invalid
   scalar keys, nested key types and unconstrained generic keys reject in HIR;
   properly constrained generic keys remain valid.
+  Partial annotations now validate known container constraints independently of
+  unknown sibling types: `Map<f32, Missing>` reports both issues, while an unknown
+  key alone does not invent a HashKey failure. Validation descends into key/element
+  applications too. Regressions cover fields, enum payloads, parameters, returns,
+  constants, locals and explicit Struct constructor arguments.
   Struct fields and enum payloads now update substitutions after each source-order
   member, supplying context to later nested constructors. Known member types no
   longer wait for unrelated binders. HIR and source/artifact/JIT fixtures cover

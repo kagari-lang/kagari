@@ -3,6 +3,47 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn partial_annotations_preserve_independent_container_constraint_errors() {
+    for template in [
+        "struct Item { val field: TYPE }",
+        "enum Item { Data(TYPE) }",
+        "fn take(value: TYPE) {}",
+        "fn make() -> TYPE { std::map::new() }",
+        "const value: TYPE = 0;",
+        "fn main() { val value: TYPE = std::map::new(); }",
+        "struct Marker<T> { val value: i32 } fn main() { Marker<TYPE> { value: 7 }; }",
+    ] {
+        for (annotation, expected_constraints) in [
+            ("Map<f32, Missing>", 1),
+            ("Map<Missing, i32>", 0),
+            ("Map<i32, (Missing, Set<f32>)>", 1),
+            ("Map<Map<f32, Missing>, i32>", 2),
+        ] {
+            let text = template.replace("TYPE", annotation);
+            let source = SourceFile::new("partial-constraints.kgr", text.clone());
+            let analysis = crate::analyze_source(&source, Default::default());
+            let constraints = analysis
+                .diagnostics()
+                .iter()
+                .filter(|diagnostic| {
+                    matches!(
+                        diagnostic.kind,
+                        kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
+                    )
+                })
+                .count();
+            assert_eq!(
+                constraints,
+                expected_constraints,
+                "{text}: {:?}",
+                analysis.diagnostics()
+            );
+            assert!(analysis.into_codegen().is_err(), "{text}");
+        }
+    }
+}
+
+#[test]
 fn explicit_constructor_type_queries_survive_body_reuse() {
     let text = "fn neighbor() -> i32 { 1 } struct Marker<T> { val value: i32 } fn make() { Marker<bool> { value: 7 }; }";
     let mut sources = SourceDatabase::default();

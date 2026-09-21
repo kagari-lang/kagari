@@ -658,6 +658,11 @@ literal         ::= INTEGER
   incompatible enclosing types are diagnosed. The parser recognizes constructor
   arguments only when the closing `>` is followed by `{`, preserving comparisons.
 
+Unknown annotation members retain error types without suppressing independent
+constraints on known members. For example, `Map<f32, Missing>` reports the invalid
+HashKey as well as the unknown type. An unknown key by itself does not establish
+a HashKey violation; nested known key and element applications are still checked.
+
 ### Patterns
 
 The core `match` grammar uses a deliberately small pattern language.
