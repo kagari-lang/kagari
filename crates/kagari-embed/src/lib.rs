@@ -366,9 +366,13 @@ impl KagariRuntime {
     ) -> ReloadResult<LoadedModule> {
         let module_name = options.module_name.unwrap_or_else(|| previous.name.clone());
         self.vm
-            .runtime_mut()
             .reload_artifact(previous, module_name, artifact, &options.compatibility)
-            .map_err(EmbeddingError::reload_validation)
+            .map_err(|error| match error {
+                kagari_vm::ReloadError::Validation(error) => {
+                    EmbeddingError::reload_validation(error)
+                }
+                kagari_vm::ReloadError::Initialization(error) => EmbeddingError::vm(error),
+            })
     }
 
     pub fn execute(

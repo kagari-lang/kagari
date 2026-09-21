@@ -15,7 +15,7 @@ pub use debug_protocol::{
 };
 pub use error::VmError;
 pub use reentry::reenter;
-pub use vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, Vm};
+pub use vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, ReloadError, Vm};
 
 #[cfg(test)]
 mod tests;

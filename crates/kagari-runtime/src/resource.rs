@@ -80,6 +80,13 @@ impl ResourceState {
         self.active_session.borrow().clone()
     }
 
+    pub(crate) fn replace_session(
+        &self,
+        session: Option<Rc<crate::session::SessionState>>,
+    ) -> Option<Rc<crate::session::SessionState>> {
+        self.active_session.replace(session)
+    }
+
     pub(crate) fn start_execution(&self, session: Rc<crate::session::SessionState>) {
         *self.active_session.borrow_mut() = Some(session);
     }

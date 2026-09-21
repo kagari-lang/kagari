@@ -1536,7 +1536,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     );
 
     let second_loaded = runtime
-        .reload_program(
+        .stage_reload_program(
             &first_loaded,
             "hot_reload.kgr",
             kagari_ir::bytecode::BytecodeProgram {
@@ -1545,6 +1545,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
             },
         )
         .expect("compatible reload should publish a new epoch");
+    let second_loaded = runtime.publish_staged_reload(second_loaded).unwrap();
 
     assert_eq!(
         runtime.modules().collect_unreachable_epochs(),

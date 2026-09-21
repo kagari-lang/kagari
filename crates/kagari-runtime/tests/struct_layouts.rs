@@ -118,7 +118,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         .alloc_struct(original.clone(), vec![Value::I32(1)])
         .unwrap();
     let next = runtime
-        .reload_program(
+        .stage_reload_program(
             original.module(),
             "Point",
             kagari_ir::bytecode::BytecodeProgram {
@@ -127,6 +127,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
             },
         )
         .unwrap();
+    let next = runtime.publish_staged_reload(next).unwrap();
     let compatible = next.struct_layout(StructId::new(0)).unwrap();
     assert_ne!(original.module().key(), compatible.module().key());
     runtime

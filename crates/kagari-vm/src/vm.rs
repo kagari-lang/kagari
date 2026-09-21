@@ -16,6 +16,12 @@ use std::{
 };
 
 #[derive(Debug)]
+pub enum ReloadError {
+    Validation(kagari_runtime::ReloadValidationError),
+    Initialization(VmError),
+}
+
+#[derive(Debug)]
 pub struct Vm {
     runtime: Runtime,
     module_failures: HashMap<ModuleKey, VmError>,
@@ -53,6 +59,54 @@ impl Vm {
             module_failures: HashMap::new(),
             debug_session: None,
         }
+    }
+
+    pub fn reload_program(
+        &mut self,
+        active: &LoadedModule,
+        name: impl Into<String>,
+        program: kagari_ir::bytecode::BytecodeProgram,
+    ) -> Result<LoadedModule, ReloadError> {
+        let candidate = self
+            .runtime
+            .stage_reload_program(active, name, program)
+            .map_err(ReloadError::Validation)?;
+        self.initialize_and_publish(candidate)
+    }
+
+    pub fn reload_artifact(
+        &mut self,
+        active: &LoadedModule,
+        name: impl Into<String>,
+        artifact: kagari_ir::bytecode::KbcArtifact,
+        compatibility: &kagari_ir::bytecode::ArtifactCompatibility,
+    ) -> Result<LoadedModule, ReloadError> {
+        let candidate = self
+            .runtime
+            .stage_reload_artifact(active, name, artifact, compatibility)
+            .map_err(ReloadError::Validation)?;
+        self.initialize_and_publish(candidate)
+    }
+
+    fn initialize_and_publish(
+        &mut self,
+        candidate: kagari_runtime::StagedReload,
+    ) -> Result<LoadedModule, ReloadError> {
+        let session = self
+            .runtime
+            .begin_candidate_initialization(&candidate)
+            .map_err(|error| ReloadError::Initialization(VmError::RuntimeError(error)))?;
+        let result = self.execute_module(candidate.module());
+        drop(session);
+        if let Err(error) = result {
+            for member in candidate.module().members() {
+                self.module_failures.remove(&member.key());
+            }
+            return Err(ReloadError::Initialization(error));
+        }
+        self.runtime
+            .publish_staged_reload(candidate)
+            .map_err(ReloadError::Validation)
     }
 
     pub fn runtime(&self) -> &Runtime {

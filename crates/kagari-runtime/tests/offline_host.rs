@@ -73,7 +73,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
         .may_mutate_host_state = true;
     assert!(
         runtime
-            .reload_program(
+            .stage_reload_program(
                 &loaded,
                 "host",
                 kagari_ir::bytecode::BytecodeProgram {
@@ -93,7 +93,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     .unwrap();
     assert!(
         runtime
-            .reload_artifact(&loaded, "host", artifact, &ArtifactCompatibility::default())
+            .stage_reload_artifact(&loaded, "host", artifact, &ArtifactCompatibility::default())
             .is_err()
     );
     assert_eq!(
@@ -141,7 +141,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     assert!(second.module_instance_mut(&a).is_none());
     assert!(
         second
-            .reload_program(
+            .stage_reload_program(
                 &a,
                 "same",
                 kagari_ir::bytecode::BytecodeProgram {

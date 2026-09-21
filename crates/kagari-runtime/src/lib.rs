@@ -67,8 +67,8 @@ pub use security::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext,
 };
 pub use session::{
-    ExecutionCounters, ExecutionEvent, ExecutionObserver, ExecutionOptions, ExecutionPhase,
-    ExecutionSession,
+    CandidateSession, ExecutionCounters, ExecutionEvent, ExecutionObserver, ExecutionOptions,
+    ExecutionPhase, ExecutionSession,
 };
 
 use crate::{
@@ -89,10 +89,17 @@ struct PreparedReload {
 }
 
 /// Installed candidate whose entry has not been activated.
-struct StagedReload {
+#[derive(Debug)]
+pub struct StagedReload {
     baseline: LoadedModule,
     program: module::StagedProgram,
     dependencies: ReloadDependencySnapshot,
+}
+
+impl StagedReload {
+    pub fn module(&self) -> &LoadedModule {
+        self.program.module()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -270,6 +277,28 @@ impl Runtime {
             resources: self.resources.policy(),
             cancellation: Default::default(),
         }
+    }
+
+    pub fn begin_candidate_initialization(
+        &self,
+        candidate: &StagedReload,
+    ) -> Result<session::CandidateSession, RuntimeError> {
+        self.validate_loaded_module(candidate.module())?;
+        if self.is_candidate_initialization() {
+            return Err(RuntimeError::capability_denied(
+                "nested candidate initialization",
+            ));
+        }
+        let mut options = self.execution_options();
+        options.phase = ExecutionPhase::CandidateInitialization;
+        let previous = self.resources.replace_session(None);
+        let mut guard = session::CandidateSession {
+            execution: None,
+            previous,
+            resources: self.resources.clone(),
+        };
+        guard.execution = Some(self.begin_execution(candidate.module(), options)?);
+        Ok(guard)
     }
 
     pub fn begin_execution(
@@ -1246,25 +1275,25 @@ impl Runtime {
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         Ok(module)
     }
-    pub fn reload_program(
+    pub fn stage_reload_program(
         &mut self,
         active: &LoadedModule,
         name: impl Into<String>,
         bytecode: BytecodeProgram,
-    ) -> Result<LoadedModule, ReloadValidationError> {
+    ) -> Result<StagedReload, ReloadValidationError> {
         let name = name.into();
         let dependencies = ReloadDependencySnapshot::from_program(&bytecode);
         let candidate = self.prepare_reload(active, name, bytecode, dependencies)?;
-        self.publish_prepared_reload(candidate)
+        self.stage_prepared_reload(candidate)
     }
 
-    pub fn reload_artifact(
+    pub fn stage_reload_artifact(
         &mut self,
         active: &LoadedModule,
         name: impl Into<String>,
         artifact: KbcArtifact,
         compatibility: &ArtifactCompatibility,
-    ) -> Result<LoadedModule, ReloadValidationError> {
+    ) -> Result<StagedReload, ReloadValidationError> {
         let name = name.into();
         self.validate_loaded_module(active)
             .map_err(ReloadValidationError::Runtime)?;
@@ -1278,7 +1307,7 @@ impl Runtime {
         )?;
         let dependencies = ReloadDependencySnapshot::from_artifact(&artifact);
         let candidate = self.prepare_reload(active, name, artifact.program, dependencies)?;
-        self.publish_prepared_reload(candidate)
+        self.stage_prepared_reload(candidate)
     }
 
     fn prepare_reload(
@@ -1305,14 +1334,6 @@ impl Runtime {
             bindings,
             dependencies,
         })
-    }
-
-    fn publish_prepared_reload(
-        &mut self,
-        candidate: PreparedReload,
-    ) -> Result<LoadedModule, ReloadValidationError> {
-        let staged = self.stage_prepared_reload(candidate)?;
-        self.publish_staged_reload(staged)
     }
 
     fn stage_prepared_reload(
@@ -1351,6 +1372,13 @@ impl Runtime {
             .modules
             .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
             .map_err(ReloadValidationError::Runtime)?;
+        for member in program.module().members() {
+            if member.bytecode.module_init.is_none() {
+                self.begin_module_initialization(&member)
+                    .and_then(|guard| guard.finish(Value::Unit))
+                    .map_err(ReloadValidationError::Runtime)?;
+            }
+        }
         Ok(StagedReload {
             baseline,
             program,
@@ -1358,7 +1386,7 @@ impl Runtime {
         })
     }
 
-    fn publish_staged_reload(
+    pub fn publish_staged_reload(
         &mut self,
         candidate: StagedReload,
     ) -> Result<LoadedModule, ReloadValidationError> {
@@ -1380,6 +1408,17 @@ impl Runtime {
             });
         }
         for member in program.module().members() {
+            if self
+                .modules
+                .instance_snapshot(member.key())
+                .is_none_or(|instance| instance.state != ModuleInitializationState::Initialized)
+            {
+                return Err(ReloadValidationError::Runtime(
+                    RuntimeError::module_validation(
+                        "reload candidate has not completed initialization",
+                    ),
+                ));
+            }
             let current = self
                 .host
                 .link_module(&member.bytecode, &self.types)
@@ -1647,7 +1686,7 @@ mod tests {
             .expect("module should load");
 
         let reloaded = runtime
-            .reload_program(
+            .stage_reload_program(
                 &loaded,
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
@@ -1655,6 +1694,7 @@ mod tests {
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect("compatible module should reload");
 
         assert_eq!(reloaded.id, loaded.id);
@@ -1680,7 +1720,7 @@ mod tests {
         let before_count = runtime.modules().loaded_count();
 
         let error = runtime
-            .reload_program(
+            .stage_reload_program(
                 &loaded,
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
@@ -1688,6 +1728,7 @@ mod tests {
                     modules: vec![module_with_public_function(BuiltinType::String)],
                 },
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect_err("public ABI change should reject reload");
 
         assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
@@ -1715,7 +1756,7 @@ mod tests {
             )
             .expect("module should load");
         let second = runtime
-            .reload_program(
+            .stage_reload_program(
                 &first,
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
@@ -1723,11 +1764,12 @@ mod tests {
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect("compatible module should reload");
         let before_count = runtime.modules().loaded_count();
 
         let error = runtime
-            .reload_program(
+            .stage_reload_program(
                 &first,
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
@@ -1735,6 +1777,7 @@ mod tests {
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect_err("stale active epoch should reject reload");
 
         assert_eq!(error.code(), "KG_RELOAD_MODULE_NOT_ACTIVE");
@@ -1773,7 +1816,7 @@ mod tests {
             .expect("module should load");
 
         let error = runtime
-            .reload_program(
+            .stage_reload_program(
                 &loaded,
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
@@ -1781,6 +1824,7 @@ mod tests {
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect_err("resource limit should reject reload before publication");
 
         assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
@@ -1806,7 +1850,7 @@ mod tests {
         let before_count = runtime.modules().loaded_count();
 
         let error = runtime
-            .reload_artifact(
+            .stage_reload_artifact(
                 &loaded,
                 "reloadable",
                 artifact,
@@ -1815,6 +1859,7 @@ mod tests {
                     ..Default::default()
                 },
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect_err("loader compatibility mismatch should reject reload");
 
         assert_eq!(error.code(), "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH");
@@ -1841,7 +1886,8 @@ mod tests {
             .expect("module should load");
 
         let reloaded = runtime
-            .reload_artifact(&loaded, "reloadable", artifact, &compatibility)
+            .stage_reload_artifact(&loaded, "reloadable", artifact, &compatibility)
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect("compatible artifact should reload");
 
         assert_eq!(reloaded.id, loaded.id);
@@ -1873,8 +1919,9 @@ mod tests {
         let failed = stage(&mut runtime);
         let failed_key = failed.program.module().key();
         runtime
-            .fail_module_initialization(failed.program.module())
-            .unwrap();
+            .module_instance_mut(failed.program.module())
+            .unwrap()
+            .fail_initialization();
         assert_eq!(
             runtime.modules.latest("reloadable").unwrap().key(),
             baseline.key()
@@ -1891,10 +1938,9 @@ mod tests {
         let stale_key = stale.program.module().key();
         for member in candidate.program.module().members() {
             runtime
-                .begin_module_initialization(&member)
+                .module_instance_mut(&member)
                 .unwrap()
-                .finish(Value::I32(42))
-                .unwrap();
+                .finish_initialization(Value::I32(42));
         }
         assert_eq!(
             runtime.modules.latest("reloadable").unwrap().key(),
@@ -1951,11 +1997,16 @@ mod tests {
             runtime.modules().latest("reloadable").unwrap().key(),
             baseline.key()
         );
-        let current = runtime.publish_prepared_reload(candidate).unwrap();
+        let current = runtime
+            .stage_prepared_reload(candidate)
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
+            .unwrap();
         let published_resources = runtime.resources().counters();
         let published_count = runtime.modules().loaded_count();
         assert!(matches!(
-            runtime.publish_prepared_reload(stale),
+            runtime
+                .stage_prepared_reload(stale)
+                .and_then(|candidate| runtime.publish_staged_reload(candidate)),
             Err(ReloadValidationError::ModuleNotActive { .. })
         ));
         assert_eq!(
@@ -2042,12 +2093,13 @@ mod tests {
         );
 
         runtime
-            .reload_artifact(
+            .stage_reload_artifact(
                 &dependency,
                 "dependency",
                 dependency_v2,
                 &dependency_v2_compatibility,
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect("compatible dependency implementation should reload");
 
         assert!(runtime.execution_artifact(interpreter_cache).is_none());
@@ -2095,7 +2147,7 @@ mod tests {
         );
 
         let reloaded = runtime
-            .reload_program(
+            .stage_reload_program(
                 &loaded,
                 "reloadable",
                 kagari_ir::bytecode::BytecodeProgram {
@@ -2106,6 +2158,7 @@ mod tests {
                     )],
                 },
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect("implementation-only reload should publish a new epoch");
 
         assert_eq!(reloaded.id, loaded.id);
@@ -2226,12 +2279,13 @@ mod tests {
             .expect("jit artifact should register");
 
         let error = runtime
-            .reload_artifact(
+            .stage_reload_artifact(
                 &dependency,
                 "dependency",
                 dependency_v2,
                 &ArtifactCompatibility::default(),
             )
+            .and_then(|candidate| runtime.publish_staged_reload(candidate))
             .expect_err("loader compatibility mismatch should reject reload");
 
         assert!(matches!(

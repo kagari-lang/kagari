@@ -325,6 +325,18 @@ reload_program(previous, artifact, reload_options) -> ReloadResult<LoadedModule>
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
 
 The current Rust facade uses `KagariEngine` for compile and artifact emission and `KagariRuntime` for load, execute, reload, host registration, and optional backend execution.
+`KagariRuntime::reload_program` stages and initializes the candidate before publishing,
+following [module-activation.md](module-activation.md). Validation errors retain their
+reload codes; initializer failures retain their normal execution error classification.
+At the runtime layer, `stage_reload_program` / `stage_reload_artifact` return an owned
+`StagedReload`. A driver enters `begin_candidate_initialization`, initializes the
+candidate's modules, exits that session, then calls `publish_staged_reload`.
+Publication rejects uninitialized or failed members. Dropping the candidate discards
+its instances and module quota. VM reload performs these steps automatically.
+Candidate sessions inherit permissions and cancellation, apply host-effect restrictions,
+and restore a suspended ordinary root when they end. Drivers must finish every nested
+candidate execution scope before dropping the candidate session.
+
 `KagariRuntime::execute` runs through the interpreter.
 `KagariRuntime::execute_with_backend` uses a host-supplied `CodegenBackend` after validating JIT capability and artifact policy.
 

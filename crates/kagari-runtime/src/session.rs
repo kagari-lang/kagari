@@ -183,3 +183,25 @@ impl Drop for ExecutionSession {
         }
     }
 }
+
+/// A separate initialization root that restores a suspended ordinary call on exit.
+pub struct CandidateSession {
+    pub(crate) execution: Option<ExecutionSession>,
+    pub(crate) previous: Option<Rc<SessionState>>,
+    pub(crate) resources: Rc<ResourceState>,
+}
+impl Drop for CandidateSession {
+    fn drop(&mut self) {
+        if self
+            .execution
+            .as_ref()
+            .is_some_and(|execution| execution.state.scopes.get() != 1)
+        {
+            self.resources
+                .quarantine("candidate session ended with nested execution scopes");
+        }
+        drop(self.execution.take());
+        let previous = self.previous.take().filter(|state| state.scopes.get() != 0);
+        self.resources.replace_session(previous);
+    }
+}

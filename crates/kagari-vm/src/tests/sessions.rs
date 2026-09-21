@@ -355,10 +355,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             .runtime()
             .begin_execution(&old, vm.runtime().execution_options())
             .unwrap();
-        let new = vm
-            .runtime_mut()
-            .reload_program(&old, "versions.kgr", program(9))
-            .unwrap();
+        let new = vm.reload_program(&old, "versions.kgr", program(9)).unwrap();
         versions.borrow_mut().extend([old.clone(), new.clone()]);
         vm.execute(&old, "main").unwrap();
         drop(scope);
@@ -613,5 +610,89 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
                 assert!(!vm.runtime().is_quarantined());
             }
         }
+    }
+}
+
+#[test]
+fn reload_initializes_before_publication_and_restores_the_old_session_on_failure() {
+    use std::{cell::Cell, rc::Rc};
+    for encoded in [false, true] {
+        let program = |initializer: &str, result| {
+            let mut module = compile_test_bytecode(&format!(
+                "fn init() -> i32 {{ {initializer} }} fn main() -> i32 {{ {result} }}"
+            ));
+            module.module_init = Some(
+                module
+                    .functions
+                    .iter()
+                    .find(|f| f.name == "init")
+                    .unwrap()
+                    .id,
+            );
+            route(
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                },
+                encoded,
+            )
+        };
+        let calls = Rc::new(Cell::new(0));
+        let observed = calls.clone();
+        let mut runtime = runtime(None);
+        runtime
+            .register_host_function(HostFunction::new(standard_log(), move |_, _| {
+                observed.set(observed.get() + 1);
+                Ok(Value::Unit)
+            }))
+            .unwrap();
+        let old = runtime.load_program("reload.kgr", program("1", 7)).unwrap();
+        let mut vm = Vm::new(runtime);
+        vm.execute_module(&old).unwrap();
+        let outer = vm
+            .runtime()
+            .begin_execution(&old, vm.runtime().execution_options())
+            .unwrap();
+        let before = vm.runtime().resources().counters().loaded_modules;
+        let uninitialized = vm
+            .runtime_mut()
+            .stage_reload_program(&old, "reload.kgr", program("42", 9))
+            .unwrap();
+        assert!(
+            vm.runtime_mut()
+                .publish_staged_reload(uninitialized)
+                .is_err()
+        );
+        assert_eq!(vm.runtime().resources().counters().loaded_modules, before);
+        for initializer in ["print(\"forbidden\"); 2", "1 / 0"] {
+            let error = vm
+                .reload_program(&old, "reload.kgr", program(initializer, 9))
+                .unwrap_err();
+            assert!(matches!(error, crate::ReloadError::Initialization(_)));
+            assert_eq!(
+                vm.runtime().modules().latest("reload.kgr").unwrap().key(),
+                old.key()
+            );
+            assert_eq!(vm.runtime().execution_root().unwrap().key(), old.key());
+            assert_eq!(vm.runtime().resources().counters().loaded_modules, before);
+            assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+            assert_eq!(calls.get(), 0);
+        }
+        let current = vm
+            .reload_program(&old, "reload.kgr", program("42", 9))
+            .unwrap();
+        let instance = vm.runtime().module_instance_snapshot(&current).unwrap();
+        assert_eq!(instance.state, ModuleInitializationState::Initialized);
+        assert_eq!(instance.init_result, Some(Value::I32(42)));
+        assert_eq!(vm.runtime().execution_root().unwrap().key(), old.key());
+        assert_eq!(
+            vm.execute(&old, "main").unwrap().return_value,
+            Value::I32(7)
+        );
+        drop(outer);
+        assert_eq!(
+            vm.execute(&current, "main").unwrap().return_value,
+            Value::I32(9)
+        );
     }
 }

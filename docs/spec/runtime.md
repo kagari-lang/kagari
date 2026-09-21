@@ -39,7 +39,7 @@ Runtime {
   types: TypeRegistry,
   host: HostRegistry,
   security: SecurityContext,
-  reloads: HotReloadCoordinator,
+  epochs: ModuleEpochAllocator,
   modules: ModuleStore
 }
 ```

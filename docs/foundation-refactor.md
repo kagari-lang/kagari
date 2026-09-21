@@ -440,34 +440,27 @@ Implemented foundation slices:
   validation checks graph reachability, signatures and shared layout/host contracts.
   Runtime initialization visits every dependency once, including unused imports,
   and caches failures per runtime and version. Root calls retain one shared program
-  version across module calls. Reload now separates an inert verified/linked
-  candidate from publication. Publication rechecks the baseline and host bindings
-  before resource admission, epoch changes or cache invalidation. Tests verify
-  preparation leaves entries/counters unchanged and stale candidates cannot alter
-  the newly published entry; old handles remain valid. Isolated candidate
-  initialization remains pending, so ordinary reload still does not implement the
-  complete Prepare/Initialize/Publish contract. Module installation now returns an
-  unpublished program guard: its independent instances remain reachable during
-  collection, publication preserves their initialization results, and dropping the
-  guard removes every candidate member without changing the active entry. Runtime
-  loading currently publishes immediately; VM-driven isolated initialization and
-  effect restrictions still need to be connected to this staging boundary.
-  Root sessions now carry an initialization phase inherited by nested entries;
-  candidate sessions reject external-service, host-mutation, suspension and borrowed
+  version across module calls. VM and embedding reload now stage a verified/linked
+  candidate, execute its dependency-first initializers in a restricted root session,
+  and only then publish. Failed initialization releases candidate instances and
+  module quota without changing the active entry or invoking forbidden callbacks.
+  Suspended ordinary calls regain their original session and dependency version.
+  The runtime no longer exposes direct reload-and-publish APIs; low-level drivers
+  stage a candidate, initialize it, then request publication. Publication rejects
+  uninitialized members and rechecks the baseline and host links before activation
+  and cache invalidation. Stale candidates cannot alter the newly published entry.
+  Candidate instances remain reachable during collection; publication preserves
+  initialized results and dropping a candidate removes all of its members.
+  Candidate sessions reject external-service, host-mutation, suspension and borrowed
   host-call contracts before callbacks, and reject typed paths before adapters.
-  Ordinary sessions cannot silently absorb a candidate initialization request.
-  Pure host calls remain subject to normal permissions and budgets. Explicit
-  immutable configuration declarations and the VM reload orchestration remain pending.
-  Module admission and release are owned by the module store, including staged
-  candidates and unreachable versions. Candidate drop releases the quota even
-  after quarantine. Epoch reservation is separate from activation and never reuses
-  discarded identities; exhausted epoch space is rejected before installation.
-  A staged reload now owns its baseline, unpublished instances and dependency
-  fingerprints across the initialization interval. Activation rechecks the baseline
-  and host links; rejected or abandoned candidates release their instances and
-  module quota. Tests cover failed initialization cleanup, stale staged candidates,
-  preserved initialized results and unchanged active entries. VM orchestration is
-  still pending; these runtime boundaries do not yet execute candidate initializers.
+  Pure host calls remain subject to permissions and budgets. Explicit immutable
+  configuration declarations and a full isolation/ownership audit remain pending.
+  Module admission and release belong to the module store, including staged and
+  unreachable versions. Cleanup releases quota even after quarantine. Epoch
+  reservation is separate from activation; discarded identities are never reused
+  and exhaustion is rejected before installation. Source and encoded program tests
+  cover forbidden host effects, initializer traps, successful pre-publication
+  initialization, old-call restoration and retained old-version execution.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

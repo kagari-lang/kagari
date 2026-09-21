@@ -170,10 +170,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
         instance.module_slots[0] = instance.init_result.take().unwrap();
     }
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
-    let new = vm
-        .runtime_mut()
-        .reload_program(&old, "gc.kgr", program)
-        .unwrap();
+    let new = vm.reload_program(&old, "gc.kgr", program).unwrap();
     vm.execute(&new, "main").unwrap();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
     assert_eq!(vm.runtime().modules().collect_unreachable_epochs().len(), 1);
