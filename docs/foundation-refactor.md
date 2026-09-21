@@ -494,7 +494,10 @@ Implemented foundation slices:
   are collected, and repeated fresh attempts leave the old root usable. A subsequent
   successful reload initializes every member before publication; old/new root calls
   continue to observe their own dependency implementations, for source and encoded
-  artifacts.
+  artifacts. Cancellation at candidate entry and instruction-budget exhaustion during
+  initialization also have source/encoded coverage: both restore the old session,
+  release frames, temporary roots, candidate quota and retention, and leave a later
+  ordinary root and a fresh reload attempt usable without quarantining the runtime.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

@@ -751,3 +751,101 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         assert!(!vm.runtime().is_quarantined());
     }
 }
+
+#[test]
+fn cancelled_and_budget_limited_reload_restore_the_old_root_and_release_resources() {
+    for encoded in [false, true] {
+        for cancelled in [false, true] {
+            let program = |value| {
+                let mut module = compile_test_bytecode(&format!(
+                    "fn init() -> i32 {{ {value} }} fn main() -> i32 {{ {value} }}"
+                ));
+                module.module_init = Some(
+                    module
+                        .functions
+                        .iter()
+                        .find(|function| function.name == "init")
+                        .unwrap()
+                        .id,
+                );
+                route(
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![module],
+                    },
+                    encoded,
+                )
+            };
+            let mut runtime = runtime(None);
+            let old = runtime.load_program("termination.kgr", program(7)).unwrap();
+            let mut vm = Vm::new(runtime);
+            vm.execute_module(&old).unwrap();
+            let mut options = vm.runtime().execution_options();
+            let token = CancellationToken::default();
+            options.cancellation = token.clone();
+            options.resources.max_instruction_steps = Some(1);
+            let outer = vm.runtime().begin_execution(&old, options).unwrap();
+            if cancelled {
+                token.cancel();
+            }
+            let before_count = vm.runtime().modules().loaded_count();
+            let error = vm
+                .reload_program(&old, "termination.kgr", program(9))
+                .unwrap_err();
+            let expected = if cancelled {
+                RuntimeErrorKind::Cancelled
+            } else {
+                RuntimeErrorKind::ResourceLimitExceeded
+            };
+            assert!(
+                matches!(error, crate::ReloadError::Initialization(VmError::RuntimeError(error)) if error.kind() == expected)
+            );
+            assert_eq!(
+                vm.runtime()
+                    .modules()
+                    .latest("termination.kgr")
+                    .unwrap()
+                    .key(),
+                old.key()
+            );
+            assert_eq!(vm.runtime().execution_root().unwrap().key(), old.key());
+            assert_eq!(vm.runtime().modules().loaded_count(), before_count);
+            assert_eq!(
+                vm.runtime().resources().counters().loaded_modules,
+                before_count
+            );
+            assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+            assert_eq!(vm.runtime().gc().active_roots(), 0);
+            assert_eq!(outer.host_scope_count(), 0);
+            assert_eq!(
+                vm.runtime()
+                    .modules()
+                    .retention_counts(old.key())
+                    .active_calls,
+                1
+            );
+            assert!(!vm.runtime().is_quarantined());
+            drop(outer);
+            assert!(vm.runtime().execution_root().is_none());
+            assert!(vm.runtime().resources().termination().is_none());
+            assert_eq!(
+                vm.runtime()
+                    .modules()
+                    .retention_counts(old.key())
+                    .active_calls,
+                0
+            );
+            assert_eq!(
+                vm.execute(&old, "main").unwrap().return_value,
+                Value::I32(7)
+            );
+            let current = vm
+                .reload_program(&old, "termination.kgr", program(9))
+                .unwrap();
+            assert_eq!(
+                vm.execute(&current, "main").unwrap().return_value,
+                Value::I32(9)
+            );
+        }
+    }
+}
