@@ -440,8 +440,13 @@ Implemented foundation slices:
   validation checks graph reachability, signatures and shared layout/host contracts.
   Runtime initialization visits every dependency once, including unused imports,
   and caches failures per runtime and version. Root calls retain one shared program
-  version across module calls. Isolated candidate initialization and publication
-  remain pending; ordinary reload does not yet implement Prepare/Initialize/Publish.
+  version across module calls. Reload now separates an inert verified/linked
+  candidate from publication. Publication rechecks the baseline and host bindings
+  before resource admission, epoch changes or cache invalidation. Tests verify
+  preparation leaves entries/counters unchanged and stale candidates cannot alter
+  the newly published entry; old handles remain valid. Isolated candidate
+  initialization remains pending, so ordinary reload still does not implement the
+  complete Prepare/Initialize/Publish contract.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

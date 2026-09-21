@@ -78,6 +78,15 @@ use crate::{
 };
 use value::Value;
 
+/// Verified and linked reload data that has not changed any runtime entry.
+struct PreparedReload {
+    baseline: LoadedModule,
+    name: String,
+    bytecode: BytecodeProgram,
+    bindings: Vec<module::LinkedHostBindings>,
+    dependencies: ReloadDependencySnapshot,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeConfig {
     pub gc: GcHeapConfig,
@@ -1199,12 +1208,9 @@ impl Runtime {
         bytecode: BytecodeProgram,
     ) -> Result<LoadedModule, ReloadValidationError> {
         let name = name.into();
-        self.validate_loaded_module(active)
-            .map_err(ReloadValidationError::Runtime)?;
-        let latest = self.modules.latest(&active.name);
-        validate_reload_candidate(active, &name, &bytecode, latest.as_ref())?;
         let dependencies = ReloadDependencySnapshot::from_program(&bytecode);
-        self.publish_validated_reload(name, bytecode, dependencies)
+        let candidate = self.prepare_reload(active, name, bytecode, dependencies)?;
+        self.publish_prepared_reload(candidate)
     }
 
     pub fn reload_artifact(
@@ -1226,21 +1232,64 @@ impl Runtime {
             latest.as_ref(),
         )?;
         let dependencies = ReloadDependencySnapshot::from_artifact(&artifact);
-        self.publish_validated_reload(name, artifact.program, dependencies)
+        let candidate = self.prepare_reload(active, name, artifact.program, dependencies)?;
+        self.publish_prepared_reload(candidate)
     }
 
-    fn publish_validated_reload(
-        &mut self,
+    fn prepare_reload(
+        &self,
+        baseline: &LoadedModule,
         name: String,
         bytecode: BytecodeProgram,
         dependencies: ReloadDependencySnapshot,
-    ) -> Result<LoadedModule, ReloadValidationError> {
+    ) -> Result<PreparedReload, ReloadValidationError> {
+        self.validate_loaded_module(baseline)
+            .map_err(ReloadValidationError::Runtime)?;
+        let latest = self.modules.latest(&baseline.name);
+        validate_reload_candidate(baseline, &name, &bytecode, latest.as_ref())?;
         let bindings = bytecode
             .modules
             .iter()
             .map(|module| self.host.link_module(module, &self.types))
             .collect::<Result<Vec<_>, _>>()
             .map_err(ReloadValidationError::Runtime)?;
+        Ok(PreparedReload {
+            baseline: baseline.clone(),
+            name,
+            bytecode,
+            bindings,
+            dependencies,
+        })
+    }
+
+    fn publish_prepared_reload(
+        &mut self,
+        candidate: PreparedReload,
+    ) -> Result<LoadedModule, ReloadValidationError> {
+        let PreparedReload {
+            baseline,
+            name,
+            bytecode,
+            bindings,
+            dependencies,
+        } = candidate;
+        self.validate_loaded_module(&baseline)
+            .map_err(ReloadValidationError::Runtime)?;
+        let latest = self.modules.latest(&baseline.name);
+        validate_reload_candidate(&baseline, &name, &bytecode, latest.as_ref())?;
+        for (module, prepared) in bytecode.modules.iter().zip(&bindings) {
+            let current = self
+                .host
+                .link_module(module, &self.types)
+                .map_err(ReloadValidationError::Runtime)?;
+            if current.functions != prepared.functions || current.paths != prepared.paths {
+                return Err(ReloadValidationError::Runtime(
+                    RuntimeError::module_validation(
+                        "host bindings changed after reload preparation",
+                    ),
+                ));
+            }
+        }
         self.resources
             .record_loaded_modules(self.modules.loaded_count() + bytecode.modules.len())
             .map_err(ReloadValidationError::Runtime)?;
@@ -1249,9 +1298,6 @@ impl Runtime {
             .modules
             .load_program(name, epoch, bytecode, self.host.owner(), bindings);
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
-        self.resources
-            .record_loaded_modules(self.modules.loaded_count())
-            .map_err(ReloadValidationError::Runtime)?;
         Ok(module)
     }
 
@@ -1706,6 +1752,49 @@ mod tests {
             runtime.modules().latest("reloadable").unwrap().epoch,
             reloaded.epoch
         );
+    }
+
+    #[test]
+    fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
+        let artifact = artifact_with_loader_fingerprints();
+        let mut runtime = Runtime::default();
+        let baseline = runtime
+            .load_program("reloadable", artifact.program.clone())
+            .unwrap();
+        let before_count = runtime.modules().loaded_count();
+        let before_resources = runtime.resources().counters();
+        let prepare = |runtime: &Runtime| {
+            runtime
+                .prepare_reload(
+                    &baseline,
+                    "reloadable".into(),
+                    artifact.program.clone(),
+                    ReloadDependencySnapshot::from_artifact(&artifact),
+                )
+                .unwrap()
+        };
+        let candidate = prepare(&runtime);
+        let stale = prepare(&runtime);
+        assert_eq!(runtime.modules().loaded_count(), before_count);
+        assert_eq!(runtime.resources().counters(), before_resources);
+        assert_eq!(
+            runtime.modules().latest("reloadable").unwrap().key(),
+            baseline.key()
+        );
+        let current = runtime.publish_prepared_reload(candidate).unwrap();
+        let published_resources = runtime.resources().counters();
+        let published_count = runtime.modules().loaded_count();
+        assert!(matches!(
+            runtime.publish_prepared_reload(stale),
+            Err(ReloadValidationError::ModuleNotActive { .. })
+        ));
+        assert_eq!(
+            runtime.modules().latest("reloadable").unwrap().key(),
+            current.key()
+        );
+        assert_eq!(runtime.modules().loaded_count(), published_count);
+        assert_eq!(runtime.resources().counters(), published_resources);
+        runtime.validate_loaded_module(&baseline).unwrap();
     }
 
     #[test]
