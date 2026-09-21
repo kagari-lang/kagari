@@ -34,6 +34,26 @@ fn returning_initializer_does_not_store_an_unproduced_value() {
 }
 
 #[test]
+fn terminating_helper_operands_preserve_short_circuit_paths() {
+    for (condition, expected) in [("false", 9), ("true", 42)] {
+        execute_contextual_source(
+            &format!(
+                "fn main() -> i32 {{ {condition} && (type_of(if true {{ return 42; }} else {{ return 7; }}) == \"\"); 9 }}"
+            ),
+            expected,
+        );
+    }
+    execute_contextual_source(
+        "fn main() -> i32 { while type_of(if true { return 42; } else { return 7; }) == \"\" { } 9 }",
+        42,
+    );
+    execute_contextual_source(
+        "fn main() -> i32 { var value = \"\"; value = type_of(if true { return 42; } else { return 7; }); 9 }",
+        42,
+    );
+}
+
+#[test]
 fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
     execute_contextual_source(
         "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty(); val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }",
@@ -183,6 +203,7 @@ fn execute_contextual_source(source: &str, expected: i32) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();
     context.language_profile.allow_jit = true;
+    context.language_profile.allow_reflection = true;
     context.capabilities.jit = true;
     let artifact = engine
         .compile_to_artifact(

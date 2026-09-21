@@ -89,6 +89,9 @@ impl FunctionLowerer<'_, '_> {
             hir::ExprKind::Literal(_) => Err(IrLoweringError::MissingBinding("checked literal")),
             hir::ExprKind::Prefix { op, expr } => {
                 let operand = self.lower_expr(expr)?;
+                if self.current_block_terminated() {
+                    return Ok(operand);
+                }
                 let dst = self.alloc_temp(self.expr_type(expr_id)?);
                 self.emit(Instruction::Unary {
                     dst,
@@ -102,7 +105,13 @@ impl FunctionLowerer<'_, '_> {
                     return self.lower_short_circuit(expr_id, lhs, op, rhs);
                 }
                 let lhs = self.lower_expr(lhs)?;
+                if self.current_block_terminated() {
+                    return Ok(lhs);
+                }
                 let rhs = self.lower_expr(rhs)?;
+                if self.current_block_terminated() {
+                    return Ok(rhs);
+                }
                 let dst = self.alloc_temp(self.expr_type(expr_id)?);
                 self.emit(Instruction::Binary {
                     dst,
@@ -142,6 +151,9 @@ impl FunctionLowerer<'_, '_> {
         else_branch: Option<hir::ExprId>,
     ) -> Result<IrValue, IrLoweringError> {
         let cond = self.lower_expr(condition)?;
+        if self.current_block_terminated() {
+            return Ok(cond);
+        }
         let then_block = self.new_block();
         let else_block = self.new_block();
         let join_block = self.new_block();
@@ -190,6 +202,9 @@ impl FunctionLowerer<'_, '_> {
         rhs: hir::ExprId,
     ) -> Result<IrValue, IrLoweringError> {
         let lhs = self.lower_expr(lhs)?;
+        if self.current_block_terminated() {
+            return Ok(lhs);
+        }
         let rhs_block = self.new_block();
         let short_block = self.new_block();
         let join_block = self.new_block();
@@ -250,6 +265,9 @@ impl FunctionLowerer<'_, '_> {
         arms: hir::MatchArmBuffer,
     ) -> Result<IrValue, IrLoweringError> {
         let scrutinee_temp = self.lower_expr(scrutinee)?;
+        if self.current_block_terminated() {
+            return Ok(scrutinee_temp);
+        }
         let result = self.alloc_temp(self.expr_type(expr_id)?);
         let exit_block = self.new_block();
         let fail_block = self.new_block();
@@ -428,6 +446,9 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<IrValue, IrLoweringError> {
         if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
             let root_or_view = self.lower_expr(checked.root)?;
+            if self.current_block_terminated() {
+                return Ok(root_or_view);
+            }
             let dst = self.alloc_temp(self.expr_type(expr_id)?);
             let fingerprint = checked
                 .contract
@@ -462,6 +483,9 @@ impl FunctionLowerer<'_, '_> {
             .ok_or(IrLoweringError::MissingExprType(receiver))?;
         let field = self.aggregate_field_ref(field, &receiver_ty)?;
         let base = self.lower_expr(receiver)?;
+        if self.current_block_terminated() {
+            return Ok(base);
+        }
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadAggregateField { dst, base, field });
         Ok(dst)
@@ -474,7 +498,13 @@ impl FunctionLowerer<'_, '_> {
         index: hir::ExprId,
     ) -> Result<IrValue, IrLoweringError> {
         let base = self.lower_expr(receiver)?;
+        if self.current_block_terminated() {
+            return Ok(base);
+        }
         let index = self.lower_expr(index)?;
+        if self.current_block_terminated() {
+            return Ok(index);
+        }
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadAggregateIndex { dst, base, index });
         Ok(dst)
@@ -521,7 +551,10 @@ impl FunctionLowerer<'_, '_> {
         };
         let (callee, args) = match target {
             SemanticCallTarget::RuntimeHelper(helper) => {
-                self.lower_runtime_helper_call(helper, args)?
+                match self.lower_runtime_helper_call(helper, args)? {
+                    ControlFlow::Continue(call) => call,
+                    ControlFlow::Break(value) => return Ok(value),
+                }
             }
             SemanticCallTarget::TraitMethod(_) => {
                 return Err(IrLoweringError::UnsupportedExpr(
@@ -608,49 +641,41 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         helper: BuiltinFunction,
         args: &[hir::ExprId],
-    ) -> Result<(CallTarget, ValueBuffer), IrLoweringError> {
-        let (helper, args) = match (helper, args) {
+    ) -> Result<ControlFlow<IrValue, (CallTarget, ValueBuffer)>, IrLoweringError> {
+        let (target, operands): (_, smallvec::SmallVec<[hir::ExprId; 3]>) = match (helper, args) {
             (BuiltinFunction::TypeOf, [value]) => (
-                RuntimeHelper::ReflectTypeOf,
-                smallvec::smallvec![self.lower_expr(*value)?],
+                CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
+                smallvec::smallvec![*value],
             ),
-            (BuiltinFunction::GetField, [base, field]) => {
-                let field = self.checked_field_name(*field)?;
-                (
-                    RuntimeHelper::ReflectGetField(field),
-                    smallvec::smallvec![self.lower_expr(*base)?],
-                )
-            }
-            (BuiltinFunction::SetField, [base, field, value]) => {
-                let field = self.checked_field_name(*field)?;
-                (
-                    RuntimeHelper::ReflectSetField(field),
-                    smallvec::smallvec![self.lower_expr(*base)?, self.lower_expr(*value)?],
-                )
-            }
+            (BuiltinFunction::GetField, [base, field]) => (
+                CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
+                    self.checked_field_name(*field)?,
+                )),
+                smallvec::smallvec![*base],
+            ),
+            (BuiltinFunction::SetField, [base, field, value]) => (
+                CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
+                    self.checked_field_name(*field)?,
+                )),
+                smallvec::smallvec![*base, *value],
+            ),
             (BuiltinFunction::SetIndex, [base, index, value]) => (
-                RuntimeHelper::ReflectSetIndex,
-                smallvec::smallvec![
-                    self.lower_expr(*base)?,
-                    self.lower_expr(*index)?,
-                    self.lower_expr(*value)?
-                ],
+                CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+                smallvec::smallvec![*base, *index, *value],
             ),
-            (BuiltinFunction::Print, [message]) => {
-                return Ok((
-                    CallTarget::HostFunction(Box::new(
-                        kagari_common::host_interface::standard_log(),
-                    )),
-                    smallvec::smallvec![self.lower_expr(*message)?],
-                ));
-            }
+            (BuiltinFunction::Print, [message]) => (
+                CallTarget::HostFunction(Box::new(kagari_common::host_interface::standard_log())),
+                smallvec::smallvec![*message],
+            ),
             _ => {
                 return Err(IrLoweringError::MissingBinding(
                     "checked runtime helper arguments",
                 ));
             }
         };
-        Ok((CallTarget::RuntimeHelper(helper), args))
+        Ok(self
+            .lower_values(&operands)?
+            .map_continue(|values| (target, values)))
     }
 
     fn checked_field_name(&self, expr: hir::ExprId) -> Result<String, IrLoweringError> {

@@ -533,6 +533,10 @@ control can reach the end. Each explicit return operand is checked independently
 When a call argument or aggregate member returns from the enclosing function,
 later arguments/members and the enclosing call/construction are not executed.
 Those unreachable generic calls do not create concrete instances.
+The same termination rule applies to operators and runtime helper arguments.
+A short-circuit operator can still complete along the path that skips its right
+operand. A return during a while condition or assignment RHS exits the function
+before the loop branch or assignment commit.
 Branches that return or otherwise cannot complete do not contribute a value type
 to an if/match join. Unreachable source still receives semantic diagnostics.
 An unconditional loop completes only through a reachable break in that loop;

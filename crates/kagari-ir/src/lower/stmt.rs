@@ -54,7 +54,13 @@ impl FunctionLowerer<'_, '_> {
             }
             hir::StmtKind::Assign { target, value, op } => {
                 let location = self.prepare_place(target)?;
+                if self.current_block_terminated() {
+                    return Ok(());
+                }
                 let src = self.lower_expr(value)?;
+                if self.current_block_terminated() {
+                    return Ok(());
+                }
                 self.commit_place(location, op, src)?;
                 Ok(())
             }
@@ -101,13 +107,16 @@ impl FunctionLowerer<'_, '_> {
         body: hir::BlockId,
     ) -> Result<(), IrLoweringError> {
         let cond_block = self.new_block();
-        let body_block = self.new_block();
-        let exit_block = self.new_block();
 
         self.ensure_jump(cond_block);
 
         self.switch_to_block(cond_block);
         let cond = self.lower_expr(condition)?;
+        if self.current_block_terminated() {
+            return Ok(());
+        }
+        let body_block = self.new_block();
+        let exit_block = self.new_block();
         self.set_terminator(Terminator::Branch {
             cond,
             then_block: body_block,

@@ -214,6 +214,36 @@ fn returning_aggregate_member_stops_later_members() {
 }
 
 #[test]
+fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
+    for expression in [
+        "(if true { return 42; } else { return 7; }) == grow(1)",
+        "type_of(if true { return 42; } else { return 7; })",
+    ] {
+        let analyzed = common::analyze_ok(&format!(
+            "fn grow<T>(x: T) {{ grow((x, x)); }} fn main() -> i32 {{ {expression}; }}"
+        ));
+        let ir = lower_to_ir(
+            &analyzed,
+            &crate::IrLoweringOptions {
+                max_generic_instances: 0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ir.functions.len(), 1);
+        assert!(
+            ir.functions[0]
+                .blocks
+                .iter()
+                .filter(|block| matches!(block.terminator, Some(Terminator::Unreachable)))
+                .all(|block| block.instructions.is_empty()),
+            "{expression}"
+        );
+        crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    }
+}
+
+#[test]
 fn recursive_instantiation_reuses_the_current_instance() {
     let analyzed = common::analyze_ok(
         "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }",

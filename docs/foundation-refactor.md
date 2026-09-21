@@ -682,6 +682,11 @@ Implemented foundation slices:
   control flow. Later generic calls no longer consume the instance budget, and
   terminating initializers do not emit a local store. Tests cover Tuple, Array,
   enum and Struct members, empty unreachable joins and source/artifact/JIT routes.
+  Primitive operators and reflection helpers now propagate terminating operands
+  too. Short-circuit joins preserve the path that skips the right operand;
+  terminating while conditions and assignment RHS expressions retain their return
+  instead of emitting a branch or write. Tests cover both short-circuit outcomes,
+  helper suppression and unreachable generic operands across execution routes.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite
