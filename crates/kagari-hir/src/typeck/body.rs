@@ -530,7 +530,11 @@ impl<'a> BodyChecker<'a> {
                 let inner = self.infer_expr_type(*expr, env);
                 match op {
                     PrefixOp::Neg => {
-                        if !inner.is_unresolved() && !surface::supports_unary_negation(&inner) {
+                        if super::constraints::known_type_violates_constraint(
+                            &inner,
+                            StandardTypeConstraint::SignedNumber,
+                            &env.generic_bounds,
+                        ) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                                     operator: "-",

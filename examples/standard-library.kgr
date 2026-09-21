@@ -40,6 +40,7 @@ fn read_cell<T>(cell: Cell<T>) -> T { cell.value }
 fn type_of(value: i32) -> i32 { value + 1 }
 
 // Private generic templates become concrete reachable instances at compilation.
+fn negate<T: SignedNumber>(value: T) -> T { -value }
 fn add<T: OrderedNumber>(lhs: T, rhs: T) -> T { lhs + rhs }
 pub fn add_i32(lhs: i32, rhs: i32) -> i32 { add(lhs, rhs) }
 
@@ -47,6 +48,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert_eq(partial_marker((Marker { value: 42 }, true)), 42, "known member context beside inferred generic");
     val partial = PartialMarker { pair: (Marker { value: 42 }, true) };
     std::debug::assert_eq(partial.pair[0].value, 42, "partial field context");
+    std::debug::assert_eq(negate(-42), 42, "generic signed-number negation");
     val markers: [Marker<i32>] = [];
     markers.push(Marker { value: 42 });
     std::debug::assert_eq(markers[0].value, 42, "container supplies constructor context");

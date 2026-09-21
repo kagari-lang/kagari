@@ -400,3 +400,11 @@ fn standard_container_context_executes_through_methods_and_qualified_calls() {
         42,
     );
 }
+
+#[test]
+fn generic_negation_executes_using_checked_signed_number_bounds() {
+    execute_contextual_source(
+        "fn negate<T: SignedNumber>(value: T) -> T { -value } fn forward<T>(value: T) -> T where T: SignedNumber { negate(value) } fn main() -> i32 { forward(-20) + negate(-22) }",
+        42,
+    );
+}

@@ -1439,3 +1439,52 @@ fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn unary_negation_uses_declared_signed_bounds_and_known_recovery_shapes() {
+    for (source, valid, unary_error) in [
+        (
+            "fn negate<T: SignedNumber>(value: T) -> T { -value }",
+            true,
+            false,
+        ),
+        (
+            "fn negate<T>(value: T) -> T where T: SignedNumber { -value }",
+            true,
+            false,
+        ),
+        ("fn negate<T>(value: T) -> T { -value }", false, true),
+        (
+            "fn negate<T: OrderedNumber>(value: T) -> T { -value }",
+            false,
+            true,
+        ),
+        (
+            "fn negate<T: SignedNumber>(value: T) -> T { -value } fn call(value: u32) -> u32 { negate(value) }",
+            false,
+            false,
+        ),
+        ("fn bad() { -missing; }", false, false),
+        ("fn bad() { -(1, missing); }", false, true),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new("unary-bounds.kgr", source),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::UnaryOperandTypeMismatch { .. }
+            )),
+            unary_error,
+            "{source}"
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}

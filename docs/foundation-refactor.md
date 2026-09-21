@@ -345,6 +345,12 @@ Implemented foundation slices:
   when any member is erroneous. Equality checks known Comparable members on both
   sides; numeric and logical operations reject known incompatible shapes even
   beside an unknown operand. Erroneous expressions still cannot pass codegen.
+  Unary negation now consumes declaration-owned SignedNumber bounds, including
+  where clauses and forwarded generic calls. Unconstrained/OrderedNumber-only
+  binders and unsigned instantiations remain invalid. Known nonnumeric composite
+  shapes still diagnose beside error members; whole error operands do not cascade.
+  Source/artifact/JIT execution and the standard-library example cover generic
+  negation without a separate runtime implementation.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

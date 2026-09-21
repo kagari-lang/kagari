@@ -36,6 +36,10 @@ arguments. This applies equally to methods and qualified functions, with the
 receiver (or first explicit container argument) checked first. Set algebra uses
 the receiver Set type, and Option/Result `unwrap_or` uses the payload type for its
 fallback. Context does not coerce incompatible arguments or infer backwards.
+Unary `-` accepts a generic operand constrained by `SignedNumber`, including
+where-clause and forwarded bounds. `OrderedNumber` alone does not suffice because
+it also permits unsigned numbers. Concrete instantiations retain ordinary checked
+negation semantics.
 String length uses `len_bytes()` or `len_chars()`; the obsolete standalone
 `String.len()` path is removed without an alias.
 It describes language-level standard capabilities and standard modules, not host application APIs.
