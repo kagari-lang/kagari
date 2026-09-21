@@ -113,6 +113,23 @@ fn empty_container_context_reaches_returns_fields_and_arguments() {
     );
 }
 
+#[test]
+fn constructor_members_propagate_context_in_source_order() {
+    execute_contextual_source(
+        r#"
+        struct Marker<T> { val value: i32 }
+        struct Bundle<T> { val seed: T, val marker: Marker<T> }
+        enum Packet<T> { Data(T, Marker<T>) }
+        fn main() -> i32 {
+            val bundle = Bundle { seed: 20, marker: Marker { value: 22 } };
+            val packet = Packet::Data(true, Marker { value: 7 });
+            if packet == packet { bundle.seed + bundle.marker.value } else { 0 }
+        }
+    "#,
+        42,
+    );
+}
+
 fn execute_contextual_source(source: &str, expected: i32) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();

@@ -3,6 +3,51 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn earlier_constructor_members_supply_context_to_later_members() {
+    for (body, valid) in [
+        (
+            "fn main() { Fixed { marker: Marker { value: 7 }, seed: 1 }; }",
+            true,
+        ),
+        (
+            "fn main() { Bundle { seed: 1, marker: Marker { value: 7 } }; }",
+            true,
+        ),
+        (
+            "fn main() { Packet::Data(true, Marker { value: 7 }); }",
+            true,
+        ),
+        (
+            "fn forward<T>(seed: T) { Bundle { seed: seed, marker: Marker { value: 7 } }; Packet::Data(seed, Marker { value: 7 }); }",
+            true,
+        ),
+        (
+            "fn main() { Bundle { seed: 1, marker: Marker { value: false } }; }",
+            false,
+        ),
+        (
+            "fn main() { Packet::Data(true, Marker { value: false }); }",
+            false,
+        ),
+    ] {
+        let source = SourceFile::new(
+            "member-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} struct Bundle<T> {{ val seed: T, val marker: Marker<T> }} struct Fixed<T> {{ val marker: Marker<bool>, val seed: T }} enum Packet<T> {{ Data(T, Marker<T>) }} {body}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
     for (source, valid) in [
         (

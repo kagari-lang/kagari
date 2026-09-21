@@ -394,6 +394,9 @@ same expected-type context in every expression position. Constructor arity and
 container kind must still match; context does not coerce incompatible elements.
 Local container annotations enforce the same `HashKey` requirements as function
 signatures, including nested containers and forwarded generic constraints.
+Struct fields and enum payloads also update inference in source order: an earlier
+member can supply context to a later nested constructor. A member whose type is
+already known does not wait for unrelated generic parameters to be inferred.
 
 ```ebnf
 type            ::= path generic_args?

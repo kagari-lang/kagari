@@ -1547,25 +1547,28 @@ impl<'a> BodyChecker<'a> {
                     .zip(nominal.arguments.iter().cloned()),
             );
         }
-        let actual = args
+        let caller_parameters = env
+            .generics
             .iter()
-            .enumerate()
-            .map(|(index, argument)| {
-                let expected = variant
-                    .as_ref()
-                    .and_then(|variant| variant.payload.get(index))
-                    .filter(|_| substitution.len() == generic_params.len())
-                    .map(|ty| ty.instantiate(&substitution));
-                (
-                    *argument,
-                    self.infer_expr_type_expected(*argument, env, expected.as_ref()),
-                )
-            })
+            .filter_map(|parameter| self.declarations.generic_type(parameter.id))
             .collect::<Vec<_>>();
-        if let Some(variant) = &variant {
-            for (expected, (_, actual)) in variant.payload.iter().zip(&actual) {
-                super::inference::infer(expected, actual, &generic_params, &mut substitution);
+        let mut actual = Vec::with_capacity(args.len());
+        for (index, argument) in args.iter().enumerate() {
+            let parameter = variant
+                .as_ref()
+                .and_then(|variant| variant.payload.get(index));
+            let expected = parameter.map(|ty| ty.instantiate(&substitution));
+            let ty = self.infer_expr_type_expected(
+                *argument,
+                env,
+                expected
+                    .as_ref()
+                    .filter(|ty| ty.is_resolved_in(&caller_parameters)),
+            );
+            if let Some(parameter) = parameter {
+                super::inference::infer(parameter, &ty, &generic_params, &mut substitution);
             }
+            actual.push((*argument, ty));
         }
         let arguments = generic_params
             .iter()
@@ -2210,31 +2213,34 @@ impl<'a> BodyChecker<'a> {
                     .zip(nominal.arguments.iter().cloned()),
             );
         }
-        let field_tys = fields
+        let caller_parameters = env
+            .generics
             .iter()
-            .map(|field| {
-                let expected = struct_def
-                    .fields
-                    .iter()
-                    .find(|member| member.name == field.name)
-                    .filter(|_| substitution.len() == struct_def.generic_params.len())
-                    .map(|member| member.ty.instantiate(&substitution));
-                (
-                    field.name.as_str(),
-                    field.value,
-                    self.infer_expr_type_expected(field.value, env, expected.as_ref()),
-                )
-            })
+            .filter_map(|parameter| self.declarations.generic_type(parameter.id))
             .collect::<Vec<_>>();
-        for (name, _, actual) in &field_tys {
-            if let Some(field) = struct_def.fields.iter().find(|field| field.name == *name) {
+        let mut field_tys = Vec::with_capacity(fields.len());
+        for field in fields {
+            let parameter = struct_def
+                .fields
+                .iter()
+                .find(|member| member.name == field.name);
+            let expected = parameter.map(|member| member.ty.instantiate(&substitution));
+            let actual = self.infer_expr_type_expected(
+                field.value,
+                env,
+                expected
+                    .as_ref()
+                    .filter(|ty| ty.is_resolved_in(&caller_parameters)),
+            );
+            if let Some(parameter) = parameter {
                 super::inference::infer(
-                    &field.ty,
-                    actual,
+                    &parameter.ty,
+                    &actual,
                     &struct_def.generic_params,
                     &mut substitution,
                 );
             }
+            field_tys.push((field.name.as_str(), field.value, actual));
         }
         let arguments = struct_def
             .generic_params

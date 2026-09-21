@@ -662,6 +662,10 @@ Implemented foundation slices:
   Local container annotations now share the signature HashKey validator. Invalid
   scalar keys, nested key types and unconstrained generic keys reject in HIR;
   properly constrained generic keys remain valid.
+  Struct fields and enum payloads now update substitutions after each source-order
+  member, supplying context to later nested constructors. Known member types no
+  longer wait for unrelated binders. HIR and source/artifact/JIT fixtures cover
+  phantom payloads, caller-owned binders and rejected member mismatches.
   The checker still treats a function without a tail expression as returning Unit
   even when an explicit return terminates it; control-flow completion remains open.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR

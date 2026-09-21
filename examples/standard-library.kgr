@@ -4,6 +4,7 @@ const MIN_I32: i32 = -2147483648;
 enum Sample { Empty, Count(i32), Values([i32]) }
 struct Cell<T> { var value: T }
 struct Marker<T> { val value: i32 }
+struct SeededMarker<T> { val seed: T, val marker: Marker<T> }
 fn make_marker() -> Marker<bool> { Marker { value: 42 } }
 enum Packet<T> { Data(T) }
 enum Token<T> { Empty }
@@ -37,6 +38,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };
+    val seeded = SeededMarker { seed: true, marker: Marker { value: 42 } };
+    std::debug::assert_eq(seeded.marker.value, 42, "preceding field supplies constructor context");
     val keys: Set<i32> = empty_keys();
     std::debug::assert(keys.is_empty(), "forwarded HashKey annotation constraint");
     var assigned: Marker<bool> = make_marker();
