@@ -2194,9 +2194,6 @@ impl<'a> BodyChecker<'a> {
         rhs_ty: TypeId,
         env: &BodyTypeEnv,
     ) -> TypeId {
-        if lhs_ty.is_unresolved() || rhs_ty.is_unresolved() {
-            return TypeId::Error;
-        }
         match op {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
                 if !self.matching_numeric_operands(&lhs_ty, &rhs_ty, env) {
@@ -2208,15 +2205,23 @@ impl<'a> BodyChecker<'a> {
                         rhs_expr,
                     );
                 }
-                lhs_ty
+                if matches!(lhs_ty, TypeId::Unknown | TypeId::Error)
+                    || matches!(rhs_ty, TypeId::Unknown | TypeId::Error)
+                {
+                    TypeId::Error
+                } else {
+                    lhs_ty
+                }
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
-                if lhs_ty != rhs_ty
-                    || !super::constraints::type_satisfies_standard_constraint(
-                        &lhs_ty,
-                        StandardTypeConstraint::Comparable,
-                        &env.generic_bounds,
-                    )
+                if lhs_ty.conflicts_with(&rhs_ty)
+                    || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
+                        super::constraints::known_type_violates_constraint(
+                            ty,
+                            StandardTypeConstraint::Comparable,
+                            &env.generic_bounds,
+                        )
+                    })
                 {
                     self.emit_binary_operand_type_mismatch(
                         op, "matching", &lhs_ty, &rhs_ty, rhs_expr,
@@ -2237,8 +2242,8 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Bool)
             }
             BinaryOp::AndAnd | BinaryOp::OrOr => {
-                if lhs_ty != TypeId::Builtin(BuiltinType::Bool)
-                    || rhs_ty != TypeId::Builtin(BuiltinType::Bool)
+                if lhs_ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool))
+                    || rhs_ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool))
                 {
                     self.emit_binary_operand_type_mismatch(op, "bool", &lhs_ty, &rhs_ty, rhs_expr);
                 }
@@ -2248,6 +2253,17 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn matching_numeric_operands(&self, lhs: &TypeId, rhs: &TypeId, env: &BodyTypeEnv) -> bool {
+        if matches!(lhs, TypeId::Unknown | TypeId::Error)
+            || matches!(rhs, TypeId::Unknown | TypeId::Error)
+        {
+            return ![lhs, rhs].into_iter().any(|ty| {
+                super::constraints::known_type_violates_constraint(
+                    ty,
+                    StandardTypeConstraint::OrderedNumber,
+                    &env.generic_bounds,
+                )
+            });
+        }
         surface::supports_arithmetic(lhs, rhs)
             || (lhs == rhs
                 && matches!(lhs, TypeId::Generic(_))

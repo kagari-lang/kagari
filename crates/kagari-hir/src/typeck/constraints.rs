@@ -302,6 +302,28 @@ pub(super) fn type_satisfies_standard_constraint(
     }
 }
 
+/// Recovery holes do not decide a constraint, but known siblings still can fail it.
+pub(super) fn known_type_violates_constraint(
+    ty: &TypeId,
+    constraint: StandardTypeConstraint,
+    bounds: &super::GenericBounds,
+) -> bool {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        match ty {
+            TypeId::Unknown | TypeId::Error => {}
+            TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. }
+                if constraint == StandardTypeConstraint::Comparable =>
+            {
+                pending.extend(members)
+            }
+            _ if !type_satisfies_standard_constraint(ty, constraint, bounds) => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 pub(super) fn standard_constraint_reason(constraint: StandardTypeConstraint) -> &'static str {
     match constraint {
         StandardTypeConstraint::HashKey => {

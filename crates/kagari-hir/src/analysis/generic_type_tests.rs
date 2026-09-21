@@ -1393,3 +1393,49 @@ fn standard_set_and_result_context_preserves_concrete_receiver_arguments() {
         assert!(analysis.into_codegen().is_ok());
     }
 }
+
+#[test]
+fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
+    for (expression, mismatch) in [
+        ("missing == 1", false),
+        ("missing < 1", false),
+        ("missing < true", true),
+        ("(view, missing) == (view, true)", true),
+        ("missing && true", false),
+        ("missing || 1", true),
+        ("(1, missing) == (1, true)", false),
+        ("(1, missing) == (false, true)", true),
+        ("(1, missing) < (1, true)", true),
+    ] {
+        let source = SourceFile::new(
+            "operator-recovery.kgr",
+            format!(
+                "trait View {{}} fn bad(view: View) {{ val result = {expression}; result; }} fn good() -> i32 {{ 42 }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().len(),
+            1 + usize::from(mismatch),
+            "{expression}: {:?}",
+            analysis.diagnostics()
+        );
+        let facts = analysis.facts();
+        let result = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, expr)| {
+                matches!(&expr.kind, crate::hir::ExprKind::Name { name, .. } if name == "result")
+                    .then(|| facts.typed.type_table.expr_type(id))
+                    .flatten()
+            });
+        assert_eq!(
+            result,
+            Some(TypeId::Builtin(BuiltinType::Bool)),
+            "{expression}"
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}

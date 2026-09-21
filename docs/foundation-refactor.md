@@ -340,6 +340,11 @@ Implemented foundation slices:
   Constructor positive/negative cases and source/artifact/JIT execution verify
   Array and Map mutation plus Option fallback; the standard-library example
   includes a context-inferred generic element constructor.
+  Binary recovery preserves bool results for comparison/logical operators and
+  checks independent known operand conflicts rather than discarding all facts
+  when any member is erroneous. Equality checks known Comparable members on both
+  sides; numeric and logical operations reject known incompatible shapes even
+  beside an unknown operand. Erroneous expressions still cannot pass codegen.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

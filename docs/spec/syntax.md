@@ -405,6 +405,10 @@ error receiver suppresses dependent missing-member diagnostics.
 Similarly, a partially erroneous Tuple remains a known noninteger index and
 produces an invalid-index diagnostic in addition to its member error. An index
 whose entire type is unknown or erroneous suppresses that dependent diagnostic.
+Comparison and logical expressions retain their bool result type for tooling even
+when operands contain errors. Known operand conflicts and equality-capability
+failures remain diagnostic; unknown positions alone do not create duplicate
+operator errors. Recovery types do not authorize code generation.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the
