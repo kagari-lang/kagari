@@ -4,6 +4,13 @@ use kagari_common::SourceFile;
 fn function_fallthrough_is_checked_only_when_reachable() {
     for (body, valid) in [
         ("return 42;", true),
+        ("match true { _ => 42, _ => false }", true),
+        ("match true { value => 42, _ => false }", true),
+        (
+            "match true { _ => if true { return 42; } else { return 7; }, _ => false };",
+            true,
+        ),
+        ("match true { _ => 42, _ => missing }", false),
         ("return 42; false", true),
         ("if true { return 42; } else { return 7; };", true),
         ("if true { return 42; } else { 7 }", true),

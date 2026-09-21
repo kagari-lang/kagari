@@ -540,6 +540,10 @@ before the loop branch or assignment commit.
 If evaluation of an assignment target's receiver or index returns, no target
 location is produced. Remaining indexes, the RHS and the final write are skipped
 for both ordinary and compound assignment.
+Match arms are considered in source order. A wildcard or binding pattern matches
+every remaining value, so subsequent arms cannot contribute result types or
+completion paths and do not generate concrete generic instances. Their source
+still receives independent name and expression diagnostics.
 Branches that return or otherwise cannot complete do not contribute a value type
 to an if/match join. Unreachable source still receives semantic diagnostics.
 An unconditional loop completes only through a reachable break in that loop;

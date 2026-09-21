@@ -2,6 +2,18 @@ use kagari_common::SourceFile;
 use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine};
 
 #[test]
+fn irrefutable_match_stops_before_unreachable_generic_arms() {
+    for (pattern, result) in [("_", "42"), ("value", "value")] {
+        execute_contextual_source(
+            &format!(
+                "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn main() -> i32 {{ match 42 {{ {pattern} => {result}, _ => grow(1) }} }}"
+            ),
+            42,
+        );
+    }
+}
+
+#[test]
 fn explicit_returns_execute_without_a_synthetic_unit_result() {
     execute_contextual_source(
         r#"

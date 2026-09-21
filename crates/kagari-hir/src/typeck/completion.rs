@@ -116,10 +116,14 @@ impl Completion<'_> {
                     .either(else_branch.map_or(Exits::NORMAL, |expr| self.expr(expr))),
             ),
             ExprKind::Match { scrutinee, arms } => {
-                self.expr(*scrutinee)
-                    .then(arms.iter().fold(Exits::default(), |exits, arm| {
-                        exits.either(self.expr(arm.expr))
-                    }))
+                let mut exits = Exits::default();
+                for arm in arms {
+                    exits = exits.either(self.expr(arm.expr));
+                    if self.module.pattern(arm.pattern).kind.is_irrefutable() {
+                        break;
+                    }
+                }
+                self.expr(*scrutinee).then(exits)
             }
             ExprKind::StructInit { fields, .. } => {
                 fields.iter().fold(Exits::NORMAL, |exits, field| {

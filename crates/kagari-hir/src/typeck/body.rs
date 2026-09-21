@@ -666,8 +666,18 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 let scrutinee_ty = self.infer_expr_type(*scrutinee, env);
                 let mut result: Option<TypeId> = None;
+                let mut reachable = true;
                 for arm in arms {
                     let found = self.infer_match_arm_type(arm, &scrutinee_ty, env, expected);
+                    if !reachable {
+                        continue;
+                    }
+                    reachable = !self
+                        .lowered
+                        .module
+                        .pattern(arm.pattern)
+                        .kind
+                        .is_irrefutable();
                     if !super::completion::expr_can_complete(
                         &self.lowered.module,
                         arm.expr,

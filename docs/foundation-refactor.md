@@ -692,6 +692,11 @@ Implemented foundation slices:
   that result before evaluating further indexes, RHS expressions or writes.
   Nested-index and temporary-root regressions cover assignment and compound
   assignment, with unreachable generic instances forbidden by a zero budget.
+  Match wildcard and binding patterns now share an irrefutability predicate.
+  Later arms retain independent diagnostics but do not contribute result types,
+  completion paths or generated instances. Named and wildcard arms share their
+  IR body lowering; regressions cover shadowed generic recursion and bindings
+  across source/artifact/JIT execution.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

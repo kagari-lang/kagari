@@ -165,6 +165,25 @@ fn unreachable_calls_after_return_do_not_create_instances() {
 }
 
 #[test]
+fn irrefutable_match_arms_stop_unreachable_instantiation() {
+    for pattern in ["_", "value"] {
+        let analyzed = common::analyze_ok(&format!(
+            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn main() -> i32 {{ match 42 {{ {pattern} => 42, _ => grow(1) }} }}"
+        ));
+        let ir = lower_to_ir(
+            &analyzed,
+            &crate::IrLoweringOptions {
+                max_generic_instances: 0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ir.functions.len(), 1);
+        crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    }
+}
+
+#[test]
 fn returning_call_argument_stops_later_arguments_and_instantiation() {
     let analyzed = common::analyze_ok(
         "fn grow<T>(x: T) { grow((x, x)); } fn take<T>(first: (), second: T) {} fn main() -> i32 { take(if true { return 42; } else { return 7; }, grow(1)); }",

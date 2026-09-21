@@ -274,6 +274,13 @@ impl FunctionLowerer<'_, '_> {
         let mut decision_block = self.current_block;
 
         for arm in arms {
+            let irrefutable = self
+                .analyzed
+                .lowered
+                .module
+                .pattern(arm.pattern)
+                .kind
+                .is_irrefutable();
             let arm_block = self.new_block();
             let next_decision = self.new_block();
 
@@ -328,17 +335,6 @@ impl FunctionLowerer<'_, '_> {
                         local: ir_local,
                         src: scrutinee_temp,
                     });
-                    let arm_value = self.lower_expr(arm.expr)?;
-                    if !self.current_block_terminated() {
-                        self.emit(Instruction::Move {
-                            dst: result,
-                            src: arm_value,
-                        });
-                        self.set_terminator(Terminator::Jump(exit_block));
-                    }
-
-                    decision_block = next_decision;
-                    continue;
                 }
             }
 
@@ -353,6 +349,9 @@ impl FunctionLowerer<'_, '_> {
             }
 
             decision_block = next_decision;
+            if irrefutable {
+                break;
+            }
         }
 
         self.switch_to_block(decision_block);
