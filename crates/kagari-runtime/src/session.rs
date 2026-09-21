@@ -11,9 +11,18 @@ use crate::{
     ResourcePolicy, ResourceState, RuntimeError, RuntimeErrorKind, SecurityContext,
 };
 
+/// Restrictions attached to the root session and inherited by synchronous reentry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExecutionPhase {
+    #[default]
+    Ordinary,
+    CandidateInitialization,
+}
+
 /// Host-selected inputs for a root call. Nested entries inherit the active inputs.
 #[derive(Debug, Clone, Default)]
 pub struct ExecutionOptions {
+    pub phase: ExecutionPhase,
     pub security: SecurityContext,
     pub host_exposure: Rc<HostExposurePolicy>,
     pub resources: ResourcePolicy,

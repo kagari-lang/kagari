@@ -213,3 +213,128 @@ fn zero_wall_budget_rejects_before_initialization_or_counter_charges() {
         kagari_runtime::ModuleInitializationState::Uninitialized
     );
 }
+
+#[test]
+fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session() {
+    use kagari_common::host_interface::{
+        HostFunctionDeclaration, HostFunctionEffects, HostValueType,
+    };
+    use kagari_runtime::{ExecutionPhase, HostExposurePolicy, host::HostFunction};
+    use std::{cell::Cell, rc::Rc};
+
+    let mut runtime = Runtime::default();
+    let mut security = runtime.security();
+    security.profile.allow_host_calls = true;
+    security.capabilities.host_calls = true;
+    runtime.set_security_context(security);
+    runtime.set_host_exposure_policy(HostExposurePolicy {
+        allow_host_functions: true,
+        ..Default::default()
+    });
+    let calls = Rc::new(Cell::new(0));
+    for (symbol, effects) in [
+        (
+            "pure",
+            HostFunctionEffects {
+                may_allocate: true,
+                may_trap: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "service",
+            HostFunctionEffects {
+                may_call_host_services: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "mutation",
+            HostFunctionEffects {
+                may_mutate_host_state: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "suspend",
+            HostFunctionEffects {
+                may_suspend: true,
+                ..Default::default()
+            },
+        ),
+    ] {
+        let mut declaration = HostFunctionDeclaration::new(symbol, vec![], HostValueType::Unit);
+        declaration.effects = effects;
+        let calls = calls.clone();
+        runtime
+            .register_host_function(HostFunction::new(declaration, move |_, _| {
+                calls.set(calls.get() + 1);
+                Ok(Value::Unit)
+            }))
+            .unwrap();
+    }
+    let module = load(&mut runtime, "main");
+    let mut options = runtime.execution_options();
+    options.phase = ExecutionPhase::CandidateInitialization;
+    let outer = runtime.begin_execution(&module, options).unwrap();
+    let mut nested_options = runtime.execution_options();
+    nested_options.phase = ExecutionPhase::Ordinary;
+    let nested = runtime.begin_execution(&module, nested_options).unwrap();
+    drop(outer);
+    assert_eq!(
+        runtime.execution_options().phase,
+        ExecutionPhase::CandidateInitialization
+    );
+    runtime.invoke_host("pure", &[]).unwrap();
+    let before = runtime.resources().counters();
+    for symbol in ["service", "mutation", "suspend"] {
+        assert_eq!(
+            runtime.invoke_host(symbol, &[]).unwrap_err().kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
+    }
+    // Reject before descriptor lookup, argument traversal, adapters or dirty records.
+    let missing = kagari_runtime::HostPathDescriptorId::new(99);
+    assert_eq!(
+        runtime
+            .read_host_path(&Value::Unit, missing, vec![])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::CapabilityDenied
+    );
+    assert_eq!(
+        runtime
+            .set_host_path(&Value::Unit, missing, vec![], Value::Unit)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::CapabilityDenied
+    );
+    assert!(runtime.host_dirty_paths().is_empty());
+    assert_eq!(runtime.resources().counters(), before);
+    assert_eq!(calls.get(), 1);
+    drop(nested);
+    assert_eq!(runtime.execution_options().phase, ExecutionPhase::Ordinary);
+    runtime.invoke_host("mutation", &[]).unwrap();
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
+fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
+    use kagari_runtime::ExecutionPhase;
+    let mut runtime = Runtime::default();
+    let module = load(&mut runtime, "main");
+    let _session = runtime
+        .begin_execution(&module, runtime.execution_options())
+        .unwrap();
+    let mut options = runtime.execution_options();
+    options.phase = ExecutionPhase::CandidateInitialization;
+    assert_eq!(
+        runtime
+            .begin_execution(&module, options)
+            .err()
+            .expect("ordinary session must reject candidate entry")
+            .kind(),
+        RuntimeErrorKind::CapabilityDenied
+    );
+    assert_eq!(runtime.execution_options().phase, ExecutionPhase::Ordinary);
+}

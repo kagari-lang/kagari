@@ -67,7 +67,8 @@ pub use security::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext,
 };
 pub use session::{
-    ExecutionCounters, ExecutionEvent, ExecutionObserver, ExecutionOptions, ExecutionSession,
+    ExecutionCounters, ExecutionEvent, ExecutionObserver, ExecutionOptions, ExecutionPhase,
+    ExecutionSession,
 };
 
 use crate::{
@@ -256,6 +257,7 @@ impl Runtime {
             return session.options.clone();
         }
         ExecutionOptions {
+            phase: ExecutionPhase::Ordinary,
             security: self.security,
             host_exposure: self.host_exposure.clone(),
             resources: self.resources.policy(),
@@ -270,6 +272,13 @@ impl Runtime {
     ) -> Result<ExecutionSession, RuntimeError> {
         self.validate_loaded_module(module)?;
         let state = if let Some(session) = self.resources.active_session() {
+            if options.phase == ExecutionPhase::CandidateInitialization
+                && session.options.phase != ExecutionPhase::CandidateInitialization
+            {
+                return Err(RuntimeError::capability_denied(
+                    "candidate initialization requires an isolated root session",
+                ));
+            }
             if !session
                 .root
                 .members()
@@ -551,6 +560,7 @@ impl Runtime {
         operation: host::HostPathOperation,
     ) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
         let Some(descriptor) = self.host.path_descriptor(descriptor_id) else {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor is not registered",
@@ -676,6 +686,21 @@ impl Runtime {
         Ok(())
     }
 
+    fn is_candidate_initialization(&self) -> bool {
+        self.resources
+            .active_session()
+            .is_some_and(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
+    }
+
+    fn reject_candidate_external_access(&self) -> Result<(), RuntimeError> {
+        if self.is_candidate_initialization() {
+            return Err(RuntimeError::capability_denied(
+                "external state access during candidate initialization",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn validate_host_function_boundary(&self, symbol: &str) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
         let function = self.host.function(symbol);
@@ -700,6 +725,18 @@ impl Runtime {
             return Ok(());
         };
         let metadata = function.declaration();
+        if self.is_candidate_initialization()
+            && (metadata.effects.may_call_host_services
+                || metadata.effects.may_mutate_host_state
+                || metadata.effects.may_suspend
+                || metadata.params.iter().any(|parameter| {
+                    parameter.passing != kagari_common::host_interface::HostPassingStyle::Owned
+                }))
+        {
+            return Err(RuntimeError::capability_denied(
+                "external host effects during candidate initialization",
+            ));
+        }
         self.validate_capabilities(metadata.capability_requirements)?;
         self.resources.consume_host_call()?;
         if let Some(cost) = metadata.resource_cost_hint {
@@ -755,6 +792,7 @@ impl Runtime {
 
     pub fn validate_path_mutation_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
         if self.security().allows_path_mutation() {
             Ok(())
         } else {
@@ -764,6 +802,7 @@ impl Runtime {
 
     pub fn validate_module_loading_boundary(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
         if self.security().allows_module_loading() {
             Ok(())
         } else {

@@ -529,6 +529,7 @@ pub struct ExecutionContext {
 impl ExecutionContext {
     fn runtime_options(&self) -> kagari_runtime::ExecutionOptions {
         kagari_runtime::ExecutionOptions {
+            phase: kagari_runtime::ExecutionPhase::Ordinary,
             security: self.security_context(),
             host_exposure: std::rc::Rc::new(self.host_policy.clone()),
             resources: self.resources,

@@ -452,6 +452,12 @@ Implemented foundation slices:
   guard removes every candidate member without changing the active entry. Runtime
   loading currently publishes immediately; VM-driven isolated initialization and
   effect restrictions still need to be connected to this staging boundary.
+  Root sessions now carry an initialization phase inherited by nested entries;
+  candidate sessions reject external-service, host-mutation, suspension and borrowed
+  host-call contracts before callbacks, and reject typed paths before adapters.
+  Ordinary sessions cannot silently absorb a candidate initialization request.
+  Pure host calls remain subject to normal permissions and budgets. Explicit
+  immutable configuration declarations and the VM reload orchestration remain pending.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints
