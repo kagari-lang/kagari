@@ -824,6 +824,14 @@ impl GcHeap {
         }) else {
             return true;
         };
+        self.validate_candidate_value_for(session.root.program_root().key(), value)
+    }
+
+    pub(crate) fn validate_candidate_value_for(
+        &self,
+        owner: crate::ModuleKey,
+        value: &Value,
+    ) -> bool {
         if !value.is_default_heap_payload() {
             return false;
         }
@@ -836,7 +844,7 @@ impl GcHeap {
                 return false;
             };
             matches!(object, HeapObject::Enum(_))
-                || objects[id.slot].initialization_owner == Some(session.root.program_root().key())
+                || objects[id.slot].initialization_owner == Some(owner)
         })
     }
 

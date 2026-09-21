@@ -536,3 +536,59 @@ fn candidate_module_state_access_is_limited_to_its_program() {
     );
     runtime.publish_staged_reload(candidate).unwrap();
 }
+
+#[test]
+fn publication_rechecks_objects_after_the_initialization_session_ends() {
+    let mut runtime = Runtime::default();
+    let old_object = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
+    let baseline = load(&mut runtime, "main");
+    for inject_external in [true, false] {
+        let candidate = runtime
+            .stage_reload_program(
+                &baseline,
+                "main",
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![baseline.bytecode.clone()],
+                },
+            )
+            .unwrap();
+        let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+        let local = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
+        runtime
+            .module_instance_mut(candidate.module())
+            .unwrap()
+            .init_result = Some(Value::Array(local));
+        drop(session);
+        if inject_external {
+            // A low-level driver can still mutate candidate state between phases.
+            runtime
+                .gc()
+                .array_push(local, Value::Array(old_object))
+                .unwrap();
+            let error = runtime.publish_staged_reload(candidate).unwrap_err();
+            assert!(
+                matches!(error, kagari_runtime::ReloadValidationError::Runtime(error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+            );
+            assert_eq!(
+                runtime.modules().latest("main").unwrap().key(),
+                baseline.key()
+            );
+            assert_eq!(runtime.resources().counters().loaded_modules, 1);
+        } else {
+            let current = runtime.publish_staged_reload(candidate).unwrap();
+            assert_eq!(
+                runtime
+                    .module_instance_snapshot(&current)
+                    .unwrap()
+                    .init_result,
+                Some(Value::Array(local))
+            );
+            runtime.collect_garbage().unwrap();
+            assert_eq!(
+                runtime.gc().array_snapshot(local).unwrap(),
+                vec![Value::I32(42)]
+            );
+        }
+    }
+}

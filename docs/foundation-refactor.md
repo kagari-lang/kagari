@@ -484,7 +484,11 @@ Implemented foundation slices:
   before shape traversal. Module snapshots and mutable instance borrows are limited
   to the candidate program at the store boundary. Public initialization operations
   reject external instances, while existing lifecycle guards retain an internal
-  failure-cleanup path. Remaining publication and other ingress paths need audit.
+  failure-cleanup path. Publication independently checks every candidate module slot
+  and initialization result against the candidate allocation owner after the session
+  ends. Late external references inside candidate containers reject publication and
+  release candidate quota without changing the active entry. Other ingress paths
+  and complete checkpoint acceptance remain under audit.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

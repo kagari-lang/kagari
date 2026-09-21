@@ -54,8 +54,9 @@ Reload consists of distinct operations:
 
 1. Prepare: compile, verify, link, check ABI/schema and retain the expected base.
 2. Initialize: construct isolated candidate instances and initialize dependencies.
-3. Publish: recheck the expected base and atomically replace the entry generation
-   for the selected runtime/publication unit.
+3. Publish: recheck the expected base, host bindings, initialization state and
+   candidate ownership of reachable module values, then atomically replace the
+   entry generation for the selected runtime/publication unit.
 
 Service candidate initialization permits pure computation, candidate-owned
 allocation and mutation, and explicit immutable configuration. It rejects real

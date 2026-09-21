@@ -1455,14 +1455,30 @@ impl Runtime {
             });
         }
         for member in program.module().members() {
-            if self
-                .modules
-                .instance_snapshot(member.key())
+            let instance = self.modules.instance_snapshot(member.key());
+            if instance
+                .as_ref()
                 .is_none_or(|instance| instance.state != ModuleInitializationState::Initialized)
             {
                 return Err(ReloadValidationError::Runtime(
                     RuntimeError::module_validation(
                         "reload candidate has not completed initialization",
+                    ),
+                ));
+            }
+            let instance = instance.expect("checked initialized instance");
+            if !instance
+                .module_slots
+                .iter()
+                .chain(instance.init_result.iter())
+                .all(|value| {
+                    self.gc
+                        .validate_candidate_value_for(program.module().key(), value)
+                })
+            {
+                return Err(ReloadValidationError::Runtime(
+                    RuntimeError::capability_denied(
+                        "external object in candidate module state at publication",
                     ),
                 ));
             }
