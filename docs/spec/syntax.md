@@ -381,8 +381,11 @@ to nested constructors; arity, payload types and generic bounds remain checked.
 Concrete parameter types of resolved local and imported functions supply argument
 context, including through source facades. Extra arguments are still checked.
 Trait methods use the same argument-context rules after substituting the receiver
-for `Self`. Only concrete parameter types supply context; inference involving
-unresolved callee generic parameters remains unimplemented.
+for `Self`. A local generic function call first infers from its expected result,
+then checks arguments in source order, making inferred concrete parameter types
+available to subsequent arguments. Later arguments do not yet provide context
+backwards to earlier constructors; parameter types containing unresolved generic
+binders do not supply argument context.
 
 ```ebnf
 type            ::= path generic_args?

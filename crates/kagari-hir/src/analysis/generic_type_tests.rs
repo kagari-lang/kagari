@@ -3,6 +3,39 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn generic_calls_use_result_context_and_preceding_arguments() {
+    for (body, valid) in [
+        (
+            "val marker: Marker<i32> = identity(Marker { value: 7 });",
+            true,
+        ),
+        ("val token: Token<bool> = empty();", true),
+        ("consume(1, Marker { value: 7 });", true),
+        (
+            "val marker: Marker<i32> = identity(Marker { value: true });",
+            false,
+        ),
+        ("val marker: Marker<i32> = identity(7);", false),
+        ("val token = empty();", false),
+    ] {
+        let source = SourceFile::new(
+            "generic-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} enum Token<T> {{ Empty }} fn identity<T>(value: T) -> T {{ value }} fn empty<T>() -> Token<T> {{ Token::Empty }} fn consume<T>(seed: T, marker: Marker<T>) {{}} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn trait_parameter_context_keeps_targets_through_invalid_payloads() {
     for (arguments, valid) in [
         ("Marker { value: 7 }, Token::Empty", true),

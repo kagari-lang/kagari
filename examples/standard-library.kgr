@@ -15,6 +15,8 @@ impl ReadMarker for MarkerReader {
     fn read(self, marker: Marker<bool>) -> i32 { self.offset + marker.value }
 }
 fn read_marker<T: ReadMarker>(reader: T) -> i32 { reader.read(Marker { value: 40 }) }
+fn identity<T>(value: T) -> T { value }
+fn empty_token<T>() -> Token<T> { Token::Empty }
 fn read_cell<T>(cell: Cell<T>) -> T { cell.value }
 
 // Declared functions take precedence over unqualified helper names.
@@ -28,6 +30,10 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };
+    val contextual: Marker<i32> = identity(Marker { value: 42 });
+    val inferred_token: Token<bool> = empty_token();
+    std::debug::assert_eq(contextual.value, 42, "generic result context");
+    std::debug::assert(inferred_token == token(), "phantom function result context");
     std::debug::assert_eq(read_marker(MarkerReader { offset: 2 }), 42, "trait parameter supplies constructor context");
     val empty: Token<bool> = Token::Empty();
     std::debug::assert(empty == token(), "enum context supplies phantom type argument");

@@ -597,7 +597,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     method_ty
                 } else {
-                    self.infer_function_call_type(expr_id, *callee, args, env)
+                    self.infer_function_call_type(expr_id, *callee, args, env, expected)
                 }
             }
             ExprKind::Field { receiver, name } => {
@@ -1624,6 +1624,7 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> TypeId {
         if let Some(imported) = self
             .names
@@ -1671,18 +1672,35 @@ impl<'a> BodyChecker<'a> {
             self.infer_call_args(args, env);
             return self.infer_expr_type(callee, env);
         };
-        let arg_tys =
-            self.infer_typed_args(args, function.params.iter().map(|p| p.ty.clone()), env);
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
         let mut substitution = crate::types::TypeSubstitution::new();
-        for (parameter, (_, actual)) in function.params.iter().zip(&arg_tys) {
+        if let Some(expected) = expected {
             super::inference::infer(
-                &parameter.ty,
-                actual,
+                &function.return_type,
+                expected,
                 &function.generic_params,
                 &mut substitution,
             );
+        }
+        let mut arg_tys = Vec::with_capacity(args.len());
+        for (index, argument) in args.iter().enumerate() {
+            let parameter = function.params.get(index);
+            let expected = parameter.map(|parameter| parameter.ty.instantiate(&substitution));
+            let actual = self.infer_expr_type_expected(
+                *argument,
+                env,
+                expected.as_ref().filter(|ty| ty.is_concrete()),
+            );
+            if let Some(parameter) = parameter {
+                super::inference::infer(
+                    &parameter.ty,
+                    &actual,
+                    &function.generic_params,
+                    &mut substitution,
+                );
+            }
+            arg_tys.push((*argument, actual));
         }
         let type_arguments = function
             .generic_params

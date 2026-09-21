@@ -27,6 +27,26 @@ fn trait_calls_use_checked_parameter_context() {
     );
 }
 
+#[test]
+fn generic_calls_propagate_result_and_preceding_argument_context() {
+    execute_contextual_source(
+        r#"
+        struct Marker<T> { val value: i32 }
+        enum Token<T> { Empty }
+        fn identity<T>(value: T) -> T { value }
+        fn empty<T>() -> Token<T> { Token::Empty }
+        fn consume<T>(seed: T, marker: Marker<T>) -> i32 { marker.value }
+        fn main() -> i32 {
+            val first: Marker<i32> = identity(Marker { value: 20 });
+            val token: Token<bool> = empty();
+            val expected: Token<bool> = Token::Empty;
+            if token == expected { first.value + consume(true, Marker { value: 22 }) } else { 0 }
+        }
+    "#,
+        42,
+    );
+}
+
 fn execute_contextual_source(source: &str, expected: i32) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();
