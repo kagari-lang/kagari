@@ -818,6 +818,11 @@ Implemented foundation slices:
   cancellation checks between type nodes. A synthetic 10,000-level Array input
   verifies traversal depth independently of parser limits, and a cancelled input
   produces no constraint diagnostics. Source-order constraint reporting is retained.
+  Generic instantiation now reconstructs templates and substitution values with
+  an explicit work stack. Inserted types preserve caller binders without applying
+  the same substitution again. A 10,000-level template and equally deep replacement
+  verify both paths; nominal-owner and ordered-member regressions remain in place.
+  Other recursive type operations and configurable depth limits remain R15 work.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

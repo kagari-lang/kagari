@@ -119,3 +119,36 @@ fn self_substitution_reaches_nested_nominal_arguments_without_replacing_foreign_
         "Item<i32, Item<Self>>"
     );
 }
+
+#[test]
+fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recursion() {
+    let parameter = GenericParameterType {
+        owner: definition("deep.kgr", DefinitionKind::Function),
+        position: 0,
+        name: "T".into(),
+    };
+    let mut template = TypeId::Generic(parameter.clone());
+    let mut replacement = TypeId::Generic(parameter.clone());
+    for _ in 0..10_000 {
+        template = TypeId::Array(Box::new(template));
+        replacement = TypeId::Array(Box::new(replacement));
+    }
+    let substitution = [(parameter.clone(), replacement)].into_iter().collect();
+    let result = template.instantiate(&substitution);
+    // Consume iteratively too: this test exercises substitution, not Rust's
+    // recursive derived Clone, equality, or destructor for arbitrary TypeIds.
+    fn consume(mut ty: TypeId, depth: usize, parameter: &GenericParameterType) {
+        for _ in 0..depth {
+            let TypeId::Array(inner) = ty else {
+                panic!("missing array layer")
+            };
+            ty = *inner;
+        }
+        assert_eq!(ty, TypeId::Generic(parameter.clone()));
+    }
+    consume(result, 20_000, &parameter);
+    consume(template, 10_000, &parameter);
+    for (_, replacement) in substitution {
+        consume(replacement, 10_000, &parameter);
+    }
+}

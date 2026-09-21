@@ -108,32 +108,82 @@ pub enum TypeId {
 impl TypeId {
     /// Substitute one binder layer; replacements can contain the caller's parameters.
     pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
-        match self {
-            Self::Struct(ty) => Self::Struct(ty.map_arguments(|arg| arg.instantiate(substitution))),
-            Self::Enum(ty) => Self::Enum(ty.map_arguments(|arg| arg.instantiate(substitution))),
-            Self::Trait(ty) => Self::Trait(ty.map_arguments(|arg| arg.instantiate(substitution))),
-            Self::Generic(parameter) => substitution
-                .get(parameter)
-                .cloned()
-                .unwrap_or_else(|| self.clone()),
-            Self::Tuple(elements) => Self::Tuple(
-                elements
-                    .iter()
-                    .map(|ty| ty.instantiate(substitution))
-                    .collect(),
-            ),
-            Self::Array(element) => Self::Array(Box::new(element.instantiate(substitution))),
-            Self::Map { key, value } => Self::Map {
-                key: Box::new(key.instantiate(substitution)),
-                value: Box::new(value.instantiate(substitution)),
-            },
-            Self::Set(element) => Self::Set(Box::new(element.instantiate(substitution))),
-            Self::StandardEnum { kind, args } => Self::StandardEnum {
-                kind: *kind,
-                args: args.iter().map(|ty| ty.instantiate(substitution)).collect(),
-            },
-            _ => self.clone(),
+        let mut result = Self::Unknown;
+        let mut pending = vec![(self, &mut result, true)];
+        while let Some((source, target, substitute)) = pending.pop() {
+            if let Self::Generic(parameter) = source
+                && substitute
+                && let Some(replacement) = substitution.get(parameter)
+            {
+                // Copy replacements without applying this binder again, even when
+                // the replacement contains another key in the substitution map.
+                pending.push((replacement, target, false));
+                continue;
+            }
+            *target = match source {
+                Self::Struct(ty) => Self::Struct(ty.map_arguments(|_| Self::Unknown)),
+                Self::Enum(ty) => Self::Enum(ty.map_arguments(|_| Self::Unknown)),
+                Self::Trait(ty) => Self::Trait(ty.map_arguments(|_| Self::Unknown)),
+                Self::Tuple(items) => Self::Tuple(vec![Self::Unknown; items.len()]),
+                Self::StandardEnum { kind, args } => Self::StandardEnum {
+                    kind: *kind,
+                    args: vec![Self::Unknown; args.len()],
+                },
+                Self::Array(_) => Self::Array(Box::new(Self::Unknown)),
+                Self::Set(_) => Self::Set(Box::new(Self::Unknown)),
+                Self::Map { .. } => Self::Map {
+                    key: Box::new(Self::Unknown),
+                    value: Box::new(Self::Unknown),
+                },
+                _ => source.clone(),
+            };
+            match (source, target) {
+                (Self::Struct(source), Self::Struct(target))
+                | (Self::Enum(source), Self::Enum(target))
+                | (Self::Trait(source), Self::Trait(target)) => {
+                    pending.extend(
+                        source
+                            .arguments
+                            .iter()
+                            .zip(&mut target.arguments)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (Self::Tuple(source), Self::Tuple(target))
+                | (
+                    Self::StandardEnum { args: source, .. },
+                    Self::StandardEnum { args: target, .. },
+                ) => {
+                    pending.extend(
+                        source
+                            .iter()
+                            .zip(target)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (Self::Array(source), Self::Array(target))
+                | (Self::Set(source), Self::Set(target)) => {
+                    pending.push((source, target, substitute));
+                }
+                (
+                    Self::Map {
+                        key: source_key,
+                        value: source_value,
+                    },
+                    Self::Map {
+                        key: target_key,
+                        value: target_value,
+                    },
+                ) => {
+                    pending.push((source_value, target_value, substitute));
+                    pending.push((source_key, target_key, substitute));
+                }
+                _ => {}
+            }
         }
+        result
     }
 
     pub fn is_concrete(&self) -> bool {
