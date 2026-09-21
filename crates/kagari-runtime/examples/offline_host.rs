@@ -1,25 +1,14 @@
-use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
-};
+use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
-    host::{HostError, HostFunction},
-    value::Value,
+    host::HostFunction, value::Value,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // This definition can be exported by a separate tool with no runtime or services.
-    let mut declaration = HostFunctionDeclaration::new(
-        "demo.echo",
-        vec![HostParameter {
-            name: "value".into(),
-            ty: HostValueType::I32,
-            passing: HostPassingStyle::Owned,
-        }],
-        HostValueType::I32,
-    );
-    declaration.effects.may_trap = true;
-    declaration.documentation = "Return the supplied integer.".into();
+    let mut declaration = HostFunctionDeclaration::new("demo.limit", vec![], HostValueType::I32);
+    declaration.effects.may_read_immutable_configuration = true;
+    declaration.documentation = "Read the immutable request limit snapshot.".into();
     let bytes = HostInterface {
         field_paths: vec![],
         types: Vec::new(),
@@ -40,14 +29,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["demo.echo".into()],
+            allowed_host_functions: vec!["demo.limit".into()],
             ..Default::default()
         },
         ..Default::default()
     });
-    runtime.register_host_function(HostFunction::new(declaration, |_, args| match args {
-        [Value::I32(value)] => Ok(Value::I32(*value)),
-        _ => Err(HostError::new("echo expects one i32")),
+    let immutable_limit = 42;
+    runtime.register_host_function(HostFunction::new(declaration, move |_, _| {
+        Ok(Value::I32(immutable_limit))
     }))?;
     let loaded = runtime.load_program(
         "offline-demo",
@@ -62,12 +51,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let binding = loaded
         .host_binding(kagari_ir::bytecode::HostImportId::new(0))
         .unwrap();
-    assert_eq!(
-        runtime.invoke_bound_host(binding, &[Value::I32(42)])?,
-        Value::I32(42)
-    );
+    assert_eq!(runtime.invoke_bound_host(binding, &[])?, Value::I32(42));
+    let candidate = runtime.stage_reload_program(
+        &loaded,
+        "offline-demo",
+        kagari_ir::bytecode::BytecodeProgram {
+            root: kagari_ir::bytecode::ModuleRef::new(0),
+            modules: vec![loaded.bytecode.clone()],
+        },
+    )?;
+    let initialization = runtime.begin_candidate_initialization(&candidate)?;
+    assert_eq!(runtime.invoke_bound_host(binding, &[])?, Value::I32(42));
+    drop(initialization);
+    runtime.publish_staged_reload(candidate)?;
     println!(
-        "offline interface: {} bytes; linked echo returned 42",
+        "offline interface: {} bytes; immutable configuration returned 42",
         bytes.len()
     );
     Ok(())

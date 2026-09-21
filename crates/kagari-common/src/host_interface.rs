@@ -8,7 +8,7 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 5;
+const VERSION: u16 = 6;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod path;
@@ -72,6 +72,9 @@ pub struct HostParameter {
 pub struct HostFunctionEffects {
     pub may_allocate: bool,
     pub may_trap: bool,
+    /// Reads only host-provided immutable configuration, with value-only inputs
+    /// and results. This does not authorize general service access or mutation.
+    pub may_read_immutable_configuration: bool,
     pub may_call_host_services: bool,
     pub may_mutate_host_state: bool,
     pub may_suspend: bool,
@@ -158,7 +161,33 @@ impl HostFunctionDeclaration {
                 return Err(HostInterfaceError::InvalidDeclaration);
             }
         }
-        validate_signature(&self.params, &self.return_type)
+        validate_signature(&self.params, &self.return_type)?;
+        if self.effects.may_read_immutable_configuration {
+            let mut pending = vec![&self.return_type];
+            for parameter in &self.params {
+                if parameter.passing != HostPassingStyle::Owned {
+                    return Err(HostInterfaceError::InvalidDeclaration);
+                }
+                pending.push(&parameter.ty);
+            }
+            while let Some(ty) = pending.pop() {
+                match ty {
+                    HostValueType::Tuple(elements) => pending.extend(elements),
+                    HostValueType::Option(element) => pending.push(element),
+                    HostValueType::Result { ok, error } => {
+                        pending.extend([ok.as_ref(), error.as_ref()])
+                    }
+                    HostValueType::Opaque(_)
+                    | HostValueType::Array(_)
+                    | HostValueType::Map { .. }
+                    | HostValueType::Set(_) => {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Fixed-width little-endian, declaration-order encoding, domain-separated
@@ -177,7 +206,7 @@ impl HostFunctionDeclaration {
             ))
             .map_err(|_| HostInterfaceError::Encoding)?;
         Ok(hash(
-            b"kagari-host-function-v2\0".iter().copied().chain(bytes),
+            b"kagari-host-function-v3\0".iter().copied().chain(bytes),
         ))
     }
 }

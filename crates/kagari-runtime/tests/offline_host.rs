@@ -349,3 +349,50 @@ fn invalid_registration_leaves_registry_unchanged() {
     );
     assert_eq!(runtime.host().interface().functions.len(), 1);
 }
+
+#[test]
+fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
+    let pure = declaration();
+    let mut configuration = pure.clone();
+    configuration.effects.may_read_immutable_configuration = true;
+    assert_ne!(
+        pure.fingerprint().unwrap(),
+        configuration.fingerprint().unwrap()
+    );
+    assert!(!pure.matches_binding(&configuration));
+    let interface = HostInterface {
+        functions: vec![configuration.clone()],
+        ..Default::default()
+    };
+    let bytes = interface.to_bytes().unwrap();
+    assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), interface);
+    let mut old = bytes.clone();
+    old[4..6].copy_from_slice(&5u16.to_le_bytes());
+    assert_eq!(
+        HostInterface::from_bytes(&old),
+        Err(HostInterfaceError::Version)
+    );
+    for result in [
+        HostValueType::Array(Box::new(HostValueType::I32)),
+        HostValueType::Tuple(vec![HostValueType::Set(Box::new(HostValueType::I32))]),
+        HostValueType::Option(Box::new(HostValueType::opaque("game.Object"))),
+    ] {
+        let mut invalid = configuration.clone();
+        invalid.return_type = result;
+        assert_eq!(
+            invalid.validate(),
+            Err(HostInterfaceError::InvalidDeclaration)
+        );
+    }
+    let mut invalid = configuration.clone();
+    invalid.params[0].ty = HostValueType::Array(Box::new(HostValueType::I32));
+    assert_eq!(
+        invalid.validate(),
+        Err(HostInterfaceError::InvalidDeclaration)
+    );
+    configuration.return_type = HostValueType::Option(Box::new(HostValueType::Tuple(vec![
+        HostValueType::String,
+        HostValueType::I32,
+    ])));
+    configuration.validate().unwrap();
+}

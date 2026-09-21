@@ -242,6 +242,13 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
             },
         ),
         (
+            "configuration",
+            HostFunctionEffects {
+                may_read_immutable_configuration: true,
+                ..Default::default()
+            },
+        ),
+        (
             "service",
             HostFunctionEffects {
                 may_call_host_services: true,
@@ -286,6 +293,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
         ExecutionPhase::CandidateInitialization
     );
     runtime.invoke_host("pure", &[]).unwrap();
+    runtime.invoke_host("configuration", &[]).unwrap();
     let before = runtime.resources().counters();
     for symbol in ["service", "mutation", "suspend"] {
         assert_eq!(
@@ -311,11 +319,11 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     );
     assert!(runtime.host_dirty_paths().is_empty());
     assert_eq!(runtime.resources().counters(), before);
-    assert_eq!(calls.get(), 1);
+    assert_eq!(calls.get(), 2);
     drop(nested);
     assert_eq!(runtime.execution_options().phase, ExecutionPhase::Ordinary);
     runtime.invoke_host("mutation", &[]).unwrap();
-    assert_eq!(calls.get(), 2);
+    assert_eq!(calls.get(), 3);
 }
 
 #[test]

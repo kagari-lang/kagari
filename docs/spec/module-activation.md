@@ -15,8 +15,8 @@ modules whose dependencies are ready, select the smallest package/path identity.
 Each reachable dependency occurs once. Cycle analysis uses explicit stacks and
 supports cancellation. The linked execution program preserves this dependency
 order and pins member versions for cross-module calls. Ordinary runtime
-initialization follows the program graph; isolated candidate initialization and
-publication remain R14 work.
+initialization follows the program graph. VM reload initializes a staged candidate
+in a restricted session before publication; failures discard the candidate.
 
 Each runtime owns an independent instance for each executable generation.
 Initialization runs at most once per instance, following:
@@ -60,6 +60,14 @@ Reload consists of distinct operations:
 Service candidate initialization permits pure computation, candidate-owned
 allocation and mutation, and explicit immutable configuration. It rejects real
 host-state modification, outgoing events, timers, and calls with unknown effects.
+The host effect `may_read_immutable_configuration` declares reads from a host-provided
+immutable snapshot. Configuration functions accept and return only scalars, String,
+Tuple, Option and Result composed of those values, with owned parameters. Shared
+containers and opaque handles are rejected at declaration validation. The host owns
+the snapshot and must keep it immutable; this effect does not authorize ordinary
+service access, mutation, suspension or borrowed host parameters. Those additional
+effects still cause candidate execution to reject the call.
+
 Candidate failure leaves the active entry and external business state unchanged.
 Ordinary CLI execution can grant explicit capabilities for effectful top-level
 code; those capabilities are not inherited by reload preparation.

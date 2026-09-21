@@ -157,7 +157,7 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 5, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 6, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. Function
 fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
@@ -165,9 +165,17 @@ documentation is excluded. Binding checks compare the complete contract rather
 than treating a matching fingerprint as sufficient evidence. Each value type uses
 a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child
 counts, trailing nodes, excessive depth and invalid Map/Set key types are rejected.
-The function fingerprint domain is `kagari-host-function-v2`; type, field and
+The function fingerprint domain is `kagari-host-function-v3`; type, field and
 method fingerprints have separate v1 domains. Member declaration order is retained
-because it determines runtime slots. Versions 1 through 4 are not decoded.
+because it determines runtime slots. Versions 1 through 5 are not decoded.
+
+`HostFunctionEffects::may_read_immutable_configuration` is part of the binding
+contract and function fingerprint. It permits snapshot configuration reads during
+candidate initialization, subject to normal host permissions. Inputs and results
+must be owned value-only shapes (scalars, String, Tuple, Option and Result);
+containers and opaque handles are rejected, including nested occurrences. The host
+must supply an immutable snapshot, not live mutable service state. Declaring this
+bit does not override any other forbidden effect.
 
 The source `print` entry and CLI log binding use the same `standard_log`
 declaration. Run `cargo run -p kagari-runtime --example offline_host` for an
@@ -569,7 +577,7 @@ or display strings. Types without such contracts reject registration. Field
 declaration fingerprints and the root contract exclude documentation. Reordering
 unrelated runtime type registrations therefore does not change a path fingerprint.
 
-KHI v5 stores `HostInterface.field_paths` as portable `HostFieldPathDeclaration`
+KHI v6 stores `HostInterface.field_paths` as portable `HostFieldPathDeclaration`
 records: nominal root, ordered field identities, access, schema epoch and required
 capabilities. Encoding sorts these records independently of registration order;
 duplicate records, invalid chains and chains longer than 256 fields are rejected.
