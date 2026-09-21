@@ -449,3 +449,80 @@ fn reflective_field_writes_check_declared_writeability_and_keep_rhs_context() {
         assert_eq!(analysis.into_codegen().is_ok(), !readonly);
     }
 }
+
+#[test]
+fn invalid_reflection_names_keep_helper_targets_and_precise_argument_diagnostics() {
+    for (helper, expression, code, count) in [
+        (
+            BuiltinFunction::GetField,
+            "get_field(point, name)",
+            "KG_TYPE_REFLECTION_FIELD_NAME_NOT_CONSTANT",
+            1,
+        ),
+        (
+            BuiltinFunction::GetField,
+            "get_field(point, true)",
+            "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
+            1,
+        ),
+        (
+            BuiltinFunction::GetField,
+            "get_field(point, missing)",
+            "KG_RESOLVE_UNKNOWN_NAME",
+            1,
+        ),
+        (
+            BuiltinFunction::SetField,
+            "set_field(point, name, missing)",
+            "KG_TYPE_REFLECTION_FIELD_NAME_NOT_CONSTANT",
+            2,
+        ),
+        (
+            BuiltinFunction::SetField,
+            "set_field(point, true, 7)",
+            "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
+            1,
+        ),
+        (
+            BuiltinFunction::SetField,
+            "set_field(point, missing, 7)",
+            "KG_RESOLVE_UNKNOWN_NAME",
+            1,
+        ),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "reflection-names.kgr",
+                format!(
+                    "struct Point {{ var x: i32 }} fn bad(name: String) {{ val point = Point {{ x: 1 }}; {expression}; }}"
+                ),
+            ),
+            crate::LanguageFeatureProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            analysis.diagnostics().len(),
+            count,
+            "{expression}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.diagnostics().iter().any(|d| d.kind.code() == code));
+        let facts = analysis.facts();
+        let (call, _) = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
+            .unwrap();
+        assert_eq!(
+            facts.typed.type_table.call_resolution(call).unwrap().target,
+            CallTarget::RuntimeHelper(helper)
+        );
+        assert_eq!(facts.typed.type_table.expr_type(call), Some(TypeId::Error));
+        assert!(analysis.into_codegen().is_err());
+    }
+}

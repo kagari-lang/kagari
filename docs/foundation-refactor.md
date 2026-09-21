@@ -311,6 +311,10 @@ Implemented foundation slices:
   Reflective field writes now check declared field writeability in HIR, matching
   the runtime layout guard. Read-only fields still supply RHS type context and
   preserve independent type mismatch diagnostics; reads remain permitted.
+  Reflection field names now have an explicit HIR constant-String check. Invalid
+  names retain their helper call target and Error result instead of falling through
+  to ordinary function resolution. Name-type, nonconstant-name and RHS errors keep
+  distinct diagnostics; existing name errors do not gain cascading call errors.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

@@ -20,6 +20,11 @@ not a Unit value; unknown operands retain their primary diagnostic.
 A `val` receiver binding may reference an object with writable fields, but
 reflection does not make a declared `val` field writable. Rejected writes still
 check the RHS using the field's known type.
+`get_field` and `set_field` require a compile-time String field name. A known
+String without a compile-time value produces
+`KG_TYPE_REFLECTION_FIELD_NAME_NOT_CONSTANT`; a different known type produces
+an argument-type diagnostic. These failures retain the resolved helper target,
+and `set_field` still checks its RHS for independent errors.
 String length uses `len_bytes()` or `len_chars()`; the obsolete standalone
 `String.len()` path is removed without an alias.
 It describes language-level standard capabilities and standard modules, not host application APIs.

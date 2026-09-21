@@ -1377,8 +1377,11 @@ impl<'a> BodyChecker<'a> {
                     return Some(TypeId::Error);
                 };
                 let base_ty = self.infer_expr_type(*base, env);
-                let _ = self.infer_expr_type(*field_name_expr, env);
-                let field_name = self.string_literal_value(*field_name_expr)?;
+                let Some(field_name) =
+                    self.checked_reflection_field_name(*field_name_expr, env, "get_field")
+                else {
+                    return Some(TypeId::Error);
+                };
                 Some(self.checked_reflection_field_type(
                     &base_ty,
                     &field_name,
@@ -1392,13 +1395,15 @@ impl<'a> BodyChecker<'a> {
                 };
                 let base_ty = self.infer_expr_type(*base, env);
                 self.check_const_write(*base);
-                let _ = self.infer_expr_type(*field_name_expr, env);
-                let field_name = self.string_literal_value(*field_name_expr);
+                let field_name =
+                    self.checked_reflection_field_name(*field_name_expr, env, "set_field");
                 let expected = field_name.as_ref().map(|name| {
                     self.checked_reflection_field_type(&base_ty, name, *field_name_expr, true)
                 });
                 let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
-                field_name?;
+                if field_name.is_none() {
+                    return Some(TypeId::Error);
+                }
                 if let Some(expected) = expected
                     && expected.conflicts_with(&value_ty)
                 {
@@ -1454,6 +1459,31 @@ impl<'a> BodyChecker<'a> {
             )),
         }
     }
+    fn checked_reflection_field_name(
+        &mut self,
+        expression: ExprId,
+        env: &mut BodyTypeEnv,
+        helper: &str,
+    ) -> Option<String> {
+        let ty = self.infer_expr_type(expression, env);
+        let expected = TypeId::Builtin(BuiltinType::String);
+        if ty.conflicts_with(&expected) {
+            self.emit_arg_mismatch(helper, "field", &expected, &ty, expression);
+            return None;
+        }
+        if ty.is_unresolved() {
+            return None;
+        }
+        let name = self.string_literal_value(expression);
+        if name.is_none() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::ReflectionFieldNameNotConstant)
+                    .with_span(self.lowered.source_map.expr_span(expression)),
+            );
+        }
+        name
+    }
+
     fn checked_reflection_field_type(
         &mut self,
         receiver: &TypeId,
