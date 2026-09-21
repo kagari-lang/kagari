@@ -108,16 +108,20 @@ pub enum TypeId {
 impl TypeId {
     /// Substitute one binder layer; replacements can contain the caller's parameters.
     pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
+        self.substitute_once(|ty| match ty {
+            Self::Generic(parameter) => substitution.get(parameter),
+            _ => None,
+        })
+    }
+
+    /// Rebuild one binding layer, copying inserted types without revisiting them
+    /// as substitution targets. Both generic binders and trait Self use this walk.
+    fn substitute_once<'a>(&'a self, replacement: impl Fn(&Self) -> Option<&'a Self>) -> Self {
         let mut result = Self::Unknown;
         let mut pending = vec![(self, &mut result, true)];
         while let Some((source, target, substitute)) = pending.pop() {
-            if let Self::Generic(parameter) = source
-                && substitute
-                && let Some(replacement) = substitution.get(parameter)
-            {
-                // Copy replacements without applying this binder again, even when
-                // the replacement contains another key in the substitution map.
-                pending.push((replacement, target, false));
+            if substitute && let Some(inserted) = replacement(source) {
+                pending.push((inserted, target, false));
                 continue;
             }
             *target = match source {
@@ -209,36 +213,10 @@ impl TypeId {
         }
     }
     pub(crate) fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
-        match self {
-            Self::Struct(ty) => {
-                Self::Struct(ty.map_arguments(|arg| arg.with_self(owner, replacement)))
-            }
-            Self::Enum(ty) => Self::Enum(ty.map_arguments(|arg| arg.with_self(owner, replacement))),
-            Self::Trait(ty) => {
-                Self::Trait(ty.map_arguments(|arg| arg.with_self(owner, replacement)))
-            }
-            Self::SelfType(id) if id == owner => replacement.clone(),
-            Self::Tuple(elements) => Self::Tuple(
-                elements
-                    .iter()
-                    .map(|ty| ty.with_self(owner, replacement))
-                    .collect(),
-            ),
-            Self::Array(element) => Self::Array(Box::new(element.with_self(owner, replacement))),
-            Self::Map { key, value } => Self::Map {
-                key: Box::new(key.with_self(owner, replacement)),
-                value: Box::new(value.with_self(owner, replacement)),
-            },
-            Self::Set(element) => Self::Set(Box::new(element.with_self(owner, replacement))),
-            Self::StandardEnum { kind, args } => Self::StandardEnum {
-                kind: *kind,
-                args: args
-                    .iter()
-                    .map(|ty| ty.with_self(owner, replacement))
-                    .collect(),
-            },
-            _ => self.clone(),
-        }
+        self.substitute_once(|ty| match ty {
+            Self::SelfType(id) if id == owner => Some(replacement),
+            _ => None,
+        })
     }
     pub fn is_integer(&self) -> bool {
         matches!(

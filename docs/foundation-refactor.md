@@ -822,6 +822,10 @@ Implemented foundation slices:
   an explicit work stack. Inserted types preserve caller binders without applying
   the same substitution again. A 10,000-level template and equally deep replacement
   verify both paths; nominal-owner and ordered-member regressions remain in place.
+  Trait Self substitution now shares that reconstruction walk instead of owning
+  a recursive copy of every type case. Deep Self replacements preserve their
+  own binder, and foreign trait owners remain untouched. Existing impl-check
+  and static trait-call regressions exercise the shared operation.
   Other recursive type operations and configurable depth limits remain R15 work.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,

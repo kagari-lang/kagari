@@ -152,3 +152,30 @@ fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recurs
         consume(replacement, 10_000, &parameter);
     }
 }
+
+#[test]
+fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners() {
+    let owner = definition("owner.kgr", DefinitionKind::Trait);
+    let foreign = definition("foreign.kgr", DefinitionKind::Trait);
+    let mut template = TypeId::SelfType(owner.clone());
+    let mut replacement = TypeId::SelfType(owner.clone());
+    for _ in 0..10_000 {
+        template = TypeId::Set(Box::new(template));
+        replacement = TypeId::Set(Box::new(replacement));
+    }
+    let result = template.with_self(&owner, &replacement);
+    fn consume(mut ty: TypeId, depth: usize, owner: &DefinitionId) {
+        for _ in 0..depth {
+            let TypeId::Set(inner) = ty else {
+                panic!("missing set layer")
+            };
+            ty = *inner;
+        }
+        assert_eq!(ty, TypeId::SelfType(owner.clone()));
+    }
+    consume(result, 20_000, &owner);
+    consume(template, 10_000, &owner);
+    let foreign_result = TypeId::SelfType(foreign.clone()).with_self(&owner, &replacement);
+    assert_eq!(foreign_result, TypeId::SelfType(foreign));
+    consume(replacement, 10_000, &owner);
+}
