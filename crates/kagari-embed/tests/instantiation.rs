@@ -2,6 +2,14 @@ use kagari_common::SourceFile;
 use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine};
 
 #[test]
+fn recursive_comparable_bounds_execute_for_nominal_and_call_arguments() {
+    execute_contextual_source(
+        "struct Key<T: Comparable> { val value: i32 } fn consume<T: Comparable>(value: T) {} fn make<T: Comparable>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } } fn main() -> i32 { make(true).value }",
+        42,
+    );
+}
+
+#[test]
 fn irrefutable_match_stops_before_unreachable_generic_arms() {
     for (pattern, result) in [("_", "42"), ("value", "value")] {
         execute_contextual_source(

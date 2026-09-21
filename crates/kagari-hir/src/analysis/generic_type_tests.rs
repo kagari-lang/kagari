@@ -3,6 +3,31 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn nominal_and_call_constraints_share_recursive_comparable_binders() {
+    let source = SourceFile::new(
+        "shared-bounds.kgr",
+        "struct Key<T: Comparable> { val value: i32 } fn consume<T: Comparable>(value: T) {} fn make<T: Comparable>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } } fn main() -> i32 { make(true).value }",
+    );
+    let analysis = crate::analyze_source(&source, Default::default());
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    assert!(analysis.into_codegen().is_ok());
+    let unconstrained = SourceFile::new(
+        "missing-bound.kgr",
+        "struct Key<T: Comparable> { val value: i32 } fn consume<T: Comparable>(value: T) {} fn make<T>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } }",
+    );
+    let analysis = crate::analyze_source(&unconstrained, Default::default());
+    assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.kind,
+        kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
+    )));
+    assert!(analysis.into_codegen().is_err());
+}
+
+#[test]
 fn partial_nominal_arguments_check_known_outer_standard_constraints() {
     for (bound, argument, expected_constraints) in [
         ("HashKey", "[Missing]", 1),

@@ -677,6 +677,11 @@ Implemented foundation slices:
   Iterable. Trait implementation lookup and recursive Comparable checks defer
   while their required member identities remain unresolved; unknown leaf types
   do not produce extra constraint failures.
+  Standard bound satisfaction and diagnostic reasons are now shared by calls,
+  aggregate applications and operators. Comparable recursively respects caller
+  bounds inside Tuple and standard-enum members in every path. Tests accept a
+  constrained Tuple binder in both call and nominal arguments, reject the same
+  unconstrained binder, and execute concrete layouts through all existing routes.
   Struct fields and enum payloads now update substitutions after each source-order
   member, supplying context to later nested constructors. Known member types no
   longer wait for unrelated binders. HIR and source/artifact/JIT fixtures cover

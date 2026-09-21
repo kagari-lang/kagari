@@ -666,6 +666,9 @@ User-type bounds follow the same rule when the outer type determines the result:
 `[Missing]` cannot satisfy HashKey or numeric bounds but is Iterable. Checks that
 need complete member types, including trait implementation lookup and recursive
 Comparable checks, wait for those members to resolve.
+Standard bounds use the same rules in function calls and user-type applications.
+For example, a caller's `T: Comparable` also satisfies Comparable for `(T, i32)`;
+an unconstrained `T` does not establish that recursive requirement.
 
 ### Patterns
 

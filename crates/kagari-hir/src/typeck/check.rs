@@ -745,20 +745,10 @@ pub(super) fn validate_standard_constraint_type(
     if matches!(ty, TypeId::Unknown | TypeId::Error) {
         return;
     }
-    let ok = match ty {
-        TypeId::Generic(name) => generic_bounds
-            .get(name)
-            .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
-        _ => match constraint {
-            StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
-            StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
-            StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
-            StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
-            StandardTypeConstraint::Comparable => ty.supports_equality(),
-        },
-    };
-
-    if ok {
+    if constraint == StandardTypeConstraint::Comparable && ty.is_unresolved() {
+        return;
+    }
+    if super::constraints::type_satisfies_standard_constraint(ty, constraint, generic_bounds) {
         return;
     }
 
@@ -766,7 +756,7 @@ pub(super) fn validate_standard_constraint_type(
         Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
             type_name: display_type_id(ty),
             constraint: surface::standard_constraint_name(constraint).to_owned(),
-            reason: "type does not satisfy this standard constraint".to_owned(),
+            reason: super::constraints::standard_constraint_reason(constraint).to_owned(),
         })
         .with_span(span),
     );

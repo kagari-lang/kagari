@@ -4,6 +4,10 @@ const MIN_I32: i32 = -2147483648;
 enum Sample { Empty, Count(i32), Values([i32]) }
 struct Cell<T> { var value: T }
 struct Marker<T> { val value: i32 }
+struct ComparablePair<T: Comparable> { val value: T }
+fn comparable_pair<T: Comparable>(value: T) -> ComparablePair<(T, i32)> {
+    ComparablePair { value: (value, 42) }
+}
 struct SeededMarker<T> { val seed: T, val marker: Marker<T> }
 fn make_marker() -> Marker<bool> { Marker { value: 42 } }
 fn returned_marker(flag: bool) -> Marker<bool> {
@@ -49,6 +53,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     assigned = Marker { value: 42 };
     std::debug::assert_eq(assigned.value, 42, "assignment target supplies constructor context");
     val contextual: Marker<i32> = identity(Marker { value: 42 });
+    std::debug::assert_eq(comparable_pair(true).value[1], 42, "recursive Comparable bounds");
     val matched = match 42 { value => value, _ => 0 };
     std::debug::assert_eq(matched, 42, "binding pattern consumes remaining match values");
     std::debug::assert_eq(returned_marker(true).value, 42, "returning branch has no Unit result");

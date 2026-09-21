@@ -2148,10 +2148,10 @@ impl<'a> BodyChecker<'a> {
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
                 if lhs_ty != rhs_ty
-                    || !type_satisfies_standard_constraint(
+                    || !super::constraints::type_satisfies_standard_constraint(
                         &lhs_ty,
                         StandardTypeConstraint::Comparable,
-                        env,
+                        &env.generic_bounds,
                     )
                 {
                     self.emit_binary_operand_type_mismatch(
@@ -2187,10 +2187,10 @@ impl<'a> BodyChecker<'a> {
         surface::supports_arithmetic(lhs, rhs)
             || (lhs == rhs
                 && matches!(lhs, TypeId::Generic(_))
-                && type_satisfies_standard_constraint(
+                && super::constraints::type_satisfies_standard_constraint(
                     lhs,
                     StandardTypeConstraint::OrderedNumber,
-                    env,
+                    &env.generic_bounds,
                 ))
     }
 
@@ -2532,16 +2532,12 @@ impl<'a> BodyChecker<'a> {
         env: &BodyTypeEnv,
         span_expr: ExprId,
     ) {
-        if type_satisfies_standard_constraint(ty, constraint, env) {
-            return;
-        }
-        self.diagnostics.push(
-            Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                type_name: display_type_id(ty),
-                constraint: surface::standard_constraint_name(constraint).to_owned(),
-                reason: standard_constraint_reason(constraint).to_owned(),
-            })
-            .with_span(self.lowered.source_map.expr_span(span_expr)),
+        super::check::validate_standard_constraint_type(
+            ty,
+            constraint,
+            &env.generic_bounds,
+            self.lowered.source_map.expr_span(span_expr),
+            self.diagnostics,
         );
     }
 
@@ -2664,45 +2660,6 @@ fn iterable_item_type(ty: &Option<TypeId>) -> Option<TypeId> {
         surface::IterableProtocol::Map { key, value } => Some(TypeId::Tuple(vec![key, value])),
         surface::IterableProtocol::Set { item } => Some(item),
         surface::IterableProtocol::String { .. } => Some(TypeId::Builtin(BuiltinType::String)),
-    }
-}
-
-fn type_satisfies_standard_constraint(
-    ty: &TypeId,
-    constraint: StandardTypeConstraint,
-    env: &BodyTypeEnv,
-) -> bool {
-    match ty {
-        TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. }
-            if constraint == StandardTypeConstraint::Comparable =>
-        {
-            members
-                .iter()
-                .all(|ty| type_satisfies_standard_constraint(ty, constraint, env))
-        }
-        TypeId::Generic(name) => env
-            .generic_bounds
-            .get(name)
-            .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
-        _ => match constraint {
-            StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
-            StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
-            StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
-            StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
-            StandardTypeConstraint::Comparable => ty.supports_equality(),
-        },
-    }
-}
-
-fn standard_constraint_reason(constraint: StandardTypeConstraint) -> &'static str {
-    match constraint {
-        StandardTypeConstraint::HashKey => {
-            "only bool, integer, and String keys have specified hash semantics"
-        }
-        StandardTypeConstraint::Iterable => "type is not part of the standard iterable protocol",
-        StandardTypeConstraint::OrderedNumber => "type is not an ordered numeric type",
-        StandardTypeConstraint::SignedNumber => "type is not a signed numeric type",
-        StandardTypeConstraint::Comparable => "type does not have standard equality semantics",
     }
 }
 

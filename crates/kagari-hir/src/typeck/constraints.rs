@@ -3,7 +3,12 @@ use std::collections::HashMap;
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 use smallvec::SmallVec;
 
-use crate::{builtin::surface, hir, lower::LoweredModule, types::TypeId};
+use crate::{
+    builtin::surface::{self, StandardTypeConstraint},
+    hir,
+    lower::LoweredModule,
+    types::TypeId,
+};
 
 use super::{
     ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget,
@@ -269,4 +274,42 @@ pub(super) fn parameter_bounds(
             ))
         })
         .collect()
+}
+
+pub(super) fn type_satisfies_standard_constraint(
+    ty: &TypeId,
+    constraint: StandardTypeConstraint,
+    bounds: &super::GenericBounds,
+) -> bool {
+    match ty {
+        TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. }
+            if constraint == StandardTypeConstraint::Comparable =>
+        {
+            members
+                .iter()
+                .all(|ty| type_satisfies_standard_constraint(ty, constraint, bounds))
+        }
+        TypeId::Generic(name) => bounds
+            .get(name)
+            .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
+        _ => match constraint {
+            StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
+            StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
+            StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
+            StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
+            StandardTypeConstraint::Comparable => ty.supports_equality(),
+        },
+    }
+}
+
+pub(super) fn standard_constraint_reason(constraint: StandardTypeConstraint) -> &'static str {
+    match constraint {
+        StandardTypeConstraint::HashKey => {
+            "only bool, integer, and String keys have specified hash semantics"
+        }
+        StandardTypeConstraint::Iterable => "type is not part of the standard iterable protocol",
+        StandardTypeConstraint::OrderedNumber => "type is not an ordered numeric type",
+        StandardTypeConstraint::SignedNumber => "type is not a signed numeric type",
+        StandardTypeConstraint::Comparable => "type does not have standard equality semantics",
+    }
 }
