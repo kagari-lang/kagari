@@ -3,6 +3,51 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
+    for (source, valid) in [
+        (
+            "fn main() { val value: Map<f32, i32> = std::map::new(); }",
+            false,
+        ),
+        (
+            "fn main() { val value: Set<f32> = std::set::new(); }",
+            false,
+        ),
+        ("fn main() { val value: [Map<f32, i32>] = []; }", false),
+        (
+            "fn make<T>() { val value: Set<T> = std::set::new(); }",
+            false,
+        ),
+        (
+            "fn make<T: HashKey>() { val value: Set<T> = std::set::new(); }",
+            true,
+        ),
+        (
+            "fn main() { val value: Map<i32, bool> = std::map::new(); }",
+            true,
+        ),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new("key-context.kgr", source),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        if !valid {
+            assert!(analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
+            )));
+        }
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn empty_container_context_is_shared_by_all_expression_positions() {
     for body in [
         "fn make() -> [i32] { [] }",

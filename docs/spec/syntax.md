@@ -392,6 +392,8 @@ local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the
 same expected-type context in every expression position. Constructor arity and
 container kind must still match; context does not coerce incompatible elements.
+Local container annotations enforce the same `HashKey` requirements as function
+signatures, including nested containers and forwarded generic constraints.
 
 ```ebnf
 type            ::= path generic_args?

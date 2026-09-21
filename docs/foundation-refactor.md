@@ -659,6 +659,9 @@ Implemented foundation slices:
   The local-binding-only Map/Set type rewrite is deleted. Return, field, argument
   and assignment fixtures execute through source/artifact/JIT fallback, while
   constructor arity, container-kind and element-type mismatches still reject.
+  Local container annotations now share the signature HashKey validator. Invalid
+  scalar keys, nested key types and unconstrained generic keys reject in HIR;
+  properly constrained generic keys remain valid.
   The checker still treats a function without a tail expression as returning Unit
   even when an explicit return terminates it; control-flow completion remains open.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR

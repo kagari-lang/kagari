@@ -20,6 +20,10 @@ fn empty_token<T>() -> Token<T> { Token::Empty }
 fn forwarded_marker<T>() -> Marker<T> { identity(Marker { value: 42 }) }
 fn empty_scores() -> Map<String, i32> { std::map::new() }
 fn empty_numbers() -> [i32] { [] }
+fn empty_keys<T: HashKey>() -> Set<T> {
+    val keys: Set<T> = std::set::new();
+    keys
+}
 fn read_cell<T>(cell: Cell<T>) -> T { cell.value }
 
 // Declared functions take precedence over unqualified helper names.
@@ -33,6 +37,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };
+    val keys: Set<i32> = empty_keys();
+    std::debug::assert(keys.is_empty(), "forwarded HashKey annotation constraint");
     var assigned: Marker<bool> = make_marker();
     assigned = Marker { value: 42 };
     std::debug::assert_eq(assigned.value, 42, "assignment target supplies constructor context");

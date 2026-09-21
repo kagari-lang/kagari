@@ -674,7 +674,7 @@ fn validate_trait_surface(
     }
 }
 
-fn validate_standard_type_constraints(
+pub(super) fn validate_standard_type_constraints(
     ty: &TypeId,
     generic_bounds: &HashMap<crate::types::GenericParameterType, Vec<super::ConstraintTarget>>,
     span: kagari_common::Span,
