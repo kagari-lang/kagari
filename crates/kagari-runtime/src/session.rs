@@ -170,8 +170,8 @@ impl Drop for ExecutionSession {
         let scopes = self.state.scopes.get();
         self.state.scopes.set(scopes - 1);
         if scopes == 1 {
-            if self.resources.counters().current_call_depth
-                != self.state.baseline.current_call_depth
+            if !self.state.frames.borrow().is_empty()
+                || !self.state.frame_scopes.borrow().is_empty()
                 || !self.state.host_scopes.borrow().is_empty()
             {
                 self.resources

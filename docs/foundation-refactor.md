@@ -464,6 +464,10 @@ Implemented foundation slices:
   Ordinary execution rejects unpublished modules at session entry, so a candidate
   handle cannot bypass effect restrictions. Candidate sessions borrow their staged
   owner; publication also rejects candidates with an active execution session.
+  Session cleanup checks its own frame scopes and host resources rather than the
+  runtime's aggregate call depth. Ending a suspended empty session cannot mistake
+  candidate frames for leaked resources; using a suspended execution stack is an
+  engine fault, and quarantine still allows all candidate/old resources to unwind.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

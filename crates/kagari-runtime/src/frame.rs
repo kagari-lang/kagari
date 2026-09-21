@@ -51,6 +51,17 @@ impl ExecutionStack {
 
     fn validate_top(&self) -> Result<(), RuntimeError> {
         self.session.resources.ensure_execution_allowed()?;
+        if !self
+            .session
+            .resources
+            .active_session()
+            .is_some_and(|active| Rc::ptr_eq(&active, &self.session.state))
+        {
+            return Err(self
+                .session
+                .resources
+                .quarantine("execution used a suspended session"));
+        }
         if self.session.state.frame_scopes.borrow().last() != Some(&self.id) {
             return Err(self
                 .session

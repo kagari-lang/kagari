@@ -211,3 +211,68 @@ fn observers_cannot_reenter_a_borrowed_stack_or_replace_the_root_observer() {
     assert_eq!(runtime.gc().active_roots(), 0);
     assert!(runtime.execution_root().is_none());
 }
+
+#[test]
+fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
+    let mut runtime = Runtime::default();
+    let old = loaded(&mut runtime);
+    let outer = runtime
+        .begin_execution(&old, runtime.execution_options())
+        .unwrap();
+    let candidate = runtime
+        .stage_reload_program(
+            &old,
+            "frames",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![old.bytecode.clone()],
+            },
+        )
+        .unwrap();
+    let initialization = runtime.begin_candidate_initialization(&candidate).unwrap();
+    let stack = runtime.enter_execution_stack(candidate.module()).unwrap();
+    stack
+        .push(candidate.module().slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    assert_eq!(runtime.resources().counters().current_call_depth, 1);
+    drop(outer);
+    assert!(!runtime.is_quarantined());
+    assert!(stack.current().is_ok());
+    drop(stack);
+    drop(initialization);
+    assert!(runtime.execution_root().is_none());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.publish_staged_reload(candidate).unwrap();
+}
+
+#[test]
+fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
+    let mut runtime = Runtime::default();
+    let old = loaded(&mut runtime);
+    let outer = runtime.enter_execution_stack(&old).unwrap();
+    outer
+        .push(old.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    let candidate = runtime
+        .stage_reload_program(
+            &old,
+            "frames",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![old.bytecode.clone()],
+            },
+        )
+        .unwrap();
+    let initialization = runtime.begin_candidate_initialization(&candidate).unwrap();
+    assert_eq!(
+        outer.current().unwrap_err().kind(),
+        RuntimeErrorKind::EngineFault
+    );
+    assert!(runtime.is_quarantined());
+    drop(initialization);
+    drop(candidate);
+    drop(outer);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(runtime.resources().counters().loaded_modules, 1);
+    assert!(runtime.execution_root().is_none());
+}
