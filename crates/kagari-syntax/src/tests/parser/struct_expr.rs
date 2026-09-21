@@ -1,6 +1,31 @@
 use crate::{ast::Expr, tests::common};
 
 #[test]
+fn explicit_constructor_arguments_preserve_nested_types_and_comparisons() {
+    use crate::ast::AstNode;
+    let text = "fn main() { model::Marker<Map<i32, [bool]>> { value: 7 } }";
+    let module = common::parse_ok(text);
+    assert_eq!(module.syntax().to_string(), text);
+    let Expr::StructExpr(expr) = common::first_function(&module)
+        .body()
+        .unwrap()
+        .tail_expr()
+        .unwrap()
+    else {
+        panic!("constructor");
+    };
+    assert_eq!(expr.generic_args().unwrap().args().count(), 1);
+    let comparison = common::parse_ok("fn main() { a < b }");
+    assert!(matches!(
+        common::first_function(&comparison)
+            .body()
+            .unwrap()
+            .tail_expr(),
+        Some(Expr::BinaryExpr(_))
+    ));
+}
+
+#[test]
 fn parses_struct_literal_expression() {
     let module = common::parse_ok("fn main() { Player { hp: 10, name: value } }");
     let function = common::first_function(&module);

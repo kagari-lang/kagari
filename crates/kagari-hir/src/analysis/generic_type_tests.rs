@@ -3,6 +3,71 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn explicit_constructor_type_queries_survive_body_reuse() {
+    let text = "fn neighbor() -> i32 { 1 } struct Marker<T> { val value: i32 } fn make() { Marker<bool> { value: 7 }; }";
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("explicit-reuse.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let old = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    old.check_program(root, &Default::default()).unwrap();
+    let changed = text.replace("{ 1 }", "{ 2 + 3 }");
+    sources
+        .set("explicit-reuse.kgr", changed.clone(), SourceLayer::Base)
+        .unwrap();
+    let new = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    new.check_program(root, &Default::default()).unwrap();
+    assert_eq!(
+        new.file(root).unwrap().result().facts().typed.reused_bodies,
+        1
+    );
+    for (snapshot, source) in [(&old, text), (&new, changed.as_str())] {
+        assert_eq!(
+            snapshot
+                .file(root)
+                .unwrap()
+                .type_at(source.find("bool").unwrap()),
+            Some(TypeId::Builtin(BuiltinType::Bool))
+        );
+    }
+}
+
+#[test]
+fn explicit_struct_arguments_check_identity_arity_bounds_and_fields() {
+    for (body, valid) in [
+        ("val value = Marker<i32> { value: 7 };", true),
+        ("val value = Marker<Map<i32, bool>> { value: 7 };", true),
+        ("val value = Marker<Map<f32, bool>> { value: 7 };", false),
+        ("val value = Marker<> { value: 7 };", false),
+        ("val value = Marker<i32, bool> { value: 7 };", false),
+        ("val value = Marker<Missing> { value: 7 };", false),
+        ("val value = Marker<i32> { value: false };", false),
+        ("val value: Marker<bool> = Marker<i32> { value: 7 };", false),
+        ("val value = Key<f32> { value: 7 };", false),
+    ] {
+        let source = SourceFile::new(
+            "explicit-constructor.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} struct Key<T: HashKey> {{ val value: i32 }} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn earlier_constructor_members_supply_context_to_later_members() {
     for (body, valid) in [
         (

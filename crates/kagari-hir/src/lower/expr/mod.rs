@@ -89,6 +89,23 @@ impl Lowerer {
                 else_branch: if_expr.else_branch().map(|expr| self.lower_expr(&expr)),
             },
             ast::Expr::StructExpr(struct_expr) => ExprKind::StructInit {
+                explicit_type: struct_expr.generic_args().map(|arguments| {
+                    let args = arguments.args().map(|arg| self.lower_type(&arg)).collect();
+                    let name = struct_expr
+                        .path()
+                        .and_then(|path| path.name_text())
+                        .unwrap_or_default();
+                    let mut span = syntax_span(&arguments);
+                    if let Some(path) = struct_expr.path() {
+                        span.start = syntax_span(&path).start;
+                    }
+                    self.alloc_type(
+                        span,
+                        crate::hir::TypeData {
+                            kind: crate::hir::TypeKind::Generic { name, args },
+                        },
+                    )
+                }),
                 path: struct_expr
                     .path()
                     .and_then(|path| path.name_text())

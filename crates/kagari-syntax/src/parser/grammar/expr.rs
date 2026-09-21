@@ -200,6 +200,17 @@ impl<'a> Parser<'a> {
         self.parse_path_expr();
         self.bump_trivia();
 
+        if self.allow_struct_literals() && self.at(TokenKind::Lt) {
+            let mut cursor = self.cursor();
+            self.nth_nontrivia_kind_from(&mut cursor);
+            if self.skip_angle_group(&mut cursor)
+                && self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::LBrace)
+            {
+                self.parse_generic_arg_list();
+                self.bump_trivia();
+            }
+        }
+
         if self.allow_struct_literals() && self.at(TokenKind::LBrace) {
             self.parse_struct_literal_body();
             self.start_node_at(checkpoint, SyntaxKind::StructExpr);

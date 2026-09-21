@@ -676,8 +676,47 @@ impl<'a> BodyChecker<'a> {
                     None => TypeId::Builtin(BuiltinType::Unit),
                 }
             }
-            ExprKind::StructInit { path, fields } => {
-                self.infer_struct_init_type(path, fields, expr_id, env, expected)
+            ExprKind::StructInit {
+                path,
+                fields,
+                explicit_type,
+            } => {
+                let explicit = explicit_type.map(|ty| {
+                    let resolved = resolve_type_in(
+                        &self.lowered.module,
+                        ty,
+                        TypeContext {
+                            declarations: self.declarations,
+                            generics: &env.generics,
+                            self_type: None,
+                        },
+                        self.type_table,
+                        self.cancel,
+                    );
+                    if resolved.is_unresolved() {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                                type_name: display_type(&self.lowered.module, ty),
+                            })
+                            .with_span(self.lowered.source_map.type_span(ty)),
+                        );
+                    } else {
+                        super::check::validate_standard_type_constraints(
+                            &resolved,
+                            &env.generic_bounds,
+                            self.lowered.source_map.type_span(ty),
+                            self.diagnostics,
+                        );
+                    }
+                    resolved
+                });
+                self.infer_struct_init_type(
+                    path,
+                    fields,
+                    expr_id,
+                    env,
+                    explicit.as_ref().or(expected),
+                )
             }
             ExprKind::Tuple(elements) => TypeId::Tuple(
                 elements

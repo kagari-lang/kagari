@@ -272,6 +272,9 @@ impl IfExpr {
 }
 
 impl StructExpr {
+    pub fn generic_args(&self) -> Option<super::GenericArgList> {
+        support::child(self.syntax())
+    }
     pub fn path(&self) -> Option<PathExpr> {
         self.syntax().children().filter_map(PathExpr::cast).next()
     }

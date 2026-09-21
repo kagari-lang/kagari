@@ -130,6 +130,23 @@ fn constructor_members_propagate_context_in_source_order() {
     );
 }
 
+#[test]
+fn explicit_struct_arguments_emit_distinct_phantom_layouts() {
+    execute_contextual_source(
+        r#"
+        struct Marker<T> { val value: i32 }
+        fn forward<T>() -> Marker<T> { Marker<T> { value: 20 } }
+        fn main() -> i32 {
+            val first = Marker<i32> { value: 20 };
+            val second = Marker<bool> { value: 22 };
+            val third: Marker<i32> = forward();
+            first.value + second.value + third.value - 20
+        }
+    "#,
+        42,
+    );
+}
+
 fn execute_contextual_source(source: &str, expected: i32) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();

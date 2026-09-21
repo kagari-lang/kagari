@@ -629,6 +629,11 @@ literal         ::= INTEGER
 - half-open forms such as `..b`, `a..`, and `..` are outside the current grammar.
 - closure syntax is included at the surface level; capture behavior is specified in the non-grammatical constraints section.
 - struct literals permit field shorthand such as `Point { x, y }`.
+- Struct literals accept explicit type arguments, such as `Marker<i32> { value: 7 }`.
+  These arguments use annotation name resolution, arity and bound checks, and
+  supply the field context even when an enclosing expression expects another type;
+  incompatible enclosing types are diagnosed. The parser recognizes constructor
+  arguments only when the closing `>` is followed by `{`, preserving comparisons.
 
 ### Patterns
 

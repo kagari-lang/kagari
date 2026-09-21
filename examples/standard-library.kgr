@@ -46,6 +46,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     assigned = Marker { value: 42 };
     std::debug::assert_eq(assigned.value, 42, "assignment target supplies constructor context");
     val contextual: Marker<i32> = identity(Marker { value: 42 });
+    val explicit = Marker<i32> { value: 42 };
+    std::debug::assert_eq(explicit.value, 42, "explicit constructor type argument");
     val forwarded: Marker<bool> = forwarded_marker();
     std::debug::assert_eq(forwarded.value, 42, "caller-owned generic context");
     val inferred_token: Token<bool> = empty_token();

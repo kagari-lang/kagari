@@ -629,7 +629,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn skip_angle_group(&self, cursor: &mut usize) -> bool {
+    pub(crate) fn skip_angle_group(&self, cursor: &mut usize) -> bool {
         let mut depth = 1;
         while let Some(kind) = self.nth_nontrivia_kind_from(cursor) {
             match kind {

@@ -50,6 +50,7 @@ pub enum ExprKind {
     },
     StructInit {
         path: String,
+        explicit_type: Option<super::TypeRefId>,
         fields: FieldInitBuffer,
     },
     Tuple(ExprBuffer),
