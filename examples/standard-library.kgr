@@ -49,6 +49,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val partial = PartialMarker { pair: (Marker { value: 42 }, true) };
     std::debug::assert_eq(partial.pair[0].value, 42, "partial field context");
     std::debug::assert_eq(negate(-42), 42, "generic signed-number negation");
+    std::debug::assert_eq(Token<i32>::Empty, Token::Empty, "assert equality supplies RHS context");
     val markers: [Marker<i32>] = [];
     markers.push(Marker { value: 42 });
     std::debug::assert_eq(markers[0].value, 42, "container supplies constructor context");

@@ -408,3 +408,11 @@ fn generic_negation_executes_using_checked_signed_number_bounds() {
         42,
     );
 }
+
+#[test]
+fn standard_equality_rhs_uses_left_constructor_context() {
+    execute_contextual_source(
+        "enum Token<T> { Empty } fn main() -> i32 { std::debug::assert_eq(Token<i32>::Empty, Token::Empty, \"inferred rhs\"); std::math::clamp(42, 0, 100) }",
+        42,
+    );
+}

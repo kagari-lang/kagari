@@ -351,6 +351,11 @@ Implemented foundation slices:
   shapes still diagnose beside error members; whole error operands do not cascade.
   Source/artifact/JIT execution and the standard-library example cover generic
   negation without a separate runtime implementation.
+  Standard min/max/clamp validate every known operand, merge recovery holes into
+  their result and retain independent mismatch diagnostics. assert_eq checks both
+  operands' Comparable constraints and known-member conflicts. The first operand
+  supplies context to subsequent matching operands, with enum RHS constructor
+  inference verified across source/artifact/JIT execution.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

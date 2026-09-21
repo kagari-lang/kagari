@@ -908,6 +908,9 @@ impl<'a> BodyChecker<'a> {
                     args,
                 }),
             ) => args.first().cloned().into_iter().collect(),
+            (MathMin | MathMax, Some(ty)) => vec![ty.clone()],
+            (MathClamp, Some(ty)) => vec![ty.clone(), ty.clone()],
+            (DebugAssertEq, Some(ty)) => vec![ty.clone(), TypeId::Builtin(BuiltinType::String)],
             _ => Vec::new(),
         };
         actual.extend(self.infer_typed_args(remaining, context.into_iter(), env));
@@ -1221,21 +1224,29 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             MathMin | MathMax | MathClamp => {
-                let Some((_, value_ty)) = arg_tys.first() else {
+                let Some((_, first)) = arg_tys.first() else {
                     return TypeId::Error;
                 };
-                self.check_standard_constraint(
-                    value_ty,
-                    StandardTypeConstraint::OrderedNumber,
-                    env,
-                    callee,
-                );
-                for (index, (_, ty)) in arg_tys.iter().enumerate().skip(1) {
-                    if ty != value_ty {
-                        self.emit_arg_mismatch(name, &format!("arg{index}"), value_ty, ty, callee);
+                let mut result = first.clone();
+                for (index, (argument, ty)) in arg_tys.iter().enumerate() {
+                    self.check_standard_constraint(
+                        ty,
+                        StandardTypeConstraint::OrderedNumber,
+                        env,
+                        *argument,
+                    );
+                    if result.conflicts_with(ty) {
+                        self.emit_arg_mismatch(
+                            name,
+                            &format!("arg{index}"),
+                            &result,
+                            ty,
+                            *argument,
+                        );
                     }
+                    result.recover_from(ty);
                 }
-                value_ty.clone()
+                result
             }
             MathAbs => {
                 let Some((_, value_ty)) = arg_tys.first() else {
@@ -1287,16 +1298,16 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Unit)
             }
             DebugAssertEq => {
-                if let Some((expr, lhs)) = arg_tys.first() {
+                for (expr, operand) in arg_tys.iter().take(2) {
                     self.check_standard_constraint(
-                        lhs,
+                        operand,
                         StandardTypeConstraint::Comparable,
                         env,
                         *expr,
                     );
                 }
                 if let (Some((_, lhs)), Some((_, rhs))) = (arg_tys.first(), arg_tys.get(1))
-                    && lhs != rhs
+                    && lhs.conflicts_with(rhs)
                 {
                     self.emit_arg_mismatch(name, "rhs", lhs, rhs, callee);
                 }

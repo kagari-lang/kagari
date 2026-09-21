@@ -40,6 +40,11 @@ Unary `-` accepts a generic operand constrained by `SignedNumber`, including
 where-clause and forwarded bounds. `OrderedNumber` alone does not suffice because
 it also permits unsigned numbers. Concrete instantiations retain ordinary checked
 negation semantics.
+`min`, `max`, and `clamp` check the OrderedNumber requirement on each operand.
+`assert_eq` checks Comparable on both operands. Known mismatches remain errors
+when another operand is erroneous; the first operand also supplies context to
+subsequent matching operands. During error recovery, known numeric operands can
+restore the result type of a min/max/clamp call without permitting codegen.
 String length uses `len_bytes()` or `len_chars()`; the obsolete standalone
 `String.len()` path is removed without an alias.
 It describes language-level standard capabilities and standard modules, not host application APIs.

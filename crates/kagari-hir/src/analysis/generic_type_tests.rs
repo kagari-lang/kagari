@@ -1488,3 +1488,36 @@ fn unary_negation_uses_declared_signed_bounds_and_known_recovery_shapes() {
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }
 }
+
+#[test]
+fn standard_math_and_equality_check_each_known_operand_after_recovery() {
+    for (body, extra) in [
+        ("std::math::min(missing, 7);", 0),
+        ("std::math::min(missing, true);", 1),
+        ("std::math::clamp(missing, 7, true);", 2),
+        (
+            "std::debug::assert_eq((1, missing), (1, true), \"test\");",
+            0,
+        ),
+        (
+            "std::debug::assert_eq((1, missing), (false, true), \"test\");",
+            1,
+        ),
+        ("std::debug::assert_eq(missing, view, \"test\");", 1),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "standard-operand-recovery.kgr",
+                format!("trait View {{}} fn bad(view: View) {{ {body} }}"),
+            ),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().len(),
+            1 + extra,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}
