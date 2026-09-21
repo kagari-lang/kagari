@@ -766,7 +766,7 @@ pub(super) fn validate_standard_constraint_type(
         Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
             type_name: display_type_id(ty),
             constraint: surface::standard_constraint_name(constraint).to_owned(),
-            reason: "standard collection keys must have specified hash semantics".to_owned(),
+            reason: "type does not satisfy this standard constraint".to_owned(),
         })
         .with_span(span),
     );

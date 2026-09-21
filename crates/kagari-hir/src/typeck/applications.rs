@@ -29,10 +29,17 @@ pub(super) fn validate(
                 };
                 if let Some((parameters, required)) = contract {
                     for (parameter, actual) in parameters.iter().zip(&instance.arguments) {
-                        if actual.is_unresolved() {
-                            continue;
-                        }
                         for constraint in required.get(parameter).into_iter().flatten() {
+                            // Trait implementation identity and recursive equality may
+                            // depend on missing members. Other standard constraints
+                            // can already reject a known outer type such as [Error].
+                            if actual.is_unresolved()
+                                && matches!(constraint,
+                                    ConstraintTarget::Trait(_)
+                                    | ConstraintTarget::Standard(crate::builtin::surface::StandardTypeConstraint::Comparable))
+                            {
+                                continue;
+                            }
                             match constraint {
                                 ConstraintTarget::Standard(constraint) => {
                                     super::check::validate_standard_constraint_type(

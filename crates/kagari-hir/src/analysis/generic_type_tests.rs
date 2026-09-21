@@ -3,6 +3,44 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn partial_nominal_arguments_check_known_outer_standard_constraints() {
+    for (bound, argument, expected_constraints) in [
+        ("HashKey", "[Missing]", 1),
+        ("HashKey", "Missing", 0),
+        ("OrderedNumber", "[Missing]", 1),
+        ("SignedNumber", "Map<i32, Missing>", 1),
+        ("Iterable", "[Missing]", 0),
+        ("Iterable", "(Missing, i32)", 1),
+        ("Comparable", "(Missing, i32)", 0),
+    ] {
+        let source = SourceFile::new(
+            "partial-bound.kgr",
+            format!(
+                "struct Restricted<T: {bound}> {{ val value: i32 }} fn take(value: Restricted<{argument}>) {{}}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        let constraints = analysis
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| {
+                matches!(
+                    diagnostic.kind,
+                    kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
+                )
+            })
+            .count();
+        assert_eq!(
+            constraints,
+            expected_constraints,
+            "{bound}: {argument}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
 fn partial_annotations_preserve_independent_container_constraint_errors() {
     for template in [
         "struct Item { val field: TYPE }",

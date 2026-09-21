@@ -672,6 +672,11 @@ Implemented foundation slices:
   key alone does not invent a HashKey failure. Validation descends into key/element
   applications too. Regressions cover fields, enum payloads, parameters, returns,
   constants, locals and explicit Struct constructor arguments.
+  Applied user-type bounds also check known outer shapes in partial arguments.
+  An Array with an unknown element still fails HashKey/numeric bounds and meets
+  Iterable. Trait implementation lookup and recursive Comparable checks defer
+  while their required member identities remain unresolved; unknown leaf types
+  do not produce extra constraint failures.
   Struct fields and enum payloads now update substitutions after each source-order
   member, supplying context to later nested constructors. Known member types no
   longer wait for unrelated binders. HIR and source/artifact/JIT fixtures cover

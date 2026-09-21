@@ -662,6 +662,10 @@ Unknown annotation members retain error types without suppressing independent
 constraints on known members. For example, `Map<f32, Missing>` reports the invalid
 HashKey as well as the unknown type. An unknown key by itself does not establish
 a HashKey violation; nested known key and element applications are still checked.
+User-type bounds follow the same rule when the outer type determines the result:
+`[Missing]` cannot satisfy HashKey or numeric bounds but is Iterable. Checks that
+need complete member types, including trait implementation lookup and recursive
+Comparable checks, wait for those members to resolve.
 
 ### Patterns
 
