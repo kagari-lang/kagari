@@ -687,6 +687,11 @@ Implemented foundation slices:
   terminating while conditions and assignment RHS expressions retain their return
   instead of emitting a branch or write. Tests cover both short-circuit outcomes,
   helper suppression and unreachable generic operands across execution routes.
+  Assignment target preparation now returns no location when a root or index
+  terminates control flow. Recursive projections and host-root preparation propagate
+  that result before evaluating further indexes, RHS expressions or writes.
+  Nested-index and temporary-root regressions cover assignment and compound
+  assignment, with unreachable generic instances forbidden by a zero budget.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

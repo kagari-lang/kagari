@@ -26,12 +26,15 @@ enum ProjectionKind {
 
 impl FunctionLowerer<'_, '_> {
     /// Capture identity-bearing roots and dynamic indexes once, before RHS code.
+    /// `None` means target evaluation terminated control flow; no location exists.
     pub(super) fn prepare_place(
         &mut self,
         id: hir::PlaceId,
-    ) -> Result<PreparedPlace, IrLoweringError> {
+    ) -> Result<Option<PreparedPlace>, IrLoweringError> {
         if let Some(checked) = self.analyzed.typed.type_table.host_place_path(id).cloned() {
-            let prepared = self.prepare_place_inner(checked.root, true)?;
+            let Some(prepared) = self.prepare_place_inner(checked.root, true)? else {
+                return Ok(None);
+            };
             let mut value = match prepared.root {
                 Root::Value(value) => value,
                 Root::Local { local, ty } => {
@@ -54,11 +57,11 @@ impl FunctionLowerer<'_, '_> {
                 read_only: false,
                 debug_name: "host field write".into(),
             };
-            return Ok(PreparedPlace {
+            return Ok(Some(PreparedPlace {
                 host_path: Some(path),
                 root: Root::Value(value),
                 projections: Vec::new(),
-            });
+            }));
         }
         self.prepare_place_inner(id, false)
     }
@@ -67,7 +70,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         id: hir::PlaceId,
         projected: bool,
-    ) -> Result<PreparedPlace, IrLoweringError> {
+    ) -> Result<Option<PreparedPlace>, IrLoweringError> {
         let place = self.analyzed.lowered.module.place(id).clone();
         match place.kind {
             hir::PlaceKind::Name(_) => {
@@ -89,17 +92,23 @@ impl FunctionLowerer<'_, '_> {
                 } else {
                     Root::Local { local, ty }
                 };
-                Ok(PreparedPlace {
+                Ok(Some(PreparedPlace {
                     host_path: None,
                     root,
                     projections: Vec::new(),
-                })
+                }))
             }
-            hir::PlaceKind::Expr(expr) => Ok(PreparedPlace {
-                host_path: None,
-                root: Root::Value(self.lower_expr(expr)?),
-                projections: Vec::new(),
-            }),
+            hir::PlaceKind::Expr(expr) => {
+                let value = self.lower_expr(expr)?;
+                if self.current_block_terminated() {
+                    return Ok(None);
+                }
+                Ok(Some(PreparedPlace {
+                    host_path: None,
+                    root: Root::Value(value),
+                    projections: Vec::new(),
+                }))
+            }
             hir::PlaceKind::Field { base, .. } => {
                 let field = self
                     .analyzed
@@ -107,7 +116,9 @@ impl FunctionLowerer<'_, '_> {
                     .type_table
                     .place_field(id)
                     .ok_or(IrLoweringError::MissingBinding("checked field assignment"))?;
-                let mut place = self.prepare_place_inner(base, true)?;
+                let Some(mut place) = self.prepare_place_inner(base, true)? else {
+                    return Ok(None);
+                };
                 let receiver_ty = self
                     .analyzed
                     .typed
@@ -119,11 +130,16 @@ impl FunctionLowerer<'_, '_> {
                     ty: self.place_type(id)?,
                     tuple_base: false,
                 });
-                Ok(place)
+                Ok(Some(place))
             }
             hir::PlaceKind::Index { base, index } => {
-                let mut place = self.prepare_place_inner(base, true)?;
+                let Some(mut place) = self.prepare_place_inner(base, true)? else {
+                    return Ok(None);
+                };
                 let index = self.lower_expr(index)?;
+                if self.current_block_terminated() {
+                    return Ok(None);
+                }
                 place.projections.push(Projection {
                     kind: ProjectionKind::Index(index),
                     ty: self.place_type(id)?,
@@ -132,7 +148,7 @@ impl FunctionLowerer<'_, '_> {
                         Some(TypeId::Tuple(_))
                     ),
                 });
-                Ok(place)
+                Ok(Some(place))
             }
         }
     }

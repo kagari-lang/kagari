@@ -537,6 +537,9 @@ The same termination rule applies to operators and runtime helper arguments.
 A short-circuit operator can still complete along the path that skips its right
 operand. A return during a while condition or assignment RHS exits the function
 before the loop branch or assignment commit.
+If evaluation of an assignment target's receiver or index returns, no target
+location is produced. Remaining indexes, the RHS and the final write are skipped
+for both ordinary and compound assignment.
 Branches that return or otherwise cannot complete do not contribute a value type
 to an if/match join. Unreachable source still receives semantic diagnostics.
 An unconditional loop completes only through a reachable break in that loop;

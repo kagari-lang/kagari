@@ -53,10 +53,9 @@ impl FunctionLowerer<'_, '_> {
                 Ok(())
             }
             hir::StmtKind::Assign { target, value, op } => {
-                let location = self.prepare_place(target)?;
-                if self.current_block_terminated() {
+                let Some(location) = self.prepare_place(target)? else {
                     return Ok(());
-                }
+                };
                 let src = self.lower_expr(value)?;
                 if self.current_block_terminated() {
                     return Ok(());

@@ -244,6 +244,44 @@ fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
 }
 
 #[test]
+fn terminating_place_components_stop_remaining_indexes_and_rhs() {
+    for target in [
+        "grid[index(if true { return 42; } else { return 7; })][grow(1)]",
+        "matrix(if true { return 42; } else { return 7; })[grow(1)][0]",
+    ] {
+        let analyzed = common::analyze_ok(&format!(
+            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> [[i32]] {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
+        ));
+        let ir = lower_to_ir(
+            &analyzed,
+            &crate::IrLoweringOptions {
+                max_generic_instances: 0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ir.functions.len(),
+            3,
+            "only concrete entry functions: {target}"
+        );
+        let main = ir
+            .functions
+            .iter()
+            .find(|function| function.instance.declaration.path.last().unwrap().name == "main")
+            .unwrap();
+        assert!(
+            main.blocks
+                .iter()
+                .filter(|block| matches!(block.terminator, Some(Terminator::Unreachable)))
+                .all(|block| block.instructions.is_empty()),
+            "{target}"
+        );
+        crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    }
+}
+
+#[test]
 fn recursive_instantiation_reuses_the_current_instance() {
     let analyzed = common::analyze_ok(
         "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }",
