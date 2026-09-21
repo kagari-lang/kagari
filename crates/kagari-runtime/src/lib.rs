@@ -1201,11 +1201,6 @@ impl Runtime {
         self.resources.ensure_execution_allowed()?;
         let value = result?;
         HostBorrowTable::validate_no_escape(&value)?;
-        if !self.gc.validate_candidate_value(&value) {
-            return Err(RuntimeError::capability_denied(
-                "external object in candidate host result",
-            ));
-        }
         if !self.gc.validate_value(&value) {
             return Err(RuntimeError::host_call_failure(
                 "invalid heap reference in host result",

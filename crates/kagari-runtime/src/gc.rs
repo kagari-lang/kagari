@@ -893,6 +893,22 @@ impl GcHeap {
         }
         slot.object.as_ref()
     }
+    // Script-visible reads are isolated; collector traversal uses object_ref directly.
+    fn readable_object<'a>(
+        &self,
+        objects: &'a [ObjectSlot],
+        id: HeapObjectId,
+    ) -> Option<&'a HeapObject> {
+        let object = self.object_ref(objects, id)?;
+        if let Some(session) = self.resources.active_session().filter(|session| {
+            session.options.phase == crate::ExecutionPhase::CandidateInitialization
+        }) && objects[id.slot].initialization_owner != Some(session.root.program_root().key())
+        {
+            return None;
+        }
+        Some(object)
+    }
+
     fn object_mut<'a>(
         &self,
         objects: &'a mut [ObjectSlot],
@@ -968,7 +984,7 @@ impl GcHeap {
 
     fn with_array<R>(&self, id: HeapObjectId, f: impl FnOnce(&Vec<Value>) -> R) -> Option<R> {
         let objects = self.objects.borrow();
-        match self.object_ref(&objects, id)? {
+        match self.readable_object(&objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),
             HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
             HeapObject::Struct { .. } => None,
@@ -994,7 +1010,7 @@ impl GcHeap {
         f: impl FnOnce(&IndexMap<MapKey, Value>) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
-        match self.object_ref(&objects, id)? {
+        match self.readable_object(&objects, id)? {
             HeapObject::Map(entries) => Some(f(entries)),
             HeapObject::Array(_)
             | HeapObject::Set(_)
@@ -1020,7 +1036,7 @@ impl GcHeap {
 
     fn with_set<R>(&self, id: HeapObjectId, f: impl FnOnce(&IndexSet<MapKey>) -> R) -> Option<R> {
         let objects = self.objects.borrow();
-        match self.object_ref(&objects, id)? {
+        match self.readable_object(&objects, id)? {
             HeapObject::Set(values) => Some(f(values)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
@@ -1061,7 +1077,7 @@ impl GcHeap {
         f: impl FnOnce(&crate::module::StructLayoutRef, &Vec<Value>) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
-        match self.object_ref(&objects, id)? {
+        match self.readable_object(&objects, id)? {
             HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
             HeapObject::Array(_)
             | HeapObject::Map(_)

@@ -1281,6 +1281,11 @@ impl HostFunction {
         }
         let result = (self.handler)(context, args)
             .map_err(|error| RuntimeError::host_call_failure(error.message()))?;
+        if !context.runtime().gc().validate_candidate_value(&result) {
+            return Err(RuntimeError::capability_denied(
+                "external object in candidate host result",
+            ));
+        }
         if !host_value_matches(context.runtime(), &result, &self.declaration.return_type)? {
             return Err(RuntimeError::host_call_failure(
                 "host result does not match the declared signature",

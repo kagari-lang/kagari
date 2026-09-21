@@ -428,6 +428,13 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
             },
         )
         .unwrap();
+    let retained = runtime
+        .root_value(Value::Tuple(vec![
+            Value::Array(array),
+            Value::Map(map),
+            Value::Set(set),
+        ]))
+        .unwrap();
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
     let before = runtime.resources().counters();
     let heap = runtime.gc();
@@ -443,17 +450,26 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     assert!(heap.set_insert(set, Value::I32(9)).is_err());
     assert!(heap.set_remove(set, &Value::I32(7)).is_none());
     assert!(heap.set_clear(set).is_none());
+    assert!(heap.array_snapshot(array).is_none());
+    assert!(heap.array_len(array).is_none());
+    assert!(heap.array_get(array, 0).is_none());
+    assert!(heap.map_snapshot(map).is_none());
+    assert!(heap.map_len(map).is_none());
+    assert!(heap.set_snapshot(set).is_none());
+    assert!(heap.set_len(set).is_none());
+    assert_eq!(runtime.resources().counters(), before);
+    let local = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
+    heap.array_push(local, Value::I32(2)).unwrap();
+    assert_eq!(heap.array_len(local), Some(2));
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc().validate_value(&retained.value()));
+    drop(session);
     assert_eq!(heap.array_snapshot(array).unwrap(), vec![Value::I32(7)]);
     assert_eq!(
         heap.map_snapshot(map).unwrap(),
         vec![(Value::I32(1), Value::I32(7))]
     );
     assert_eq!(heap.set_snapshot(set).unwrap(), vec![Value::I32(7)]);
-    assert_eq!(runtime.resources().counters(), before);
-    let local = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
-    heap.array_push(local, Value::I32(2)).unwrap();
-    assert_eq!(heap.array_len(local), Some(2));
-    drop(session);
     drop(candidate);
     runtime.gc().array_push(array, Value::I32(9)).unwrap();
     assert_eq!(runtime.gc().array_len(array), Some(2));

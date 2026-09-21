@@ -478,7 +478,10 @@ Implemented foundation slices:
   All mutable object access now checks candidate ownership before opening the target
   for writes. Direct array/map/set edits against preexisting objects fail without
   changing values or resource counters; candidate-owned edits remain permitted.
-  Remaining object ingress and external read paths still need audit.
+  Script-visible reads of external mutable objects are also rejected, including
+  snapshots and struct fields. Collector tracing retains its internal access so
+  old roots survive candidate collection. Host results undergo ownership checks
+  before shape traversal. Remaining module-state and other ingress paths need audit.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints
