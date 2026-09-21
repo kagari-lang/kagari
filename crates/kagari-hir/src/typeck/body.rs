@@ -601,22 +601,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Index { receiver, index } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
                 let index_ty = self.infer_expr_type(*index, env);
-                if matches!(receiver_ty, TypeId::Unknown | TypeId::Error)
-                    || index_ty.is_unresolved()
-                {
-                    TypeId::Error
-                } else {
-                    self.resolve_index_type(*index, &receiver_ty)
-                        .unwrap_or_else(|| {
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::InvalidIndexTarget {
-                                    type_name: display_type_id(&receiver_ty),
-                                })
-                                .with_span(self.lowered.source_map.expr_span(expr_id)),
-                            );
-                            TypeId::Error
-                        })
-                }
+                self.checked_index_type(*index, &receiver_ty, &index_ty, expr_id)
+                    .unwrap_or(TypeId::Error)
             }
             ExprKind::If {
                 condition,
@@ -1409,18 +1395,7 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self.infer_expr_type(*base, env);
                 self.check_const_write(*base);
                 let index_ty = self.infer_expr_type(*index, env);
-                let expected = self.resolve_index_type(*index, &base_ty);
-                if expected.is_none()
-                    && !matches!(base_ty, TypeId::Unknown | TypeId::Error)
-                    && !index_ty.is_unresolved()
-                {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidIndexTarget {
-                            type_name: display_type_id(&base_ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*index)),
-                    );
-                }
+                let expected = self.checked_index_type(*index, &base_ty, &index_ty, *index);
                 let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
                 if let Some(expected) = expected
                     && expected.conflicts_with(&value_ty)
@@ -2430,6 +2405,28 @@ impl<'a> BodyChecker<'a> {
             declaration: struct_def.id,
             arguments,
         })
+    }
+
+    fn checked_index_type(
+        &mut self,
+        index: ExprId,
+        receiver: &TypeId,
+        index_ty: &TypeId,
+        site: ExprId,
+    ) -> Option<TypeId> {
+        let result = self.resolve_index_type(index, receiver);
+        if result.is_none()
+            && !matches!(receiver, TypeId::Unknown | TypeId::Error)
+            && !matches!(index_ty, TypeId::Unknown | TypeId::Error)
+        {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidIndexTarget {
+                    type_name: display_type_id(receiver),
+                })
+                .with_span(self.lowered.source_map.expr_span(site)),
+            );
+        }
+        result
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {

@@ -526,3 +526,40 @@ fn invalid_reflection_names_keep_helper_targets_and_precise_argument_diagnostics
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
+    for (body, invalid) in [
+        ("values[(1, missing)];", true),
+        ("set_index(values, (1, missing), 7);", true),
+        ("values[missing];", false),
+        ("set_index(values, missing, 7);", false),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "partial-index.kgr",
+                format!("fn bad(values: [i32]) {{ {body} }} fn good() -> i32 {{ 42 }}"),
+            ),
+            crate::LanguageFeatureProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            analysis.diagnostics().len(),
+            1 + usize::from(invalid),
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
+            )),
+            invalid,
+            "{body}"
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}

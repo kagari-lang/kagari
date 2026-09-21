@@ -402,6 +402,9 @@ Member lookup likewise uses a known nominal declaration even if some of its type
 arguments are erroneous: absent fields still diagnose, and existing fields retain
 their declaration identities and substituted types. Only a wholly unknown or
 error receiver suppresses dependent missing-member diagnostics.
+Similarly, a partially erroneous Tuple remains a known noninteger index and
+produces an invalid-index diagnostic in addition to its member error. An index
+whose entire type is unknown or erroneous suppresses that dependent diagnostic.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the

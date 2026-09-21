@@ -325,6 +325,10 @@ Implemented foundation slices:
   arguments still diagnoses absent fields, while valid fields keep their types
   and declaration targets. A wholly unknown receiver suppresses dependent errors;
   incomplete dot access retains its explicit missing-name diagnostic.
+  Ordinary reads and reflective index writes share checked index diagnostics.
+  Partially erroneous composite indices still diagnose their known noninteger
+  shape; only whole Unknown/Error indices suppress dependent diagnostics.
+  Positive recovery cases and independent invalid-index errors cover both paths.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
