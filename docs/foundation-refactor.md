@@ -264,7 +264,11 @@ Implemented foundation slices:
   facades, distinct field representations, bounds, malformed binders, source/artifact/
   JIT fallback behavior and the standard-library example. Backwards generic-call
   constraints, generic impl specialization
-  and interface tables remain pending. Independent signature queries now construct
+  and interface tables remain pending. The shared argument-inference entry for
+  calls and enum payloads is now used by
+  concrete and trait parameter contexts too, with cancellation between operands.
+  It still propagates constraints forward; backwards contextual inference remains
+  an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
   analysis consumes that result instead of repeating header validation. Tests cover
   facade dependency changes, repair, body-edit diagnostic rebasing, unchanged query

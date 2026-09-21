@@ -1646,29 +1646,15 @@ impl<'a> BodyChecker<'a> {
                     .zip(nominal.arguments.iter().cloned()),
             );
         }
-        let caller_parameters = env
-            .generics
-            .iter()
-            .filter_map(|parameter| self.declarations.generic_type(parameter.id))
-            .collect::<Vec<_>>();
-        let mut actual = Vec::with_capacity(args.len());
-        for (index, argument) in args.iter().enumerate() {
-            let parameter = variant
-                .as_ref()
-                .and_then(|variant| variant.payload.get(index));
-            let expected = parameter.map(|ty| ty.instantiate(&substitution));
-            let ty = self.infer_expr_type_expected(
-                *argument,
-                env,
-                expected
-                    .as_ref()
-                    .filter(|ty| ty.is_resolved_in(&caller_parameters)),
-            );
-            if let Some(parameter) = parameter {
-                super::inference::infer(parameter, &ty, &generic_params, &mut substitution);
-            }
-            actual.push((*argument, ty));
-        }
+        let actual = self.infer_generic_args(
+            args,
+            variant
+                .iter()
+                .flat_map(|variant| variant.payload.iter().cloned()),
+            &generic_params,
+            &mut substitution,
+            env,
+        );
         let arguments = generic_params
             .iter()
             .map(|parameter| {
@@ -1791,32 +1777,13 @@ impl<'a> BodyChecker<'a> {
                 &mut substitution,
             );
         }
-        let caller_parameters = env
-            .generics
-            .iter()
-            .filter_map(|parameter| self.declarations.generic_type(parameter.id))
-            .collect::<Vec<_>>();
-        let mut arg_tys = Vec::with_capacity(args.len());
-        for (index, argument) in args.iter().enumerate() {
-            let parameter = function.params.get(index);
-            let expected = parameter.map(|parameter| parameter.ty.instantiate(&substitution));
-            let actual = self.infer_expr_type_expected(
-                *argument,
-                env,
-                expected
-                    .as_ref()
-                    .filter(|ty| ty.is_resolved_in(&caller_parameters)),
-            );
-            if let Some(parameter) = parameter {
-                super::inference::infer(
-                    &parameter.ty,
-                    &actual,
-                    &function.generic_params,
-                    &mut substitution,
-                );
-            }
-            arg_tys.push((*argument, actual));
-        }
+        let arg_tys = self.infer_generic_args(
+            args,
+            function.params.iter().map(|parameter| parameter.ty.clone()),
+            &function.generic_params,
+            &mut substitution,
+            env,
+        );
         let type_arguments = function
             .generic_params
             .iter()
@@ -2572,10 +2539,12 @@ impl<'a> BodyChecker<'a> {
             _ => None,
         }
     }
-    fn infer_typed_args(
+    fn infer_generic_args(
         &mut self,
         args: &[ExprId],
-        expected: impl Iterator<Item = TypeId>,
+        parameters: impl Iterator<Item = TypeId>,
+        generics: &[crate::types::GenericParameterType],
+        substitution: &mut crate::types::TypeSubstitution,
         env: &mut BodyTypeEnv,
     ) -> Vec<(ExprId, TypeId)> {
         let caller_parameters = env
@@ -2583,22 +2552,38 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .filter_map(|parameter| self.declarations.generic_type(parameter.id))
             .collect::<Vec<_>>();
-        let mut inferred = Vec::new();
-        let mut expected = expected.fuse();
+        let mut parameters = parameters.fuse();
+        let mut actual = Vec::new();
         for argument in args {
             if self.cancel.check().is_err() {
                 break;
             }
-            let expected = expected.next();
-            let expected = expected
-                .as_ref()
-                .filter(|ty| ty.is_resolved_in(&caller_parameters));
-            inferred.push((
+            let parameter = parameters.next();
+            let expected = parameter.as_ref().map(|ty| ty.instantiate(substitution));
+            let ty = self.infer_expr_type_expected(
                 *argument,
-                self.infer_expr_type_expected(*argument, env, expected),
-            ));
+                env,
+                expected
+                    .as_ref()
+                    .filter(|ty| ty.is_resolved_in(&caller_parameters)),
+            );
+            if !generics.is_empty()
+                && let Some(parameter) = parameter
+            {
+                super::inference::infer(&parameter, &ty, generics, substitution);
+            }
+            actual.push((*argument, ty));
         }
-        inferred
+        actual
+    }
+
+    fn infer_typed_args(
+        &mut self,
+        args: &[ExprId],
+        expected: impl Iterator<Item = TypeId>,
+        env: &mut BodyTypeEnv,
+    ) -> Vec<(ExprId, TypeId)> {
+        self.infer_generic_args(args, expected, &[], &mut Default::default(), env)
     }
 
     fn infer_call_args(&mut self, args: &[ExprId], env: &mut BodyTypeEnv) -> Vec<(ExprId, TypeId)> {
