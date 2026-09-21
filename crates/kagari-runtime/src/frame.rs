@@ -113,6 +113,14 @@ impl ExecutionStack {
         return_dst: Option<Register>,
     ) -> Result<(), RuntimeError> {
         self.validate_top()?;
+        if !args
+            .iter()
+            .all(|value| self.heap.validate_candidate_value(value))
+        {
+            return Err(RuntimeError::capability_denied(
+                "external object in candidate call arguments",
+            ));
+        }
         let loaded = self
             .session
             .root()

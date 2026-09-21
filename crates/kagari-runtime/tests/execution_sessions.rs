@@ -346,3 +346,65 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
     );
     assert_eq!(runtime.execution_options().phase, ExecutionPhase::Ordinary);
 }
+
+#[test]
+fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations() {
+    use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType};
+    use kagari_runtime::{HostExposurePolicy, host::HostFunction};
+    let mut runtime = Runtime::default();
+    let mut security = runtime.security();
+    security.profile.allow_host_calls = true;
+    security.capabilities.host_calls = true;
+    runtime.set_security_context(security);
+    runtime.set_host_exposure_policy(HostExposurePolicy {
+        allow_host_functions: true,
+        ..Default::default()
+    });
+    let old_object = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
+    let root = runtime.root_value(Value::Array(old_object)).unwrap();
+    for symbol in ["old", "fresh"] {
+        let mut declaration = HostFunctionDeclaration::new(
+            symbol,
+            vec![],
+            HostValueType::Array(Box::new(HostValueType::Array(Box::new(HostValueType::I32)))),
+        );
+        declaration.effects.may_allocate = true;
+        let retained = root.clone();
+        runtime
+            .register_host_function(HostFunction::new(declaration, move |context, _| {
+                let inner = if symbol == "old" {
+                    retained.value()
+                } else {
+                    Value::Array(context.runtime().alloc_array(vec![Value::I32(42)]).unwrap())
+                };
+                Ok(Value::Array(
+                    context.runtime().alloc_array(vec![inner]).unwrap(),
+                ))
+            }))
+            .unwrap();
+    }
+    let baseline = load(&mut runtime, "main");
+    let candidate = runtime
+        .stage_reload_program(
+            &baseline,
+            "main",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![baseline.bytecode.clone()],
+            },
+        )
+        .unwrap();
+    let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+    assert_eq!(
+        runtime.invoke_host("old", &[]).unwrap_err().kind(),
+        RuntimeErrorKind::CapabilityDenied
+    );
+    let fresh = runtime.invoke_host("fresh", &[]).unwrap();
+    let fresh = runtime.root_value(fresh).unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc().validate_value(&fresh.value()));
+    assert!(runtime.gc().validate_value(&root.value()));
+    drop(session);
+    runtime.publish_staged_reload(candidate).unwrap();
+    assert!(runtime.invoke_host("old", &[]).is_ok());
+}

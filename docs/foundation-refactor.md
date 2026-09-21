@@ -470,6 +470,12 @@ Implemented foundation slices:
   runtime's aggregate call depth. Ending a suspended empty session cannot mistake
   candidate frames for leaked resources; using a suspended execution stack is an
   engine fault, and quarantine still allows all candidate/old resources to unwind.
+  Heap slots record candidate allocation ownership. Candidate host arguments/results
+  and script call arguments traverse their reachable graph and reject mutable
+  objects allocated outside that candidate, including old objects inside fresh
+  wrappers. Immutable enums are traversed by member rules. Candidate allocations
+  remain usable through collection and publication; ordinary execution is unchanged.
+  Direct host heap mutation and all remaining object ingress paths still need audit.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

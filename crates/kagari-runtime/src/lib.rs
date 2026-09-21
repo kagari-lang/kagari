@@ -1187,12 +1187,25 @@ impl Runtime {
                 "host binding belongs to another registry or is missing",
             )
         })?;
+        if !args
+            .iter()
+            .all(|value| self.gc.validate_candidate_value(value))
+        {
+            return Err(RuntimeError::capability_denied(
+                "external object in candidate host arguments",
+            ));
+        }
         self.validate_bound_host_boundary(function.symbol(), Some(function))?;
         let context = host::HostCallContext::new(self, args)?;
         let result = function.invoke(&context, args);
         self.resources.ensure_execution_allowed()?;
         let value = result?;
         HostBorrowTable::validate_no_escape(&value)?;
+        if !self.gc.validate_candidate_value(&value) {
+            return Err(RuntimeError::capability_denied(
+                "external object in candidate host result",
+            ));
+        }
         if !self.gc.validate_value(&value) {
             return Err(RuntimeError::host_call_failure(
                 "invalid heap reference in host result",

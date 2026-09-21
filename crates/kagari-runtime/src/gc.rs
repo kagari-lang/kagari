@@ -114,6 +114,7 @@ pub struct GcCollection {
 #[derive(Debug)]
 struct ObjectSlot {
     generation: u64,
+    initialization_owner: Option<crate::ModuleKey>,
     object: Option<HeapObject>,
 }
 
@@ -817,15 +818,45 @@ impl GcHeap {
         true
     }
 
+    pub(crate) fn validate_candidate_value(&self, value: &Value) -> bool {
+        let Some(session) = self.resources.active_session().filter(|session| {
+            session.options.phase == crate::ExecutionPhase::CandidateInitialization
+        }) else {
+            return true;
+        };
+        if !value.is_default_heap_payload() {
+            return false;
+        }
+        let Some(references) = self.trace_value(value) else {
+            return false;
+        };
+        let objects = self.objects.borrow();
+        references.into_iter().all(|id| {
+            let Some(object) = self.object_ref(&objects, id) else {
+                return false;
+            };
+            matches!(object, HeapObject::Enum(_))
+                || objects[id.slot].initialization_owner == Some(session.root.program_root().key())
+        })
+    }
+
     fn valid_payload(&self, value: &Value) -> bool {
         value.is_default_heap_payload() && self.validate_value(value)
     }
 
     fn alloc_object(&self, object: HeapObject) -> Result<HeapObjectId, RuntimeError> {
         let growth = self.resources.prepare_heap_growth(object.units())?;
+        let initialization_owner = self
+            .resources
+            .active_session()
+            .filter(|session| {
+                session.options.phase == crate::ExecutionPhase::CandidateInitialization
+            })
+            .map(|session| session.root.program_root().key());
         let mut objects = self.objects.borrow_mut();
         let slot = if let Some(index) = self.free.borrow_mut().pop() {
             objects[index].object = Some(object);
+            objects[index].initialization_owner = initialization_owner;
             index
         } else {
             objects
@@ -834,6 +865,7 @@ impl GcHeap {
             let index = objects.len();
             objects.push(ObjectSlot {
                 generation: 0,
+                initialization_owner,
                 object: Some(object),
             });
             index

@@ -229,8 +229,22 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
             },
         )
         .unwrap();
+    let old_object = Value::Array(runtime.alloc_array(vec![Value::I32(7)]).unwrap());
     let initialization = runtime.begin_candidate_initialization(&candidate).unwrap();
     let stack = runtime.enter_execution_stack(candidate.module()).unwrap();
+    assert_eq!(
+        stack
+            .push(
+                candidate.module().slot(),
+                FunctionRef::new(0),
+                &[old_object],
+                None
+            )
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::CapabilityDenied
+    );
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
     stack
         .push(candidate.module().slot(), FunctionRef::new(0), &[], None)
         .unwrap();

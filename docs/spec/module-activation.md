@@ -68,6 +68,12 @@ the snapshot and must keep it immutable; this effect does not authorize ordinary
 service access, mutation, suspension or borrowed host parameters. Those additional
 effects still cause candidate execution to reject the call.
 
+Candidate host-call arguments/results and script-call arguments cannot introduce
+mutable objects from another generation's allocation scope. Validation traverses
+reachable values, including enum payloads and fresh wrappers around old objects.
+Pure host allocators may return candidate-owned objects. This runtime boundary
+supplements the trusted host's obligation to honor its declared effects.
+
 Candidate failure leaves the active entry and external business state unchanged.
 Ordinary CLI execution can grant explicit capabilities for effectful top-level
 code; those capabilities are not inherited by reload preparation.
