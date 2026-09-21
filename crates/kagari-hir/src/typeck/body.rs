@@ -635,16 +635,20 @@ impl<'a> BodyChecker<'a> {
                 match else_branch {
                     Some(else_expr) => {
                         let else_ty = self.infer_expr_type_expected(*else_expr, env, expected);
-                        let then_completes = super::completion::block_can_complete(
+                        let Ok(then_completes) = super::completion::block_can_complete(
                             &self.lowered.module,
                             *then_branch,
                             self.cancel,
-                        );
-                        let else_completes = super::completion::expr_can_complete(
+                        ) else {
+                            return TypeId::Unknown;
+                        };
+                        let Ok(else_completes) = super::completion::expr_can_complete(
                             &self.lowered.module,
                             *else_expr,
                             self.cancel,
-                        );
+                        ) else {
+                            return TypeId::Unknown;
+                        };
                         if !then_completes {
                             then_ty = else_ty;
                         } else if else_completes && then_ty.conflicts_with(&else_ty) {
@@ -678,11 +682,14 @@ impl<'a> BodyChecker<'a> {
                         .pattern(arm.pattern)
                         .kind
                         .is_irrefutable();
-                    if !super::completion::expr_can_complete(
+                    let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
                         arm.expr,
                         self.cancel,
-                    ) {
+                    ) else {
+                        return TypeId::Unknown;
+                    };
+                    if !completes {
                         continue;
                     }
                     if let Some(result) = &mut result {

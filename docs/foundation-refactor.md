@@ -697,6 +697,11 @@ Implemented foundation slices:
   completion paths or generated instances. Named and wildcard arms share their
   IR body lowering; regressions cover shadowed generic recursion and bindings
   across source/artifact/JIT execution.
+  Normal-completion queries now propagate cancellation separately from their
+  boolean facts. Sequential operands are visited in source order and stop after
+  termination; cancellation unwinds expression/member lists immediately instead
+  of substituting a normal-completion result. Deterministic tests cover empty
+  blocks, expression queries and cancellation during an operand sequence.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite
