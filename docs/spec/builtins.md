@@ -25,6 +25,9 @@ String without a compile-time value produces
 `KG_TYPE_REFLECTION_FIELD_NAME_NOT_CONSTANT`; a different known type produces
 an argument-type diagnostic. These failures retain the resolved helper target,
 and `set_field` still checks its RHS for independent errors.
+A resolved field-name expression retains the field declaration identity for
+navigation, including read-only or type-invalid writes. Its expression type
+remains String; the member target is separate semantic information.
 String length uses `len_bytes()` or `len_chars()`; the obsolete standalone
 `String.len()` path is removed without an alias.
 It describes language-level standard capabilities and standard modules, not host application APIs.

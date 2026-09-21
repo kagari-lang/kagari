@@ -315,6 +315,11 @@ Implemented foundation slices:
   names retain their helper call target and Error result instead of falling through
   to ordinary function resolution. Name-type, nonconstant-name and RHS errors keep
   distinct diagnostics; existing name errors do not gain cascading call errors.
+  Resolved reflection field-name expressions retain declaration-owned field
+  targets in the semantic table. Definition queries reuse the normal field-fact
+  path, including invalid writes; same-spelled fields remain distinct. Tests
+  verify navigation after body reuse and Unicode/CRLF shifts and retain old
+  snapshot locations without changing the field-name expression's String type.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

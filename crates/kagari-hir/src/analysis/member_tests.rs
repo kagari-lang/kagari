@@ -207,3 +207,85 @@ fn signature_reuse_rebases_field_keys_into_the_current_arena() {
         fresh.lowered.module.body.arena(),
     );
 }
+
+#[test]
+fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse() {
+    let text = "struct Left { val value: i32 } struct Right { var value: bool } fn read(a: Left, b: Right) { get_field(a, \"value\"); set_field(b, \"value\", true); } fn bad(a: Left) { set_field(a, \"value\", false); }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("reflection-members.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let profile = crate::LanguageFeatureProfile {
+        allow_reflection: true,
+        allow_reflection_write: true,
+        ..Default::default()
+    };
+    let first = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    let file = first.file(id).unwrap();
+    let uses: Vec<_> = text
+        .match_indices("\"value\"")
+        .map(|(offset, _)| offset + 1)
+        .collect();
+    let left = file.definition_at(uses[0]).expect("reflection read field");
+    let right = file.definition_at(uses[1]).expect("reflection write field");
+    assert_ne!(left.id, right.id);
+    assert_eq!(left.location.range.start, text.find("value").unwrap());
+    assert_eq!(
+        right.location.range.start,
+        text.find("var value").unwrap() + 4
+    );
+    assert_eq!(
+        file.definition_at(uses[2]),
+        Some(left),
+        "readonly and mismatch errors retain target"
+    );
+    assert_eq!(
+        file.type_at(uses[0]),
+        Some(TypeId::Builtin(crate::types::BuiltinType::String))
+    );
+    assert_eq!(file.result().diagnostics().len(), 2);
+    let edit = format!("// shifted 😀\r\n{text}");
+    sources
+        .set("reflection-members.kgr", edit.clone(), SourceLayer::Overlay)
+        .unwrap();
+    let second = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    let updated = second.file(id).unwrap();
+    assert_eq!(updated.result().facts().typed.reused_bodies, 0);
+    for (offset, old) in uses.iter().zip([left, right, left]) {
+        let current = updated
+            .definition_at(offset + edit.len() - text.len())
+            .unwrap();
+        assert_eq!(current.id, old.id);
+        assert_ne!(current.location.revision, old.location.revision);
+        assert_eq!(
+            current.location.range.start,
+            old.location.range.start + edit.len() - text.len()
+        );
+    }
+    assert_eq!(
+        file.definition_at(uses[0]),
+        Some(left),
+        "old snapshot remains valid"
+    );
+    let body_edit = edit.replace("false", "true");
+    sources
+        .set("reflection-members.kgr", body_edit, SourceLayer::Overlay)
+        .unwrap();
+    let third = db
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    let reused = third.file(id).unwrap();
+    assert_eq!(reused.result().facts().typed.reused_bodies, 1);
+    for (offset, old) in uses[..2].iter().zip([left, right]) {
+        let current = reused
+            .definition_at(offset + edit.len() - text.len())
+            .unwrap();
+        assert_eq!(current.id, old.id);
+        assert_eq!(current.location.revision, reused.source().revision());
+    }
+}

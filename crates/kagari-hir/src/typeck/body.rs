@@ -1492,6 +1492,7 @@ impl<'a> BodyChecker<'a> {
         write: bool,
     ) -> TypeId {
         if let Some(field) = self.resolve_field(receiver, name) {
+            self.type_table.insert_expr_field(site, field.id.clone());
             if write && !field.writeability.is_var() {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget {
