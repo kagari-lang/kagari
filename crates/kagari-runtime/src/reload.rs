@@ -189,23 +189,39 @@ pub fn path_fingerprints_for_module(module: &BytecodeModule) -> Vec<PathDescript
         .collect()
 }
 
+/// Reserves version identities independently of activation. Failed candidates may
+/// leave gaps; an identity is never reused for a later candidate.
 #[derive(Debug, Default)]
-pub struct HotReloadCoordinator {
+pub(crate) struct ModuleEpochAllocator {
     epochs: HashMap<String, ModuleEpoch>,
 }
 
-impl HotReloadCoordinator {
-    pub fn publish(&mut self, module_name: &str) -> ModuleEpoch {
-        let next = self
-            .epochs
-            .get(module_name)
-            .map(|epoch| ModuleEpoch(epoch.0 + 1))
-            .unwrap_or(ModuleEpoch(1));
-        self.epochs.insert(module_name.to_string(), next);
-        next
+impl ModuleEpochAllocator {
+    pub(crate) fn reserve(&mut self, module_name: &str) -> Result<ModuleEpoch, RuntimeError> {
+        let previous = self.epochs.get(module_name).map_or(0, |epoch| epoch.0);
+        let next = previous
+            .checked_add(1)
+            .ok_or_else(|| RuntimeError::module_validation("module epoch space exhausted"))?;
+        let epoch = ModuleEpoch(next);
+        self.epochs.insert(module_name.to_string(), epoch);
+        Ok(epoch)
     }
+}
 
-    pub fn epoch_of(&self, module_name: &str) -> Option<ModuleEpoch> {
-        self.epochs.get(module_name).copied()
+#[cfg(test)]
+mod epoch_tests {
+    use super::*;
+
+    #[test]
+    fn exhausted_epoch_space_is_rejected_without_reusing_an_identity() {
+        let mut allocator = ModuleEpochAllocator::default();
+        assert_eq!(allocator.reserve("main").unwrap(), ModuleEpoch(1));
+        assert_eq!(allocator.reserve("main").unwrap(), ModuleEpoch(2));
+        allocator
+            .epochs
+            .insert("main".into(), ModuleEpoch(u64::MAX));
+        assert!(allocator.reserve("main").is_err());
+        assert_eq!(allocator.epochs["main"], ModuleEpoch(u64::MAX));
+        assert_eq!(allocator.reserve("other").unwrap(), ModuleEpoch(1));
     }
 }

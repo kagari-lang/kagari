@@ -283,15 +283,31 @@ impl ResourceState {
         Ok(())
     }
 
-    pub fn record_loaded_modules(&self, loaded_modules: usize) -> Result<(), RuntimeError> {
+    pub(crate) fn admit_modules(&self, additional: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        let mut counters = self.counters.borrow_mut();
+        let next = counters
+            .loaded_modules
+            .checked_add(additional)
+            .ok_or_else(|| self.limit("loaded modules"))?;
         if let Some(max) = self.policy().max_modules
-            && loaded_modules > max
+            && next > max
         {
             return Err(self.limit("loaded modules"));
         }
-        self.counters.borrow_mut().loaded_modules = loaded_modules;
+        counters.loaded_modules = next;
         Ok(())
+    }
+
+    /// Releasing ownership must work even after cancellation or quarantine.
+    pub(crate) fn release_modules(&self, count: usize) {
+        let mut counters = self.counters.borrow_mut();
+        match counters.loaded_modules.checked_sub(count) {
+            Some(remaining) => counters.loaded_modules = remaining,
+            None => {
+                self.quarantine("loaded module count underflow");
+            }
+        }
     }
 }
 

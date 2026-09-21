@@ -75,7 +75,7 @@ use crate::{
     builtin::BuiltinError,
     gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, RootedValue},
     host::{HostFunction, HostRegistry},
-    reload::{HotReloadCoordinator, validate_reload_artifact_candidate, validate_reload_candidate},
+    reload::{ModuleEpochAllocator, validate_reload_artifact_candidate, validate_reload_candidate},
 };
 use value::Value;
 
@@ -154,7 +154,7 @@ pub struct Runtime {
     host_exposure: std::rc::Rc<HostExposurePolicy>,
     debug_visibility: DebugVisibilityPolicy,
     resources: std::rc::Rc<ResourceState>,
-    reloads: HotReloadCoordinator,
+    epochs: ModuleEpochAllocator,
     modules: ModuleStore,
     execution_artifacts: ExecutionArtifactRegistry,
 }
@@ -170,9 +170,9 @@ impl Runtime {
             security: config.security,
             host_exposure: std::rc::Rc::new(config.host_exposure),
             debug_visibility: config.debug_visibility,
+            modules: ModuleStore::new(resources.clone()),
             resources,
-            reloads: HotReloadCoordinator::default(),
-            modules: ModuleStore::default(),
+            epochs: ModuleEpochAllocator::default(),
             execution_artifacts: ExecutionArtifactRegistry::default(),
         }
     }
@@ -1231,12 +1231,10 @@ impl Runtime {
             .iter()
             .map(|module| self.host.link_module(module, &self.types))
             .collect::<Result<Vec<_>, _>>()?;
-        self.resources
-            .record_loaded_modules(self.modules.loaded_count() + bytecode.modules.len())?;
-        let epoch = self.reloads.publish(&name);
+        let epoch = self.epochs.reserve(&name)?;
         let module = self
             .modules
-            .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
+            .stage_program(name, epoch, bytecode, self.host.owner(), bindings)?
             .publish();
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         Ok(module)
@@ -1330,13 +1328,14 @@ impl Runtime {
                 ));
             }
         }
-        self.resources
-            .record_loaded_modules(self.modules.loaded_count() + bytecode.modules.len())
+        let epoch = self
+            .epochs
+            .reserve(&name)
             .map_err(ReloadValidationError::Runtime)?;
-        let epoch = self.reloads.publish(&name);
         let module = self
             .modules
             .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
+            .map_err(ReloadValidationError::Runtime)?
             .publish();
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         Ok(module)

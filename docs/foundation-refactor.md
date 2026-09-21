@@ -458,6 +458,10 @@ Implemented foundation slices:
   Ordinary sessions cannot silently absorb a candidate initialization request.
   Pure host calls remain subject to normal permissions and budgets. Explicit
   immutable configuration declarations and the VM reload orchestration remain pending.
+  Module admission and release are owned by the module store, including staged
+  candidates and unreachable versions. Candidate drop releases the quota even
+  after quarantine. Epoch reservation is separate from activation and never reuses
+  discarded identities; exhausted epoch space is rejected before installation.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

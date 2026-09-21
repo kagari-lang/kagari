@@ -293,9 +293,16 @@ impl ModuleInstance {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ModuleStore {
+    resources: std::rc::Rc<crate::ResourceState>,
     inner: std::rc::Rc<RefCell<ModuleStoreInner>>,
+}
+
+impl Default for ModuleStore {
+    fn default() -> Self {
+        Self::new(std::rc::Rc::new(crate::ResourceState::default()))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -338,11 +345,21 @@ impl Drop for StagedProgram {
                 inner.instances.remove(&key);
                 inner.retentions.remove(&key);
             }
+            self.store
+                .resources
+                .release_modules(self.module.members().count());
         }
     }
 }
 
 impl ModuleStore {
+    pub(crate) fn new(resources: std::rc::Rc<crate::ResourceState>) -> Self {
+        Self {
+            resources,
+            inner: Default::default(),
+        }
+    }
+
     pub(crate) fn gc_roots(&self) -> Vec<Value> {
         self.inner
             .borrow()
@@ -364,7 +381,7 @@ impl ModuleStore {
         bytecode: BytecodeProgram,
         registry_owner: crate::host::HostRegistryId,
         host_bindings: Vec<LinkedHostBindings>,
-    ) -> StagedProgram {
+    ) -> Result<StagedProgram, crate::RuntimeError> {
         assert_eq!(
             bytecode.modules.len(),
             host_bindings.len(),
@@ -372,6 +389,7 @@ impl ModuleStore {
         );
         let name = name.into();
         let mut inner = self.inner.borrow_mut();
+        self.resources.admit_modules(bytecode.modules.len())?;
         let root = bytecode.root;
         let modules = bytecode
             .modules
@@ -415,10 +433,10 @@ impl ModuleStore {
             inner.loaded.insert(key, member);
         }
         inner.staged.insert(loaded.program_key());
-        StagedProgram {
+        Ok(StagedProgram {
             store: self.clone(),
             module: loaded,
-        }
+        })
     }
     pub fn loaded(&self, key: ModuleKey) -> Option<LoadedModule> {
         self.inner.borrow().loaded.get(&key).cloned()
@@ -496,6 +514,7 @@ impl ModuleStore {
             inner.instances.remove(key);
             inner.retentions.remove(key);
         }
+        self.resources.release_modules(removable.len());
         removable
     }
 }
@@ -527,16 +546,18 @@ mod tests {
             let mut root = BytecodeModule::default();
             root.identity.path.push("root".into());
             root.dependencies.push(ModuleRef::new(0));
-            store.stage_program(
-                "game.player",
-                ModuleEpoch(epoch),
-                BytecodeProgram {
-                    root: ModuleRef::new(1),
-                    modules: vec![dependency, root],
-                },
-                crate::host::HostRegistryId::default(),
-                vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
-            )
+            store
+                .stage_program(
+                    "game.player",
+                    ModuleEpoch(epoch),
+                    BytecodeProgram {
+                        root: ModuleRef::new(1),
+                        modules: vec![dependency, root],
+                    },
+                    crate::host::HostRegistryId::default(),
+                    vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
+                )
+                .unwrap()
         };
         let baseline = stage(1).publish();
         let abandoned = stage(2);
@@ -555,6 +576,7 @@ mod tests {
         }
         assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
         assert_eq!(store.loaded_count(), 6);
+        assert_eq!(store.resources.counters().loaded_modules, 6);
         assert!(store.collect_unreachable_epochs().is_empty());
         assert_eq!(store.gc_roots(), vec![Value::I32(73); 2]);
 
@@ -564,6 +586,7 @@ mod tests {
             assert!(store.instance_snapshot(key).is_none());
         }
         assert_eq!(store.loaded_count(), 4);
+        assert_eq!(store.resources.counters().loaded_modules, 4);
         assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
         assert!(store.collect_unreachable_epochs().is_empty());
 
@@ -576,7 +599,45 @@ mod tests {
         }
         assert_eq!(store.collect_unreachable_epochs().len(), 2);
         assert_eq!(store.loaded_count(), 2);
+        assert_eq!(store.resources.counters().loaded_modules, 2);
         assert_eq!(store.gc_roots(), vec![Value::I32(73); 2]);
+    }
+
+    #[test]
+    fn abandoning_candidates_releases_admission_even_after_quarantine() {
+        let resources = std::rc::Rc::new(crate::ResourceState::new(crate::ResourcePolicy {
+            max_modules: Some(1),
+            ..Default::default()
+        }));
+        let store = ModuleStore::new(resources.clone());
+        let stage = |epoch| {
+            store.stage_program(
+                "candidate",
+                ModuleEpoch(epoch),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+        };
+        let candidate = stage(1).unwrap();
+        assert_eq!(
+            stage(2).unwrap_err().kind(),
+            crate::RuntimeErrorKind::ResourceLimitExceeded
+        );
+        assert_eq!(store.loaded_count(), 1);
+        assert_eq!(resources.counters().loaded_modules, 1);
+        assert!(store.latest("candidate").is_none());
+        drop(candidate);
+        assert_eq!(resources.counters().loaded_modules, 0);
+        let candidate = stage(3).unwrap();
+        resources.quarantine("test failed initializer invariant");
+        drop(candidate);
+        assert_eq!(store.loaded_count(), 0);
+        assert_eq!(resources.counters().loaded_modules, 0);
+        assert!(resources.is_quarantined());
     }
 
     #[test]
@@ -593,6 +654,7 @@ mod tests {
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
+            .unwrap()
             .publish();
         let second = store
             .stage_program(
@@ -605,6 +667,7 @@ mod tests {
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
+            .unwrap()
             .publish();
         let other = store
             .stage_program(
@@ -617,6 +680,7 @@ mod tests {
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
+            .unwrap()
             .publish();
 
         assert_eq!(first.id, second.id);
@@ -641,6 +705,7 @@ mod tests {
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
+            .unwrap()
             .publish();
 
         let instance = store.instance_snapshot(module.key()).unwrap();
@@ -665,6 +730,7 @@ mod tests {
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
+            .unwrap()
             .publish();
 
         {
@@ -689,6 +755,7 @@ mod tests {
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
+            .unwrap()
             .publish();
         {
             let mut instance = store.instance_mut(next.key()).unwrap();
@@ -714,6 +781,7 @@ mod tests {
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
+            .unwrap()
             .publish();
         let second = store
             .stage_program(
@@ -726,6 +794,7 @@ mod tests {
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
+            .unwrap()
             .publish();
 
         assert!(store.is_reachable(second.key()));
