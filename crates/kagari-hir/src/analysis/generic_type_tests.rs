@@ -1206,3 +1206,36 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
+    for (declaration, initializer) in [
+        (
+            "struct Pair<T> { val first: T, val second: T }",
+            "Pair { first: (1, std::map::new()), second: (true, std::map::new()) }",
+        ),
+        (
+            "enum Pair<T> { Values(T, T) }",
+            "Pair::Values((1, std::map::new()), (true, std::map::new()))",
+        ),
+    ] {
+        let source = SourceFile::new(
+            "finalized-constructor.kgr",
+            format!("{declaration} fn bad() {{ val pair = {initializer}; }}"),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        let mismatch = analysis
+            .diagnostics()
+            .iter()
+            .find_map(|diagnostic| match &diagnostic.kind {
+                kagari_common::DiagnosticKind::AssignmentTypeMismatch { expected, .. }
+                | kagari_common::DiagnosticKind::ArgumentTypeMismatch { expected, .. } => {
+                    Some(expected)
+                }
+                _ => None,
+            })
+            .expect("known i32/bool conflict survives recovery");
+        assert_eq!(mismatch, "(i32, Map<<error>, <error>>)", "{initializer}");
+        assert!(analysis.into_codegen().is_err());
+    }
+}

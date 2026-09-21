@@ -1660,18 +1660,13 @@ impl<'a> BodyChecker<'a> {
         if self.cancel.check().is_err() {
             return Some(TypeId::Unknown);
         }
-        let arguments = generic_params
-            .iter()
-            .map(|parameter| {
-                self.finish_inferred_argument(
-                    substitution.get(parameter),
-                    &name,
-                    &parameter.name,
-                    callee,
-                    false,
-                )
-            })
-            .collect();
+        let arguments = self.finish_inferred_arguments(
+            &mut substitution,
+            &generic_params,
+            &name,
+            callee,
+            false,
+        );
         let result = TypeId::Enum(crate::types::NominalType {
             declaration: enumeration,
             arguments,
@@ -1793,27 +1788,12 @@ impl<'a> BodyChecker<'a> {
         if self.cancel.check().is_err() {
             return TypeId::Unknown;
         }
-        let type_arguments = function
-            .generic_params
-            .iter()
-            .map(|parameter| {
-                self.finish_inferred_argument(
-                    substitution.get(parameter),
-                    &function.name,
-                    &parameter.name,
-                    callee,
-                    arg_tys.iter().any(|(_, ty)| ty.is_unresolved()),
-                )
-            })
-            .collect::<Vec<_>>();
-        // Recovery arguments must also replace missing binders in parameters
-        // and the return type; callee-owned generics cannot escape into callers.
-        substitution.extend(
-            function
-                .generic_params
-                .iter()
-                .cloned()
-                .zip(type_arguments.iter().cloned()),
+        let type_arguments = self.finish_inferred_arguments(
+            &mut substitution,
+            &function.generic_params,
+            &function.name,
+            callee,
+            arg_tys.iter().any(|(_, ty)| ty.is_unresolved()),
         );
         self.type_table
             .insert_type_arguments(call_expr, type_arguments);
@@ -2312,19 +2292,13 @@ impl<'a> BodyChecker<'a> {
             }
             field_tys.push((field.name.as_str(), field.value, actual));
         }
-        let arguments = struct_def
-            .generic_params
-            .iter()
-            .map(|parameter| {
-                self.finish_inferred_argument(
-                    substitution.get(parameter),
-                    path,
-                    &parameter.name,
-                    expr_id,
-                    false,
-                )
-            })
-            .collect();
+        let arguments = self.finish_inferred_arguments(
+            &mut substitution,
+            &struct_def.generic_params,
+            path,
+            expr_id,
+            false,
+        );
         let mut seen = HashSet::new();
         let resolved = super::ResolvedStructInit {
             structure: struct_def.id.clone(),
@@ -2540,27 +2514,36 @@ impl<'a> BodyChecker<'a> {
             _ => None,
         }
     }
-    fn finish_inferred_argument(
+    fn finish_inferred_arguments(
         &mut self,
-        inferred: Option<&TypeId>,
+        substitution: &mut crate::types::TypeSubstitution,
+        parameters: &[crate::types::GenericParameterType],
         name: &str,
-        parameter: &str,
         site: ExprId,
         suppress_missing: bool,
-    ) -> TypeId {
-        let unknown = inferred.is_some_and(TypeId::contains_unknown);
-        if unknown || (inferred.is_none() && !suppress_missing) {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
-                    function_name: name.to_owned(),
-                    parameter: parameter.to_owned(),
-                })
-                .with_span(self.lowered.source_map.expr_span(site)),
-            );
+    ) -> Vec<TypeId> {
+        let mut arguments = Vec::with_capacity(parameters.len());
+        for parameter in parameters {
+            let inferred = substitution.get(parameter);
+            let unknown = inferred.is_some_and(TypeId::contains_unknown);
+            if unknown || (inferred.is_none() && !suppress_missing) {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                        function_name: name.to_owned(),
+                        parameter: parameter.name.clone(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(site)),
+                );
+            }
+            let argument = inferred
+                .map(TypeId::diagnose_unknowns)
+                .unwrap_or(TypeId::Error);
+            // Result facts and subsequent member/argument checks consume exactly
+            // the same recovery substitution, including previously absent binders.
+            substitution.insert(parameter.clone(), argument.clone());
+            arguments.push(argument);
         }
-        inferred
-            .map(TypeId::diagnose_unknowns)
-            .unwrap_or(TypeId::Error)
+        arguments
     }
 
     fn infer_generic_args(

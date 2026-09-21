@@ -295,6 +295,10 @@ Implemented foundation slices:
   uninferred holes and converts only those leaves to Error, preserving known
   tuple/container members and nominal identities for tooling. Regression cases
   inspect retained local-reference facts and reject codegen in all three paths.
+  Finalization now also updates the shared substitution before constructor member
+  validation. Result facts and field/payload diagnostics use identical recovery
+  types; known sibling conflicts still diagnose after missing positions become
+  Error. The former function-only substitution update is removed.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

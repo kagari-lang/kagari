@@ -396,6 +396,8 @@ merely carrying an unknown position through a container does not infer it.
 For tooling, failed inference preserves known members and nominal identities;
 only unresolved positions become error types after the diagnostic. Such results
 remain unavailable to code generation.
+Constructor field and payload checks use the same finalized recovery types as
+result queries; unresolved positions do not hide conflicts in known siblings.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the
