@@ -856,6 +856,60 @@ impl<'a> BodyChecker<'a> {
         Some(self.infer_standard_intrinsic_type(intrinsic, callee, None, args, env))
     }
 
+    fn infer_standard_args(
+        &mut self,
+        intrinsic: StandardIntrinsic,
+        receiver: Option<&TypeId>,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+    ) -> Vec<(ExprId, TypeId)> {
+        use StandardIntrinsic::*;
+        let mut actual = Vec::new();
+        let mut remaining = args;
+        if receiver.is_none()
+            && let Some((first, rest)) = args.split_first()
+        {
+            actual.push((*first, self.infer_expr_type(*first, env)));
+            remaining = rest;
+        }
+        let base = receiver.or_else(|| actual.first().map(|(_, ty)| ty));
+        let context = match (intrinsic, base) {
+            (ArrayPush, Some(TypeId::Array(item))) => vec![(**item).clone()],
+            (ArrayInsert, Some(TypeId::Array(item))) => {
+                vec![TypeId::Builtin(BuiltinType::USize), (**item).clone()]
+            }
+            (MapContainsKey | MapGet | MapRemove, Some(TypeId::Map { key, .. })) => {
+                vec![(**key).clone()]
+            }
+            (MapInsert, Some(TypeId::Map { key, value })) => {
+                vec![(**key).clone(), (**value).clone()]
+            }
+            (SetContains | SetInsert | SetRemove, Some(TypeId::Set(item))) => {
+                vec![(**item).clone()]
+            }
+            (SetUnion | SetIntersection | SetDifference, Some(ty @ TypeId::Set(_))) => {
+                vec![ty.clone()]
+            }
+            (
+                OptionUnwrapOr,
+                Some(TypeId::StandardEnum {
+                    kind: surface::StandardEnum::Option,
+                    args,
+                }),
+            )
+            | (
+                ResultUnwrapOr,
+                Some(TypeId::StandardEnum {
+                    kind: surface::StandardEnum::Result,
+                    args,
+                }),
+            ) => args.first().cloned().into_iter().collect(),
+            _ => Vec::new(),
+        };
+        actual.extend(self.infer_typed_args(remaining, context.into_iter(), env));
+        actual
+    }
+
     fn infer_standard_intrinsic_type(
         &mut self,
         intrinsic: StandardIntrinsic,
@@ -866,7 +920,7 @@ impl<'a> BodyChecker<'a> {
     ) -> TypeId {
         use StandardIntrinsic::*;
 
-        let arg_tys = self.infer_call_args(args, env);
+        let arg_tys = self.infer_standard_args(intrinsic, receiver_ty.as_ref(), args, env);
         let name = standard_intrinsic_name(intrinsic);
         let value_offset = usize::from(receiver_ty.is_none());
         let arity = receiver_ty.as_ref().map_or_else(

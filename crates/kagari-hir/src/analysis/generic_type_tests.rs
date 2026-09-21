@@ -1331,3 +1331,65 @@ fn standard_arguments_suppress_dependent_errors_but_keep_known_member_conflicts(
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
+    for (body, valid) in [
+        ("values.push(Marker { value: 7 });", true),
+        ("map.get(1).unwrap_or(Marker { value: 7 });", true),
+        (
+            "std::option::unwrap_or(map.get(1), Marker { value: 7 });",
+            true,
+        ),
+        ("std::array::push(values, Marker { value: 7 });", true),
+        ("map.insert(1, Marker { value: 7 });", true),
+        ("std::map::insert(map, 1, Marker { value: 7 });", true),
+        ("values.push(Marker<bool> { value: 7 });", false),
+        (
+            "std::map::insert(map, 1, Marker<bool> { value: 7 });",
+            false,
+        ),
+        ("values.push(Marker { value: true });", false),
+    ] {
+        let source = SourceFile::new(
+            "standard-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} fn main() {{ val values: [Marker<i32>] = []; val map: Map<i32, Marker<i32>> = std::map::new(); {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+    }
+}
+
+#[test]
+fn standard_set_and_result_context_preserves_concrete_receiver_arguments() {
+    for body in [
+        "keys.union(std::set::new());",
+        "std::set::intersection(keys, std::set::new());",
+        "result.unwrap_or(Marker { value: 7 });",
+        "std::result::unwrap_or(result, Marker { value: 7 });",
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "standard-fallback-context.kgr",
+                format!(
+                    "struct Marker<T> {{ val value: i32 }} fn check(keys: Set<i32>, result: Result<Marker<i32>, String>) {{ {body} }}"
+                ),
+            ),
+            Default::default(),
+        );
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_ok());
+    }
+}

@@ -47,6 +47,9 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert_eq(partial_marker((Marker { value: 42 }, true)), 42, "known member context beside inferred generic");
     val partial = PartialMarker { pair: (Marker { value: 42 }, true) };
     std::debug::assert_eq(partial.pair[0].value, 42, "partial field context");
+    val markers: [Marker<i32>] = [];
+    markers.push(Marker { value: 42 });
+    std::debug::assert_eq(markers[0].value, 42, "container supplies constructor context");
     val values = [1, 2];
     val counter = Cell { value: 7 };
     val flag = Cell { value: true };

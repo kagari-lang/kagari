@@ -392,3 +392,11 @@ fn reflective_write_targets_supply_generic_constructor_context() {
         true,
     );
 }
+
+#[test]
+fn standard_container_context_executes_through_methods_and_qualified_calls() {
+    execute_contextual_source(
+        "struct Marker<T> { val value: i32 } fn main() -> i32 { val values: [Marker<i32>] = []; values.push(Marker { value: 10 }); std::array::push(values, Marker { value: 10 }); val map: Map<i32, Marker<i32>> = std::map::new(); std::map::insert(map, 1, Marker { value: 22 }); values[0].value + values[1].value + map.get(1).unwrap_or(Marker { value: 0 }).value }",
+        42,
+    );
+}

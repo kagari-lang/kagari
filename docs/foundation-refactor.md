@@ -334,6 +334,12 @@ Implemented foundation slices:
   operands no longer duplicate primary expression/arity diagnostics. Array method
   and qualified calls plus String functions cover recovery and independent
   mismatches; partially erroneous non-container operands still diagnose.
+  Standard container arguments now receive element/key/value context after the
+  receiver is checked in source order. Method and qualified calls share this
+  path, including Set algebra and Option/Result unwrap_or fallback context.
+  Constructor positive/negative cases and source/artifact/JIT execution verify
+  Array and Map mutation plus Option fallback; the standard-library example
+  includes a context-inferred generic element constructor.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

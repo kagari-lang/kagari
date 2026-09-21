@@ -31,6 +31,11 @@ remains String; the member target is separate semantic information.
 Standard function and method argument checks retain known-member conflicts in
 partially erroneous types. Whole unknown/error operands do not generate duplicate
 argument-type diagnostics; missing operands are reported by the arity check.
+Container calls provide checked element/key/value types as context for subsequent
+arguments. This applies equally to methods and qualified functions, with the
+receiver (or first explicit container argument) checked first. Set algebra uses
+the receiver Set type, and Option/Result `unwrap_or` uses the payload type for its
+fallback. Context does not coerce incompatible arguments or infer backwards.
 String length uses `len_bytes()` or `len_chars()`; the obsolete standalone
 `String.len()` path is removed without an alias.
 It describes language-level standard capabilities and standard modules, not host application APIs.
