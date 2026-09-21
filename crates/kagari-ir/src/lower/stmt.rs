@@ -45,6 +45,9 @@ impl FunctionLowerer<'_, '_> {
                 ..
             } => {
                 let src = self.lower_expr(initializer)?;
+                if self.current_block_terminated() {
+                    return Ok(());
+                }
                 let dst = self.bind_local(local, name)?;
                 self.emit(Instruction::StoreLocal { local: dst, src });
                 Ok(())
@@ -60,7 +63,9 @@ impl FunctionLowerer<'_, '_> {
                     Some(expr) => Some(self.lower_expr(expr)?),
                     None => Some(self.lower_unit()),
                 };
-                self.set_terminator(Terminator::Return(value));
+                if !self.current_block_terminated() {
+                    self.set_terminator(Terminator::Return(value));
+                }
                 Ok(())
             }
             hir::StmtKind::Expr(expr) => {

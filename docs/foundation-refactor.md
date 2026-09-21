@@ -678,6 +678,10 @@ Implemented foundation slices:
   IR joins without predecessors terminate as Unreachable, including loop exits.
   Regressions cover nested loop breaks, missing returns, mixed returning/value
   branches and source/artifact/JIT execution of explicit returns.
+  Call arguments and aggregate members stop lowering once a member terminates
+  control flow. Later generic calls no longer consume the instance budget, and
+  terminating initializers do not emit a local store. Tests cover Tuple, Array,
+  enum and Struct members, empty unreachable joins and source/artifact/JIT routes.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

@@ -165,6 +165,55 @@ fn unreachable_calls_after_return_do_not_create_instances() {
 }
 
 #[test]
+fn returning_call_argument_stops_later_arguments_and_instantiation() {
+    let analyzed = common::analyze_ok(
+        "fn grow<T>(x: T) { grow((x, x)); } fn take<T>(first: (), second: T) {} fn main() -> i32 { take(if true { return 42; } else { return 7; }, grow(1)); }",
+    );
+    let ir = lower_to_ir(
+        &analyzed,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ir.functions.len(), 1);
+    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+}
+
+#[test]
+fn returning_aggregate_member_stops_later_members() {
+    for expression in [
+        "(if true { return 42; } else { return 7; }, grow(1))",
+        "[if true { return 42; } else { return 7; }, grow(1)]",
+        "Pair::Data(if true { return 42; } else { return 7; }, grow(1))",
+        "PairStruct { first: if true { return 42; } else { return 7; }, second: grow(1) }",
+    ] {
+        let analyzed = common::analyze_ok(&format!(
+            "enum Pair {{ Data((), ()) }} struct PairStruct {{ val first: (), val second: () }} fn grow<T>(x: T) {{ grow((x, x)); }} fn main() -> i32 {{ val unused = {expression}; }}"
+        ));
+        let ir = lower_to_ir(
+            &analyzed,
+            &crate::IrLoweringOptions {
+                max_generic_instances: 2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ir.functions.len(), 1, "{expression}");
+        assert!(
+            ir.functions[0]
+                .blocks
+                .iter()
+                .filter(|block| matches!(block.terminator, Some(Terminator::Unreachable)))
+                .all(|block| block.instructions.is_empty()),
+            "{expression}"
+        );
+        crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    }
+}
+
+#[test]
 fn recursive_instantiation_reuses_the_current_instance() {
     let analyzed = common::analyze_ok(
         "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }",

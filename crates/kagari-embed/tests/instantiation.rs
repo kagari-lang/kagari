@@ -22,6 +22,18 @@ fn explicit_returns_execute_without_a_synthetic_unit_result() {
 }
 
 #[test]
+fn returning_initializer_does_not_store_an_unproduced_value() {
+    execute_contextual_source(
+        "fn main() -> i32 { val unused = if true { return 42; } else { return 7; }; }",
+        42,
+    );
+    execute_contextual_source(
+        "fn grow<T>(x: T) { grow((x, x)); } fn take<T>(first: (), second: T) {} fn main() -> i32 { take(if true { return 42; } else { return 7; }, grow(1)); }",
+        42,
+    );
+}
+
+#[test]
 fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
     execute_contextual_source(
         "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty(); val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }",

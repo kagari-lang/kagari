@@ -530,6 +530,9 @@ Kagari keeps Rust-like blocks and control-flow shape while using Kotlin-like `va
 Function return checking distinguishes normal completion from explicit `return`.
 The tail expression (or Unit when absent) must match the declared result only when
 control can reach the end. Each explicit return operand is checked independently.
+When a call argument or aggregate member returns from the enclosing function,
+later arguments/members and the enclosing call/construction are not executed.
+Those unreachable generic calls do not create concrete instances.
 Branches that return or otherwise cannot complete do not contribute a value type
 to an if/match join. Unreachable source still receives semantic diagnostics.
 An unconditional loop completes only through a reachable break in that loop;

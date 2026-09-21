@@ -1,4 +1,5 @@
 use kagari_hir::{builtin::BuiltinFunction, hir};
+use std::ops::ControlFlow;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
@@ -9,6 +10,21 @@ use crate::module::instruction::{
 use crate::module::types::ValueType;
 
 impl FunctionLowerer<'_, '_> {
+    fn lower_values(
+        &mut self,
+        expressions: &[hir::ExprId],
+    ) -> Result<ControlFlow<IrValue, ValueBuffer>, IrLoweringError> {
+        let mut values = ValueBuffer::new();
+        for expression in expressions {
+            let value = self.lower_expr(*expression)?;
+            if self.current_block_terminated() {
+                return Ok(ControlFlow::Break(value));
+            }
+            values.push(value);
+        }
+        Ok(ControlFlow::Continue(values))
+    }
+
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         self.planner.check()?;
         let ty = self
@@ -44,10 +60,10 @@ impl FunctionLowerer<'_, '_> {
                     ));
                 }
             };
-            let fields = args
-                .iter()
-                .map(|arg| self.lower_expr(*arg))
-                .collect::<Result<_, _>>()?;
+            let fields = match self.lower_values(&args)? {
+                ControlFlow::Continue(fields) => fields,
+                ControlFlow::Break(value) => return Ok(value),
+            };
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::MakeEnum {
                 dst,
@@ -336,10 +352,10 @@ impl FunctionLowerer<'_, '_> {
         expr_id: hir::ExprId,
         elements: hir::ExprBuffer,
     ) -> Result<IrValue, IrLoweringError> {
-        let elements = elements
-            .iter()
-            .map(|expr| self.lower_expr(*expr))
-            .collect::<Result<_, _>>()?;
+        let elements = match self.lower_values(&elements)? {
+            ControlFlow::Continue(elements) => elements,
+            ControlFlow::Break(value) => return Ok(value),
+        };
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeTuple { dst, elements });
         Ok(dst)
@@ -350,10 +366,10 @@ impl FunctionLowerer<'_, '_> {
         expr_id: hir::ExprId,
         elements: hir::ExprBuffer,
     ) -> Result<IrValue, IrLoweringError> {
-        let elements = elements
-            .iter()
-            .map(|expr| self.lower_expr(*expr))
-            .collect::<Result<_, _>>()?;
+        let elements = match self.lower_values(&elements)? {
+            ControlFlow::Continue(elements) => elements,
+            ControlFlow::Break(value) => return Ok(value),
+        };
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeArray { dst, elements });
         Ok(dst)
@@ -378,28 +394,29 @@ impl FunctionLowerer<'_, '_> {
                 "checked initializer field count",
             ));
         }
-        let fields = fields
-            .iter()
-            .zip(target.fields)
-            .map(|(field, target)| {
-                let target =
-                    target.ok_or(IrLoweringError::MissingBinding("checked initializer field"))?;
-                Ok(StructFieldInit {
-                    slot: self
-                        .analyzed
-                        .aggregates
-                        .field(&target)
-                        .ok_or(IrLoweringError::MissingBinding("checked field contract"))?
-                        .slot,
-                    value: self.lower_expr(field.value)?,
-                })
-            })
-            .collect::<Result<_, IrLoweringError>>()?;
+        let mut lowered_fields = smallvec::SmallVec::new();
+        for (field, target) in fields.iter().zip(target.fields) {
+            let target =
+                target.ok_or(IrLoweringError::MissingBinding("checked initializer field"))?;
+            let value = self.lower_expr(field.value)?;
+            if self.current_block_terminated() {
+                return Ok(value);
+            }
+            lowered_fields.push(StructFieldInit {
+                slot: self
+                    .analyzed
+                    .aggregates
+                    .field(&target)
+                    .ok_or(IrLoweringError::MissingBinding("checked field contract"))?
+                    .slot,
+                value,
+            });
+        }
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeStruct {
             dst,
             structure: self.expr_nominal_instance(expr_id)?,
-            fields,
+            fields: lowered_fields,
         });
         Ok(dst)
     }
@@ -514,10 +531,15 @@ impl FunctionLowerer<'_, '_> {
             target => {
                 let mut lowered = ValueBuffer::new();
                 if let Some(receiver) = call.receiver {
-                    lowered.push(self.lower_expr(receiver)?);
+                    let value = self.lower_expr(receiver)?;
+                    if self.current_block_terminated() {
+                        return Ok(value);
+                    }
+                    lowered.push(value);
                 }
-                for arg in args {
-                    lowered.push(self.lower_expr(*arg)?);
+                match self.lower_values(args)? {
+                    ControlFlow::Continue(values) => lowered.extend(values),
+                    ControlFlow::Break(value) => return Ok(value),
                 }
                 let target = match target {
                     SemanticCallTarget::Function(id) => {
