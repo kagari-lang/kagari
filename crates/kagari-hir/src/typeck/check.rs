@@ -495,7 +495,9 @@ pub(crate) fn check_bodies_controlled(
                     }
                     continue;
                 }
-                if body_ty.conflicts_with(&typed_function.return_type) {
+                if super::completion::block_can_complete(&lowered.module, function.body, cancel)
+                    && body_ty.conflicts_with(&typed_function.return_type)
+                {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                             function_name: typed_function.name.clone(),

@@ -162,7 +162,7 @@ impl FunctionLowerer<'_, '_> {
             self.set_terminator(Terminator::Jump(join_block));
         }
 
-        self.switch_to_block(join_block);
+        self.switch_to_join(join_block);
         Ok(result)
     }
 
@@ -327,7 +327,7 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(fail_block);
         self.set_terminator(Terminator::Unreachable);
 
-        self.switch_to_block(exit_block);
+        self.switch_to_join(exit_block);
         Ok(result)
     }
 

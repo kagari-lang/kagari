@@ -635,7 +635,19 @@ impl<'a> BodyChecker<'a> {
                 match else_branch {
                     Some(else_expr) => {
                         let else_ty = self.infer_expr_type_expected(*else_expr, env, expected);
-                        if then_ty.conflicts_with(&else_ty) {
+                        let then_completes = super::completion::block_can_complete(
+                            &self.lowered.module,
+                            *then_branch,
+                            self.cancel,
+                        );
+                        let else_completes = super::completion::expr_can_complete(
+                            &self.lowered.module,
+                            *else_expr,
+                            self.cancel,
+                        );
+                        if !then_completes {
+                            then_ty = else_ty;
+                        } else if else_completes && then_ty.conflicts_with(&else_ty) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
                                     expected: display_type_id(&then_ty),
@@ -643,8 +655,9 @@ impl<'a> BodyChecker<'a> {
                                 })
                                 .with_span(self.lowered.source_map.expr_span(*else_expr)),
                             );
+                        } else if else_completes {
+                            then_ty.recover_from(&else_ty);
                         }
-                        then_ty.recover_from(&else_ty);
                         then_ty
                     }
                     None => TypeId::Builtin(BuiltinType::Unit),
@@ -652,29 +665,32 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Match { scrutinee, arms } => {
                 let scrutinee_ty = self.infer_expr_type(*scrutinee, env);
-                let mut arm_iter = arms.iter();
-                match arm_iter.next() {
-                    Some(first_arm) => {
-                        let mut result =
-                            self.infer_match_arm_type(first_arm, &scrutinee_ty, env, expected);
-                        for arm in arm_iter {
-                            let found =
-                                self.infer_match_arm_type(arm, &scrutinee_ty, env, expected);
-                            if found.conflicts_with(&result) {
-                                self.diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
-                                        expected: display_type_id(&result),
-                                        found: display_type_id(&found),
-                                    })
-                                    .with_span(self.lowered.source_map.expr_span(arm.expr)),
-                                );
-                            }
-                            result.recover_from(&found);
-                        }
-                        result
+                let mut result: Option<TypeId> = None;
+                for arm in arms {
+                    let found = self.infer_match_arm_type(arm, &scrutinee_ty, env, expected);
+                    if !super::completion::expr_can_complete(
+                        &self.lowered.module,
+                        arm.expr,
+                        self.cancel,
+                    ) {
+                        continue;
                     }
-                    None => TypeId::Builtin(BuiltinType::Unit),
+                    if let Some(result) = &mut result {
+                        if found.conflicts_with(result) {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
+                                    expected: display_type_id(result),
+                                    found: display_type_id(&found),
+                                })
+                                .with_span(self.lowered.source_map.expr_span(arm.expr)),
+                            );
+                        }
+                        result.recover_from(&found);
+                    } else {
+                        result = Some(found);
+                    }
                 }
+                result.unwrap_or(TypeId::Builtin(BuiltinType::Unit))
             }
             ExprKind::StructInit {
                 path,

@@ -701,6 +701,8 @@ impl AnalysisSnapshot {
 #[cfg(test)]
 mod arena_tests;
 #[cfg(test)]
+mod completion_tests;
+#[cfg(test)]
 mod constructor_tests;
 #[cfg(test)]
 mod generic_type_tests;

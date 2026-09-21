@@ -2,6 +2,7 @@ mod applications;
 pub(crate) use applications::validate_signatures as validate_signature_applications;
 mod body;
 mod check;
+mod completion;
 mod const_eval;
 mod constraints;
 mod inference;

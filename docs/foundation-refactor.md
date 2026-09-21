@@ -671,8 +671,13 @@ Implemented foundation slices:
   member, supplying context to later nested constructors. Known member types no
   longer wait for unrelated binders. HIR and source/artifact/JIT fixtures cover
   phantom payloads, caller-owned binders and rejected member mismatches.
-  The checker still treats a function without a tail expression as returning Unit
-  even when an explicit return terminates it; control-flow completion remains open.
+  Function fallthrough now uses a separate normal-completion analysis. Explicit
+  returns and loops without reachable breaks no longer synthesize a Unit return;
+  if/match type joins exclude branches that cannot complete. Unreachable statements
+  retain diagnostics. While loops conservatively retain their zero-iteration path.
+  IR joins without predecessors terminate as Unreachable, including loop exits.
+  Regressions cover nested loop breaks, missing returns, mixed returning/value
+  branches and source/artifact/JIT execution of explicit returns.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

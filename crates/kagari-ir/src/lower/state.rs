@@ -129,6 +129,27 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         self.current_block = block;
     }
 
+    /// All incoming edges to a structured join have been emitted at this point.
+    pub(crate) fn switch_to_join(&mut self, block: BlockId) {
+        let has_predecessor =
+            self.function
+                .blocks
+                .iter()
+                .any(|candidate| match candidate.terminator.as_ref() {
+                    Some(Terminator::Jump(target)) => *target == block,
+                    Some(Terminator::Branch {
+                        then_block,
+                        else_block,
+                        ..
+                    }) => *then_block == block || *else_block == block,
+                    _ => false,
+                });
+        self.switch_to_block(block);
+        if !has_predecessor {
+            self.set_terminator(Terminator::Unreachable);
+        }
+    }
+
     pub(crate) fn current_block_terminated(&self) -> bool {
         self.function.blocks[self.current_block.index()]
             .terminator

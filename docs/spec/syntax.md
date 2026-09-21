@@ -527,6 +527,15 @@ Kagari keeps Rust-like blocks and control-flow shape while using Kotlin-like `va
 - writeability of fields, host paths, and host APIs is controlled by `val`/`var`, type rules, and host policy.
 - `for` syntax is Rust-like and iterates over values accepted by the language iterable protocol.
 
+Function return checking distinguishes normal completion from explicit `return`.
+The tail expression (or Unit when absent) must match the declared result only when
+control can reach the end. Each explicit return operand is checked independently.
+Branches that return or otherwise cannot complete do not contribute a value type
+to an if/match join. Unreachable source still receives semantic diagnostics.
+An unconditional loop completes only through a reachable break in that loop;
+breaks in nested loops do not exit it. While-loop completion conservatively
+includes the zero-iteration path, without constant-condition evaluation.
+
 ### Expressions
 
 ```ebnf

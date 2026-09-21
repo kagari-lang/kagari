@@ -137,7 +137,7 @@ impl FunctionLowerer<'_, '_> {
         self.ensure_jump(body_block);
         self.loops.pop();
 
-        self.switch_to_block(exit_block);
+        self.switch_to_join(exit_block);
         Ok(())
     }
 }

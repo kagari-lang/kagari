@@ -2,6 +2,26 @@ use kagari_common::SourceFile;
 use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine};
 
 #[test]
+fn explicit_returns_execute_without_a_synthetic_unit_result() {
+    execute_contextual_source(
+        r#"
+        struct Marker<T> { val value: i32 }
+        fn direct() -> Marker<i32> { return Marker { value: 20 }; }
+        fn choose(flag: bool) -> i32 {
+            if flag { return 22; } else { return 2; };
+        }
+        fn mixed(flag: bool) -> i32 { if flag { return 0; } else { 9 } }
+        fn from_loop() -> i32 { loop { return 0; } }
+        fn from_match() -> i32 {
+            match true { true => if true { return 0; } else { return 9; }, _ => 9 }
+        }
+        fn main() -> i32 { return direct().value + choose(true) + mixed(true) + from_loop() + from_match(); false }
+        "#,
+        42,
+    );
+}
+
+#[test]
 fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
     execute_contextual_source(
         "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty(); val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }",
