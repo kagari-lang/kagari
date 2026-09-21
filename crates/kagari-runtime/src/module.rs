@@ -1,6 +1,6 @@
 use std::{
     cell::{RefCell, RefMut},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::Deref,
     sync::Arc,
 };
@@ -304,8 +304,42 @@ struct ModuleStoreInner {
     ids_by_member: HashMap<(String, kagari_common::identity::ModuleIdentity), ModuleId>,
     loaded: HashMap<ModuleKey, LoadedModule>,
     latest_by_name: HashMap<String, ModuleKey>,
+    staged: HashSet<ModuleKey>,
     instances: HashMap<ModuleKey, ModuleInstance>,
     retentions: HashMap<ModuleKey, ModuleEpochRetentionCounts>,
+}
+
+/// Owns an unpublished program and its isolated module instances.
+/// Dropping the candidate releases those instances without touching active entries.
+#[derive(Debug)]
+pub(crate) struct StagedProgram {
+    store: ModuleStore,
+    module: LoadedModule,
+}
+
+impl StagedProgram {
+    pub(crate) fn publish(self) -> LoadedModule {
+        let mut inner = self.store.inner.borrow_mut();
+        inner.staged.remove(&self.module.program_key());
+        inner
+            .latest_by_name
+            .insert(self.module.name.clone(), self.module.key());
+        self.module.clone()
+    }
+}
+
+impl Drop for StagedProgram {
+    fn drop(&mut self) {
+        let mut inner = self.store.inner.borrow_mut();
+        if inner.staged.remove(&self.module.program_key()) {
+            for member in self.module.members() {
+                let key = member.key();
+                inner.loaded.remove(&key);
+                inner.instances.remove(&key);
+                inner.retentions.remove(&key);
+            }
+        }
+    }
 }
 
 impl ModuleStore {
@@ -323,14 +357,14 @@ impl ModuleStore {
             })
             .collect()
     }
-    pub(crate) fn load_program(
+    pub(crate) fn stage_program(
         &self,
         name: impl Into<String>,
         epoch: ModuleEpoch,
         bytecode: BytecodeProgram,
         registry_owner: crate::host::HostRegistryId,
         host_bindings: Vec<LinkedHostBindings>,
-    ) -> LoadedModule {
+    ) -> StagedProgram {
         assert_eq!(
             bytecode.modules.len(),
             host_bindings.len(),
@@ -380,8 +414,11 @@ impl ModuleStore {
             inner.retentions.entry(key).or_default();
             inner.loaded.insert(key, member);
         }
-        inner.latest_by_name.insert(name, loaded.key());
-        loaded
+        inner.staged.insert(loaded.program_key());
+        StagedProgram {
+            store: self.clone(),
+            module: loaded,
+        }
     }
     pub fn loaded(&self, key: ModuleKey) -> Option<LoadedModule> {
         self.inner.borrow().loaded.get(&key).cloned()
@@ -468,6 +505,7 @@ fn live_programs(inner: &ModuleStoreInner) -> std::collections::HashSet<ModuleKe
         .latest_by_name
         .values()
         .copied()
+        .chain(inner.staged.iter().copied())
         .chain(
             inner
                 .retentions
@@ -482,38 +520,104 @@ mod tests {
     use super::*;
 
     #[test]
+    fn staged_programs_keep_instances_alive_without_activating_them() {
+        let store = ModuleStore::default();
+        let stage = |epoch| {
+            let dependency = BytecodeModule::default();
+            let mut root = BytecodeModule::default();
+            root.identity.path.push("root".into());
+            root.dependencies.push(ModuleRef::new(0));
+            store.stage_program(
+                "game.player",
+                ModuleEpoch(epoch),
+                BytecodeProgram {
+                    root: ModuleRef::new(1),
+                    modules: vec![dependency, root],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
+            )
+        };
+        let baseline = stage(1).publish();
+        let abandoned = stage(2);
+        let candidate = stage(3);
+        let abandoned_keys = abandoned
+            .module
+            .members()
+            .map(|m| m.key())
+            .collect::<Vec<_>>();
+        for member in candidate.module.members() {
+            store
+                .instance_mut(member.key())
+                .unwrap()
+                .finish_initialization(Value::I32(73));
+            assert!(store.is_reachable(member.key()));
+        }
+        assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
+        assert_eq!(store.loaded_count(), 6);
+        assert!(store.collect_unreachable_epochs().is_empty());
+        assert_eq!(store.gc_roots(), vec![Value::I32(73); 2]);
+
+        drop(abandoned);
+        for key in abandoned_keys {
+            assert!(store.loaded(key).is_none());
+            assert!(store.instance_snapshot(key).is_none());
+        }
+        assert_eq!(store.loaded_count(), 4);
+        assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
+        assert!(store.collect_unreachable_epochs().is_empty());
+
+        let published = candidate.publish();
+        assert_eq!(store.latest("game.player").unwrap().key(), published.key());
+        for member in published.members() {
+            let instance = store.instance_snapshot(member.key()).unwrap();
+            assert_eq!(instance.state, ModuleInitializationState::Initialized);
+            assert_eq!(instance.init_result, Some(Value::I32(73)));
+        }
+        assert_eq!(store.collect_unreachable_epochs().len(), 2);
+        assert_eq!(store.loaded_count(), 2);
+        assert_eq!(store.gc_roots(), vec![Value::I32(73); 2]);
+    }
+
+    #[test]
     fn assigns_stable_module_ids_across_epochs() {
         let store = ModuleStore::default();
-        let first = store.load_program(
-            "game.player",
-            ModuleEpoch(1),
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-        );
-        let second = store.load_program(
-            "game.player",
-            ModuleEpoch(2),
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-        );
-        let other = store.load_program(
-            "game.world",
-            ModuleEpoch(1),
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-        );
+        let first = store
+            .stage_program(
+                "game.player",
+                ModuleEpoch(1),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .publish();
+        let second = store
+            .stage_program(
+                "game.player",
+                ModuleEpoch(2),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .publish();
+        let other = store
+            .stage_program(
+                "game.world",
+                ModuleEpoch(1),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .publish();
 
         assert_eq!(first.id, second.id);
         assert_ne!(first.id, other.id);
@@ -526,16 +630,18 @@ mod tests {
     #[test]
     fn creates_module_instances_with_explicit_initialization_state() {
         let store = ModuleStore::default();
-        let module = store.load_program(
-            "game.init",
-            ModuleEpoch(1),
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-        );
+        let module = store
+            .stage_program(
+                "game.init",
+                ModuleEpoch(1),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .publish();
 
         let instance = store.instance_snapshot(module.key()).unwrap();
         assert_eq!(instance.id, module.id);
@@ -548,16 +654,18 @@ mod tests {
     #[test]
     fn records_initialization_result_and_failure_state() {
         let store = ModuleStore::default();
-        let module = store.load_program(
-            "game.init",
-            ModuleEpoch(1),
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-        );
+        let module = store
+            .stage_program(
+                "game.init",
+                ModuleEpoch(1),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .publish();
 
         {
             let mut instance = store.instance_mut(module.key()).unwrap();
@@ -570,16 +678,18 @@ mod tests {
             Some(Value::I32(7))
         );
 
-        let next = store.load_program(
-            "game.init",
-            ModuleEpoch(2),
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-        );
+        let next = store
+            .stage_program(
+                "game.init",
+                ModuleEpoch(2),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .publish();
         {
             let mut instance = store.instance_mut(next.key()).unwrap();
             instance.begin_initialization();
@@ -593,26 +703,30 @@ mod tests {
     #[test]
     fn keeps_latest_and_retained_old_epochs_reachable() {
         let store = ModuleStore::default();
-        let first = store.load_program(
-            "game.player",
-            ModuleEpoch(1),
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-        );
-        let second = store.load_program(
-            "game.player",
-            ModuleEpoch(2),
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-        );
+        let first = store
+            .stage_program(
+                "game.player",
+                ModuleEpoch(1),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .publish();
+        let second = store
+            .stage_program(
+                "game.player",
+                ModuleEpoch(2),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .publish();
 
         assert!(store.is_reachable(second.key()));
         assert!(!store.is_reachable(first.key()));

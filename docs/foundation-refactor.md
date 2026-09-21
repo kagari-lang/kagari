@@ -446,7 +446,12 @@ Implemented foundation slices:
   preparation leaves entries/counters unchanged and stale candidates cannot alter
   the newly published entry; old handles remain valid. Isolated candidate
   initialization remains pending, so ordinary reload still does not implement the
-  complete Prepare/Initialize/Publish contract.
+  complete Prepare/Initialize/Publish contract. Module installation now returns an
+  unpublished program guard: its independent instances remain reachable during
+  collection, publication preserves their initialization results, and dropping the
+  guard removes every candidate member without changing the active entry. Runtime
+  loading currently publishes immediately; VM-driven isolated initialization and
+  effect restrictions still need to be connected to this staging boundary.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

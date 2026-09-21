@@ -1197,7 +1197,8 @@ impl Runtime {
         let epoch = self.reloads.publish(&name);
         let module = self
             .modules
-            .load_program(name, epoch, bytecode, self.host.owner(), bindings);
+            .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
+            .publish();
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         Ok(module)
     }
@@ -1296,7 +1297,8 @@ impl Runtime {
         let epoch = self.reloads.publish(&name);
         let module = self
             .modules
-            .load_program(name, epoch, bytecode, self.host.owner(), bindings);
+            .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
+            .publish();
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         Ok(module)
     }
