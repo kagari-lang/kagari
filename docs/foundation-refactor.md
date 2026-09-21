@@ -329,6 +329,11 @@ Implemented foundation slices:
   Partially erroneous composite indices still diagnose their known noninteger
   shape; only whole Unknown/Error indices suppress dependent diagnostics.
   Positive recovery cases and independent invalid-index errors cover both paths.
+  Standard-library argument checks now use the same known-member conflict
+  predicate as script calls and assignments. Whole erroneous operands and missing
+  operands no longer duplicate primary expression/arity diagnostics. Array method
+  and qualified calls plus String functions cover recovery and independent
+  mismatches; partially erroneous non-container operands still diagnose.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

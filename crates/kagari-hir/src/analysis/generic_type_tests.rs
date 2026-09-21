@@ -1295,3 +1295,39 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
     }
 }
+
+#[test]
+fn standard_arguments_suppress_dependent_errors_but_keep_known_member_conflicts() {
+    for (body, mismatch) in [
+        ("values.push((1, missing));", false),
+        ("values.push((true, missing));", true),
+        ("std::array::push(values, (1, missing));", false),
+        ("std::array::push(values, (true, missing));", true),
+        ("std::array::len(missing);", false),
+        ("std::array::len((1, missing));", true),
+        ("std::string::contains(missing, \"x\");", false),
+        ("std::string::contains(\"x\", missing);", false),
+        ("std::string::contains(\"x\", (1, missing));", true),
+    ] {
+        let source = SourceFile::new(
+            "standard-recovery.kgr",
+            format!("fn bad() {{ val values = [(1, true)]; {body} }} fn good() -> i32 {{ 42 }}"),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().len(),
+            1 + usize::from(mismatch),
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
+            )),
+            mismatch,
+            "{body}"
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}

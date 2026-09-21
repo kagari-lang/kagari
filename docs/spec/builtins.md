@@ -28,6 +28,9 @@ and `set_field` still checks its RHS for independent errors.
 A resolved field-name expression retains the field declaration identity for
 navigation, including read-only or type-invalid writes. Its expression type
 remains String; the member target is separate semantic information.
+Standard function and method argument checks retain known-member conflicts in
+partially erroneous types. Whole unknown/error operands do not generate duplicate
+argument-type diagnostics; missing operands are reported by the arity check.
 String length uses `len_bytes()` or `len_chars()`; the obsolete standalone
 `String.len()` path is removed without an alias.
 It describes language-level standard capabilities and standard modules, not host application APIs.

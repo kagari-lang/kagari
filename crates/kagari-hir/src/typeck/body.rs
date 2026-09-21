@@ -2481,7 +2481,7 @@ impl<'a> BodyChecker<'a> {
         let Some((arg_expr, found)) = args.get(index) else {
             return;
         };
-        if *found != expected {
+        if found.conflicts_with(&expected) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                     function_name: function_name.to_owned(),
@@ -2521,15 +2521,20 @@ impl<'a> BodyChecker<'a> {
         span_expr: ExprId,
         found: &Option<TypeId>,
     ) {
+        let Some(found) = found
+            .as_ref()
+            .filter(|ty| !matches!(ty, TypeId::Unknown | TypeId::Error))
+        else {
+            // Missing operands already have an arity diagnostic; whole error
+            // operands have their own diagnostic from expression checking.
+            return;
+        };
         self.diagnostics.push(
             Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                 function_name: function_name.to_owned(),
                 parameter_name: parameter_name.to_owned(),
                 expected: expected.to_owned(),
-                found: found
-                    .as_ref()
-                    .map(display_type_id)
-                    .unwrap_or_else(|| "<missing>".to_owned()),
+                found: display_type_id(found),
             })
             .with_span(self.lowered.source_map.expr_span(span_expr)),
         );
