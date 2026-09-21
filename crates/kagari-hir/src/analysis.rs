@@ -271,7 +271,7 @@ impl FileAnalysis {
                             .type_table
                             .enum_constructor(id)
                             .filter(|_| {
-                                matches!(facts.lowered.module.expr(id).kind, ExprKind::Name(_))
+                                matches!(facts.lowered.module.expr(id).kind, ExprKind::Name { .. })
                             })
                             .and_then(|target| target.variant.as_ref())
                             .and_then(|variant| facts.aggregates.variant(variant))

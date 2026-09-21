@@ -457,10 +457,13 @@ impl<'a> BodyChecker<'a> {
                 );
                 TypeId::Unknown
             }
-            ExprKind::Name(_) if self.enum_member_owner(expr_id).is_some() => self
-                .infer_enum_constructor(expr_id, expr_id, &[], env, expected)
-                .expect("resolved enum member owner"),
-            ExprKind::Name(name) => self
+            ExprKind::Name { explicit_type, .. }
+                if explicit_type.is_some() || self.enum_member_owner(expr_id).is_some() =>
+            {
+                self.infer_enum_constructor(expr_id, expr_id, &[], env, expected)
+                    .expect("resolved enum member owner")
+            }
+            ExprKind::Name { name, .. } => self
                 .names
                 .expr_resolution(expr_id)
                 .and_then(|resolved| match resolved {
@@ -716,34 +719,7 @@ impl<'a> BodyChecker<'a> {
                 fields,
                 explicit_type,
             } => {
-                let explicit = explicit_type.map(|ty| {
-                    let resolved = resolve_type_in(
-                        &self.lowered.module,
-                        ty,
-                        TypeContext {
-                            declarations: self.declarations,
-                            generics: &env.generics,
-                            self_type: None,
-                        },
-                        self.type_table,
-                        self.cancel,
-                    );
-                    if resolved.is_unresolved() {
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
-                                type_name: display_type(&self.lowered.module, ty),
-                            })
-                            .with_span(self.lowered.source_map.type_span(ty)),
-                        );
-                    }
-                    super::check::validate_standard_type_constraints(
-                        &resolved,
-                        &env.generic_bounds,
-                        self.lowered.source_map.type_span(ty),
-                        self.diagnostics,
-                    );
-                    resolved
-                });
+                let explicit = explicit_type.map(|ty| self.resolve_constructor_type(ty, env));
                 self.infer_struct_init_type(
                     path,
                     fields,
@@ -1576,6 +1552,35 @@ impl<'a> BodyChecker<'a> {
         Some(id.declaration.clone())
     }
 
+    fn resolve_constructor_type(&mut self, ty: crate::hir::TypeRefId, env: &BodyTypeEnv) -> TypeId {
+        let resolved = resolve_type_in(
+            &self.lowered.module,
+            ty,
+            TypeContext {
+                declarations: self.declarations,
+                generics: &env.generics,
+                self_type: None,
+            },
+            self.type_table,
+            self.cancel,
+        );
+        if resolved.is_unresolved() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                    type_name: display_type(&self.lowered.module, ty),
+                })
+                .with_span(self.lowered.source_map.type_span(ty)),
+            );
+        }
+        super::check::validate_standard_type_constraints(
+            &resolved,
+            &env.generic_bounds,
+            self.lowered.source_map.type_span(ty),
+            self.diagnostics,
+        );
+        resolved
+    }
+
     fn infer_enum_constructor(
         &mut self,
         expression: ExprId,
@@ -1584,7 +1589,27 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> Option<TypeId> {
-        let enumeration = self.enum_member_owner(callee)?;
+        let explicit = match &self.lowered.module.expr(callee).kind {
+            ExprKind::Name { explicit_type, .. } => {
+                explicit_type.map(|ty| self.resolve_constructor_type(ty, env))
+            }
+            _ => None,
+        };
+        let enumeration = match self.enum_member_owner(callee) {
+            Some(owner) => owner,
+            None if explicit.is_some() => {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidValueTarget {
+                        name: "explicit enum constructor".into(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+                );
+                self.infer_call_args(args, env);
+                return Some(TypeId::Error);
+            }
+            None => return None,
+        };
+        let expected = explicit.as_ref().or(expected);
         let member = self
             .names
             .qualified_member(callee)
@@ -1905,7 +1930,7 @@ impl<'a> BodyChecker<'a> {
 
     fn const_root_name(&self, expr_id: ExprId) -> Option<String> {
         match &self.lowered.module.expr(expr_id).kind {
-            ExprKind::Name(_) => match self.names.expr_resolution(expr_id) {
+            ExprKind::Name { .. } => match self.names.expr_resolution(expr_id) {
                 Some(ResolvedName::Const(id)) => self
                     .lowered
                     .module

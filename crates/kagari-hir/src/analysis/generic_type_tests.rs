@@ -3,6 +3,39 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn explicit_enum_arguments_check_units_payloads_and_constraints() {
+    for (body, valid) in [
+        ("val value = Token<i32>::Empty;", true),
+        ("val value = Token<bool>::Empty();", true),
+        ("val value = Token<i32>::Data(7);", true),
+        ("val value = Token<i32>::Data(false);", false),
+        ("val value = Token<>::Empty;", false),
+        ("val value = Token<i32, bool>::Empty;", false),
+        ("val value = Token<Missing>::Empty;", false),
+        ("val value = Key<f32>::Empty;", false),
+        ("val value = Token<Map<f32, bool>>::Empty;", false),
+        ("val value: Token<bool> = Token<i32>::Empty;", false),
+        ("val value = Token<i32>::Missing;", false),
+        ("val value = std::map<i32>::new();", false),
+    ] {
+        let source = SourceFile::new(
+            "explicit-enum.kgr",
+            format!(
+                "enum Token<T> {{ Empty, Data(T) }} enum Key<T: HashKey> {{ Empty }} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+    }
+}
+
+#[test]
 fn nominal_and_call_constraints_share_recursive_comparable_binders() {
     let source = SourceFile::new(
         "shared-bounds.kgr",
@@ -108,7 +141,7 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
 
 #[test]
 fn explicit_constructor_type_queries_survive_body_reuse() {
-    let text = "fn neighbor() -> i32 { 1 } struct Marker<T> { val value: i32 } fn make() { Marker<bool> { value: 7 }; }";
+    let text = "fn neighbor() -> i32 { 1 } struct Marker<T> { val value: i32 } enum Token<T> { Empty } fn make() { Marker<bool> { value: 7 }; Token<bool>::Empty; }";
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("explicit-reuse.kgr", text.into(), SourceLayer::Base)
@@ -131,13 +164,12 @@ fn explicit_constructor_type_queries_survive_body_reuse() {
         1
     );
     for (snapshot, source) in [(&old, text), (&new, changed.as_str())] {
-        assert_eq!(
-            snapshot
-                .file(root)
-                .unwrap()
-                .type_at(source.find("bool").unwrap()),
-            Some(TypeId::Builtin(BuiltinType::Bool))
-        );
+        for (offset, _) in source.match_indices("bool") {
+            assert_eq!(
+                snapshot.file(root).unwrap().type_at(offset),
+                Some(TypeId::Builtin(BuiltinType::Bool))
+            );
+        }
     }
 }
 

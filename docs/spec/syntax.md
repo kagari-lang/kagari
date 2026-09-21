@@ -594,6 +594,7 @@ index_suffix    ::= "[" expr "]" ;
 
 primary_expr    ::= literal
                   | path
+                  | explicit_enum_path
                   | parenthesized_expr
                   | tuple_expr
                   | array_expr
@@ -612,6 +613,8 @@ expr_list       ::= expr ("," expr)* (",")? ;
 array_expr      ::= "[" expr_list? "]" ;
 
 struct_expr     ::= path generic_args? "{" field_init_list? "}" ;
+
+explicit_enum_path ::= path generic_args "::" IDENT ;
 
 field_init_list ::= field_init ("," field_init)* (",")? ;
 
@@ -652,6 +655,11 @@ literal         ::= INTEGER
 - half-open forms such as `..b`, `a..`, and `..` are outside the current grammar.
 - closure syntax is included at the surface level; capture behavior is specified in the non-grammatical constraints section.
 - struct literals permit field shorthand such as `Point { x, y }`.
+- Enum constructors accept `Token<i32>::Empty`, `Token<i32>::Empty()` and
+  `Token<i32>::Data(7)`. The explicit arguments belong to the enum declaration,
+  use normal annotation resolution and bound checks, and supply payload context.
+  Qualified and imported enum paths use the same declaration identity. Explicit
+  arguments override contextual inference; incompatible enclosing types reject.
 - Struct literals accept explicit type arguments, such as `Marker<i32> { value: 7 }`.
   These arguments use annotation name resolution, arity and bound checks, and
   supply the field context even when an enclosing expression expects another type;

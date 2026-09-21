@@ -2,6 +2,14 @@ use kagari_common::SourceFile;
 use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine};
 
 #[test]
+fn explicit_enum_arguments_execute_with_distinct_concrete_layouts() {
+    execute_contextual_source(
+        "enum Token<T> { Empty, Data(T) } fn empty<T>() -> Token<T> { Token<T>::Empty } fn main() -> i32 { val a = Token<i32>::Data(7); val b = Token<bool>::Data(true); val e: Token<i32> = empty(); if a == Token<i32>::Data(7) && b == Token<bool>::Data(true) && e == Token<i32>::Empty() { 42 } else { 0 } }",
+        42,
+    );
+}
+
+#[test]
 fn recursive_comparable_bounds_execute_for_nominal_and_call_arguments() {
     execute_contextual_source(
         "struct Key<T: Comparable> { val value: i32 } fn consume<T: Comparable>(value: T) {} fn make<T: Comparable>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } } fn main() -> i32 { make(true).value }",

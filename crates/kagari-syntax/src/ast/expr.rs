@@ -120,11 +120,21 @@ impl BlockExpr {
 }
 
 impl PathExpr {
+    pub fn generic_args(&self) -> Option<super::GenericArgList> {
+        support::child(self.syntax())
+    }
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
     pub fn name_text(&self) -> Option<String> {
+        if self.generic_args().is_some() {
+            return Some(format!(
+                "{}::{}",
+                self.path()?.text()?,
+                self.name()?.text()?
+            ));
+        }
         self.path()
             .and_then(|path| path.text())
             .or_else(|| self.name().and_then(|name| name.text()))

@@ -16,7 +16,10 @@ pub struct ExprData {
 #[derive(Debug, Clone)]
 pub enum ExprKind {
     Missing,
-    Name(String),
+    Name {
+        name: String,
+        explicit_type: Option<super::TypeRefId>,
+    },
     Literal(Literal),
     Prefix {
         op: PrefixOp,

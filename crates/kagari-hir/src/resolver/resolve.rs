@@ -156,7 +156,7 @@ impl<'a> BodyResolver<'a> {
         let expr = self.module.expr(expr_id);
         match &expr.kind {
             ExprKind::Missing => {}
-            ExprKind::Name(name) => {
+            ExprKind::Name { name, .. } => {
                 if let Some(resolved) = self.resolve_name(name) {
                     self.resolved.insert_expr(expr_id, resolved);
                 } else if let Some((owner, member)) = name.rsplit_once("::")

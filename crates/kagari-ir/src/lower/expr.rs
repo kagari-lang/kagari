@@ -53,7 +53,7 @@ impl FunctionLowerer<'_, '_> {
                 .slot;
             let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
                 hir::ExprKind::Call { args, .. } => args.to_vec(),
-                hir::ExprKind::Name(_) => Vec::new(),
+                hir::ExprKind::Name { .. } => Vec::new(),
                 _ => {
                     return Err(IrLoweringError::MissingBinding(
                         "enum constructor expression",
@@ -85,7 +85,7 @@ impl FunctionLowerer<'_, '_> {
         let expr = self.analyzed.lowered.module.expr(expr_id).clone();
         match expr.kind {
             hir::ExprKind::Missing => Err(IrLoweringError::UnresolvedExpr(expr_id)),
-            hir::ExprKind::Name(_) => self.lower_name_expr(expr_id),
+            hir::ExprKind::Name { .. } => self.lower_name_expr(expr_id),
             hir::ExprKind::Literal(_) => Err(IrLoweringError::MissingBinding("checked literal")),
             hir::ExprKind::Prefix { op, expr } => {
                 let operand = self.lower_expr(expr)?;

@@ -43,7 +43,7 @@ fn helper_targets_survive_invalid_arguments_without_reinterpreting_names() {
             .module
             .body
             .expressions()
-            .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name(n) if n == name))
+            .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name: n, .. } if n == name))
             .unwrap();
         assert_eq!(
             facts.names.expr_resolution(callee),
@@ -114,7 +114,7 @@ fn declarations_and_lexical_bindings_shadow_every_helper() {
             .module
             .body
             .expressions()
-            .find(|(_, expr)| matches!(expr.kind, ExprKind::Name(_)))
+            .find(|(_, expr)| matches!(expr.kind, ExprKind::Name { .. }))
             .unwrap();
         assert!(matches!(
             facts.names.expr_resolution(callee),
@@ -149,7 +149,7 @@ fn non_value_names_are_rejected_in_hir_while_retaining_targets() {
             .module
             .body
             .expressions()
-            .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name(n) if n == name))
+            .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name: n, .. } if n == name))
             .unwrap();
         assert!(facts.names.expr_resolution(value).is_some(), "{name}");
         assert_eq!(facts.typed.type_table.expr_type(value), Some(TypeId::Error));
@@ -303,7 +303,7 @@ fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
         let facts = file.result().facts();
         for (id, expr) in facts.lowered.module.body.expressions() {
             match expr.kind {
-                ExprKind::Name(_) => assert_eq!(
+                ExprKind::Name { .. } => assert_eq!(
                     facts.names.expr_resolution(id),
                     Some(ResolvedName::HostFunction(expected))
                 ),

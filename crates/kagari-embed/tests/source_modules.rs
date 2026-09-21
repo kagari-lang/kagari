@@ -126,7 +126,7 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
     let root = insert(
         &engine,
         "root",
-        "use pkg::facade::{Marker, Token, take}; fn main() -> i32 { val explicit = Marker<i32> { value: 20 }; take(Marker { value: 22 }, Token::Empty) + explicit.value }",
+        "use pkg::facade::{Marker, Token, take}; fn main() -> i32 { val explicit = Marker<i32> { value: 20 }; take(Marker { value: 22 }, Token<bool>::Empty) + explicit.value }",
     );
     let mut context = ExecutionContext::default();
     context.language_profile.allow_jit = true;

@@ -108,7 +108,7 @@ impl Completion<'_> {
     fn expr(&self, id: ExprId) -> Result<Exits, Cancelled> {
         self.cancel.check()?;
         Ok(match &self.module.expr(id).kind {
-            ExprKind::Missing | ExprKind::Name(_) | ExprKind::Literal(_) => Exits::NORMAL,
+            ExprKind::Missing | ExprKind::Name { .. } | ExprKind::Literal(_) => Exits::NORMAL,
             ExprKind::Prefix { expr, .. } => self.expr(*expr)?,
             ExprKind::Binary { lhs, op, rhs } => {
                 let left = self.expr(*lhs)?;

@@ -15,7 +15,23 @@ impl Lowerer {
         }
         let kind = match expr {
             ast::Expr::BlockExpr(block) => ExprKind::Block(self.lower_block(block)),
-            ast::Expr::PathExpr(path) => ExprKind::Name(path.name_text().unwrap_or_default()),
+            ast::Expr::PathExpr(path) => ExprKind::Name {
+                name: path.name_text().unwrap_or_default(),
+                explicit_type: path.generic_args().map(|arguments| {
+                    let args = arguments.args().map(|arg| self.lower_type(&arg)).collect();
+                    let name = path.path().and_then(|path| path.text()).unwrap_or_default();
+                    let mut span = syntax_span(&arguments);
+                    if let Some(base) = path.path() {
+                        span.start = syntax_span(&base).start;
+                    }
+                    self.alloc_type(
+                        span,
+                        crate::hir::TypeData {
+                            kind: crate::hir::TypeKind::Generic { name, args },
+                        },
+                    )
+                }),
+            },
             ast::Expr::Literal(literal) => ExprKind::Literal(self.lower_literal(literal)),
             ast::Expr::ParenExpr(paren) => {
                 return paren

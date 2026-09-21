@@ -221,6 +221,18 @@ impl<'a> Parser<'a> {
     fn parse_path_expr(&mut self) {
         self.start_node(SyntaxKind::PathExpr);
         self.parse_path();
+        let mut cursor = self.cursor();
+        if self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::Lt)
+            && self.skip_angle_group(&mut cursor)
+            && self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::ColonColon)
+        {
+            self.bump_trivia();
+            self.parse_generic_arg_list();
+            self.bump_trivia();
+            self.expect(TokenKind::ColonColon, DiagnosticKind::ExpectedPath);
+            self.bump_trivia();
+            self.parse_variant_name();
+        }
         self.finish_node();
     }
 

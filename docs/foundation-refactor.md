@@ -262,8 +262,8 @@ Implemented foundation slices:
   structured diagnostic. Public generic enum ABI templates validate against each
   local/imported instance, including when the owner emits no instance. Tests cover
   facades, distinct field representations, bounds, malformed binders, source/artifact/
-  JIT fallback behavior and the standard-library example. Explicit enum constructor type
-  arguments, backwards generic-call constraints, generic impl specialization
+  JIT fallback behavior and the standard-library example. Backwards generic-call
+  constraints, generic impl specialization
   and interface tables remain pending. Independent signature queries now construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
   analysis consumes that result instead of repeating header validation. Tests cover
@@ -624,13 +624,19 @@ Implemented foundation slices:
   unreachable generic calls from being emitted. Generic impl specialization,
   applied trait arguments and dynamic implementation tables remain outstanding;
   public ABI labels still need linked identities. Generic struct/enum instances
-  now have concrete layouts keyed by declaration and arguments; explicit enum constructor
-  arguments and backwards contextual constraints for generic-call arguments
+  now have concrete layouts keyed by declaration and arguments; backwards
+  contextual constraints for generic-call arguments
   remain outstanding. Explicit Struct constructor arguments now retain owned type
   references and share annotation resolution, arity and bound checks. Tests cover
   nested invalid container constraints, facade imports, distinct phantom layouts,
   caller-owned binders and type queries after unchanged-body reuse. Source, artifact
   and JIT fallback routes share the same concrete layouts.
+  Explicit enum paths (`Token<T>::Variant`) now retain a declaration-owned type
+  reference on HIR names. Unit and payload constructors share Struct annotation
+  resolution and constraint validation. Wrong arity, unknown variants/types,
+  invalid bounds and conflicting context reject before code generation. Tests
+  cover facade imports, caller binders, distinct concrete instances, lossless
+  syntax and type queries after body reuse across snapshot revisions.
   Annotated locals now supply Struct type arguments, including
   phantom parameters, and propagate checked context into nested Struct fields.
   Declaration identity must match; fields and bounds retain normal validation.

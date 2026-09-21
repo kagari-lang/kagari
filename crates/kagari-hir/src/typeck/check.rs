@@ -1097,7 +1097,7 @@ fn validate_const_initializers(
             let expr = self.lowered.module.expr(expr_id);
             match &expr.kind {
                 ExprKind::Literal(_) => {}
-                ExprKind::Name(_) => {
+                ExprKind::Name { .. } => {
                     let Some(resolved) = self.names.expr_resolution(expr_id) else {
                         self.emit_invalid_const(
                             owner,

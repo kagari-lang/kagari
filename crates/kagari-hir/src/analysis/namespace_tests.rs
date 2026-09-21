@@ -81,7 +81,7 @@ fn qualified_standard_source_and_host_calls_respect_lexical_bindings() {
             .module
             .body
             .expressions()
-            .filter(|(_, expr)| matches!(&expr.kind, ExprKind::Name(name) if name.contains("::")))
+            .filter(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name, .. } if name.contains("::")))
             .collect::<Vec<_>>();
         assert_eq!(names.len(), 3, "{text}");
         assert!(facts.names.expr_resolution(names[0].0).is_some(), "{text}");
@@ -166,7 +166,7 @@ fn invalid_or_ambiguous_imports_never_leave_a_fallback_target() {
                     "{text}"
                 );
             }
-            if matches!(expr.kind, ExprKind::Name(_)) {
+            if matches!(expr.kind, ExprKind::Name { .. }) {
                 assert!(facts.names.expr_resolution(id).is_none(), "{text}");
             }
         }
@@ -228,7 +228,7 @@ fn local_bindings_can_shadow_ambiguous_module_names() {
         .module
         .body
         .expressions()
-        .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name(name) if name == "clash"))
+        .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name, .. } if name == "clash"))
         .unwrap();
     assert!(matches!(
         facts.names.expr_resolution(id),

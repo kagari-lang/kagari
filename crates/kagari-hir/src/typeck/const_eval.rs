@@ -77,7 +77,7 @@ impl Evaluator<'_> {
         let value = match &self.lowered.module.expr(id).kind {
             ExprKind::Tuple(elements) if elements.is_empty() => Ok(ScalarValue::Unit),
             ExprKind::Literal(_) => return None, // Invalid literals were diagnosed during checking.
-            ExprKind::Name(_) => match self.names.expr_resolution(id)? {
+            ExprKind::Name { .. } => match self.names.expr_resolution(id)? {
                 ResolvedName::Const(id) => return self.constant(id),
                 _ => return None,
             },

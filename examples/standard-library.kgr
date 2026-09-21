@@ -66,6 +66,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert(inferred_token == token(), "phantom function result context");
     std::debug::assert_eq(read_marker(MarkerReader { offset: 2 }), 42, "trait parameter supplies constructor context");
     val empty: Token<bool> = Token::Empty();
+    val explicit_empty = Token<bool>::Empty;
+    std::debug::assert(explicit_empty == empty, "explicit enum type arguments");
     std::debug::assert(empty == token(), "enum context supplies phantom type argument");
     std::debug::assert_eq(marker_value(Marker { value: 42 }, Token::Empty), 42, "call signature supplies constructor context");
     val marker: Marker<bool> = Marker { value: 42 };
