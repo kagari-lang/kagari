@@ -386,3 +386,66 @@ fn reflection_helpers_do_not_cascade_errors_from_unknown_operands() {
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn reflective_field_writes_check_declared_writeability_and_keep_rhs_context() {
+    for (binding, expression, readonly, mismatch) in [
+        ("val", "get_field(box, \"value\");", false, false),
+        (
+            "var",
+            "set_field(box, \"value\", Marker { value: 42 });",
+            false,
+            false,
+        ),
+        (
+            "val",
+            "set_field(box, \"value\", Marker { value: 42 });",
+            true,
+            false,
+        ),
+        (
+            "val",
+            "set_field(box, \"value\", Marker<bool> { value: 42 });",
+            true,
+            true,
+        ),
+    ] {
+        let source = SourceFile::new(
+            "readonly-reflection.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} struct Box {{ {binding} value: Marker<i32> }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }} }}; {expression} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(
+            &source,
+            crate::LanguageFeatureProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::InvalidAssignmentTarget { .. }
+            )),
+            readonly,
+            "{expression}"
+        );
+        assert_eq!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::AssignmentTypeMismatch { .. }
+            )),
+            mismatch,
+            "{expression}"
+        );
+        assert_eq!(
+            analysis.diagnostics().len(),
+            usize::from(readonly) + usize::from(mismatch),
+            "{:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), !readonly);
+    }
+}

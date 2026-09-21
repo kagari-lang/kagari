@@ -1379,7 +1379,12 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self.infer_expr_type(*base, env);
                 let _ = self.infer_expr_type(*field_name_expr, env);
                 let field_name = self.string_literal_value(*field_name_expr)?;
-                Some(self.checked_reflection_field_type(&base_ty, &field_name, *field_name_expr))
+                Some(self.checked_reflection_field_type(
+                    &base_ty,
+                    &field_name,
+                    *field_name_expr,
+                    false,
+                ))
             }
             BuiltinFunction::SetField => {
                 let [base, field_name_expr, value] = args else {
@@ -1390,7 +1395,7 @@ impl<'a> BodyChecker<'a> {
                 let _ = self.infer_expr_type(*field_name_expr, env);
                 let field_name = self.string_literal_value(*field_name_expr);
                 let expected = field_name.as_ref().map(|name| {
-                    self.checked_reflection_field_type(&base_ty, name, *field_name_expr)
+                    self.checked_reflection_field_type(&base_ty, name, *field_name_expr, true)
                 });
                 let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
                 field_name?;
@@ -1454,18 +1459,29 @@ impl<'a> BodyChecker<'a> {
         receiver: &TypeId,
         name: &str,
         site: ExprId,
+        write: bool,
     ) -> TypeId {
-        self.resolve_field_type(receiver, name).unwrap_or_else(|| {
-            if !matches!(receiver, TypeId::Unknown | TypeId::Error) {
+        if let Some(field) = self.resolve_field(receiver, name) {
+            if write && !field.writeability.is_var() {
                 self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnknownName {
-                        name: name.to_owned(),
+                    Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget {
+                        reason: format!("field `{name}` is read-only"),
                     })
                     .with_span(self.lowered.source_map.expr_span(site)),
                 );
             }
-            TypeId::Error
-        })
+            // Read-only targets still provide RHS context and independent errors.
+            return field.ty;
+        }
+        if !matches!(receiver, TypeId::Unknown | TypeId::Error) {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnknownName {
+                    name: name.to_owned(),
+                })
+                .with_span(self.lowered.source_map.expr_span(site)),
+            );
+        }
+        TypeId::Error
     }
 
     fn infer_trait_method_call_type(
@@ -2080,11 +2096,6 @@ impl<'a> BodyChecker<'a> {
             ),
         }
         Some(ty)
-    }
-
-    fn resolve_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
-        self.resolve_field(receiver, field_name)
-            .map(|field| field.ty.clone())
     }
 
     fn resolve_field(

@@ -308,6 +308,9 @@ Implemented foundation slices:
   Operand recovery errors suppress dependent diagnostics. Focused tests ensure
   invalid helpers cannot obtain checked codegen input and unknown operands emit
   only their original name diagnostic.
+  Reflective field writes now check declared field writeability in HIR, matching
+  the runtime layout guard. Read-only fields still supply RHS type context and
+  preserve independent type mismatch diagnostics; reads remain permitted.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

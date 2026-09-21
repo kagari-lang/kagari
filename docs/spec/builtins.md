@@ -16,6 +16,10 @@ Statically nonexistent fields and invalid receiver/index types are HIR errors,
 including non-integer indices and out-of-range constant Tuple indices. Array
 bounds still depend on runtime length. A failed field read has an error type,
 not a Unit value; unknown operands retain their primary diagnostic.
+`set_field` requires a `var` field even when reflection writes are enabled.
+A `val` receiver binding may reference an object with writable fields, but
+reflection does not make a declared `val` field writable. Rejected writes still
+check the RHS using the field's known type.
 String length uses `len_bytes()` or `len_chars()`; the obsolete standalone
 `String.len()` path is removed without an alias.
 It describes language-level standard capabilities and standard modules, not host application APIs.
