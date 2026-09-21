@@ -102,3 +102,72 @@ fn environment(module: &LoweredModule, text: &str) -> String {
     result.push_str(&text[cursor..]);
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_common::{Diagnostic, DiagnosticKind, SourceFile, Span};
+
+    #[test]
+    fn reuse_distinguishes_global_point_and_neighbor_diagnostics() {
+        let source = SourceFile::new(
+            "reuse.kgr",
+            "const global: i32 = 0; fn one() -> i32 { 1 } fn two() -> i32 { 2 }",
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert!(analysis.diagnostics().is_empty());
+        let facts = analysis.facts();
+        let one = facts
+            .lowered
+            .module
+            .functions
+            .iter()
+            .find(|f| f.name == "one")
+            .unwrap();
+        let two = facts
+            .lowered
+            .module
+            .functions
+            .iter()
+            .find(|f| f.name == "two")
+            .unwrap();
+        let point = |function: &Function| {
+            let span = facts.lowered.source_map.block_span(function.body);
+            Span {
+                start: span.start + 1,
+                end: span.start + 1,
+            }
+        };
+        for (span, environment_valid, one_reusable) in [
+            (None, false, false),
+            (Some(Span { start: 0, end: 5 }), false, false),
+            (Some(point(one)), true, false),
+            (Some(point(two)), true, true),
+        ] {
+            let diagnostic = Diagnostic {
+                span,
+                ..Diagnostic::error(DiagnosticKind::ExpectedExpression)
+            };
+            let diagnostics = [diagnostic];
+            let reuse = BodyReuse {
+                previous_diagnostics: &diagnostics,
+                previous_lowered: &facts.lowered,
+                previous_types: &facts.typed.type_table,
+                old_text: source.text(),
+                new_text: source.text(),
+            };
+            assert_eq!(
+                reuse.environment_matches(&facts.lowered),
+                environment_valid,
+                "{span:?}"
+            );
+            if environment_valid {
+                assert_eq!(
+                    reuse.restore(&facts.lowered, one, &mut TypeTable::default()),
+                    one_reusable,
+                    "{span:?}"
+                );
+            }
+        }
+    }
+}

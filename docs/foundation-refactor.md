@@ -642,6 +642,9 @@ Implemented foundation slices:
   unowned or file-level diagnostics conservatively prevent reuse. Navigation tests
   distinguish enum owner, type argument and variant after payload/type errors,
   preserve old snapshots, and verify repair beside a reused correct function.
+  Focused invalidation tests also verify spanless/file-level diagnostics and
+  zero-width diagnostics inside a body, including the distinction between the
+  affected function and an unaffected neighbor.
   Annotated locals now supply Struct type arguments, including
   phantom parameters, and propagate checked context into nested Struct fields.
   Declaration identity must match; fields and bounds retain normal validation.
