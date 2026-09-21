@@ -316,3 +316,73 @@ fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
         }
     }
 }
+
+#[test]
+fn reflection_helpers_reject_unknown_members_and_invalid_index_targets_in_hir() {
+    for (body, expected_code) in [
+        ("get_field(point, \"missing\");", "KG_RESOLVE_UNKNOWN_NAME"),
+        (
+            "set_field(point, \"missing\", 7);",
+            "KG_RESOLVE_UNKNOWN_NAME",
+        ),
+        ("get_field(1, \"x\");", "KG_RESOLVE_UNKNOWN_NAME"),
+        ("set_index(1, 0, 7);", "KG_TYPE_INVALID_INDEX_TARGET"),
+        ("set_index([1], true, 7);", "KG_TYPE_INVALID_INDEX_TARGET"),
+        (
+            "set_index((1, true), 2, 7);",
+            "KG_TYPE_INVALID_INDEX_TARGET",
+        ),
+    ] {
+        let source = SourceFile::new(
+            "invalid-reflection.kgr",
+            format!(
+                "struct Point {{ var x: i32 }} fn main() {{ val point = Point {{ x: 1 }}; {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(
+            &source,
+            crate::LanguageFeatureProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| d.kind.code() == expected_code),
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_err(), "{body}");
+    }
+}
+
+#[test]
+fn reflection_helpers_do_not_cascade_errors_from_unknown_operands() {
+    for body in [
+        "get_field(missing, \"x\");",
+        "set_field(missing, \"x\", 7);",
+        "set_index(missing, 0, 7);",
+        "set_index([1], missing, 7);",
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new("recovery-reflection.kgr", format!("fn main() {{ {body} }}")),
+            crate::LanguageFeatureProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            analysis.diagnostics().len(),
+            1,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(matches!(&analysis.diagnostics()[0].kind,
+            kagari_common::DiagnosticKind::UnknownName { name } if name == "missing"));
+        assert!(analysis.into_codegen().is_err());
+    }
+}

@@ -1379,10 +1379,7 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self.infer_expr_type(*base, env);
                 let _ = self.infer_expr_type(*field_name_expr, env);
                 let field_name = self.string_literal_value(*field_name_expr)?;
-                Some(
-                    self.resolve_field_type(&base_ty, &field_name)
-                        .unwrap_or(TypeId::Builtin(BuiltinType::Unit)),
-                )
+                Some(self.checked_reflection_field_type(&base_ty, &field_name, *field_name_expr))
             }
             BuiltinFunction::SetField => {
                 let [base, field_name_expr, value] = args else {
@@ -1392,9 +1389,9 @@ impl<'a> BodyChecker<'a> {
                 self.check_const_write(*base);
                 let _ = self.infer_expr_type(*field_name_expr, env);
                 let field_name = self.string_literal_value(*field_name_expr);
-                let expected = field_name
-                    .as_ref()
-                    .and_then(|name| self.resolve_field_type(&base_ty, name));
+                let expected = field_name.as_ref().map(|name| {
+                    self.checked_reflection_field_type(&base_ty, name, *field_name_expr)
+                });
                 let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
                 field_name?;
                 if let Some(expected) = expected
@@ -1416,8 +1413,19 @@ impl<'a> BodyChecker<'a> {
                 };
                 let base_ty = self.infer_expr_type(*base, env);
                 self.check_const_write(*base);
-                self.infer_expr_type(*index, env);
+                let index_ty = self.infer_expr_type(*index, env);
                 let expected = self.resolve_index_type(*index, &base_ty);
+                if expected.is_none()
+                    && !matches!(base_ty, TypeId::Unknown | TypeId::Error)
+                    && !index_ty.is_unresolved()
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidIndexTarget {
+                            type_name: display_type_id(&base_ty),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*index)),
+                    );
+                }
                 let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
                 if let Some(expected) = expected
                     && expected.conflicts_with(&value_ty)
@@ -1441,6 +1449,25 @@ impl<'a> BodyChecker<'a> {
             )),
         }
     }
+    fn checked_reflection_field_type(
+        &mut self,
+        receiver: &TypeId,
+        name: &str,
+        site: ExprId,
+    ) -> TypeId {
+        self.resolve_field_type(receiver, name).unwrap_or_else(|| {
+            if !matches!(receiver, TypeId::Unknown | TypeId::Error) {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownName {
+                        name: name.to_owned(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(site)),
+                );
+            }
+            TypeId::Error
+        })
+    }
+
     fn infer_trait_method_call_type(
         &mut self,
         call_expr: ExprId,

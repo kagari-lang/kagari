@@ -303,6 +303,11 @@ Implemented foundation slices:
   RHS expressions and compare known members using the same conflict predicate
   as assignment. Missing members suppress dependent mismatches without hiding
   independent conflicts; analysis and source/artifact/JIT fixtures cover both.
+  Reflection field helpers reject nonexistent members in HIR instead of inventing
+  Unit results; reflective indexing rejects known invalid receiver/index pairs.
+  Operand recovery errors suppress dependent diagnostics. Focused tests ensure
+  invalid helpers cannot obtain checked codegen input and unknown operands emit
+  only their original name diagnostic.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
