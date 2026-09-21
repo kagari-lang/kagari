@@ -498,6 +498,11 @@ Implemented foundation slices:
   initialization also have source/encoded coverage: both restore the old session,
   release frames, temporary roots, candidate quota and retention, and leave a later
   ordinary root and a fresh reload attempt usable without quarantining the runtime.
+  Candidate handles cache terminal initialization errors across session teardown.
+  Entry cancellation, cancellation observed on session exit, and budget exhaustion
+  prevent both retry and publication even for modules without initializer code.
+  Staged root sessions require the dedicated candidate entry; setting the phase on
+  an ordinary execution request cannot bypass that lifecycle.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

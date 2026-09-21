@@ -98,6 +98,10 @@ impl Vm {
             .map_err(|error| ReloadError::Initialization(VmError::RuntimeError(error)))?;
         let result = self.execute_module(candidate.module());
         drop(session);
+        let result = result.and_then(|value| match candidate.initialization_error() {
+            Some(error) => Err(VmError::RuntimeError(error)),
+            None => Ok(value),
+        });
         if let Err(error) = result {
             for member in candidate.module().members() {
                 self.module_failures.remove(&member.key());

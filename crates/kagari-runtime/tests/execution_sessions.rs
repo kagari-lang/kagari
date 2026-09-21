@@ -592,3 +592,64 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
         }
     }
 }
+
+#[test]
+fn candidate_termination_is_cached_after_the_session_is_dropped() {
+    for mode in 0..3 {
+        let mut runtime = Runtime::default();
+        let baseline = load(&mut runtime, "main");
+        let candidate = runtime
+            .stage_reload_program(
+                &baseline,
+                "main",
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![baseline.bytecode.clone()],
+                },
+            )
+            .unwrap();
+        let mut direct = runtime.execution_options();
+        direct.phase = kagari_runtime::ExecutionPhase::CandidateInitialization;
+        assert!(runtime.begin_execution(candidate.module(), direct).is_err());
+        let mut options = runtime.execution_options();
+        let token = CancellationToken::default();
+        options.cancellation = token.clone();
+        if mode == 2 {
+            options.resources.max_instruction_steps = Some(0);
+        }
+        let outer = runtime.begin_execution(&baseline, options).unwrap();
+        if mode == 0 {
+            token.cancel();
+        }
+        let expected = if mode == 2 {
+            RuntimeErrorKind::ResourceLimitExceeded
+        } else {
+            RuntimeErrorKind::Cancelled
+        };
+        if mode == 0 {
+            assert!(runtime.begin_candidate_initialization(&candidate).is_err());
+        } else {
+            let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+            if mode == 1 {
+                token.cancel();
+            } else {
+                assert!(runtime.consume_instruction_step().is_err());
+            }
+            drop(session);
+        }
+        assert_eq!(candidate.initialization_error().unwrap().kind(), expected);
+        assert_eq!(runtime.execution_root().unwrap().key(), baseline.key());
+        drop(outer);
+        assert!(runtime.begin_candidate_initialization(&candidate).is_err());
+        let error = runtime.publish_staged_reload(candidate).unwrap_err();
+        assert!(
+            matches!(error, kagari_runtime::ReloadValidationError::Runtime(error) if error.kind() == expected)
+        );
+        assert_eq!(
+            runtime.modules().latest("main").unwrap().key(),
+            baseline.key()
+        );
+        assert_eq!(runtime.resources().counters().loaded_modules, 1);
+        assert!(!runtime.is_quarantined());
+    }
+}

@@ -25,7 +25,10 @@ Initialization runs at most once per instance, following:
 
 Repeated access to Initialized returns the cached instance. Repeated access to
 Failed returns the recorded failure without rerunning initialization. A host may
-explicitly start a new attempt with a fresh candidate instance. Ordinary import
+explicitly start a new attempt with a fresh candidate instance. Candidate
+handles also cache cancellation and resource termination across session teardown;
+these candidates cannot be restarted or published, including when every module
+has no initializer code. Ordinary import
 does not silently retry prior effects. Public execution requires initialization
 of the entry and its dependencies to have succeeded.
 

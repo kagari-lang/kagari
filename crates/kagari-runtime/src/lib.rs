@@ -91,12 +91,21 @@ struct PreparedReload {
 /// Installed candidate whose entry has not been activated.
 #[derive(Debug)]
 pub struct StagedReload {
+    initialization_error: std::cell::RefCell<Option<RuntimeError>>,
     baseline: LoadedModule,
     program: module::StagedProgram,
     dependencies: ReloadDependencySnapshot,
 }
 
 impl StagedReload {
+    pub fn initialization_error(&self) -> Option<RuntimeError> {
+        self.initialization_error.borrow().clone()
+    }
+
+    pub(crate) fn record_initialization_error(&self, error: RuntimeError) {
+        self.initialization_error.borrow_mut().get_or_insert(error);
+    }
+
     pub fn module(&self) -> &LoadedModule {
         self.program.module()
     }
@@ -284,6 +293,9 @@ impl Runtime {
         &self,
         candidate: &'candidate StagedReload,
     ) -> Result<session::CandidateSession<'candidate>, RuntimeError> {
+        if let Some(error) = candidate.initialization_error() {
+            return Err(error);
+        }
         self.validate_loaded_module(candidate.module())?;
         if self.is_candidate_initialization() {
             return Err(RuntimeError::capability_denied(
@@ -294,12 +306,18 @@ impl Runtime {
         options.phase = ExecutionPhase::CandidateInitialization;
         let previous = self.resources.replace_session(None);
         let mut guard = session::CandidateSession {
-            _candidate: candidate,
+            candidate,
             execution: None,
             previous,
             resources: self.resources.clone(),
         };
-        guard.execution = Some(self.begin_execution(candidate.module(), options)?);
+        match self.begin_execution_inner(candidate.module(), options, true) {
+            Ok(execution) => guard.execution = Some(execution),
+            Err(error) => {
+                candidate.record_initialization_error(error.clone());
+                return Err(error);
+            }
+        }
         Ok(guard)
     }
 
@@ -308,6 +326,23 @@ impl Runtime {
         module: &LoadedModule,
         options: ExecutionOptions,
     ) -> Result<ExecutionSession, RuntimeError> {
+        self.begin_execution_inner(module, options, false)
+    }
+
+    fn begin_execution_inner(
+        &self,
+        module: &LoadedModule,
+        options: ExecutionOptions,
+        allow_staged_root: bool,
+    ) -> Result<ExecutionSession, RuntimeError> {
+        if self.modules.is_staged(module)
+            && self.resources.active_session().is_none()
+            && !allow_staged_root
+        {
+            return Err(RuntimeError::capability_denied(
+                "staged modules require the candidate session entry",
+            ));
+        }
         self.validate_loaded_module(module)?;
         let phase = self
             .resources
@@ -1417,6 +1452,7 @@ impl Runtime {
             }
         }
         Ok(StagedReload {
+            initialization_error: Default::default(),
             baseline,
             program,
             dependencies,
@@ -1427,7 +1463,11 @@ impl Runtime {
         &mut self,
         candidate: StagedReload,
     ) -> Result<LoadedModule, ReloadValidationError> {
+        if let Some(error) = candidate.initialization_error() {
+            return Err(ReloadValidationError::Runtime(error));
+        }
         let StagedReload {
+            initialization_error: _,
             baseline,
             program,
             dependencies,
