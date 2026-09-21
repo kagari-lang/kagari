@@ -267,6 +267,10 @@ Implemented foundation slices:
   and interface tables remain pending. The shared argument-inference entry for
   calls and enum payloads is now used by
   concrete and trait parameter contexts too, with cancellation between operands.
+  Constraint matching now uses an explicit work stack and checks analysis cancellation
+  between members, preserving left-to-right inference precedence. A 10,000-level
+  synthetic composite test covers traversal without recursive stack growth; type
+  cloning and other operations retain their separate depth-limit work.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

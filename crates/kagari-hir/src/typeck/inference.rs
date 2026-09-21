@@ -7,55 +7,56 @@ pub(super) fn infer(
     actual: &TypeId,
     parameters: &[GenericParameterType],
     substitution: &mut TypeSubstitution,
+    cancel: &kagari_common::cancellation::CancellationToken,
 ) {
-    if matches!(actual, TypeId::Unknown | TypeId::Error) {
-        return;
-    }
-    match (expected, actual) {
-        (TypeId::Struct(expected), TypeId::Struct(actual))
-        | (TypeId::Enum(expected), TypeId::Enum(actual))
-        | (TypeId::Trait(expected), TypeId::Trait(actual))
-            if expected.declaration == actual.declaration
-                && expected.arguments.len() == actual.arguments.len() =>
-        {
-            for (expected, actual) in expected.arguments.iter().zip(&actual.arguments) {
-                infer(expected, actual, parameters, substitution);
+    let mut pending = vec![(expected, actual)];
+    while let Some((expected, actual)) = pending.pop() {
+        if cancel.check().is_err() {
+            return;
+        }
+        if matches!(actual, TypeId::Unknown | TypeId::Error) {
+            continue;
+        }
+        match (expected, actual) {
+            (TypeId::Struct(expected), TypeId::Struct(actual))
+            | (TypeId::Enum(expected), TypeId::Enum(actual))
+            | (TypeId::Trait(expected), TypeId::Trait(actual))
+                if expected.declaration == actual.declaration
+                    && expected.arguments.len() == actual.arguments.len() =>
+            {
+                pending.extend(expected.arguments.iter().zip(&actual.arguments).rev());
             }
-        }
-        (TypeId::Generic(parameter), _) if parameters.contains(parameter) => {
-            substitution
-                .entry(parameter.clone())
-                .and_modify(|inferred| inferred.recover_from(actual))
-                .or_insert_with(|| actual.clone());
-        }
-        (TypeId::Tuple(expected), TypeId::Tuple(actual)) if expected.len() == actual.len() => {
-            for (expected, actual) in expected.iter().zip(actual) {
-                infer(expected, actual, parameters, substitution);
+            (TypeId::Generic(parameter), _) if parameters.contains(parameter) => {
+                substitution
+                    .entry(parameter.clone())
+                    .and_modify(|inferred| inferred.recover_from(actual))
+                    .or_insert_with(|| actual.clone());
             }
-        }
-        (
-            TypeId::StandardEnum {
-                kind: expected_kind,
-                args: expected,
-            },
-            TypeId::StandardEnum {
-                kind: actual_kind,
-                args: actual,
-            },
-        ) if expected_kind == actual_kind && expected.len() == actual.len() => {
-            for (expected, actual) in expected.iter().zip(actual) {
-                infer(expected, actual, parameters, substitution);
+            (TypeId::Tuple(expected), TypeId::Tuple(actual)) if expected.len() == actual.len() => {
+                pending.extend(expected.iter().zip(actual).rev());
             }
+            (
+                TypeId::StandardEnum {
+                    kind: expected_kind,
+                    args: expected,
+                },
+                TypeId::StandardEnum {
+                    kind: actual_kind,
+                    args: actual,
+                },
+            ) if expected_kind == actual_kind && expected.len() == actual.len() => {
+                pending.extend(expected.iter().zip(actual).rev());
+            }
+            (TypeId::Array(expected), TypeId::Array(actual))
+            | (TypeId::Set(expected), TypeId::Set(actual)) => {
+                pending.push((expected, actual));
+            }
+            (TypeId::Map { key: ek, value: ev }, TypeId::Map { key: ak, value: av }) => {
+                pending.push((ev, av));
+                pending.push((ek, ak));
+            }
+            _ => {}
         }
-        (TypeId::Array(expected), TypeId::Array(actual))
-        | (TypeId::Set(expected), TypeId::Set(actual)) => {
-            infer(expected, actual, parameters, substitution)
-        }
-        (TypeId::Map { key: ek, value: ev }, TypeId::Map { key: ak, value: av }) => {
-            infer(ek, ak, parameters, substitution);
-            infer(ev, av, parameters, substitution);
-        }
-        _ => {}
     }
 }
 
@@ -66,6 +67,65 @@ mod tests {
     use kagari_common::identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
     };
+
+    #[test]
+    fn deep_inference_is_iterative_cancellable_and_preserves_member_order() {
+        let parameter = GenericParameterType {
+            owner: DefinitionId {
+                module: ModuleIdentity::single_file("deep.kgr"),
+                path: vec![DefinitionPathSegment {
+                    kind: DefinitionKind::Function,
+                    name: "infer".into(),
+                    occurrence: 0,
+                }],
+            },
+            position: 0,
+            name: "T".into(),
+        };
+        let mut expected = TypeId::Generic(parameter.clone());
+        let mut actual = TypeId::Builtin(BuiltinType::I32);
+        for _ in 0..10_000 {
+            expected = TypeId::Array(Box::new(expected));
+            actual = TypeId::Array(Box::new(actual));
+        }
+        let mut substitution = TypeSubstitution::new();
+        let cancelled = kagari_common::cancellation::CancellationToken::default();
+        cancelled.cancel();
+        infer(
+            &expected,
+            &actual,
+            std::slice::from_ref(&parameter),
+            &mut substitution,
+            &cancelled,
+        );
+        assert!(substitution.is_empty());
+        infer(
+            &expected,
+            &actual,
+            std::slice::from_ref(&parameter),
+            &mut substitution,
+            &Default::default(),
+        );
+        assert_eq!(substitution[&parameter], TypeId::Builtin(BuiltinType::I32));
+        // Drop the synthetic deep inputs iteratively too; this test isolates traversal.
+        for mut ty in [expected, actual] {
+            while let TypeId::Array(element) = ty {
+                ty = *element;
+            }
+        }
+        substitution.clear();
+        infer(
+            &TypeId::Tuple(vec![TypeId::Generic(parameter.clone()); 2]),
+            &TypeId::Tuple(vec![
+                TypeId::Builtin(BuiltinType::I32),
+                TypeId::Builtin(BuiltinType::Bool),
+            ]),
+            std::slice::from_ref(&parameter),
+            &mut substitution,
+            &Default::default(),
+        );
+        assert_eq!(substitution[&parameter], TypeId::Builtin(BuiltinType::I32));
+    }
 
     #[test]
     fn nominal_inference_requires_matching_declaration_kind_and_arity() {
@@ -97,6 +157,7 @@ mod tests {
                 &actual,
                 std::slice::from_ref(&parameter),
                 &mut substitution,
+                &Default::default(),
             );
             assert_eq!(template.instantiate(&substitution), actual);
             assert_eq!(substitution.len(), 1);
@@ -124,6 +185,7 @@ mod tests {
                     &mismatch,
                     std::slice::from_ref(&parameter),
                     &mut substitution,
+                    &Default::default(),
                 );
                 assert!(substitution.is_empty());
             }

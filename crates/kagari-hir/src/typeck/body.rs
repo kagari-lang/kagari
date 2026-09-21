@@ -1777,6 +1777,7 @@ impl<'a> BodyChecker<'a> {
                 expected,
                 &function.generic_params,
                 &mut substitution,
+                self.cancel,
             );
         }
         let arg_tys = self.infer_generic_args(
@@ -2306,6 +2307,7 @@ impl<'a> BodyChecker<'a> {
                     &actual,
                     &struct_def.generic_params,
                     &mut substitution,
+                    self.cancel,
                 );
             }
             field_tys.push((field.name.as_str(), field.value, actual));
@@ -2572,7 +2574,7 @@ impl<'a> BodyChecker<'a> {
             if !generics.is_empty()
                 && let Some(parameter) = parameter
             {
-                super::inference::infer(&parameter, &ty, generics, substitution);
+                super::inference::infer(&parameter, &ty, generics, substitution, self.cancel);
             }
             actual.push((*argument, ty));
         }
