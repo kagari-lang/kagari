@@ -88,6 +88,13 @@ struct PreparedReload {
     dependencies: ReloadDependencySnapshot,
 }
 
+/// Installed candidate whose entry has not been activated.
+struct StagedReload {
+    baseline: LoadedModule,
+    program: module::StagedProgram,
+    dependencies: ReloadDependencySnapshot,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeConfig {
     pub gc: GcHeapConfig,
@@ -1304,6 +1311,14 @@ impl Runtime {
         &mut self,
         candidate: PreparedReload,
     ) -> Result<LoadedModule, ReloadValidationError> {
+        let staged = self.stage_prepared_reload(candidate)?;
+        self.publish_staged_reload(staged)
+    }
+
+    fn stage_prepared_reload(
+        &mut self,
+        candidate: PreparedReload,
+    ) -> Result<StagedReload, ReloadValidationError> {
         let PreparedReload {
             baseline,
             name,
@@ -1332,11 +1347,54 @@ impl Runtime {
             .epochs
             .reserve(&name)
             .map_err(ReloadValidationError::Runtime)?;
-        let module = self
+        let program = self
             .modules
             .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
-            .map_err(ReloadValidationError::Runtime)?
-            .publish();
+            .map_err(ReloadValidationError::Runtime)?;
+        Ok(StagedReload {
+            baseline,
+            program,
+            dependencies,
+        })
+    }
+
+    fn publish_staged_reload(
+        &mut self,
+        candidate: StagedReload,
+    ) -> Result<LoadedModule, ReloadValidationError> {
+        let StagedReload {
+            baseline,
+            program,
+            dependencies,
+        } = candidate;
+        self.validate_loaded_module(&baseline)
+            .map_err(ReloadValidationError::Runtime)?;
+        self.validate_loaded_module(program.module())
+            .map_err(ReloadValidationError::Runtime)?;
+        let latest = self.modules.latest(&baseline.name);
+        if latest.as_ref().map(LoadedModule::key) != Some(baseline.key()) {
+            return Err(ReloadValidationError::ModuleNotActive {
+                module_name: baseline.name.clone(),
+                expected: baseline.epoch,
+                active: latest.map(|module| module.epoch),
+            });
+        }
+        for member in program.module().members() {
+            let current = self
+                .host
+                .link_module(&member.bytecode, &self.types)
+                .map_err(ReloadValidationError::Runtime)?;
+            if current.functions != member.host_bindings.functions
+                || current.paths != member.host_bindings.paths
+            {
+                return Err(ReloadValidationError::Runtime(
+                    RuntimeError::module_validation(
+                        "host bindings changed during candidate initialization",
+                    ),
+                ));
+            }
+        }
+        let module = program.publish();
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         Ok(module)
     }
@@ -1792,6 +1850,78 @@ mod tests {
             runtime.modules().latest("reloadable").unwrap().epoch,
             reloaded.epoch
         );
+    }
+
+    #[test]
+    fn staged_reload_failure_and_stale_publication_preserve_the_active_entry() {
+        let artifact = artifact_with_loader_fingerprints();
+        let mut runtime = Runtime::default();
+        let baseline = runtime
+            .load_program("reloadable", artifact.program.clone())
+            .unwrap();
+        let stage = |runtime: &mut Runtime| {
+            let prepared = runtime
+                .prepare_reload(
+                    &baseline,
+                    "reloadable".into(),
+                    artifact.program.clone(),
+                    ReloadDependencySnapshot::from_artifact(&artifact),
+                )
+                .unwrap();
+            runtime.stage_prepared_reload(prepared).unwrap()
+        };
+        let failed = stage(&mut runtime);
+        let failed_key = failed.program.module().key();
+        runtime
+            .fail_module_initialization(failed.program.module())
+            .unwrap();
+        assert_eq!(
+            runtime.modules.latest("reloadable").unwrap().key(),
+            baseline.key()
+        );
+        drop(failed);
+        assert!(runtime.modules.loaded(failed_key).is_none());
+        assert_eq!(
+            runtime.resources.counters().loaded_modules,
+            baseline.members().count()
+        );
+
+        let candidate = stage(&mut runtime);
+        let stale = stage(&mut runtime);
+        let stale_key = stale.program.module().key();
+        for member in candidate.program.module().members() {
+            runtime
+                .begin_module_initialization(&member)
+                .unwrap()
+                .finish(Value::I32(42))
+                .unwrap();
+        }
+        assert_eq!(
+            runtime.modules.latest("reloadable").unwrap().key(),
+            baseline.key()
+        );
+        let current = runtime.publish_staged_reload(candidate).unwrap();
+        assert!(matches!(
+            runtime.publish_staged_reload(stale),
+            Err(ReloadValidationError::ModuleNotActive { .. })
+        ));
+        assert!(runtime.modules.loaded(stale_key).is_none());
+        assert_eq!(
+            runtime.modules.latest("reloadable").unwrap().key(),
+            current.key()
+        );
+        assert_eq!(
+            runtime.resources.counters().loaded_modules,
+            runtime.modules.loaded_count()
+        );
+        assert_eq!(
+            runtime
+                .module_instance_snapshot(&current)
+                .unwrap()
+                .init_result,
+            Some(Value::I32(42))
+        );
+        runtime.validate_loaded_module(&baseline).unwrap();
     }
 
     #[test]

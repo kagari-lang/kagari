@@ -462,6 +462,12 @@ Implemented foundation slices:
   candidates and unreachable versions. Candidate drop releases the quota even
   after quarantine. Epoch reservation is separate from activation and never reuses
   discarded identities; exhausted epoch space is rejected before installation.
+  A staged reload now owns its baseline, unpublished instances and dependency
+  fingerprints across the initialization interval. Activation rechecks the baseline
+  and host links; rejected or abandoned candidates release their instances and
+  module quota. Tests cover failed initialization cleanup, stale staged candidates,
+  preserved initialized results and unchanged active entries. VM orchestration is
+  still pending; these runtime boundaries do not yet execute candidate initializers.
 - R06: host functions now take a separate declaration containing nominal identity,
   typed scalar/opaque signatures, borrowing, effects, capabilities, cost and docs.
   The old metadata API, string type names and caller-chosen function fingerprints

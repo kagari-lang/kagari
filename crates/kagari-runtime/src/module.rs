@@ -107,7 +107,7 @@ pub struct LinkedModule {
     pub epoch: ModuleEpoch,
     pub bytecode: BytecodeModule,
     registry_owner: crate::host::HostRegistryId,
-    host_bindings: LinkedHostBindings,
+    pub(crate) host_bindings: LinkedHostBindings,
 }
 
 #[derive(Debug, Default)]
@@ -325,6 +325,10 @@ pub(crate) struct StagedProgram {
 }
 
 impl StagedProgram {
+    pub(crate) fn module(&self) -> &LoadedModule {
+        &self.module
+    }
+
     pub(crate) fn publish(self) -> LoadedModule {
         let mut inner = self.store.inner.borrow_mut();
         inner.staged.remove(&self.module.program_key());
