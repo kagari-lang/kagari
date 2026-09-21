@@ -702,6 +702,11 @@ Implemented foundation slices:
   termination; cancellation unwinds expression/member lists immediately instead
   of substituting a normal-completion result. Deterministic tests cover empty
   blocks, expression queries and cancellation during an operand sequence.
+  Body checking now stops Tuple, Array, match-arm and call-argument traversal at
+  cancellation boundaries. Contextual and ordinary argument checking share one
+  loop; Array element types merge during traversal without retaining a second
+  full element list. Existing partial-type recovery and query cancellation tests
+  cover these shared paths.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

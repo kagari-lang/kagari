@@ -672,6 +672,9 @@ impl<'a> BodyChecker<'a> {
                 let mut result: Option<TypeId> = None;
                 let mut reachable = true;
                 for arm in arms {
+                    if self.cancel.check().is_err() {
+                        return TypeId::Unknown;
+                    }
                     let found = self.infer_match_arm_type(arm, &scrutinee_ty, env, expected);
                     if !reachable {
                         continue;
@@ -751,52 +754,53 @@ impl<'a> BodyChecker<'a> {
                     explicit.as_ref().or(expected),
                 )
             }
-            ExprKind::Tuple(elements) => TypeId::Tuple(
-                elements
-                    .iter()
-                    .enumerate()
-                    .map(|(index, expr)| {
-                        let member = match expected {
-                            Some(TypeId::Tuple(types)) if types.len() == elements.len() => {
-                                types.get(index)
-                            }
-                            _ => None,
-                        };
-                        self.infer_expr_type_expected(*expr, env, member)
-                    })
-                    .collect::<Vec<_>>(),
-            ),
-            ExprKind::Array(elements) => {
-                let element_types = elements
-                    .iter()
-                    .map(|expr| {
-                        let member = match expected {
-                            Some(TypeId::Array(element)) => Some(element.as_ref()),
-                            _ => None,
-                        };
-                        (*expr, self.infer_expr_type_expected(*expr, env, member))
-                    })
-                    .collect::<Vec<_>>();
-                let mut element_ty = element_types
-                    .first()
-                    .map(|(_, ty)| ty.clone())
-                    .unwrap_or_else(|| match expected {
-                        Some(TypeId::Array(element)) => (**element).clone(),
-                        _ => TypeId::Builtin(BuiltinType::Unit),
-                    });
-                for (expr, ty) in element_types.iter().skip(1) {
-                    if ty.conflicts_with(&element_ty) {
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::ArrayElementTypeMismatch {
-                                expected: display_type_id(&element_ty),
-                                found: display_type_id(ty),
-                            })
-                            .with_span(self.lowered.source_map.expr_span(*expr)),
-                        );
+            ExprKind::Tuple(elements) => {
+                let mut types = Vec::with_capacity(elements.len());
+                for (index, expr) in elements.iter().enumerate() {
+                    if self.cancel.check().is_err() {
+                        return TypeId::Unknown;
                     }
-                    element_ty.recover_from(ty);
+                    let member = match expected {
+                        Some(TypeId::Tuple(types)) if types.len() == elements.len() => {
+                            types.get(index)
+                        }
+                        _ => None,
+                    };
+                    types.push(self.infer_expr_type_expected(*expr, env, member));
                 }
-                TypeId::Array(Box::new(element_ty))
+                TypeId::Tuple(types)
+            }
+            ExprKind::Array(elements) => {
+                let member = match expected {
+                    Some(TypeId::Array(element)) => Some(element.as_ref()),
+                    _ => None,
+                };
+                let mut element_ty: Option<TypeId> = None;
+                for expr in elements {
+                    if self.cancel.check().is_err() {
+                        return TypeId::Unknown;
+                    }
+                    let ty = self.infer_expr_type_expected(*expr, env, member);
+                    if let Some(element_ty) = &mut element_ty {
+                        if ty.conflicts_with(element_ty) {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::ArrayElementTypeMismatch {
+                                    expected: display_type_id(element_ty),
+                                    found: display_type_id(&ty),
+                                })
+                                .with_span(self.lowered.source_map.expr_span(*expr)),
+                            );
+                        }
+                        element_ty.recover_from(&ty);
+                    } else {
+                        element_ty = Some(ty);
+                    }
+                }
+                TypeId::Array(Box::new(element_ty.unwrap_or_else(|| {
+                    member
+                        .cloned()
+                        .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                })))
             }
             ExprKind::Block(block) => self.infer_block_types_expected(*block, env, expected),
         };
@@ -2560,24 +2564,26 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .filter_map(|parameter| self.declarations.generic_type(parameter.id))
             .collect::<Vec<_>>();
-        args.iter()
-            .zip(expected.map(Some).chain(std::iter::repeat(None)))
-            .map(|(argument, expected)| {
-                let expected = expected
-                    .as_ref()
-                    .filter(|ty| ty.is_resolved_in(&caller_parameters));
-                (
-                    *argument,
-                    self.infer_expr_type_expected(*argument, env, expected),
-                )
-            })
-            .collect()
+        let mut inferred = Vec::new();
+        let mut expected = expected.fuse();
+        for argument in args {
+            if self.cancel.check().is_err() {
+                break;
+            }
+            let expected = expected.next();
+            let expected = expected
+                .as_ref()
+                .filter(|ty| ty.is_resolved_in(&caller_parameters));
+            inferred.push((
+                *argument,
+                self.infer_expr_type_expected(*argument, env, expected),
+            ));
+        }
+        inferred
     }
 
     fn infer_call_args(&mut self, args: &[ExprId], env: &mut BodyTypeEnv) -> Vec<(ExprId, TypeId)> {
-        args.iter()
-            .map(|arg| (*arg, self.infer_expr_type(*arg, env)))
-            .collect()
+        self.infer_typed_args(args, std::iter::empty(), env)
     }
 
     fn check_builtin_arity(&mut self, name: &str, expected: usize, found: usize, callee: ExprId) {
