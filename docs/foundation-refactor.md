@@ -655,6 +655,10 @@ Implemented foundation slices:
   Assignment RHS inference now consumes the checked target type. Local, field,
   array-index and enum replacement fixtures cover source/artifact/JIT fallback;
   immutable targets and incompatible payloads remain compilation errors.
+  Empty Array/Map/Set constructors now consume context in expression analysis.
+  The local-binding-only Map/Set type rewrite is deleted. Return, field, argument
+  and assignment fixtures execute through source/artifact/JIT fallback, while
+  constructor arity, container-kind and element-type mismatches still reject.
   The checker still treats a function without a tail expression as returning Unit
   even when an explicit return terminates it; control-flow completion remains open.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR

@@ -89,6 +89,30 @@ fn assignment_targets_supply_constructor_context() {
     );
 }
 
+#[test]
+fn empty_container_context_reaches_returns_fields_and_arguments() {
+    execute_contextual_source(
+        r#"
+        struct Values { val array: [i32], val map: Map<i32, bool>, val set: Set<i32> }
+        fn array() -> [i32] { [] }
+        fn map() -> Map<i32, bool> { std::map::new() }
+        fn set() -> Set<i32> { std::set::new() }
+        fn empty(a: [i32], m: Map<i32, bool>, s: Set<i32>) -> bool {
+            a.is_empty() && m.is_empty() && s.is_empty()
+        }
+        fn main() -> i32 {
+            val value = Values { array: [], map: std::map::new(), set: std::set::new() };
+            var replacement: Map<i32, bool> = map();
+            replacement = std::map::new();
+            if empty([], std::map::new(), std::set::new())
+                && empty(array(), map(), set()) && empty(value.array, value.map, value.set)
+                && replacement.is_empty() { 42 } else { 0 }
+        }
+    "#,
+        42,
+    );
+}
+
 fn execute_contextual_source(source: &str, expected: i32) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();

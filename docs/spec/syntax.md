@@ -389,6 +389,9 @@ including after trait `Self` substitution; unresolved callee binders are not.
 Binder ownership, rather than parameter spelling, controls this distinction.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
+Empty Array literals and the resolved standard Map/Set constructors consume the
+same expected-type context in every expression position. Constructor arity and
+container kind must still match; context does not coerce incompatible elements.
 
 ```ebnf
 type            ::= path generic_args?

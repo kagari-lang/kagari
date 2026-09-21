@@ -3,6 +3,38 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn empty_container_context_is_shared_by_all_expression_positions() {
+    for body in [
+        "fn make() -> [i32] { [] }",
+        "fn make() -> Map<i32, bool> { std::map::new() }",
+        "fn make() -> Set<i32> { std::set::new() }",
+        "fn take(values: [i32], map: Map<i32, bool>, set: Set<i32>) {} fn main() { take([], std::map::new(), std::set::new()); }",
+        "struct Values { val array: [i32], val map: Map<i32, bool>, val set: Set<i32> } fn main() { Values { array: [], map: std::map::new(), set: std::set::new() }; }",
+        "fn main() { var map: Map<i32, bool> = std::map::new(); map = std::map::new(); }",
+    ] {
+        let source = SourceFile::new("empty-context.kgr", body);
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_ok());
+    }
+    for source in [
+        "fn make() -> Map<i32, bool> { std::map::new(1) }",
+        "fn make() -> Map<i32, bool> { std::set::new() }",
+        "fn make() -> [i32] { [true] }",
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new("invalid-empty-context.kgr", source),
+            Default::default(),
+        );
+        assert!(analysis.into_codegen().is_err(), "{source}");
+    }
+}
+
+#[test]
 fn assignment_context_uses_checked_target_types_without_bypassing_writeability() {
     for (body, valid) in [
         (

@@ -124,7 +124,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     resolved
                 });
-                let mut initializer_ty =
+                let initializer_ty =
                     self.infer_expr_type_expected(*initializer, env, annotation.as_ref());
                 let local_ty = annotation.unwrap_or_else(|| initializer_ty.clone());
                 super::applications::validate(
@@ -136,30 +136,6 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics,
                     self.cancel,
                 );
-                // Empty containers acquire their concrete parameters from the
-                // annotation; keep that fact on the constructor expression too.
-                if ty.is_some()
-                    && matches!(
-                        (
-                            self.type_table
-                                .call_resolution(*initializer)
-                                .map(|call| call.target),
-                            &local_ty
-                        ),
-                        (
-                            Some(CallTarget::StandardIntrinsic(StandardIntrinsic::MapNew)),
-                            TypeId::Map { .. }
-                        ) | (
-                            Some(CallTarget::StandardIntrinsic(StandardIntrinsic::SetNew)),
-                            TypeId::Set(_)
-                        )
-                    )
-                {
-                    initializer_ty = local_ty.clone();
-                    env.exprs.insert(*initializer, initializer_ty.clone());
-                    self.type_table
-                        .insert_expr(*initializer, initializer_ty.clone());
-                }
                 if local_ty.conflicts_with(&initializer_ty) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
@@ -467,7 +443,7 @@ impl<'a> BodyChecker<'a> {
             return ty;
         }
         let expr = self.lowered.module.expr(expr_id);
-        let ty = match &expr.kind {
+        let mut ty = match &expr.kind {
             ExprKind::Missing => {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::ExpectedExpression)
@@ -725,7 +701,10 @@ impl<'a> BodyChecker<'a> {
                 let mut element_ty = element_types
                     .first()
                     .map(|(_, ty)| ty.clone())
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
+                    .unwrap_or_else(|| match expected {
+                        Some(TypeId::Array(element)) => (**element).clone(),
+                        _ => TypeId::Builtin(BuiltinType::Unit),
+                    });
                 for (expr, ty) in element_types.iter().skip(1) {
                     if ty.conflicts_with(&element_ty) {
                         self.diagnostics.push(
@@ -742,6 +721,26 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Block(block) => self.infer_block_types_expected(*block, env, expected),
         };
+
+        if let Some(expected) = expected
+            && matches!(
+                (
+                    self.type_table
+                        .call_resolution(expr_id)
+                        .map(|call| call.target),
+                    expected
+                ),
+                (
+                    Some(CallTarget::StandardIntrinsic(StandardIntrinsic::MapNew)),
+                    TypeId::Map { .. }
+                ) | (
+                    Some(CallTarget::StandardIntrinsic(StandardIntrinsic::SetNew)),
+                    TypeId::Set(_)
+                )
+            )
+        {
+            ty = expected.clone();
+        }
 
         super::applications::validate(
             &ty,

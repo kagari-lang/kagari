@@ -18,6 +18,8 @@ fn read_marker<T: ReadMarker>(reader: T) -> i32 { reader.read(Marker { value: 40
 fn identity<T>(value: T) -> T { value }
 fn empty_token<T>() -> Token<T> { Token::Empty }
 fn forwarded_marker<T>() -> Marker<T> { identity(Marker { value: 42 }) }
+fn empty_scores() -> Map<String, i32> { std::map::new() }
+fn empty_numbers() -> [i32] { [] }
 fn read_cell<T>(cell: Cell<T>) -> T { cell.value }
 
 // Declared functions take precedence over unqualified helper names.
@@ -78,7 +80,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     values[0] += 9;
     std::debug::assert_eq(values[0], 10, "compound assignment commits once");
 
-    val scores: Map<String, i32> = std::map::new();
+    val scores: Map<String, i32> = empty_scores();
+    std::debug::assert(empty_numbers().is_empty(), "empty array return context");
     scores.insert("alice", 10);
     scores.insert("bob", 12);
 
