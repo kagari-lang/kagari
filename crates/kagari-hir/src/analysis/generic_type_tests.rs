@@ -1148,3 +1148,61 @@ fn constructor_fields_share_partial_argument_context_and_reject_unseeded_members
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
     }
 }
+
+#[test]
+fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
+    for (declaration, initializer, nominal) in [
+        (
+            "fn identity<T>(value: T) -> T { value }",
+            "identity((7, std::map::new()))",
+            false,
+        ),
+        (
+            "struct Wrap<T> { val value: T }",
+            "Wrap { value: (7, std::map::new()) }",
+            true,
+        ),
+        (
+            "enum Wrap<T> { Value(T) }",
+            "Wrap::Value((7, std::map::new()))",
+            true,
+        ),
+    ] {
+        let source = SourceFile::new(
+            "inference-recovery.kgr",
+            format!(
+                "{declaration} fn broken() {{ val item = {initializer}; item; }} fn good() -> i32 {{ 42 }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            kagari_common::DiagnosticKind::CannotInferGenericArgument { .. }
+        )));
+        let facts = analysis.facts();
+        let ty = facts.lowered.module.body.expressions().find_map(|(id, expression)| {
+            matches!(&expression.kind, crate::hir::ExprKind::Name { name, .. } if name == "item")
+                .then(|| facts.typed.type_table.expr_type(id)).flatten()
+        }).expect("local reference retains inferred type");
+        let argument = if nominal {
+            match ty {
+                TypeId::Struct(ty) | TypeId::Enum(ty) => ty.arguments[0].clone(),
+                _ => panic!("nominal type must survive inference failure"),
+            }
+        } else {
+            ty
+        };
+        assert_eq!(
+            argument,
+            TypeId::Tuple(vec![
+                TypeId::Builtin(BuiltinType::I32),
+                TypeId::Map {
+                    key: Box::new(TypeId::Error),
+                    value: Box::new(TypeId::Error)
+                },
+            ]),
+            "{initializer}"
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}

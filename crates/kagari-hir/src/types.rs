@@ -286,6 +286,11 @@ impl TypeId {
         }
     }
 
+    /// Seal failed inference without discarding independently known members.
+    pub(crate) fn diagnose_unknowns(&self) -> Self {
+        self.substitute_once(|ty| matches!(ty, Self::Unknown).then_some(&Self::Error))
+    }
+
     /// Unknown inference holes still need a diagnostic; Error already has one.
     pub(crate) fn contains_unknown(&self) -> bool {
         let mut pending = vec![self];

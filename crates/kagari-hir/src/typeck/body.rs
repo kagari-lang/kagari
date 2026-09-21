@@ -1663,20 +1663,13 @@ impl<'a> BodyChecker<'a> {
         let arguments = generic_params
             .iter()
             .map(|parameter| {
-                substitution
-                    .get(parameter)
-                    .filter(|ty| !ty.contains_unknown())
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
-                                function_name: name.clone(),
-                                parameter: parameter.name.clone(),
-                            })
-                            .with_span(self.lowered.source_map.expr_span(callee)),
-                        );
-                        TypeId::Error
-                    })
+                self.finish_inferred_argument(
+                    substitution.get(parameter),
+                    &name,
+                    &parameter.name,
+                    callee,
+                    false,
+                )
             })
             .collect();
         let result = TypeId::Enum(crate::types::NominalType {
@@ -1804,26 +1797,13 @@ impl<'a> BodyChecker<'a> {
             .generic_params
             .iter()
             .map(|parameter| {
-                substitution
-                    .get(parameter)
-                    .filter(|ty| !ty.contains_unknown())
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        if substitution
-                            .get(parameter)
-                            .is_some_and(TypeId::contains_unknown)
-                            || !arg_tys.iter().any(|(_, ty)| ty.is_unresolved())
-                        {
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
-                                    function_name: function.name.clone(),
-                                    parameter: parameter.name.clone(),
-                                })
-                                .with_span(self.lowered.source_map.expr_span(callee)),
-                            );
-                        }
-                        TypeId::Error
-                    })
+                self.finish_inferred_argument(
+                    substitution.get(parameter),
+                    &function.name,
+                    &parameter.name,
+                    callee,
+                    arg_tys.iter().any(|(_, ty)| ty.is_unresolved()),
+                )
             })
             .collect::<Vec<_>>();
         // Recovery arguments must also replace missing binders in parameters
@@ -2336,20 +2316,13 @@ impl<'a> BodyChecker<'a> {
             .generic_params
             .iter()
             .map(|parameter| {
-                substitution
-                    .get(parameter)
-                    .filter(|ty| !ty.contains_unknown())
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
-                                function_name: path.to_owned(),
-                                parameter: parameter.name.clone(),
-                            })
-                            .with_span(self.lowered.source_map.expr_span(expr_id)),
-                        );
-                        TypeId::Error
-                    })
+                self.finish_inferred_argument(
+                    substitution.get(parameter),
+                    path,
+                    &parameter.name,
+                    expr_id,
+                    false,
+                )
             })
             .collect();
         let mut seen = HashSet::new();
@@ -2567,6 +2540,29 @@ impl<'a> BodyChecker<'a> {
             _ => None,
         }
     }
+    fn finish_inferred_argument(
+        &mut self,
+        inferred: Option<&TypeId>,
+        name: &str,
+        parameter: &str,
+        site: ExprId,
+        suppress_missing: bool,
+    ) -> TypeId {
+        let unknown = inferred.is_some_and(TypeId::contains_unknown);
+        if unknown || (inferred.is_none() && !suppress_missing) {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                    function_name: name.to_owned(),
+                    parameter: parameter.to_owned(),
+                })
+                .with_span(self.lowered.source_map.expr_span(site)),
+            );
+        }
+        inferred
+            .map(TypeId::diagnose_unknowns)
+            .unwrap_or(TypeId::Error)
+    }
+
     fn infer_generic_args(
         &mut self,
         args: &[ExprId],

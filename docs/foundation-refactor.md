@@ -291,6 +291,10 @@ Implemented foundation slices:
   binder is inferred. Context reconstruction reads substitutions directly instead
   of cloning the substitution map per argument. Struct/enum execution fixtures
   and negative constructor cases cover the unified path.
+  Failed argument finalization is shared by calls and constructors: it reports
+  uninferred holes and converts only those leaves to Error, preserving known
+  tuple/container members and nominal identities for tooling. Regression cases
+  inspect retained local-reference facts and reject codegen in all three paths.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
