@@ -47,6 +47,25 @@ fn generic_calls_propagate_result_and_preceding_argument_context() {
     );
 }
 
+#[test]
+fn caller_binders_and_trait_self_supply_constructor_context() {
+    execute_contextual_source(
+        r#"
+        struct Marker<T> { val value: i32 }
+        trait Read { fn read(self, marker: Marker<Self>) -> i32; }
+        struct Actor { val offset: i32 }
+        impl Read for Actor {
+            fn read(self, marker: Marker<Actor>) -> i32 { self.offset + marker.value }
+        }
+        fn invoke<T: Read>(value: T) -> i32 { value.read(Marker { value: 20 }) }
+        fn consume<T>(seed: T, value: Marker<T>) -> i32 { value.value }
+        fn relay<T>(seed: T) -> i32 { consume(seed, Marker { value: 20 }) }
+        fn main() -> i32 { invoke(Actor { offset: 2 }) + relay(true) }
+    "#,
+        42,
+    );
+}
+
 fn execute_contextual_source(source: &str, expected: i32) {
     let engine = KagariEngine::default();
     let mut context = kagari_embed::ExecutionContext::default();

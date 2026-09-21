@@ -3,6 +3,43 @@ use crate::types::{BuiltinType, TypeId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
+fn caller_owned_binders_are_context_but_uninferred_callee_binders_are_not() {
+    for (body, valid) in [
+        (
+            "fn relay<T>(seed: T) { consume(seed, Marker { value: 7 }); }",
+            true,
+        ),
+        (
+            "fn relay<T>() -> Marker<T> { identity(Marker { value: 7 }) }",
+            true,
+        ),
+        (
+            "fn recursive<T>(seed: T, marker: Marker<T>) { recursive(seed, Marker { value: 7 }); }",
+            true,
+        ),
+        (
+            "fn relay<T>(seed: T) { unseeded(Marker { value: 7 }); }",
+            false,
+        ),
+    ] {
+        let source = SourceFile::new(
+            "binder-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} fn consume<T>(seed: T, value: Marker<T>) {{}} fn unseeded<T>(value: Marker<T>) {{}} fn identity<T>(value: T) -> T {{ value }} {body}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}
+
+#[test]
 fn generic_calls_use_result_context_and_preceding_arguments() {
     for (body, valid) in [
         (

@@ -644,8 +644,10 @@ Implemented foundation slices:
   arity/type failures and source/artifact/JIT fallback for imported constructors.
   Trait method signatures share that argument-context entry after Self substitution.
   Invalid arguments retain method targets; static trait execution tests cover
-  contextual Struct/enum arguments across source/artifact/JIT fallback. Parameters
-  that still contain generic binders do not yet supply context.
+  contextual Struct/enum arguments across source/artifact/JIT fallback. Caller-owned
+  generic binders now supply context too, including trait Self substitution and
+  recursive calls. Same-spelled uninferred callee binders cannot supply context.
+  Source/artifact/JIT fixtures cover generic forwarding and Marker<Self> arguments.
   Local generic calls now infer from expected results and pass concrete arguments
   established by preceding operands into later constructors. Source/artifact/JIT
   fixtures cover phantom function results and nested constructors. Later operands

@@ -1683,6 +1683,11 @@ impl<'a> BodyChecker<'a> {
                 &mut substitution,
             );
         }
+        let caller_parameters = env
+            .generics
+            .iter()
+            .filter_map(|parameter| self.declarations.generic_type(parameter.id))
+            .collect::<Vec<_>>();
         let mut arg_tys = Vec::with_capacity(args.len());
         for (index, argument) in args.iter().enumerate() {
             let parameter = function.params.get(index);
@@ -1690,7 +1695,9 @@ impl<'a> BodyChecker<'a> {
             let actual = self.infer_expr_type_expected(
                 *argument,
                 env,
-                expected.as_ref().filter(|ty| ty.is_concrete()),
+                expected
+                    .as_ref()
+                    .filter(|ty| ty.is_resolved_in(&caller_parameters)),
             );
             if let Some(parameter) = parameter {
                 super::inference::infer(
@@ -2464,10 +2471,17 @@ impl<'a> BodyChecker<'a> {
         expected: impl Iterator<Item = TypeId>,
         env: &mut BodyTypeEnv,
     ) -> Vec<(ExprId, TypeId)> {
+        let caller_parameters = env
+            .generics
+            .iter()
+            .filter_map(|parameter| self.declarations.generic_type(parameter.id))
+            .collect::<Vec<_>>();
         args.iter()
             .zip(expected.map(Some).chain(std::iter::repeat(None)))
             .map(|(argument, expected)| {
-                let expected = expected.as_ref().filter(|ty| ty.is_concrete());
+                let expected = expected
+                    .as_ref()
+                    .filter(|ty| ty.is_resolved_in(&caller_parameters));
                 (
                     *argument,
                     self.infer_expr_type_expected(*argument, env, expected),

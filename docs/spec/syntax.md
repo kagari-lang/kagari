@@ -384,8 +384,9 @@ Trait methods use the same argument-context rules after substituting the receive
 for `Self`. A local generic function call first infers from its expected result,
 then checks arguments in source order, making inferred concrete parameter types
 available to subsequent arguments. Later arguments do not yet provide context
-backwards to earlier constructors; parameter types containing unresolved generic
-binders do not supply argument context.
+backwards to earlier constructors. Caller-owned generic binders are valid context,
+including after trait `Self` substitution; unresolved callee binders are not.
+Binder ownership, rather than parameter spelling, controls this distinction.
 
 ```ebnf
 type            ::= path generic_args?

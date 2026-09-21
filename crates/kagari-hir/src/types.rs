@@ -137,16 +137,24 @@ impl TypeId {
     }
 
     pub fn is_concrete(&self) -> bool {
+        self.is_resolved_in(&[])
+    }
+
+    /// A caller-owned binder is known context even before monomorphization.
+    pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType]) -> bool {
         match self {
             Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                ty.arguments.iter().all(Self::is_concrete)
+                ty.arguments.iter().all(|ty| ty.is_resolved_in(parameters))
             }
-            Self::Unknown | Self::Error | Self::Generic(_) | Self::SelfType(_) => false,
+            Self::Generic(parameter) => parameters.contains(parameter),
+            Self::Unknown | Self::Error | Self::SelfType(_) => false,
             Self::Tuple(elements) | Self::StandardEnum { args: elements, .. } => {
-                elements.iter().all(Self::is_concrete)
+                elements.iter().all(|ty| ty.is_resolved_in(parameters))
             }
-            Self::Array(element) | Self::Set(element) => element.is_concrete(),
-            Self::Map { key, value } => key.is_concrete() && value.is_concrete(),
+            Self::Array(element) | Self::Set(element) => element.is_resolved_in(parameters),
+            Self::Map { key, value } => {
+                key.is_resolved_in(parameters) && value.is_resolved_in(parameters)
+            }
             _ => true,
         }
     }
