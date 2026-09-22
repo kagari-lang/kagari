@@ -2663,6 +2663,16 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {
+        if !super::completion::expr_can_complete(&self.lowered.module, index_expr, self.cancel)
+            .ok()?
+        {
+            return match receiver {
+                TypeId::Array(element) => Some((**element).clone()),
+                // No index value exists to select a particular Tuple member.
+                TypeId::Tuple(_) => Some(TypeId::Unknown),
+                _ => None,
+            };
+        }
         if !self.type_table.expr_type(index_expr)?.is_integer() {
             return None;
         }

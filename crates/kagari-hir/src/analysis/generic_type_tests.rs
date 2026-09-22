@@ -2014,3 +2014,55 @@ fn binary_constraints_ignore_absent_operands_but_check_known_counterparts() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{expression}");
     }
 }
+
+#[test]
+fn terminating_indexes_preserve_receiver_rules_without_requiring_an_index_value() {
+    for statement in [
+        "array[INDEX];",
+        "tuple[INDEX];",
+        "array[INDEX] = 7;",
+        "array[INDEX] += 7;",
+        "tuple[INDEX] = 7;",
+        "set_index(array, INDEX, 7);",
+    ] {
+        for (index, valid) in [
+            ("if true { return 42; } else { return 7; }", true),
+            ("if true { return 42; } else { false }", false),
+            ("if true { return false; } else { return 7; }", false),
+        ] {
+            let statement = statement.replace("INDEX", index);
+            let analysis = crate::analyze_source(
+                &SourceFile::new(
+                    "index-completion.kgr",
+                    format!(
+                        "fn main() -> i32 {{ val array = [1]; var tuple = (1, true); {statement} 0 }}"
+                    ),
+                ),
+                crate::LanguageFeatureProfile {
+                    allow_reflection: true,
+                    allow_reflection_write: true,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{statement}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{statement}");
+        }
+    }
+    for statement in ["true[INDEX];", "val tuple = (1, true); tuple[INDEX] = 7;"] {
+        let statement = statement.replace("INDEX", "if true { return 42; } else { return 7; }");
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "index-target-invalid.kgr",
+                format!("fn main() -> i32 {{ {statement} 0 }}"),
+            ),
+            Default::default(),
+        );
+        assert!(!analysis.diagnostics().is_empty(), "{statement}");
+        assert!(analysis.into_codegen().is_err());
+    }
+}

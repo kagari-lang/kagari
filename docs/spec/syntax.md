@@ -622,6 +622,10 @@ before the loop branch or assignment commit.
 If evaluation of an assignment target's receiver or index returns, no target
 location is produced. Remaining indexes, the RHS and the final write are skipped
 for both ordinary and compound assignment.
+An index expression must produce an integer only on normally completing paths.
+When index evaluation always exits, an Array retains its known element type;
+a Tuple has no selected member type. Invalid receiver kinds and Tuple binding
+writeability remain checked, including reflection index writes.
 Match arms are considered in source order. A wildcard or binding pattern matches
 every remaining value, so subsequent arms cannot contribute result types or
 completion paths and do not generate concrete generic instances. Their source

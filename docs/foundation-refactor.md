@@ -428,6 +428,11 @@ Implemented foundation slices:
   only normally produced values. Tests preserve read-only/invalid-index and
   inner diagnostics; source/artifact/JIT execution confirms prior RHS effects
   survive while neither final field nor array writes occur.
+  Shared index resolution now accepts terminating indexes without requiring a
+  fabricated integer value. Array element facts survive; Tuple member facts stay
+  unknown when no index is produced. HIR retains receiver/writeability failures;
+  source/artifact/JIT tests cover reads, ordinary/compound writes and reflection
+  writes, including skipped RHS side effects.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

@@ -615,3 +615,25 @@ fn terminating_reflection_values_preserve_effects_without_committing_writes() {
         );
     }
 }
+
+#[test]
+fn terminating_indexes_skip_reads_rhs_effects_and_writes() {
+    for statement in [
+        "array[INDEX];",
+        "tuple[INDEX];",
+        "array[INDEX] = later(count);",
+        "array[INDEX] += later(count);",
+        "tuple[INDEX] = later(count);",
+        "set_index(array, INDEX, later(count));",
+    ] {
+        let statement =
+            statement.replace("INDEX", "if tick(count) { return 30; } else { return 0; }");
+        execute_contextual_source_with_writes(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn later(count: Count) -> i32 {{ count.value += 100; 99 }} fn run(count: Count, array: [i32]) -> i32 {{ var tuple = (1, true); {statement} 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
+            ),
+            42,
+            true,
+        );
+    }
+}
