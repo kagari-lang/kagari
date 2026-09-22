@@ -1981,3 +1981,36 @@ fn unary_constraints_apply_only_to_normally_produced_operands() {
         }
     }
 }
+
+#[test]
+fn binary_constraints_ignore_absent_operands_but_check_known_counterparts() {
+    let returning = "(if true { return 42; } else { return 7; })";
+    for (expression, valid) in [
+        (format!("{returning} + 1"), true),
+        (format!("1 + {returning}"), true),
+        (format!("{returning} < 1"), true),
+        (format!("{returning} == false"), true),
+        (format!("true && {returning}"), true),
+        (format!("{returning} || false"), true),
+        (format!("{returning} + false"), false),
+        (format!("false + {returning}"), false),
+        (format!("7 && {returning}"), false),
+        (format!("{returning} || 7"), false),
+        (format!("{returning} + missing"), false),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "binary-completion.kgr",
+                format!("fn main() -> i32 {{ {expression}; 0 }}"),
+            ),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{expression}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{expression}");
+    }
+}

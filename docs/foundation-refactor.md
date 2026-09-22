@@ -419,6 +419,11 @@ Implemented foundation slices:
   checking, replacing per-call/constructor exceptions. Nested unary/Array/Tuple/
   standard-call fixtures verify no unused result layout and correct effects
   across source/artifact/JIT fallback.
+  Binary operand checking explicitly distinguishes absent values from produced
+  types. Terminating operands supply no matching constraint or RHS context,
+  while known invalid counterpart types remain diagnosed. Source/artifact/JIT
+  tests verify arithmetic/comparison termination and both taken and skipped
+  short-circuit RHS paths.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

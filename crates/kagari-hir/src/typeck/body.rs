@@ -172,7 +172,13 @@ impl<'a> BodyChecker<'a> {
                     return;
                 };
                 if completes && let (Some(op), Some(expected)) = (op, &target_ty) {
-                    self.infer_binary_type(*op, *value, expected.clone(), value_ty.clone(), env);
+                    self.infer_binary_type(
+                        *op,
+                        *value,
+                        Some(expected.clone()),
+                        Some(value_ty.clone()),
+                        env,
+                    );
                 }
                 match target_ty {
                     Some(expected) if completes && expected.conflicts_with(&value_ty) => {
@@ -596,12 +602,23 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 let lhs_ty = self.infer_expr_type(*lhs, env);
+                let Ok(lhs_completes) =
+                    super::completion::expr_can_complete(&self.lowered.module, *lhs, self.cancel)
+                else {
+                    return TypeId::Unknown;
+                };
+                let lhs_ty = lhs_completes.then_some(lhs_ty);
                 let rhs_context = match op {
-                    BinaryOp::AndAnd | BinaryOp::OrOr => TypeId::Builtin(BuiltinType::Bool),
+                    BinaryOp::AndAnd | BinaryOp::OrOr => Some(TypeId::Builtin(BuiltinType::Bool)),
                     _ => lhs_ty.clone(),
                 };
-                let rhs_ty = self.infer_expr_type_expected(*rhs, env, Some(&rhs_context));
-                self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty, env)
+                let rhs_ty = self.infer_expr_type_expected(*rhs, env, rhs_context.as_ref());
+                let Ok(rhs_completes) =
+                    super::completion::expr_can_complete(&self.lowered.module, *rhs, self.cancel)
+                else {
+                    return TypeId::Unknown;
+                };
+                self.infer_binary_type(*op, *rhs, lhs_ty, rhs_completes.then_some(rhs_ty), env)
             }
             ExprKind::Call { callee, args } => {
                 if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env, expected)
@@ -2305,10 +2322,15 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         op: BinaryOp,
         rhs_expr: ExprId,
-        lhs_ty: TypeId,
-        rhs_ty: TypeId,
+        lhs_ty: Option<TypeId>,
+        rhs_ty: Option<TypeId>,
         env: &BodyTypeEnv,
     ) -> TypeId {
+        let produces_operands = lhs_ty.is_some() && rhs_ty.is_some();
+        // An absent operand has no value constraint. Recovery types still retain
+        // their own expression diagnostics and known counterpart constraints.
+        let lhs_ty = lhs_ty.unwrap_or(TypeId::Unknown);
+        let rhs_ty = rhs_ty.unwrap_or(TypeId::Unknown);
         match op {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
                 if !self.matching_numeric_operands(&lhs_ty, &rhs_ty, env) {
@@ -2320,7 +2342,9 @@ impl<'a> BodyChecker<'a> {
                         rhs_expr,
                     );
                 }
-                if matches!(lhs_ty, TypeId::Unknown | TypeId::Error)
+                if !produces_operands {
+                    TypeId::Unknown
+                } else if matches!(lhs_ty, TypeId::Unknown | TypeId::Error)
                     || matches!(rhs_ty, TypeId::Unknown | TypeId::Error)
                 {
                     TypeId::Error

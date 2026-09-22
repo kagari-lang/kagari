@@ -610,6 +610,11 @@ Unary negation and logical not constrain their operands only on normally
 completing paths. Inner errors remain visible. Negation with no produced operand
 has no inferred numeric result. IR registers expression result layouts through a
 single normal-completion boundary, including nested tuples and arrays.
+Binary operands likewise contribute type constraints only when they produce a
+value. Known invalid counterpart types remain errors even when the operation
+cannot execute. A terminating left operand does not supply RHS inference context.
+Logical operators retain bool results on short-circuit paths; ordinary arithmetic
+with an absent operand has no inferred numeric result.
 The same termination rule applies to operators and runtime helper arguments.
 A short-circuit operator can still complete along the path that skips its right
 operand. A return during a while condition or assignment RHS exits the function

@@ -574,3 +574,27 @@ fn terminating_unary_operands_require_no_enclosing_result_layouts() {
         );
     }
 }
+
+#[test]
+fn binary_termination_preserves_evaluation_order_and_short_circuit_paths() {
+    for (expression, result) in [
+        ("ARG + 7", 42),
+        ("7 + ARG", 42),
+        ("ARG < 7", 42),
+        ("ARG == false", 42),
+        ("true && ARG", 42),
+        ("false || ARG", 42),
+        ("false && ARG", 1),
+        ("true || ARG", 1),
+        ("ARG || tick(count)", 42),
+    ] {
+        let expression =
+            expression.replace("ARG", "(if tick(count) { return 40; } else { return 0; })");
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            result,
+        );
+    }
+}
