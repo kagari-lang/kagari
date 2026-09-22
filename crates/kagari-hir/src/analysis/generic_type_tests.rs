@@ -2188,3 +2188,32 @@ fn field_reads_require_member_targets_only_when_the_receiver_completes() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
     }
 }
+
+#[test]
+fn index_reads_require_a_receiver_value_but_keep_inner_index_errors() {
+    for (expression, valid) in [
+        ("(if true { return 42; } else { return 7; })[0]", true),
+        ("(if true { return 42; } else { return 7; })[0][1]", true),
+        ("(if true { return 42; } else { [7] })[0]", true),
+        ("(if true { return 42; } else { false })[0]", false),
+        ("(if true { return 42; } else { [7] })[false]", false),
+        ("(if true { return false; } else { return 7; })[0]", false),
+        (
+            "(if true { return 42; } else { return 7; })[missing]",
+            false,
+        ),
+    ] {
+        let source = format!("fn main() -> i32 {{ {expression}; 0 }}");
+        let analysis = crate::analyze_source(
+            &SourceFile::new("index-receiver-completion.kgr", source.clone()),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+    }
+}

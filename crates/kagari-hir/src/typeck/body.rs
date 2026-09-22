@@ -670,8 +670,19 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Index { receiver, index } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
                 let index_ty = self.infer_expr_type(*index, env);
-                self.checked_index_type(*index, &receiver_ty, &index_ty, expr_id)
-                    .unwrap_or(TypeId::Error)
+                let Ok(completes) = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    *receiver,
+                    self.cancel,
+                ) else {
+                    return TypeId::Unknown;
+                };
+                if completes {
+                    self.checked_index_type(*index, &receiver_ty, &index_ty, expr_id)
+                        .unwrap_or(TypeId::Error)
+                } else {
+                    TypeId::Unknown
+                }
             }
             ExprKind::If {
                 condition,

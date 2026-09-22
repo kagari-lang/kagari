@@ -669,3 +669,15 @@ fn terminating_field_receivers_skip_member_layout_resolution() {
         );
     }
 }
+
+#[test]
+fn terminating_index_receivers_skip_index_effects_and_reads() {
+    for indexes in ["[later(count)]", "[later(count)][later(count)]"] {
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn later(count: Count) -> i32 {{ count.value += 100; 0 }} fn run(count: Count) -> i32 {{ (if tick(count) {{ return 40; }} else {{ return 0; }}){indexes}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

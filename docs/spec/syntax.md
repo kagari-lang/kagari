@@ -634,6 +634,10 @@ A field read whose receiver cannot complete has no produced receiver or member
 value. It does not resolve a field target or result layout. Missing member names
 and receiver expression errors still diagnose; normally completing receivers
 retain the usual member existence and type checks.
+Index reads likewise require a normally produced receiver before applying
+receiver/index compatibility rules. An index expression still receives its
+independent semantic diagnostics when the receiver always exits, but it does
+not execute and the read has no inferred element value.
 A match scrutinee that cannot complete normally supplies no value to compare
 against patterns, and no arm contributes to the match result type. Arm source
 still receives independent diagnostics. When the scrutinee has a completing

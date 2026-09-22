@@ -456,6 +456,10 @@ Implemented foundation slices:
   receivers. IR evaluates the receiver before requiring its checked field/layout
   target. Tests cover chained reads, incomplete names, invalid inner returns and
   known missing members; all execution routes preserve the receiver effect.
+  Index reads also distinguish absent receiver values from invalid produced
+  containers. HIR retains independent index errors and normal-path compatibility
+  checks; chained-index execution fixtures verify later index effects are skipped
+  consistently across source/artifact/JIT fallback.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
