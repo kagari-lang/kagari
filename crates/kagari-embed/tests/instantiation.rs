@@ -509,3 +509,24 @@ fn terminating_trait_and_standard_arguments_preserve_only_operand_effects() {
         );
     }
 }
+
+#[test]
+fn terminating_math_and_equality_operands_skip_standard_calls() {
+    for body in [
+        "std::math::min(ARG, 7)",
+        "std::math::min(ARG, ARG)",
+        "std::math::max(7, ARG)",
+        "std::math::clamp(7, ARG, 9)",
+        "std::math::abs(ARG)",
+        r#"std::debug::assert_eq(ARG, 7, "unreachable"); 0"#,
+        r#"std::debug::assert_eq(7, ARG, "unreachable"); 0"#,
+    ] {
+        let body = body.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {body} }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

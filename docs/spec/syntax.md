@@ -593,6 +593,10 @@ Script function, trait method and standard-library parameter type comparisons
 share this completion rule. This includes concrete standard parameters such as
 the bool condition and String message of debug assertions; arity remains checked
 even when argument evaluation will exit the enclosing function.
+Math min/max/clamp and abs constrain only operands that can produce values;
+debug assert_eq likewise compares only produced operand types. Other operands
+still receive their own constraint diagnostics. A call terminated while evaluating
+its operands requires no concrete result layout, since no result is produced.
 The same termination rule applies to operators and runtime helper arguments.
 A short-circuit operator can still complete along the path that skips its right
 operand. A return during a while condition or assignment RHS exits the function

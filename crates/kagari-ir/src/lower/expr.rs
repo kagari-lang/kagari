@@ -25,8 +25,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(ControlFlow::Continue(values))
     }
 
-    pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
-        self.planner.check()?;
+    fn record_expr_layout(&mut self, expr_id: hir::ExprId) -> Result<(), IrLoweringError> {
         let ty = self
             .analyzed
             .typed
@@ -38,6 +37,23 @@ impl FunctionLowerer<'_, '_> {
             &self.instance.substitution,
             self.analyzed.lowered.source_map.expr_span(expr_id),
         )?;
+        Ok(())
+    }
+
+    pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
+        self.planner.check()?;
+        if !matches!(
+            self.analyzed.lowered.module.expr(expr_id).kind,
+            hir::ExprKind::Call { .. }
+        ) && self
+            .analyzed
+            .typed
+            .type_table
+            .enum_constructor(expr_id)
+            .is_none()
+        {
+            self.record_expr_layout(expr_id)?;
+        }
         if let Some(target) = self
             .analyzed
             .typed
@@ -64,6 +80,7 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(fields) => fields,
                 ControlFlow::Break(value) => return Ok(value),
             };
+            self.record_expr_layout(expr_id)?;
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::MakeEnum {
                 dst,
@@ -627,6 +644,7 @@ impl FunctionLowerer<'_, '_> {
                 (target, lowered)
             }
         };
+        self.record_expr_layout(expr)?;
         let dst = self.alloc_temp(self.expr_type(expr)?);
         self.emit(Instruction::Call {
             dst: Some(dst),

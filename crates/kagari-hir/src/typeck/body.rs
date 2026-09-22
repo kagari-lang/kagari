@@ -1272,11 +1272,18 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             MathMin | MathMax | MathClamp => {
-                let Some((_, first)) = arg_tys.first() else {
-                    return TypeId::Error;
-                };
-                let mut result = first.clone();
+                let mut result = TypeId::Unknown;
                 for (index, (argument, ty)) in arg_tys.iter().enumerate() {
+                    let Ok(completes) = super::completion::expr_can_complete(
+                        &self.lowered.module,
+                        *argument,
+                        self.cancel,
+                    ) else {
+                        return TypeId::Unknown;
+                    };
+                    if !completes {
+                        continue;
+                    }
                     self.check_standard_constraint(
                         ty,
                         StandardTypeConstraint::OrderedNumber,
@@ -1297,14 +1304,24 @@ impl<'a> BodyChecker<'a> {
                 result
             }
             MathAbs => {
-                let Some((_, value_ty)) = arg_tys.first() else {
+                let Some((argument, value_ty)) = arg_tys.first() else {
                     return TypeId::Error;
                 };
+                let Ok(completes) = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    *argument,
+                    self.cancel,
+                ) else {
+                    return TypeId::Unknown;
+                };
+                if !completes {
+                    return TypeId::Unknown;
+                }
                 self.check_standard_constraint(
                     value_ty,
                     StandardTypeConstraint::SignedNumber,
                     env,
-                    callee,
+                    *argument,
                 );
                 value_ty.clone()
             }
@@ -1346,18 +1363,30 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Unit)
             }
             DebugAssertEq => {
+                let mut previous: Option<&TypeId> = None;
                 for (expr, operand) in arg_tys.iter().take(2) {
+                    let Ok(completes) = super::completion::expr_can_complete(
+                        &self.lowered.module,
+                        *expr,
+                        self.cancel,
+                    ) else {
+                        return TypeId::Unknown;
+                    };
+                    if !completes {
+                        continue;
+                    }
                     self.check_standard_constraint(
                         operand,
                         StandardTypeConstraint::Comparable,
                         env,
                         *expr,
                     );
-                }
-                if let (Some((_, lhs)), Some((_, rhs))) = (arg_tys.first(), arg_tys.get(1))
-                    && lhs.conflicts_with(rhs)
-                {
-                    self.emit_arg_mismatch(name, "rhs", lhs, rhs, callee);
+                    if let Some(lhs) = previous
+                        && lhs.conflicts_with(operand)
+                    {
+                        self.emit_arg_mismatch(name, "rhs", lhs, operand, *expr);
+                    }
+                    previous = Some(operand);
                 }
                 self.check_arg_type(
                     name,

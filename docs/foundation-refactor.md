@@ -394,6 +394,11 @@ Implemented foundation slices:
   completion/cancellation checks. Trait and debug-assert fixtures cover valid
   termination, wrong completing values, inner errors and source/artifact/JIT
   execution with preserved operand effects.
+  Math and debug-equality constraint checks now exclude operands with no normal
+  completion, while preserving independent known operand errors. IR records call
+  and enum-construction result layouts only after operands complete, avoiding
+  spurious unresolved-result rejection for calls that cannot execute. Tests cover
+  first, later and all-terminating operands across source/artifact/JIT fallback.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

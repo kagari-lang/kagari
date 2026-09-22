@@ -1821,3 +1821,47 @@ fn trait_and_standard_parameters_share_completion_aware_value_checks() {
         }
     }
 }
+
+#[test]
+fn standard_operand_constraints_require_normally_produced_values() {
+    for call in [
+        "std::math::min(ARG, 7)",
+        "std::math::min(ARG, ARG)",
+        "std::math::max(7, ARG)",
+        "std::math::clamp(7, ARG, 9)",
+        "std::math::abs(ARG)",
+        r#"std::debug::assert_eq(ARG, 7, "test"); 0"#,
+        r#"std::debug::assert_eq(7, ARG, "test"); 0"#,
+    ] {
+        for (argument, valid) in [
+            ("if true { return 42; } else { return 7; }", true),
+            ("if true { return 42; } else { 7 }", true),
+            ("if true { return false; } else { return 7; }", false),
+        ] {
+            let body = call.replace("ARG", argument);
+            let analysis = crate::analyze_source(
+                &SourceFile::new(
+                    "standard-completion.kgr",
+                    format!("fn main() -> i32 {{ {body} }}"),
+                ),
+                Default::default(),
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{body}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+        }
+    }
+    let analysis = crate::analyze_source(
+        &SourceFile::new(
+            "standard-completion-invalid.kgr",
+            "fn main() -> i32 { std::math::min(if true { return 42; } else { return 7; }, false); 0 }",
+        ),
+        Default::default(),
+    );
+    assert!(!analysis.diagnostics().is_empty());
+    assert!(analysis.into_codegen().is_err());
+}
