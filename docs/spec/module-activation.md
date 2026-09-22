@@ -105,3 +105,10 @@ and explicit effectful lifecycle operations.
 - A candidate that attempts external mutation cannot publish or modify the host.
 - A prepared candidate based on a superseded generation cannot publish.
 - An active old call and its cross-module callees finish on the old dependency set.
+
+Preparing a reload may complete a code-free module only after all of its direct
+dependencies are initialized. Dependency-first staging makes this condition
+transitive. A code-free root with a pending dependency remains uninitialized until
+the isolated initialization pass reaches it. If that dependency fails, the root
+records the original failure; cleanup must not replace it with a completed-state
+error. Candidate failure leaves the active entry and its dependency closure intact.

@@ -39,6 +39,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R14 dependency-aware staging checkpoint (R02 fixtures): code-free candidates
+  are completed during Prepare only after their dependencies are initialized.
+  Previously a code-free root could already be marked Initialized when dependency
+  failure occurred, masking the original error during cleanup. Shared source-based
+  fixtures now cover forbidden root/dependency host effects and initializer traps
+  on all four routes, preserving error category, current entry, loaded-module
+  count and old-entry results, with no forbidden host call or mutation. The same
+  compiler helper builds old and candidate programs without modifying bytecode.
+
 - R02 multi-module checkpoint: every fixture now uses one source database,
   immutable snapshot and checked-program compiler path. Optional dependency sources
   share the fixture value/diagnostic/call/mutation expectations; artifact routes

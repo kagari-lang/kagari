@@ -82,5 +82,14 @@ same host-call and mutation records are shared with ordinary execution fixtures.
 
 This suite establishes a common format and execution matrix. It does not replace
 focused subsystem checks for publication isolation, stale candidates or retained
-old-version dependency closures. Those activation cases still need integration
+old-version dependency closures. Stale-candidate and old-version dependency-closure cases still need integration
 before the roadmap's current R02 acceptance can be marked complete.
+
+A fixture may supply `rejected_reload`, another source/dependency fixture describing
+an ABI-compatible candidate and its expected initialization error. Both programs use
+the same compile/serialize path. After the failed reload, the harness checks the
+active version key, restored module count, and another call to the old entry; host
+calls and mutation records include the entire attempt. Cases cover a forbidden
+root host effect, an initializer index trap, and a forbidden dependency effect with
+a code-free root. Candidate initialization currently uses the VM initializer even
+on JIT routes; old-entry execution still follows the selected backend.

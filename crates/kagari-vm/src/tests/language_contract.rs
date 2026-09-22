@@ -72,6 +72,7 @@ enum Expected {
     BuiltinTrap(String),
     ResourceLimit,
     Cancelled,
+    CapabilityDenied,
 }
 
 #[derive(Debug, PartialEq)]
@@ -100,6 +101,7 @@ struct Case<'a> {
     name: &'static str,
     source: &'a str,
     modules: &'a [(&'a str, &'a str)],
+    rejected_reload: Option<&'a Case<'a>>,
     expected: Expected,
     calls: &'static [&'static str],
     committed: &'static [&'static str],
@@ -119,6 +121,7 @@ impl<'a> Case<'a> {
             name,
             source,
             modules: &[],
+            rejected_reload: None,
             expected,
             calls: &[],
             committed: &[],
@@ -160,7 +163,7 @@ impl<'a> Case<'a> {
     }
 }
 
-fn run(case: &Case<'_>, route: Route) {
+fn compile(case: &Case<'_>, route: Route) -> Option<kagari_ir::bytecode::BytecodeProgram> {
     let profile = LanguageFeatureProfile {
         allow_host_calls: true,
         allow_reflection: case.reflection,
@@ -225,7 +228,7 @@ fn run(case: &Case<'_>, route: Route) {
             "{} ({route:?}): {diagnostics:?}",
             case.name
         );
-        return;
+        return None;
     }
     if matches!(case.expected, Expected::ImportCycle) {
         assert!(
@@ -238,7 +241,7 @@ fn run(case: &Case<'_>, route: Route) {
             "{} ({route:?}): {checked:?}",
             case.name
         );
-        return;
+        return None;
     }
     let checked = checked.unwrap_or_else(|error| panic!("{} ({route:?}): {error:?}", case.name));
     let compiled =
@@ -258,6 +261,54 @@ fn run(case: &Case<'_>, route: Route) {
             decoded.program
         }
     };
+    Some(module)
+}
+
+fn assert_outcome(
+    case: &Case<'_>,
+    route: Route,
+    attempt: usize,
+    outcome: Result<crate::ExecutionReport, VmError>,
+) {
+    match (&case.expected, outcome) {
+        (Expected::Value(expected), Ok(report)) => assert_eq!(
+            &report.return_value, expected,
+            "{} ({route:?}, attempt {attempt})",
+            case.name
+        ),
+        (Expected::IndexTrap, Err(VmError::InvalidIndex(_))) => {}
+        (Expected::HostFailure, Err(VmError::RuntimeError(error)))
+            if error.kind() == kagari_runtime::RuntimeErrorKind::HostCallFailure => {}
+        (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
+            if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
+                && error.message() == *message => {}
+        (Expected::BuiltinTrap(message), Err(VmError::BuiltinError(error)))
+            if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
+                && error.message() == message => {}
+        (Expected::ResourceLimit, Err(VmError::RuntimeError(error)))
+            if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded => {}
+        (Expected::Cancelled, Err(VmError::RuntimeError(error)))
+            if error.kind() == kagari_runtime::RuntimeErrorKind::Cancelled => {}
+        (Expected::CapabilityDenied, Err(VmError::RuntimeError(error)))
+            if error.kind() == kagari_runtime::RuntimeErrorKind::CapabilityDenied => {}
+        (expected, actual) => panic!(
+            "{} ({route:?}, attempt {attempt}): expected {expected:?}, got {actual:?}",
+            case.name
+        ),
+    }
+}
+
+fn run(case: &Case<'_>, route: Route) {
+    let Some(module) = compile(case, route) else {
+        return;
+    };
+    let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
+        "observe.array",
+        vec![],
+        kagari_common::host_interface::HostValueType::Array(Box::new(
+            kagari_common::host_interface::HostValueType::I32,
+        )),
+    );
     let mut runtime = Runtime::new(RuntimeConfig {
         resources: kagari_runtime::ResourcePolicy {
             max_instruction_steps: case.max_steps,
@@ -368,30 +419,7 @@ fn run(case: &Case<'_>, route: Route) {
             }
             _ => vm.execute(&loaded, "main"),
         };
-        match (&case.expected, outcome) {
-            (Expected::Value(expected), Ok(report)) => assert_eq!(
-                &report.return_value, expected,
-                "{} ({route:?}, attempt {attempt})",
-                case.name
-            ),
-            (Expected::IndexTrap, Err(VmError::InvalidIndex(_))) => {}
-            (Expected::HostFailure, Err(VmError::RuntimeError(error)))
-                if error.kind() == kagari_runtime::RuntimeErrorKind::HostCallFailure => {}
-            (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
-                if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
-                    && error.message() == *message => {}
-            (Expected::BuiltinTrap(message), Err(VmError::BuiltinError(error)))
-                if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
-                    && error.message() == message => {}
-            (Expected::ResourceLimit, Err(VmError::RuntimeError(error)))
-                if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded => {}
-            (Expected::Cancelled, Err(VmError::RuntimeError(error)))
-                if error.kind() == kagari_runtime::RuntimeErrorKind::Cancelled => {}
-            (expected, actual) => panic!(
-                "{} ({route:?}, attempt {attempt}): expected {expected:?}, got {actual:?}",
-                case.name
-            ),
-        }
+        assert_outcome(case, route, attempt, outcome);
     }
     if matches!(route, Route::Jit | Route::ArtifactJit) && case.require_native {
         assert_eq!(
@@ -400,6 +428,30 @@ fn run(case: &Case<'_>, route: Route) {
             "{} must actually invoke native code",
             case.name
         );
+    }
+    if let Some(candidate) = case.rejected_reload {
+        let before = vm.runtime().resources().counters().loaded_modules;
+        let program = compile(candidate, route).expect("reload candidate must compile");
+        let error = vm.reload_program(&loaded, case.name, program).unwrap_err();
+        let crate::ReloadError::Initialization(error) = error else {
+            panic!(
+                "{} candidate {} ({route:?}): {error:?}",
+                case.name, candidate.name
+            );
+        };
+        assert_outcome(candidate, route, 0, Err(error));
+        assert_eq!(
+            vm.runtime().modules().latest(case.name).unwrap().key(),
+            loaded.key()
+        );
+        assert_eq!(vm.runtime().resources().counters().loaded_modules, before);
+        let outcome = match route {
+            Route::Jit | Route::ArtifactJit => {
+                vm.execute_with_backend(&loaded, "main", &mut backend)
+            }
+            _ => vm.execute(&loaded, "main"),
+        };
+        assert_outcome(case, route, case.repeat, outcome);
     }
     assert_eq!(
         vm.runtime().resources().counters().current_call_depth,
@@ -712,6 +764,42 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         "use contract::root::main; pub fn answer() -> i32 { main() }",
     )]);
     for case in [diamond, failed_dependency, cycle] {
+        for route in Route::ALL {
+            run(&case, route);
+        }
+    }
+    for candidate in [
+        Case::new(
+            "candidate-external-effect",
+            "print(\"forbidden\"); fn main() -> i32 { 9 }",
+            Expected::CapabilityDenied,
+        ),
+        Case::new(
+            "candidate-init-trap",
+            "val a = [1]; a[9]; fn main() -> i32 { 9 }",
+            Expected::IndexTrap,
+        ),
+        Case::new(
+            "candidate-dependency-effect",
+            "use contract::dependency::answer; fn main() -> i32 { answer() }",
+            Expected::CapabilityDenied,
+        )
+        .modules(&[(
+            "dependency",
+            "print(\"forbidden-dependency\"); pub fn answer() -> i32 { 9 }",
+        )]),
+    ] {
+        let mut case = Case::new(
+            "failed-candidate-preserves-active-entry",
+            "print(\"original-init\"); fn main() -> i32 { 42 }",
+            Expected::Value(Value::I32(42)),
+        )
+        .effects(&["original-init"], &["original-init"]);
+        if !candidate.modules.is_empty() {
+            case.source = "use contract::dependency::answer; print(\"original-init\"); fn main() -> i32 { answer() }";
+            case.modules = &[("dependency", "pub fn answer() -> i32 { 42 }")];
+        }
+        case.rejected_reload = Some(&candidate);
         for route in Route::ALL {
             run(&case, route);
         }

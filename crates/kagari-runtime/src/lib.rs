@@ -1432,7 +1432,18 @@ impl Runtime {
             .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
             .map_err(ReloadValidationError::Runtime)?;
         for member in program.module().members() {
-            if member.bytecode.module_init.is_none() {
+            // An empty initializer still depends on its dependency closure. Do not
+            // complete it before a dependency that may execute or fail in isolation.
+            if member.bytecode.module_init.is_none()
+                && member.bytecode.dependencies.iter().all(|slot| {
+                    member
+                        .member(*slot)
+                        .and_then(|dependency| self.module_instance_snapshot(&dependency))
+                        .is_some_and(|instance| {
+                            instance.state == ModuleInitializationState::Initialized
+                        })
+                })
+            {
                 self.begin_module_initialization(&member)
                     .and_then(|guard| guard.finish(Value::Unit))
                     .map_err(ReloadValidationError::Runtime)?;
