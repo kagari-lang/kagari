@@ -930,6 +930,14 @@ error is additional to the ordinary diagnostic budget. Changing either parser
 limit invalidates dependent queries. Hosts should choose conservative limits for
 their thread stack size; raising this limit does not make parsing stackless.
 
-This bounds recursive grammar traversal, not the depth of trees assembled by
-iterative binary/postfix parsing. Those trees and downstream recursive traversals
-still require separate protection before syntax-depth limits are fully accepted.
+`ParseLimits::max_tree_depth` bounds completed CST node depth (default 128).
+Tokens do not count; leaf nodes have depth one. The parser tracks subtree depths
+as it builds nodes, including checkpoint wrappers used by iterative binary and
+postfix parsing. The first completed node deeper than the budget reports
+`KG_COMPILE_LIMIT_EXCEEDED` for `syntax tree depth` and stops further grammar
+work. Remaining tokens are retained verbatim. Already open ancestors still close,
+so an error-bearing CST can exceed the budget by those enclosing nodes; it is
+never accepted for code generation. Wide sibling lists do not accumulate depth.
+This check complements the recursive-entry budget, which stops recursive descent
+before nodes finish. Both are required; downstream traversals over externally
+constructed HIR and generic expansion retain their own resource obligations.

@@ -1050,7 +1050,12 @@ Implemented foundation slices:
   error and preserves the suffix; sibling entries release their budget. Deep
   2,000-level fixtures cover each recursive family, and embedding verifies
   same-revision policy changes, immutable prior facts and code-generation refusal.
-  Iteratively assembled syntax-tree depth, downstream recursive traversal limits,
+  Completed CST nodes also have a configurable depth budget (default 128).
+  Builder checkpoints carry subtree positions so binary/postfix wrapping counts
+  depth without traversing the tree. Exhaustion stops new grammar work while
+  existing ancestors close and the suffix remains lossless. Tests cover long
+  fields/calls/indexes/binary/mixed chains, exact depth, sibling width and HIR
+  prefix queries with compilation refusal. Downstream recursive traversal limits,
   const evaluation and semantic diagnostic-count limits remain outstanding. Source/artifact/JIT
   fallback fixtures cover generic values, recursion, numeric overflow, effects,
   constraints and distinct concrete types sharing a runtime representation.

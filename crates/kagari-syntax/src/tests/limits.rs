@@ -137,6 +137,7 @@ fn recursive_grammar_families_stop_at_nesting_budget() {
                 ParseLimits {
                     max_nesting,
                     max_diagnostics: 0,
+                    ..Default::default()
                 },
                 &Default::default(),
             )
@@ -187,4 +188,101 @@ fn nesting_budget_is_released_between_sibling_expressions() {
             limit: 2
         }
     ));
+}
+
+#[test]
+fn iterative_expression_chains_obey_tree_depth_budget() {
+    for suffix in [" + 1", ".field", "()", "[0]", "().field[0] + 1"] {
+        let source = SourceFile::new(
+            "chains.kgr",
+            format!(
+                "fn main() {{ value{} }} // 中文 😀\r\n",
+                suffix.repeat(2_000)
+            ),
+        );
+        let parsed = parse_with_limits(
+            &source,
+            ParseLimits {
+                max_tree_depth: 24,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(parsed.diagnostics().len(), 1, "{suffix}");
+        assert_eq!(
+            parsed.diagnostics()[0].kind,
+            DiagnosticKind::CompileLimitExceeded {
+                resource: "syntax tree depth",
+                limit: 24
+            }
+        );
+        assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+        let nodes = parsed.syntax().syntax().descendants().count();
+        assert!(nodes < 200, "chain kept growing: {suffix}, {nodes}");
+    }
+}
+
+#[test]
+fn tree_depth_accounts_for_wrappers_and_not_sibling_width() {
+    for text in [
+        "",
+        "fn main() { 1 + 2 * 3; value.field()[0] }",
+        "fn main() { (1, 2, 3) }",
+        "fn main() { val x = 1; x = 2; }",
+    ] {
+        let source = SourceFile::new("depth.kgr", text);
+        let baseline = crate::parse(&source);
+        assert!(baseline.diagnostics().is_empty());
+        let tree = baseline.syntax();
+        let depth = tree
+            .syntax()
+            .descendants()
+            .map(|node| node.ancestors().count())
+            .max()
+            .unwrap();
+        let exact = parse_with_limits(
+            &source,
+            ParseLimits {
+                max_tree_depth: depth,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .unwrap();
+        assert!(exact.diagnostics().is_empty(), "{text}");
+        let short = parse_with_limits(
+            &source,
+            ParseLimits {
+                max_tree_depth: depth - 1,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                short.diagnostics()[0].kind,
+                DiagnosticKind::CompileLimitExceeded {
+                    resource: "syntax tree depth",
+                    ..
+                }
+            ),
+            "{text}"
+        );
+    }
+    let source = SourceFile::new(
+        "wide.kgr",
+        format!("fn main() {{ [{}] }}", "1,".repeat(2_000)),
+    );
+    let parsed = parse_with_limits(
+        &source,
+        ParseLimits {
+            max_tree_depth: 8,
+            ..Default::default()
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(parsed.diagnostics().is_empty());
 }

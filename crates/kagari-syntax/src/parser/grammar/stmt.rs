@@ -1,5 +1,5 @@
+use crate::parser::Checkpoint;
 use kagari_common::{Diagnostic, DiagnosticKind};
-use rowan::Checkpoint;
 
 use crate::{kind::SyntaxKind, token::TokenKind};
 

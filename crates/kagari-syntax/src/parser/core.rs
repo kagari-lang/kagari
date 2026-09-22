@@ -1,6 +1,6 @@
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::{Diagnostic, DiagnosticKind};
-use rowan::{Checkpoint, GreenNode, GreenNodeBuilder, Language};
+use rowan::{GreenNode, GreenNodeBuilder, Language};
 use smallvec::SmallVec;
 
 use crate::{
@@ -9,6 +9,12 @@ use crate::{
     syntax_node::KagariLanguage,
     token::{Token, TokenKind},
 };
+
+#[derive(Clone, Copy)]
+pub(crate) struct Checkpoint {
+    green: rowan::Checkpoint,
+    child: usize,
+}
 
 pub(crate) struct Parser<'a> {
     text: &'a str,
@@ -20,6 +26,8 @@ pub(crate) struct Parser<'a> {
     limits: super::ParseLimits,
     exhausted: bool,
     nesting: usize,
+    node_starts: Vec<usize>,
+    child_depths: Vec<usize>,
     cancel: CancellationToken,
 }
 
@@ -40,6 +48,8 @@ impl<'a> Parser<'a> {
             limits,
             exhausted: false,
             nesting: 0,
+            node_starts: Vec::new(),
+            child_depths: Vec::new(),
             cancel,
         }
     }
@@ -70,20 +80,45 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn start_node(&mut self, kind: SyntaxKind) {
+        self.node_starts.push(self.child_depths.len());
         self.builder.start_node(KagariLanguage::kind_to_raw(kind));
     }
 
     pub(crate) fn finish_node(&mut self) {
+        let start = self.node_starts.pop().expect("open syntax node");
+        let depth = self.child_depths[start..]
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0)
+            + 1;
+        self.child_depths.truncate(start);
+        self.child_depths.push(depth);
         self.builder.finish_node();
+        if !self.exhausted && depth > self.limits.max_tree_depth {
+            let span = self.peek().map(|token| token.span).unwrap_or_default();
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                    resource: "syntax tree depth",
+                    limit: self.limits.max_tree_depth,
+                })
+                .with_span(span),
+            );
+            self.exhausted = true;
+        }
     }
 
     pub(crate) fn checkpoint(&mut self) -> Checkpoint {
-        self.builder.checkpoint()
+        Checkpoint {
+            green: self.builder.checkpoint(),
+            child: self.child_depths.len(),
+        }
     }
 
     pub(crate) fn start_node_at(&mut self, checkpoint: Checkpoint, kind: SyntaxKind) {
+        self.node_starts.push(checkpoint.child);
         self.builder
-            .start_node_at(checkpoint, KagariLanguage::kind_to_raw(kind));
+            .start_node_at(checkpoint.green, KagariLanguage::kind_to_raw(kind));
     }
 
     pub(crate) fn expect(&mut self, kind: TokenKind, diagnostic: DiagnosticKind) -> bool {

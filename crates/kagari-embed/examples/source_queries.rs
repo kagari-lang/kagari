@@ -13,6 +13,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     engine.set_parse_limits(kagari_embed::ParseLimits {
         max_diagnostics: 64,
         max_nesting: 32,
+        max_tree_depth: 96,
     });
     let source_name = "editor://game/main.kgr";
     engine.bind_module(

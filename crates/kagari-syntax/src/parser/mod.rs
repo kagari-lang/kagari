@@ -12,7 +12,7 @@ use crate::{
     syntax_node::syntax_node_from_green,
 };
 
-pub(crate) use core::Parser;
+pub(crate) use core::{Checkpoint, Parser};
 
 /// Per-file parser resource limits. The limit diagnostic is additional to the
 /// ordinary diagnostic budget; zero still permits parsing valid source.
@@ -21,6 +21,8 @@ pub struct ParseLimits {
     pub max_diagnostics: usize,
     /// Maximum simultaneously active recursive grammar entries.
     pub max_nesting: usize,
+    /// Maximum completed CST node depth (tokens do not count).
+    pub max_tree_depth: usize,
 }
 
 impl Default for ParseLimits {
@@ -28,6 +30,7 @@ impl Default for ParseLimits {
         Self {
             max_diagnostics: 256,
             max_nesting: 64,
+            max_tree_depth: 128,
         }
     }
 }

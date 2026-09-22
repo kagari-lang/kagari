@@ -370,3 +370,50 @@ fn nesting_budget_changes_invalidate_same_revision_analysis() {
         .compile_snapshot(source, id, Default::default(), &Default::default())
         .unwrap();
 }
+
+#[test]
+fn deep_iterative_source_is_rejected_with_queryable_prefix() {
+    let engine = KagariEngine::default();
+    engine.set_parse_limits(kagari_embed::ParseLimits {
+        max_tree_depth: 24,
+        ..Default::default()
+    });
+    let id = engine
+        .set_source(
+            "memory://chain.kgr",
+            format!(
+                "fn good() -> i32 {{ 42 }} fn main() -> i32 {{ 1{} }}",
+                " + 1".repeat(2_000)
+            ),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let source = engine.source_snapshot();
+    let analysis = engine
+        .analyze(
+            source.clone(),
+            LanguageProfile::default(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(
+        analysis
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .declarations
+            .iter()
+            .any(|d| d.name == "good")
+    );
+    let Err(EmbeddingError::Diagnostics { diagnostics }) =
+        engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
+    else {
+        panic!("deep source reached codegen")
+    };
+    let limit = diagnostics
+        .iter()
+        .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
+        .unwrap();
+    assert!(source.contains(limit.span.unwrap()));
+}
