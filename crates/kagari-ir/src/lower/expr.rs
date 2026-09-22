@@ -480,6 +480,10 @@ impl FunctionLowerer<'_, '_> {
             });
             return Ok(dst);
         }
+        let base = self.lower_expr(receiver)?;
+        if self.current_block_terminated() {
+            return Ok(base);
+        }
         let field = self
             .analyzed
             .typed
@@ -493,10 +497,6 @@ impl FunctionLowerer<'_, '_> {
             .expr_type(receiver)
             .ok_or(IrLoweringError::MissingExprType(receiver))?;
         let field = self.aggregate_field_ref(field, &receiver_ty)?;
-        let base = self.lower_expr(receiver)?;
-        if self.current_block_terminated() {
-            return Ok(base);
-        }
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadAggregateField { dst, base, field });
         Ok(dst)

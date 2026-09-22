@@ -630,6 +630,10 @@ An index expression must produce an integer only on normally completing paths.
 When index evaluation always exits, an Array retains its known element type;
 a Tuple has no selected member type. Invalid receiver kinds and Tuple binding
 writeability remain checked, including reflection index writes.
+A field read whose receiver cannot complete has no produced receiver or member
+value. It does not resolve a field target or result layout. Missing member names
+and receiver expression errors still diagnose; normally completing receivers
+retain the usual member existence and type checks.
 A match scrutinee that cannot complete normally supplies no value to compare
 against patterns, and no arm contributes to the match result type. Arm source
 still receives independent diagnostics. When the scrutinee has a completing

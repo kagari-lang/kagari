@@ -657,3 +657,15 @@ fn terminating_if_conditions_produce_no_branch_result_or_effects() {
         );
     }
 }
+
+#[test]
+fn terminating_field_receivers_skip_member_layout_resolution() {
+    for fields in [".value", ".value.other"] {
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ (if tick(count) {{ return 40; }} else {{ return 0; }}){fields}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

@@ -648,12 +648,21 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Field { receiver, name } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
+                let Ok(completes) = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    *receiver,
+                    self.cancel,
+                ) else {
+                    return TypeId::Unknown;
+                };
                 if name.is_empty() {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ExpectedFieldName)
                             .with_span(self.lowered.source_map.expr_span(expr_id)),
                     );
                     TypeId::Error
+                } else if !completes {
+                    TypeId::Unknown
                 } else {
                     self.checked_member_type(&receiver_ty, name, expr_id, false)
                 }

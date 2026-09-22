@@ -2150,3 +2150,41 @@ fn if_result_joins_require_a_normally_produced_condition() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
     }
 }
+
+#[test]
+fn field_reads_require_member_targets_only_when_the_receiver_completes() {
+    for (expression, valid) in [
+        ("(if true { return 42; } else { return 7; }).value", true),
+        (
+            "(if true { return 42; } else { return 7; }).value.other",
+            true,
+        ),
+        (
+            "(if true { return 42; } else { Box { value: 7 } }).value",
+            true,
+        ),
+        (
+            "(if true { return 42; } else { Box { value: 7 } }).missing",
+            false,
+        ),
+        (
+            "(if true { return false; } else { return 7; }).value",
+            false,
+        ),
+        ("(if true { return 42; } else { return 7; }).", false),
+    ] {
+        let source =
+            format!("struct Box {{ val value: i32 }} fn main() -> i32 {{ {expression}; 0 }}");
+        let analysis = crate::analyze_source(
+            &SourceFile::new("field-completion.kgr", source.clone()),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+    }
+}

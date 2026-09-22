@@ -452,6 +452,10 @@ Implemented foundation slices:
   callers reuse the fact instead of repeating traversal. HIR and execution
   fixtures cover mixed unreachable result types, absent else branches,
   retained inner diagnostics and skipped branch effects.
+  Field reads no longer fabricate missing-member errors for terminating
+  receivers. IR evaluates the receiver before requiring its checked field/layout
+  target. Tests cover chained reads, incomplete names, invalid inner returns and
+  known missing members; all execution routes preserve the receiver effect.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
