@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04 assignment diagnostic ownership checkpoint: error descriptions now read
+  checked place facts instead of rerunning receiver inference. Host-target probes
+  reuse known readable-place types. Nested invalid indexes are diagnosed once per
+  source occurrence, including read-only and unknown-field assignment targets;
+  original index and write errors continue to reject code generation.
+
 - R04 indexed-write recovery checkpoint: invalid array indexes preserve target
   types for contextual RHS inference and retain field targets through indexed
   receiver places. Index validity remains mandatory for checked code generation.

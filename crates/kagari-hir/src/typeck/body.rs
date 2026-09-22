@@ -328,6 +328,11 @@ impl<'a> BodyChecker<'a> {
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
+        // Host-target probing and assignment diagnostics may revisit a place.
+        // Its checked facts already include any index diagnostics and targets.
+        if let Some(ty) = self.type_table.place_type(place_id) {
+            return Some(ty);
+        }
         let ty = match &self.lowered.module.place(place_id).kind {
             PlaceKind::Expr(expr) => Some(self.infer_expr_type(*expr, env)),
             PlaceKind::Name(_) => {
@@ -373,11 +378,7 @@ impl<'a> BodyChecker<'a> {
         ty
     }
 
-    fn assignment_target_error_reason(
-        &mut self,
-        place_id: PlaceId,
-        env: &mut BodyTypeEnv,
-    ) -> String {
+    fn assignment_target_error_reason(&self, place_id: PlaceId, env: &BodyTypeEnv) -> String {
         match &self.lowered.module.place(place_id).kind {
             PlaceKind::Expr(_) => "temporary value cannot be reassigned".to_owned(),
             PlaceKind::Name(_) => self
@@ -415,7 +416,7 @@ impl<'a> BodyChecker<'a> {
                 })
                 .unwrap_or_else(|| "unresolved assignment target".to_string()),
             PlaceKind::Field { base, name } => {
-                let Some(base_ty) = self.resolve_readable_place_type(*base, env) else {
+                let Some(base_ty) = self.type_table.place_type(*base) else {
                     return self.assignment_target_error_reason(*base, env);
                 };
                 match self.resolve_field(&base_ty, name) {
@@ -427,10 +428,9 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             PlaceKind::Index { base, index } => {
-                let Some(base_ty) = self.resolve_readable_place_type(*base, env) else {
+                let Some(base_ty) = self.type_table.place_type(*base) else {
                     return self.assignment_target_error_reason(*base, env);
                 };
-                self.infer_expr_type(*index, env);
                 if self.resolve_index_type(*index, &base_ty).is_none() {
                     "indexed value is not assignable".to_string()
                 } else {

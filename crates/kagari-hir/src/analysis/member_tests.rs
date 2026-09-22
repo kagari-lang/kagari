@@ -525,3 +525,45 @@ fn invalid_write_indexes_preserve_target_context_and_projected_members() {
         }
     }
 }
+
+#[test]
+fn assignment_diagnostics_consume_existing_facts_without_rechecking_receivers() {
+    for target in [
+        "items[true].value",
+        "items[true].absent",
+        "items[true].nested[false].value",
+    ] {
+        let text = format!(
+            "struct Item {{ val value: i32, val nested: [Item] }} fn bad(items: [Item]) {{ {target} = 1; }}"
+        );
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("assignment-diagnostics.kgr", text, SourceLayer::Base)
+            .unwrap();
+        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let file = snapshot.file(id).unwrap();
+        let diagnostics = file.result().diagnostics();
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|d| matches!(
+                    d.kind,
+                    kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
+                ))
+                .count(),
+            if target.contains("false") { 2 } else { 1 },
+            "{target}: {diagnostics:?}"
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|d| matches!(
+                    d.kind,
+                    kagari_common::DiagnosticKind::InvalidAssignmentTarget { .. }
+                ))
+                .count(),
+            1
+        );
+        assert!(snapshot.check_program(id, &Default::default()).is_err());
+    }
+}

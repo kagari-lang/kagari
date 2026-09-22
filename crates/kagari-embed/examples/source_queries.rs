@@ -130,6 +130,19 @@ fn main() -> kagari_embed::CompileResult<()> {
         "x"
     );
     assert!(analysis.member_receiver_type(indexed_write).is_some());
+    assert_eq!(
+        analysis
+            .result()
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| matches!(
+                diagnostic.kind,
+                kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
+            ))
+            .count(),
+        2,
+        "one diagnostic per invalid read/write index"
+    );
     let readonly = text.find("p = Point").expect("readonly assignment");
     assert!(
         analysis.type_at(readonly).is_some(),
