@@ -1865,3 +1865,43 @@ fn standard_operand_constraints_require_normally_produced_values() {
     assert!(!analysis.diagnostics().is_empty());
     assert!(analysis.into_codegen().is_err());
 }
+
+#[test]
+fn enum_payloads_follow_function_argument_completion_rules() {
+    for constructor in ["Item::Value(ARG)", "Item<i32>::Value(ARG)"] {
+        for (argument, valid) in [
+            ("if true { return 42; } else { return 7; }", true),
+            ("if true { return 42; } else { 7 }", true),
+            ("if true { return false; } else { return 7; }", false),
+            ("if true { return 42; } else { return 7; }, missing", false),
+        ] {
+            let expression = constructor.replace("ARG", argument);
+            let analysis = crate::analyze_source(
+                &SourceFile::new(
+                    "enum-completion.kgr",
+                    format!("enum Item<T> {{ Value(T) }} fn main() -> i32 {{ {expression}; 0 }}"),
+                ),
+                Default::default(),
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{expression}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{expression}");
+        }
+    }
+    let analysis = crate::analyze_source(
+        &SourceFile::new(
+            "enum-completion-invalid.kgr",
+            "enum Item<T> { Value(T, i32) } fn main() -> i32 { Item::Value(if true { return 42; } else { return 7; }, false); 0 }",
+        ),
+        Default::default(),
+    );
+    assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.kind,
+        kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
+    )));
+    assert!(analysis.into_codegen().is_err());
+}

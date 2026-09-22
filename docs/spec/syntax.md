@@ -597,6 +597,10 @@ Math min/max/clamp and abs constrain only operands that can produce values;
 debug assert_eq likewise compares only produced operand types. Other operands
 still receive their own constraint diagnostics. A call terminated while evaluating
 its operands requires no concrete result layout, since no result is produced.
+Enum payload arguments use the same parameter comparison rule. A constructor
+terminated by a payload does not require otherwise missing generic arguments or
+a concrete enum layout. Explicit type arguments, payload arity and independently
+invalid normally completing payload values remain checked.
 The same termination rule applies to operators and runtime helper arguments.
 A short-circuit operator can still complete along the path that skips its right
 operand. A return during a while condition or assignment RHS exits the function

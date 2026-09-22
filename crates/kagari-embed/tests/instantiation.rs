@@ -530,3 +530,15 @@ fn terminating_math_and_equality_operands_skip_standard_calls() {
         );
     }
 }
+
+#[test]
+fn terminating_enum_payloads_skip_unresolved_layouts_and_later_effects() {
+    for constructor in ["Item::Value", "Item<i32>::Value"] {
+        execute_contextual_source(
+            &format!(
+                "enum Item<T> {{ Value(T, bool) }} struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {constructor}(if tick(count) {{ return 40; }} else {{ return 0; }}, tick(count)); 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

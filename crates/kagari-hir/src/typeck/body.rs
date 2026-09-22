@@ -1854,12 +1854,17 @@ impl<'a> BodyChecker<'a> {
         if self.cancel.check().is_err() {
             return Some(TypeId::Unknown);
         }
+        let Ok(completes) =
+            super::completion::expr_can_complete(&self.lowered.module, expression, self.cancel)
+        else {
+            return Some(TypeId::Unknown);
+        };
         let arguments = self.finish_inferred_arguments(
             &mut substitution,
             &generic_params,
             &name,
             callee,
-            false,
+            !completes,
         );
         let result = TypeId::Enum(crate::types::NominalType {
             declaration: enumeration,
@@ -1878,21 +1883,17 @@ impl<'a> BodyChecker<'a> {
                     .with_span(self.lowered.source_map.expr_span(callee)),
                 );
             }
-            for (index, ((argument, actual), expected)) in
-                actual.iter().zip(&variant.payload).enumerate()
-            {
-                let expected = expected.instantiate(&substitution);
-                if expected.conflicts_with(actual) {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                            function_name: name.clone(),
-                            parameter_name: format!("payload[{index}]"),
-                            expected: expected.display_name(),
-                            found: actual.display_name(),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*argument)),
-                    );
+            for (index, expected) in variant.payload.iter().enumerate() {
+                if self.cancel.check().is_err() {
+                    return Some(TypeId::Unknown);
                 }
+                self.check_arg_type(
+                    &name,
+                    &format!("payload[{index}]"),
+                    expected.instantiate(&substitution),
+                    index,
+                    &actual,
+                );
             }
         } else {
             self.diagnostics.push(

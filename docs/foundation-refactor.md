@@ -404,6 +404,11 @@ Implemented foundation slices:
   Composite host tests cover inferred empty arrays, branches, rejected completing
   values and callback counts for terminated calls across all three execution
   routes; reading declarations still requires no runtime registration.
+  Enum payload comparison now also uses the shared parameter checker. Constructors
+  that exit during payload evaluation do not fabricate missing generic-argument
+  diagnostics. Tests verify inferred/explicit enum paths, preserved inner and
+  payload errors, no unused concrete layout and skipped later operand effects
+  across source/artifact/JIT fallback.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
