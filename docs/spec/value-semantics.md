@@ -83,3 +83,17 @@ checks `Map.values()` sharing mutable element objects while creating independent
 array structure, and `Set.to_array()` allowing independent element replacement
 and growth. Enum/tuple member comparisons retain Map identity after mutation.
 These fixtures run through source, artifact loading and the existing JIT/fallback.
+
+The runtime callback entry for `std::iter::for_each` holds an iteration guard for
+Array, Map and Set until callbacks finish or fail. Hosts use
+`GcHeap::begin_collection_iteration` when they retain the same iteration scope;
+the guard roots the collection and nested guards release independently. Structural
+builtin failures occur before result allocation or collection mutation. Updating
+an existing Map key and inserting an already-present Set member do not change
+structure. Array element replacement remains allowed.
+
+This callback entry visits a shallow entry snapshot in insertion/index order.
+Pending snapshot values are explicit roots, so callback-driven replacement and
+collection do not invalidate later callback arguments. This runtime API is a
+foundation for source iteration; full source callback/for-loop lowering and its
+exit-path acceptance remain tracked separately in the foundation roadmap.

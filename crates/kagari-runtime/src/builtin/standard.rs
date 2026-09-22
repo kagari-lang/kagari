@@ -146,6 +146,8 @@ fn array_push(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
 
 fn array_pop(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let handle = one_array(args, "array.pop")?;
+    gc.ensure_structure_mutable(handle)
+        .map_err(BuiltinError::from)?;
     let len = gc
         .array_len(handle)
         .ok_or_else(|| BuiltinError::new("array.pop expects valid array"))?;
@@ -178,6 +180,8 @@ fn array_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         return Err(BuiltinError::new("array.remove expects array and index"));
     };
     let index = index_value(index, "array.remove")?;
+    gc.ensure_structure_mutable(*handle)
+        .map_err(BuiltinError::from)?;
     gc.array_len(*handle)
         .ok_or_else(|| BuiltinError::new("array.remove expects valid array"))?;
     let Some(value) = gc.array_get(*handle, index) else {
@@ -191,6 +195,8 @@ fn array_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
 
 fn array_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let handle = one_array(args, "array.clear")?;
+    gc.ensure_structure_mutable(handle)
+        .map_err(BuiltinError::from)?;
     gc.array_clear(handle)
         .map(|_| Value::Array(handle))
         .ok_or_else(|| BuiltinError::new("array.clear expects valid array handle"))
@@ -255,6 +261,8 @@ fn map_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         return Err(BuiltinError::new("map.remove expects map and key"));
     };
     require_hash_key(key, "map.remove")?;
+    gc.ensure_structure_mutable(*handle)
+        .map_err(BuiltinError::from)?;
     gc.map_len(*handle)
         .ok_or_else(|| BuiltinError::new("map.remove expects valid map"))?;
     let Some(value) = gc.map_get(*handle, key) else {
@@ -268,6 +276,8 @@ fn map_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
 
 fn map_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let handle = one_map(args, "map.clear")?;
+    gc.ensure_structure_mutable(handle)
+        .map_err(BuiltinError::from)?;
     gc.map_clear(handle)
         .map(|_| Value::Map(handle))
         .ok_or_else(|| BuiltinError::new("map.clear expects valid map handle"))
@@ -354,6 +364,8 @@ fn set_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         return Err(BuiltinError::new("set.remove expects set and item"));
     };
     require_hash_key(item, "set.remove")?;
+    gc.ensure_structure_mutable(*handle)
+        .map_err(BuiltinError::from)?;
     gc.set_remove(*handle, item)
         .map(Value::Bool)
         .ok_or_else(|| BuiltinError::new("set.remove expects valid set handle"))
@@ -361,6 +373,8 @@ fn set_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
 
 fn set_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let handle = one_set(args, "set.clear")?;
+    gc.ensure_structure_mutable(handle)
+        .map_err(BuiltinError::from)?;
     gc.set_clear(handle)
         .map(|_| Value::Set(handle))
         .ok_or_else(|| BuiltinError::new("set.clear expects valid set handle"))
@@ -672,7 +686,19 @@ fn iter_for_each(
         ));
     };
     let callback = callback_id(callback, "iter.for_each")?;
-    for item in iterable_items(gc, value, "iter.for_each")? {
+    let _iteration = match value {
+        Value::Array(_) | Value::Map(_) | Value::Set(_) => Some(
+            gc.begin_collection_iteration(value)
+                .map_err(BuiltinError::from)?,
+        ),
+        _ => None,
+    };
+    let items = iterable_items(gc, value, "iter.for_each")?;
+    // Callbacks may collect or replace elements; pending snapshot items are roots.
+    let _roots = gc
+        .root_execution_values(items.clone())
+        .ok_or_else(|| BuiltinError::new("invalid iteration elements"))?;
+    for item in items {
         let result = callbacks.call(callback, &[item])?;
         if result != Value::Unit {
             return Err(BuiltinError::new("iter.for_each callback must return unit"));
@@ -1507,5 +1533,135 @@ mod tests {
             )
             .is_err()
         );
+    }
+    struct ClosureCallback<F>(F);
+    impl<F: FnMut(&[Value]) -> Result<Value, BuiltinError>> BuiltinCallbacks for ClosureCallback<F> {
+        fn call(&mut self, _: EphemeralValueId, args: &[Value]) -> Result<Value, BuiltinError> {
+            (self.0)(args)
+        }
+    }
+
+    #[test]
+    fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
+        let gc = GcHeap::new(Default::default(), Default::default());
+        let array = Value::Array(gc.alloc_array(vec![Value::I32(1)]).unwrap());
+        let map = Value::Map(gc.alloc_map(vec![(Value::I32(1), Value::I32(2))]).unwrap());
+        let set = Value::Set(gc.alloc_set(vec![Value::I32(1)]).unwrap());
+        let operations = [
+            (
+                StandardIntrinsic::ArrayPush,
+                vec![array.clone(), Value::I32(2)],
+            ),
+            (StandardIntrinsic::ArrayPop, vec![array.clone()]),
+            (
+                StandardIntrinsic::ArrayInsert,
+                vec![array.clone(), Value::I32(0), Value::I32(2)],
+            ),
+            (
+                StandardIntrinsic::ArrayRemove,
+                vec![array.clone(), Value::I32(0)],
+            ),
+            (StandardIntrinsic::ArrayClear, vec![array.clone()]),
+            (
+                StandardIntrinsic::MapInsert,
+                vec![map.clone(), Value::I32(3), Value::I32(4)],
+            ),
+            (
+                StandardIntrinsic::MapRemove,
+                vec![map.clone(), Value::I32(1)],
+            ),
+            (StandardIntrinsic::MapClear, vec![map.clone()]),
+            (
+                StandardIntrinsic::SetInsert,
+                vec![set.clone(), Value::I32(2)],
+            ),
+            (
+                StandardIntrinsic::SetRemove,
+                vec![set.clone(), Value::I32(1)],
+            ),
+            (StandardIntrinsic::SetClear, vec![set.clone()]),
+        ];
+        for (op, args) in operations {
+            let guard = gc.begin_collection_iteration(&args[0]).unwrap();
+            let before = iterable_items(&gc, &args[0], "test").unwrap();
+            let units = gc.stats().allocation_units;
+            let error = invoke(&gc, op, &args).unwrap_err();
+            assert_eq!(error.message(), "structural modification during iteration");
+            assert_eq!(iterable_items(&gc, &args[0], "test").unwrap(), before);
+            assert_eq!(gc.stats().allocation_units, units);
+            drop(guard);
+        }
+        let Value::Array(id) = array else {
+            unreachable!()
+        };
+        let guard = gc.begin_collection_iteration(&Value::Array(id)).unwrap();
+        gc.array_set(id, 0, Value::I32(9)).unwrap();
+        let nested = gc.begin_collection_iteration(&Value::Array(id)).unwrap();
+        drop(nested);
+        assert!(gc.array_push(id, Value::I32(2)).is_err());
+        drop(guard);
+        gc.array_push(id, Value::I32(2)).unwrap();
+        let guard = gc.begin_collection_iteration(&map).unwrap();
+        invoke(
+            &gc,
+            StandardIntrinsic::MapInsert,
+            &[map, Value::I32(1), Value::I32(9)],
+        )
+        .unwrap();
+        drop(guard);
+        let guard = gc.begin_collection_iteration(&set).unwrap();
+        invoke(&gc, StandardIntrinsic::SetInsert, &[set, Value::I32(1)]).unwrap();
+        drop(guard);
+    }
+
+    #[test]
+    fn foreach_releases_iteration_on_failure_and_roots_pending_snapshot_items() {
+        let gc = GcHeap::new(Default::default(), Default::default());
+        let first = gc.alloc_array(vec![Value::I32(1)]).unwrap();
+        let second = gc.alloc_array(vec![Value::I32(2)]).unwrap();
+        let source = gc
+            .alloc_array(vec![Value::Array(first), Value::Array(second)])
+            .unwrap();
+        let mut seen = 0;
+        let mut callbacks = ClosureCallback(|args: &[Value]| {
+            assert!(gc.array_push(source, Value::I32(3)).is_err());
+            gc.array_set(source, 1, Value::I32(7)).unwrap();
+            gc.collect(&[]).unwrap();
+            let [Value::Array(id)] = args else {
+                panic!("snapshot item")
+            };
+            assert_eq!(gc.array_get(*id, 0), Some(Value::I32(seen + 1)));
+            seen += 1;
+            Ok(Value::Unit)
+        });
+        invoke_with_callbacks(
+            &gc,
+            StandardIntrinsic::IterForEach,
+            &[Value::Array(source), callback(2)],
+            &mut callbacks,
+        )
+        .unwrap();
+        assert_eq!(seen, 2);
+        gc.array_push(source, Value::I32(9)).unwrap();
+        let mut failure = ClosureCallback(|_: &[Value]| Err(BuiltinError::new("callback trap")));
+        assert!(
+            invoke_with_callbacks(
+                &gc,
+                StandardIntrinsic::IterForEach,
+                &[Value::Array(source), callback(2)],
+                &mut failure
+            )
+            .is_err()
+        );
+        gc.array_clear(source).unwrap();
+        gc.collect(&[]).unwrap();
+        assert!(gc.array_len(source).is_none());
+        assert!(
+            gc.begin_collection_iteration(&Value::Array(source))
+                .is_err()
+        );
+        let foreign = GcHeap::new(Default::default(), Default::default());
+        let other = foreign.alloc_array(vec![]).unwrap();
+        assert!(gc.begin_collection_iteration(&Value::Array(other)).is_err());
     }
 }

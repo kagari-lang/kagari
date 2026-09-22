@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     rc::{Rc, Weak},
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
@@ -151,6 +151,25 @@ impl HeapObject {
     }
 }
 
+/// Keeps the iterated collection alive and blocks structural writes through aliases.
+#[must_use = "retain the guard until iteration finishes"]
+#[derive(Debug)]
+pub struct CollectionIteration {
+    active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
+    id: HeapObjectId,
+    _root: RootedValue,
+}
+impl Drop for CollectionIteration {
+    fn drop(&mut self) {
+        let mut active = self.active.borrow_mut();
+        let count = active.get_mut(&self.id).expect("registered iteration");
+        *count -= 1;
+        if *count == 0 {
+            active.remove(&self.id);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct GcHeap {
     owner: u64,
@@ -161,6 +180,7 @@ pub struct GcHeap {
     stats: RefCell<CollectorStats>,
     resources: Rc<crate::resource::ResourceState>,
     next_collection: Cell<usize>,
+    iterations: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
 }
 
 impl GcHeap {
@@ -188,6 +208,7 @@ impl GcHeap {
         Self {
             owner,
             config,
+            iterations: Default::default(),
             objects: RefCell::new(Vec::new()),
             free: RefCell::new(Vec::new()),
             roots: RefCell::new(Vec::new()),
@@ -364,6 +385,62 @@ impl GcHeap {
         true
     }
 
+    pub fn begin_collection_iteration(
+        &self,
+        value: &Value,
+    ) -> Result<CollectionIteration, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let id = match value {
+            Value::Array(id) | Value::Map(id) | Value::Set(id) => *id,
+            _ => {
+                return Err(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "expected collection",
+                ));
+            }
+        };
+        let expected = match value {
+            Value::Array(_) => GcObjectKind::Array,
+            Value::Map(_) => GcObjectKind::Map,
+            _ => GcObjectKind::Set,
+        };
+        if self.object_kind(id) != Some(expected) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid collection handle",
+            ));
+        }
+        let root = self.root_value(value.clone()).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid collection handle")
+        })?;
+        let mut active = self.iterations.borrow_mut();
+        let count = active
+            .get(&id)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| self.resource_limit("iteration depth"))?;
+        active
+            .try_reserve(1)
+            .map_err(|_| self.resource_limit("iteration registry"))?;
+        active.insert(id, count);
+        Ok(CollectionIteration {
+            active: self.iterations.clone(),
+            id,
+            _root: root,
+        })
+    }
+
+    pub(crate) fn ensure_structure_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
+        if self.iterations.borrow().contains_key(&id) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "structural modification during iteration",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {
         self.with_array(id, |elements| elements.len())
     }
@@ -379,6 +456,7 @@ impl GcHeap {
 
     pub fn array_push(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
         if !self.valid_payload(&value) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -399,6 +477,7 @@ impl GcHeap {
 
     pub fn array_pop(&self, id: HeapObjectId) -> Option<Value> {
         self.ensure_execution_allowed().ok()?;
+        self.ensure_structure_mutable(id).ok()?;
         let value = self.with_array_mut(id, |elements| elements.pop()).flatten();
         if value.is_some() {
             self.release_heap_units(1);
@@ -413,6 +492,7 @@ impl GcHeap {
         value: Value,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
         if !self.valid_payload(&value) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -439,6 +519,7 @@ impl GcHeap {
 
     pub fn array_remove(&self, id: HeapObjectId, index: usize) -> Option<Value> {
         self.ensure_execution_allowed().ok()?;
+        self.ensure_structure_mutable(id).ok()?;
         let value = self
             .with_array_mut(id, |elements| {
                 (index < elements.len()).then(|| elements.remove(index))
@@ -452,6 +533,7 @@ impl GcHeap {
 
     pub fn array_clear(&self, id: HeapObjectId) -> Option<()> {
         self.ensure_execution_allowed().ok()?;
+        self.ensure_structure_mutable(id).ok()?;
         let removed = self.with_array_mut(id, |elements| {
             let removed = elements.len();
             elements.clear();
@@ -510,6 +592,9 @@ impl GcHeap {
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         self.with_map_mut(id, |entries| {
             let units = usize::from(!entries.contains_key(&key));
+            if units != 0 {
+                self.ensure_structure_mutable(id)?;
+            }
             let growth = self.resources.prepare_heap_growth(units)?;
             entries
                 .try_reserve(units)
@@ -523,6 +608,7 @@ impl GcHeap {
 
     pub fn map_remove(&self, id: HeapObjectId, key: &Value) -> Option<Value> {
         self.ensure_execution_allowed().ok()?;
+        self.ensure_structure_mutable(id).ok()?;
         let key = MapKey::from_value(key)?;
         let value = self
             .with_map_mut(id, |entries| entries.shift_remove(&key))
@@ -535,6 +621,7 @@ impl GcHeap {
 
     pub fn map_clear(&self, id: HeapObjectId) -> Option<()> {
         self.ensure_execution_allowed().ok()?;
+        self.ensure_structure_mutable(id).ok()?;
         let removed = self.with_map_mut(id, |entries| {
             let removed = entries.len();
             entries.clear();
@@ -563,6 +650,9 @@ impl GcHeap {
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         self.with_set_mut(id, |values| {
             let units = usize::from(!values.contains(&key));
+            if units != 0 {
+                self.ensure_structure_mutable(id)?;
+            }
             let growth = self.resources.prepare_heap_growth(units)?;
             values
                 .try_reserve(units)
@@ -576,6 +666,7 @@ impl GcHeap {
 
     pub fn set_remove(&self, id: HeapObjectId, value: &Value) -> Option<bool> {
         self.ensure_execution_allowed().ok()?;
+        self.ensure_structure_mutable(id).ok()?;
         let key = MapKey::from_value(value)?;
         let removed = self.with_set_mut(id, |values| values.shift_remove(&key))?;
         if removed {
@@ -586,6 +677,7 @@ impl GcHeap {
 
     pub fn set_clear(&self, id: HeapObjectId) -> Option<()> {
         self.ensure_execution_allowed().ok()?;
+        self.ensure_structure_mutable(id).ok()?;
         let removed = self.with_set_mut(id, |values| {
             let removed = values.len();
             values.clear();

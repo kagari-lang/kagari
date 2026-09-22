@@ -131,6 +131,15 @@ Implemented foundation slices:
   shallow map-value projections, independent set-to-array structure, and Map
   identity inside enum/tuple members now have the same three-route fixtures.
   These are JIT/fallback fixtures; they do not claim native container compilation.
+  The runtime callback `iter.for_each` entry now holds a rooted collection guard
+  and roots pending snapshot items across callbacks. Array/Map/Set structural
+  writes through all heap mutation entries are refused while guarded; element
+  replacement and existing-key updates remain allowed. Tests cover every current
+  structural builtin, unchanged contents/allocation counters, nested guards,
+  callback failure cleanup, GC after replacement, and foreign/stale handles.
+  The runtime example `collection_iteration` demonstrates host guard ownership.
+  Source callback/for-loop integration and their cross-route cleanup tests remain
+  outstanding; this runtime substrate does not complete iteration acceptance.
   Integer arithmetic traps, retained pre-trap host effects and budget precedence
   now use these routes too; selected fixtures require actual native invocation.
   Plain and compound assignment fixtures cover computed roots, single index
