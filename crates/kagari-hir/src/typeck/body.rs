@@ -707,8 +707,20 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Match { scrutinee, arms } => {
                 let scrutinee_ty = self.infer_expr_type(*scrutinee, env);
+                let Ok(scrutinee_completes) = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    *scrutinee,
+                    self.cancel,
+                ) else {
+                    return TypeId::Unknown;
+                };
+                let scrutinee_ty = if scrutinee_completes {
+                    scrutinee_ty
+                } else {
+                    TypeId::Unknown
+                };
                 let mut result: Option<TypeId> = None;
-                let mut reachable = true;
+                let mut reachable = scrutinee_completes;
                 for arm in arms {
                     if self.cancel.check().is_err() {
                         return TypeId::Unknown;

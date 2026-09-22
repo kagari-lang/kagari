@@ -626,6 +626,10 @@ An index expression must produce an integer only on normally completing paths.
 When index evaluation always exits, an Array retains its known element type;
 a Tuple has no selected member type. Invalid receiver kinds and Tuple binding
 writeability remain checked, including reflection index writes.
+A match scrutinee that cannot complete normally supplies no value to compare
+against patterns, and no arm contributes to the match result type. Arm source
+still receives independent diagnostics. When the scrutinee has a completing
+path, pattern compatibility and arm result joins remain checked.
 Match arms are considered in source order. A wildcard or binding pattern matches
 every remaining value, so subsequent arms cannot contribute result types or
 completion paths and do not generate concrete generic instances. Their source

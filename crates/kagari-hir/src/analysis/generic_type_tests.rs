@@ -2066,3 +2066,47 @@ fn terminating_indexes_preserve_receiver_rules_without_requiring_an_index_value(
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn match_patterns_and_joins_require_a_normally_produced_scrutinee() {
+    for (scrutinee, arms, valid) in [
+        (
+            "if true { return 42; } else { return 7; }",
+            "1 => true, _ => 7",
+            true,
+        ),
+        (
+            "if true { return 42; } else { 7 }",
+            "1 => true, _ => 7",
+            false,
+        ),
+        (
+            "if true { return 42; } else { false }",
+            "1 => 7, _ => 7",
+            false,
+        ),
+        (
+            "if true { return false; } else { return 7; }",
+            "1 => true, _ => 7",
+            false,
+        ),
+        (
+            "if true { return 42; } else { return 7; }",
+            "1 => missing, _ => 7",
+            false,
+        ),
+    ] {
+        let source = format!("fn main() -> i32 {{ match ({scrutinee}) {{ {arms} }}; 0 }}");
+        let analysis = crate::analyze_source(
+            &SourceFile::new("match-completion.kgr", source.clone()),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+    }
+}

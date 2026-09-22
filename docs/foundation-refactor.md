@@ -443,6 +443,10 @@ Implemented foundation slices:
   owned HIR IDs. A 48-level shared-subtree fixture avoids exponential expansion,
   and a shared block test verifies cached breaks are consumed only by loops.
   Cancellation discards query-local facts; there is no cross-snapshot cache.
+  Match analysis now uses scrutinee completion to gate pattern compatibility
+  and arm result joins. Unreachable arms retain independent diagnostics.
+  HIR positive/negative cases and source/artifact/JIT execution verify scrutinee
+  effects and skipped arm dispatch without fabricated Unit/pattern mismatches.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
