@@ -424,6 +424,10 @@ Implemented foundation slices:
   while known invalid counterpart types remain diagnosed. Source/artifact/JIT
   tests verify arithmetic/comparison termination and both taken and skipped
   short-circuit RHS paths.
+  Reflection field/index writes now share contextual RHS checking and compare
+  only normally produced values. Tests preserve read-only/invalid-index and
+  inner diagnostics; source/artifact/JIT execution confirms prior RHS effects
+  survive while neither final field nor array writes occur.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

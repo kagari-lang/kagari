@@ -1554,20 +1554,9 @@ impl<'a> BodyChecker<'a> {
                 let expected = field_name
                     .as_ref()
                     .map(|name| self.checked_member_type(&base_ty, name, *field_name_expr, true));
-                let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
+                self.check_reflection_assignment_value(*value, expected.as_ref(), env);
                 if field_name.is_none() {
                     return Some(TypeId::Error);
-                }
-                if let Some(expected) = expected
-                    && expected.conflicts_with(&value_ty)
-                {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                            expected: display_type_id(&expected),
-                            found: display_type_id(&value_ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*value)),
-                    );
                 }
                 Some(base_ty)
             }
@@ -1579,18 +1568,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_const_write(*base);
                 let index_ty = self.infer_expr_type(*index, env);
                 let expected = self.checked_index_type(*index, &base_ty, &index_ty, *index);
-                let value_ty = self.infer_expr_type_expected(*value, env, expected.as_ref());
-                if let Some(expected) = expected
-                    && expected.conflicts_with(&value_ty)
-                {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                            expected: display_type_id(&expected),
-                            found: display_type_id(&value_ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*value)),
-                    );
-                }
+                self.check_reflection_assignment_value(*value, expected.as_ref(), env);
                 Some(base_ty)
             }
             BuiltinFunction::Print => Some(self.infer_host_signature(
@@ -1602,6 +1580,32 @@ impl<'a> BodyChecker<'a> {
             )),
         }
     }
+    fn check_reflection_assignment_value(
+        &mut self,
+        value: ExprId,
+        expected: Option<&TypeId>,
+        env: &mut BodyTypeEnv,
+    ) {
+        let found = self.infer_expr_type_expected(value, env, expected);
+        let Ok(completes) =
+            super::completion::expr_can_complete(&self.lowered.module, value, self.cancel)
+        else {
+            return;
+        };
+        if completes
+            && let Some(expected) = expected
+            && expected.conflicts_with(&found)
+        {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
+                    expected: display_type_id(expected),
+                    found: display_type_id(&found),
+                })
+                .with_span(self.lowered.source_map.expr_span(value)),
+            );
+        }
+    }
+
     fn checked_reflection_field_name(
         &mut self,
         expression: ExprId,

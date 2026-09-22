@@ -598,3 +598,20 @@ fn binary_termination_preserves_evaluation_order_and_short_circuit_paths() {
         );
     }
 }
+
+#[test]
+fn terminating_reflection_values_preserve_effects_without_committing_writes() {
+    for call in [
+        r#"set_field(count, "value", VALUE)"#,
+        "set_index(array, 0, VALUE)",
+    ] {
+        let body = call.replace("VALUE", "if tick(count) { return 30; } else { return 0; }");
+        execute_contextual_source_with_writes(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count, array: [i32]) -> i32 {{ {body}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
+            ),
+            42,
+            true,
+        );
+    }
+}

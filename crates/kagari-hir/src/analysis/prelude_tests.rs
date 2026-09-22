@@ -563,3 +563,61 @@ fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn reflective_assignment_values_obey_normal_completion_without_hiding_target_errors() {
+    for call in [
+        r#"set_field(box, "value", VALUE)"#,
+        "set_index(array, 0, VALUE)",
+    ] {
+        for (value, valid) in [
+            ("if true { return 42; } else { return 7; }", true),
+            ("if true { return 42; } else { 7 }", true),
+            ("if true { return 42; } else { false }", false),
+            ("if true { return false; } else { return 7; }", false),
+        ] {
+            let body = call.replace("VALUE", value);
+            let analysis = crate::analyze_source(
+                &SourceFile::new(
+                    "reflection-completion.kgr",
+                    format!(
+                        "struct Box {{ var value: i32 }} fn run(box: Box, array: [i32]) -> i32 {{ {body}; 0 }}"
+                    ),
+                ),
+                crate::LanguageFeatureProfile {
+                    allow_reflection: true,
+                    allow_reflection_write: true,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{body}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+        }
+    }
+    for call in [
+        r#"set_field(box, "value", VALUE)"#,
+        "set_index(array, true, VALUE)",
+    ] {
+        let body = call.replace("VALUE", "if true { return 42; } else { return 7; }");
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "reflection-target-completion.kgr",
+                format!(
+                    "struct Box {{ val value: i32 }} fn run(box: Box, array: [i32]) -> i32 {{ {body}; 0 }}"
+                ),
+            ),
+            crate::LanguageFeatureProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        );
+        assert!(!analysis.diagnostics().is_empty(), "{body}");
+        assert!(analysis.into_codegen().is_err());
+    }
+}

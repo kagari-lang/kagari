@@ -25,6 +25,10 @@ String without a compile-time value produces
 `KG_TYPE_REFLECTION_FIELD_NAME_NOT_CONSTANT`; a different known type produces
 an argument-type diagnostic. These failures retain the resolved helper target,
 and `set_field` still checks its RHS for independent errors.
+Both reflection writes compare the RHS against the target type only when the
+RHS can complete normally. A return during RHS evaluation preserves earlier
+effects and skips the final write. Target writeability/index checks and inner
+expression diagnostics remain active.
 A resolved field-name expression retains the field declaration identity for
 navigation, including read-only or type-invalid writes. Its expression type
 remains String; the member target is separate semantic information.
