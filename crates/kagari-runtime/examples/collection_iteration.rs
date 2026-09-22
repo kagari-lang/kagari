@@ -9,7 +9,10 @@ fn main() {
     let iteration = gc.begin_collection_iteration(&value).unwrap();
     // Aliases may replace an existing element, but cannot change structure.
     gc.array_set(id, 0, Value::I32(42)).unwrap();
-    assert!(gc.array_set(id, 1, Value::I32(9)).is_err());
+    assert_eq!(
+        gc.array_set(id, 1, Value::I32(9)).unwrap_err().kind(),
+        kagari_runtime::RuntimeErrorKind::IndexOutOfBounds,
+    );
     assert_eq!(gc.array_get(id, 0), Some(Value::I32(42)));
     assert!(gc.array_push(id, Value::I32(2)).is_err());
     assert_eq!(gc.array_len(id), Some(1));

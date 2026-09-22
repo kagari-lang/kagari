@@ -877,6 +877,7 @@ impl EmbeddingError {
                 RuntimeErrorKind::ModuleValidation => RuntimeFailureKind::BytecodeVerification,
                 RuntimeErrorKind::InvalidReflectiveRead
                 | RuntimeErrorKind::ScriptTrap
+                | RuntimeErrorKind::IndexOutOfBounds
                 | RuntimeErrorKind::InvalidReflectiveWrite
                 | RuntimeErrorKind::MetadataConflict => RuntimeFailureKind::ScriptTrap,
             },

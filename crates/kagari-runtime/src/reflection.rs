@@ -19,7 +19,10 @@ impl ReflectionError {
         self.error.kind()
     }
     pub(crate) fn into_write_error(self) -> RuntimeError {
-        if self.error.kind() == RuntimeErrorKind::ScriptTrap {
+        if matches!(
+            self.error.kind(),
+            RuntimeErrorKind::ScriptTrap | RuntimeErrorKind::IndexOutOfBounds
+        ) {
             RuntimeError::invalid_reflective_write(self.error.message())
         } else {
             self.error

@@ -5,6 +5,7 @@ pub enum RuntimeErrorKind {
     Cancelled,
     EngineFault,
     ScriptTrap,
+    IndexOutOfBounds,
     CapabilityDenied,
     InvalidReflectiveRead,
     InvalidReflectiveWrite,
@@ -25,6 +26,7 @@ impl RuntimeErrorKind {
             Self::Cancelled => "KG_RUNTIME_CANCELLED",
             Self::EngineFault => "KG_RUNTIME_ENGINE_FAULT",
             Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",
+            Self::IndexOutOfBounds => "KG_RUNTIME_INDEX_OUT_OF_BOUNDS",
             Self::CapabilityDenied => "KG_RUNTIME_CAPABILITY_DENIED",
             Self::InvalidReflectiveRead => "KG_RUNTIME_INVALID_REFLECTIVE_READ",
             Self::InvalidReflectiveWrite => "KG_RUNTIME_INVALID_REFLECTIVE_WRITE",
@@ -167,5 +169,9 @@ mod tests {
         );
         assert_eq!(error.code(), "KG_RUNTIME_CAPABILITY_DENIED");
         assert_eq!(error.kind(), RuntimeErrorKind::CapabilityDenied);
+        assert_eq!(
+            RuntimeErrorKind::IndexOutOfBounds.code(),
+            "KG_RUNTIME_INDEX_OUT_OF_BOUNDS"
+        );
     }
 }

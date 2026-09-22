@@ -573,7 +573,7 @@ impl GcHeap {
         self.with_array_mut(id, |elements| {
             let slot = elements.get_mut(index).ok_or_else(|| {
                 RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
+                    RuntimeErrorKind::IndexOutOfBounds,
                     format!("invalid index `{index}`"),
                 )
             })?;
@@ -1667,9 +1667,25 @@ mod tests {
         let heap = GcHeap::new(Default::default(), resources.clone());
         let array = heap.alloc_array(vec![Value::I32(1)]).unwrap();
         let before = heap.stats().current_heap_units;
+        let foreign_heap = GcHeap::new(Default::default(), Default::default());
+        let foreign = foreign_heap.alloc_array(vec![]).unwrap();
+        // Payload and receiver rejection must not be relabeled from the index.
+        assert_eq!(
+            heap.array_set(array, usize::MAX, Value::Array(foreign))
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
+        assert_eq!(
+            heap.array_set(foreign, usize::MAX, Value::I32(9))
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
+
         assert_eq!(
             heap.array_set(array, 2, Value::I32(9)).unwrap_err().kind(),
-            RuntimeErrorKind::ScriptTrap
+            RuntimeErrorKind::IndexOutOfBounds
         );
         assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
         assert_eq!(heap.stats().current_heap_units, before);

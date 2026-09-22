@@ -145,7 +145,10 @@ Implemented foundation slices:
   execution failures through VM writes and retaining reflective internal-fault
   categories. A corrupted struct storage/layout invariant quarantines its runtime;
   tests verify failed replacements preserve targets and subsequent writes fail.
-  Ordinary VM array bounds failures retain their existing InvalidIndex outcome.
+  Ordinary VM array bounds failures retain their existing InvalidIndex outcome,
+  now mapped directly from a distinct runtime IndexOutOfBounds category. The VM
+  no longer rereads length to infer the cause of a rejected write; foreign
+  payload/handle failures cannot be relabeled by an independently invalid index.
   The runtime example `collection_iteration` demonstrates host guard ownership.
   Source callback/for-loop integration and their cross-route cleanup tests remain
   outstanding; this runtime substrate does not complete iteration acceptance.

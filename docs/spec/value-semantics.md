@@ -111,3 +111,10 @@ They preserve execution-rejection categories instead of collapsing failure into
 `None`. Reflective writes translate ordinary script errors to reflective-write
 errors, but retain engine-fault categories. An internal struct storage/layout
 inconsistency quarantines the runtime; it is not an ordinary script error.
+
+Array replacement bounds failures have runtime category `IndexOutOfBounds`
+(`KG_RUNTIME_INDEX_OUT_OF_BOUNDS`). The VM maps that category directly to its
+index trap; it does not infer a cause by rereading array length after a failed
+write. Earlier payload/handle/execution rejections keep their own categories.
+Reflective writes continue to expose ordinary bounds failures as reflective-write
+errors; embedding classifies them as script failures rather than engine faults.

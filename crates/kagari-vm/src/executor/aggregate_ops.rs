@@ -169,13 +169,7 @@ impl Executor<'_> {
                     .gc()
                     .array_set(handle, index, value)
                     .map_err(|error| {
-                        if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
-                            && self
-                                .runtime
-                                .gc()
-                                .array_len(handle)
-                                .is_some_and(|len| index >= len)
-                        {
+                        if error.kind() == kagari_runtime::RuntimeErrorKind::IndexOutOfBounds {
                             VmError::InvalidIndex(index)
                         } else {
                             VmError::from(error)
