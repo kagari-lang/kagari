@@ -744,3 +744,11 @@ fn annotated_const_dependencies_execute_independently_of_declaration_order() {
         execute_contextual_source(&format!("{declarations} fn main() -> i32 {{ ANSWER }}"), 42);
     }
 }
+
+#[test]
+fn concrete_nested_struct_fields_execute_on_all_existing_routes() {
+    execute_contextual_source(
+        "struct Item { val value: i32 } struct Box<T> { var items: [T] } fn main() -> i32 { val box = Box<Item> { items: [Item { value: 1 }] }; box.items = [Item { value: 42 }]; box.items[0].value }",
+        42,
+    );
+}

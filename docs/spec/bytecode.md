@@ -87,7 +87,8 @@ nonzero; branches use offsets computed in that same emission order.
 IR struct construction names a nominal declaration and provides each field slot
 exactly once. Ordinary field operands contain a declaring struct identity and a
 slot, with no field-name fallback. The module carries checked layouts with field
-identities, representations and writeability. Verification rejects duplicate or
+identities, concrete ABI types and writeability. Operand representations are derived
+from those types. Verification rejects duplicate or
 malformed layouts, absent owners, invalid slots, missing/duplicate initializer
 slots, mismatched operand representations and writes to read-only fields.
 Initializer expressions retain source evaluation order; bytecode emission arranges
@@ -120,9 +121,11 @@ This boundary validates declared layouts but does not yet prove the exact nomina
 type of a heap-valued operand, dynamic interface dispatch or complete GC root
 maps. Runtime host calls validate nominal object types against their linked
 declarations; ordinary script call operands still carry representation contracts.
-Heap-valued field representations do not yet encode their
-complete nested nominal types. Those require the R06–R11 linking and
-ownership work. The artifact loader still runs bytecode verification independently;
+Struct fields carry complete nested types. Allocation and replacement validate
+nominal layouts and nested tuple/container values before committing; operand
+verification still checks physical representations rather than proving nominal flow.
+Untyped host container mutations do not maintain a permanent element-type invariant.
+Dynamic interface fields and the remaining R06–R11 linking/ownership audit are pending. The artifact loader still runs bytecode verification independently;
 the IR handle is neither serialized nor a substitute for artifact validation.
 
 ## Execution Model

@@ -193,7 +193,11 @@ pub(super) fn verify(
                 if !seen.insert(field.slot) {
                     return Err(context.error(Error::InvalidStructInitializer));
                 }
-                context.expect(field.value.ty, target.ty, "struct field initializer")?;
+                context.expect(
+                    field.value.ty,
+                    target.ty.representation(),
+                    "struct field initializer",
+                )?;
             }
         }
         ReadAggregateField { dst, base, field } => {
@@ -202,7 +206,7 @@ pub(super) fn verify(
                 .structure(&field.owner)
                 .and_then(|layout| layout.fields.get(field.slot))
                 .ok_or_else(|| context.error(Error::InvalidField))?;
-            context.expect(dst.ty, target.ty, "field read")?;
+            context.expect(dst.ty, target.ty.representation(), "field read")?;
         }
         WriteAggregateField { base, field, value } => {
             context.expect(base.ty, ValueType::HeapObject, "field base")?;
@@ -213,7 +217,7 @@ pub(super) fn verify(
             if !target.mutable {
                 return Err(context.error(Error::ReadOnlyField));
             }
-            context.expect(value.ty, target.ty, "field write")?;
+            context.expect(value.ty, target.ty.representation(), "field write")?;
         }
         ReadAggregateIndex { base, index, .. } | WriteAggregateIndex { base, index, .. } => {
             context.expect(base.ty, ValueType::HeapObject, "index base")?;

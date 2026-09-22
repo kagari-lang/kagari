@@ -39,6 +39,18 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R07 concrete struct-field checkpoint: layouts now retain `AbiType`, including
+  nominal identities and nested container/tuple types; lowering substitutes generic
+  arguments before encoding. IR/bytecode derive operand representations from that
+  single type, reject unresolved field parameters and absent nominal layouts, and
+  include field host references in interface validation. Allocation and replacement
+  share the concrete runtime check before allocation accounting or target writes.
+  Runtime regressions cover wrong nominal/tuple members and unchanged targets;
+  embedding tests cover valid generic fields through source, artifacts and JIT
+  fallback. The `layouts` example shows a concrete array field. Format 23/runtime
+  ABI v24 reject older products. Public struct-template correspondence, nominal
+  operand-flow verification and dynamic interface fields remain audit work.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

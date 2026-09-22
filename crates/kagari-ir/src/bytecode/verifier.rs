@@ -557,12 +557,22 @@ fn verify_instruction(
                 });
             }
             for (value, field) in fields.iter().zip(&layout.fields) {
-                expect_register_ty(function, *value, field.ty, "struct field initializer")?;
+                expect_register_ty(
+                    function,
+                    *value,
+                    field.ty.representation(),
+                    "struct field initializer",
+                )?;
             }
         }
         BytecodeInstruction::ReadAggregateField { dst, base, field } => {
             let field = field_layout(module, function, *field)?;
-            expect_register_ty(function, *dst, field.ty, "aggregate field dst")?;
+            expect_register_ty(
+                function,
+                *dst,
+                field.ty.representation(),
+                "aggregate field dst",
+            )?;
             expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
         }
         BytecodeInstruction::WriteAggregateField { base, field, value } => {
@@ -574,7 +584,12 @@ fn verify_instruction(
                 });
             }
             expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
-            expect_register_ty(function, *value, field.ty, "aggregate field value")?;
+            expect_register_ty(
+                function,
+                *value,
+                field.ty.representation(),
+                "aggregate field value",
+            )?;
         }
         BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
             let _ = register_ty(function, *dst)?;

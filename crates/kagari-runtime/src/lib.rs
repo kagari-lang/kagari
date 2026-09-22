@@ -432,19 +432,6 @@ impl Runtime {
                 "struct layout belongs to a different runtime",
             ));
         }
-        if fields.len() != layout.layout().fields.len()
-            || !fields
-                .iter()
-                .zip(&layout.layout().fields)
-                .all(|(value, field)| {
-                    value.is_default_heap_payload() && value.has_representation(field.ty)
-                })
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "struct initializer does not match its layout",
-            ));
-        }
         self.gc.alloc_struct(layout, fields)
     }
 

@@ -1,5 +1,4 @@
 //! Nominal aggregate layouts used to verify field operands before bytecode emission.
-use super::ValueType;
 use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -121,7 +120,11 @@ pub(crate) fn validate_enum_layouts(
     use kagari_common::identity::DefinitionKind;
     let mut pending = structures
         .iter()
-        .flat_map(|s| &s.arguments)
+        .flat_map(|s| {
+            s.arguments
+                .iter()
+                .chain(s.fields.iter().map(|field| &field.ty))
+        })
         .chain(layouts.iter().flat_map(|e| &e.arguments))
         .collect::<Vec<_>>();
     let mut identities = std::collections::HashSet::new();
@@ -247,7 +250,7 @@ impl StructLayout {
 pub struct StructFieldLayout {
     pub declaration: DefinitionId,
     pub name: String,
-    pub ty: ValueType,
+    pub ty: super::abi::AbiType,
     pub mutable: bool,
 }
 

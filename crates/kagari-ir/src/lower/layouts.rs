@@ -113,11 +113,11 @@ pub(super) fn collect(
                     let ty = planner
                         .arguments(std::slice::from_ref(&field.ty), &substitution, span)?
                         .remove(0);
-                    let representation = planner.value_type(&ty, &TypeSubstitution::new(), span)?;
+                    planner.value_type(&ty, &TypeSubstitution::new(), span)?;
                     fields.push(StructFieldLayout {
                         declaration: field.id.clone(),
                         name: field.name.clone(),
-                        ty: representation,
+                        ty: AbiType::from_checked_type(&ty),
                         mutable: field.writeability.is_var(),
                     });
                     pending.push_back((ty, span));

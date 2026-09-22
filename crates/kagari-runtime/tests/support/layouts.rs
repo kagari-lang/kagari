@@ -3,14 +3,14 @@ use kagari_common::identity::{
 };
 use kagari_ir::{
     bytecode::{BytecodeModule, StructId},
-    module::{StructFieldLayout, StructLayout, ValueType},
+    module::{StructFieldLayout, StructLayout, abi::AbiType},
 };
 use kagari_runtime::{Runtime, module::StructLayoutRef};
 
 pub fn layout(
     runtime: &mut Runtime,
     name: &str,
-    fields: &[(&str, ValueType, bool)],
+    fields: &[(&str, AbiType, bool)],
 ) -> StructLayoutRef {
     let declaration = DefinitionId {
         module: ModuleIdentity::single_file("layout-fixture.kgr"),
@@ -32,7 +32,7 @@ pub fn layout(
             StructFieldLayout {
                 declaration: id,
                 name: (*name).into(),
-                ty: *ty,
+                ty: ty.clone(),
                 mutable: *mutable,
             }
         })

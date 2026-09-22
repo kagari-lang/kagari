@@ -9,7 +9,7 @@ use kagari_ir::{
 fn main() {
     let source = SourceFile::new(
         "layouts.kgr",
-        "struct Pair { var number: i32, val enabled: bool } fn main() -> i32 { val p = Pair { enabled: true, number: 41 }; if p.enabled { p.number += 1; }; p.number }",
+        "struct Pair { var number: i32, val enabled: bool, val samples: [i32] } fn main() -> i32 { val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
     );
     let checked = analyze_source(&source, Default::default())
         .into_codegen()
@@ -46,7 +46,7 @@ fn main() {
             .iter()
             .map(|field| field.name.as_str())
             .collect::<Vec<_>>(),
-        ["number", "enabled"]
+        ["number", "enabled", "samples"]
     );
     assert_eq!(
         fields.len(),

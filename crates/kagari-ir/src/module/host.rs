@@ -37,7 +37,10 @@ pub(crate) fn references(
             pending.push(&function.return_type);
         }
     }
-    pending.extend(structures.iter().flat_map(|layout| &layout.arguments));
+    for layout in structures {
+        pending.extend(&layout.arguments);
+        pending.extend(layout.fields.iter().map(|field| &field.ty));
+    }
     for layout in enums {
         pending.extend(&layout.arguments);
         pending.extend(layout.variants.iter().flat_map(|variant| &variant.payload));

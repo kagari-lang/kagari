@@ -304,7 +304,7 @@ impl GcHeap {
                 .iter()
                 .zip(&layout.layout().fields)
                 .all(|(value, field)| {
-                    self.valid_payload(value) && value.has_representation(field.ty)
+                    self.valid_payload(value) && self.matches_abi(value, &field.ty, layout.module())
                 })
         {
             return Err(RuntimeError::new(
@@ -782,20 +782,21 @@ impl GcHeap {
                 "invalid heap payload",
             ));
         }
+        let field =
+            expected.layout().fields.get(slot).ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid field slot")
+            })?;
+        if !field.mutable || !self.matches_abi(&next_value, &field.ty, expected.module()) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "field is read-only or value has the wrong concrete type",
+            ));
+        }
         self.with_struct_mut(id, |layout, fields| {
             if !layout.matches(expected) {
                 return Err(RuntimeError::new(
                     RuntimeErrorKind::ScriptTrap,
                     "struct layout mismatch",
-                ));
-            }
-            let field = layout.layout().fields.get(slot).ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid field slot")
-            })?;
-            if !field.mutable || !next_value.has_representation(field.ty) {
-                return Err(RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
-                    "field is read-only or value has the wrong representation",
                 ));
             }
             let target = fields.get_mut(slot).ok_or_else(|| {
@@ -1262,8 +1263,8 @@ impl GcHeap {
 
 #[cfg(test)]
 mod tests {
-    use kagari_ir::module::ValueType;
-    fn layout(name: &str, field: &str, ty: ValueType) -> crate::module::StructLayoutRef {
+    use kagari_ir::module::abi::AbiType;
+    fn layout(name: &str, field: &str, ty: AbiType) -> crate::module::StructLayoutRef {
         crate::layout_fixtures::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
     }
     use super::*;
@@ -1386,7 +1387,13 @@ mod tests {
         assert!(heap.alloc_set(vec![host_root_value(4)]).is_err());
         assert!(
             heap.alloc_struct(
-                layout("HostBacked", "path", ValueType::HeapObject),
+                layout(
+                    "HostBacked",
+                    "path",
+                    AbiType::Array(Box::new(AbiType::Builtin(
+                        kagari_ir::module::abi::BuiltinType::I32
+                    )))
+                ),
                 vec![path_view_value(3)],
             )
             .is_err()
@@ -1403,7 +1410,11 @@ mod tests {
         let array = heap.alloc_array(vec![Value::I32(1)]).unwrap();
         let record = heap
             .alloc_struct(
-                layout("Record", "value", ValueType::I32),
+                layout(
+                    "Record",
+                    "value",
+                    AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+                ),
                 vec![Value::I32(1)],
             )
             .unwrap();
@@ -1437,7 +1448,14 @@ mod tests {
         let second = heap.alloc_map(vec![]).unwrap();
         let third = heap.alloc_set(vec![]).unwrap();
         let fourth = heap
-            .alloc_struct(layout("Empty", "value", ValueType::Unit), vec![Value::Unit])
+            .alloc_struct(
+                layout(
+                    "Empty",
+                    "value",
+                    AbiType::Builtin(kagari_ir::module::abi::BuiltinType::Unit),
+                ),
+                vec![Value::Unit],
+            )
             .unwrap();
 
         assert_ne!(first, second);
@@ -1578,7 +1596,18 @@ mod tests {
         let set = heap.alloc_set(vec![Value::Str("seen".to_owned())]).unwrap();
         let record = heap
             .alloc_struct(
-                layout("Record", "map", ValueType::HeapObject),
+                layout(
+                    "Record",
+                    "map",
+                    AbiType::Map {
+                        key: Box::new(AbiType::Builtin(
+                            kagari_ir::module::abi::BuiltinType::String,
+                        )),
+                        value: Box::new(AbiType::Array(Box::new(AbiType::Builtin(
+                            kagari_ir::module::abi::BuiltinType::I32,
+                        )))),
+                    },
+                ),
                 vec![Value::Map(map)],
             )
             .unwrap();
@@ -1610,7 +1639,13 @@ mod tests {
         let array = heap.alloc_array(vec![]).unwrap();
         let record = heap
             .alloc_struct(
-                layout("Cycle", "array", ValueType::HeapObject),
+                layout(
+                    "Cycle",
+                    "array",
+                    AbiType::Array(Box::new(AbiType::Builtin(
+                        kagari_ir::module::abi::BuiltinType::I32,
+                    ))),
+                ),
                 vec![Value::Array(array)],
             )
             .unwrap();
@@ -1689,7 +1724,11 @@ mod tests {
         );
         assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
         assert_eq!(heap.stats().current_heap_units, before);
-        let schema = layout("Record", "value", ValueType::I32);
+        let schema = layout(
+            "Record",
+            "value",
+            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+        );
         let object = heap
             .alloc_struct(schema.clone(), vec![Value::I32(7)])
             .unwrap();

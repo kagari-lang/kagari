@@ -1,7 +1,7 @@
 #[path = "support/layouts.rs"]
 mod layouts;
 use kagari_ir::bytecode::BytecodeModule;
-use kagari_ir::module::ValueType;
+use kagari_ir::module::abi::AbiType;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId,
     MethodOrigin, ModuleInitializationState, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind,
@@ -115,7 +115,13 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
     let record_layout = layouts::layout(
         &mut runtime,
         "Record",
-        &[("leaf", ValueType::HeapObject, true)],
+        &[(
+            "leaf",
+            AbiType::Array(Box::new(AbiType::Builtin(
+                kagari_ir::module::abi::BuiltinType::I32,
+            ))),
+            true,
+        )],
     );
     let record = runtime
         .alloc_struct(record_layout, vec![Value::Array(leaf)])
@@ -260,7 +266,13 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let record_layout = layouts::layout(
         &mut runtime,
         "HostBacked",
-        &[("path", ValueType::HeapObject, true)],
+        &[(
+            "path",
+            AbiType::Array(Box::new(AbiType::Builtin(
+                kagari_ir::module::abi::BuiltinType::I32,
+            ))),
+            true,
+        )],
     );
     assert!(
         runtime

@@ -258,7 +258,7 @@ fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
     }
     for layout in &module.structures {
         for field in &layout.fields {
-            push_type(&mut types, field.ty);
+            push_type(&mut types, field.ty.representation());
         }
     }
     for layout in &module.enumerations {

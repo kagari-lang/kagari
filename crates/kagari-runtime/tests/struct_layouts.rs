@@ -1,7 +1,7 @@
 #[path = "support/layouts.rs"]
 mod layouts;
 
-use kagari_ir::{bytecode::StructId, module::ValueType};
+use kagari_ir::{bytecode::StructId, module::abi::AbiType};
 use kagari_runtime::{Runtime, RuntimeErrorKind, reflection, value::Value};
 
 #[test]
@@ -11,8 +11,16 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
         &mut runtime,
         "Point",
         &[
-            ("x", ValueType::I32, true),
-            ("fixed", ValueType::Bool, false),
+            (
+                "x",
+                AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+                true,
+            ),
+            (
+                "fixed",
+                AbiType::Builtin(kagari_ir::module::abi::BuiltinType::Bool),
+                false,
+            ),
         ],
     );
     let object = runtime
@@ -74,9 +82,25 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
 #[test]
 fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting() {
     let mut runtime = Runtime::default();
-    let layout = layouts::layout(&mut runtime, "Point", &[("x", ValueType::I32, true)]);
+    let layout = layouts::layout(
+        &mut runtime,
+        "Point",
+        &[(
+            "x",
+            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+            true,
+        )],
+    );
     let mut other = Runtime::default();
-    let foreign = layouts::layout(&mut other, "Point", &[("x", ValueType::I32, true)]);
+    let foreign = layouts::layout(
+        &mut other,
+        "Point",
+        &[(
+            "x",
+            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+            true,
+        )],
+    );
     let counters = runtime.resources().counters();
     assert_eq!(
         runtime
@@ -113,7 +137,15 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
 #[test]
 fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
     let mut runtime = Runtime::default();
-    let original = layouts::layout(&mut runtime, "Point", &[("x", ValueType::I32, true)]);
+    let original = layouts::layout(
+        &mut runtime,
+        "Point",
+        &[(
+            "x",
+            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+            true,
+        )],
+    );
     let object = runtime
         .alloc_struct(original.clone(), vec![Value::I32(1)])
         .unwrap();
@@ -154,7 +186,15 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
             .alloc_struct(retained.clone(), vec![Value::I32(3)])
             .is_ok()
     );
-    let changed = layouts::layout(&mut runtime, "Point", &[("x", ValueType::I32, false)]);
+    let changed = layouts::layout(
+        &mut runtime,
+        "Point",
+        &[(
+            "x",
+            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+            false,
+        )],
+    );
     assert!(runtime.gc().struct_get_slot(object, &changed, 0).is_none());
     assert!(
         runtime
@@ -165,5 +205,103 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
     assert_eq!(
         runtime.gc().struct_get_slot(object, &retained, 0),
         Some(Value::I32(42))
+    );
+}
+
+#[test]
+fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
+    use kagari_ir::{
+        bytecode::{BytecodeProgram, ModuleRef},
+        module::abi::{BuiltinType, NominalAbiType},
+    };
+    let mut runtime = Runtime::default();
+    let leaf = layouts::layout(
+        &mut runtime,
+        "Leaf",
+        &[("x", AbiType::Builtin(BuiltinType::I32), true)],
+    );
+    let wrapper = layouts::layout(
+        &mut runtime,
+        "Wrapper",
+        &[("items", AbiType::Builtin(BuiltinType::I32), true)],
+    );
+    let wrong = layouts::layout(
+        &mut runtime,
+        "Other",
+        &[("x", AbiType::Builtin(BuiltinType::I32), true)],
+    );
+    let wrong_value = Value::Struct(runtime.alloc_struct(wrong, vec![Value::I32(9)]).unwrap());
+    let mut bytecode = wrapper.module().bytecode.clone();
+    bytecode.structures.push(leaf.layout().clone());
+    bytecode.structures[0].fields[0].ty = AbiType::Array(Box::new(AbiType::Tuple(vec![
+        AbiType::Struct(NominalAbiType {
+            declaration: leaf.layout().declaration.clone(),
+            arguments: vec![],
+        }),
+        AbiType::Builtin(BuiltinType::Bool),
+    ])));
+    let module = runtime
+        .load_program(
+            "concrete",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![bytecode],
+            },
+        )
+        .unwrap();
+    let wrapper = module.struct_layout(StructId::new(0)).unwrap();
+    let leaf = module.struct_layout(StructId::new(1)).unwrap();
+    let valid = Value::Struct(runtime.alloc_struct(leaf, vec![Value::I32(42)]).unwrap());
+    let initial = Value::Array(
+        runtime
+            .gc()
+            .alloc_array(vec![Value::Tuple(vec![valid.clone(), Value::Bool(true)])])
+            .unwrap(),
+    );
+    let target = runtime
+        .alloc_struct(wrapper.clone(), vec![initial.clone()])
+        .unwrap();
+    for values in [
+        vec![wrong_value, Value::Bool(true)],
+        vec![valid, Value::I32(1)],
+    ] {
+        let invalid = Value::Array(
+            runtime
+                .gc()
+                .alloc_array(vec![Value::Tuple(values)])
+                .unwrap(),
+        );
+        let before = runtime.resources().counters();
+        let objects = runtime.gc().allocated_objects();
+        assert_eq!(
+            runtime
+                .alloc_struct(wrapper.clone(), vec![invalid.clone()])
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
+        assert_eq!(
+            runtime
+                .gc()
+                .struct_set_slot(target, &wrapper, 0, invalid)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
+        assert_eq!(
+            runtime.gc().struct_get_slot(target, &wrapper, 0),
+            Some(initial.clone())
+        );
+        assert_eq!(runtime.resources().counters(), before);
+        assert_eq!(runtime.gc().allocated_objects(), objects);
+    }
+    let replacement = Value::Array(runtime.gc().alloc_array(vec![]).unwrap());
+    runtime
+        .gc()
+        .struct_set_slot(target, &wrapper, 0, replacement.clone())
+        .unwrap();
+    assert_eq!(
+        runtime.gc().struct_get_slot(target, &wrapper, 0),
+        Some(replacement)
     );
 }

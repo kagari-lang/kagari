@@ -1488,3 +1488,27 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
         );
     }
 }
+
+#[test]
+fn executable_struct_fields_require_concrete_resolved_types() {
+    use crate::module::abi::{AbiType, BuiltinType, NominalAbiType};
+    let module = common::bytecode_ok(
+        "struct Box<T> { val value: T } fn main() -> i32 { Box<i32> { value: 42 }.value }",
+    );
+    let declaration = module.structures[0].declaration.clone();
+    for ty in [
+        AbiType::Parameter {
+            owner: declaration.clone(),
+            position: 0,
+        },
+        AbiType::Struct(NominalAbiType {
+            declaration,
+            arguments: vec![AbiType::Builtin(BuiltinType::Bool)],
+        }),
+        AbiType::Builtin(BuiltinType::Bool),
+    ] {
+        let mut invalid = module.clone();
+        invalid.structures[0].fields[0].ty = ty;
+        assert!(verify_module(&invalid).is_err());
+    }
+}
