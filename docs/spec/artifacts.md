@@ -51,6 +51,9 @@ positional initializers and layout/slot field operands.
 Version 23 stores complete concrete ABI types for struct fields. Runtime ABI v24
 checks nested field values before allocation or replacement, including nominal
 identity and container element types. Prior representation-only layouts are rejected.
+Validation compares concrete struct instances with their public templates, including
+instances emitted only by dependent modules. Equal physical representations do not
+permit different field types or permissions.
 
 Version 20 adds the required host path contract fingerprint to each IR/bytecode
 path record. Loading links each module-local path to exactly one registered runtime

@@ -272,6 +272,13 @@ pub(super) fn verify_module_with_program(
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     crate::module::layout::validate_layouts(&module.structures, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
+    if !crate::module::layout::struct_abi_matches(
+        &module.structures,
+        &module.identity,
+        &module.public_items,
+    ) {
+        return Err(BytecodeVerificationError::InvalidStructLayout);
+    }
     if !crate::module::layout::enum_abi_matches(
         &module.enumerations,
         &module.identity,

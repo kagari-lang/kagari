@@ -14,6 +14,46 @@ pub struct EnumVariantLayout {
     pub payload: Vec<super::abi::AbiType>,
 }
 
+/// Compare executable instances to the owning public declaration after substitution.
+pub(crate) fn struct_abi_matches(
+    layouts: &[StructLayout],
+    identity: &kagari_common::identity::ModuleIdentity,
+    items: &[super::PublicAbiItem],
+) -> bool {
+    items.iter().all(|item| {
+        let super::PublicAbiItem::Type(ty) = item else {
+            return true;
+        };
+        if ty.kind != super::TypeAbiKind::Struct {
+            return true;
+        }
+        ty.variants.is_empty()
+            && layouts
+                .iter()
+                .filter(|layout| {
+                    &layout.declaration.module == identity
+                        && layout
+                            .declaration
+                            .path
+                            .last()
+                            .is_some_and(|part| part.name == ty.name)
+                })
+                .all(|layout| {
+                    layout.arguments.len() == ty.generic_params.len()
+                        && layout.fields.len() == ty.fields.len()
+                        && layout.fields.iter().zip(&ty.fields).all(|(field, abi)| {
+                            field.name == abi.name
+                                && field.mutable == abi.mutable
+                                && abi
+                                    .ty
+                                    .instantiate(&layout.declaration, &layout.arguments)
+                                    .as_ref()
+                                    == Some(&field.ty)
+                        })
+                })
+    })
+}
+
 pub(crate) fn enum_abi_matches(
     layouts: &[EnumLayout],
     identity: &kagari_common::identity::ModuleIdentity,

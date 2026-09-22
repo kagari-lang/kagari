@@ -48,8 +48,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   Runtime regressions cover wrong nominal/tuple members and unchanged targets;
   embedding tests cover valid generic fields through source, artifacts and JIT
   fallback. The `layouts` example shows a concrete array field. Format 23/runtime
-  ABI v24 reject older products. Public struct-template correspondence, nominal
-  operand-flow verification and dynamic interface fields remain audit work.
+  ABI v24 reject older products. Nominal operand-flow verification and dynamic interface fields remain audit work.
+- R07 public struct-template checkpoint: IR and bytecode check concrete field
+  types, order, names and permissions against substituted public templates. Program
+  validation also checks imported instances when the owner has no executable
+  instance. Tests independently reject wrong array element types with the same
+  representation, changed permissions, renamed and missing fields in local and
+  imported layouts. The public `Pair` in the layouts example exercises this check.
 
 R03 acceptance evidence:
 

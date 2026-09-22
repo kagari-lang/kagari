@@ -55,6 +55,13 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
             _ => Error::InvalidPublicAbi,
         })
     })?;
+    if !crate::module::layout::struct_abi_matches(
+        &module.structures,
+        &module.identity,
+        &module.abi.public_items,
+    ) {
+        return Err(context.error(Error::InvalidStructLayout));
+    }
     if !crate::module::layout::enum_abi_matches(
         &module.enumerations,
         &module.identity,

@@ -1512,3 +1512,65 @@ fn executable_struct_fields_require_concrete_resolved_types() {
         assert!(verify_module(&invalid).is_err());
     }
 }
+
+#[test]
+fn struct_instances_must_match_public_templates_locally_and_across_modules() {
+    use crate::{
+        bytecode::{BytecodeProgram, ModuleRef, verify_program},
+        module::abi::{AbiType, BuiltinType},
+    };
+    let owner = common::bytecode_ok(
+        "pub struct Box<T> { var values: [T] } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
+    );
+    let mut importer = BytecodeModule {
+        identity: ModuleIdentity::single_file("importer.kgr"),
+        structures: owner.structures.clone(),
+        dependencies: vec![ModuleRef::new(0)],
+        ..Default::default()
+    };
+    let program = |importer| {
+        let declaration_owner = BytecodeModule {
+            identity: owner.identity.clone(),
+            public_items: owner.public_items.clone(),
+            ..Default::default()
+        };
+        BytecodeProgram {
+            root: ModuleRef::new(1),
+            modules: vec![declaration_owner, importer],
+        }
+    };
+    verify_program(&program(importer.clone())).unwrap();
+    for mutation in 0..4 {
+        let mut invalid = owner.clone();
+        match mutation {
+            0 => {
+                invalid.structures[0].fields[0].ty =
+                    AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::Bool)))
+            }
+            1 => invalid.structures[0].fields[0].mutable = false,
+            2 => {
+                invalid.structures[0].fields[0].name = "other".into();
+                invalid.structures[0].fields[0]
+                    .declaration
+                    .path
+                    .last_mut()
+                    .unwrap()
+                    .name = "other".into();
+            }
+            _ => invalid.structures[0].fields.clear(),
+        }
+        assert_eq!(
+            verify_module(&invalid),
+            Err(BytecodeVerificationError::InvalidStructLayout)
+        );
+        importer.structures = invalid.structures;
+        // An imported layout can be internally valid without matching its owner.
+        let mut standalone = importer.clone();
+        standalone.dependencies.clear();
+        verify_module(&standalone).unwrap();
+        assert_eq!(
+            verify_program(&program(importer.clone())),
+            Err(BytecodeVerificationError::InvalidStructLayout)
+        );
+    }
+}

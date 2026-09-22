@@ -48,6 +48,25 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 return Err(BytecodeVerificationError::InvalidStructLayout);
             }
         }
+        for layout in &module.structures {
+            let Some(owner) = program
+                .modules
+                .iter()
+                .find(|owner| owner.identity == layout.declaration.module)
+            else {
+                continue;
+            };
+            let Some(template) = owner.public_items.iter().find(|item| {
+                matches!(item, crate::module::PublicAbiItem::Type(ty) if ty.kind == crate::module::TypeAbiKind::Struct && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
+            }) else { continue; };
+            if !crate::module::layout::struct_abi_matches(
+                std::slice::from_ref(layout),
+                &owner.identity,
+                std::slice::from_ref(template),
+            ) {
+                return Err(BytecodeVerificationError::InvalidStructLayout);
+            }
+        }
         for layout in &module.enumerations {
             if let Some(previous) =
                 enum_layouts.insert((&layout.declaration, &layout.arguments), layout)

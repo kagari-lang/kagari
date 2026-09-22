@@ -101,6 +101,11 @@ this version's layout table; a field operand is `FieldRef { structure, slot }`.
 one value per layout slot. The old field table, field-name operands and named
 initializer records are removed. Artifact verification independently checks the
 layout identities, field count, slots, representations and write permissions.
+Public struct templates are checked against each executable instance after generic
+substitution: field count/order, names, permissions and concrete types must agree.
+Program verification also checks imported instances against the declaring module,
+including templates with no local executable instance. A standalone module cannot
+prove correspondence to an absent dependency; the complete program check is required.
 The VM checks the actual receiver's retained layout before slot access. Reflection
 resolves names explicitly from this metadata and shares the checked write path.
 

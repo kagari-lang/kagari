@@ -256,7 +256,10 @@ fn missing_dependencies_cycles_and_mismatched_link_signatures_are_rejected() {
         verify_program(root.clone(), schema, &Default::default())
             .unwrap_err()
             .kind,
-        ProgramErrorKind::StructContract(_)
+        ProgramErrorKind::Verification(kagari_ir::module::IrVerificationError {
+            kind: kagari_ir::module::IrVerificationErrorKind::InvalidStructLayout,
+            ..
+        })
     ));
     let mut unresolved = raw.clone();
     for instruction in unresolved
