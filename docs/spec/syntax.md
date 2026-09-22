@@ -587,6 +587,10 @@ The tail expression (or Unit when absent) must match the declared result only wh
 control can reach the end. Each explicit return operand is checked independently.
 When a call argument or aggregate member returns from the enclosing function,
 later arguments/members and the enclosing call/construction are not executed.
+If the callee expression itself exits, explicit arguments are likewise skipped.
+HIR records this termination explicitly rather than inventing a callable target;
+argument source still receives independent diagnostics, and a normally produced
+non-callable value remains invalid.
 Those unreachable generic calls do not create concrete instances.
 For script functions, a terminating argument supplies neither a parameter value
 nor a generic inference constraint. Such calls do not require missing generic

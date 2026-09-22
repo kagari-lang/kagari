@@ -561,6 +561,18 @@ impl FunctionLowerer<'_, '_> {
             call.target
         };
         let (callee, args) = match target {
+            SemanticCallTarget::TerminatingCallee => {
+                let callee = call.receiver.ok_or(IrLoweringError::MissingBinding(
+                    "checked terminating callee",
+                ))?;
+                let value = self.lower_expr(callee)?;
+                if !self.current_block_terminated() {
+                    return Err(IrLoweringError::MissingBinding(
+                        "callee termination contract",
+                    ));
+                }
+                return Ok(value);
+            }
             SemanticCallTarget::RuntimeHelper(helper) => {
                 match self.lower_runtime_helper_call(helper, args)? {
                     ControlFlow::Continue(call) => call,
@@ -632,7 +644,9 @@ impl FunctionLowerer<'_, '_> {
                             .ok_or(IrLoweringError::MissingBinding("host declaration"))?
                             .clone(),
                     )),
-                    SemanticCallTarget::RuntimeHelper(_) | SemanticCallTarget::TraitMethod(_) => {
+                    SemanticCallTarget::TerminatingCallee
+                    | SemanticCallTarget::RuntimeHelper(_)
+                    | SemanticCallTarget::TraitMethod(_) => {
                         unreachable!()
                     }
                 };

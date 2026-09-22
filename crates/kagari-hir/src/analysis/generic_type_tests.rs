@@ -2250,3 +2250,90 @@ fn standard_receiver_shapes_require_normally_produced_values() {
         }
     }
 }
+
+#[test]
+fn terminating_callees_retain_explicit_call_facts_and_independent_errors() {
+    for (callee, args, valid) in [
+        ("(if true { return 42; } else { return 7; })", "1", true),
+        (
+            "(if true { return 42; } else { return 7; }).missing",
+            "1",
+            true,
+        ),
+        (
+            "(if true { return 42; } else { return 7; })",
+            "missing",
+            false,
+        ),
+        ("(if true { return false; } else { return 7; })", "1", false),
+        ("(if true { return 42; } else { 7 })", "1", false),
+    ] {
+        let source = format!("fn main() -> i32 {{ {callee}({args}); 0 }}");
+        let analysis = crate::analyze_source(
+            &SourceFile::new("callee-completion.kgr", source.clone()),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        if valid {
+            let facts = analysis.facts();
+            assert!(facts.lowered.module.body.expressions().any(|(id, _)| {
+                facts
+                    .typed
+                    .type_table
+                    .call_resolution(id)
+                    .is_some_and(|call| {
+                        matches!(call.target, crate::typeck::CallTarget::TerminatingCallee)
+                            && call.receiver.is_some()
+                    })
+            }));
+        }
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+    }
+}
+
+#[test]
+fn terminating_callee_facts_rebase_with_unchanged_body_reuse() {
+    let text = "fn neighbor() -> i32 { 1 } fn main() -> i32 { (if true { return 42; } else { return 7; })(1); 0 }";
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("callee-reuse.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let old = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    old.check_program(root, &Default::default()).unwrap();
+    sources
+        .set(
+            "callee-reuse.kgr",
+            text.replace("{ 1 }", "{ 2 + 3 }"),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let new = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    new.check_program(root, &Default::default()).unwrap();
+    assert_eq!(
+        new.file(root).unwrap().result().facts().typed.reused_bodies,
+        1
+    );
+    for snapshot in [&old, &new] {
+        let facts = snapshot.file(root).unwrap().result().facts();
+        let mut found = false;
+        for (id, expr) in facts.lowered.module.body.expressions() {
+            if let crate::hir::ExprKind::Call { callee, .. } = expr.kind {
+                let call = facts.typed.type_table.call_resolution(id).unwrap();
+                assert_eq!(call.target, crate::typeck::CallTarget::TerminatingCallee);
+                assert_eq!(call.receiver, Some(callee));
+                found = true;
+            }
+        }
+        assert!(found);
+    }
+}

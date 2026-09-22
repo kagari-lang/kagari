@@ -721,3 +721,15 @@ fn terminating_reflection_receivers_skip_remaining_operands_and_accesses() {
         );
     }
 }
+
+#[test]
+fn terminating_callees_skip_explicit_argument_effects() {
+    for member in ["", ".missing"] {
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ (if tick(count) {{ return 40; }} else {{ return 0; }}){member}(tick(count)); 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

@@ -2060,8 +2060,18 @@ impl<'a> BodyChecker<'a> {
             return imported.signature.return_type.clone();
         }
         let Some(ResolvedName::Function(id)) = self.names.expr_resolution(callee) else {
-            self.infer_call_args(args, env);
             let callee_ty = self.infer_expr_type(callee, env);
+            self.infer_call_args(args, env);
+            let Ok(completes) =
+                super::completion::expr_can_complete(&self.lowered.module, callee, self.cancel)
+            else {
+                return TypeId::Unknown;
+            };
+            if !completes {
+                self.type_table
+                    .insert_call(call_expr, CallTarget::TerminatingCallee, Some(callee));
+                return TypeId::Unknown;
+            }
             if !callee_ty.is_unresolved() {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidCallTarget {

@@ -30,6 +30,9 @@ pub struct ResolvedTypeRef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallTarget {
+    /// The recorded receiver is the callee expression. Its evaluation exits
+    /// before any callable value or explicit argument can be produced.
+    TerminatingCallee,
     SourceFunction(crate::imports::SourceFunctionId),
     HostFunction(crate::host::HostFunctionId),
     Function(FunctionId),

@@ -469,6 +469,11 @@ Implemented foundation slices:
   keeping cancellation separate from absent receiver values. Target checks wait
   for a produced receiver; field names and later operand errors remain checked.
   Execution fixtures verify only the terminating receiver effect is observed.
+  Calls whose callee evaluation exits now carry an explicit TerminatingCallee
+  semantic target, including the evaluated expression identity. IR consumes that
+  fact and checks its termination contract before skipping arguments; it does
+  not reconstruct callability from syntax. Tests cover retained inner errors,
+  invalid produced callees, body-cache rebasing and execution effect order.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
