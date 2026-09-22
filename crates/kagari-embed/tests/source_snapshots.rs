@@ -373,47 +373,147 @@ fn nesting_budget_changes_invalidate_same_revision_analysis() {
 
 #[test]
 fn deep_iterative_source_is_rejected_with_queryable_prefix() {
-    let engine = KagariEngine::default();
-    engine.set_parse_limits(kagari_embed::ParseLimits {
-        max_tree_depth: 24,
-        ..Default::default()
-    });
-    let id = engine
-        .set_source(
-            "memory://chain.kgr",
-            format!(
-                "fn good() -> i32 {{ 42 }} fn main() -> i32 {{ 1{} }}",
-                " + 1".repeat(2_000)
-            ),
-            SourceLayer::Base,
-        )
-        .unwrap();
-    let source = engine.source_snapshot();
-    let analysis = engine
-        .analyze(
-            source.clone(),
-            LanguageProfile::default(),
-            &Default::default(),
-        )
-        .unwrap();
-    assert!(
-        analysis
-            .file(id)
-            .unwrap()
-            .result()
-            .facts()
-            .declarations
+    for max_tree_depth in [24, kagari_embed::ParseLimits::default().max_tree_depth] {
+        let engine = KagariEngine::default();
+        engine.set_parse_limits(kagari_embed::ParseLimits {
+            max_tree_depth,
+            ..Default::default()
+        });
+        let id = engine
+            .set_source(
+                "memory://chain.kgr",
+                format!(
+                    "fn good() -> i32 {{ 42 }} fn main() -> i32 {{ 1{} }}",
+                    " + 1".repeat(2_000)
+                ),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let source = engine.source_snapshot();
+        let analysis = engine
+            .analyze(
+                source.clone(),
+                LanguageProfile::default(),
+                &Default::default(),
+            )
+            .unwrap();
+        assert!(
+            analysis
+                .file(id)
+                .unwrap()
+                .result()
+                .facts()
+                .declarations
+                .iter()
+                .any(|d| d.name == "good")
+        );
+        let Err(EmbeddingError::Diagnostics { diagnostics }) =
+            engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
+        else {
+            panic!("deep source reached codegen")
+        };
+        let limit = diagnostics
             .iter()
-            .any(|d| d.name == "good")
-    );
-    let Err(EmbeddingError::Diagnostics { diagnostics }) =
-        engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
-    else {
-        panic!("deep source reached codegen")
-    };
-    let limit = diagnostics
-        .iter()
-        .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
-        .unwrap();
-    assert!(source.contains(limit.span.unwrap()));
+            .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
+            .unwrap();
+        assert!(source.contains(limit.span.unwrap()));
+    }
+}
+
+#[test]
+fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
+    let depth = 2_000;
+    let cases = [
+        format!(
+            "fn main() {{ {}1{} }}",
+            "(".repeat(depth),
+            ")".repeat(depth)
+        ),
+        format!("fn main() {{ {}true }}", "!".repeat(depth)),
+        format!(
+            "fn main() {{ {}1{} }}",
+            "[".repeat(depth),
+            "]".repeat(depth)
+        ),
+        format!(
+            "fn main(x: {}i32{}) {{}}",
+            "[".repeat(depth),
+            "]".repeat(depth)
+        ),
+        format!(
+            "fn main(x: {}i32{}) {{}}",
+            "Box<".repeat(depth),
+            ">".repeat(depth)
+        ),
+        format!(
+            "{} fn inner() {{}} {}",
+            "mod nested {".repeat(depth),
+            "}".repeat(depth)
+        ),
+        format!(
+            "use {}item{};",
+            "nested::{".repeat(depth),
+            "}".repeat(depth)
+        ),
+        format!(
+            "fn main() {{ {}1{} }}",
+            "if true {".repeat(depth),
+            "}".repeat(depth)
+        ),
+        format!("fn main() {{ {} 1 }}", "if true {} else ".repeat(depth)),
+        format!(
+            "fn main() {{ match 1 {{ {}_{} => 1 }} }}",
+            "(".repeat(depth),
+            ",)".repeat(depth)
+        ),
+    ];
+    for (index, suffix) in cases.into_iter().enumerate() {
+        let engine = KagariEngine::default();
+        let text = format!("fn good(value: i32) -> i32 {{ value }} {suffix}");
+        let id = engine
+            .set_source("memory://deep.kgr", text, SourceLayer::Base)
+            .unwrap();
+        let source = engine.source_snapshot();
+        let analysis = engine
+            .analyze(
+                source.clone(),
+                LanguageProfile::default(),
+                &Default::default(),
+            )
+            .unwrap();
+        let file = analysis.file(id).unwrap();
+        assert_eq!(
+            file.type_at("fn good(value: i32) -> i32 { ".len()),
+            Some(kagari_hir::types::TypeId::Builtin(
+                kagari_hir::types::BuiltinType::I32
+            )),
+            "case {index}: preceding function body remains typed",
+        );
+        assert!(
+            file.result()
+                .facts()
+                .declarations
+                .iter()
+                .any(|d| d.name == "good"),
+            "case {index}"
+        );
+        assert!(
+            file.result().diagnostics().iter().any(|d| matches!(
+                d.kind,
+                kagari_common::DiagnosticKind::CompileLimitExceeded { .. }
+            )),
+            "case {index}"
+        );
+        assert!(
+            analysis.check_program(id, &Default::default()).is_err(),
+            "case {index}"
+        );
+        assert!(
+            matches!(
+                engine.compile_snapshot(source, id, Default::default(), &Default::default()),
+                Err(EmbeddingError::Diagnostics { .. })
+            ),
+            "case {index}"
+        );
+    }
 }

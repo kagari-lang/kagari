@@ -1055,7 +1055,12 @@ Implemented foundation slices:
   depth without traversing the tree. Exhaustion stops new grammar work while
   existing ancestors close and the suffix remains lossless. Tests cover long
   fields/calls/indexes/binary/mixed chains, exact depth, sibling width and HIR
-  prefix queries with compilation refusal. Downstream recursive traversal limits,
+  prefix queries with compilation refusal. Embedding acceptance also runs the
+  default budgets through full analysis for all ten recursive syntax families
+  and a 2,000-term binary chain; the preceding correct function retains its body
+  type query while both checked-program and compile entry points reject limits.
+  This is default-policy evidence, not a guarantee for arbitrarily raised limits
+  or externally constructed HIR. Downstream recursive traversal limits,
   const evaluation and semantic diagnostic-count limits remain outstanding. Source/artifact/JIT
   fallback fixtures cover generic values, recursion, numeric overflow, effects,
   constraints and distinct concrete types sharing a runtime representation.
