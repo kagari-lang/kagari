@@ -414,6 +414,11 @@ for arithmetic and comparisons. Logical operators provide bool context instead.
 This allows `Token<i32>::Empty == Token::Empty` and contextual generic calls;
 explicit RHS type arguments remain authoritative and are checked for conflicts.
 Runtime evaluation remains left-to-right and short-circuit behavior is unchanged.
+When enclosing context is absent, earlier Array element types supply context to
+later elements. An if branch that can complete normally supplies context to its
+else branch; prior reachable, normally completing match arms supply context to
+later reachable arms. Returning branches do not determine the result type, and
+explicit conflicting types still diagnose. This propagation is forward only.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the

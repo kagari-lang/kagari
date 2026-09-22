@@ -621,7 +621,6 @@ impl<'a> BodyChecker<'a> {
                 let mut then_ty = self.infer_block_types_expected(*then_branch, env, expected);
                 match else_branch {
                     Some(else_expr) => {
-                        let else_ty = self.infer_expr_type_expected(*else_expr, env, expected);
                         let Ok(then_completes) = super::completion::block_can_complete(
                             &self.lowered.module,
                             *then_branch,
@@ -629,6 +628,8 @@ impl<'a> BodyChecker<'a> {
                         ) else {
                             return TypeId::Unknown;
                         };
+                        let else_context = expected.or(then_completes.then_some(&then_ty));
+                        let else_ty = self.infer_expr_type_expected(*else_expr, env, else_context);
                         let Ok(else_completes) = super::completion::expr_can_complete(
                             &self.lowered.module,
                             *else_expr,
@@ -662,7 +663,8 @@ impl<'a> BodyChecker<'a> {
                     if self.cancel.check().is_err() {
                         return TypeId::Unknown;
                     }
-                    let found = self.infer_match_arm_type(arm, &scrutinee_ty, env, expected);
+                    let arm_context = expected.or(if reachable { result.as_ref() } else { None });
+                    let found = self.infer_match_arm_type(arm, &scrutinee_ty, env, arm_context);
                     if !reachable {
                         continue;
                     }
@@ -739,7 +741,8 @@ impl<'a> BodyChecker<'a> {
                     if self.cancel.check().is_err() {
                         return TypeId::Unknown;
                     }
-                    let ty = self.infer_expr_type_expected(*expr, env, member);
+                    let ty =
+                        self.infer_expr_type_expected(*expr, env, member.or(element_ty.as_ref()));
                     if let Some(element_ty) = &mut element_ty {
                         if ty.conflicts_with(element_ty) {
                             self.diagnostics.push(

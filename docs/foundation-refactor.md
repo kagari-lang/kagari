@@ -361,6 +361,11 @@ Implemented foundation slices:
   determine their own type and mismatches remain errors. Enum/tuple cases cover
   contextual constructors, and execution fixtures count left/right calls to
   verify source order and single evaluation through all existing execution routes.
+  Array elements and completing if/match branches also pass established types
+  forward when no enclosing context is present. Terminating branches do not seed
+  result inference, and unreachable match arms retain independent checking.
+  Explicit type conflicts remain rejected; execution fixtures count effects in
+  array elements and selected branches across source/artifact/JIT routes.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

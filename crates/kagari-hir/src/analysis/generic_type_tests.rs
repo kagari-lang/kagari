@@ -1545,3 +1545,51 @@ fn binary_rhs_uses_left_type_without_overriding_explicit_constructor_arguments()
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }
 }
+
+#[test]
+fn preceding_array_elements_and_completing_branches_supply_constructor_context() {
+    for (body, valid) in [
+        ("val values = [Token<i32>::Empty, Token::Empty];", true),
+        (
+            "val value = if true { Token<i32>::Empty } else { Token::Empty };",
+            true,
+        ),
+        (
+            "val value = match true { true => Token<i32>::Empty, false => Token::Empty };",
+            true,
+        ),
+        (
+            "val values = [Token<i32>::Empty, Token<bool>::Empty];",
+            false,
+        ),
+        (
+            "val value = if true { Token<i32>::Empty } else { Token<bool>::Empty };",
+            false,
+        ),
+        (
+            "val value = match true { true => Token<i32>::Empty, false => Token<bool>::Empty };",
+            false,
+        ),
+        (
+            "val value = if true { return; } else { Token::Empty };",
+            false,
+        ),
+        (
+            "val value = match true { true => { return; }, false => Token::Empty };",
+            false,
+        ),
+    ] {
+        let source = SourceFile::new(
+            "sequence-context.kgr",
+            format!("enum Token<T> {{ Empty }} fn main() {{ {body} }}"),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}

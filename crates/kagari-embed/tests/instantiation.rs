@@ -424,3 +424,11 @@ fn binary_context_preserves_constructor_inference_and_left_to_right_evaluation()
         42,
     );
 }
+
+#[test]
+fn array_and_branch_context_execute_with_selected_branch_side_effects() {
+    execute_contextual_source(
+        "enum Token<T> { Empty } struct Count { var value: i32 } fn tick<T>(count: Count) -> Token<T> { count.value += 1; Token::Empty } fn main() -> i32 { val count = Count { value: 0 }; val values = [Token<i32>::Empty, tick(count)]; val a = if false { Token<i32>::Empty } else { tick(count) }; val b = match false { true => Token<i32>::Empty, false => tick(count) }; if values[1] == a && a == b { count.value + 39 } else { 0 } }",
+        42,
+    );
+}

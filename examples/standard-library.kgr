@@ -51,6 +51,8 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert_eq(negate(-42), 42, "generic signed-number negation");
     std::debug::assert_eq(Token<i32>::Empty, Token::Empty, "assert equality supplies RHS context");
     std::debug::assert(Token<i32>::Empty == Token::Empty, "binary RHS constructor context");
+    val tokens = [Token<i32>::Empty, Token::Empty];
+    std::debug::assert_eq(tokens[0], tokens[1], "earlier element supplies constructor context");
     val markers: [Marker<i32>] = [];
     markers.push(Marker { value: 42 });
     std::debug::assert_eq(markers[0].value, 42, "container supplies constructor context");
