@@ -137,6 +137,10 @@ Implemented foundation slices:
   replacement and existing-key updates remain allowed. Tests cover every current
   structural builtin, unchanged contents/allocation counters, nested guards,
   callback failure cleanup, GC after replacement, and foreign/stale handles.
+  Heap pop/remove/clear now return explicit Results, separating absence from
+  iteration, invalid-key/handle and execution rejection. Callers were replaced
+  directly, and tests cover empty collections, stale handles, quota preservation
+  and candidate initialization rejection without legacy Option-only adapters.
   The runtime example `collection_iteration` demonstrates host guard ownership.
   Source callback/for-loop integration and their cross-route cleanup tests remain
   outstanding; this runtime substrate does not complete iteration acceptance.

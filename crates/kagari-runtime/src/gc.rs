@@ -475,14 +475,18 @@ impl GcHeap {
         .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
-    pub fn array_pop(&self, id: HeapObjectId) -> Option<Value> {
-        self.ensure_execution_allowed().ok()?;
-        self.ensure_structure_mutable(id).ok()?;
-        let value = self.with_array_mut(id, |elements| elements.pop()).flatten();
+    pub fn array_pop(&self, id: HeapObjectId) -> Result<Option<Value>, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
+        let value = self
+            .with_array_mut(id, |elements| elements.pop())
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
+            })?;
         if value.is_some() {
             self.release_heap_units(1);
         }
-        value
+        Ok(value)
     }
 
     pub fn array_insert(
@@ -517,30 +521,40 @@ impl GcHeap {
         .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
-    pub fn array_remove(&self, id: HeapObjectId, index: usize) -> Option<Value> {
-        self.ensure_execution_allowed().ok()?;
-        self.ensure_structure_mutable(id).ok()?;
+    pub fn array_remove(
+        &self,
+        id: HeapObjectId,
+        index: usize,
+    ) -> Result<Option<Value>, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
         let value = self
             .with_array_mut(id, |elements| {
                 (index < elements.len()).then(|| elements.remove(index))
             })
-            .flatten();
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
+            })?;
         if value.is_some() {
             self.release_heap_units(1);
         }
-        value
+        Ok(value)
     }
 
-    pub fn array_clear(&self, id: HeapObjectId) -> Option<()> {
-        self.ensure_execution_allowed().ok()?;
-        self.ensure_structure_mutable(id).ok()?;
-        let removed = self.with_array_mut(id, |elements| {
-            let removed = elements.len();
-            elements.clear();
-            removed
-        })?;
+    pub fn array_clear(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
+        let removed = self
+            .with_array_mut(id, |elements| {
+                let removed = elements.len();
+                elements.clear();
+                removed
+            })
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
+            })?;
         self.release_heap_units(removed);
-        Some(())
+        Ok(())
     }
 
     pub fn array_set(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
@@ -606,29 +620,36 @@ impl GcHeap {
         .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
-    pub fn map_remove(&self, id: HeapObjectId, key: &Value) -> Option<Value> {
-        self.ensure_execution_allowed().ok()?;
-        self.ensure_structure_mutable(id).ok()?;
-        let key = MapKey::from_value(key)?;
+    pub fn map_remove(&self, id: HeapObjectId, key: &Value) -> Result<Option<Value>, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
+        let key = MapKey::from_value(key)
+            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         let value = self
             .with_map_mut(id, |entries| entries.shift_remove(&key))
-            .flatten();
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
+            })?;
         if value.is_some() {
             self.release_heap_units(1);
         }
-        value
+        Ok(value)
     }
 
-    pub fn map_clear(&self, id: HeapObjectId) -> Option<()> {
-        self.ensure_execution_allowed().ok()?;
-        self.ensure_structure_mutable(id).ok()?;
-        let removed = self.with_map_mut(id, |entries| {
-            let removed = entries.len();
-            entries.clear();
-            removed
-        })?;
+    pub fn map_clear(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
+        let removed = self
+            .with_map_mut(id, |entries| {
+                let removed = entries.len();
+                entries.clear();
+                removed
+            })
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
+            })?;
         self.release_heap_units(removed);
-        Some(())
+        Ok(())
     }
 
     pub fn set_len(&self, id: HeapObjectId) -> Option<usize> {
@@ -664,27 +685,36 @@ impl GcHeap {
         .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
-    pub fn set_remove(&self, id: HeapObjectId, value: &Value) -> Option<bool> {
-        self.ensure_execution_allowed().ok()?;
-        self.ensure_structure_mutable(id).ok()?;
-        let key = MapKey::from_value(value)?;
-        let removed = self.with_set_mut(id, |values| values.shift_remove(&key))?;
+    pub fn set_remove(&self, id: HeapObjectId, value: &Value) -> Result<bool, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
+        let key = MapKey::from_value(value)
+            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
+        let removed = self
+            .with_set_mut(id, |values| values.shift_remove(&key))
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
+            })?;
         if removed {
             self.release_heap_units(1);
         }
-        Some(removed)
+        Ok(removed)
     }
 
-    pub fn set_clear(&self, id: HeapObjectId) -> Option<()> {
-        self.ensure_execution_allowed().ok()?;
-        self.ensure_structure_mutable(id).ok()?;
-        let removed = self.with_set_mut(id, |values| {
-            let removed = values.len();
-            values.clear();
-            removed
-        })?;
+    pub fn set_clear(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
+        let removed = self
+            .with_set_mut(id, |values| {
+                let removed = values.len();
+                values.clear();
+                removed
+            })
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
+            })?;
         self.release_heap_units(removed);
-        Some(())
+        Ok(())
     }
 
     pub fn struct_layout(&self, id: HeapObjectId) -> Option<crate::module::StructLayoutRef> {
@@ -1440,7 +1470,7 @@ mod tests {
         );
 
         assert_eq!(
-            heap.map_remove(map, &Value::Str("b".to_owned())),
+            heap.map_remove(map, &Value::Str("b".to_owned())).unwrap(),
             Some(Value::I32(3))
         );
         assert_eq!(heap.stats().current_heap_units, 3);
@@ -1478,10 +1508,7 @@ mod tests {
         assert_eq!(heap.stats().current_heap_units, 4);
         assert_eq!(heap.set_insert(set, Value::Str("a".to_owned())), Ok(false));
         assert_eq!(heap.stats().current_heap_units, 4);
-        assert_eq!(
-            heap.set_remove(set, &Value::Str("b".to_owned())),
-            Some(true)
-        );
+        assert_eq!(heap.set_remove(set, &Value::Str("b".to_owned())), Ok(true));
         assert_eq!(heap.stats().current_heap_units, 3);
         heap.set_clear(set).unwrap();
         assert_eq!(heap.set_snapshot(set), Some(vec![]));
@@ -1563,5 +1590,47 @@ mod tests {
         let _root = heap.root_value(Value::Array(array)).unwrap();
 
         assert_eq!(heap.trace_roots().unwrap(), vec![array, record]);
+    }
+    #[test]
+    fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() {
+        let heap = GcHeap::new(Default::default(), Default::default());
+        let array = heap.alloc_array(vec![]).unwrap();
+        let map = heap.alloc_map(vec![]).unwrap();
+        let set = heap.alloc_set(vec![]).unwrap();
+        assert_eq!(heap.array_pop(array).unwrap(), None);
+        assert_eq!(heap.array_remove(array, 0).unwrap(), None);
+        assert_eq!(heap.map_remove(map, &Value::I32(1)).unwrap(), None);
+        assert!(!heap.set_remove(set, &Value::I32(1)).unwrap());
+        assert!(heap.map_remove(map, &Value::Tuple(vec![])).is_err());
+        assert!(heap.set_remove(set, &Value::Tuple(vec![])).is_err());
+        let guards = [Value::Array(array), Value::Map(map), Value::Set(set)]
+            .map(|value| heap.begin_collection_iteration(&value).unwrap());
+        let before = heap.stats().current_heap_units;
+        for result in [
+            heap.array_pop(array).map(|_| ()),
+            heap.array_remove(array, 0).map(|_| ()),
+            heap.array_clear(array),
+            heap.map_remove(map, &Value::I32(1)).map(|_| ()),
+            heap.map_clear(map),
+            heap.set_remove(set, &Value::I32(1)).map(|_| ()),
+            heap.set_clear(set),
+        ] {
+            let error = result.unwrap_err();
+            assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+            assert_eq!(error.message(), "structural modification during iteration");
+        }
+        assert_eq!(heap.stats().current_heap_units, before);
+        drop(guards);
+        heap.array_clear(array).unwrap();
+        heap.map_clear(map).unwrap();
+        heap.set_clear(set).unwrap();
+        heap.collect(&[]).unwrap();
+        assert!(heap.array_pop(array).is_err());
+        assert!(heap.array_remove(array, 0).is_err());
+        assert!(heap.array_clear(array).is_err());
+        assert!(heap.map_remove(map, &Value::I32(1)).is_err());
+        assert!(heap.map_clear(map).is_err());
+        assert!(heap.set_remove(set, &Value::I32(1)).is_err());
+        assert!(heap.set_clear(set).is_err());
     }
 }

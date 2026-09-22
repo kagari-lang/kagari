@@ -159,7 +159,8 @@ fn array_pop(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .expect("validated final array index");
     let result = option_some(gc, value)?;
     gc.array_pop(handle)
-        .expect("prepared array pop must commit");
+        .map_err(BuiltinError::from)?
+        .expect("prepared array pop must contain a value");
     Ok(result)
 }
 
@@ -189,7 +190,8 @@ fn array_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     };
     let result = option_some(gc, value)?;
     gc.array_remove(*handle, index)
-        .expect("prepared array removal must commit");
+        .map_err(BuiltinError::from)?
+        .expect("prepared array removal must contain a value");
     Ok(result)
 }
 
@@ -199,7 +201,7 @@ fn array_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .map_err(BuiltinError::from)?;
     gc.array_clear(handle)
         .map(|_| Value::Array(handle))
-        .ok_or_else(|| BuiltinError::new("array.clear expects valid array handle"))
+        .map_err(BuiltinError::from)
 }
 
 fn map_new(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -270,7 +272,8 @@ fn map_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     };
     let result = option_some(gc, value)?;
     gc.map_remove(*handle, key)
-        .expect("prepared map removal must commit");
+        .map_err(BuiltinError::from)?
+        .expect("prepared map removal must contain a value");
     Ok(result)
 }
 
@@ -280,7 +283,7 @@ fn map_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .map_err(BuiltinError::from)?;
     gc.map_clear(handle)
         .map(|_| Value::Map(handle))
-        .ok_or_else(|| BuiltinError::new("map.clear expects valid map handle"))
+        .map_err(BuiltinError::from)
 }
 
 fn map_keys(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -368,7 +371,7 @@ fn set_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .map_err(BuiltinError::from)?;
     gc.set_remove(*handle, item)
         .map(Value::Bool)
-        .ok_or_else(|| BuiltinError::new("set.remove expects valid set handle"))
+        .map_err(BuiltinError::from)
 }
 
 fn set_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -377,7 +380,7 @@ fn set_clear(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .map_err(BuiltinError::from)?;
     gc.set_clear(handle)
         .map(|_| Value::Set(handle))
-        .ok_or_else(|| BuiltinError::new("set.clear expects valid set handle"))
+        .map_err(BuiltinError::from)
 }
 
 fn set_to_array(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {

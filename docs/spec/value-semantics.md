@@ -97,3 +97,10 @@ Pending snapshot values are explicit roots, so callback-driven replacement and
 collection do not invalidate later callback arguments. This runtime API is a
 foundation for source iteration; full source callback/for-loop lowering and its
 exit-path acceptance remain tracked separately in the foundation roadmap.
+
+Heap pop/remove/clear APIs return `Result` for operational failure. `Ok(None)`
+from Array pop/remove or Map remove, and `Ok(false)` from Set remove, indicate
+normal absence only. Invalid keys/handles, iteration protection and execution
+rejection are errors. Clear returns `Result<(), RuntimeError>`. Standard helpers
+preserve this distinction and check iteration protection before allocating their
+script-level Option result; rejected operations do not change contents or quota.

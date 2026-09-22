@@ -11,7 +11,11 @@ fn main() {
     gc.array_set(id, 0, Value::I32(42)).unwrap();
     assert!(gc.array_push(id, Value::I32(2)).is_err());
     assert_eq!(gc.array_len(id), Some(1));
+    assert!(gc.array_pop(id).is_err());
     drop(iteration);
     gc.array_push(id, Value::I32(2)).unwrap();
     assert_eq!(gc.array_len(id), Some(2));
+    assert_eq!(gc.array_pop(id).unwrap(), Some(Value::I32(2)));
+    gc.array_clear(id).unwrap();
+    assert_eq!(gc.array_pop(id).unwrap(), None);
 }
