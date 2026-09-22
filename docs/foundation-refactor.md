@@ -409,6 +409,11 @@ Implemented foundation slices:
   diagnostics. Tests verify inferred/explicit enum paths, preserved inner and
   payload errors, no unused concrete layout and skipped later operand effects
   across source/artifact/JIT fallback.
+  Struct fields likewise exclude terminating expressions from generic inference
+  and assignment comparison; missing/duplicate/unknown field checks remain.
+  IR delays Struct result layouts until all field values complete. Inferred and
+  explicit generic Struct fixtures verify inner errors, invalid later fields and
+  skipped later effects across source/artifact/JIT fallback.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

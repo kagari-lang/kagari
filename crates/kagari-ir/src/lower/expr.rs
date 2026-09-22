@@ -44,7 +44,7 @@ impl FunctionLowerer<'_, '_> {
         self.planner.check()?;
         if !matches!(
             self.analyzed.lowered.module.expr(expr_id).kind,
-            hir::ExprKind::Call { .. }
+            hir::ExprKind::Call { .. } | hir::ExprKind::StructInit { .. }
         ) && self
             .analyzed
             .typed
@@ -446,6 +446,7 @@ impl FunctionLowerer<'_, '_> {
                 value,
             });
         }
+        self.record_expr_layout(expr_id)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeStruct {
             dst,

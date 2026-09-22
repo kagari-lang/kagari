@@ -2484,6 +2484,7 @@ impl<'a> BodyChecker<'a> {
             );
         }
         let mut field_tys = Vec::with_capacity(fields.len());
+        let mut completes = true;
         for field in fields {
             if self.cancel.check().is_err() {
                 return TypeId::Unknown;
@@ -2498,7 +2499,16 @@ impl<'a> BodyChecker<'a> {
                     .argument_context(&substitution, &struct_def.generic_params)
             });
             let actual = self.infer_expr_type_expected(field.value, env, expected.as_ref());
-            if let Some(parameter) = parameter
+            let Ok(field_completes) = super::completion::expr_can_complete(
+                &self.lowered.module,
+                field.value,
+                self.cancel,
+            ) else {
+                return TypeId::Unknown;
+            };
+            completes &= field_completes;
+            if field_completes
+                && let Some(parameter) = parameter
                 && super::inference::infer(
                     &parameter.ty,
                     &actual,
@@ -2510,14 +2520,14 @@ impl<'a> BodyChecker<'a> {
             {
                 return TypeId::Unknown;
             }
-            field_tys.push((field.name.as_str(), field.value, actual));
+            field_tys.push((field.name.as_str(), field.value, actual, field_completes));
         }
         let arguments = self.finish_inferred_arguments(
             &mut substitution,
             &struct_def.generic_params,
             path,
             expr_id,
-            false,
+            !completes,
         );
         let mut seen = HashSet::new();
         let resolved = super::ResolvedStructInit {
@@ -2533,7 +2543,9 @@ impl<'a> BodyChecker<'a> {
                 })
                 .collect(),
         };
-        for ((name, value_expr, value_ty), target) in field_tys.iter().zip(&resolved.fields) {
+        for ((name, value_expr, value_ty, field_completes), target) in
+            field_tys.iter().zip(&resolved.fields)
+        {
             if !seen.insert((*name).to_owned()) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
@@ -2563,7 +2575,7 @@ impl<'a> BodyChecker<'a> {
             else {
                 continue;
             };
-            if expected.conflicts_with(value_ty) {
+            if *field_completes && expected.conflicts_with(value_ty) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
                         expected: display_type_id(&expected),

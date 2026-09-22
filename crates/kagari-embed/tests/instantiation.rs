@@ -542,3 +542,15 @@ fn terminating_enum_payloads_skip_unresolved_layouts_and_later_effects() {
         );
     }
 }
+
+#[test]
+fn terminating_struct_fields_skip_unused_layouts_and_remaining_effects() {
+    for constructor in ["Item", "Item<i32>"] {
+        execute_contextual_source(
+            &format!(
+                "struct Item<T> {{ val value: T, val flag: bool }} struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {constructor} {{ value: if tick(count) {{ return 40; }} else {{ return 0; }}, flag: tick(count) }}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

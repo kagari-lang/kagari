@@ -1905,3 +1905,48 @@ fn enum_payloads_follow_function_argument_completion_rules() {
     )));
     assert!(analysis.into_codegen().is_err());
 }
+
+#[test]
+fn struct_fields_infer_and_check_only_normally_produced_values() {
+    for constructor in ["Item", "Item<i32>"] {
+        for (fields, valid) in [
+            (
+                "value: if true { return 42; } else { return 7; }, flag: true",
+                true,
+            ),
+            ("value: if true { return 42; } else { 7 }, flag: true", true),
+            (
+                "value: if true { return false; } else { return 7; }, flag: true",
+                false,
+            ),
+            (
+                "value: if true { return 42; } else { return 7; }, flag: 7",
+                false,
+            ),
+            ("value: if true { return 42; } else { return 7; }", false),
+            (
+                "value: if true { return 42; } else { return 7; }, flag: true, extra: 0",
+                false,
+            ),
+            (
+                "value: if true { return 42; } else { return 7; }, flag: true, flag: true",
+                false,
+            ),
+        ] {
+            let source = format!(
+                "struct Item<T> {{ val value: T, val flag: bool }} fn main() -> i32 {{ {constructor} {{ {fields} }}; 0 }}"
+            );
+            let analysis = crate::analyze_source(
+                &SourceFile::new("struct-completion.kgr", source.clone()),
+                Default::default(),
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{source}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+        }
+    }
+}

@@ -601,6 +601,11 @@ Enum payload arguments use the same parameter comparison rule. A constructor
 terminated by a payload does not require otherwise missing generic arguments or
 a concrete enum layout. Explicit type arguments, payload arity and independently
 invalid normally completing payload values remain checked.
+Struct field initializers follow the same value-production rule: terminating
+fields supply no generic inference constraint or assigned value. A construction
+that exits during field evaluation requires no missing generic arguments or
+result layout. Missing, duplicate and unknown fields, and independently invalid
+normally completing field values, still receive diagnostics.
 The same termination rule applies to operators and runtime helper arguments.
 A short-circuit operator can still complete along the path that skips its right
 operand. A return during a while condition or assignment RHS exits the function
