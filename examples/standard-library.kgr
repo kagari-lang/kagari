@@ -124,6 +124,9 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert(empty_numbers().is_empty(), "empty array return context");
     scores.insert("alice", 10);
     scores.insert("bob", 12);
+    val projected_scores = scores.values();
+    projected_scores.push(99);
+    std::debug::assert_eq(scores.len(), [0, 0].len(), "projection has independent structure");
 
     val names: Set<String> = std::set::new();
     names.insert("alice");

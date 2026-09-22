@@ -127,6 +127,10 @@ Implemented foundation slices:
   need implementation and fixtures before R02 can be checked off.
   Enum payload equality, distinct mutable enum members, shallow container copies,
   and rejection of interface equality now run through these same routes.
+  Map/Set parameter and return aliases, identity inequality for equal contents,
+  shallow map-value projections, independent set-to-array structure, and Map
+  identity inside enum/tuple members now have the same three-route fixtures.
+  These are JIT/fallback fixtures; they do not claim native container compilation.
   Integer arithmetic traps, retained pre-trap host effects and budget precedence
   now use these routes too; selected fixtures require actual native invocation.
   Plain and compound assignment fixtures cover computed roots, single index

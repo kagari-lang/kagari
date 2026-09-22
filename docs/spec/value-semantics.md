@@ -76,3 +76,10 @@ tuple does not replace the tuple.
 - Structural mutation through an alias during iteration fails without mutation.
 - A compound assignment evaluates root/index/RHS once, reads after RHS, and never
   writes after a failed RHS, invalidated location, or overflow.
+
+The shared `language_contract` suite checks Map and Set identity through arguments
+and return values, including distinct collections with equal contents. It also
+checks `Map.values()` sharing mutable element objects while creating independent
+array structure, and `Set.to_array()` allowing independent element replacement
+and growth. Enum/tuple member comparisons retain Map identity after mutation.
+These fixtures run through source, artifact loading and the existing JIT/fallback.
