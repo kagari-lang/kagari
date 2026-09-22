@@ -255,7 +255,7 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
         .snapshot(sources.snapshot(), profile, &Default::default())
         .unwrap();
     let updated = second.file(id).unwrap();
-    assert_eq!(updated.result().facts().typed.reused_bodies, 0);
+    assert_eq!(updated.result().facts().typed.reused_bodies, 1);
     for (offset, old) in uses.iter().zip([left, right, left]) {
         let current = updated
             .definition_at(offset + edit.len() - text.len())

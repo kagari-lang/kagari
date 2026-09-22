@@ -29,8 +29,10 @@ impl BodyReuse<'_> {
                     })
             })
         }) && self.previous_lowered.source.module_identity() == current.source.module_identity()
-            && environment(self.previous_lowered, self.old_text)
-                == environment(current, self.new_text)
+            && same_environment_tokens(
+                &environment(self.previous_lowered, self.old_text),
+                &environment(current, self.new_text),
+            )
     }
     pub(crate) fn restore(
         &self,
@@ -80,6 +82,22 @@ impl BodyReuse<'_> {
     }
 }
 
+// Compare token boundaries and literal contents, never concatenated spellings:
+// dropping trivia must not turn `a b` into `ab` or alter a string literal.
+fn same_environment_tokens(old: &str, new: &str) -> bool {
+    let old_tokens = kagari_syntax::lexer::lex(old);
+    let new_tokens = kagari_syntax::lexer::lex(new);
+    let significant = |token: &&kagari_syntax::token::Token| !token.kind.is_trivia();
+    old_tokens
+        .iter()
+        .filter(significant)
+        .map(|token| (&token.kind, &old[token.span.start..token.span.end]))
+        .eq(new_tokens
+            .iter()
+            .filter(significant)
+            .map(|token| (&token.kind, &new[token.span.start..token.span.end])))
+}
+
 fn environment(module: &LoweredModule, text: &str) -> String {
     let mut bodies = module
         .module
@@ -107,6 +125,23 @@ fn environment(module: &LoweredModule, text: &str) -> String {
 mod tests {
     use super::*;
     use kagari_common::{Diagnostic, DiagnosticKind, SourceFile, Span};
+
+    #[test]
+    fn environment_tokens_ignore_only_trivia() {
+        assert!(same_environment_tokens(
+            "const label: String = \"// 中 😀\";",
+            "// moved 中 😀\r\nconst label : String = \"// 中 😀\" ;"
+        ));
+        for (old, new) in [
+            ("a b", "ab"),
+            ("1 2", "12"),
+            ("\"a b\"", "\"ab\""),
+            ("\"// a\"", "\"// b\""),
+            ("val value: i32", "val value: bool"),
+        ] {
+            assert!(!same_environment_tokens(old, new), "{old} vs {new}");
+        }
+    }
 
     #[test]
     fn reuse_distinguishes_global_point_and_neighbor_diagnostics() {

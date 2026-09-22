@@ -390,6 +390,7 @@ fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
             )
             .unwrap();
         let moved = query(&mut db, &sources, &edit);
+        assert_eq!(moved.reused_bodies(), usize::from(valid));
 
         assert_eq!(
             moved.member_receiver_type(offset + "// moved 😀\r\n".len()),

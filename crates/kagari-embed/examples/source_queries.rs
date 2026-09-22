@@ -314,5 +314,22 @@ fn main() -> kagari_embed::CompileResult<()> {
     println!(
         "applied generic bounds are checked by signatures; the neighboring good body stays queryable"
     );
+    let clean = "fn good(value: i32) -> i32 { value + 1 }";
+    engine.set_source(source_name, clean.into(), SourceLayer::Overlay)?;
+    let original = engine
+        .body(engine.source_snapshot(), good, &Default::default())?
+        .expect("clean body");
+    assert!(original.diagnostics().is_empty());
+    engine.set_source(
+        source_name,
+        format!("// 文档 😀\r\n{clean}"),
+        SourceLayer::Overlay,
+    )?;
+    let moved = engine
+        .body(engine.source_snapshot(), good, &Default::default())?
+        .expect("shifted body");
+    assert_eq!(moved.reused_bodies(), 1);
+    assert_eq!(moved.checked_bodies(), 0);
+    println!("leading comment edits reuse body facts with updated source locations");
     Ok(())
 }

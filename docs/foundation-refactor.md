@@ -206,6 +206,10 @@ R05 acceptance evidence:
   types, exact-cache sharing, unchanged-body remapping, fresh local identities,
   same-named impl and cross-module identities, dependency signature invalidation,
   deletion and stale/cancelled publication. Results match fresh analysis.
+  Declaration-environment comparison ignores lexer trivia, so leading Unicode
+  comments and CRLF shifts reuse unchanged checked bodies while rebasing query
+  locations. Token boundaries and literal contents remain significant; declaration
+  type changes invalidate reuse. Bodies with diagnostics are still rechecked.
 - [Snapshot integration](../crates/kagari-embed/tests/source_snapshots.rs) compares
   artifacts after cache reuse with fresh compilation and checks source/profile
   invalidation. Existing analysis/identity/import tests cover queries on erroneous
