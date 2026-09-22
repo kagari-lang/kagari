@@ -16,7 +16,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
         first
             .gc()
             .array_set(own, 0, Value::Tuple(vec![Value::Array(foreign)]))
-            .is_none()
+            .is_err()
     );
     assert!(
         first

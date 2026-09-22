@@ -104,3 +104,10 @@ normal absence only. Invalid keys/handles, iteration protection and execution
 rejection are errors. Clear returns `Result<(), RuntimeError>`. Standard helpers
 preserve this distinction and check iteration protection before allocating their
 script-level Option result; rejected operations do not change contents or quota.
+
+Array element and Struct field-slot replacement return `Result<(), RuntimeError>`.
+Invalid payloads, slots, layouts and write permissions fail before assignment.
+They preserve execution-rejection categories instead of collapsing failure into
+`None`. Reflective writes translate ordinary script errors to reflective-write
+errors, but retain engine-fault categories. An internal struct storage/layout
+inconsistency quarantines the runtime; it is not an ordinary script error.

@@ -1289,7 +1289,7 @@ impl Runtime {
         self.validate_reflection_write_boundary()?;
         self.resources.consume_reflection_operation()?;
         reflection::set_field(&self.gc, value, field_name, next_value)
-            .map_err(|error| RuntimeError::invalid_reflective_write(error.message()))
+            .map_err(reflection::ReflectionError::into_write_error)
     }
 
     pub fn reflect_set_index(
@@ -1301,7 +1301,7 @@ impl Runtime {
         self.validate_reflection_write_boundary()?;
         self.resources.consume_reflection_operation()?;
         reflection::set_index(&self.gc, value, index, next_value)
-            .map_err(|error| RuntimeError::invalid_reflective_write(error.message()))
+            .map_err(reflection::ReflectionError::into_write_error)
     }
 
     pub fn invoke_standard_builtin(

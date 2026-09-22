@@ -141,6 +141,11 @@ Implemented foundation slices:
   iteration, invalid-key/handle and execution rejection. Callers were replaced
   directly, and tests cover empty collections, stale handles, quota preservation
   and candidate initialization rejection without legacy Option-only adapters.
+  Array element and Struct slot replacement now return Results too, preserving
+  execution failures through VM writes and retaining reflective internal-fault
+  categories. A corrupted struct storage/layout invariant quarantines its runtime;
+  tests verify failed replacements preserve targets and subsequent writes fail.
+  Ordinary VM array bounds failures retain their existing InvalidIndex outcome.
   The runtime example `collection_iteration` demonstrates host guard ownership.
   Source callback/for-loop integration and their cross-route cleanup tests remain
   outstanding; this runtime substrate does not complete iteration acceptance.

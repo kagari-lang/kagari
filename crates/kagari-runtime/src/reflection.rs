@@ -1,19 +1,34 @@
-use crate::{gc::GcHeap, value::Value};
+use crate::{RuntimeError, RuntimeErrorKind, gc::GcHeap, value::Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectionError {
-    message: String,
+    error: RuntimeError,
 }
 
 impl ReflectionError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
+            error: RuntimeError::new(RuntimeErrorKind::ScriptTrap, message),
         }
     }
 
     pub fn message(&self) -> &str {
-        &self.message
+        self.error.message()
+    }
+    pub fn kind(&self) -> RuntimeErrorKind {
+        self.error.kind()
+    }
+    pub(crate) fn into_write_error(self) -> RuntimeError {
+        if self.error.kind() == RuntimeErrorKind::ScriptTrap {
+            RuntimeError::invalid_reflective_write(self.error.message())
+        } else {
+            self.error
+        }
+    }
+}
+impl From<RuntimeError> for ReflectionError {
+    fn from(error: RuntimeError) -> Self {
+        Self { error }
     }
 }
 
@@ -81,11 +96,8 @@ pub fn set_field(
     match value {
         Value::Struct(handle) => {
             let (layout, slot) = resolve_field(gc, *handle, field_name)?;
-            let Some(()) = gc.struct_set_slot(*handle, &layout, slot, next_value) else {
-                return Err(ReflectionError::new(
-                    "field is read-only or value has the wrong representation",
-                ));
-            };
+            gc.struct_set_slot(*handle, &layout, slot, next_value)
+                .map_err(ReflectionError::from)?;
             Ok(Value::Struct(*handle))
         }
         _ => Err(ReflectionError::new(
@@ -118,9 +130,8 @@ pub fn set_index(
 
     match value {
         Value::Array(handle) => {
-            let Some(()) = gc.array_set(*handle, index, next_value) else {
-                return Err(ReflectionError::new(format!("invalid index `{index}`")));
-            };
+            gc.array_set(*handle, index, next_value)
+                .map_err(ReflectionError::from)?;
             Ok(Value::Array(*handle))
         }
         Value::Tuple(elements) => {

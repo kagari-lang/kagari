@@ -439,7 +439,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                                 }
                                 "mutate" => {
                                     assert!(
-                                        runtime.gc().array_set(array, 0, Value::I32(2)).is_none()
+                                        runtime.gc().array_set(array, 0, Value::I32(2)).is_err()
                                     );
                                     runtime.resources().ensure_execution_allowed().unwrap_err()
                                 }

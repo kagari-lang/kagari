@@ -557,17 +557,30 @@ impl GcHeap {
         Ok(())
     }
 
-    pub fn array_set(&self, id: HeapObjectId, index: usize, value: Value) -> Option<()> {
-        self.ensure_execution_allowed().ok()?;
+    pub fn array_set(
+        &self,
+        id: HeapObjectId,
+        index: usize,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) {
-            return None;
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap payload",
+            ));
         }
         self.with_array_mut(id, |elements| {
-            let slot = elements.get_mut(index)?;
+            let slot = elements.get_mut(index).ok_or_else(|| {
+                RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    format!("invalid index `{index}`"),
+                )
+            })?;
             *slot = value;
-            Some(())
+            Ok(())
         })
-        .flatten()
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
     pub fn map_len(&self, id: HeapObjectId) -> Option<usize> {
@@ -761,23 +774,38 @@ impl GcHeap {
         expected: &crate::module::StructLayoutRef,
         slot: usize,
         next_value: Value,
-    ) -> Option<()> {
-        self.ensure_execution_allowed().ok()?;
+    ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
         if !self.valid_payload(&next_value) {
-            return None;
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid heap payload",
+            ));
         }
         self.with_struct_mut(id, |layout, fields| {
             if !layout.matches(expected) {
-                return None;
+                return Err(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "struct layout mismatch",
+                ));
             }
-            let field = layout.layout().fields.get(slot)?;
+            let field = layout.layout().fields.get(slot).ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid field slot")
+            })?;
             if !field.mutable || !next_value.has_representation(field.ty) {
-                return None;
+                return Err(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "field is read-only or value has the wrong representation",
+                ));
             }
-            *fields.get_mut(slot)? = next_value;
-            Some(())
+            let target = fields.get_mut(slot).ok_or_else(|| {
+                self.resources
+                    .quarantine("struct storage does not match its layout")
+            })?;
+            *target = next_value;
+            Ok(())
         })
-        .flatten()
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
@@ -1381,7 +1409,7 @@ mod tests {
             .unwrap();
 
         assert!(heap.array_push(array, shared_borrow_value(1)).is_err());
-        assert!(heap.array_set(array, 0, path_view_value(4)).is_none());
+        assert!(heap.array_set(array, 0, path_view_value(4)).is_err());
         assert!(
             heap.struct_set_slot(
                 record,
@@ -1389,7 +1417,7 @@ mod tests {
                 0,
                 host_root_value(5)
             )
-            .is_none()
+            .is_err()
         );
 
         assert_eq!(heap.array_snapshot(array), Some(vec![Value::I32(1)]));
@@ -1632,5 +1660,60 @@ mod tests {
         assert!(heap.map_clear(map).is_err());
         assert!(heap.set_remove(set, &Value::I32(1)).is_err());
         assert!(heap.set_clear(set).is_err());
+    }
+    #[test]
+    fn replacement_errors_preserve_targets_and_internal_fault_categories() {
+        let resources = Rc::new(crate::resource::ResourceState::default());
+        let heap = GcHeap::new(Default::default(), resources.clone());
+        let array = heap.alloc_array(vec![Value::I32(1)]).unwrap();
+        let before = heap.stats().current_heap_units;
+        assert_eq!(
+            heap.array_set(array, 2, Value::I32(9)).unwrap_err().kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
+        assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
+        assert_eq!(heap.stats().current_heap_units, before);
+        let schema = layout("Record", "value", ValueType::I32);
+        let object = heap
+            .alloc_struct(schema.clone(), vec![Value::I32(7)])
+            .unwrap();
+        assert_eq!(
+            heap.struct_set_slot(object, &schema, 0, Value::Bool(false))
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
+        assert_eq!(
+            heap.struct_get_slot(object, &schema, 0),
+            Some(Value::I32(7))
+        );
+        // Simulate a broken engine invariant rather than a script type error.
+        heap.with_struct_mut(object, |_, fields| fields.clear())
+            .unwrap();
+        let error =
+            crate::reflection::set_field(&heap, &Value::Struct(object), "value", Value::I32(9))
+                .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+        assert_eq!(
+            error.into_write_error().kind(),
+            RuntimeErrorKind::EngineFault
+        );
+        assert!(resources.is_quarantined());
+        assert_eq!(
+            heap.array_set(array, 0, Value::I32(9)).unwrap_err().kind(),
+            RuntimeErrorKind::EngineFault
+        );
+        assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
+        let error = crate::reflection::set_index(
+            &heap,
+            &Value::Array(array),
+            &Value::I32(0),
+            Value::I32(9),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.into_write_error().kind(),
+            RuntimeErrorKind::EngineFault
+        );
     }
 }

@@ -38,19 +38,19 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
     assert!(heap.struct_get_slot(object, &foreign, 0).is_none());
     assert!(
         heap.struct_set_slot(object, &foreign, 0, Value::I32(99))
-            .is_none()
+            .is_err()
     );
     assert!(
         heap.struct_set_slot(object, &layout, 1, Value::Bool(false))
-            .is_none()
+            .is_err()
     );
     assert!(
         heap.struct_set_slot(object, &layout, 0, Value::Bool(false))
-            .is_none()
+            .is_err()
     );
     assert!(
         heap.struct_set_slot(object, &layout, usize::MAX, Value::I32(99))
-            .is_none()
+            .is_err()
     );
     assert!(
         reflection::set_field(heap, &Value::Struct(object), "fixed", Value::Bool(false)).is_err()
@@ -106,7 +106,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         runtime
             .gc()
             .struct_set_slot(object, &foreign, 0, Value::I32(2))
-            .is_none()
+            .is_err()
     );
 }
 
@@ -160,7 +160,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         runtime
             .gc()
             .struct_set_slot(object, &changed, 0, Value::I32(99))
-            .is_none()
+            .is_err()
     );
     assert_eq!(
         runtime.gc().struct_get_slot(object, &retained, 0),

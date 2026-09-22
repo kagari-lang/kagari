@@ -134,9 +134,7 @@ impl Executor<'_> {
                 .runtime
                 .gc()
                 .struct_set_slot(handle, &layout, field.slot as usize, value)
-                .ok_or(VmError::TypeMismatch(
-                    "struct layout, field permission or value mismatch",
-                )),
+                .map_err(VmError::from),
             _ => Err(VmError::TypeMismatch("write_field expects struct value")),
         }
     }
@@ -170,7 +168,19 @@ impl Executor<'_> {
                 self.runtime
                     .gc()
                     .array_set(handle, index, value)
-                    .ok_or(VmError::InvalidIndex(index))
+                    .map_err(|error| {
+                        if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
+                            && self
+                                .runtime
+                                .gc()
+                                .array_len(handle)
+                                .is_some_and(|len| index >= len)
+                        {
+                            VmError::InvalidIndex(index)
+                        } else {
+                            VmError::from(error)
+                        }
+                    })
             }
             Value::Tuple(mut elements) => {
                 let Some(slot) = elements.get_mut(index) else {

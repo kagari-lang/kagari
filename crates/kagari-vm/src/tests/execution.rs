@@ -1717,10 +1717,14 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
         }
         let (runtime, loaded) = super::common::load_bytecode_module("wrong-receiver", bytecode);
         let mut vm = Vm::new(runtime);
-        assert!(matches!(
-            vm.execute(&loaded, "main"),
-            Err(VmError::TypeMismatch(_))
-        ));
+        let error = vm.execute(&loaded, "main").unwrap_err();
+        if write {
+            assert!(matches!(error, VmError::RuntimeError(ref error)
+                if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
+                    && error.message() == "struct layout mismatch"));
+        } else {
+            assert!(matches!(error, VmError::TypeMismatch(_)));
+        }
         let instance = vm.runtime().module_instance_snapshot(&loaded).unwrap();
         let Value::Struct(object) = instance.module_slots[0] else {
             panic!("expected stored receiver")

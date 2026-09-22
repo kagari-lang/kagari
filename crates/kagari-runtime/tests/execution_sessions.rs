@@ -440,7 +440,7 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     let heap = runtime.gc();
     assert!(heap.array_push(array, Value::I32(9)).is_err());
     assert!(heap.array_insert(array, 0, Value::I32(9)).is_err());
-    assert!(heap.array_set(array, 0, Value::I32(9)).is_none());
+    assert!(heap.array_set(array, 0, Value::I32(9)).is_err());
     assert!(heap.array_pop(array).is_err());
     assert!(heap.array_remove(array, 0).is_err());
     assert!(heap.array_clear(array).is_err());
