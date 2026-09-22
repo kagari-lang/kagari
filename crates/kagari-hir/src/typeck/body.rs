@@ -737,12 +737,27 @@ impl<'a> BodyChecker<'a> {
                     _ => None,
                 };
                 let mut element_ty: Option<TypeId> = None;
+                let mut reachable = true;
                 for expr in elements {
                     if self.cancel.check().is_err() {
                         return TypeId::Unknown;
                     }
                     let ty =
                         self.infer_expr_type_expected(*expr, env, member.or(element_ty.as_ref()));
+                    if !reachable {
+                        continue;
+                    }
+                    let Ok(completes) = super::completion::expr_can_complete(
+                        &self.lowered.module,
+                        *expr,
+                        self.cancel,
+                    ) else {
+                        return TypeId::Unknown;
+                    };
+                    if !completes {
+                        reachable = false;
+                        continue;
+                    }
                     if let Some(element_ty) = &mut element_ty {
                         if ty.conflicts_with(element_ty) {
                             self.diagnostics.push(

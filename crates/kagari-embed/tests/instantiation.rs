@@ -432,3 +432,11 @@ fn array_and_branch_context_execute_with_selected_branch_side_effects() {
         42,
     );
 }
+
+#[test]
+fn terminating_array_members_preserve_prefix_effects_and_skip_suffixes() {
+    execute_contextual_source(
+        "struct Count { var value: i32 } fn tick(count: Count) -> i32 { count.value += 1; count.value } fn run(count: Count) -> i32 { val items = [tick(count), if true { return 40; } else { return 40; }, true, tick(count)]; 0 } fn main() -> i32 { val count = Count { value: 1 }; run(count) + count.value }",
+        42,
+    );
+}

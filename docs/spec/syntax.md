@@ -419,6 +419,10 @@ later elements. An if branch that can complete normally supplies context to its
 else branch; prior reachable, normally completing match arms supply context to
 later reachable arms. Returning branches do not determine the result type, and
 explicit conflicting types still diagnose. This propagation is forward only.
+Array element-type merging includes only sequentially reachable, normally
+completing elements. If an element always returns, it and the following elements
+do not contribute to the array's element join. Following expressions still receive
+independent semantic diagnostics even though they will not execute.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the

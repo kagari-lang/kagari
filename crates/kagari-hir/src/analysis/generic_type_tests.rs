@@ -1593,3 +1593,44 @@ fn preceding_array_elements_and_completing_branches_supply_constructor_context()
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }
 }
+
+#[test]
+fn terminating_array_members_do_not_contribute_or_enable_later_type_joins() {
+    for (body, valid) in [
+        (
+            "val items = [if true { return 42; } else { return 42; }, true];",
+            true,
+        ),
+        (
+            "val items = [7, if true { return 42; } else { return 42; }, true];",
+            true,
+        ),
+        (
+            "val items: [i32] = [7, if true { return 42; } else { return 42; }, true];",
+            true,
+        ),
+        (
+            "val items = [7, true, if true { return 42; } else { return 42; }];",
+            false,
+        ),
+        (
+            "val items = [7, if true { return 42; } else { return 42; }, missing];",
+            false,
+        ),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "array-completion.kgr",
+                format!("fn main() -> i32 {{ {body} 0 }}"),
+            ),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+    }
+}

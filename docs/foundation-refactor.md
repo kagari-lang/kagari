@@ -366,6 +366,11 @@ Implemented foundation slices:
   result inference, and unreachable match arms retain independent checking.
   Explicit type conflicts remain rejected; execution fixtures count effects in
   array elements and selected branches across source/artifact/JIT routes.
+  Array element joins now stop at the first expression that cannot complete
+  normally. Terminating and subsequent elements keep independent diagnostics
+  but do not produce spurious homogeneous-element conflicts. Tests retain real
+  prefix conflicts and confirm prefix effects survive while suffix execution
+  is skipped across source/artifact/JIT routes.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body
