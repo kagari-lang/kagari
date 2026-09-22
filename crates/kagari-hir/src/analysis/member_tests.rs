@@ -443,3 +443,42 @@ fn readonly_assignments_retain_target_and_contextual_initializer_types() {
         );
     }
 }
+
+#[test]
+fn erroneous_array_indexes_retain_element_members_without_accepting_codegen() {
+    for index in ["true", "missing", ""] {
+        let text = format!(
+            "struct Item {{ val value: i32 }} fn bad(items: [Item]) {{ items[{index}].value; }} fn good() -> i32 {{ 42 }}"
+        );
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("index-members.kgr", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let file = snapshot.file(id).unwrap();
+        assert!(!file.result().diagnostics().is_empty(), "{index}");
+        assert!(snapshot.check_program(id, &Default::default()).is_err());
+        let member = text.find(".value").unwrap() + 1;
+        assert_eq!(
+            file.type_at(member),
+            Some(TypeId::Builtin(crate::types::BuiltinType::I32)),
+            "{index}"
+        );
+        let field = file.definition_at(member).expect("known element field");
+        assert_eq!(field.location.range.start, text.find("value").unwrap());
+        assert!(
+            matches!(file.member_receiver_type(member), Some(TypeId::Struct(ty)) if ty.declaration.path.last().unwrap().name == "Item")
+        );
+        assert_eq!(
+            file.type_at(text.rfind("42").unwrap()),
+            Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+        );
+        if index == "true" {
+            assert_eq!(file.result().diagnostics().len(), 1);
+            assert!(matches!(
+                file.result().diagnostics()[0].kind,
+                kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
+            ));
+        }
+    }
+}

@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04 array-index recovery checkpoint: invalid, unresolved and missing array
+  indexes retain the known element type for downstream field navigation and
+  receiver queries. Index diagnostics still reject code generation; tuple member
+  selection still requires a valid constant index. The source_queries example
+  demonstrates navigation after an invalid boolean array index.
+
 - R04 write-member receiver checkpoint: field-write places now participate in the
   same protocol-independent receiver query as field reads. Tests cover valid nested
   writes, unknown fields and incomplete trailing-dot targets, exact snapshot reuse,

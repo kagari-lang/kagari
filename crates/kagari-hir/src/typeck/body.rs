@@ -2741,7 +2741,13 @@ impl<'a> BodyChecker<'a> {
                 .with_span(self.lowered.source_map.expr_span(site)),
             );
         }
-        result
+        // An invalid index does not erase an array's known element contract.
+        // Keep the diagnostic above, but let downstream member queries recover.
+        // A tuple still needs a valid constant index to select a member.
+        result.or_else(|| match receiver {
+            TypeId::Array(element) => Some((**element).clone()),
+            _ => None,
+        })
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {
