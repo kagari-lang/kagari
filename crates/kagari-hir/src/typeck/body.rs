@@ -1670,21 +1670,17 @@ impl<'a> BodyChecker<'a> {
                 .with_span(self.lowered.source_map.expr_span(callee)),
             );
         }
-        for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
-            if let Some(param) = params.get(index) {
-                let expected = &param_types[index];
-                if expected.conflicts_with(arg_ty) {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                            function_name: name.clone(),
-                            parameter_name: param.name.clone(),
-                            expected: display_type_id(expected),
-                            found: display_type_id(arg_ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*arg_expr)),
-                    );
-                }
+        for (index, param) in params.iter().enumerate() {
+            if self.cancel.check().is_err() {
+                return Some(TypeId::Unknown);
             }
+            self.check_arg_type(
+                name,
+                &param.name,
+                param_types[index].clone(),
+                index,
+                &arg_tys,
+            );
         }
 
         Some(method.return_type.with_self(self_owner, &self_ty))
@@ -2027,28 +2023,17 @@ impl<'a> BodyChecker<'a> {
                 .with_span(self.lowered.source_map.expr_span(callee)),
             );
         }
-        for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
-            let Ok(completes) =
-                super::completion::expr_can_complete(&self.lowered.module, *arg_expr, self.cancel)
-            else {
+        for (index, param) in function.params.iter().enumerate() {
+            if self.cancel.check().is_err() {
                 return;
-            };
-            if !completes {
-                continue;
             }
-            if let Some(param) = function.params.get(index)
-                && param.ty.instantiate(substitution).conflicts_with(arg_ty)
-            {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                        function_name: function.name.clone(),
-                        parameter_name: param.name.clone(),
-                        expected: display_type_id(&param.ty.instantiate(substitution)),
-                        found: display_type_id(arg_ty),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(*arg_expr)),
-                );
-            }
+            self.check_arg_type(
+                &function.name,
+                &param.name,
+                param.ty.instantiate(substitution),
+                index,
+                arg_tys,
+            );
         }
     }
 
@@ -2639,6 +2624,14 @@ impl<'a> BodyChecker<'a> {
         let Some((arg_expr, found)) = args.get(index) else {
             return;
         };
+        let Ok(completes) =
+            super::completion::expr_can_complete(&self.lowered.module, *arg_expr, self.cancel)
+        else {
+            return;
+        };
+        if !completes {
+            return;
+        }
         if found.conflicts_with(&expected) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {

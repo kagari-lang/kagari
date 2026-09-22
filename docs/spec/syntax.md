@@ -589,6 +589,10 @@ nor a generic inference constraint. Such calls do not require missing generic
 arguments to be inferred, but arity checks and independent argument diagnostics
 still apply. An argument with a normally completing path must match the parameter
 type on that path.
+Script function, trait method and standard-library parameter type comparisons
+share this completion rule. This includes concrete standard parameters such as
+the bool condition and String message of debug assertions; arity remains checked
+even when argument evaluation will exit the enclosing function.
 The same termination rule applies to operators and runtime helper arguments.
 A short-circuit operator can still complete along the path that skips its right
 operand. A return during a while condition or assignment RHS exits the function

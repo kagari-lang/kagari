@@ -1790,3 +1790,34 @@ fn terminating_function_arguments_supply_no_value_or_generic_constraint() {
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn trait_and_standard_parameters_share_completion_aware_value_checks() {
+    for call in [
+        "value.take(ARG)",
+        r#"std::debug::assert(ARG, "unreachable"); 0"#,
+    ] {
+        for (argument, valid) in [
+            ("if true { return 42; } else { return 7; }", true),
+            ("if true { return 42; } else { true }", true),
+            ("if true { return 42; } else { 7 }", false),
+            ("if true { return false; } else { return 7; }", false),
+        ] {
+            let body = call.replace("ARG", argument);
+            let source = format!(
+                "trait Take {{ fn take(self, input: bool) -> i32; }} fn run<T: Take>(value: T) -> i32 {{ {body} }}"
+            );
+            let analysis = crate::analyze_source(
+                &SourceFile::new("shared-parameter-completion.kgr", source.clone()),
+                Default::default(),
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{source}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+        }
+    }
+}

@@ -389,6 +389,11 @@ Implemented foundation slices:
   invent missing generic-argument errors; arity and inner diagnostics remain.
   Source/artifact/JIT fallback coverage confirms that concrete and bounded generic
   calls skip callee side effects while retaining the terminating argument effect.
+  Script functions and trait methods now reuse the standard parameter comparison
+  entry, removing duplicated mismatch construction and applying the same
+  completion/cancellation checks. Trait and debug-assert fixtures cover valid
+  termination, wrong completing values, inner errors and source/artifact/JIT
+  execution with preserved operand effects.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

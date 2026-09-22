@@ -494,3 +494,18 @@ fn terminating_function_arguments_skip_calls_and_generic_instances() {
         );
     }
 }
+
+#[test]
+fn terminating_trait_and_standard_arguments_preserve_only_operand_effects() {
+    for body in [
+        "value.take(if tick(count) { return 40; } else { return 0; })",
+        r#"std::debug::assert(if tick(count) { return 40; } else { return 0; }, "unreachable"); 0"#,
+    ] {
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} trait Take {{ fn take(self, input: bool) -> i32; }} impl Take for Count {{ fn take(self, input: bool) -> i32 {{ self.value += 100; 0 }} }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run<T: Take>(value: T, count: Count) -> i32 {{ {body} }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count, count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}
