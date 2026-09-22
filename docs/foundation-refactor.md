@@ -1063,6 +1063,9 @@ Implemented foundation slices:
   or externally constructed HIR.
   Const validation and evaluation now share configurable per-file step/depth
   budgets (100,000/64 by default), with one positioned exhaustion diagnostic.
+  Unsupported const types also consume a root step before rejection; zero/small
+  budget fixtures verify that invalid declarations cannot bypass the quota and
+  exhaustion stops further constant diagnostics while good body facts survive.
   Tests cover exact/zero budgets, short-circuit work, 1,000-level dependencies,
   retained neighboring body facts, cancellation, and same-revision invalidation
   of full and single-body queries while old snapshots remain usable.

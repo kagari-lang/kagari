@@ -550,6 +550,8 @@ evaluation budget: `max_steps` defaults to 100,000 and `max_depth` to 64. Enteri
 an initializer expression in either phase charges one step and one active depth
 level; returning releases depth. Constant dependency visits retain the caller's
 depth. Cached constant results are reused without reevaluating their initializer.
+Validation charges the initializer root before rejecting an unsupported const
+type, so invalid declarations consume the same root budget as valid ones.
 Validation visits both logical operands; evaluation charges only the operands
 actually evaluated under short-circuit rules. A literal constant therefore costs
 two steps across the two phases. Zero steps permits a file without constants.

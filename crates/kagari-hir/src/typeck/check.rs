@@ -1053,7 +1053,7 @@ fn validate_const_initializers(
 
     impl ConstValidator<'_> {
         fn validate_const(&mut self, const_id: ConstId) {
-            if self.cancel.check().is_err() {
+            if self.budget.exhausted || self.cancel.check().is_err() {
                 return;
             }
             match self.states.get(&const_id) {
@@ -1071,6 +1071,18 @@ fn validate_const_initializers(
                 None => {}
             }
 
+            let initializer = self.lowered.module.constant(const_id).initializer;
+            if !self.budget.enter(
+                self.lowered.source_map.expr_span(initializer),
+                self.diagnostics,
+            ) {
+                return;
+            }
+            self.validate_const_inner(const_id);
+            self.budget.leave();
+        }
+
+        fn validate_const_inner(&mut self, const_id: ConstId) {
             self.states.insert(const_id, ConstVisitState::Visiting);
             let const_item = self.lowered.module.constant(const_id);
             if let Some(const_ty) = self.top_level_index.consts.get(&const_id)
@@ -1090,7 +1102,11 @@ fn validate_const_initializers(
                 return;
             }
 
-            self.validate_const_expr(const_item.id, const_item.initializer);
+            // The root was charged before checking whether its type is const-safe.
+            self.validate_const_expr_inner(const_item.id, const_item.initializer);
+            if self.budget.exhausted || self.cancel.check().is_err() {
+                return;
+            }
             let const_item = self.lowered.module.constant(const_id);
             if let (Some(declared), Some(actual)) = (
                 self.top_level_index.consts.get(&const_id),
@@ -1218,6 +1234,9 @@ fn validate_const_initializers(
         }
 
         fn emit_invalid_const(&mut self, owner: ConstId, expr_id: ExprId, reason: &'static str) {
+            if self.budget.exhausted || self.cancel.check().is_err() {
+                return;
+            }
             let const_item = self.lowered.module.constant(owner);
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidConstInitializer {

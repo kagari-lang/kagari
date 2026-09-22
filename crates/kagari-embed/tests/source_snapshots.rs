@@ -714,3 +714,65 @@ fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
         Err(EmbeddingError::Cancelled)
     ));
 }
+
+#[test]
+fn invalid_const_types_cannot_bypass_validation_budget() {
+    use kagari_common::DiagnosticKind;
+    for max_steps in [0, 1, 3] {
+        let engine = KagariEngine::default();
+        engine.set_const_limits(kagari_embed::ConstLimits {
+            max_steps,
+            max_depth: 64,
+        });
+        let mut text = String::from("fn good(value: i32) -> i32 { value } ");
+        for index in 0..100 {
+            text.push_str(&format!("const C{index}: [i32] = [1]; "));
+        }
+        let id = engine
+            .set_source(
+                "memory://invalid-consts.kgr",
+                text.clone(),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let analysis = engine
+            .analyze(
+                engine.source_snapshot(),
+                Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+        let file = analysis.file(id).unwrap();
+        let diagnostics = file.result().diagnostics();
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|d| matches!(d.kind, DiagnosticKind::InvalidConstInitializer { .. }))
+                .count(),
+            max_steps
+        );
+        let limits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.kind,
+                    DiagnosticKind::CompileLimitExceeded {
+                        resource: "const steps",
+                        ..
+                    }
+                )
+            })
+            .collect();
+        assert_eq!(limits.len(), 1);
+        let span = limits[0].span.unwrap();
+        assert_eq!(&text[span.start..span.end], "[1]");
+        assert!(span.start > text.find(&format!("const C{max_steps}:")).unwrap());
+        assert_eq!(
+            file.type_at("fn good(value: i32) -> i32 { ".len()),
+            Some(kagari_hir::types::TypeId::Builtin(
+                kagari_hir::types::BuiltinType::I32
+            ))
+        );
+        assert!(analysis.check_program(id, &Default::default()).is_err());
+    }
+}
