@@ -141,6 +141,14 @@ They are not exposed as unrestricted core standard modules.
 ## HIR, Resolution, and Type System
 
 HIR is the first semantic representation.
+
+Normal-completion analysis is independent of produced value types. Its evaluator
+uses an explicit work stack over expressions, blocks, statements and places;
+lazy child traversal stops after termination and after an irrefutable match arm.
+Loops consume their own break exits. Each work step checks cancellation, which
+returns cancellation rather than a fabricated completion fact. This removes
+native-stack recursion from this analysis; it does not imply that all frontend
+traversals or resource limits are complete.
 It should erase parser trivia and expose stable semantic nodes for later passes.
 
 HIR and semantic analysis own:

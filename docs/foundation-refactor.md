@@ -433,6 +433,12 @@ Implemented foundation slices:
   unknown when no index is produced. HIR retains receiver/writeability failures;
   source/artifact/JIT tests cover reads, ordinary/compound writes and reflection
   writes, including skipped RHS side effects.
+  The shared completion evaluator now uses a cancellable explicit work stack
+  instead of recursive expression/block/place traversal. Lazy sequences preserve
+  early termination and match-arm reachability. Tests cover 20,000 nested
+  expression/block layers, 20,000 place layers, no subsequent operand request
+  after termination and cancellation during operand acquisition. Other frontend
+  depth limits and recursive traversals remain R15 work.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
