@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R07 unused public-template checkpoint: the shared ABI validator rejects empty
+  aggregate/member names, duplicate aggregate/member names and mixed struct/enum
+  members before layout matching, even without an executable instance. Ten malformed
+  template cases exercise both IR and bytecode rejection. Redundant enum binder and
+  aggregate-shape checks were removed from layout matching; the ABI validator owns
+  these facts. The layouts example includes an unused generic public declaration.
+
 - R07 executable identity checkpoint: shared IR/bytecode layout validation rejects
   noncanonical aggregate paths and nonzero declaration/member occurrences. Six
   tampering regressions cover struct/enum parents, fields and variants while keeping

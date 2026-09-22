@@ -53,7 +53,11 @@ checks nested field values before allocation or replacement, including nominal
 identity and container element types. Prior representation-only layouts are rejected.
 Validation compares concrete struct instances with their public templates, including
 instances emitted only by dependent modules. Equal physical representations do not
-permit different field types or permissions.
+permit different field types or permissions. Public aggregate templates are validated
+even without executable instances: declaration and member names must be nonempty,
+aggregate names and member names must be unique in their respective scopes, and
+structs cannot carry variants nor enums fields. The same check validates binders
+and member types for IR and bytecode.
 
 Version 20 adds the required host path contract fingerprint to each IR/bytecode
 path record. Loading links each module-local path to exactly one registered runtime

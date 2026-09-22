@@ -15,6 +15,7 @@ pub(crate) fn validate(
     cancel: &CancellationToken,
 ) -> Result<(), LayoutValidationError> {
     let invalid = || LayoutValidationError::Invalid;
+    let mut aggregate_names = HashSet::new();
     for item in items {
         cancel
             .check()
@@ -32,18 +33,22 @@ pub(crate) fn validate(
                     TypeAbiKind::Enum => DefinitionKind::Enum,
                 };
                 let owner = owner(module, &[], kind, &ty.name);
-                parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
-                    bounds_valid(&ty.bounds, &params)
-                        && ty
-                            .fields
-                            .iter()
-                            .all(|field| type_valid(&field.ty, &params, None, cancel))
-                        && ty
-                            .variants
-                            .iter()
-                            .flat_map(|variant| &variant.payload)
-                            .all(|ty| type_valid(ty, &params, None, cancel))
-                })
+                aggregate_names.insert(&ty.name)
+                    && aggregate_shape_valid(ty, cancel)
+                    && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(
+                        |params| {
+                            bounds_valid(&ty.bounds, &params)
+                                && ty
+                                    .fields
+                                    .iter()
+                                    .all(|field| type_valid(&field.ty, &params, None, cancel))
+                                && ty
+                                    .variants
+                                    .iter()
+                                    .flat_map(|variant| &variant.payload)
+                                    .all(|ty| type_valid(ty, &params, None, cancel))
+                        },
+                    )
             }
             PublicAbiItem::Trait(ty) => {
                 let owner = owner(module, &[], DefinitionKind::Trait, &ty.name);
@@ -110,6 +115,23 @@ pub(crate) fn validate(
         }
     }
     Ok(())
+}
+
+fn aggregate_shape_valid(ty: &TypeAbi, cancel: &CancellationToken) -> bool {
+    if ty.name.is_empty()
+        || match ty.kind {
+            TypeAbiKind::Struct => !ty.variants.is_empty(),
+            TypeAbiKind::Enum => !ty.fields.is_empty(),
+        }
+    {
+        return false;
+    }
+    let mut names = HashSet::new();
+    ty.fields
+        .iter()
+        .map(|field| &field.name)
+        .chain(ty.variants.iter().map(|variant| &variant.name))
+        .all(|name| cancel.check().is_ok() && !name.is_empty() && names.insert(name))
 }
 
 fn owner(

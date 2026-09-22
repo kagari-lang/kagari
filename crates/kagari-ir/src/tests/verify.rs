@@ -628,3 +628,57 @@ fn verification_observes_cancellation_even_for_empty_modules() {
         Error::Cancelled
     );
 }
+
+#[test]
+fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
+    use crate::module::{
+        PublicAbiItem, TypeAbiKind,
+        abi::{AbiType, BuiltinType, FieldAbi, VariantAbi},
+    };
+    for source in [
+        "pub struct Box<T> { val value: T } fn main() {}",
+        "pub enum Box<T> { Value(T) } fn main() {}",
+    ] {
+        let original = raw(source);
+        assert!(original.structures.is_empty() && original.enumerations.is_empty());
+        let bytecode = common::bytecode_ok(source);
+        for mutation in 0..5 {
+            let mut invalid = original.clone();
+            let PublicAbiItem::Type(template) = &mut invalid.abi.public_items[0] else {
+                unreachable!()
+            };
+            match mutation {
+                0 => template.name.clear(),
+                1 if template.kind == TypeAbiKind::Struct => template.fields[0].name.clear(),
+                1 => template.variants[0].name.clear(),
+                2 if template.kind == TypeAbiKind::Struct => {
+                    template.fields.push(template.fields[0].clone())
+                }
+                2 => template.variants.push(template.variants[0].clone()),
+                3 if template.kind == TypeAbiKind::Struct => template.variants.push(VariantAbi {
+                    name: "Unexpected".into(),
+                    payload: vec![],
+                }),
+                3 => template.fields.push(FieldAbi {
+                    name: "unexpected".into(),
+                    ty: AbiType::Builtin(BuiltinType::I32),
+                    mutable: false,
+                }),
+                _ => {
+                    let duplicate = invalid.abi.public_items[0].clone();
+                    invalid.abi.public_items.push(duplicate);
+                }
+            }
+            let mut invalid_bytecode = bytecode.clone();
+            invalid_bytecode.public_items = invalid.abi.public_items.clone();
+            assert_eq!(
+                verify_ir(invalid, &Default::default()).unwrap_err().kind,
+                Error::InvalidPublicAbi
+            );
+            assert_eq!(
+                crate::bytecode::verify_module(&invalid_bytecode),
+                Err(crate::bytecode::BytecodeVerificationError::InvalidPublicAbi)
+            );
+        }
+    }
+}

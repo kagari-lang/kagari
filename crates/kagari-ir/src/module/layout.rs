@@ -27,30 +27,29 @@ pub(crate) fn struct_abi_matches(
         if ty.kind != super::TypeAbiKind::Struct {
             return true;
         }
-        ty.variants.is_empty()
-            && layouts
-                .iter()
-                .filter(|layout| {
-                    &layout.declaration.module == identity
-                        && layout
-                            .declaration
-                            .path
-                            .last()
-                            .is_some_and(|part| part.name == ty.name)
-                })
-                .all(|layout| {
-                    layout.arguments.len() == ty.generic_params.len()
-                        && layout.fields.len() == ty.fields.len()
-                        && layout.fields.iter().zip(&ty.fields).all(|(field, abi)| {
-                            field.name == abi.name
-                                && field.mutable == abi.mutable
-                                && abi
-                                    .ty
-                                    .instantiate(&layout.declaration, &layout.arguments)
-                                    .as_ref()
-                                    == Some(&field.ty)
-                        })
-                })
+        layouts
+            .iter()
+            .filter(|layout| {
+                &layout.declaration.module == identity
+                    && layout
+                        .declaration
+                        .path
+                        .last()
+                        .is_some_and(|part| part.name == ty.name)
+            })
+            .all(|layout| {
+                layout.arguments.len() == ty.generic_params.len()
+                    && layout.fields.len() == ty.fields.len()
+                    && layout.fields.iter().zip(&ty.fields).all(|(field, abi)| {
+                        field.name == abi.name
+                            && field.mutable == abi.mutable
+                            && abi
+                                .ty
+                                .instantiate(&layout.declaration, &layout.arguments)
+                                .as_ref()
+                                == Some(&field.ty)
+                    })
+            })
     })
 }
 
@@ -66,53 +65,6 @@ pub(crate) fn enum_abi_matches(
         if ty.kind != super::TypeAbiKind::Enum {
             return true;
         }
-        // Unused public templates still cross the artifact trust boundary.
-        // Validate binders even when no executable instance exists in the owner.
-        let mut pending = ty
-            .variants
-            .iter()
-            .flat_map(|v| &v.payload)
-            .collect::<Vec<_>>();
-        while let Some(payload) = pending.pop() {
-            use super::abi::AbiType;
-            use kagari_common::identity::DefinitionKind;
-            match payload {
-                AbiType::SelfType(_) => return false,
-                AbiType::Parameter { owner, position } => {
-                    if &owner.module != identity
-                        || *position >= ty.generic_params.len()
-                        || owner.path.len() != 1
-                        || !owner.path.last().is_some_and(|part| {
-                            part.kind == DefinitionKind::Enum
-                                && part.name == ty.name
-                                && part.occurrence == 0
-                        })
-                    {
-                        return false;
-                    }
-                }
-                AbiType::Builtin(_) | AbiType::Host(_) => {}
-                AbiType::Tuple(types) => pending.extend(types),
-                AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
-                AbiType::Map { key, value } => {
-                    pending.push(key);
-                    pending.push(value);
-                }
-                AbiType::StandardEnum { kind, args } => {
-                    let arity = match kind {
-                        super::abi::StandardEnumKind::Option => 1,
-                        super::abi::StandardEnumKind::Result => 2,
-                    };
-                    if args.len() != arity {
-                        return false;
-                    }
-                    pending.extend(args);
-                }
-                AbiType::Struct(nominal) | AbiType::Enum(nominal) | AbiType::Trait(nominal) => {
-                    pending.extend(&nominal.arguments)
-                }
-            }
-        }
         let instances = layouts
             .iter()
             .filter(|layout| {
@@ -124,8 +76,7 @@ pub(crate) fn enum_abi_matches(
                         .is_some_and(|part| part.name == ty.name)
             })
             .collect::<Vec<_>>();
-        ty.fields.is_empty()
-            && (!ty.generic_params.is_empty() || !instances.is_empty())
+        (!ty.generic_params.is_empty() || !instances.is_empty())
             && instances.into_iter().all(|layout| {
                 layout.arguments.len() == ty.generic_params.len()
                     && layout.variants.len() == ty.variants.len()
