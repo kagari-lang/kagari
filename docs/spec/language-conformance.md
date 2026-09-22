@@ -6,7 +6,7 @@ Fixtures live in `crates/kagari-vm/src/tests/language_contract.rs` and contain:
 - source text and an expected value, diagnostic code, or failure category;
 - the ordered host calls and their argument values;
 - committed host mutation records and expected host state;
-- optional deterministic host rejection and repeated entry invocation;
+- optional deterministic host rejection/cancellation and repeated entry invocation;
 - optional rooted array input and its expected contents after success or failure.
 
 Every executable fixture uses four fresh runtimes: source/interpreter,
@@ -39,7 +39,8 @@ use the existing JIT fallback for local and aggregate operations. The optional a
 explicit rooted handle in each runtime. Calls are recorded alongside ordinary host
 calls. After execution the fixture checks that only the observer root remains,
 collects garbage and compares the retained array contents. This covers completed
-writes surviving overflow/index traps, removed targets staying removed, and compound
+writes surviving overflow/index traps, host rejection, cancellation and instruction
+budget exhaustion, removed targets staying removed, and compound
 assignment reading a value changed by its RHS. It exercises JIT fallback for these
 container operations. Heap mutation event records and observers for other object
 kinds remain pending; final contents do not establish a full write-event trace.
@@ -50,3 +51,12 @@ write of `42` to the second element survives. This is an explicit test-host inpu
 not inspection of private bytecode registers or a raw unrooted `Value`.
 Unimplemented contract cases are tracked in the foundation roadmap; no ignored
 test is evidence of conformance.
+
+Cancellation fixtures install an explicit execution session and request cancellation
+from a committed host log callback. Rejection is a distinct outcome: it records the
+call without committing its log append. Budget fixtures finish their initial heap
+and host writes, then exhaust the instruction budget in the compound assignment's
+RHS. In all three cases no final assignment is committed, and call-depth/root
+cleanup is checked before post-execution collection and observation. Cancellation
+and host-rejection positions count the full host-call sequence, including the array
+provider call. The enclosing cancellation session is released before collection.

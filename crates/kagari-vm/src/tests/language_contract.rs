@@ -68,6 +68,7 @@ enum Expected {
     HostFailure,
     ScriptTrap(&'static str),
     ResourceLimit,
+    Cancelled,
 }
 
 #[derive(Debug, PartialEq)]
@@ -99,6 +100,7 @@ struct Case {
     calls: &'static [&'static str],
     committed: &'static [&'static str],
     reject_call: Option<usize>,
+    cancel_call: Option<usize>,
     repeat: usize,
     require_native: bool,
     max_steps: Option<u64>,
@@ -115,6 +117,7 @@ impl Case {
             calls: &[],
             committed: &[],
             reject_call: None,
+            cancel_call: None,
             repeat: 1,
             require_native: false,
             max_steps: None,
@@ -255,6 +258,9 @@ fn run(case: &Case, route: Route) {
     let host = Arc::new(Mutex::new(RecordingHost::default()));
     let capture = host.clone();
     let reject_call = case.reject_call;
+    let cancel_call = case.cancel_call;
+    let cancellation = kagari_common::cancellation::CancellationToken::default();
+    let cancel = cancellation.clone();
     runtime
         .register_host_function(HostFunction::new(
             kagari_common::host_interface::standard_log(),
@@ -277,6 +283,9 @@ fn run(case: &Case, route: Route) {
                     previous_len,
                     appended: message.clone(),
                 });
+                if cancel_call == Some(state.calls.len()) {
+                    cancel.cancel();
+                }
                 Ok(Value::Unit)
             },
         ))
@@ -308,6 +317,11 @@ fn run(case: &Case, route: Route) {
             },
         )
         .unwrap();
+    let session = case.cancel_call.map(|_| {
+        let mut options = runtime.execution_options();
+        options.cancellation = cancellation;
+        runtime.begin_execution(&loaded, options).unwrap()
+    });
     let mut vm = Vm::new(runtime);
     let mut backend = RecordingBackend {
         inner: CraneliftBackend::for_host().unwrap(),
@@ -334,6 +348,8 @@ fn run(case: &Case, route: Route) {
                     && error.message() == *message => {}
             (Expected::ResourceLimit, Err(VmError::RuntimeError(error)))
                 if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded => {}
+            (Expected::Cancelled, Err(VmError::RuntimeError(error)))
+                if error.kind() == kagari_runtime::RuntimeErrorKind::Cancelled => {}
             (expected, actual) => panic!(
                 "{} ({route:?}, attempt {attempt}): expected {expected:?}, got {actual:?}",
                 case.name
@@ -354,6 +370,7 @@ fn run(case: &Case, route: Route) {
         "{} ({route:?}): call resources must be released after success or failure",
         case.name
     );
+    drop(session);
     if let Some((_, expected)) = case.array {
         assert_eq!(
             vm.runtime().gc().active_roots(),
@@ -566,6 +583,29 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("heap-compound-reads-rhs-write", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a[0] = 10; 2 } else { 0 }; }", Expected::Value(Value::Unit)).array(&[1], &[12]),
     ] {
         for route in Route::ALL { run(&case, route); }
+    }
+    let mut heap_reject = Case::new(
+        "heap-host-rejection-preserves-earlier-write",
+        "use observe as test; fn main() { val a = test::array(); a[0] = 42; print(\"committed\"); a[0] += if true { print(\"rejected\"); 2 } else { 0 }; }",
+        Expected::HostFailure,
+    ).array(&[1], &[42]).effects(&["committed", "rejected"], &["committed"]);
+    heap_reject.reject_call = Some(3); // Array provider, committed log, rejected log.
+    let mut heap_cancel = Case::new(
+        "heap-cancellation-preserves-earlier-write",
+        "use observe as test; fn main() { val a = test::array(); a[0] = 42; a[0] += if true { print(\"cancel\"); 2 } else { 0 }; print(\"unreachable\"); }",
+        Expected::Cancelled,
+    ).array(&[1], &[42]).effects(&["cancel"], &["cancel"]);
+    heap_cancel.cancel_call = Some(2);
+    let mut heap_budget = Case::new(
+        "heap-budget-exhaustion-preserves-earlier-write",
+        "use observe as test; fn main() { val a = test::array(); a[0] = 42; print(\"committed\"); a[0] += spin(); } fn spin() -> i32 { loop {} }",
+        Expected::ResourceLimit,
+    ).array(&[1], &[42]).effects(&["committed"], &["committed"]);
+    heap_budget.max_steps = Some(100);
+    for case in [heap_reject, heap_cancel, heap_budget] {
+        for route in Route::ALL {
+            run(&case, route);
+        }
     }
     let cases = [
         Case::new("unknown-inherent-impl-target", "impl Missing {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),

@@ -39,6 +39,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R02 interrupted compound-write checkpoint: rooted-array fixtures now cover host
+  rejection, callback-triggered cancellation and RHS instruction-budget exhaustion
+  across source/artifact × interpreter/JIT. Previously committed heap and host
+  changes survive, rejected host calls produce no host mutation record, final
+  assignment is absent, call depth returns to zero and collection preserves the
+  explicitly rooted result. Cancellation is represented separately from script
+  traps and resource exhaustion in the shared fixture format.
+
 - R02 post-trap heap checkpoint: shared fixtures can declare an offline array
   provider, bind an explicit rooted array per runtime, and compare contents after
   execution and collection. They assert frame roots are released and record provider
