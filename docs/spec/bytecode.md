@@ -101,6 +101,12 @@ this version's layout table; a field operand is `FieldRef { structure, slot }`.
 one value per layout slot. The old field table, field-name operands and named
 initializer records are removed. Artifact verification independently checks the
 layout identities, field count, slots, representations and write permissions.
+Executable aggregate identities use one top-level declaration segment with occurrence
+zero. Field and variant identities append one member segment, also with occurrence
+zero. Extra parent segments and recovery-only duplicate identities are rejected by
+both IR and bytecode layout verification. HIR retains duplicate identities for
+diagnostic recovery, but they cannot reach execution.
+
 Public struct templates are checked against each executable instance after generic
 substitution: field count/order, names, permissions and concrete types must agree.
 Program verification also checks imported instances against the declaring module,

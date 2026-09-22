@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R07 executable identity checkpoint: shared IR/bytecode layout validation rejects
+  noncanonical aggregate paths and nonzero declaration/member occurrences. Six
+  tampering regressions cover struct/enum parents, fields and variants while keeping
+  their relative owner paths consistent. HIR recovery identities remain available
+  for erroneous source; executable layouts use only unique top-level declarations.
+  The layouts example asserts these ownership paths.
+
 - R07 concrete struct-field checkpoint: layouts now retain `AbiType`, including
   nominal identities and nested container/tuple types; lowering substitutes generic
   arguments before encoding. IR/bytecode derive operand representations from that

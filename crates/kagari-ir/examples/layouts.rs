@@ -16,8 +16,12 @@ fn main() {
         .unwrap();
     let ir = lower_to_ir(&checked, &Default::default()).unwrap();
     for layout in &ir.structures {
+        assert_eq!(layout.declaration.path.len(), 1);
+        assert_eq!(layout.declaration.path[0].occurrence, 0);
         println!("{}::{}", layout.declaration.module, layout.name());
         for (slot, field) in layout.fields.iter().enumerate() {
+            assert_eq!(field.declaration.path.len(), 2);
+            assert_eq!(field.declaration.path[1].occurrence, 0);
             println!(
                 "  slot {slot}: {} {:?}, mutable={}",
                 field.name, field.ty, field.mutable

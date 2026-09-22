@@ -1574,3 +1574,55 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
         );
     }
 }
+
+#[test]
+fn executable_layouts_reject_noncanonical_declaration_and_member_identities() {
+    let module = common::bytecode_ok(
+        "pub struct Item { val value: i32 } pub enum Token { Data(i32) } fn main() -> i32 { val token = Token::Data(1); Item { value: 42 }.value }",
+    );
+    for mutation in 0..6 {
+        let mut invalid = module.clone();
+        match mutation {
+            0 => {
+                invalid.structures[0].declaration.path[0].occurrence = 1;
+                invalid.structures[0].fields[0].declaration.path[0].occurrence = 1;
+            }
+            1 => invalid.structures[0].fields[0].declaration.path[1].occurrence = 1,
+            2 => {
+                let parent = invalid.structures[0].declaration.path[0].clone();
+                invalid.structures[0]
+                    .declaration
+                    .path
+                    .insert(0, parent.clone());
+                invalid.structures[0].fields[0]
+                    .declaration
+                    .path
+                    .insert(0, parent);
+            }
+            3 => {
+                invalid.enumerations[0].declaration.path[0].occurrence = 1;
+                invalid.enumerations[0].variants[0].declaration.path[0].occurrence = 1;
+            }
+            4 => invalid.enumerations[0].variants[0].declaration.path[1].occurrence = 1,
+            _ => {
+                let parent = invalid.enumerations[0].declaration.path[0].clone();
+                invalid.enumerations[0]
+                    .declaration
+                    .path
+                    .insert(0, parent.clone());
+                invalid.enumerations[0].variants[0]
+                    .declaration
+                    .path
+                    .insert(0, parent);
+            }
+        }
+        assert_eq!(
+            verify_module(&invalid),
+            Err(if mutation < 3 {
+                BytecodeVerificationError::InvalidStructLayout
+            } else {
+                BytecodeVerificationError::InvalidEnumLayout
+            })
+        );
+    }
+}

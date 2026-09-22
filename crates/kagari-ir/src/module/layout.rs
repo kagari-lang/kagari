@@ -173,13 +173,13 @@ pub(crate) fn validate_enum_layouts(
             .check()
             .map_err(|_| LayoutValidationError::Cancelled)?;
         let id = &layout.declaration;
-        if id.module.package.0.is_empty()
+        if id.path.len() != 1
+            || id.module.package.0.is_empty()
             || id.module.path.is_empty()
             || id.module.path.iter().any(String::is_empty)
-            || !id
-                .path
-                .last()
-                .is_some_and(|p| p.kind == DefinitionKind::Enum && !p.name.is_empty())
+            || !id.path.last().is_some_and(|p| {
+                p.kind == DefinitionKind::Enum && p.occurrence == 0 && !p.name.is_empty()
+            })
             || !identities.insert((id, &layout.arguments))
         {
             return Err(LayoutValidationError::Invalid);
@@ -200,7 +200,10 @@ pub(crate) fn validate_enum_layouts(
                 || child.path.len() != id.path.len() + 1
                 || !child.path.starts_with(&id.path)
                 || !child.path.last().is_some_and(|p| {
-                    p.kind == DefinitionKind::Variant && !p.name.is_empty() && names.insert(&p.name)
+                    p.kind == DefinitionKind::Variant
+                        && p.occurrence == 0
+                        && !p.name.is_empty()
+                        && names.insert(&p.name)
                 })
             {
                 return Err(LayoutValidationError::Invalid);
@@ -242,7 +245,8 @@ pub(crate) fn validate_enum_layouts(
                     AbiType::Enum(_) => DefinitionKind::Enum,
                     _ => DefinitionKind::Trait,
                 };
-                if id.module.package.0.is_empty()
+                if id.path.len() != 1
+                    || id.module.package.0.is_empty()
                     || id.module.path.is_empty()
                     || id.module.path.iter().any(String::is_empty)
                     || !id
@@ -330,13 +334,13 @@ pub(crate) fn validate_layouts(
             .check()
             .map_err(|_| LayoutValidationError::Cancelled)?;
         let id = &structure.declaration;
-        if id.module.package.0.is_empty()
+        if id.path.len() != 1
+            || id.module.package.0.is_empty()
             || id.module.path.is_empty()
             || id.module.path.iter().any(String::is_empty)
-            || !id
-                .path
-                .last()
-                .is_some_and(|part| part.kind == DefinitionKind::Struct && !part.name.is_empty())
+            || !id.path.last().is_some_and(|part| {
+                part.kind == DefinitionKind::Struct && part.occurrence == 0 && !part.name.is_empty()
+            })
             || !identities.insert((id, &structure.arguments))
         {
             return Err(LayoutValidationError::Invalid);
@@ -355,7 +359,9 @@ pub(crate) fn validate_layouts(
                 || field_id.path.len() != id.path.len() + 1
                 || !field_id.path.starts_with(&id.path)
                 || !field_id.path.last().is_some_and(|part| {
-                    part.kind == DefinitionKind::Field && part.name == field.name
+                    part.kind == DefinitionKind::Field
+                        && part.occurrence == 0
+                        && part.name == field.name
                 })
                 || field.name.is_empty()
                 || !names.insert(&field.name)
