@@ -53,6 +53,11 @@ enum Route {
     Source,
     Artifact,
     Jit,
+    ArtifactJit,
+}
+
+impl Route {
+    const ALL: [Self; 4] = [Self::Source, Self::Artifact, Self::Jit, Self::ArtifactJit];
 }
 
 #[derive(Debug)]
@@ -166,7 +171,7 @@ fn run(case: &Case, route: Route) {
         lower_to_bytecode(&lower_to_ir(&analyzed, &Default::default()).unwrap()).unwrap();
     let module = match route {
         Route::Source | Route::Jit => compiled,
-        Route::Artifact => {
+        Route::Artifact | Route::ArtifactJit => {
             let bytes = KbcArtifact::from_program(
                 kagari_ir::bytecode::BytecodeProgram {
                     root: kagari_ir::bytecode::ModuleRef::new(0),
@@ -257,7 +262,9 @@ fn run(case: &Case, route: Route) {
     };
     for attempt in 0..case.repeat {
         let outcome = match route {
-            Route::Jit => vm.execute_with_backend(&loaded, "main", &mut backend),
+            Route::Jit | Route::ArtifactJit => {
+                vm.execute_with_backend(&loaded, "main", &mut backend)
+            }
             _ => vm.execute(&loaded, "main"),
         };
         match (&case.expected, outcome) {
@@ -280,7 +287,7 @@ fn run(case: &Case, route: Route) {
             ),
         }
     }
-    if matches!(route, Route::Jit) && case.require_native {
+    if matches!(route, Route::Jit | Route::ArtifactJit) && case.require_native {
         assert_eq!(
             backend.invocations.get(),
             case.repeat,
@@ -341,7 +348,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             Value::Bool(true),
         ])),
     );
-    for route in [Route::Source, Route::Artifact, Route::Jit] {
+    for route in Route::ALL {
         run(&generic_aggregates, route);
     }
     let checked_where_bounds = Case::new(
@@ -349,7 +356,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         "trait Get { fn get(self) -> i32; } struct P {} impl Get for P { fn get(self) -> i32 { 42 } } fn read<T>(value: T) -> i32 where T: Get { value.get() } fn wrap<U>(value: U) -> i32 where U: Get { read(value) } fn pass<T>(value: T) -> T where T: HashKey { value } fn main() -> (i32, i32) { (wrap(P {}), pass(7)) }",
         Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(7)])),
     );
-    for route in [Route::Source, Route::Artifact, Route::Jit] {
+    for route in Route::ALL {
         run(&checked_where_bounds, route);
     }
     let distinct_trait_methods = Case::new(
@@ -357,7 +364,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         "trait Left { fn get(self) -> i32; } trait Right { fn get(self) -> i32; } struct Point {} impl Left for Point { fn get(self) -> i32 { 11 } } impl Right for Point { fn get(self) -> i32 { 22 } } fn left<T: Left>(x: T) -> i32 { x.get() } fn right<T: Right>(x: T) -> i32 { x.get() } fn main() -> (i32, i32) { val p = Point {}; (left(p), right(p)) }",
         Expected::Value(Value::Tuple(vec![Value::I32(11), Value::I32(22)])),
     );
-    for route in [Route::Source, Route::Artifact, Route::Jit] {
+    for route in Route::ALL {
         run(&distinct_trait_methods, route);
     }
     for case in [
@@ -407,7 +414,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE"),
         ),
     ] {
-        for route in [Route::Source, Route::Artifact, Route::Jit] {
+        for route in Route::ALL {
             run(&case, route);
         }
     }
@@ -417,7 +424,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("bare-function-is-not-return-value", "fn answer() -> i32 { 42 } fn main() -> i32 { answer }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),
         Case::new("bare-helper-is-not-a-value", "fn main() { val f = print; }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),
     ] {
-        for route in [Route::Source, Route::Artifact, Route::Jit] { run(&case, route); }
+        for route in Route::ALL { run(&case, route); }
     }
     for case in [
         Case::new(
@@ -441,7 +448,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             Expected::Value(Value::I32(5)),
         ),
     ] {
-        for route in [Route::Source, Route::Artifact, Route::Jit] {
+        for route in Route::ALL {
             run(&case, route);
         }
     }
@@ -450,7 +457,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("enum-alias-members", "enum Event { Data([i32]) } fn main() -> bool { val a = [1]; val x = Event::Data(a); a.push(2); x == Event::Data(a) && x != Event::Data([1, 2]) }", Expected::Value(Value::Bool(true))),
         Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(Value::Bool(true))).effects(&["first", "second"], &["first", "second"]),
     ] {
-        for route in [Route::Source, Route::Artifact, Route::Jit] { run(&case, route); }
+        for route in Route::ALL { run(&case, route); }
     }
     let mut budget_before_overflow = Case::new(
         "budget_before_overflow",
@@ -594,7 +601,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         cached_init_failure,
     ];
     for case in &cases {
-        for route in [Route::Source, Route::Artifact, Route::Jit] {
+        for route in Route::ALL {
             run(case, route);
         }
     }

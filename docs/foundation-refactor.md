@@ -39,6 +39,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R02 artifact/JIT checkpoint: all shared contract fixtures now run the full
+  source/artifact by interpreter/JIT matrix. The artifact/JIT route decodes and
+  validates serialized bytes before loading, and applies the same host calls,
+  committed mutations, traps, cleanup and repeat expectations. Native-required
+  scalar fixtures assert actual backend invocation on both JIT routes. This adds
+  artifact/backend equivalence evidence; outstanding heap observations and
+  activation contracts still prevent marking R02 complete.
+
 - R15 public-layout verification checkpoint: template matching now builds an index
   once per validation call and checks cancellation while indexing and traversing
   layouts, fields, variants and payload members. Cancellation remains distinct from

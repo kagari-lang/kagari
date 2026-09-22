@@ -8,12 +8,14 @@ Fixtures live in `crates/kagari-vm/src/tests/language_contract.rs` and contain:
 - committed host mutation records and expected host state;
 - optional deterministic host rejection and repeated entry invocation.
 
-Every executable fixture uses fresh runtimes for source bytecode, serialized
-artifact loading, and the existing JIT. The JIT route permits its existing
-interpreter fallback; it does not imply every fixture is native code. Diagnostic
+Every executable fixture uses four fresh runtimes: source/interpreter,
+artifact/interpreter, source/JIT and artifact/JIT. Both artifact routes serialize,
+decode and validate the artifact before runtime loading. Both JIT routes permit
+the existing interpreter fallback; they do not imply every fixture is native code. Diagnostic
 fixtures must fail the checked-analysis boundary before any backend runs.
 
-Selected scalar overflow fixtures require a recorded native invocation. They
+Selected scalar overflow fixtures require a recorded native invocation on both
+source/JIT and artifact/JIT routes. They
 cover add/subtract/multiply/negate, intermediate overflow, and budget exhaustion
 before arithmetic. Division uses the existing interpreter fallback. Runtime
 failures retain their structured category across the native ABI; they never
