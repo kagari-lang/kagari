@@ -12,7 +12,7 @@ Unchecked entries are not implemented claims. Full LSP, async, advanced GC,
 complete replay, automatic state migration, and advanced JIT are later tracks.
 
 - [x] R01: Authoritative value, failure, and activation contracts.
-- [ ] R02: Source/result/diagnostic/host-effect conformance harness.
+- [x] R02: Source/result/diagnostic/host-effect conformance harness.
 - [x] R03: Unified source database, revisions, identities, overlays, coordinates.
 - [ ] R04: Recoverable HIR analysis; checked-only code generation.
 - [x] R05: Immutable queries, cancellation, parse/body reuse and invalidation.
@@ -39,6 +39,23 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+R02 acceptance evidence:
+
+- [Unified language contracts](../crates/kagari-vm/src/tests/language_contract.rs)
+  provide source/dependency input, expected values/diagnostics/traps, ordered host
+  calls, committed mutation records and rooted post-failure heap observations.
+- [The acceptance matrix](spec/language-conformance.md) maps value, failure,
+  initialization and activation rules to positive/negative fixtures. All executable
+  cases use source/artifact × interpreter/JIT, with recorded native invocation for
+  selected scalar cases; container and module calls retain existing fallback.
+- Publication fixtures keep a root session pinned while publishing new dependency
+  code, observe old/new results 42/99, reject a fully initialized stale candidate,
+  release its module resources and verify that the chosen entry remains unchanged.
+- Focused subsystem tests are retained. Accepting this harness does not complete
+  R10/R11 ownership, R13 mutation or R14 activation audits; source callbacks and
+  generalized heap write tracing are not claimed as implemented.
+
+
 - R14 dependency-aware staging checkpoint (R02 fixtures): code-free candidates
   are completed during Prepare only after their dependencies are initialized.
   Previously a code-free root could already be marked Initialized when dependency
@@ -54,8 +71,8 @@ workload, repetitions and measurements; no unmeasured performance claims.
   serialize the entire program. Diamond initialization order, one-time initialization,
   cached dependency failure preventing root effects, and cycle rejection now run
   through the common four-route entry. Focused activation tests remain valuable,
-  but publication isolation/stale candidates/old dependency closures have not yet
-  joined this fixture format, so R02 remains unchecked after this audit.
+  and publication isolation/stale candidates/old dependency closures now also
+  have shared source-based fixtures, as recorded in the R02 acceptance evidence.
 
 - R02 host-owned iteration checkpoint: five source fixtures exercise array push,
   insert, pop, remove and clear under a host collection guard on all four routes.
@@ -87,7 +104,7 @@ workload, repetitions and measurements; no unmeasured performance claims.
   committed mutations, traps, cleanup and repeat expectations. Native-required
   scalar fixtures assert actual backend invocation on both JIT routes. This adds
   artifact/backend equivalence evidence; outstanding heap observations and
-  activation contracts still prevent marking R02 complete.
+  activation implementation audits remain assigned to their runtime checkpoints.
 
 - R15 public-layout verification checkpoint: template matching now builds an index
   once per validation call and checks cancellation while indexing and traversing
@@ -213,8 +230,8 @@ Implemented foundation slices:
   host mutation records and final host state. It covers left-to-right evaluation,
   alias/identity/tuple behavior, short circuit, effects surviving traps, rejected
   host mutations and cached initialization failure. Run with `cargo test -p
-  kagari-vm language_contract`. The remaining value/activation contracts still
-  need implementation and fixtures before R02 can be checked off.
+  kagari-vm language_contract`. The baseline contract matrix is now accepted for
+  R02; remaining value/activation implementation audits retain their own steps.
   Enum payload equality, distinct mutable enum members, shallow container copies,
   and rejection of interface equality now run through these same routes.
   Map/Set parameter and return aliases, identity inequality for equal contents,

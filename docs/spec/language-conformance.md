@@ -82,8 +82,8 @@ same host-call and mutation records are shared with ordinary execution fixtures.
 
 This suite establishes a common format and execution matrix. It does not replace
 focused subsystem checks for publication isolation, stale candidates or retained
-old-version dependency closures. Stale-candidate and old-version dependency-closure cases still need integration
-before the roadmap's current R02 acceptance can be marked complete.
+old-version dependency closures. The shared publication fixture now complements these focused checks with source-based
+publication, stale-candidate rejection and pinned old dependency calls.
 
 A fixture may supply `rejected_reload`, another source/dependency fixture describing
 an ABI-compatible candidate and its expected initialization error. Both programs use
@@ -93,3 +93,30 @@ calls and mutation records include the entire attempt. Cases cover a forbidden
 root host effect, an initializer index trap, and a forbidden dependency effect with
 a code-free root. Candidate initialization currently uses the VM initializer even
 on JIT routes; old-entry execution still follows the selected backend.
+
+`published_reload` supplies a compatible source/dependency fixture with the expected
+new result. The harness prepares and initializes a second candidate against the
+same baseline, publishes the chosen version, calls the old root while its session
+remains pinned, then calls the new entry. Publishing the now-stale candidate must
+return `ModuleNotActive`, release its module resources, and leave the new entry
+unchanged. The fixture changes a dependency result from 42 to 99, so observing 42
+inside the old session proves that cross-module dispatch retained its old closure.
+Candidate initialization uses the interpreter; both entry versions use the selected
+interpreter/JIT route. Initialization effects appear only once in the shared log.
+
+R02 acceptance evidence (run the shared command above):
+
+| Required observation | Fixture evidence |
+| --- | --- |
+| Source and expected value/diagnostic | `Case`, `compile`, `assert_outcome`; invalid programs stop before code generation |
+| Host calls and modification records | `RecordingHost`, ordered arguments, commits and final log; rejection has no commit |
+| Value/expression contract | Scalar/tuple/enum values, mutable identity and aliases, shallow copies, evaluation order, overflow and compound assignment |
+| Failure contract | Rooted post-trap array contents, rejected writes, cancellation/budget termination and cleanup |
+| Initialization contract | Dependency-first diamond, once-only initialization, cached failure and import-cycle rejection |
+| Activation contract | Failed candidate has no external effects, successful publication, stale candidate rejection, pinned old dependency closure |
+| Backend/load equivalence | Fresh source/artifact × interpreter/JIT runtimes; selected scalar fixtures require native invocation |
+
+This accepts the R02 test entry and its initial contract cases. It does not mark the
+remaining R04–R18 implementation and audit requirements complete. In particular,
+source function values/callback execution, observers for other heap shapes and a
+general heap write-event trace are not established by these tests.

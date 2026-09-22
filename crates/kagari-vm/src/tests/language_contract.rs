@@ -102,6 +102,7 @@ struct Case<'a> {
     source: &'a str,
     modules: &'a [(&'a str, &'a str)],
     rejected_reload: Option<&'a Case<'a>>,
+    published_reload: Option<&'a Case<'a>>,
     expected: Expected,
     calls: &'static [&'static str],
     committed: &'static [&'static str],
@@ -122,6 +123,7 @@ impl<'a> Case<'a> {
             source,
             modules: &[],
             rejected_reload: None,
+            published_reload: None,
             expected,
             calls: &[],
             committed: &[],
@@ -298,6 +300,18 @@ fn assert_outcome(
     }
 }
 
+fn execute_route(
+    vm: &mut Vm,
+    loaded: &kagari_runtime::LoadedModule,
+    route: Route,
+    backend: &mut RecordingBackend,
+) -> Result<crate::ExecutionReport, VmError> {
+    match route {
+        Route::Jit | Route::ArtifactJit => vm.execute_with_backend(loaded, "main", backend),
+        _ => vm.execute(loaded, "main"),
+    }
+}
+
 fn run(case: &Case<'_>, route: Route) {
     let Some(module) = compile(case, route) else {
         return;
@@ -413,12 +427,7 @@ fn run(case: &Case<'_>, route: Route) {
         invocations: Cell::new(0),
     };
     for attempt in 0..case.repeat {
-        let outcome = match route {
-            Route::Jit | Route::ArtifactJit => {
-                vm.execute_with_backend(&loaded, "main", &mut backend)
-            }
-            _ => vm.execute(&loaded, "main"),
-        };
+        let outcome = execute_route(&mut vm, &loaded, route, &mut backend);
         assert_outcome(case, route, attempt, outcome);
     }
     if matches!(route, Route::Jit | Route::ArtifactJit) && case.require_native {
@@ -445,13 +454,64 @@ fn run(case: &Case<'_>, route: Route) {
             loaded.key()
         );
         assert_eq!(vm.runtime().resources().counters().loaded_modules, before);
-        let outcome = match route {
-            Route::Jit | Route::ArtifactJit => {
-                vm.execute_with_backend(&loaded, "main", &mut backend)
-            }
-            _ => vm.execute(&loaded, "main"),
-        };
+        let outcome = execute_route(&mut vm, &loaded, route, &mut backend);
         assert_outcome(case, route, case.repeat, outcome);
+    }
+    if let Some(candidate) = case.published_reload {
+        let program = compile(candidate, route).expect("published candidate must compile");
+        let outer = vm
+            .runtime()
+            .begin_execution(&loaded, vm.runtime().execution_options())
+            .unwrap();
+        let stale = vm
+            .runtime_mut()
+            .stage_reload_program(&loaded, case.name, program.clone())
+            .unwrap();
+        {
+            let isolated = vm.runtime().begin_candidate_initialization(&stale).unwrap();
+            vm.execute_module(stale.module()).unwrap();
+            drop(isolated);
+        }
+        let current = vm.reload_program(&loaded, case.name, program).unwrap();
+        assert_eq!(
+            vm.runtime().modules().latest(case.name).unwrap().key(),
+            current.key()
+        );
+        assert_ne!(current.key(), loaded.key());
+        assert_eq!(vm.runtime().execution_root().unwrap().key(), loaded.key());
+        assert_outcome(
+            case,
+            route,
+            case.repeat,
+            execute_route(&mut vm, &loaded, route, &mut backend),
+        );
+        drop(outer);
+        assert_outcome(
+            candidate,
+            route,
+            0,
+            execute_route(&mut vm, &current, route, &mut backend),
+        );
+        let before = vm.runtime().resources().counters().loaded_modules;
+        let stale_members = stale.module().members().count();
+        assert!(matches!(
+            vm.runtime_mut().publish_staged_reload(stale),
+            Err(kagari_runtime::ReloadValidationError::ModuleNotActive { .. })
+        ));
+        assert_eq!(
+            vm.runtime().modules().latest(case.name).unwrap().key(),
+            current.key()
+        );
+        assert_eq!(
+            vm.runtime().resources().counters().loaded_modules,
+            before - stale_members
+        );
+        assert_outcome(
+            candidate,
+            route,
+            1,
+            execute_route(&mut vm, &current, route, &mut backend),
+        );
     }
     assert_eq!(
         vm.runtime().resources().counters().current_call_depth,
@@ -803,6 +863,26 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         for route in Route::ALL {
             run(&case, route);
         }
+    }
+    let candidate = Case::new(
+        "published-dependency-version",
+        "use contract::dependency::answer; fn main() -> i32 { answer() }",
+        Expected::Value(Value::I32(99)),
+    )
+    .modules(&[(
+        "dependency",
+        "val isolated = [9]; pub fn answer() -> i32 { 99 }",
+    )]);
+    let mut versioned = Case::new(
+        "publication-pins-old-dependencies-and-rejects-stale-candidate",
+        "use contract::dependency::answer; print(\"old-init\"); fn main() -> i32 { answer() }",
+        Expected::Value(Value::I32(42)),
+    )
+    .modules(&[("dependency", "pub fn answer() -> i32 { 42 }")])
+    .effects(&["old-init"], &["old-init"]);
+    versioned.published_reload = Some(&candidate);
+    for route in Route::ALL {
+        run(&versioned, route);
     }
     let cases = [
         Case::new("unknown-inherent-impl-target", "impl Missing {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
