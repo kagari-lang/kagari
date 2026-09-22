@@ -1669,3 +1669,33 @@ fn terminating_conditions_do_not_require_a_boolean_value_but_keep_operand_errors
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }
 }
+
+#[test]
+fn return_values_are_checked_only_when_their_expression_completes() {
+    for (body, mismatches) in [
+        ("return if true { return 42; } else { return 7; };", 0),
+        ("return if true { return 42; } else { 7 };", 0),
+        ("return if true { return 42; } else { false };", 1),
+        ("return if true { return false; } else { return 7; };", 1),
+        ("return;", 1),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "return-completion.kgr",
+                format!("fn main() -> i32 {{ {body} }}"),
+            ),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().len(),
+            mismatches,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.diagnostics().iter().all(|d| matches!(
+            d.kind,
+            kagari_common::DiagnosticKind::ReturnTypeMismatch { .. }
+        )));
+        assert_eq!(analysis.into_codegen().is_ok(), mismatches == 0);
+    }
+}

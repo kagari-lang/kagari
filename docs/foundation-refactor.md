@@ -376,6 +376,11 @@ Implemented foundation slices:
   inventing a Unit-to-bool mismatch. Partially returning non-bool conditions remain
   invalid; execution fixtures preserve prefix effects and skip branch/loop bodies
   and continuation code through source/artifact/JIT routes.
+  Explicit return checks likewise compare a value only when its operand can
+  complete normally. Nested returns no longer fabricate an outer Unit mismatch;
+  inner return mismatches and partially completing wrong types remain diagnosed.
+  Source/artifact/JIT fixtures verify the inner result and single evaluation of
+  the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

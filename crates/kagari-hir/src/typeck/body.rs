@@ -185,6 +185,18 @@ impl<'a> BodyChecker<'a> {
                 let found = expr.map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
                     self.infer_expr_type_expected(expr, env, Some(&expected))
                 });
+                if let Some(expr) = expr {
+                    let Ok(completes) = super::completion::expr_can_complete(
+                        &self.lowered.module,
+                        *expr,
+                        self.cancel,
+                    ) else {
+                        return;
+                    };
+                    if !completes {
+                        return;
+                    }
+                }
                 if found.conflicts_with(&self.expected_return) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {

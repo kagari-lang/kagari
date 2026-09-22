@@ -455,3 +455,11 @@ fn returning_if_and_while_conditions_skip_unselected_work() {
         );
     }
 }
+
+#[test]
+fn nested_returns_preserve_the_inner_result_and_single_condition_evaluation() {
+    execute_contextual_source(
+        "struct Count { var value: i32 } fn tick(count: Count) -> bool { count.value += 1; true } fn run(count: Count) -> i32 { return if tick(count) { return 40; } else { return 0; }; } fn main() -> i32 { val count = Count { value: 1 }; run(count) + count.value }",
+        42,
+    );
+}

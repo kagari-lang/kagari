@@ -426,6 +426,10 @@ independent semantic diagnostics even though they will not execute.
 An if/while condition must produce bool on paths that complete normally. A
 condition that always returns produces no condition value and does not receive
 a bool mismatch diagnostic, but its internal expressions remain checked.
+The operand of `return` is compared with the function return type only on paths
+where that operand completes normally. A nested return has already exited the
+function and does not produce an additional outer return value. Its own return
+type is still checked; a bare `return` continues to require a Unit return type.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the
