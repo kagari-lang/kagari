@@ -35,6 +35,11 @@ remains String; the member target is separate semantic information.
 Standard function and method argument checks retain known-member conflicts in
 partially erroneous types. Whole unknown/error operands do not generate duplicate
 argument-type diagnostics; missing operands are reported by the arity check.
+Qualified standard functions check receiver shape only if their first operand
+can produce a value. A terminating first operand supplies no container/string/
+Option/Result/iterable receiver or subsequent argument context. Arity and inner
+expression diagnostics remain active; later operands do not execute.
+
 Container calls provide checked element/key/value types as context for subsequent
 arguments. This applies equally to methods and qualified functions, with the
 receiver (or first explicit container argument) checked first. Set algebra uses

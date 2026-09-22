@@ -460,6 +460,11 @@ Implemented foundation slices:
   containers. HIR retains independent index errors and normal-path compatibility
   checks; chained-index execution fixtures verify later index effects are skipped
   consistently across source/artifact/JIT fallback.
+  Qualified standard container/String/Option/Result/iterable calls now share
+  completion-aware receiver extraction instead of repeated raw-first-argument
+  fallback. Terminating operands cannot seed later argument context. Tests cover
+  receiver shape errors, inner returns and skipped subsequent argument effects
+  across source/artifact/JIT fallback.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

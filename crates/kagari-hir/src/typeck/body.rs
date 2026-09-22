@@ -991,7 +991,18 @@ impl<'a> BodyChecker<'a> {
             actual.push((*first, self.infer_expr_type(*first, env)));
             remaining = rest;
         }
-        let base = receiver.or_else(|| actual.first().map(|(_, ty)| ty));
+        let base = match (receiver, actual.first()) {
+            (Some(receiver), _) => Some(receiver),
+            (None, Some((expr, ty))) => {
+                let Ok(completes) =
+                    super::completion::expr_can_complete(&self.lowered.module, *expr, self.cancel)
+                else {
+                    return actual;
+                };
+                completes.then_some(ty)
+            }
+            (None, None) => None,
+        };
         let context = match (intrinsic, base) {
             (ArrayPush, Some(TypeId::Array(item))) => vec![(**item).clone()],
             (ArrayInsert, Some(TypeId::Array(item))) => {
@@ -1053,9 +1064,21 @@ impl<'a> BodyChecker<'a> {
             self.check_builtin_arity(name, expected, args.len(), callee);
         }
 
+        let base_ty = match (receiver_ty, arg_tys.first()) {
+            (Some(receiver), _) => Some(receiver),
+            (None, Some((expr, ty))) => {
+                let Ok(completes) =
+                    super::completion::expr_can_complete(&self.lowered.module, *expr, self.cancel)
+                else {
+                    return TypeId::Unknown;
+                };
+                completes.then(|| ty.clone())
+            }
+            (None, None) => None,
+        };
         match intrinsic {
             ArrayLen | ArrayIsEmpty | ArrayClear | ArrayPop => {
-                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let array_ty = base_ty.clone();
                 let Some(TypeId::Array(element)) = array_ty else {
                     self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
                     return TypeId::Error;
@@ -1069,7 +1092,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ArrayGet | ArrayRemove => {
-                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let array_ty = base_ty.clone();
                 let Some(TypeId::Array(element)) = array_ty else {
                     self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
                     return TypeId::Error;
@@ -1084,7 +1107,7 @@ impl<'a> BodyChecker<'a> {
                 option_type((*element).clone())
             }
             ArrayPush => {
-                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let array_ty = base_ty.clone();
                 let Some(TypeId::Array(element)) = array_ty else {
                     self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
                     return TypeId::Error;
@@ -1093,7 +1116,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Array(element)
             }
             ArrayInsert => {
-                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let array_ty = base_ty.clone();
                 let Some(TypeId::Array(element)) = array_ty else {
                     self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
                     return TypeId::Error;
@@ -1113,7 +1136,7 @@ impl<'a> BodyChecker<'a> {
                 value: Box::new(TypeId::Unknown),
             },
             MapLen | MapIsEmpty | MapClear | MapKeys | MapValues | MapEntries => {
-                let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let map_ty = base_ty.clone();
                 let Some(TypeId::Map { key, value }) = map_ty else {
                     self.emit_standard_arg_error(name, "value", "Map<K, V>", callee, &map_ty);
                     return TypeId::Error;
@@ -1130,7 +1153,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             MapContainsKey | MapGet | MapInsert | MapRemove => {
-                let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let map_ty = base_ty.clone();
                 let Some(TypeId::Map { key, value }) = map_ty else {
                     self.emit_standard_arg_error(name, "value", "Map<K, V>", callee, &map_ty);
                     return TypeId::Error;
@@ -1155,7 +1178,7 @@ impl<'a> BodyChecker<'a> {
             }
             SetNew => TypeId::Set(Box::new(TypeId::Unknown)),
             SetLen | SetIsEmpty | SetClear | SetToArray => {
-                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let set_ty = base_ty.clone();
                 let Some(TypeId::Set(element)) = set_ty else {
                     self.emit_standard_arg_error(name, "value", "Set<T>", callee, &set_ty);
                     return TypeId::Error;
@@ -1175,7 +1198,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             SetContains | SetInsert | SetRemove => {
-                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let set_ty = base_ty.clone();
                 let Some(TypeId::Set(element)) = set_ty else {
                     self.emit_standard_arg_error(name, "value", "Set<T>", callee, &set_ty);
                     return TypeId::Error;
@@ -1194,7 +1217,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             SetUnion | SetIntersection | SetDifference => {
-                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let set_ty = base_ty.clone();
                 let Some(TypeId::Set(element)) = set_ty else {
                     self.emit_standard_arg_error(name, "lhs", "Set<T>", callee, &set_ty);
                     return TypeId::Error;
@@ -1215,11 +1238,11 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Set(element)
             }
             StringLenBytes | StringLenChars => {
-                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
+                self.check_string_receiver_or_arg(name, callee, &base_ty);
                 TypeId::Builtin(BuiltinType::USize)
             }
             StringIsEmpty | StringContains | StringStartsWith | StringEndsWith => {
-                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
+                self.check_string_receiver_or_arg(name, callee, &base_ty);
                 if matches!(
                     intrinsic,
                     StringContains | StringStartsWith | StringEndsWith
@@ -1235,7 +1258,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Bool)
             }
             StringConcat => {
-                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
+                self.check_string_receiver_or_arg(name, callee, &base_ty);
                 self.check_arg_type(
                     name,
                     "rhs",
@@ -1246,7 +1269,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::String)
             }
             StringSlice => {
-                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
+                self.check_string_receiver_or_arg(name, callee, &base_ty);
                 self.check_arg_type(
                     name,
                     "start",
@@ -1264,7 +1287,7 @@ impl<'a> BodyChecker<'a> {
                 option_type(TypeId::Builtin(BuiltinType::String))
             }
             OptionIsSome | OptionIsNone | OptionUnwrapOr | OptionMap | OptionAndThen => {
-                let option_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let option_ty = base_ty.clone();
                 let Some((item_ty, _)) =
                     standard_enum_args(&option_ty, surface::StandardEnum::Option)
                 else {
@@ -1289,7 +1312,7 @@ impl<'a> BodyChecker<'a> {
             }
             ResultIsOk | ResultIsErr | ResultUnwrapOr | ResultMap | ResultMapErr
             | ResultAndThen => {
-                let result_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let result_ty = base_ty.clone();
                 let Some((ok_ty, err_ty)) =
                     standard_enum_args(&result_ty, surface::StandardEnum::Result)
                 else {
@@ -1315,7 +1338,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             IterLen | IterIsEmpty | IterGet | IterToArray | IterForEach => {
-                let iterable_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
+                let iterable_ty = base_ty.clone();
                 let Some(item_ty) = iterable_item_type(&iterable_ty) else {
                     self.emit_standard_arg_error(name, "value", "Iterable", callee, &iterable_ty);
                     return TypeId::Error;
@@ -2833,12 +2856,10 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         function_name: &str,
         callee: ExprId,
-        receiver_ty: Option<TypeId>,
-        args: &[(ExprId, TypeId)],
+        found: &Option<TypeId>,
     ) {
-        let found = receiver_ty.or_else(|| args.first().map(|(_, ty)| ty.clone()));
-        if found != Some(TypeId::Builtin(BuiltinType::String)) {
-            self.emit_standard_arg_error(function_name, "value", "String", callee, &found);
+        if *found != Some(TypeId::Builtin(BuiltinType::String)) {
+            self.emit_standard_arg_error(function_name, "value", "String", callee, found);
         }
     }
 

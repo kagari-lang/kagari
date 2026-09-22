@@ -2217,3 +2217,36 @@ fn index_reads_require_a_receiver_value_but_keep_inner_index_errors() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
     }
 }
+
+#[test]
+fn standard_receiver_shapes_require_normally_produced_values() {
+    for call in [
+        "std::array::len(ARG)",
+        "std::map::len(ARG)",
+        "std::set::len(ARG)",
+        "std::string::len_bytes(ARG)",
+        "std::option::is_some(ARG)",
+        "std::result::is_ok(ARG)",
+        "std::iter::len(ARG)",
+    ] {
+        for (argument, valid) in [
+            ("if true { return 42; } else { return 7; }", true),
+            ("if true { return 42; } else { false }", false),
+            ("if true { return false; } else { return 7; }", false),
+        ] {
+            let expression = call.replace("ARG", argument);
+            let source = format!("fn main() -> i32 {{ {expression}; 0 }}");
+            let analysis = crate::analyze_source(
+                &SourceFile::new("standard-receiver-completion.kgr", source.clone()),
+                Default::default(),
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{source}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+        }
+    }
+}

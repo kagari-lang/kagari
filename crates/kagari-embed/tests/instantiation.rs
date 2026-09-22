@@ -681,3 +681,25 @@ fn terminating_index_receivers_skip_index_effects_and_reads() {
         );
     }
 }
+
+#[test]
+fn terminating_standard_receivers_skip_container_and_string_operations() {
+    for call in [
+        "std::array::len(ARG)",
+        "std::map::len(ARG)",
+        "std::set::len(ARG)",
+        "std::string::len_bytes(ARG)",
+        "std::option::is_some(ARG)",
+        "std::result::is_ok(ARG)",
+        "std::iter::len(ARG)",
+        "std::array::push(ARG, tick(count))",
+    ] {
+        let expression = call.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}
