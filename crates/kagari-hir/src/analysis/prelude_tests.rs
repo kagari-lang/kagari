@@ -621,3 +621,33 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
         assert!(analysis.into_codegen().is_err());
     }
 }
+
+#[test]
+fn reflection_receivers_must_produce_values_before_target_checks() {
+    for (call, valid) in [
+        (r#"get_field(BASE, "value")"#, true),
+        (r#"set_field(BASE, "value", 7)"#, true),
+        ("set_index(BASE, 0, 7)", true),
+        (r#"set_field(BASE, "value", missing)"#, false),
+        ("set_index(BASE, missing, 7)", false),
+        ("get_field(BASE, 7)", false),
+    ] {
+        let call = call.replace("BASE", "if true { return 42; } else { return 7; }");
+        let source = format!("fn main() -> i32 {{ {call}; 0 }}");
+        let analysis = crate::analyze_source(
+            &SourceFile::new("reflection-receiver-completion.kgr", source.clone()),
+            crate::LanguageFeatureProfile {
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+    }
+}

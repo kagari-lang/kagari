@@ -39,6 +39,10 @@ Qualified standard functions check receiver shape only if their first operand
 can produce a value. A terminating first operand supplies no container/string/
 Option/Result/iterable receiver or subsequent argument context. Arity and inner
 expression diagnostics remain active; later operands do not execute.
+Reflection get_field/set_field/set_index follow the same produced-receiver rule
+for target resolution. A terminating receiver supplies no field or element type;
+field-name validation and independent later operand diagnostics still apply.
+Receiver termination skips all remaining operand effects and the final access.
 
 Container calls provide checked element/key/value types as context for subsequent
 arguments. This applies equally to methods and qualified functions, with the

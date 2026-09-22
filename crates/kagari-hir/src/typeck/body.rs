@@ -1601,41 +1601,54 @@ impl<'a> BodyChecker<'a> {
                 let [base, field_name_expr] = args else {
                     return Some(TypeId::Error);
                 };
-                let base_ty = self.infer_expr_type(*base, env);
+                let Ok(base_ty) = self.infer_reflection_receiver(*base, env) else {
+                    return Some(TypeId::Unknown);
+                };
                 let Some(field_name) =
                     self.checked_reflection_field_name(*field_name_expr, env, "get_field")
                 else {
                     return Some(TypeId::Error);
                 };
-                Some(self.checked_member_type(&base_ty, &field_name, *field_name_expr, false))
+                Some(base_ty.map_or(TypeId::Unknown, |base_ty| {
+                    self.checked_member_type(&base_ty, &field_name, *field_name_expr, false)
+                }))
             }
             BuiltinFunction::SetField => {
                 let [base, field_name_expr, value] = args else {
                     return Some(TypeId::Error);
                 };
-                let base_ty = self.infer_expr_type(*base, env);
+                let Ok(base_ty) = self.infer_reflection_receiver(*base, env) else {
+                    return Some(TypeId::Unknown);
+                };
                 self.check_const_write(*base);
                 let field_name =
                     self.checked_reflection_field_name(*field_name_expr, env, "set_field");
                 let expected = field_name
                     .as_ref()
-                    .map(|name| self.checked_member_type(&base_ty, name, *field_name_expr, true));
+                    .zip(base_ty.as_ref())
+                    .map(|(name, base_ty)| {
+                        self.checked_member_type(base_ty, name, *field_name_expr, true)
+                    });
                 self.check_reflection_assignment_value(*value, expected.as_ref(), env);
                 if field_name.is_none() {
                     return Some(TypeId::Error);
                 }
-                Some(base_ty)
+                Some(base_ty.unwrap_or(TypeId::Unknown))
             }
             BuiltinFunction::SetIndex => {
                 let [base, index, value] = args else {
                     return Some(TypeId::Error);
                 };
-                let base_ty = self.infer_expr_type(*base, env);
+                let Ok(base_ty) = self.infer_reflection_receiver(*base, env) else {
+                    return Some(TypeId::Unknown);
+                };
                 self.check_const_write(*base);
                 let index_ty = self.infer_expr_type(*index, env);
-                let expected = self.checked_index_type(*index, &base_ty, &index_ty, *index);
+                let expected = base_ty.as_ref().and_then(|base_ty| {
+                    self.checked_index_type(*index, base_ty, &index_ty, *index)
+                });
                 self.check_reflection_assignment_value(*value, expected.as_ref(), env);
-                Some(base_ty)
+                Some(base_ty.unwrap_or(TypeId::Unknown))
             }
             BuiltinFunction::Print => Some(self.infer_host_signature(
                 &kagari_common::host_interface::standard_log(),
@@ -1646,6 +1659,17 @@ impl<'a> BodyChecker<'a> {
             )),
         }
     }
+    fn infer_reflection_receiver(
+        &mut self,
+        receiver: ExprId,
+        env: &mut BodyTypeEnv,
+    ) -> Result<Option<TypeId>, kagari_common::cancellation::Cancelled> {
+        let ty = self.infer_expr_type(receiver, env);
+        let completes =
+            super::completion::expr_can_complete(&self.lowered.module, receiver, self.cancel)?;
+        Ok(completes.then_some(ty))
+    }
+
     fn check_reflection_assignment_value(
         &mut self,
         value: ExprId,

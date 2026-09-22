@@ -465,6 +465,10 @@ Implemented foundation slices:
   fallback. Terminating operands cannot seed later argument context. Tests cover
   receiver shape errors, inner returns and skipped subsequent argument effects
   across source/artifact/JIT fallback.
+  Reflection get/set field and set index now share produced-receiver inference,
+  keeping cancellation separate from absent receiver values. Target checks wait
+  for a produced receiver; field names and later operand errors remain checked.
+  Execution fixtures verify only the terminating receiver effect is observed.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
