@@ -67,6 +67,7 @@ enum Expected {
     IndexTrap,
     HostFailure,
     ScriptTrap(&'static str),
+    BuiltinTrap(String),
     ResourceLimit,
     Cancelled,
 }
@@ -93,9 +94,9 @@ struct RecordingHost {
     log: Vec<String>,
 }
 
-struct Case {
+struct Case<'a> {
     name: &'static str,
-    source: &'static str,
+    source: &'a str,
     expected: Expected,
     calls: &'static [&'static str],
     committed: &'static [&'static str],
@@ -105,11 +106,12 @@ struct Case {
     require_native: bool,
     max_steps: Option<u64>,
     reflection: bool,
+    iterating: bool,
     array: Option<(&'static [i32], &'static [i32])>,
 }
 
-impl Case {
-    fn new(name: &'static str, source: &'static str, expected: Expected) -> Self {
+impl<'a> Case<'a> {
+    fn new(name: &'static str, source: &'a str, expected: Expected) -> Self {
         Self {
             name,
             source,
@@ -122,6 +124,7 @@ impl Case {
             require_native: false,
             max_steps: None,
             reflection: false,
+            iterating: false,
             array: None,
         }
     }
@@ -149,7 +152,7 @@ impl Case {
     }
 }
 
-fn run(case: &Case, route: Route) {
+fn run(case: &Case<'_>, route: Route) {
     let source = SourceFile::new(case.name, case.source);
     let profile = LanguageFeatureProfile {
         allow_host_calls: true,
@@ -317,6 +320,17 @@ fn run(case: &Case, route: Route) {
             },
         )
         .unwrap();
+    let iteration = case.iterating.then(|| {
+        runtime
+            .gc()
+            .begin_collection_iteration(
+                &retained
+                    .as_ref()
+                    .expect("iteration fixture needs an array")
+                    .value(),
+            )
+            .unwrap()
+    });
     let session = case.cancel_call.map(|_| {
         let mut options = runtime.execution_options();
         options.cancellation = cancellation;
@@ -346,6 +360,9 @@ fn run(case: &Case, route: Route) {
             (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
                 if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
                     && error.message() == *message => {}
+            (Expected::BuiltinTrap(message), Err(VmError::BuiltinError(error)))
+                if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
+                    && error.message() == message => {}
             (Expected::ResourceLimit, Err(VmError::RuntimeError(error)))
                 if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded => {}
             (Expected::Cancelled, Err(VmError::RuntimeError(error)))
@@ -371,6 +388,7 @@ fn run(case: &Case, route: Route) {
         case.name
     );
     drop(session);
+    drop(iteration);
     if let Some((_, expected)) = case.array {
         assert_eq!(
             vm.runtime().gc().active_roots(),
@@ -386,6 +404,17 @@ fn run(case: &Case, route: Route) {
             Some(expected.iter().copied().map(Value::I32).collect()),
             "{} ({route:?}): post-execution heap state",
             case.name
+        );
+    }
+    if case.iterating {
+        let Value::Array(array) = retained.as_ref().unwrap().value() else {
+            unreachable!()
+        };
+        vm.runtime().gc().array_push(array, Value::I32(99)).unwrap();
+        assert_eq!(
+            vm.runtime().gc().array_pop(array).unwrap(),
+            Some(Value::I32(99)),
+            "released guard must permit structural mutation"
         );
     }
     let host = host.lock().unwrap();
@@ -603,6 +632,36 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     ).array(&[1], &[42]).effects(&["committed"], &["committed"]);
     heap_budget.max_steps = Some(100);
     for case in [heap_reject, heap_cancel, heap_budget] {
+        for route in Route::ALL {
+            run(&case, route);
+        }
+    }
+    for operation in [
+        "a.push(9)",
+        "a.insert(a.len(), 9)",
+        "a.pop()",
+        "a.remove(a.len() - a.len())",
+        "a.clear()",
+    ] {
+        let source = format!(
+            "use observe as test; fn main() {{ val a = test::array(); a[0] = 42; print(\"before\"); {operation}; print(\"unreachable\"); }}"
+        );
+        let mut case = Case::new(
+            "host-iteration-rejects-script-structural-write",
+            &source,
+            Expected::BuiltinTrap(format!(
+                "std::array::{}: structural modification during iteration",
+                operation
+                    .strip_prefix("a.")
+                    .unwrap()
+                    .split('(')
+                    .next()
+                    .unwrap()
+            )),
+        )
+        .array(&[1, 2], &[42, 2])
+        .effects(&["before"], &["before"]);
+        case.iterating = true;
         for route in Route::ALL {
             run(&case, route);
         }

@@ -39,6 +39,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R02 host-owned iteration checkpoint: five source fixtures exercise array push,
+  insert, pop, remove and clear under a host collection guard on all four routes.
+  They verify standard trap context, preserved earlier replacement/host effects,
+  released execution roots, retained contents after collection, and restored
+  structural access after guard release. This does not implement source callbacks
+  or for loops; the source type system still lacks function values and the VM
+  standard callback path remains unconnected.
+
 - R02 interrupted compound-write checkpoint: rooted-array fixtures now cover host
   rejection, callback-triggered cancellation and RHS instruction-budget exhaustion
   across source/artifact × interpreter/JIT. Previously committed heap and host

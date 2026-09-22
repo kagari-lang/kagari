@@ -60,3 +60,12 @@ RHS. In all three cases no final assignment is committed, and call-depth/root
 cleanup is checked before post-execution collection and observation. Cancellation
 and host-rejection positions count the full host-call sequence, including the array
 provider call. The enclosing cancellation session is released before collection.
+
+Host-iteration fixtures keep a collection guard alive while script code receives
+the rooted array. They verify that element replacement succeeds but push, insert,
+pop, remove and clear each trap before changing structure. Earlier host effects
+and element writes survive. After execution the host drops its guard, collects,
+checks contents, and performs a push/pop to prove structural access is restored.
+These run on all four routes and check the standard-library error category and
+operation context. They establish script enforcement of a host-owned guard;
+source callback and for-loop integration is still a separate incomplete requirement.
