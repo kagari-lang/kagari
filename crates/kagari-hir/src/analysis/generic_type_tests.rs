@@ -2110,3 +2110,43 @@ fn match_patterns_and_joins_require_a_normally_produced_scrutinee() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
     }
 }
+
+#[test]
+fn if_result_joins_require_a_normally_produced_condition() {
+    for (condition, branches, valid) in [
+        (
+            "if true { return 42; } else { return 7; }",
+            "{ true } else { 7 }",
+            true,
+        ),
+        (
+            "if true { return 42; } else { true }",
+            "{ true } else { 7 }",
+            false,
+        ),
+        (
+            "if true { return false; } else { return 7; }",
+            "{ true } else { 7 }",
+            false,
+        ),
+        (
+            "if true { return 42; } else { return 7; }",
+            "{ missing } else { 7 }",
+            false,
+        ),
+        ("if true { return 42; } else { return 7; }", "{ 7 }", true),
+    ] {
+        let source = format!("fn main() -> i32 {{ if ({condition}) {branches}; 0 }}");
+        let analysis = crate::analyze_source(
+            &SourceFile::new("if-result-completion.kgr", source.clone()),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+    }
+}

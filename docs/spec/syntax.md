@@ -426,6 +426,10 @@ independent semantic diagnostics even though they will not execute.
 An if/while condition must produce bool on paths that complete normally. A
 condition that always returns produces no condition value and does not receive
 a bool mismatch diagnostic, but its internal expressions remain checked.
+If such a condition belongs to an if expression, neither branch contributes a
+result type or supplies context to the other branch. Branches still receive
+independent semantic diagnostics. Cancellation during condition checking remains
+distinct from a condition that cannot complete normally.
 The operand of `return` is compared with the function return type only on paths
 where that operand completes normally. A nested return has already exited the
 function and does not produce an additional outer return value. Its own return

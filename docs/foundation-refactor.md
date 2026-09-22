@@ -447,6 +447,11 @@ Implemented foundation slices:
   and arm result joins. Unreachable arms retain independent diagnostics.
   HIR positive/negative cases and source/artifact/JIT execution verify scrutinee
   effects and skipped arm dispatch without fabricated Unit/pattern mismatches.
+  If-result joins and sibling context now also require a normally completing
+  condition. Condition checking returns completion/cancellation explicitly;
+  callers reuse the fact instead of repeating traversal. HIR and execution
+  fixtures cover mixed unreachable result types, absent else branches,
+  retained inner diagnostics and skipped branch effects.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

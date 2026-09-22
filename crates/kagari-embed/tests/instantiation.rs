@@ -645,3 +645,15 @@ fn terminating_match_scrutinees_skip_pattern_dispatch_and_arm_effects() {
         42,
     );
 }
+
+#[test]
+fn terminating_if_conditions_produce_no_branch_result_or_effects() {
+    for branches in ["{ tick(count) } else { 7 }", "{ tick(count) }"] {
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ if (if tick(count) {{ return 40; }} else {{ return 0; }}) {branches}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

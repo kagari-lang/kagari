@@ -229,7 +229,9 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             StmtKind::While { condition, body } => {
-                self.check_condition_type(*condition, "while", env);
+                if self.check_condition_type(*condition, "while", env).is_err() {
+                    return;
+                }
                 self.loop_depth += 1;
                 let _ = self.infer_block_types(*body, env);
                 self.loop_depth -= 1;
@@ -667,7 +669,10 @@ impl<'a> BodyChecker<'a> {
                 then_branch,
                 else_branch,
             } => {
-                self.check_condition_type(*condition, "if", env);
+                let Ok(condition_completes) = self.check_condition_type(*condition, "if", env)
+                else {
+                    return TypeId::Unknown;
+                };
                 let mut then_ty = self.infer_block_types_expected(*then_branch, env, expected);
                 match else_branch {
                     Some(else_expr) => {
@@ -678,7 +683,8 @@ impl<'a> BodyChecker<'a> {
                         ) else {
                             return TypeId::Unknown;
                         };
-                        let else_context = expected.or(then_completes.then_some(&then_ty));
+                        let else_context = expected
+                            .or((condition_completes && then_completes).then_some(&then_ty));
                         let else_ty = self.infer_expr_type_expected(*else_expr, env, else_context);
                         let Ok(else_completes) = super::completion::expr_can_complete(
                             &self.lowered.module,
@@ -687,22 +693,27 @@ impl<'a> BodyChecker<'a> {
                         ) else {
                             return TypeId::Unknown;
                         };
-                        if !then_completes {
-                            then_ty = else_ty;
-                        } else if else_completes && then_ty.conflicts_with(&else_ty) {
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
-                                    expected: display_type_id(&then_ty),
-                                    found: display_type_id(&else_ty),
-                                })
-                                .with_span(self.lowered.source_map.expr_span(*else_expr)),
-                            );
-                        } else if else_completes {
-                            then_ty.recover_from(&else_ty);
+                        if !condition_completes {
+                            TypeId::Unknown
+                        } else {
+                            if !then_completes {
+                                then_ty = else_ty;
+                            } else if else_completes && then_ty.conflicts_with(&else_ty) {
+                                self.diagnostics.push(
+                                    Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
+                                        expected: display_type_id(&then_ty),
+                                        found: display_type_id(&else_ty),
+                                    })
+                                    .with_span(self.lowered.source_map.expr_span(*else_expr)),
+                                );
+                            } else if else_completes {
+                                then_ty.recover_from(&else_ty);
+                            }
+                            then_ty
                         }
-                        then_ty
                     }
-                    None => TypeId::Builtin(BuiltinType::Unit),
+                    None if condition_completes => TypeId::Builtin(BuiltinType::Unit),
+                    None => TypeId::Unknown,
                 }
             }
             ExprKind::Match { scrutinee, arms } => {
@@ -2470,17 +2481,11 @@ impl<'a> BodyChecker<'a> {
         expr_id: ExprId,
         context: &'static str,
         env: &mut BodyTypeEnv,
-    ) {
+    ) -> Result<bool, kagari_common::cancellation::Cancelled> {
         let ty = self.infer_expr_type(expr_id, env);
-        let Ok(completes) =
-            super::completion::expr_can_complete(&self.lowered.module, expr_id, self.cancel)
-        else {
-            return;
-        };
-        if !completes {
-            return;
-        }
-        if ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
+        let completes =
+            super::completion::expr_can_complete(&self.lowered.module, expr_id, self.cancel)?;
+        if completes && ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {
                     context,
@@ -2489,6 +2494,7 @@ impl<'a> BodyChecker<'a> {
                 .with_span(self.lowered.source_map.expr_span(expr_id)),
             );
         }
+        Ok(completes)
     }
 
     fn infer_struct_init_type(
