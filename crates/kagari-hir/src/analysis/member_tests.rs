@@ -482,3 +482,46 @@ fn erroneous_array_indexes_retain_element_members_without_accepting_codegen() {
         }
     }
 }
+
+#[test]
+fn invalid_write_indexes_preserve_target_context_and_projected_members() {
+    for index in ["true", "missing", ""] {
+        for suffix in ["", ".nested"] {
+            let target = format!("items[{index}]{suffix}");
+            let text = format!(
+                "struct Cell<T> {{ val value: i32 }} struct Item {{ var nested: Cell<i32> }} fn bad(items: [{}]) {{ {target} = Cell {{ value: 1 }}; }} fn good() -> i32 {{ 42 }}",
+                if suffix.is_empty() {
+                    "Cell<i32>"
+                } else {
+                    "Item"
+                }
+            );
+            let mut sources = SourceDatabase::default();
+            let id = sources
+                .set("write-index.kgr", text.clone(), SourceLayer::Base)
+                .unwrap();
+            let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+            let file = snapshot.file(id).unwrap();
+            assert!(!file.result().diagnostics().is_empty());
+            assert!(snapshot.check_program(id, &Default::default()).is_err());
+            let initializer = text.find("Cell { value").unwrap();
+            assert!(
+                matches!(file.type_at(initializer), Some(TypeId::Struct(ty)) if ty.arguments == vec![TypeId::Builtin(crate::types::BuiltinType::I32)]),
+                "{target}: {:?}",
+                file.result().diagnostics()
+            );
+            if !suffix.is_empty() {
+                let member = text.find(".nested").unwrap() + 1;
+                assert_eq!(
+                    file.definition_at(member).expect("projected field").name,
+                    "nested"
+                );
+                assert!(file.member_receiver_type(member).is_some());
+            }
+            assert_eq!(
+                file.type_at(text.rfind("42").unwrap()),
+                Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+            );
+        }
+    }
+}

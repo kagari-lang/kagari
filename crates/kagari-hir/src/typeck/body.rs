@@ -302,8 +302,12 @@ impl<'a> BodyChecker<'a> {
                 self.infer_expr_type(*index, env);
                 let base_ty = base_ty?;
                 let ty = self.resolve_index_type(*index, &base_ty);
-                if let Some(ty) = &ty {
-                    self.type_table.insert_place(place_id, ty.clone());
+                let fact = ty.clone().or_else(|| match &base_ty {
+                    TypeId::Array(element) => Some((**element).clone()),
+                    _ => None,
+                });
+                if let Some(fact) = fact {
+                    self.type_table.insert_place(place_id, fact);
                 }
                 if matches!(base_ty, TypeId::Tuple(_)) {
                     self.resolve_assignment_target_type(*base, env)?;
@@ -356,9 +360,9 @@ impl<'a> BodyChecker<'a> {
             }
             PlaceKind::Index { base, index } => {
                 let base_ty = self.resolve_readable_place_type(*base, env);
-                self.infer_expr_type(*index, env);
+                let index_ty = self.infer_expr_type(*index, env);
                 let base_ty = base_ty?;
-                self.resolve_index_type(*index, &base_ty)
+                self.checked_index_type(*index, &base_ty, &index_ty, *index)
             }
         };
 

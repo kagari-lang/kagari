@@ -30,7 +30,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     // An erroneous neighbor does not prevent navigation in the correct function.
     let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }\r\nenum Mode { Ready, Running(Point, [String]) }\r\nfn mode(p: Point) -> Mode { Mode::Running(p, [\"active\"]) }";
     let text = &format!(
-        "{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}\r\nimpl Show for Point {{ fn show(self) -> i32 {{ self.x }} }}\r\nfn broken_target(p: Point) {{ missing[p.x] = 1; p.x = 2; }}\r\nfn readonly_target(p: Point) {{ p = Point {{ x: 2 }}; }}\r\nfn broken_index(items: [Point]) {{ items[true].x; }}"
+        "{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}\r\nimpl Show for Point {{ fn show(self) -> i32 {{ self.x }} }}\r\nfn broken_target(p: Point) {{ missing[p.x] = 1; p.x = 2; }}\r\nfn readonly_target(p: Point) {{ p = Point {{ x: 2 }}; }}\r\nfn broken_index(items: [Point]) {{ items[true].x; items[true].x = 1; }}"
     );
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
     // Declaration discovery does not resolve bodies or evaluate constants.
@@ -120,6 +120,16 @@ fn main() -> kagari_embed::CompileResult<()> {
         "x"
     );
     assert!(analysis.member_receiver_type(broken_index).is_some());
+    let indexed_write =
+        text.find("items[true].x =").expect("invalid indexed write") + "items[true].".len();
+    assert_eq!(
+        analysis
+            .definition_at(indexed_write)
+            .expect("indexed write field")
+            .name,
+        "x"
+    );
+    assert!(analysis.member_receiver_type(indexed_write).is_some());
     let readonly = text.find("p = Point").expect("readonly assignment");
     assert!(
         analysis.type_at(readonly).is_some(),

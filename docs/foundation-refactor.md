@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04 indexed-write recovery checkpoint: invalid array indexes preserve target
+  types for contextual RHS inference and retain field targets through indexed
+  receiver places. Index validity remains mandatory for checked code generation.
+  Tests cover direct and projected writes with boolean, unresolved and missing
+  indexes, phantom generic constructors, neighboring functions and source queries.
+
 - R04 array-index recovery checkpoint: invalid, unresolved and missing array
   indexes retain the known element type for downstream field navigation and
   receiver queries. Index diagnostics still reject code generation; tuple member
