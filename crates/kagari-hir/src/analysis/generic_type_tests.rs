@@ -1743,3 +1743,50 @@ fn binding_and_assignment_values_require_types_only_when_they_complete() {
     )));
     assert!(analysis.into_codegen().is_err());
 }
+
+#[test]
+fn terminating_function_arguments_supply_no_value_or_generic_constraint() {
+    for signature in [
+        "fn take(value: i32) -> i32 { value }",
+        "fn take<T: SignedNumber>(value: T) -> i32 { 0 }",
+    ] {
+        for (argument, valid) in [
+            ("if true { return 42; } else { return 7; }", true),
+            ("if true { return 42; } else { 7 }", true),
+            ("if true { return 42; } else { false }", false),
+            ("if true { return false; } else { return 7; }", false),
+        ] {
+            let source = format!("{signature} fn main() -> i32 {{ take({argument}) }}");
+            let analysis = crate::analyze_source(
+                &SourceFile::new("argument-completion.kgr", source.clone()),
+                Default::default(),
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{source}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
+        }
+    }
+    for arguments in [
+        "if true { return 42; } else { return 7; }, false",
+        "if true { return 42; } else { return 7; }, missing",
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "argument-completion-errors.kgr",
+                format!(
+                    "fn take(value: i32) -> i32 {{ value }} fn main() -> i32 {{ take({arguments}) }}"
+                ),
+            ),
+            Default::default(),
+        );
+        assert!(analysis.diagnostics().iter().any(|d| matches!(
+            d.kind,
+            kagari_common::DiagnosticKind::CallArityMismatch { .. }
+        )));
+        assert!(analysis.into_codegen().is_err());
+    }
+}

@@ -384,6 +384,11 @@ Implemented foundation slices:
   annotations, inner diagnostics and target writeability checks remain intact.
   Source/artifact/JIT fallback tests verify one RHS condition side effect, no
   final field write and no execution of subsequent statements.
+  Script function parameters now exclude terminating operands from argument
+  comparisons and generic inference. Calls terminated by an argument do not
+  invent missing generic-argument errors; arity and inner diagnostics remain.
+  Source/artifact/JIT fallback coverage confirms that concrete and bounded generic
+  calls skip callee side effects while retaining the terminating argument effect.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

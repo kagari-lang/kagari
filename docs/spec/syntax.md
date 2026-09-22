@@ -584,6 +584,11 @@ control can reach the end. Each explicit return operand is checked independently
 When a call argument or aggregate member returns from the enclosing function,
 later arguments/members and the enclosing call/construction are not executed.
 Those unreachable generic calls do not create concrete instances.
+For script functions, a terminating argument supplies neither a parameter value
+nor a generic inference constraint. Such calls do not require missing generic
+arguments to be inferred, but arity checks and independent argument diagnostics
+still apply. An argument with a normally completing path must match the parameter
+type on that path.
 The same termination rule applies to operators and runtime helper arguments.
 A short-circuit operator can still complete along the path that skips its right
 operand. A return during a while condition or assignment RHS exits the function

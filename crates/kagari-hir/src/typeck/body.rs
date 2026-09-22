@@ -1944,12 +1944,21 @@ impl<'a> BodyChecker<'a> {
         if self.cancel.check().is_err() {
             return TypeId::Unknown;
         }
+        let mut suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
+        for (argument, _) in &arg_tys {
+            let Ok(completes) =
+                super::completion::expr_can_complete(&self.lowered.module, *argument, self.cancel)
+            else {
+                return TypeId::Unknown;
+            };
+            suppress_missing |= !completes;
+        }
         let type_arguments = self.finish_inferred_arguments(
             &mut substitution,
             &function.generic_params,
             &function.name,
             callee,
-            arg_tys.iter().any(|(_, ty)| ty.is_unresolved()),
+            suppress_missing,
         );
         self.type_table
             .insert_type_arguments(call_expr, type_arguments);
@@ -2019,6 +2028,14 @@ impl<'a> BodyChecker<'a> {
             );
         }
         for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
+            let Ok(completes) =
+                super::completion::expr_can_complete(&self.lowered.module, *arg_expr, self.cancel)
+            else {
+                return;
+            };
+            if !completes {
+                continue;
+            }
             if let Some(param) = function.params.get(index)
                 && param.ty.instantiate(substitution).conflicts_with(arg_ty)
             {
@@ -2767,7 +2784,13 @@ impl<'a> BodyChecker<'a> {
                 .as_ref()
                 .map(|ty| ty.argument_context(substitution, generics));
             let ty = self.infer_expr_type_expected(*argument, env, expected.as_ref());
-            if !generics.is_empty()
+            let Ok(completes) =
+                super::completion::expr_can_complete(&self.lowered.module, *argument, self.cancel)
+            else {
+                break;
+            };
+            if completes
+                && !generics.is_empty()
                 && let Some(parameter) = parameter
                 && super::inference::infer(&parameter, &ty, generics, substitution, self.cancel)
                     .is_err()
