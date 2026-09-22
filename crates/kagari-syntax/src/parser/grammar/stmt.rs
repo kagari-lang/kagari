@@ -7,6 +7,10 @@ use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_block(&mut self) {
+        self.with_nesting(Self::parse_block_nested);
+    }
+
+    fn parse_block_nested(&mut self) {
         self.start_node(SyntaxKind::BlockExpr);
         if !self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedFunctionBodyStart) {
             self.finish_node();

@@ -216,7 +216,10 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
             .any(|d| d.name == "later")
     };
     assert!(has_later(&old));
-    db.set_parse_limits(kagari_syntax::parser::ParseLimits { max_diagnostics: 0 });
+    db.set_parse_limits(kagari_syntax::parser::ParseLimits {
+        max_diagnostics: 0,
+        ..Default::default()
+    });
     let limited = db
         .snapshot(sources.snapshot(), Default::default(), &Default::default())
         .unwrap();

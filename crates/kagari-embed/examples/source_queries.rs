@@ -12,6 +12,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     // compilation while retaining the parsed prefix for navigation.
     engine.set_parse_limits(kagari_embed::ParseLimits {
         max_diagnostics: 64,
+        max_nesting: 32,
     });
     let source_name = "editor://game/main.kgr";
     engine.bind_module(

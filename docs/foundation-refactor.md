@@ -1044,8 +1044,14 @@ Implemented foundation slices:
   preserve existing snapshots and reject limited results before code generation.
   Tests cover nested recovery, exact/zero budgets, Unicode/CRLF losslessness,
   cancellation, equal-revision policy changes and revision-owned embed errors.
-  Parser depth, const evaluation and semantic diagnostic-count limits remain
-  outstanding. Source/artifact/JIT
+  Recursive grammar entries now have a separate configurable nesting budget
+  (default 64), shared across expressions, prefixes, types, modules, import trees,
+  blocks, if expressions and patterns. Exhaustion reports a positioned resource
+  error and preserves the suffix; sibling entries release their budget. Deep
+  2,000-level fixtures cover each recursive family, and embedding verifies
+  same-revision policy changes, immutable prior facts and code-generation refusal.
+  Iteratively assembled syntax-tree depth, downstream recursive traversal limits,
+  const evaluation and semantic diagnostic-count limits remain outstanding. Source/artifact/JIT
   fallback fixtures cover generic values, recursion, numeric overflow, effects,
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this

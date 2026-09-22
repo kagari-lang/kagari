@@ -6,6 +6,10 @@ use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_type_ref(&mut self) {
+        self.with_nesting(Self::parse_type_ref_nested);
+    }
+
+    fn parse_type_ref_nested(&mut self) {
         self.start_node(SyntaxKind::TypeRef);
         self.bump_trivia();
         match self.current_kind() {

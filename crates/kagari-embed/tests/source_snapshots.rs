@@ -288,7 +288,10 @@ fn diagnostics_carry_the_source_revision_that_produced_them() {
 #[test]
 fn parser_budget_reports_revision_owned_limits_before_codegen() {
     let engine = KagariEngine::default();
-    engine.set_parse_limits(kagari_embed::ParseLimits { max_diagnostics: 0 });
+    engine.set_parse_limits(kagari_embed::ParseLimits {
+        max_diagnostics: 0,
+        ..Default::default()
+    });
     let id = engine
         .set_source(
             "memory://limited.kgr",
@@ -325,5 +328,45 @@ fn parser_budget_reports_revision_owned_limits_before_codegen() {
             SourceFile::new("memory://valid.kgr", "fn main() -> i32 { 42 }"),
             Default::default(),
         )
+        .unwrap();
+}
+
+#[test]
+fn nesting_budget_changes_invalidate_same_revision_analysis() {
+    let engine = KagariEngine::default();
+    let id = engine
+        .set_source(
+            "memory://nested.kgr",
+            "fn main() -> i32 { (((42))) }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let source = engine.source_snapshot();
+    let before = engine
+        .analyze(
+            source.clone(),
+            LanguageProfile::default(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(before.check_program(id, &Default::default()).is_ok());
+    engine.set_parse_limits(kagari_embed::ParseLimits {
+        max_nesting: 3,
+        ..Default::default()
+    });
+    let Err(EmbeddingError::Diagnostics { diagnostics }) =
+        engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
+    else {
+        panic!("excessive nesting must be rejected before code generation");
+    };
+    let limit = diagnostics
+        .iter()
+        .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
+        .unwrap();
+    assert!(source.contains(limit.span.unwrap()));
+    assert!(before.check_program(id, &Default::default()).is_ok());
+    engine.set_parse_limits(Default::default());
+    engine
+        .compile_snapshot(source, id, Default::default(), &Default::default())
         .unwrap();
 }

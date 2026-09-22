@@ -29,6 +29,10 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn parse_expr(&mut self) {
+        self.with_nesting(Self::parse_expr_nested);
+    }
+
+    fn parse_expr_nested(&mut self) {
         self.bump_trivia();
         self.parse_logical_or_expr();
     }
@@ -134,6 +138,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_prefix_expr(&mut self) {
+        self.with_nesting(Self::parse_prefix_expr_nested);
+    }
+
+    fn parse_prefix_expr_nested(&mut self) {
         self.bump_trivia();
         if self.at_any(&[TokenKind::Minus, TokenKind::Bang]) {
             let checkpoint = self.checkpoint();
@@ -342,6 +350,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_if_expr(&mut self) {
+        self.with_nesting(Self::parse_if_expr_nested);
+    }
+
+    fn parse_if_expr_nested(&mut self) {
         self.start_node(SyntaxKind::IfExpr);
         self.expect(TokenKind::IfKw, DiagnosticKind::ExpectedIfKeyword);
         self.parse_condition_expr();
@@ -395,6 +407,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_match_pattern(&mut self) {
+        self.with_nesting(Self::parse_match_pattern_nested);
+    }
+
+    fn parse_match_pattern_nested(&mut self) {
         self.start_node(SyntaxKind::Pattern);
         match self.current_kind() {
             Some(

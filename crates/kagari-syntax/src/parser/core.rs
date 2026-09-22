@@ -19,6 +19,7 @@ pub(crate) struct Parser<'a> {
     allow_struct_literals: bool,
     limits: super::ParseLimits,
     exhausted: bool,
+    nesting: usize,
     cancel: CancellationToken,
 }
 
@@ -38,8 +39,30 @@ impl<'a> Parser<'a> {
             allow_struct_literals: true,
             limits,
             exhausted: false,
+            nesting: 0,
             cancel,
         }
+    }
+
+    pub(crate) fn with_nesting(&mut self, parse: impl FnOnce(&mut Self)) {
+        if self.exhausted || self.cancel.check().is_err() {
+            return;
+        }
+        if self.nesting >= self.limits.max_nesting {
+            let span = self.peek().map(|token| token.span).unwrap_or_default();
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                    resource: "parser nesting",
+                    limit: self.limits.max_nesting,
+                })
+                .with_span(span),
+            );
+            self.exhausted = true;
+            return;
+        }
+        self.nesting += 1;
+        parse(self);
+        self.nesting -= 1;
     }
 
     pub(crate) fn finish(self) -> (GreenNode, DiagnosticBuffer) {

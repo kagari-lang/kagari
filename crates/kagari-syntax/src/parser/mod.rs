@@ -19,12 +19,15 @@ pub(crate) use core::Parser;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseLimits {
     pub max_diagnostics: usize,
+    /// Maximum simultaneously active recursive grammar entries.
+    pub max_nesting: usize,
 }
 
 impl Default for ParseLimits {
     fn default() -> Self {
         Self {
             max_diagnostics: 256,
+            max_nesting: 64,
         }
     }
 }

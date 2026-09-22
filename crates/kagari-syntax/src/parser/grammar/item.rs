@@ -99,6 +99,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_module(&mut self) {
+        self.with_nesting(Self::parse_module_nested);
+    }
+
+    fn parse_module_nested(&mut self) {
         self.start_node(SyntaxKind::ModuleDef);
         self.bump_trivia();
         if self.at(TokenKind::PubKw) {
@@ -147,6 +151,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_use_tree(&mut self) {
+        self.with_nesting(Self::parse_use_tree_nested);
+    }
+
+    fn parse_use_tree_nested(&mut self) {
         self.start_node(SyntaxKind::UseTree);
         self.bump_trivia();
 
