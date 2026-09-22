@@ -371,6 +371,11 @@ Implemented foundation slices:
   but do not produce spurious homogeneous-element conflicts. Tests retain real
   prefix conflicts and confirm prefix effects survive while suffix execution
   is skipped across source/artifact/JIT routes.
+  If/while conditions now require bool only when they can complete normally.
+  Conditions that return on every path retain their inner diagnostics without
+  inventing a Unit-to-bool mismatch. Partially returning non-bool conditions remain
+  invalid; execution fixtures preserve prefix effects and skip branch/loop bodies
+  and continuation code through source/artifact/JIT routes.
   It still propagates constraints forward; backwards contextual inference remains
   an outstanding solver change. Independent signature queries construct
   the shared aggregate catalog and check applied bounds in signatures. Full/body

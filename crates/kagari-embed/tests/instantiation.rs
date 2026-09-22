@@ -440,3 +440,18 @@ fn terminating_array_members_preserve_prefix_effects_and_skip_suffixes() {
         42,
     );
 }
+
+#[test]
+fn returning_if_and_while_conditions_skip_unselected_work() {
+    for statement in [
+        "if (if true { return 40; } else { return 40; }) { count.value += 100; };",
+        "while (if true { return 40; } else { return 40; }) { count.value += 100; }",
+    ] {
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn run(count: Count) -> i32 {{ count.value += 1; {statement} count.value += 1000; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

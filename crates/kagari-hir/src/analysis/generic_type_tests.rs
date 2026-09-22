@@ -1634,3 +1634,38 @@ fn terminating_array_members_do_not_contribute_or_enable_later_type_joins() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
     }
 }
+
+#[test]
+fn terminating_conditions_do_not_require_a_boolean_value_but_keep_operand_errors() {
+    for (body, valid) in [
+        (
+            "if (if true { return 42; } else { return 42; }) { 1; };",
+            true,
+        ),
+        (
+            "while (if true { return 42; } else { return 42; }) { 1; }",
+            true,
+        ),
+        ("if (if true { return 42; } else { 7 }) { 1; };", false),
+        ("while (if true { return 42; } else { 7 }) { 1; }", false),
+        (
+            "if (if missing { return 42; } else { return 42; }) { 1; };",
+            false,
+        ),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "condition-completion.kgr",
+                format!("fn main() -> i32 {{ {body} 0 }}"),
+            ),
+            Default::default(),
+        );
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}

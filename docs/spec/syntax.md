@@ -423,6 +423,9 @@ Array element-type merging includes only sequentially reachable, normally
 completing elements. If an element always returns, it and the following elements
 do not contribute to the array's element join. Following expressions still receive
 independent semantic diagnostics even though they will not execute.
+An if/while condition must produce bool on paths that complete normally. A
+condition that always returns produces no condition value and does not receive
+a bool mismatch diagnostic, but its internal expressions remain checked.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
 Empty Array literals and the resolved standard Map/Set constructors consume the

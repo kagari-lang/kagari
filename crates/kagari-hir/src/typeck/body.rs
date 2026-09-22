@@ -2354,6 +2354,14 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) {
         let ty = self.infer_expr_type(expr_id, env);
+        let Ok(completes) =
+            super::completion::expr_can_complete(&self.lowered.module, expr_id, self.cancel)
+        else {
+            return;
+        };
+        if !completes {
+            return;
+        }
         if ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {
