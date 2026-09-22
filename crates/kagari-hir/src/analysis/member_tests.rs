@@ -332,3 +332,48 @@ fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
         assert!(snapshot.check_program(id, &Default::default()).is_err());
     }
 }
+
+#[test]
+fn unresolved_assignment_receivers_preserve_independent_index_facts() {
+    for target in [
+        "missing[make().value]",
+        "missing[make(true).value]",
+        "missing.absent[make().value]",
+        "missing[make().value].absent[make().value]",
+    ] {
+        let text = format!(
+            "struct Item {{ val value: i32 }} fn make() -> Item {{ Item {{ value: 0 }} }} fn bad() {{ {target} = 1; }} fn good() -> i32 {{ 42 }}"
+        );
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("index-recovery.kgr", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let file = snapshot.file(id).unwrap();
+        assert!(file.result().clone().into_codegen().is_err());
+        assert_eq!(
+            file.result()
+                .diagnostics()
+                .iter()
+                .filter(|d| matches!(
+                    d.kind,
+                    kagari_common::DiagnosticKind::CallArityMismatch { .. }
+                ))
+                .count(),
+            usize::from(target.contains("true"))
+        );
+        for (offset, _) in text.match_indices(".value") {
+            let member = offset + 1;
+            assert_eq!(
+                file.type_at(member),
+                Some(TypeId::Builtin(crate::types::BuiltinType::I32)),
+                "{target}"
+            );
+            assert_eq!(file.definition_at(member).unwrap().name, "value");
+        }
+        assert_eq!(
+            file.type_at(text.rfind("42").unwrap()),
+            Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+        );
+    }
+}

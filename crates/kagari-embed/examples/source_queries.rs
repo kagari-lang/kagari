@@ -30,7 +30,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     // An erroneous neighbor does not prevent navigation in the correct function.
     let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }\r\nenum Mode { Ready, Running(Point, [String]) }\r\nfn mode(p: Point) -> Mode { Mode::Running(p, [\"active\"]) }";
     let text = &format!(
-        "{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}\r\nimpl Show for Point {{ fn show(self) -> i32 {{ self.x }} }}"
+        "{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}\r\nimpl Show for Point {{ fn show(self) -> i32 {{ self.x }} }}\r\nfn broken_target(p: Point) {{ missing[p.x] = 1; }}"
     );
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
     // Declaration discovery does not resolve bodies or evaluate constants.
@@ -106,6 +106,15 @@ fn main() -> kagari_embed::CompileResult<()> {
         &Default::default(),
     )?;
     let analysis = snapshot.file(file).expect("source belongs to snapshot");
+    let index_member = text.find("missing[p.x]").expect("broken assignment") + "missing[p.".len();
+    assert_eq!(
+        analysis
+            .definition_at(index_member)
+            .expect("independent index member")
+            .name,
+        "x"
+    );
+    assert!(analysis.type_at(index_member).is_some());
     let facts = analysis.result().facts();
     let helper = facts
         .lowered

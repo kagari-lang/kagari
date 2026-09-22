@@ -317,8 +317,9 @@ impl<'a> BodyChecker<'a> {
                 writable.then_some(ty)
             }
             PlaceKind::Index { base, index } => {
-                let base_ty = self.resolve_readable_place_type(*base, env)?;
+                let base_ty = self.resolve_readable_place_type(*base, env);
                 self.infer_expr_type(*index, env);
+                let base_ty = base_ty?;
                 if matches!(base_ty, TypeId::Tuple(_)) {
                     self.resolve_assignment_target_type(*base, env)?;
                 }
@@ -369,8 +370,9 @@ impl<'a> BodyChecker<'a> {
                 Some(ty)
             }
             PlaceKind::Index { base, index } => {
-                let base_ty = self.resolve_readable_place_type(*base, env)?;
+                let base_ty = self.resolve_readable_place_type(*base, env);
                 self.infer_expr_type(*index, env);
+                let base_ty = base_ty?;
                 self.resolve_index_type(*index, &base_ty)
             }
         };

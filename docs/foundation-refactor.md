@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04 assignment-index recovery checkpoint: unresolved receiver/field projections
+  no longer skip independent index expression analysis in readable or writable
+  places. Four recovery cases retain index member types/navigation, diagnose an
+  independent call-arity error once, preserve a correct neighboring function and
+  reject code generation. The source_queries example exercises the same tooling
+  boundary. Broader semantic ownership/execution audits remain unchecked.
+
 R02 acceptance evidence:
 
 - [Unified language contracts](../crates/kagari-vm/src/tests/language_contract.rs)

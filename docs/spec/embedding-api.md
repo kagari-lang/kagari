@@ -552,3 +552,10 @@ The embedding API is complete when:
 - errors and diagnostics are structured
 - bytecode artifacts and source modules can be loaded through the same module identity model
 - JIT can be enabled or disabled without changing semantics
+
+Assignment recovery analyzes index expressions even when an earlier receiver or
+projection cannot be resolved. For example, `missing[make().value] = 1` retains the
+index member's type and declaration target. Independent errors in that index still
+produce diagnostics (once); the unresolved assignment continues to reject codegen.
+Nested indexes use the same rule, and correct neighboring functions remain queryable.
+The source_queries example demonstrates navigation through such a broken target.
