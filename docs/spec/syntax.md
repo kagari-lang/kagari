@@ -606,6 +606,10 @@ fields supply no generic inference constraint or assigned value. A construction
 that exits during field evaluation requires no missing generic arguments or
 result layout. Missing, duplicate and unknown fields, and independently invalid
 normally completing field values, still receive diagnostics.
+Unary negation and logical not constrain their operands only on normally
+completing paths. Inner errors remain visible. Negation with no produced operand
+has no inferred numeric result. IR registers expression result layouts through a
+single normal-completion boundary, including nested tuples and arrays.
 The same termination rule applies to operators and runtime helper arguments.
 A short-circuit operator can still complete along the path that skips its right
 operand. A return during a while condition or assignment RHS exits the function

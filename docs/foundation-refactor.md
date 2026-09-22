@@ -414,6 +414,11 @@ Implemented foundation slices:
   IR delays Struct result layouts until all field values complete. Inferred and
   explicit generic Struct fixtures verify inner errors, invalid later fields and
   skipped later effects across source/artifact/JIT fallback.
+  Unary negation/not now check only normally produced operands. IR layout
+  registration is centralized after expression lowering and normal-completion
+  checking, replacing per-call/constructor exceptions. Nested unary/Array/Tuple/
+  standard-call fixtures verify no unused result layout and correct effects
+  across source/artifact/JIT fallback.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

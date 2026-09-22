@@ -42,18 +42,14 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         self.planner.check()?;
-        if !matches!(
-            self.analyzed.lowered.module.expr(expr_id).kind,
-            hir::ExprKind::Call { .. } | hir::ExprKind::StructInit { .. }
-        ) && self
-            .analyzed
-            .typed
-            .type_table
-            .enum_constructor(expr_id)
-            .is_none()
-        {
+        let value = self.lower_expr_value(expr_id)?;
+        if !self.current_block_terminated() {
             self.record_expr_layout(expr_id)?;
         }
+        Ok(value)
+    }
+
+    fn lower_expr_value(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         if let Some(target) = self
             .analyzed
             .typed
@@ -80,7 +76,6 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(fields) => fields,
                 ControlFlow::Break(value) => return Ok(value),
             };
-            self.record_expr_layout(expr_id)?;
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::MakeEnum {
                 dst,
@@ -446,7 +441,6 @@ impl FunctionLowerer<'_, '_> {
                 value,
             });
         }
-        self.record_expr_layout(expr_id)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeStruct {
             dst,
@@ -645,7 +639,6 @@ impl FunctionLowerer<'_, '_> {
                 (target, lowered)
             }
         };
-        self.record_expr_layout(expr)?;
         let dst = self.alloc_temp(self.expr_type(expr)?);
         self.emit(Instruction::Call {
             dst: Some(dst),

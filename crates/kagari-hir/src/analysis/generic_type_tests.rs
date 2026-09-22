@@ -1950,3 +1950,34 @@ fn struct_fields_infer_and_check_only_normally_produced_values() {
         }
     }
 }
+
+#[test]
+fn unary_constraints_apply_only_to_normally_produced_operands() {
+    for (operator, good, bad) in [("-", "7", "false"), ("!", "true", "7")] {
+        for (operand, valid) in [
+            ("if true { return 42; } else { return 7; }".to_owned(), true),
+            (format!("if true {{ return 42; }} else {{ {good} }}"), true),
+            (format!("if true {{ return 42; }} else {{ {bad} }}"), false),
+            (
+                "if true { return false; } else { return 7; }".to_owned(),
+                false,
+            ),
+        ] {
+            let expression = format!("{operator}({operand})");
+            let analysis = crate::analyze_source(
+                &SourceFile::new(
+                    "unary-completion.kgr",
+                    format!("fn main() -> i32 {{ {expression}; 0 }}"),
+                ),
+                Default::default(),
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{expression}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{expression}");
+        }
+    }
+}

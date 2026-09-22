@@ -554,13 +554,20 @@ impl<'a> BodyChecker<'a> {
                     return ty;
                 }
                 let inner = self.infer_expr_type(*expr, env);
+                let Ok(completes) =
+                    super::completion::expr_can_complete(&self.lowered.module, *expr, self.cancel)
+                else {
+                    return TypeId::Unknown;
+                };
                 match op {
                     PrefixOp::Neg => {
-                        if super::constraints::known_type_violates_constraint(
-                            &inner,
-                            StandardTypeConstraint::SignedNumber,
-                            &env.generic_bounds,
-                        ) {
+                        if completes
+                            && super::constraints::known_type_violates_constraint(
+                                &inner,
+                                StandardTypeConstraint::SignedNumber,
+                                &env.generic_bounds,
+                            )
+                        {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                                     operator: "-",
@@ -570,10 +577,10 @@ impl<'a> BodyChecker<'a> {
                                 .with_span(self.lowered.source_map.expr_span(*expr)),
                             );
                         }
-                        inner
+                        if completes { inner } else { TypeId::Unknown }
                     }
                     PrefixOp::Not => {
-                        if inner.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
+                        if completes && inner.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                                     operator: "!",
