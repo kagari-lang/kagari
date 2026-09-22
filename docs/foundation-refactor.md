@@ -439,6 +439,10 @@ Implemented foundation slices:
   expression/block layers, 20,000 place layers, no subsequent operand request
   after termination and cancellation during operand acquisition. Other frontend
   depth limits and recursive traversals remain R15 work.
+  Completion traversal now memoizes finished node exits per query, keyed by full
+  owned HIR IDs. A 48-level shared-subtree fixture avoids exponential expansion,
+  and a shared block test verifies cached breaks are consumed only by loops.
+  Cancellation discards query-local facts; there is no cross-snapshot cache.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains

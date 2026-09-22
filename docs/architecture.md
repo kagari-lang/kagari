@@ -146,7 +146,11 @@ Normal-completion analysis is independent of produced value types. Its evaluator
 uses an explicit work stack over expressions, blocks, statements and places;
 lazy child traversal stops after termination and after an irrefutable match arm.
 Loops consume their own break exits. Each work step checks cancellation, which
-returns cancellation rather than a fabricated completion fact. This removes
+returns cancellation rather than a fabricated completion fact. Completed node
+facts are memoized within one traversal using the full owned HIR identity;
+shared subtrees are evaluated once, and cached break exits are consumed only at
+the enclosing loop boundary. The cache never crosses query or snapshot boundaries.
+This removes
 native-stack recursion from this analysis; it does not imply that all frontend
 traversals or resource limits are complete.
 It should erase parser trivia and expose stable semantic nodes for later passes.

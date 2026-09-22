@@ -1,5 +1,7 @@
 //! Normal completion is separate from the type of a produced value. In particular,
 //! a returning block does not produce Unit at the function's fallthrough boundary.
+use std::collections::HashMap;
+
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 
 use crate::hir::{BinaryOp, BlockId, ExprId, ExprKind, Module, PlaceId, PlaceKind, StmtKind};
@@ -52,7 +54,7 @@ pub(super) fn expr_can_complete(
     Ok(Completion { module, cancel }.expr(expr)?.normal)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Node {
     Expr(ExprId),
     Block(BlockId),
@@ -66,6 +68,7 @@ enum Node {
 type Nodes<'a> = Box<dyn Iterator<Item = Node> + 'a>;
 
 enum Task<'a> {
+    Record(Node),
     MatchArms(&'a [crate::hir::MatchArm]),
     Then(Exits),
     Visit(Node),
@@ -108,10 +111,16 @@ impl<'a> Completion<'a> {
 
     fn run<'b>(&'b self, first: Task<'b>) -> Result<Exits, Cancelled> {
         let mut work = vec![first];
+        // Facts belong to this immutable module traversal only. Cancellation
+        // discards the whole cache; no partial result escapes into another query.
+        let mut facts = HashMap::new();
         let mut value = Exits::NORMAL;
         while let Some(task) = work.pop() {
             self.cancel.check()?;
             match task {
+                Task::Record(node) => {
+                    facts.insert(node, value);
+                }
                 Task::Walk {
                     mut nodes,
                     exits,
@@ -158,6 +167,11 @@ impl<'a> Completion<'a> {
                 }
                 Task::ShortCircuit => value = value.either(Exits::NORMAL),
                 Task::Visit(node) => {
+                    if let Some(cached) = facts.get(&node) {
+                        value = *cached;
+                        continue;
+                    }
+                    work.push(Task::Record(node));
                     let nodes: Nodes<'b> = match node {
                         Node::Normal => {
                             value = Exits::NORMAL;
@@ -434,6 +448,71 @@ mod tests {
         .unwrap();
         assert!(!result.normal);
         assert_eq!(visits, 1);
+    }
+
+    #[test]
+    fn shared_subtrees_are_reused_without_losing_loop_exit_context() {
+        use crate::hir::{BlockData, ExprData, StmtData};
+        let mut lowered = crate::lower::lower_module(&kagari_common::SourceFile::new(
+            "shared-completion.kgr",
+            "fn main() { 7 }",
+        ));
+        let module = &mut lowered.module;
+        let mut expr = module.block(module.functions[0].body).tail_expr.unwrap();
+        let arena = expr.arena();
+        let owner = expr.owner();
+        // Expanding these shared edges instead of caching node facts would
+        // require 2^48 leaf visits, despite only 49 expression nodes.
+        for _ in 0..48 {
+            let previous = expr;
+            expr = ExprId::new(arena, owner, module.body.exprs.len());
+            module.body.exprs.push((
+                owner,
+                ExprData {
+                    kind: ExprKind::Tuple(smallvec::smallvec![previous, previous]),
+                },
+            ));
+        }
+        let token = CancellationToken::default();
+        assert_eq!(expr_can_complete(module, expr, &token), Ok(true));
+
+        let breaking = crate::hir::StmtId::new(arena, owner, module.body.stmts.len());
+        module.body.stmts.push((
+            owner,
+            StmtData {
+                kind: StmtKind::Break,
+            },
+        ));
+        let body = BlockId::new(arena, owner, module.body.blocks.len());
+        module.body.blocks.push((
+            owner,
+            BlockData {
+                statements: smallvec::smallvec![breaking],
+                tail_expr: None,
+            },
+        ));
+        let looping = crate::hir::StmtId::new(arena, owner, module.body.stmts.len());
+        module.body.stmts.push((
+            owner,
+            StmtData {
+                kind: StmtKind::Loop { body },
+            },
+        ));
+        // The same block's break exits are consumed by a loop, but propagate
+        // when that block is visited directly, including after a cache hit.
+        let nodes = [Node::Stmt(looping), Node::Block(body)].into_iter();
+        let exits = Completion {
+            module,
+            cancel: &token,
+        }
+        .run(Task::Walk {
+            nodes: Box::new(nodes),
+            exits: Exits::NORMAL,
+            alternatives: false,
+        })
+        .unwrap();
+        assert!(!exits.normal);
+        assert!(exits.breaks);
     }
 
     #[test]
