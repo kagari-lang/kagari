@@ -457,6 +457,7 @@ fn member_receiver_type_in(
 
 #[derive(Debug)]
 pub struct AnalysisDatabase {
+    parse_limits: kagari_syntax::parser::ParseLimits,
     body_cache: HashMap<kagari_common::identity::DefinitionId, Arc<FunctionAnalysis>>,
     body_revision: Revision,
     declaration_cache: Option<DeclarationSnapshot>,
@@ -469,6 +470,7 @@ pub struct AnalysisDatabase {
 impl Default for AnalysisDatabase {
     fn default() -> Self {
         Self {
+            parse_limits: Default::default(),
             body_cache: HashMap::new(),
             body_revision: Revision::default(),
             declaration_cache: None,
@@ -481,6 +483,19 @@ impl Default for AnalysisDatabase {
 }
 
 impl AnalysisDatabase {
+    /// Limits are query inputs. Existing immutable snapshots retain their facts;
+    /// subsequent queries must not reuse a differently limited parse or body.
+    pub fn set_parse_limits(&mut self, limits: kagari_syntax::parser::ParseLimits) {
+        if self.parse_limits == limits {
+            return;
+        }
+        self.parse_limits = limits;
+        self.declaration_cache = None;
+        self.signature_cache = None;
+        self.body_cache.clear();
+        self.files.clear();
+    }
+
     pub fn set_host_declarations(&mut self, hosts: Arc<crate::host::HostDeclarations>) {
         self.hosts = hosts;
     }

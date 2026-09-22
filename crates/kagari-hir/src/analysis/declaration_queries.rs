@@ -110,7 +110,8 @@ impl AnalysisDatabase {
             let (parsed, lowered) = match old {
                 Some(old) => (old.parsed.clone(), old.declared.lowered.clone()),
                 None => {
-                    let parsed = kagari_syntax::parser::parse_with_cancellation(file, cancel)?;
+                    let parsed =
+                        kagari_syntax::parser::parse_with_limits(file, self.parse_limits, cancel)?;
                     let lowered = crate::lower::lower_module_controlled(
                         file.clone(),
                         &parsed.syntax(),

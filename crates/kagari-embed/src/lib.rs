@@ -30,6 +30,7 @@ use kagari_vm::{ExecutionReport, Vm, VmError};
 use std::cell::RefCell;
 
 pub use kagari_runtime::HostExposurePolicy;
+pub use kagari_syntax::parser::ParseLimits;
 
 pub type CompileResult<T> = Result<T, EmbeddingError>;
 pub type LoadResult<T> = Result<T, EmbeddingError>;
@@ -51,6 +52,10 @@ pub struct KagariEngine {
 }
 
 impl KagariEngine {
+    pub fn set_parse_limits(&self, limits: ParseLimits) {
+        self.analysis.borrow_mut().set_parse_limits(limits);
+    }
+
     pub fn set_host_interface(
         &self,
         interface: kagari_common::host_interface::HostInterface,

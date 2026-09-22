@@ -8,6 +8,11 @@ use kagari_embed::KagariEngine;
 
 fn main() -> kagari_embed::CompileResult<()> {
     let engine = KagariEngine::default();
+    // Bound parser recovery for incomplete editor input. A limit error prevents
+    // compilation while retaining the parsed prefix for navigation.
+    engine.set_parse_limits(kagari_embed::ParseLimits {
+        max_diagnostics: 64,
+    });
     let source_name = "editor://game/main.kgr";
     engine.bind_module(
         source_name,

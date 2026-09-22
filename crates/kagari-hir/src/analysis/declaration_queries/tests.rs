@@ -190,3 +190,67 @@ fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
     assert_eq!(latest.revision(), sources.snapshot().revision());
     assert!(db.files.is_empty());
 }
+
+#[test]
+fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set(
+            "budget.kgr",
+            "fn good() -> i32 { 42 } @ @ fn later() -> i32 { 7 }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let old = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let has_later = |snapshot: &AnalysisSnapshot| {
+        snapshot
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .declarations
+            .iter()
+            .any(|d| d.name == "later")
+    };
+    assert!(has_later(&old));
+    db.set_parse_limits(kagari_syntax::parser::ParseLimits { max_diagnostics: 0 });
+    let limited = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    assert!(!has_later(&limited));
+    assert!(has_later(&old));
+    assert!(limited.check_program(id, &Default::default()).is_err());
+    assert!(
+        limited
+            .file(id)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(
+                d.kind,
+                DiagnosticKind::CompileLimitExceeded {
+                    resource: "parser diagnostics",
+                    limit: 0
+                }
+            ))
+    );
+    db.set_parse_limits(Default::default());
+    let restored = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    assert!(has_later(&restored));
+    assert!(!has_later(&limited));
+    assert!(
+        restored
+            .file(id)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .all(|d| !matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. }))
+    );
+}

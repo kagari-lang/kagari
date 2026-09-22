@@ -17,11 +17,18 @@ pub(crate) struct Parser<'a> {
     builder: GreenNodeBuilder<'static>,
     diagnostics: DiagnosticBuffer,
     allow_struct_literals: bool,
+    limits: super::ParseLimits,
+    exhausted: bool,
     cancel: CancellationToken,
 }
 
 impl<'a> Parser<'a> {
-    pub(crate) fn new(text: &'a str, tokens: TokenBuffer, cancel: CancellationToken) -> Self {
+    pub(crate) fn new(
+        text: &'a str,
+        tokens: TokenBuffer,
+        limits: super::ParseLimits,
+        cancel: CancellationToken,
+    ) -> Self {
         Self {
             text,
             tokens,
@@ -29,6 +36,8 @@ impl<'a> Parser<'a> {
             builder: GreenNodeBuilder::new(),
             diagnostics: SmallVec::new(),
             allow_struct_literals: true,
+            limits,
+            exhausted: false,
             cancel,
         }
     }
@@ -92,12 +101,42 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn error_here(&mut self, kind: DiagnosticKind) {
         let span = self.peek().map(|token| token.span).unwrap_or_default();
-        self.diagnostics
-            .push(Diagnostic::error(kind).with_span(span));
+        self.push_diagnostic(Diagnostic::error(kind).with_span(span));
     }
 
     pub(crate) fn push_diagnostic(&mut self, diagnostic: Diagnostic) {
-        self.diagnostics.push(diagnostic);
+        if self.exhausted {
+            return;
+        }
+        if self.diagnostics.len() < self.limits.max_diagnostics {
+            self.diagnostics.push(diagnostic);
+        } else {
+            let mut limit = Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                resource: "parser diagnostics",
+                limit: self.limits.max_diagnostics,
+            });
+            limit.span = diagnostic.span;
+            self.diagnostics.push(limit);
+            self.exhausted = true;
+        }
+    }
+
+    /// Retain the unparsed suffix without running more grammar recovery.
+    pub(crate) fn finish_remaining_tokens(&mut self) {
+        if self.exhausted {
+            self.start_node(SyntaxKind::Error);
+            while self.cursor < self.tokens.len() && self.cancel.check().is_ok() {
+                let token = &self.tokens[self.cursor];
+                self.builder.token(
+                    KagariLanguage::kind_to_raw(token.kind.to_syntax_kind()),
+                    &self.text[token.span.start..token.span.end],
+                );
+                self.cursor += 1;
+            }
+            self.finish_node();
+        } else if self.at(TokenKind::Eof) {
+            self.bump();
+        }
     }
 
     pub(crate) fn at(&self, kind: TokenKind) -> bool {
@@ -113,7 +152,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn current_kind(&self) -> Option<TokenKind> {
         // Grammar loops terminate on EOF, including module/trait bodies that
         // have no `None` recovery arm. Cancellation must follow that path.
-        if self.cancel.check().is_err() {
+        if self.exhausted || self.cancel.check().is_err() {
             return Some(TokenKind::Eof);
         }
         self.peek().map(|token| token.kind.clone())
@@ -137,6 +176,9 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn nth_nontrivia_kind(&self, n: usize) -> Option<TokenKind> {
         self.cancel.check().ok()?;
+        if self.exhausted {
+            return None;
+        }
         self.tokens
             .iter()
             .skip(self.cursor)
@@ -150,6 +192,9 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn nth_nontrivia_kind_from(&self, cursor: &mut usize) -> Option<TokenKind> {
+        if self.exhausted {
+            return None;
+        }
         while let Some(token) = self.tokens.get(*cursor) {
             self.cancel.check().ok()?;
             *cursor += 1;
@@ -162,6 +207,9 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn peek(&self) -> Option<&Token> {
         self.cancel.check().ok()?;
+        if self.exhausted {
+            return None;
+        }
         self.tokens.get(self.cursor)
     }
 }

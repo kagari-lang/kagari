@@ -284,3 +284,46 @@ fn diagnostics_carry_the_source_revision_that_produced_them() {
         .unwrap();
     assert!(!engine.source_snapshot().contains(span));
 }
+
+#[test]
+fn parser_budget_reports_revision_owned_limits_before_codegen() {
+    let engine = KagariEngine::default();
+    engine.set_parse_limits(kagari_embed::ParseLimits { max_diagnostics: 0 });
+    let id = engine
+        .set_source(
+            "memory://limited.kgr",
+            "fn main() -> i32 { 42 } @ fn hidden() {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let source = engine.source_snapshot();
+    let Err(EmbeddingError::Diagnostics { diagnostics }) =
+        engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
+    else {
+        panic!("limited source must not reach code generation");
+    };
+    let limit = diagnostics
+        .iter()
+        .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
+        .expect("structured parser limit");
+    assert!(source.contains(limit.span.expect("revision-owned position")));
+    let facts = engine
+        .analyze(source, LanguageProfile::default(), &Default::default())
+        .unwrap();
+    assert!(
+        facts
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .declarations
+            .iter()
+            .any(|d| d.name == "main")
+    );
+    engine
+        .compile_source(
+            SourceFile::new("memory://valid.kgr", "fn main() -> i32 { 42 }"),
+            Default::default(),
+        )
+        .unwrap();
+}

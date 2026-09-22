@@ -16,10 +16,7 @@ impl<'a> Parser<'a> {
             self.bump_trivia();
         }
 
-        if self.at(TokenKind::Eof) {
-            self.bump();
-        }
-
+        self.finish_remaining_tokens();
         self.finish_node();
     }
 

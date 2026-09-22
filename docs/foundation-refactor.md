@@ -1036,8 +1036,16 @@ Implemented foundation slices:
 - R15: IR generation has configurable instance, type-node, type-depth and generated
   instruction limits plus cancellation. Expansion counts nodes while copying,
   including replacement trees. Embedding returns revision-owned structured
-  diagnostics and keeps checked analysis usable after failure. Parser, const
-  evaluation and diagnostic-count limits remain outstanding. Source/artifact/JIT
+  diagnostics and keeps checked analysis usable after failure. Parsing now has a
+  configurable per-file ordinary-diagnostic budget (default 256), plus one
+  structured limit error. Exhaustion stops grammar recovery while preserving
+  the remaining source verbatim in a CST error node. The analysis database and
+  embedding engine expose the policy, invalidate all dependent caches on changes,
+  preserve existing snapshots and reject limited results before code generation.
+  Tests cover nested recovery, exact/zero budgets, Unicode/CRLF losslessness,
+  cancellation, equal-revision policy changes and revision-owned embed errors.
+  Parser depth, const evaluation and semantic diagnostic-count limits remain
+  outstanding. Source/artifact/JIT
   fallback fixtures cover generic values, recursion, numeric overflow, effects,
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this

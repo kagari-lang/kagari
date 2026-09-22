@@ -14,6 +14,21 @@ use crate::{
 
 pub(crate) use core::Parser;
 
+/// Per-file parser resource limits. The limit diagnostic is additional to the
+/// ordinary diagnostic budget; zero still permits parsing valid source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseLimits {
+    pub max_diagnostics: usize,
+}
+
+impl Default for ParseLimits {
+    fn default() -> Self {
+        Self {
+            max_diagnostics: 256,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Parse {
     green: GreenNode,
@@ -40,8 +55,16 @@ pub fn parse_with_cancellation(
     source: &SourceFile,
     cancel: &CancellationToken,
 ) -> Result<Parse, Cancelled> {
+    parse_with_limits(source, ParseLimits::default(), cancel)
+}
+
+pub fn parse_with_limits(
+    source: &SourceFile,
+    limits: ParseLimits,
+    cancel: &CancellationToken,
+) -> Result<Parse, Cancelled> {
     let tokens = lex_with_cancellation(source.text(), cancel)?;
-    let mut parser = Parser::new(source.text(), tokens, cancel.clone());
+    let mut parser = Parser::new(source.text(), tokens, limits, cancel.clone());
     parser.parse_root();
     let (green, diagnostics) = parser.finish();
     cancel.check()?;
