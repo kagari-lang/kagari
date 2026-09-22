@@ -103,6 +103,7 @@ struct Case {
     require_native: bool,
     max_steps: Option<u64>,
     reflection: bool,
+    array: Option<(&'static [i32], &'static [i32])>,
 }
 
 impl Case {
@@ -118,6 +119,7 @@ impl Case {
             require_native: false,
             max_steps: None,
             reflection: false,
+            array: None,
         }
     }
     fn effects(
@@ -130,6 +132,10 @@ impl Case {
         self
     }
 
+    fn array(mut self, initial: &'static [i32], expected: &'static [i32]) -> Self {
+        self.array = Some((initial, expected));
+        self
+    }
     fn native(mut self) -> Self {
         self.require_native = true;
         self
@@ -142,15 +148,44 @@ impl Case {
 
 fn run(case: &Case, route: Route) {
     let source = SourceFile::new(case.name, case.source);
-    let analyzed = analyze_source(
-        &source,
-        LanguageFeatureProfile {
-            allow_host_calls: true,
-            allow_reflection: case.reflection,
-            allow_reflection_write: case.reflection,
-            ..Default::default()
-        },
+    let profile = LanguageFeatureProfile {
+        allow_host_calls: true,
+        allow_reflection: case.reflection,
+        allow_reflection_write: case.reflection,
+        ..Default::default()
+    };
+    let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
+        "observe.array",
+        vec![],
+        kagari_common::host_interface::HostValueType::Array(Box::new(
+            kagari_common::host_interface::HostValueType::I32,
+        )),
     );
+    let analyzed = if case.array.is_some() {
+        use kagari_common::source_database::{SourceDatabase, SourceLayer};
+        let mut sources = SourceDatabase::default();
+        let file = sources
+            .set(case.name, case.source.into(), SourceLayer::Base)
+            .unwrap();
+        let mut analysis = kagari_hir::analysis::AnalysisDatabase::default();
+        analysis.set_host_declarations(
+            kagari_hir::host::HostDeclarations::new(kagari_common::host_interface::HostInterface {
+                field_paths: vec![],
+                types: vec![],
+                functions: vec![observe.clone()],
+            })
+            .unwrap(),
+        );
+        analysis
+            .snapshot(sources.snapshot(), profile, &Default::default())
+            .unwrap()
+            .file(file)
+            .unwrap()
+            .result()
+            .clone()
+    } else {
+        analyze_source(&source, profile)
+    };
     if let Expected::Diagnostic(code) = case.expected {
         assert!(
             analyzed.diagnostics().iter().any(|d| d.kind.code() == code),
@@ -212,7 +247,7 @@ fn run(case: &Case, route: Route) {
             },
         },
         host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["host.log".into()],
+            allowed_host_functions: vec!["host.log".into(), "observe.array".into()],
             ..Default::default()
         },
         ..Default::default()
@@ -246,6 +281,24 @@ fn run(case: &Case, route: Route) {
             },
         ))
         .unwrap();
+    let retained = case.array.map(|(initial, _)| {
+        let array = runtime
+            .alloc_array(initial.iter().copied().map(Value::I32).collect())
+            .unwrap();
+        let rooted = std::rc::Rc::new(runtime.root_value(Value::Array(array)).unwrap());
+        let capture_root = rooted.clone();
+        let capture_host = host.clone();
+        runtime
+            .register_host_function(HostFunction::new(observe, move |_, _| {
+                capture_host.lock().unwrap().calls.push(HostCall {
+                    symbol: "observe.array",
+                    args: vec![],
+                });
+                Ok(capture_root.value())
+            }))
+            .unwrap();
+        rooted
+    });
     let loaded = runtime
         .load_program(
             case.name,
@@ -301,8 +354,25 @@ fn run(case: &Case, route: Route) {
         "{} ({route:?}): call resources must be released after success or failure",
         case.name
     );
+    if let Some((_, expected)) = case.array {
+        assert_eq!(
+            vm.runtime().gc().active_roots(),
+            1,
+            "only the explicit observer root remains"
+        );
+        vm.runtime().collect_garbage().unwrap();
+        let Value::Array(array) = retained.as_ref().unwrap().value() else {
+            unreachable!()
+        };
+        assert_eq!(
+            vm.runtime().gc().array_snapshot(array),
+            Some(expected.iter().copied().map(Value::I32).collect()),
+            "{} ({route:?}): post-execution heap state",
+            case.name
+        );
+    }
     let host = host.lock().unwrap();
-    let expected_calls = case
+    let mut expected_calls = case
         .calls
         .iter()
         .map(|message| HostCall {
@@ -310,6 +380,15 @@ fn run(case: &Case, route: Route) {
             args: vec![Value::Str((*message).into())],
         })
         .collect::<Vec<_>>();
+    if case.array.is_some() {
+        expected_calls.insert(
+            0,
+            HostCall {
+                symbol: "observe.array",
+                args: vec![],
+            },
+        );
+    }
     let expected_mutations = case
         .committed
         .iter()
@@ -480,6 +559,14 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     )
     .effects(&["init"], &["init"]);
     cached_init_failure.repeat = 2;
+    for case in [
+        Case::new("heap-overflow-preserves-earlier-write", "use observe as test; fn main() { val a = test::array(); a[1] = 42; a[0] += 1; }", Expected::ScriptTrap("integer overflow")).array(&[2147483647, 0], &[2147483647, 42]),
+        Case::new("heap-removed-target-not-recreated", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a.clear(); print(\"removed\"); 2 } else { 0 }; }", Expected::IndexTrap).array(&[1], &[]).effects(&["removed"], &["removed"]),
+        Case::new("heap-out-of-bounds-preserves-earlier-write", "use observe as test; fn main() { val a = test::array(); a[0] = 42; a[9] = 2; }", Expected::IndexTrap).array(&[1], &[42]),
+        Case::new("heap-compound-reads-rhs-write", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a[0] = 10; 2 } else { 0 }; }", Expected::Value(Value::Unit)).array(&[1], &[12]),
+    ] {
+        for route in Route::ALL { run(&case, route); }
+    }
     let cases = [
         Case::new("unknown-inherent-impl-target", "impl Missing {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
         Case::new("unknown-where-target", "fn bad<T>(value: T) where Missing: Comparable {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_BOUND_TARGET")),

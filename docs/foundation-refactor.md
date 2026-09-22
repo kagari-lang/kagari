@@ -39,6 +39,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R02 post-trap heap checkpoint: shared fixtures can declare an offline array
+  provider, bind an explicit rooted array per runtime, and compare contents after
+  execution and collection. They assert frame roots are released and record provider
+  calls. Four source/artifact × interpreter/JIT fixtures verify prior writes survive
+  overflow/bounds traps, RHS deletion prevents final write, and compound assignment
+  reads the RHS-updated element. Other object observers and heap write-event traces
+  remain outstanding; array final-state evidence is not a general mutation log.
+
 - R02 artifact/JIT checkpoint: all shared contract fixtures now run the full
   source/artifact by interpreter/JIT matrix. The artifact/JIT route decodes and
   validates serialized bytes before loading, and applies the same host calls,

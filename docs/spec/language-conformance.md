@@ -6,7 +6,8 @@ Fixtures live in `crates/kagari-vm/src/tests/language_contract.rs` and contain:
 - source text and an expected value, diagnostic code, or failure category;
 - the ordered host calls and their argument values;
 - committed host mutation records and expected host state;
-- optional deterministic host rejection and repeated entry invocation.
+- optional deterministic host rejection and repeated entry invocation;
+- optional rooted array input and its expected contents after success or failure.
 
 Every executable fixture uses four fresh runtimes: source/interpreter,
 artifact/interpreter, source/JIT and artifact/JIT. Both artifact routes serialize,
@@ -34,8 +35,18 @@ The authority for expected behavior remains [value semantics](value-semantics.md
 New contract behavior extends this suite alongside focused subsystem tests.
 Assignment fixtures check target/index/RHS call order, reading RHS-updated values,
 rejected removed locations, captured root identity, and tuple value updates. These
-use the existing JIT fallback for local and aggregate operations. Heap mutation
-records and post-trap heap-state observation remain pending runtime ownership and
-mutation work; host call records alone do not establish those guarantees.
+use the existing JIT fallback for local and aggregate operations. The optional array observer declares `observe.array` offline and binds it to an
+explicit rooted handle in each runtime. Calls are recorded alongside ordinary host
+calls. After execution the fixture checks that only the observer root remains,
+collects garbage and compares the retained array contents. This covers completed
+writes surviving overflow/index traps, removed targets staying removed, and compound
+assignment reading a value changed by its RHS. It exercises JIT fallback for these
+container operations. Heap mutation event records and observers for other object
+kinds remain pending; final contents do not establish a full write-event trace.
+
+For example, `.array(&[2147483647, 0], &[2147483647, 42])` supplies the initial
+array and expects the first element unchanged after overflow while an earlier
+write of `42` to the second element survives. This is an explicit test-host input,
+not inspection of private bytecode registers or a raw unrooted `Value`.
 Unimplemented contract cases are tracked in the foundation roadmap; no ignored
 test is evidence of conformance.
