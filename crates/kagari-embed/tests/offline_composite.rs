@@ -187,3 +187,123 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
         .unwrap_err();
     assert!(format!("{error:?}").contains("KG_TYPE_ARGUMENT_TYPE_MISMATCH"));
 }
+
+#[test]
+fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_operands() {
+    let declaration = HostFunctionDeclaration::new(
+        "demo.take",
+        vec![HostParameter {
+            name: "value".into(),
+            ty: Type::Array(Box::new(Type::I32)),
+            passing: HostPassingStyle::Owned,
+        }],
+        Type::I32,
+    );
+    let engine = KagariEngine::default();
+    engine
+        .set_host_interface(HostInterface {
+            field_paths: vec![],
+            types: vec![],
+            functions: vec![declaration.clone()],
+        })
+        .unwrap();
+    let profile = LanguageProfile {
+        allow_host_calls: true,
+        allow_jit: true,
+        ..Default::default()
+    };
+    for (argument, expected_calls) in [
+        ("[]", 1),
+        ("if true { [] } else { [] }", 1),
+        ("if true { return 42; } else { return 7; }", 0),
+    ] {
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "host-context.kgr",
+                    format!("fn main() -> i32 {{ demo::take({argument}) }}"),
+                ),
+                CompileOptions {
+                    language_profile: profile,
+                },
+                ArtifactOptions::default(),
+            )
+            .unwrap();
+        for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+            let artifact = if encoded {
+                kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            } else {
+                artifact.clone()
+            };
+            let context = ExecutionContext {
+                language_profile: profile,
+                capabilities: CapabilitySet {
+                    host_calls: true,
+                    jit: true,
+                    ..Default::default()
+                },
+                host_policy: HostExposurePolicy {
+                    allowed_host_functions: vec!["demo.take".into()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut runtime = engine.runtime(context.clone());
+            let count = Arc::new(Mutex::new(0));
+            let calls = count.clone();
+            runtime
+                .register_host_function(HostFunction::new(
+                    declaration.clone(),
+                    move |context, args| {
+                        let Value::Array(array) = args[0] else {
+                            panic!("array argument")
+                        };
+                        assert!(
+                            context
+                                .runtime()
+                                .gc()
+                                .array_snapshot(array)
+                                .unwrap()
+                                .is_empty()
+                        );
+                        *calls.lock().unwrap() += 1;
+                        Ok(Value::I32(42))
+                    },
+                ))
+                .unwrap();
+            let loaded = runtime
+                .load_program(artifact, LoadOptions::default())
+                .unwrap();
+            let report = if jit {
+                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            } else {
+                runtime.execute(&loaded, "main", &[], &context)
+            }
+            .unwrap();
+            assert_eq!(report.return_value, Value::I32(42));
+            assert_eq!(*count.lock().unwrap(), expected_calls);
+        }
+    }
+    for argument in [
+        "[true]",
+        "if true { return 42; } else { false }",
+        "if true { return false; } else { return 7; }",
+        "[], missing",
+    ] {
+        assert!(
+            engine
+                .compile_source(
+                    SourceFile::new(
+                        "host-context-invalid.kgr",
+                        format!("fn main() -> i32 {{ demo::take({argument}) }}")
+                    ),
+                    CompileOptions {
+                        language_profile: profile
+                    },
+                )
+                .is_err(),
+            "{argument}"
+        );
+    }
+}

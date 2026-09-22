@@ -1447,7 +1447,14 @@ impl<'a> BodyChecker<'a> {
         args: &[ExprId],
         env: &mut BodyTypeEnv,
     ) -> TypeId {
-        let args = self.infer_call_args(args, env);
+        let args = self.infer_typed_args(
+            args,
+            declaration
+                .params
+                .iter()
+                .map(|parameter| crate::host::signature_type(&parameter.ty)),
+            env,
+        );
         if args.len() != declaration.params.len() {
             let implicit = usize::from(declaration.method_owner().is_some());
             self.check_builtin_arity(
@@ -1457,11 +1464,17 @@ impl<'a> BodyChecker<'a> {
                 callee,
             );
         }
-        for ((arg, found), parameter) in args.iter().zip(&declaration.params) {
-            let expected = crate::host::signature_type(&parameter.ty);
-            if found.conflicts_with(&expected) {
-                self.emit_arg_mismatch(name, &parameter.name, &expected, found, *arg);
+        for (index, parameter) in declaration.params.iter().enumerate() {
+            if self.cancel.check().is_err() {
+                return TypeId::Unknown;
             }
+            self.check_arg_type(
+                name,
+                &parameter.name,
+                crate::host::signature_type(&parameter.ty),
+                index,
+                &args,
+            );
         }
         crate::host::signature_type(&declaration.return_type)
     }

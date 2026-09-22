@@ -112,6 +112,13 @@ types. Opaque references use declaration identities, not runtime type slots.
 The old callback-owned metadata model, arbitrary ABI fingerprint field, static
 string type names and `with_metadata` constructor have been removed.
 
+Host parameter types from offline declarations provide expression context before
+argument checking, including nested containers and empty Array literals. The same
+parameter comparison rules apply to script and host calls: an argument that exits
+the enclosing function on every path produces no parameter value and does not
+invoke the host callback. Arity checks, inner diagnostics and incompatible values
+on normally completing paths still reject compilation.
+
 Callbacks receive `(&HostCallContext, &[Value])`. The context exposes the checked
 runtime and a call-scoped borrow guard; it cannot be constructed by hosts. Runtime
 entry registers a HostResourceScope in the active session and keeps argument roots

@@ -399,6 +399,11 @@ Implemented foundation slices:
   and enum-construction result layouts only after operands complete, avoiding
   spurious unresolved-result rejection for calls that cannot execute. Tests cover
   first, later and all-terminating operands across source/artifact/JIT fallback.
+  Offline host signatures now supply argument context and use the shared
+  completion-aware parameter checker instead of a separate mismatch path.
+  Composite host tests cover inferred empty arrays, branches, rejected completing
+  values and callback counts for terminated calls across all three execution
+  routes; reading declarations still requires no runtime registration.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
