@@ -449,23 +449,34 @@ fn member_receiver_type_in(
     table: &crate::typeck::TypeTable,
     offset: usize,
 ) -> Option<TypeId> {
-    lowered
-        .module
-        .body
-        .expressions()
-        .filter_map(|(id, expr)| {
-            let ExprKind::Field { receiver, .. } = &expr.kind else {
-                return None;
-            };
-            let span = lowered.source_map.expr_span(id);
-            if span.start <= offset && offset <= span.end {
+    let expressions = lowered.module.body.expressions().filter_map(|(id, expr)| {
+        let ExprKind::Field { receiver, .. } = &expr.kind else {
+            return None;
+        };
+        let span = lowered.source_map.expr_span(id);
+        if span.start <= offset && offset <= span.end {
+            table
+                .expr_type(*receiver)
+                .map(|ty| (span.end - span.start, ty))
+        } else {
+            None
+        }
+    });
+    let places = lowered.module.body.places().filter_map(|(id, place)| {
+        let crate::hir::PlaceKind::Field { base, .. } = &place.kind else {
+            return None;
+        };
+        let span = lowered.source_map.place_span(id);
+        (span.start <= offset && offset <= span.end)
+            .then(|| {
                 table
-                    .expr_type(*receiver)
+                    .place_type(*base)
                     .map(|ty| (span.end - span.start, ty))
-            } else {
-                None
-            }
-        })
+            })
+            .flatten()
+    });
+    expressions
+        .chain(places)
         .min_by_key(|(len, _)| *len)
         .map(|(_, ty)| ty)
 }

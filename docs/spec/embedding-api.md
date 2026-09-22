@@ -566,3 +566,10 @@ range alongside expression and annotation facts. A rejected write to a parameter
 That type still supplies contextual arguments for the RHS (for example an omitted
 generic constructor argument). Write rejection remains a diagnostic and prevents
 code generation; recovery never grants mutation permission.
+
+`member_receiver_type` queries both field-read expressions and field-write places,
+selecting the narrowest matching HIR range. Nested writes, unknown field names and
+incomplete trailing-dot targets retain a known receiver where analysis recovered
+one. Full-file and per-function queries share this implementation. Repeating an
+unchanged query uses its cached snapshot; source movement rebases query positions
+without changing the results retained by an earlier snapshot.

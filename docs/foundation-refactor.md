@@ -39,6 +39,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04 write-member receiver checkpoint: field-write places now participate in the
+  same protocol-independent receiver query as field reads. Tests cover valid nested
+  writes, unknown fields and incomplete trailing-dot targets, exact snapshot reuse,
+  source movement across emoji/CRLF, old snapshot stability and full-file/body-query
+  agreement. Invalid sources still reject codegen. The source_queries example
+  demonstrates a field-write receiver. Edited erroneous bodies may be rechecked;
+  these tests do not claim cross-revision reuse for them.
+
 - R04 read-only target facts checkpoint: parameter/val/field/tuple write rejection
   preserves known place types and supplies RHS contextual inference independently
   of write permission. Position type queries now include semantic place spans.

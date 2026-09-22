@@ -357,3 +357,58 @@ fn deleted_function_and_stale_queries_do_not_repopulate_latest_cache() {
             .is_none()
     );
 }
+
+#[test]
+fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
+    for target in ["p.inner.value", "p.inner.missing", "p.inner."] {
+        let text = format!(
+            "struct Inner {{ var value: i32 }} struct Outer {{ val inner: Inner }} fn edit(p: Outer) {{ {target} = 1; }} fn good() -> i32 {{ 42 }}"
+        );
+        let mut sources = SourceDatabase::default();
+        let file = sources
+            .set("place-member.kgr", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let mut db = AnalysisDatabase::default();
+        let edit = owner(&mut db, &sources, file, "edit");
+        let original = query(&mut db, &sources, &edit);
+        let cached = query(&mut db, &sources, &edit);
+        assert!(Arc::ptr_eq(&original, &cached));
+        let offset = text.find(target).unwrap() + "p.inner.".len();
+        let receiver = original
+            .member_receiver_type(offset)
+            .expect("assignment receiver");
+        assert!(
+            matches!(&receiver, TypeId::Struct(ty) if ty.declaration.path.last().unwrap().name == "Inner")
+        );
+        let valid = target == "p.inner.value";
+        assert_eq!(original.diagnostics().is_empty(), valid);
+        sources
+            .set(
+                "place-member.kgr",
+                format!("// moved 😀\r\n{text}"),
+                SourceLayer::Overlay,
+            )
+            .unwrap();
+        let moved = query(&mut db, &sources, &edit);
+
+        assert_eq!(
+            moved.member_receiver_type(offset + "// moved 😀\r\n".len()),
+            Some(receiver.clone())
+        );
+        assert_eq!(original.member_receiver_type(offset), Some(receiver));
+        let snapshot = db
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        assert_eq!(
+            snapshot
+                .file(file)
+                .unwrap()
+                .member_receiver_type(offset + "// moved 😀\r\n".len()),
+            moved.member_receiver_type(offset + "// moved 😀\r\n".len())
+        );
+        assert_eq!(
+            snapshot.check_program(file, &Default::default()).is_ok(),
+            valid
+        );
+    }
+}
