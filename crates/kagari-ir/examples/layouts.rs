@@ -28,6 +28,14 @@ fn main() {
             );
         }
     }
+    let cancelled = kagari_common::cancellation::CancellationToken::default();
+    cancelled.cancel();
+    assert_eq!(
+        kagari_ir::module::verify_ir(ir.clone().into_unverified(), &cancelled)
+            .unwrap_err()
+            .kind,
+        kagari_ir::module::IrVerificationErrorKind::Cancelled,
+    );
     let bytecode = lower_to_bytecode(&ir).unwrap();
     let (structure, fields) = bytecode
         .functions

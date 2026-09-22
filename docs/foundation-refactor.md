@@ -39,6 +39,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R15 public-layout verification checkpoint: template matching now builds an index
+  once per validation call and checks cancellation while indexing and traversing
+  layouts, fields, variants and payload members. Cancellation remains distinct from
+  layout mismatch and is honored for empty inputs. Enum matching compares payloads
+  individually without cloning whole payload vectors. Tests cover 256 public
+  templates, reachable instances and cancelled verification; the layouts example
+  demonstrates the structured cancellation result. Artifact verification remains
+  synchronous; analysis uses its caller-provided cancellation token.
+
 - R07 unused public-template checkpoint: the shared ABI validator rejects empty
   aggregate/member names, duplicate aggregate/member names and mixed struct/enum
   members before layout matching, even without an executable instance. Ten malformed

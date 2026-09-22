@@ -59,14 +59,20 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
         &module.structures,
         &module.identity,
         &module.abi.public_items,
-    ) {
+        context.cancel,
+    )
+    .map_err(|_| context.error(Error::Cancelled))?
+    {
         return Err(context.error(Error::InvalidStructLayout));
     }
     if !crate::module::layout::enum_abi_matches(
         &module.enumerations,
         &module.identity,
         &module.abi.public_items,
-    ) {
+        context.cancel,
+    )
+    .map_err(|_| context.error(Error::Cancelled))?
+    {
         return Err(context.error(Error::InvalidEnumLayout));
     }
     validate_layouts(&module.structures, context.cancel).map_err(|error| {

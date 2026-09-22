@@ -682,3 +682,65 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
         }
     }
 }
+
+#[test]
+fn public_layout_matching_observes_cancellation_including_empty_inputs() {
+    use crate::module::layout::{enum_abi_matches, struct_abi_matches};
+    let mut source = String::new();
+    for index in 0..128 {
+        source.push_str(&format!(
+            "pub struct S{index}<T> {{ val value: T }} pub enum E{index}<T> {{ Data(T) }} "
+        ));
+    }
+    source.push_str("fn main() { val s = S127 { value: 42 }; val e = E127::Data(true); }");
+    let module = raw(&source);
+    let cancel = CancellationToken::default();
+    assert_eq!(
+        struct_abi_matches(
+            &module.structures,
+            &module.identity,
+            &module.abi.public_items,
+            &cancel
+        ),
+        Ok(true)
+    );
+    assert_eq!(
+        enum_abi_matches(
+            &module.enumerations,
+            &module.identity,
+            &module.abi.public_items,
+            &cancel
+        ),
+        Ok(true)
+    );
+    cancel.cancel();
+    for empty in [false, true] {
+        let items = if empty {
+            &[][..]
+        } else {
+            &module.abi.public_items[..]
+        };
+        assert_eq!(
+            struct_abi_matches(
+                if empty { &[] } else { &module.structures },
+                &module.identity,
+                items,
+                &cancel
+            ),
+            Err(kagari_common::cancellation::Cancelled)
+        );
+        assert_eq!(
+            enum_abi_matches(
+                if empty { &[] } else { &module.enumerations },
+                &module.identity,
+                items,
+                &cancel
+            ),
+            Err(kagari_common::cancellation::Cancelled)
+        );
+    }
+    assert_eq!(
+        verify_ir(module, &cancel).unwrap_err().kind,
+        Error::Cancelled
+    );
+}

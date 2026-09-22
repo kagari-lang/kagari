@@ -14,93 +14,127 @@ pub struct EnumVariantLayout {
     pub payload: Vec<super::abi::AbiType>,
 }
 
-/// Compare executable instances to the owning public declaration after substitution.
+/// Compare executable instances to validated public declarations after substitution.
 pub(crate) fn struct_abi_matches(
     layouts: &[StructLayout],
     identity: &kagari_common::identity::ModuleIdentity,
     items: &[super::PublicAbiItem],
-) -> bool {
-    items.iter().all(|item| {
-        let super::PublicAbiItem::Type(ty) = item else {
-            return true;
-        };
-        if ty.kind != super::TypeAbiKind::Struct {
-            return true;
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> Result<bool, kagari_common::cancellation::Cancelled> {
+    let templates = public_templates(items, super::TypeAbiKind::Struct, cancel)?;
+    for layout in layouts {
+        cancel.check()?;
+        if &layout.declaration.module != identity {
+            continue;
         }
-        layouts
-            .iter()
-            .filter(|layout| {
-                &layout.declaration.module == identity
-                    && layout
-                        .declaration
-                        .path
-                        .last()
-                        .is_some_and(|part| part.name == ty.name)
-            })
-            .all(|layout| {
-                layout.arguments.len() == ty.generic_params.len()
-                    && layout.fields.len() == ty.fields.len()
-                    && layout.fields.iter().zip(&ty.fields).all(|(field, abi)| {
-                        field.name == abi.name
-                            && field.mutable == abi.mutable
-                            && abi
-                                .ty
-                                .instantiate(&layout.declaration, &layout.arguments)
-                                .as_ref()
-                                == Some(&field.ty)
-                    })
-            })
-    })
+        let Some(template) = layout
+            .declaration
+            .path
+            .last()
+            .and_then(|part| templates.get(part.name.as_str()))
+        else {
+            continue;
+        };
+        if layout.arguments.len() != template.generic_params.len()
+            || layout.fields.len() != template.fields.len()
+        {
+            return Ok(false);
+        }
+        for (field, abi) in layout.fields.iter().zip(&template.fields) {
+            cancel.check()?;
+            if field.name != abi.name
+                || field.mutable != abi.mutable
+                || abi
+                    .ty
+                    .instantiate(&layout.declaration, &layout.arguments)
+                    .as_ref()
+                    != Some(&field.ty)
+            {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
 }
 
 pub(crate) fn enum_abi_matches(
     layouts: &[EnumLayout],
     identity: &kagari_common::identity::ModuleIdentity,
     items: &[super::PublicAbiItem],
-) -> bool {
-    items.iter().all(|item| {
-        let super::PublicAbiItem::Type(ty) = item else {
-            return true;
-        };
-        if ty.kind != super::TypeAbiKind::Enum {
-            return true;
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> Result<bool, kagari_common::cancellation::Cancelled> {
+    let templates = public_templates(items, super::TypeAbiKind::Enum, cancel)?;
+    let mut instantiated = std::collections::HashSet::new();
+    for layout in layouts {
+        cancel.check()?;
+        if &layout.declaration.module != identity {
+            continue;
         }
-        let instances = layouts
-            .iter()
-            .filter(|layout| {
-                &layout.declaration.module == identity
-                    && layout
-                        .declaration
-                        .path
-                        .last()
-                        .is_some_and(|part| part.name == ty.name)
-            })
-            .collect::<Vec<_>>();
-        (!ty.generic_params.is_empty() || !instances.is_empty())
-            && instances.into_iter().all(|layout| {
-                layout.arguments.len() == ty.generic_params.len()
-                    && layout.variants.len() == ty.variants.len()
-                    && layout
-                        .variants
-                        .iter()
-                        .zip(&ty.variants)
-                        .all(|(variant, abi)| {
-                            variant
-                                .declaration
-                                .path
-                                .last()
-                                .is_some_and(|part| part.name == abi.name)
-                                && abi
-                                    .payload
-                                    .iter()
-                                    .map(|ty| {
-                                        ty.instantiate(&layout.declaration, &layout.arguments)
-                                    })
-                                    .collect::<Option<Vec<_>>>()
-                                    == Some(variant.payload.clone())
-                        })
-            })
-    })
+        let Some(template) = layout
+            .declaration
+            .path
+            .last()
+            .and_then(|part| templates.get(part.name.as_str()))
+        else {
+            continue;
+        };
+        instantiated.insert(template.name.as_str());
+        if layout.arguments.len() != template.generic_params.len()
+            || layout.variants.len() != template.variants.len()
+        {
+            return Ok(false);
+        }
+        for (variant, abi) in layout.variants.iter().zip(&template.variants) {
+            cancel.check()?;
+            if !variant
+                .declaration
+                .path
+                .last()
+                .is_some_and(|part| part.name == abi.name)
+                || variant.payload.len() != abi.payload.len()
+            {
+                return Ok(false);
+            }
+            for (concrete, ty) in variant.payload.iter().zip(&abi.payload) {
+                cancel.check()?;
+                if ty
+                    .instantiate(&layout.declaration, &layout.arguments)
+                    .as_ref()
+                    != Some(concrete)
+                {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    for template in templates.values() {
+        cancel.check()?;
+        if template.generic_params.is_empty() && !instantiated.contains(template.name.as_str()) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn public_templates<'a>(
+    items: &'a [super::PublicAbiItem],
+    kind: super::TypeAbiKind,
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> Result<
+    std::collections::HashMap<&'a str, &'a super::TypeAbi>,
+    kagari_common::cancellation::Cancelled,
+> {
+    cancel.check()?;
+    let mut templates = std::collections::HashMap::new();
+    for item in items {
+        cancel.check()?;
+        if let super::PublicAbiItem::Type(ty) = item
+            && ty.kind == kind
+        {
+            templates.insert(ty.name.as_str(), ty);
+        }
+    }
+    Ok(templates)
 }
 
 pub(crate) fn validate_enum_layouts(

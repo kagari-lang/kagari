@@ -123,7 +123,8 @@ Only parameter locals begin initialized. A loop backedge cannot initialize a
 value for its first iteration.
 
 Counts are checked before conversion to bytecode ID widths. Verification observes
-analysis cancellation and caps its block/value dataflow matrix at 64 MiB. Failures
+analysis cancellation, including public-template indexing and each layout/member
+comparison, and caps its block/value dataflow matrix at 64 MiB. Failures
 carry `KG_IR_*` codes, function/block/instruction positions and available source
 spans. During source compilation, encoding or verification-state limits become
 `KG_COMPILE_LIMIT_EXCEEDED` diagnostics.

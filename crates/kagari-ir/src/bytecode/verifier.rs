@@ -276,14 +276,20 @@ pub(super) fn verify_module_with_program(
         &module.structures,
         &module.identity,
         &module.public_items,
-    ) {
+        &Default::default(),
+    )
+    .expect("bytecode verification uses an uncancelled token")
+    {
         return Err(BytecodeVerificationError::InvalidStructLayout);
     }
     if !crate::module::layout::enum_abi_matches(
         &module.enumerations,
         &module.identity,
         &module.public_items,
-    ) {
+        &Default::default(),
+    )
+    .expect("bytecode verification uses an uncancelled token")
+    {
         return Err(BytecodeVerificationError::InvalidEnumLayout);
     }
     crate::module::layout::validate_enum_layouts(

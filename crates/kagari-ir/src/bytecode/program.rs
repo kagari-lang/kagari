@@ -63,7 +63,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 std::slice::from_ref(layout),
                 &owner.identity,
                 std::slice::from_ref(template),
-            ) {
+                &Default::default(),
+            )
+            .expect("bytecode verification uses an uncancelled token")
+            {
                 return Err(BytecodeVerificationError::InvalidStructLayout);
             }
         }
@@ -104,7 +107,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 std::slice::from_ref(layout),
                 &owner.identity,
                 std::slice::from_ref(template),
-            ) {
+                &Default::default(),
+            )
+            .expect("bytecode verification uses an uncancelled token")
+            {
                 return Err(BytecodeVerificationError::InvalidEnumLayout);
             }
         }
