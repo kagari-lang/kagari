@@ -39,6 +39,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R02 multi-module checkpoint: every fixture now uses one source database,
+  immutable snapshot and checked-program compiler path. Optional dependency sources
+  share the fixture value/diagnostic/call/mutation expectations; artifact routes
+  serialize the entire program. Diamond initialization order, one-time initialization,
+  cached dependency failure preventing root effects, and cycle rejection now run
+  through the common four-route entry. Focused activation tests remain valuable,
+  but publication isolation/stale candidates/old dependency closures have not yet
+  joined this fixture format, so R02 remains unchecked after this audit.
+
 - R02 host-owned iteration checkpoint: five source fixtures exercise array push,
   insert, pop, remove and clear under a host collection guard on all four routes.
   They verify standard trap context, preserved earlier replacement/host effects,

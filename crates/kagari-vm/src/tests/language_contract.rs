@@ -5,11 +5,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use kagari_common::SourceFile;
-use kagari_hir::{LanguageFeatureProfile, analyze_source};
+use kagari_hir::LanguageFeatureProfile;
 use kagari_ir::{
-    bytecode::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact, lower_to_bytecode},
-    lower_to_ir,
+    bytecode::{
+        ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact, lower_program_to_bytecode,
+    },
+    program::lower_program_to_ir,
 };
 use kagari_jit_cranelift::CraneliftBackend;
 use kagari_runtime::{
@@ -64,6 +65,7 @@ impl Route {
 enum Expected {
     Value(Value),
     Diagnostic(&'static str),
+    ImportCycle,
     IndexTrap,
     HostFailure,
     ScriptTrap(&'static str),
@@ -97,6 +99,7 @@ struct RecordingHost {
 struct Case<'a> {
     name: &'static str,
     source: &'a str,
+    modules: &'a [(&'a str, &'a str)],
     expected: Expected,
     calls: &'static [&'static str],
     committed: &'static [&'static str],
@@ -115,6 +118,7 @@ impl<'a> Case<'a> {
         Self {
             name,
             source,
+            modules: &[],
             expected,
             calls: &[],
             committed: &[],
@@ -142,6 +146,10 @@ impl<'a> Case<'a> {
         self.array = Some((initial, expected));
         self
     }
+    fn modules(mut self, modules: &'a [(&'a str, &'a str)]) -> Self {
+        self.modules = modules;
+        self
+    }
     fn native(mut self) -> Self {
         self.require_native = true;
         self
@@ -153,7 +161,6 @@ impl<'a> Case<'a> {
 }
 
 fn run(case: &Case<'_>, route: Route) {
-    let source = SourceFile::new(case.name, case.source);
     let profile = LanguageFeatureProfile {
         allow_host_calls: true,
         allow_reflection: case.reflection,
@@ -167,13 +174,32 @@ fn run(case: &Case<'_>, route: Route) {
             kagari_common::host_interface::HostValueType::I32,
         )),
     );
-    let analyzed = if case.array.is_some() {
-        use kagari_common::source_database::{SourceDatabase, SourceLayer};
-        let mut sources = SourceDatabase::default();
-        let file = sources
-            .set(case.name, case.source.into(), SourceLayer::Base)
+    use kagari_common::{
+        identity::{ModuleIdentity, PackageId},
+        source_database::{SourceDatabase, SourceLayer},
+    };
+    let mut sources = SourceDatabase::default();
+    let mut root = None;
+    for (name, text) in case
+        .modules
+        .iter()
+        .copied()
+        .chain(std::iter::once(("root", case.source)))
+    {
+        let uri = format!("mem://{name}");
+        sources
+            .bind_module(
+                &uri,
+                ModuleIdentity {
+                    package: PackageId("contract".into()),
+                    path: vec![name.into()],
+                },
+            )
             .unwrap();
-        let mut analysis = kagari_hir::analysis::AnalysisDatabase::default();
+        root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
+    }
+    let mut analysis = kagari_hir::analysis::AnalysisDatabase::default();
+    if case.array.is_some() {
         analysis.set_host_declarations(
             kagari_hir::host::HostDeclarations::new(kagari_common::host_interface::HostInterface {
                 field_paths: vec![],
@@ -182,52 +208,54 @@ fn run(case: &Case<'_>, route: Route) {
             })
             .unwrap(),
         );
-        analysis
-            .snapshot(sources.snapshot(), profile, &Default::default())
-            .unwrap()
-            .file(file)
-            .unwrap()
-            .result()
-            .clone()
-    } else {
-        analyze_source(&source, profile)
-    };
+    }
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), profile, &Default::default())
+        .unwrap();
+    let checked = snapshot.check_program(root.unwrap(), &Default::default());
     if let Expected::Diagnostic(code) = case.expected {
+        let Err(kagari_hir::program::ProgramCheckError::Diagnostics(diagnostics)) = checked else {
+            panic!(
+                "{} ({route:?}): expected diagnostic {code}, got {checked:?}",
+                case.name
+            );
+        };
         assert!(
-            analyzed.diagnostics().iter().any(|d| d.kind.code() == code),
-            "{} ({route:?}): {:?}",
-            case.name,
-            analyzed.diagnostics()
-        );
-        assert!(
-            analyzed.into_codegen().is_err(),
-            "diagnostic must prevent all execution routes"
+            diagnostics.iter().any(|d| d.diagnostic.kind.code() == code),
+            "{} ({route:?}): {diagnostics:?}",
+            case.name
         );
         return;
     }
-    let analyzed = analyzed
-        .into_codegen()
-        .unwrap_or_else(|d| panic!("{}: {d:?}", case.name));
+    if matches!(case.expected, Expected::ImportCycle) {
+        assert!(
+            matches!(
+                checked,
+                Err(kagari_hir::program::ProgramCheckError::Graph(
+                    kagari_hir::imports::ModuleOrderError::Cycle(_)
+                ))
+            ),
+            "{} ({route:?}): {checked:?}",
+            case.name
+        );
+        return;
+    }
+    let checked = checked.unwrap_or_else(|error| panic!("{} ({route:?}): {error:?}", case.name));
     let compiled =
-        lower_to_bytecode(&lower_to_ir(&analyzed, &Default::default()).unwrap()).unwrap();
+        lower_program_to_bytecode(&lower_program_to_ir(&checked, &Default::default()).unwrap())
+            .unwrap();
     let module = match route {
         Route::Source | Route::Jit => compiled,
         Route::Artifact | Route::ArtifactJit => {
-            let bytes = KbcArtifact::from_program(
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![compiled],
-                },
-                ArtifactBuildOptions::default(),
-            )
-            .unwrap()
-            .to_bytes()
-            .unwrap();
+            let bytes = KbcArtifact::from_program(compiled, ArtifactBuildOptions::default())
+                .unwrap()
+                .to_bytes()
+                .unwrap();
             let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
             decoded
                 .validate_for_loader(&ArtifactCompatibility::default())
                 .unwrap();
-            decoded.program.modules[decoded.program.root.index()].clone()
+            decoded.program
         }
     };
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -311,15 +339,7 @@ fn run(case: &Case<'_>, route: Route) {
             .unwrap();
         rooted
     });
-    let loaded = runtime
-        .load_program(
-            case.name,
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![module],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program(case.name, module).unwrap();
     let iteration = case.iterating.then(|| {
         runtime
             .gc()
@@ -662,6 +682,36 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         .array(&[1, 2], &[42, 2])
         .effects(&["before"], &["before"]);
         case.iterating = true;
+        for route in Route::ALL {
+            run(&case, route);
+        }
+    }
+    let mut diamond = Case::new(
+        "dependency-first-diamond-initializes-once",
+        "use contract::left::left; use contract::right::right; print(\"root\"); fn main() -> i32 { left() + right() }",
+        Expected::Value(Value::I32(42)),
+    ).modules(&[
+        ("leaf", "print(\"leaf\"); pub fn leaf() -> i32 { 21 }"),
+        ("left", "use contract::leaf::leaf; print(\"left\"); pub fn left() -> i32 { leaf() }"),
+        ("right", "use contract::leaf::leaf; print(\"right\"); pub fn right() -> i32 { leaf() }"),
+    ]).effects(&["leaf", "left", "right", "root"], &["leaf", "left", "right", "root"]);
+    diamond.repeat = 2;
+    let mut failed_dependency = Case::new(
+        "dependency-initialization-failure-is-cached",
+        "use contract::dependency::answer; print(\"unreachable-root\"); fn main() -> i32 { answer() }",
+        Expected::IndexTrap,
+    ).modules(&[("dependency", "print(\"dependency\"); val a = [1]; a[9]; pub fn answer() -> i32 { 42 }")]).effects(&["dependency"], &["dependency"]);
+    failed_dependency.repeat = 2;
+    let cycle = Case::new(
+        "cyclic-imports-prevent-execution",
+        "use contract::dependency::answer; pub fn main() -> i32 { answer() }",
+        Expected::ImportCycle,
+    )
+    .modules(&[(
+        "dependency",
+        "use contract::root::main; pub fn answer() -> i32 { main() }",
+    )]);
+    for case in [diamond, failed_dependency, cycle] {
         for route in Route::ALL {
             run(&case, route);
         }

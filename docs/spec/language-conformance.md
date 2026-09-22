@@ -3,7 +3,8 @@
 Run `cargo test -p kagari-vm language_contract` for the shared observable suite.
 Fixtures live in `crates/kagari-vm/src/tests/language_contract.rs` and contain:
 
-- source text and an expected value, diagnostic code, or failure category;
+- root source, optional named dependency sources, and an expected value, diagnostic
+  code, import-cycle rejection, or runtime failure category;
 - the ordered host calls and their argument values;
 - committed host mutation records and expected host state;
 - optional deterministic host rejection/cancellation and repeated entry invocation;
@@ -69,3 +70,17 @@ checks contents, and performs a push/pop to prove structural access is restored.
 These run on all four routes and check the standard-library error category and
 operation context. They establish script enforcement of a host-owned guard;
 source callback and for-loop integration is still a separate incomplete requirement.
+
+All fixtures compile through one SourceDatabase, immutable analysis snapshot and
+checked-program boundary. `.modules(&[("dependency", "pub fn answer() -> i32 { 42 }")])`
+adds `contract::dependency`; root source is `contract::root`. The complete program
+is serialized on artifact routes rather than extracting just its root module.
+The initialization fixtures observe a diamond's dependency-first host-call order,
+one-time initialization across repeated entries, cached dependency failure that
+prevents root initialization, and cycle rejection before code generation. The
+same host-call and mutation records are shared with ordinary execution fixtures.
+
+This suite establishes a common format and execution matrix. It does not replace
+focused subsystem checks for publication isolation, stale candidates or retained
+old-version dependency closures. Those activation cases still need integration
+before the roadmap's current R02 acceptance can be marked complete.
