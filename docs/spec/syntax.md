@@ -432,6 +432,11 @@ function and does not produce an additional outer return value. Its own return
 type is still checked; a bare `return` continues to require a Unit return type.
 Assignment RHS expressions receive the checked target type as context, including
 local, field and index targets. This does not change target writeability checks.
+An initializer or assignment RHS is compared against its destination type only
+when it can complete normally. A terminating RHS supplies no value for an
+ordinary or compound assignment, so no assignment operation type check or final
+write occurs. Inner expression diagnostics and invalid-target diagnostics remain;
+annotated local types remain available to semantic queries.
 Empty Array literals and the resolved standard Map/Set constructors consume the
 same expected-type context in every expression position. Constructor arity and
 container kind must still match; context does not coerce incompatible elements.

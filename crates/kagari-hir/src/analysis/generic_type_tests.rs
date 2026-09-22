@@ -1699,3 +1699,47 @@ fn return_values_are_checked_only_when_their_expression_completes() {
         assert_eq!(analysis.into_codegen().is_ok(), mismatches == 0);
     }
 }
+
+#[test]
+fn binding_and_assignment_values_require_types_only_when_they_complete() {
+    for statement in [
+        "val value: i32 = VALUE;",
+        "var value = 1; value = VALUE;",
+        "var value = 1; value += VALUE;",
+    ] {
+        for (value, valid) in [
+            ("if true { return 42; } else { return 7; }", true),
+            ("if true { return 42; } else { 7 }", true),
+            ("if true { return 42; } else { false }", false),
+            ("if true { return false; } else { return 7; }", false),
+        ] {
+            let body = statement.replace("VALUE", value);
+            let analysis = crate::analyze_source(
+                &SourceFile::new(
+                    "assignment-completion.kgr",
+                    format!("fn main() -> i32 {{ {body} 0 }}"),
+                ),
+                Default::default(),
+            );
+            assert_eq!(
+                analysis.diagnostics().is_empty(),
+                valid,
+                "{body}: {:?}",
+                analysis.diagnostics()
+            );
+            assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
+        }
+    }
+    let analysis = crate::analyze_source(
+        &SourceFile::new(
+            "readonly-terminating-assignment.kgr",
+            "fn main() -> i32 { val value = 1; value = if true { return 42; } else { return 7; }; 0 }",
+        ),
+        Default::default(),
+    );
+    assert!(analysis.diagnostics().iter().any(|d| matches!(
+        d.kind,
+        kagari_common::DiagnosticKind::InvalidAssignmentTarget { .. }
+    )));
+    assert!(analysis.into_codegen().is_err());
+}

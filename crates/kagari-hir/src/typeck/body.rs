@@ -143,7 +143,14 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics,
                     self.cancel,
                 );
-                if local_ty.conflicts_with(&initializer_ty) {
+                let Ok(completes) = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    *initializer,
+                    self.cancel,
+                ) else {
+                    return;
+                };
+                if completes && local_ty.conflicts_with(&initializer_ty) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
                             expected: display_type_id(&local_ty),
@@ -159,17 +166,24 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Assign { target, value, op } => {
                 let target_ty = self.resolve_assignment_target_type(*target, env);
                 let value_ty = self.infer_expr_type_expected(*value, env, target_ty.as_ref());
-                if let (Some(op), Some(expected)) = (op, &target_ty) {
+                let Ok(completes) =
+                    super::completion::expr_can_complete(&self.lowered.module, *value, self.cancel)
+                else {
+                    return;
+                };
+                if completes && let (Some(op), Some(expected)) = (op, &target_ty) {
                     self.infer_binary_type(*op, *value, expected.clone(), value_ty.clone(), env);
                 }
                 match target_ty {
-                    Some(expected) if expected.conflicts_with(&value_ty) => self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                            expected: display_type_id(&expected),
-                            found: display_type_id(&value_ty),
-                        })
-                        .with_span(self.lowered.source_map.place_span(*target)),
-                    ),
+                    Some(expected) if completes && expected.conflicts_with(&value_ty) => {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
+                                expected: display_type_id(&expected),
+                                found: display_type_id(&value_ty),
+                            })
+                            .with_span(self.lowered.source_map.place_span(*target)),
+                        )
+                    }
                     None => {
                         let reason = self.assignment_target_error_reason(*target, env);
                         self.diagnostics.push(

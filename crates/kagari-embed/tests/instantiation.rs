@@ -463,3 +463,19 @@ fn nested_returns_preserve_the_inner_result_and_single_condition_evaluation() {
         42,
     );
 }
+
+#[test]
+fn terminating_initializers_and_assignment_values_skip_the_write() {
+    for statement in [
+        "val value: i32 = if tick(count) { return 40; } else { return 0; };",
+        "count.value = if tick(count) { return 40; } else { return 0; };",
+        "count.value += if tick(count) { return 40; } else { return 0; };",
+    ] {
+        execute_contextual_source(
+            &format!(
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {statement} count.value += 1000; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+            ),
+            42,
+        );
+    }
+}

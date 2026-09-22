@@ -379,6 +379,11 @@ Implemented foundation slices:
   Explicit return checks likewise compare a value only when its operand can
   complete normally. Nested returns no longer fabricate an outer Unit mismatch;
   inner return mismatches and partially completing wrong types remain diagnosed.
+  Initializer and assignment type checks now also require a normally completing
+  value. Terminating compound RHS expressions do not fabricate operator errors;
+  annotations, inner diagnostics and target writeability checks remain intact.
+  Source/artifact/JIT fallback tests verify one RHS condition side effect, no
+  final field write and no execution of subsequent statements.
   Source/artifact/JIT fixtures verify the inner result and single evaluation of
   the branch condition.
   It still propagates constraints forward; backwards contextual inference remains
