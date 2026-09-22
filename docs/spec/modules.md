@@ -542,3 +542,27 @@ The Kagari module model is:
 - treat `main` as an optional host-side convention
 
 This gives Kagari a scripting-friendly module system without sacrificing predictable execution behavior.
+
+### Constant analysis budgets
+
+`ConstLimits` configures each file's shared const capability-validation and scalar
+evaluation budget: `max_steps` defaults to 100,000 and `max_depth` to 64. Entering
+an initializer expression in either phase charges one step and one active depth
+level; returning releases depth. Constant dependency visits retain the caller's
+depth. Cached constant results are reused without reevaluating their initializer.
+Validation visits both logical operands; evaluation charges only the operands
+actually evaluated under short-circuit rules. A literal constant therefore costs
+two steps across the two phases. Zero steps permits a file without constants.
+
+The first exhausted budget emits a positioned `KG_COMPILE_LIMIT_EXCEEDED` with
+resource `const steps` or `const depth`; no subsequent constant evaluation runs.
+Already established facts remain available, and unrelated function bodies still
+receive semantic analysis, but checked-program construction and compilation reject
+the limited result. Cancellation remains a distinct analysis outcome. These limits
+do not authorize additional const syntax, host calls or IO.
+
+`AnalysisDatabase::set_const_limits` and `KagariEngine::set_const_limits` invalidate
+full and single-function body results even for unchanged source revisions. Existing
+snapshots keep their original facts; declaration and signature caches remain valid.
+Budgets reset per file analysis/query, rather than accumulating across editor queries.
+These are logical traversal limits, not byte-allocation or wall-clock quotas.

@@ -1060,8 +1060,14 @@ Implemented foundation slices:
   and a 2,000-term binary chain; the preceding correct function retains its body
   type query while both checked-program and compile entry points reject limits.
   This is default-policy evidence, not a guarantee for arbitrarily raised limits
-  or externally constructed HIR. Downstream recursive traversal limits,
-  const evaluation and semantic diagnostic-count limits remain outstanding. Source/artifact/JIT
+  or externally constructed HIR.
+  Const validation and evaluation now share configurable per-file step/depth
+  budgets (100,000/64 by default), with one positioned exhaustion diagnostic.
+  Tests cover exact/zero budgets, short-circuit work, 1,000-level dependencies,
+  retained neighboring body facts, cancellation, and same-revision invalidation
+  of full and single-body queries while old snapshots remain usable.
+  Downstream recursive traversal limits, semantic diagnostic-count limits and
+  broader resource audits remain outstanding. Source/artifact/JIT
   fallback fixtures cover generic values, recursion, numeric overflow, effects,
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this

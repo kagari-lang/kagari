@@ -15,6 +15,10 @@ fn main() -> kagari_embed::CompileResult<()> {
         max_nesting: 32,
         max_tree_depth: 96,
     });
+    engine.set_const_limits(kagari_embed::ConstLimits {
+        max_steps: 10_000,
+        max_depth: 32,
+    });
     let source_name = "editor://game/main.kgr";
     engine.bind_module(
         source_name,

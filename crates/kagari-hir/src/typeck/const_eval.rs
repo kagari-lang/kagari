@@ -19,6 +19,7 @@ pub(super) fn evaluate_constants(
     type_table: &TypeTable,
     cancel: &CancellationToken,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+    budget: &mut super::const_budget::ConstBudget,
 ) -> HashMap<ConstId, ScalarValue> {
     let mut evaluator = Evaluator {
         lowered,
@@ -27,9 +28,10 @@ pub(super) fn evaluate_constants(
         cancel,
         diagnostics,
         cache: HashMap::new(),
+        budget,
     };
     for item in &lowered.module.consts {
-        if cancel.check().is_err() {
+        if evaluator.budget.exhausted || cancel.check().is_err() {
             break;
         }
         evaluator.constant(item.id);
@@ -49,6 +51,7 @@ struct Evaluator<'a> {
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
     // None also breaks cycles, which the const capability validator diagnoses.
     cache: HashMap<ConstId, Option<ScalarValue>>,
+    budget: &'a mut super::const_budget::ConstBudget,
 }
 
 impl Evaluator<'_> {
@@ -70,6 +73,19 @@ impl Evaluator<'_> {
     }
 
     fn expression(&mut self, owner: ConstId, id: ExprId) -> Option<ScalarValue> {
+        self.cancel.check().ok()?;
+        if !self
+            .budget
+            .enter(self.lowered.source_map.expr_span(id), self.diagnostics)
+        {
+            return None;
+        }
+        let result = self.expression_inner(owner, id);
+        self.budget.leave();
+        result
+    }
+
+    fn expression_inner(&mut self, owner: ConstId, id: ExprId) -> Option<ScalarValue> {
         self.cancel.check().ok()?;
         if let Some(value) = self.type_table.scalar_value(id) {
             return Some(value.clone());

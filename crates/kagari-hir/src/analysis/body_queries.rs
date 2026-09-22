@@ -166,6 +166,7 @@ impl AnalysisDatabase {
                 &names,
                 &declarations,
                 crate::typeck::BodyInputs {
+                    const_limits: self.const_limits,
                     selection,
                     signatures: &prepared.signatures,
                     imported_functions: &environment.imported_functions,

@@ -55,6 +55,7 @@ pub fn check_module(
         names,
         &declarations,
         crate::typeck::BodyInputs {
+            const_limits: Default::default(),
             selection: crate::hir::BodySelection::All,
             signatures: &signatures,
             imported_functions: &Default::default(),

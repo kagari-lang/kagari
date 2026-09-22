@@ -199,6 +199,7 @@ fn declare_analysis(
 
 fn analyze_prepared(
     prepared: PreparedAnalysis,
+    const_limits: typeck::ConstLimits,
     imported_functions: imports::ImportedFunctions,
     aggregates: aggregates::AggregateCatalog,
     reuse: Option<&typeck::BodyReuse<'_>>,
@@ -222,6 +223,7 @@ fn analyze_prepared(
         &names.facts,
         &declarations,
         typeck::BodyInputs {
+            const_limits,
             selection: hir::BodySelection::All,
             signatures: &signatures,
             imported_functions: &imported_functions,
@@ -295,7 +297,10 @@ pub fn analyze_source(
     analyze_parsed(
         prepared,
         &parsed,
-        profile,
+        AnalysisPolicy {
+            profile,
+            const_limits: Default::default(),
+        },
         imported_functions,
         aggregates,
         None,
@@ -303,17 +308,29 @@ pub fn analyze_source(
     )
 }
 
+pub(crate) struct AnalysisPolicy {
+    profile: LanguageFeatureProfile,
+    const_limits: typeck::ConstLimits,
+}
+
 pub(crate) fn analyze_parsed(
     prepared: PreparedAnalysis,
     parsed: &kagari_syntax::Parse,
-    profile: LanguageFeatureProfile,
+    policy: AnalysisPolicy,
     imported_functions: imports::ImportedFunctions,
     aggregates: aggregates::AggregateCatalog,
     reuse: Option<&typeck::BodyReuse<'_>>,
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_prepared(prepared, imported_functions, aggregates, reuse, cancel);
-    if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, profile) {
+    let mut analyzed = analyze_prepared(
+        prepared,
+        policy.const_limits,
+        imported_functions,
+        aggregates,
+        reuse,
+        cancel,
+    );
+    if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, policy.profile) {
         analyzed.diagnostics.extend(*diagnostics);
     }
     analyzed

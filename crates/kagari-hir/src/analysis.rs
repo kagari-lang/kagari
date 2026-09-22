@@ -457,6 +457,7 @@ fn member_receiver_type_in(
 
 #[derive(Debug)]
 pub struct AnalysisDatabase {
+    const_limits: crate::typeck::ConstLimits,
     parse_limits: kagari_syntax::parser::ParseLimits,
     body_cache: HashMap<kagari_common::identity::DefinitionId, Arc<FunctionAnalysis>>,
     body_revision: Revision,
@@ -471,6 +472,7 @@ impl Default for AnalysisDatabase {
     fn default() -> Self {
         Self {
             parse_limits: Default::default(),
+            const_limits: Default::default(),
             body_cache: HashMap::new(),
             body_revision: Revision::default(),
             declaration_cache: None,
@@ -483,6 +485,14 @@ impl Default for AnalysisDatabase {
 }
 
 impl AnalysisDatabase {
+    pub fn set_const_limits(&mut self, limits: crate::typeck::ConstLimits) {
+        if self.const_limits != limits {
+            self.const_limits = limits;
+            self.body_cache.clear();
+            self.files.clear();
+        }
+    }
+
     /// Limits are query inputs. Existing immutable snapshots retain their facts;
     /// subsequent queries must not reuse a differently limited parse or body.
     pub fn set_parse_limits(&mut self, limits: kagari_syntax::parser::ParseLimits) {
@@ -571,7 +581,10 @@ impl AnalysisDatabase {
                     let result = analyze_parsed(
                         prepared,
                         &parsed,
-                        profile,
+                        crate::AnalysisPolicy {
+                            profile,
+                            const_limits: self.const_limits,
+                        },
                         imported_functions,
                         aggregates,
                         reuse.as_ref(),

@@ -29,6 +29,7 @@ use kagari_runtime::{
 use kagari_vm::{ExecutionReport, Vm, VmError};
 use std::cell::RefCell;
 
+pub use kagari_hir::typeck::ConstLimits;
 pub use kagari_runtime::HostExposurePolicy;
 pub use kagari_syntax::parser::ParseLimits;
 
@@ -52,6 +53,10 @@ pub struct KagariEngine {
 }
 
 impl KagariEngine {
+    pub fn set_const_limits(&self, limits: ConstLimits) {
+        self.analysis.borrow_mut().set_const_limits(limits);
+    }
+
     pub fn set_parse_limits(&self, limits: ParseLimits) {
         self.analysis.borrow_mut().set_parse_limits(limits);
     }

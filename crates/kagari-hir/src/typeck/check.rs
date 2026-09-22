@@ -329,6 +329,7 @@ pub(crate) fn check_bodies_controlled(
     cancel: &kagari_common::cancellation::CancellationToken,
 ) -> AnalysisResult<TypedModule> {
     let super::BodyInputs {
+        const_limits,
         selection,
         signatures,
         imported_functions,
@@ -432,6 +433,7 @@ pub(crate) fn check_bodies_controlled(
             top_level_index.consts.insert(const_item.id, ty.clone());
         }
 
+        let mut const_budget = super::const_budget::ConstBudget::new(const_limits);
         validate_const_initializers(
             lowered,
             names,
@@ -439,6 +441,7 @@ pub(crate) fn check_bodies_controlled(
             &type_table,
             cancel,
             &mut diagnostics,
+            &mut const_budget,
         );
 
         let const_values = super::const_eval::evaluate_constants(
@@ -447,6 +450,7 @@ pub(crate) fn check_bodies_controlled(
             &type_table,
             cancel,
             &mut diagnostics,
+            &mut const_budget,
         );
 
         for function in &lowered.module.functions {
@@ -1022,6 +1026,7 @@ fn validate_const_initializers(
     type_table: &TypeTable,
     cancel: &kagari_common::cancellation::CancellationToken,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+    budget: &mut super::const_budget::ConstBudget,
 ) {
     struct ConstValidator<'a> {
         lowered: &'a LoweredModule,
@@ -1031,6 +1036,7 @@ fn validate_const_initializers(
         cancel: &'a kagari_common::cancellation::CancellationToken,
         diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
         states: HashMap<ConstId, ConstVisitState>,
+        budget: &'a mut super::const_budget::ConstBudget,
     }
 
     impl ConstValidator<'_> {
@@ -1095,6 +1101,18 @@ fn validate_const_initializers(
         }
 
         fn validate_const_expr(&mut self, owner: ConstId, expr_id: ExprId) {
+            if self.cancel.check().is_err()
+                || !self
+                    .budget
+                    .enter(self.lowered.source_map.expr_span(expr_id), self.diagnostics)
+            {
+                return;
+            }
+            self.validate_const_expr_inner(owner, expr_id);
+            self.budget.leave();
+        }
+
+        fn validate_const_expr_inner(&mut self, owner: ConstId, expr_id: ExprId) {
             if self.cancel.check().is_err() {
                 return;
             }
@@ -1240,8 +1258,12 @@ fn validate_const_initializers(
         cancel,
         diagnostics,
         states: HashMap::new(),
+        budget,
     };
     for const_item in &lowered.module.consts {
+        if validator.budget.exhausted || cancel.check().is_err() {
+            break;
+        }
         validator.validate_const(const_item.id);
     }
 }

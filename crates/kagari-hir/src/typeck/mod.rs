@@ -3,7 +3,9 @@ pub(crate) use applications::validate_signatures as validate_signature_applicati
 mod body;
 mod check;
 mod completion;
+mod const_budget;
 mod const_eval;
+pub use const_budget::ConstLimits;
 mod constraints;
 mod inference;
 mod scalar;
@@ -127,6 +129,7 @@ pub(crate) struct TypeIndexes<'a> {
 }
 
 pub(crate) struct BodyInputs<'a> {
+    pub const_limits: ConstLimits,
     pub selection: crate::hir::BodySelection,
     pub signatures: &'a crate::AnalysisResult<ModuleSignatures>,
     pub imported_functions: &'a crate::imports::ImportedFunctions,
