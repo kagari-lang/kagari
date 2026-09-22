@@ -733,3 +733,14 @@ fn terminating_callees_skip_explicit_argument_effects() {
         );
     }
 }
+
+#[test]
+fn annotated_const_dependencies_execute_independently_of_declaration_order() {
+    for declarations in [
+        "const ANSWER: i32 = BASE + 2; const BASE: i32 = 40;",
+        "const BASE: i32 = 40; const ANSWER: i32 = BASE + 2;",
+        "const ANSWER = BASE + 2; const BASE: i32 = 40;",
+    ] {
+        execute_contextual_source(&format!("{declarations} fn main() -> i32 {{ ANSWER }}"), 42);
+    }
+}

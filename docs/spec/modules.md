@@ -566,3 +566,11 @@ full and single-function body results even for unchanged source revisions. Exist
 snapshots keep their original facts; declaration and signature caches remain valid.
 Budgets reset per file analysis/query, rather than accumulating across editor queries.
 These are logical traversal limits, not byte-allocation or wall-clock quotas.
+
+Explicit constant type annotations are collected before initializer checking,
+so a reference to an annotated constant is typed independently of declaration
+order. An inferred initializer can use a later annotated constant. This does not
+introduce global type inference for cycles of unannotated constants. Cyclic
+value dependencies and invalid initializers remain errors. Validation, evaluation
+and failure reporting access module-local declaration slots by ID, rather than
+scanning declarations or looking them up by display name.

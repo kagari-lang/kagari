@@ -1598,3 +1598,63 @@ impl Display for Player {
             }
     }));
 }
+
+#[test]
+fn wide_const_dependencies_keep_values_and_error_owners_by_declaration_slot() {
+    let mut text = String::new();
+    for index in 0..2_000 {
+        text.push_str(&format!("const C{index}: i32 = BASE + {index}; "));
+    }
+    text.push_str("const BASE: i32 = 42; const BAD: i32 = BASE / 0; fn good() -> i32 { C1999 }");
+    let result = crate::analyze_source(
+        &SourceFile::new("wide-const.kgr", text.clone()),
+        Default::default(),
+    );
+    let facts = result.facts();
+    assert_eq!(facts.typed.const_values.len(), 2_001);
+    for (index, item) in facts.lowered.module.consts.iter().take(2_000).enumerate() {
+        assert_eq!(
+            facts.typed.const_values.get(&item.id),
+            Some(&crate::typeck::ScalarValue::I32(42 + index as i32))
+        );
+    }
+    assert_eq!(result.diagnostics().len(), 1);
+    let diagnostic = &result.diagnostics()[0];
+    assert!(
+        matches!(&diagnostic.kind, DiagnosticKind::InvalidConstInitializer { const_name, reason } if const_name == "BAD" && reason == "integer division by zero")
+    );
+    let span = diagnostic.span.unwrap();
+    assert_eq!(&text[span.start..span.end], "BASE / 0");
+    assert!(result.into_codegen().is_err());
+}
+
+#[test]
+fn forward_const_annotations_preserve_cycle_and_initializer_errors() {
+    for (text, expected) in [
+        ("const A: i32 = B; const B: i32 = A;", "KG_TYPE_CONST_CYCLE"),
+        (
+            "const A: i32 = B; const B: i32 = true;",
+            "KG_TYPE_INVALID_CONST_INITIALIZER",
+        ),
+    ] {
+        let result = crate::analyze_source(
+            &SourceFile::new("const-errors.kgr", text),
+            Default::default(),
+        );
+        assert!(
+            result
+                .diagnostics()
+                .iter()
+                .any(|d| d.kind.code() == expected),
+            "{:?}",
+            result.diagnostics()
+        );
+        assert!(
+            !result
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::InvalidValueTarget { .. }))
+        );
+        assert!(result.into_codegen().is_err());
+    }
+}

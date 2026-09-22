@@ -1,4 +1,6 @@
-const EXPECTED_MAX: i32 = 6 * 2;
+// Explicit constant types are visible before their initializer is checked.
+const EXPECTED_MAX: i32 = EXPECTED_HALF * 2;
+const EXPECTED_HALF: i32 = 6;
 const MIN_I32: i32 = -2147483648;
 
 enum Sample { Empty, Count(i32), Values([i32]) }

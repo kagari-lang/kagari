@@ -1066,6 +1066,15 @@ Implemented foundation slices:
   Tests cover exact/zero budgets, short-circuit work, 1,000-level dependencies,
   retained neighboring body facts, cancellation, and same-revision invalidation
   of full and single-body queries while old snapshots remain usable.
+  Both const phases now access declarations through checked module-local slots,
+  removing repeated whole-table scans from dependency visits and failure reporting.
+  A 2,000-constant forward-reference fixture verifies all values and the precise
+  owner/location of an arithmetic failure. Explicit const types are collected
+  before initializer checks, fixing erroneous value-target diagnostics for forward
+  annotated dependencies; inferred initializers can consume those declarations.
+  Source/artifact/JIT fallback tests cover declaration order, while cycle and
+  initializer errors remain rejected. This removes that scan cost; it is not
+  a wall-clock quota or a measured end-to-end performance claim.
   Downstream recursive traversal limits, semantic diagnostic-count limits and
   broader resource audits remain outstanding. Source/artifact/JIT
   fallback fixtures cover generic values, recursion, numeric overflow, effects,

@@ -38,6 +38,13 @@ pub struct Module {
 }
 
 impl Module {
+    /// Const IDs address declaration slots within this module's lowering.
+    pub fn constant(&self, id: ConstId) -> &ConstItem {
+        let item = &self.consts[id.index()];
+        assert_eq!(item.id, id, "constant declaration slot mismatch");
+        item
+    }
+
     pub fn variant(&self, id: crate::hir::VariantId) -> &Variant {
         assert_eq!(id.arena(), self.body.arena(), "foreign HIR variant");
         &self.enums[id.owner().index()].variants[id.slot()]

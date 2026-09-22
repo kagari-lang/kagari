@@ -6,7 +6,7 @@ use crate::{
     AnalysisResult,
     builtin::surface::{self, StandardTypeConstraint},
     hir::FunctionKind,
-    hir::{BinaryOp, ConstId, ConstItem, ExprId, ExprKind, PrefixOp},
+    hir::{BinaryOp, ConstId, ExprId, ExprKind, PrefixOp},
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
     typeck::body::BodyChecker,
@@ -350,65 +350,77 @@ pub(crate) fn check_bodies_controlled(
     let mut top_level_index = TopLevelTypeIndex::default();
     let mut type_table = signatures.facts.type_table.clone();
     {
+        // Explicit constant declarations are visible throughout the module,
+        // independently of initializer evaluation order.
         for const_item in &lowered.module.consts {
-            let ty = match const_item.ty {
-                Some(ty_ref) => {
-                    match resolve_type(
-                        &lowered.module,
-                        ty_ref,
-                        declarations,
-                        &mut type_table,
-                        cancel,
-                    ) {
-                        ty if !ty.is_unresolved() => {
-                            validate_standard_type_constraints(
-                                &ty,
-                                &HashMap::new(),
-                                lowered.source_map.type_span(ty_ref),
-                                &mut diagnostics,
-                                cancel,
-                            );
-                            ty
-                        }
-                        ty => {
-                            validate_standard_type_constraints(
-                                &ty,
-                                &HashMap::new(),
-                                lowered.source_map.type_span(ty_ref),
-                                &mut diagnostics,
-                                cancel,
-                            );
-                            diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::UnknownConstType {
-                                    const_name: const_item.name.clone(),
-                                    type_name: display_type(&lowered.module, ty_ref),
-                                })
-                                .with_span(lowered.source_map.const_span(const_item.id)),
-                            );
-                            ty
-                        }
-                    }
-                }
-                None => {
-                    let mut env = BodyTypeEnv::default();
-                    let mut checker = BodyChecker::new(
-                        lowered,
-                        names,
-                        TypeIndexes {
-                            aggregates,
-                            imported_functions,
-                            declarations,
-                            cancel,
-                            function_index: &function_index,
-                            top_level_index: &top_level_index,
-                        },
+            if cancel.check().is_err() {
+                break;
+            }
+            let Some(ty_ref) = const_item.ty else {
+                continue;
+            };
+            let ty = match resolve_type(
+                &lowered.module,
+                ty_ref,
+                declarations,
+                &mut type_table,
+                cancel,
+            ) {
+                ty if !ty.is_unresolved() => {
+                    validate_standard_type_constraints(
+                        &ty,
+                        &HashMap::new(),
+                        lowered.source_map.type_span(ty_ref),
                         &mut diagnostics,
-                        &mut type_table,
-                        "<const>",
-                        TypeId::Builtin(BuiltinType::Unit),
+                        cancel,
                     );
-                    checker.infer_expr_type(const_item.initializer, &mut env)
+                    ty
                 }
+                ty => {
+                    validate_standard_type_constraints(
+                        &ty,
+                        &HashMap::new(),
+                        lowered.source_map.type_span(ty_ref),
+                        &mut diagnostics,
+                        cancel,
+                    );
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownConstType {
+                            const_name: const_item.name.clone(),
+                            type_name: display_type(&lowered.module, ty_ref),
+                        })
+                        .with_span(lowered.source_map.const_span(const_item.id)),
+                    );
+                    ty
+                }
+            };
+            top_level_index.consts.insert(const_item.id, ty);
+        }
+        for const_item in &lowered.module.consts {
+            if cancel.check().is_err() {
+                break;
+            }
+            let ty = if let Some(ty) = top_level_index.consts.get(&const_item.id) {
+                ty.clone()
+            } else {
+                let mut env = BodyTypeEnv::default();
+                let mut checker = BodyChecker::new(
+                    lowered,
+                    names,
+                    TypeIndexes {
+                        aggregates,
+                        imported_functions,
+                        declarations,
+                        cancel,
+                        function_index: &function_index,
+                        top_level_index: &top_level_index,
+                    },
+                    &mut diagnostics,
+                    &mut type_table,
+                    "<const>",
+                    TypeId::Builtin(BuiltinType::Unit),
+                );
+                checker.infer_expr_type(const_item.initializer, &mut env)
             };
             if const_item.ty.is_some() {
                 let mut env = BodyTypeEnv::default();
@@ -1047,7 +1059,7 @@ fn validate_const_initializers(
             match self.states.get(&const_id) {
                 Some(ConstVisitState::Done) => return,
                 Some(ConstVisitState::Visiting) => {
-                    let const_item = self.const_item(const_id);
+                    let const_item = self.lowered.module.constant(const_id);
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ConstCycle {
                             const_name: const_item.name.clone(),
@@ -1060,7 +1072,7 @@ fn validate_const_initializers(
             }
 
             self.states.insert(const_id, ConstVisitState::Visiting);
-            let const_item = self.const_item(const_id);
+            let const_item = self.lowered.module.constant(const_id);
             if let Some(const_ty) = self.top_level_index.consts.get(&const_id)
                 && !supports_const_type(const_ty)
             {
@@ -1079,7 +1091,7 @@ fn validate_const_initializers(
             }
 
             self.validate_const_expr(const_item.id, const_item.initializer);
-            let const_item = self.const_item(const_id);
+            let const_item = self.lowered.module.constant(const_id);
             if let (Some(declared), Some(actual)) = (
                 self.top_level_index.consts.get(&const_id),
                 self.type_table.expr_type(const_item.initializer),
@@ -1206,7 +1218,7 @@ fn validate_const_initializers(
         }
 
         fn emit_invalid_const(&mut self, owner: ConstId, expr_id: ExprId, reason: &'static str) {
-            let const_item = self.const_item(owner);
+            let const_item = self.lowered.module.constant(owner);
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidConstInitializer {
                     const_name: const_item.name.clone(),
@@ -1214,15 +1226,6 @@ fn validate_const_initializers(
                 })
                 .with_span(self.lowered.source_map.expr_span(expr_id)),
             );
-        }
-
-        fn const_item(&self, const_id: ConstId) -> &ConstItem {
-            self.lowered
-                .module
-                .consts
-                .iter()
-                .find(|item| item.id == const_id)
-                .expect("const id should exist")
         }
     }
 

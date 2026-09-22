@@ -61,12 +61,7 @@ impl Evaluator<'_> {
         }
         self.cancel.check().ok()?;
         self.cache.insert(id, None);
-        let item = self
-            .lowered
-            .module
-            .consts
-            .iter()
-            .find(|item| item.id == id)?;
+        let item = self.lowered.module.constant(id);
         let value = self.expression(id, item.initializer);
         self.cache.insert(id, value.clone());
         value
@@ -119,13 +114,7 @@ impl Evaluator<'_> {
         };
         value
             .map_err(|reason| {
-                let item = self
-                    .lowered
-                    .module
-                    .consts
-                    .iter()
-                    .find(|item| item.id == owner)
-                    .unwrap();
+                let item = self.lowered.module.constant(owner);
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidConstInitializer {
                         const_name: item.name.clone(),
