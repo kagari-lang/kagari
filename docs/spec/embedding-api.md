@@ -559,3 +559,10 @@ index member's type and declaration target. Independent errors in that index sti
 produce diagnostics (once); the unresolved assignment continues to reject codegen.
 Nested indexes use the same rule, and correct neighboring functions remain queryable.
 The source_queries example demonstrates navigation through such a broken target.
+
+`type_at` also queries HIR assignment positions and chooses the narrowest available
+range alongside expression and annotation facts. A rejected write to a parameter,
+`val` binding/field or an element of a read-only tuple retains its known type.
+That type still supplies contextual arguments for the RHS (for example an omitted
+generic constructor argument). Write rejection remains a diagnostic and prevents
+code generation; recovery never grants mutation permission.

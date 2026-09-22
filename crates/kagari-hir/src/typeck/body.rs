@@ -165,7 +165,10 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Assign { target, value, op } => {
                 let target_ty = self.resolve_assignment_target_type(*target, env);
-                let value_ty = self.infer_expr_type_expected(*value, env, target_ty.as_ref());
+                // Write permission does not erase the known target type needed by
+                // contextual inference and tooling after an invalid assignment.
+                let expected_ty = self.type_table.place_type(*target);
+                let value_ty = self.infer_expr_type_expected(*value, env, expected_ty.as_ref());
                 let Ok(completes) =
                     super::completion::expr_can_complete(&self.lowered.module, *value, self.cancel)
                 else {
@@ -278,34 +281,11 @@ impl<'a> BodyChecker<'a> {
                 None
             }
             PlaceKind::Name(_) => {
-                self.place_root_resolution(place_id)
-                    .and_then(|resolved| match resolved {
-                        ResolvedName::Param(_) => None,
-                        ResolvedName::Local(id) => env
-                            .locals
-                            .get(&id)
-                            .filter(|_| {
-                                env.local_writeability
-                                    .get(&id)
-                                    .copied()
-                                    .is_some_and(|writeability| writeability.is_var())
-                            })
-                            .cloned(),
-                        ResolvedName::Const(_)
-                        | ResolvedName::Function(_)
-                        | ResolvedName::SourceItem { .. }
-                        | ResolvedName::SourceImport(_)
-                        | ResolvedName::HostType(_)
-                        | ResolvedName::HostModule(_)
-                        | ResolvedName::Module(_)
-                        | ResolvedName::StandardModule(_)
-                        | ResolvedName::HostFunction(_)
-                        | ResolvedName::StandardFunction(_)
-                        | ResolvedName::RuntimeHelper(_)
-                        | ResolvedName::Struct(_)
-                        | ResolvedName::Enum(_)
-                        | ResolvedName::Trait(_) => None,
-                    })
+                let ty = self.resolve_readable_place_type(place_id, env);
+                let writable = self.place_root_resolution(place_id).is_some_and(|resolved| {
+                    matches!(resolved, ResolvedName::Local(id) if env.local_writeability.get(&id).is_some_and(|writeability| writeability.is_var()))
+                });
+                ty.filter(|_| writable)
             }
             PlaceKind::Field { base, name } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
@@ -314,16 +294,21 @@ impl<'a> BodyChecker<'a> {
                 let ty = field.ty.clone();
                 let writable = field.writeability.is_var();
                 self.type_table.insert_place_field(place_id, id);
+                self.type_table.insert_place(place_id, ty.clone());
                 writable.then_some(ty)
             }
             PlaceKind::Index { base, index } => {
                 let base_ty = self.resolve_readable_place_type(*base, env);
                 self.infer_expr_type(*index, env);
                 let base_ty = base_ty?;
+                let ty = self.resolve_index_type(*index, &base_ty);
+                if let Some(ty) = &ty {
+                    self.type_table.insert_place(place_id, ty.clone());
+                }
                 if matches!(base_ty, TypeId::Tuple(_)) {
                     self.resolve_assignment_target_type(*base, env)?;
                 }
-                self.resolve_index_type(*index, &base_ty)
+                ty
             }
         };
 

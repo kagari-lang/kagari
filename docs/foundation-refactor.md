@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04 read-only target facts checkpoint: parameter/val/field/tuple write rejection
+  preserves known place types and supplies RHS contextual inference independently
+  of write permission. Position type queries now include semantic place spans.
+  Four regressions retain concrete generic initializer types and target queries
+  with only the original write diagnostic; codegen stays rejected and neighboring
+  functions remain queryable. The source_queries example shows parameter recovery.
+
 - R04 assignment-index recovery checkpoint: unresolved receiver/field projections
   no longer skip independent index expression analysis in readable or writable
   places. Four recovery cases retain index member types/navigation, diagnose an

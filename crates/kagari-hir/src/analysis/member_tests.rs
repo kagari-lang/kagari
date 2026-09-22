@@ -377,3 +377,69 @@ fn unresolved_assignment_receivers_preserve_independent_index_facts() {
         );
     }
 }
+
+#[test]
+fn readonly_assignments_retain_target_and_contextual_initializer_types() {
+    for (setup, target, annotation) in [
+        ("", "parameter", "Cell<i32>"),
+        (
+            "val local: Cell<i32> = Cell { value: 1 };",
+            "local",
+            "Cell<i32>",
+        ),
+        (
+            "val holder = Holder { cell: Cell { value: 1 } };",
+            "holder.cell",
+            "Cell<i32>",
+        ),
+        (
+            "val pair: (Cell<i32>, bool) = (Cell { value: 1 }, true);",
+            "pair[0]",
+            "Cell<i32>",
+        ),
+    ] {
+        let text = format!(
+            "struct Cell<T> {{ val value: i32 }} struct Holder {{ val cell: Cell<i32> }} fn bad(parameter: {annotation}) {{ {setup} {target} = Cell {{ value: 2 }}; }} fn good() -> i32 {{ 42 }}"
+        );
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("readonly-recovery.kgr", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let file = snapshot.file(id).unwrap();
+        assert!(file.result().clone().into_codegen().is_err());
+        assert_eq!(
+            file.result()
+                .diagnostics()
+                .iter()
+                .filter(|d| matches!(
+                    d.kind,
+                    kagari_common::DiagnosticKind::InvalidAssignmentTarget { .. }
+                ))
+                .count(),
+            1,
+            "{target}: {:?}",
+            file.result().diagnostics()
+        );
+        let offset = text.find("= Cell { value: 2 }").unwrap();
+        assert_eq!(
+            file.result().diagnostics().len(),
+            1,
+            "{target}: {:?}",
+            file.result().diagnostics()
+        );
+        assert!(
+            matches!(file.type_at(offset - 2), Some(TypeId::Struct(nominal)) if nominal.arguments == vec![TypeId::Builtin(crate::types::BuiltinType::I32)]),
+            "target query: {target}"
+        );
+        assert!(
+            matches!(file.type_at(offset + 2), Some(TypeId::Struct(nominal)) if nominal.arguments == vec![TypeId::Builtin(crate::types::BuiltinType::I32)]),
+            "{target}: {:?}",
+            file.result().diagnostics()
+        );
+        assert_eq!(
+            file.type_at(text.rfind("42").unwrap()),
+            Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+        );
+    }
+}

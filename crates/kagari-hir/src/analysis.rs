@@ -423,8 +423,23 @@ fn type_at_in(
                 .type_ref(lowered.source_map.type_id(index))
                 .map(|resolved| (span.end - span.start, resolved.ty.clone()))
         });
+    let places = lowered
+        .source_map
+        .place_spans()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, span)| {
+            (span.start <= offset && offset < span.end)
+                .then(|| {
+                    table
+                        .place_type(lowered.source_map.place_id(index))
+                        .map(|ty| (span.end - span.start, ty))
+                })
+                .flatten()
+        });
     expressions
         .chain(types)
+        .chain(places)
         .min_by_key(|(len, _)| *len)
         .map(|(_, ty)| ty)
 }
