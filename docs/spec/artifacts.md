@@ -59,6 +59,9 @@ apply across modules and functions. Module-owned table vectors have a
 have a 4,096-record sequence limit. Function metadata, debug tables, artifact
 section tables, verification summaries and signature lists use the same
 1,000,000-record preflight limit as artifact tables.
+Per-instruction operand vectors (calls, aggregate constructors and dynamic path
+arguments) preflight at 4,096 registers; the executable program also limits
+their combined count to 1,000,000 before verification or fingerprinting.
 In-memory artifact checks include function-table parameter layouts and the
 parameter/local/register vectors in both attached and detached debug frame
 layouts before validation, fingerprinting or encoding.

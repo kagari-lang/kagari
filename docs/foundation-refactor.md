@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 instruction-operand checkpoint: calls, tuple/array/nominal constructors
+  and typed path instructions preflight their register vectors at 4,096 elements.
+  The complete program permits at most 1,000,000 embedded operand records.
+  Construction, in-memory loading, encoding and byte decoding reject oversized
+  operands before execution.
+
 - R09 in-memory identity checkpoint: KBC construction, in-memory loading and
   encoding now reject overlong module, host, aggregate, header and public ABI
   identity paths before fingerprinting. Host declarations reject the same shape

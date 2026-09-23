@@ -665,6 +665,7 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
     }
     let mut functions = 0usize;
     let mut instructions = 0usize;
+    let mut operand_records = 0usize;
     let mut module_records = 0usize;
     let mut nested_records = 0usize;
     for module in &program.modules {
@@ -729,6 +730,16 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
             instructions = instructions.saturating_add(function.instructions.len());
             if instructions > MAX_ARTIFACT_INSTRUCTIONS {
                 return Some("too many instructions");
+            }
+            for instruction in &function.instructions {
+                let count = instruction.operand_vector_len();
+                if count > MAX_ARTIFACT_NESTED_RECORDS {
+                    return Some("instruction operand record limit exceeded");
+                }
+                operand_records = operand_records.saturating_add(count);
+                if operand_records > MAX_ARTIFACT_TABLE_RECORDS {
+                    return Some("instruction operand aggregate limit exceeded");
+                }
             }
             let metadata = &function.metadata;
             let debug = &metadata.debug;
@@ -1292,6 +1303,83 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn typed_path_operands_preflight_before_decoding_registers() {
+        let instruction = crate::bytecode::BytecodeInstruction::ReadPath {
+            dst: crate::bytecode::Register::new(0),
+            root_or_view: crate::bytecode::Register::new(1),
+            path: crate::bytecode::PathId::new(0),
+            dynamic_args: vec![crate::bytecode::Register::new(2); MAX_ARTIFACT_NESTED_RECORDS + 1],
+        };
+        let bytes = codec().serialize(&instruction).unwrap();
+        let error = codec()
+            .deserialize::<crate::bytecode::BytecodeInstruction>(&bytes)
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("instruction operand count limit exceeded")
+        );
+    }
+
+    #[test]
+    fn instruction_operand_vectors_are_bounded_before_verification() {
+        use crate::bytecode::{BytecodeFunction, BytecodeInstruction, Register};
+
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        let make_tuple = |count| BytecodeInstruction::MakeTuple {
+            dst: Register::new(0),
+            elements: vec![Register::new(0); count],
+        };
+        let mut oversized = valid.clone();
+        let mut function = BytecodeFunction::default();
+        function
+            .instructions
+            .push(make_tuple(MAX_ARTIFACT_NESTED_RECORDS + 1));
+        oversized.modules[0].functions.push(function);
+        assert!(matches!(
+            KbcArtifact::from_program(oversized.clone(), Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "instruction operand record limit exceeded"
+            ))
+        ));
+        let mut artifact = KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
+        artifact.program = oversized;
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "instruction operand record limit exceeded"
+            ))
+        ));
+        assert!(artifact.to_bytes().is_err());
+        let crafted = codec().serialize(&artifact).unwrap();
+        assert!(
+            KbcArtifact::from_bytes(&crafted)
+                .unwrap_err()
+                .message()
+                .contains("instruction operand count limit exceeded")
+        );
+
+        let mut aggregate = valid;
+        let function = BytecodeFunction {
+            instructions: vec![
+                make_tuple(MAX_ARTIFACT_NESTED_RECORDS);
+                MAX_ARTIFACT_TABLE_RECORDS / MAX_ARTIFACT_NESTED_RECORDS + 1
+            ],
+            ..Default::default()
+        };
+        aggregate.modules[0].functions.push(function);
+        assert!(matches!(
+            KbcArtifact::from_program(aggregate, Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "instruction operand aggregate limit exceeded"
+            ))
+        ));
+    }
 
     #[test]
     fn oversized_memory_identity_paths_reject_before_fingerprinting() {

@@ -217,25 +217,30 @@ pub enum BytecodeInstruction {
     Call {
         dst: Option<Register>,
         callee: CallTarget,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         args: Vec<Register>,
     },
     MakeTuple {
         dst: Register,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         elements: Vec<Register>,
     },
     MakeArray {
         dst: Register,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         elements: Vec<Register>,
     },
     MakeStruct {
         dst: Register,
         structure: StructId,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         fields: Vec<Register>,
     },
     MakeEnum {
         dst: Register,
         enumeration: EnumId,
         variant: u32,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         fields: Vec<Register>,
     },
     ReadAggregateField {
@@ -262,11 +267,13 @@ pub enum BytecodeInstruction {
         dst: Register,
         root_or_view: Register,
         path: PathId,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         dynamic_args: Vec<Register>,
     },
     SetPath {
         root_or_view: Register,
         path: PathId,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         dynamic_args: Vec<Register>,
         value: Register,
     },
@@ -274,6 +281,7 @@ pub enum BytecodeInstruction {
         dst: Option<Register>,
         root_or_view: Register,
         path: PathId,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         dynamic_args: Vec<Register>,
         op: BinaryOp,
         value: Register,
@@ -282,6 +290,7 @@ pub enum BytecodeInstruction {
         dst: Register,
         root_or_view: Register,
         path: PathId,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
         dynamic_args: Vec<Register>,
     },
     Jump {
@@ -294,4 +303,19 @@ pub enum BytecodeInstruction {
     },
     Return(Option<Register>),
     Unreachable,
+}
+
+impl BytecodeInstruction {
+    pub(crate) fn operand_vector_len(&self) -> usize {
+        match self {
+            Self::Call { args, .. } => args.len(),
+            Self::MakeTuple { elements, .. } | Self::MakeArray { elements, .. } => elements.len(),
+            Self::MakeStruct { fields, .. } | Self::MakeEnum { fields, .. } => fields.len(),
+            Self::ReadPath { dynamic_args, .. }
+            | Self::SetPath { dynamic_args, .. }
+            | Self::ModifyPath { dynamic_args, .. }
+            | Self::MakePathView { dynamic_args, .. } => dynamic_args.len(),
+            _ => 0,
+        }
+    }
 }

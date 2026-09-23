@@ -97,6 +97,14 @@ where
     bounded(deserializer, MAX_NESTED_RECORDS, "nested declaration")
 }
 
+pub(crate) fn operands<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    bounded(deserializer, MAX_NESTED_RECORDS, "instruction operand")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
