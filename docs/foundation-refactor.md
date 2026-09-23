@@ -39,11 +39,17 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 host declaration decoding checkpoint: standalone KHI and embedded KBC
+  host interfaces now reject oversized declaration/member/path vectors during
+  decoding. In-memory validation enforces the same per-vector limits. Forged
+  short KHI headers and oversized path payloads fail before linking. Identity
+  path and remaining scalar/string allocation audit stays open.
+
 - R09 metadata decoding checkpoint: function/debug metadata, artifact tables,
   verification summaries and signature lists now check encoded vector lengths
   before deserializing elements. A forged debug source-name count is rejected
-  before reading names. Host interface and identity-path decoding remain under
-  resource audit.
+  before reading names. Host interface decoding is now bounded separately;
+  identity-path decoding remains under resource audit.
 
 - R09 executable-sequence decoding checkpoint: module, function, instruction,
   module-owned table, concrete layout and public ABI member vector lengths are

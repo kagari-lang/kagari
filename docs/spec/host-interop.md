@@ -166,8 +166,11 @@ labels, and invalid declarations leave the registry unchanged.
 
 Interface encoding uses the `KHI\0` magic and version 6, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
-rejects other versions, malformed input, duplicates and trailing data. Function
-fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
+rejects other versions, malformed input, duplicates and trailing data. The decoder
+checks declaration-list lengths before reading elements (at most 1,000,000 each),
+and member, parameter and path-segment vectors at 4,096 each. In-memory
+validation uses the same limits before encoding or linking. Function fingerprints
+use domain-separated FNV-1a-64 over the versioned canonical contract;
 documentation is excluded. Binding checks compare the complete contract rather
 than treating a matching fingerprint as sufficient evidence. Each value type uses
 a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child

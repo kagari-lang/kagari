@@ -73,6 +73,7 @@ pub struct HostMethodDeclaration {
     pub id: DefinitionId,
     pub name: String,
     pub receiver: HostPassingStyle,
+    #[serde(deserialize_with = "super::decode_limits::members")]
     pub params: Vec<HostParameter>,
     pub return_type: HostValueType,
     pub capability_requirements: CapabilitySet,
@@ -114,7 +115,9 @@ pub struct HostTypeDeclaration {
     pub id: DefinitionId,
     pub symbol: String,
     pub ownership: HostTypeOwnership,
+    #[serde(deserialize_with = "super::decode_limits::members")]
     pub fields: Vec<HostFieldDeclaration>,
+    #[serde(deserialize_with = "super::decode_limits::members")]
     pub methods: Vec<HostMethodDeclaration>,
     pub path_access: PathAccess,
     pub reflection: HostReflectionPolicy,
@@ -167,6 +170,15 @@ impl HostTypeDeclaration {
     }
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
         validate_host_type_identity(&self.id)?;
+        if self.fields.len() > super::decode_limits::MAX_MEMBERS
+            || self.methods.len() > super::decode_limits::MAX_MEMBERS
+            || self
+                .methods
+                .iter()
+                .any(|method| method.params.len() > super::decode_limits::MAX_MEMBERS)
+        {
+            return Err(HostInterfaceError::TooLarge);
+        }
         if self.symbol.is_empty()
             || self.symbol.split('.').any(str::is_empty)
             || self.fields.len() > u16::MAX as usize

@@ -1370,7 +1370,7 @@ mod canonical_tests {
             let crafted = codec().serialize(&artifact).unwrap();
             let error = KbcArtifact::from_bytes(&crafted).unwrap_err();
             let expected = if index == 2 {
-                "nested module record limit exceeded"
+                "host member count limit exceeded"
             } else {
                 "nested declaration count limit exceeded"
             };

@@ -7,6 +7,7 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HostFieldPathDeclaration {
     pub root: DefinitionId,
+    #[serde(deserialize_with = "super::decode_limits::members")]
     pub fields: Vec<DefinitionId>,
     pub access: PathAccess,
     pub schema_epoch: u64,

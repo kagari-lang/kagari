@@ -11,6 +11,7 @@ const MAGIC: [u8; 4] = *b"KHI\0";
 const VERSION: u16 = 6;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
+mod decode_limits;
 mod path;
 pub use path::{
     HostFieldPathDeclaration, HostPathContract, HostPathInput, HostPathSegmentContract,
@@ -85,6 +86,7 @@ pub struct HostFunctionDeclaration {
     pub id: DefinitionId,
     /// The binding/export label is distinct from nominal declaration identity.
     pub symbol: String,
+    #[serde(deserialize_with = "decode_limits::members")]
     pub params: Vec<HostParameter>,
     pub return_type: HostValueType,
     pub capability_requirements: CapabilitySet,
@@ -215,7 +217,7 @@ fn validate_signature(
     params: &[HostParameter],
     return_type: &HostValueType,
 ) -> Result<(), HostInterfaceError> {
-    if params.len() > u16::MAX as usize {
+    if params.len() > decode_limits::MAX_MEMBERS {
         return Err(HostInterfaceError::TooLarge);
     }
     let mut names = std::collections::HashSet::new();
@@ -243,13 +245,42 @@ fn validate_signature(
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostInterface {
+    #[serde(deserialize_with = "decode_limits::declarations")]
     pub field_paths: Vec<HostFieldPathDeclaration>,
+    #[serde(deserialize_with = "decode_limits::declarations")]
     pub types: Vec<HostTypeDeclaration>,
+    #[serde(deserialize_with = "decode_limits::declarations")]
     pub functions: Vec<HostFunctionDeclaration>,
+}
+
+#[derive(Deserialize)]
+struct HostInterfaceWire {
+    _magic: [u8; 4],
+    _version: u16,
+    #[serde(deserialize_with = "decode_limits::declarations")]
+    types: Vec<HostTypeDeclaration>,
+    #[serde(deserialize_with = "decode_limits::declarations")]
+    functions: Vec<HostFunctionDeclaration>,
+    #[serde(deserialize_with = "decode_limits::declarations")]
+    field_paths: Vec<HostFieldPathDeclaration>,
 }
 
 impl HostInterface {
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
+        if [
+            self.types.len(),
+            self.functions.len(),
+            self.field_paths.len(),
+        ]
+        .into_iter()
+        .any(|count| count > decode_limits::MAX_DECLARATIONS)
+            || self
+                .field_paths
+                .iter()
+                .any(|path| path.fields.len() > decode_limits::MAX_MEMBERS)
+        {
+            return Err(HostInterfaceError::TooLarge);
+        }
         let mut ids = std::collections::HashSet::new();
         let mut symbols = std::collections::HashSet::new();
         for ty in &self.types {
@@ -361,13 +392,12 @@ impl HostInterface {
         {
             return Err(HostInterfaceError::Version);
         }
-        let (_, _, types, functions, field_paths): (
-            [u8; 4],
-            u16,
-            Vec<HostTypeDeclaration>,
-            Vec<HostFunctionDeclaration>,
-            Vec<HostFieldPathDeclaration>,
-        ) = codec()
+        let HostInterfaceWire {
+            types,
+            functions,
+            field_paths,
+            ..
+        } = codec()
             .deserialize(bytes)
             .map_err(|_| HostInterfaceError::Encoding)?;
         let interface = Self {

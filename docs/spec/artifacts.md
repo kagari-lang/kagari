@@ -59,6 +59,10 @@ apply across modules and functions. Module-owned table vectors have a
 have a 4,096-record sequence limit. Function metadata, debug tables, artifact
 section tables, verification summaries and signature lists use the same
 1,000,000-record preflight limit as artifact tables.
+Embedded host interfaces and standalone KHI declarations preflight their type,
+function and field-path lists at 1,000,000 records, and fields, methods,
+parameters and path segments at 4,096 records. In-memory host declaration
+validation enforces these limits before encoding or linking.
 
 Version 23 stores complete concrete ABI types for struct fields. Runtime ABI v24
 checks nested field values before allocation or replacement, including nominal
