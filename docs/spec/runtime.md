@@ -443,7 +443,11 @@ preempt a blocking host callback. A prepared commit is uninterrupted: cancellati
 requested inside it is observed after its target and dirty record are committed.
 ExecutionCounters reports root activity, root peaks and elapsed wall time; the
 unused wall-time field in cumulative ResourceCounters is removed. These operational
-deadlines do not expose a script clock or complete the deterministic-context work.
+deadlines do not expose a script clock. `ExecutionOptions::inputs` instead supplies
+a fixed logical Unix time in milliseconds and a random seed for the root session.
+Host callbacks access those values through `HostCallContext`; random draws use a
+per-root SplitMix64 stream, including synchronous reentry. A new root starts at
+the seed again. This does not record external host results or provide replay.
 
 ## Module Store
 

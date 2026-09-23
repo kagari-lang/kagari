@@ -543,6 +543,7 @@ pub struct ExecutionContext {
     pub host_policy: HostExposurePolicy,
     pub jit_policy: JitPolicy,
     pub tracing_enabled: bool,
+    pub inputs: kagari_runtime::DeterministicInputs,
     pub panic_policy: PanicPolicy,
 }
 
@@ -554,6 +555,7 @@ impl ExecutionContext {
             host_exposure: std::rc::Rc::new(self.host_policy.clone()),
             resources: self.resources,
             cancellation: self.cancellation.clone(),
+            inputs: self.inputs,
         }
     }
     pub fn security_context(&self) -> SecurityContext {

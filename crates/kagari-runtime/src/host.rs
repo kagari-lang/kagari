@@ -1164,6 +1164,12 @@ impl<'a> HostCallContext<'a> {
     pub fn retain_temporaries(&self, values: &[Value]) -> Result<(), RuntimeError> {
         self.scope.retain_values(values)
     }
+    pub fn execution_time_millis(&self) -> Result<i64, RuntimeError> {
+        self.runtime().execution_time_millis()
+    }
+    pub fn next_execution_random_u64(&self) -> Result<u64, RuntimeError> {
+        self.runtime().next_execution_random_u64()
+    }
 }
 
 pub type HostCallback =

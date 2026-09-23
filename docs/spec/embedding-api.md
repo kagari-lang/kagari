@@ -311,7 +311,8 @@ LoadedModule
   identifies a successfully loaded module epoch
 
 ExecutionContext
-  carries capabilities, resource limits, host access policy, and tracing hooks
+  carries capabilities, resource limits, host access policy, fixed logical time,
+  a random seed, and tracing hooks
 ```
 
 The actual Rust API may split these objects across crates, but the same ownership boundaries must be preserved.
@@ -358,7 +359,9 @@ module handles, and publication requires candidate execution to have ended.
 Each call applies that call's ExecutionContext resources, capabilities and host
 policy to an owned execution session, without replacing runtime defaults. Module
 initialization, the entry and interpreter/JIT fallback share this session. Its
-CancellationToken is cooperative and shared by context clones; once cancelled,
+fixed time and random seed are passed to host callbacks; nested execution shares
+the root's random stream. Host callbacks must supply any other external results.
+The `CancellationToken` is cooperative and shared by context clones; once cancelled,
 use a fresh token for a new root call. Execution cancellation reports
 `KG_RUNTIME_CANCELLED`, separate from analysis cancellation and script traps.
 Completed host effects survive cancellation.

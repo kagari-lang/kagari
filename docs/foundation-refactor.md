@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R16 execution-input checkpoint: `ExecutionContext` supplies fixed logical time
+  and a random seed to the root session. Host callbacks read the time and a
+  deterministic SplitMix64 stream through `HostCallContext`; synchronous reentry
+  consumes the same stream, and the next root resets it. Equal inputs produce
+  equal observed host results in tests. Code-version/input/host-call trace
+  recording and a replaceable test host remain outstanding.
+
 - R15 diagnostic-output checkpoint: full semantic analysis now emits at most a
   configurable number of semantic diagnostics per file (default 1,000), followed
   by one structured limit diagnostic if exceeded. Changing the limit invalidates

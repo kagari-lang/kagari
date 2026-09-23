@@ -20,6 +20,12 @@ pub enum ExecutionPhase {
 }
 
 /// Host-selected inputs for a root call. Nested entries inherit the active inputs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DeterministicInputs {
+    pub unix_time_millis: i64,
+    pub random_seed: u64,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ExecutionOptions {
     pub phase: ExecutionPhase,
@@ -27,6 +33,7 @@ pub struct ExecutionOptions {
     pub host_exposure: Rc<HostExposurePolicy>,
     pub resources: ResourcePolicy,
     pub cancellation: CancellationToken,
+    pub inputs: DeterministicInputs,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +69,7 @@ pub(crate) struct SessionState {
     pub options: ExecutionOptions,
     pub baseline: ResourceCounters,
     pub termination: RefCell<Option<RuntimeError>>,
+    random_counter: Cell<u64>,
     started: Instant,
 }
 
@@ -84,8 +92,23 @@ impl SessionState {
             options,
             baseline,
             termination: RefCell::new(None),
+            random_counter: Cell::new(0),
             started: Instant::now(),
         }
+    }
+
+    pub(crate) fn next_random_u64(&self) -> u64 {
+        // SplitMix64 gives a stable stream from the host-provided seed.
+        let counter = self.random_counter.get();
+        self.random_counter.set(counter.wrapping_add(1));
+        let mut value = self
+            .options
+            .inputs
+            .random_seed
+            .wrapping_add(counter.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        value ^ (value >> 31)
     }
 
     pub(crate) fn terminate(&self, error: RuntimeError) -> RuntimeError {

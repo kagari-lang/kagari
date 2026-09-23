@@ -67,8 +67,8 @@ pub use security::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext,
 };
 pub use session::{
-    CandidateSession, ExecutionCounters, ExecutionEvent, ExecutionObserver, ExecutionOptions,
-    ExecutionPhase, ExecutionSession,
+    CandidateSession, DeterministicInputs, ExecutionCounters, ExecutionEvent, ExecutionObserver,
+    ExecutionOptions, ExecutionPhase, ExecutionSession,
 };
 
 use crate::{
@@ -286,7 +286,22 @@ impl Runtime {
             host_exposure: self.host_exposure.clone(),
             resources: self.resources.policy(),
             cancellation: Default::default(),
+            inputs: Default::default(),
         }
+    }
+
+    pub fn execution_time_millis(&self) -> Result<i64, RuntimeError> {
+        let session = self.resources.active_session().ok_or_else(|| {
+            RuntimeError::module_validation("execution time requires an active session")
+        })?;
+        Ok(session.options.inputs.unix_time_millis)
+    }
+
+    pub fn next_execution_random_u64(&self) -> Result<u64, RuntimeError> {
+        let session = self.resources.active_session().ok_or_else(|| {
+            RuntimeError::module_validation("execution random requires an active session")
+        })?;
+        Ok(session.next_random_u64())
     }
 
     pub fn begin_candidate_initialization<'candidate>(

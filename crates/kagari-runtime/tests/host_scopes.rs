@@ -325,3 +325,44 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
     runtime.collect_garbage().unwrap();
     assert!(!runtime.gc().validate_value(raw.borrow().as_ref().unwrap()));
 }
+
+#[test]
+fn host_callbacks_observe_replayable_root_inputs() {
+    let mut runtime = runtime();
+    let observed = Rc::new(RefCell::new(Vec::new()));
+    let captured = observed.clone();
+    runtime
+        .register_host_function(HostFunction::new(
+            HostFunctionDeclaration::new("game.sample", vec![], HostValueType::Unit),
+            move |context, _| {
+                captured.borrow_mut().push((
+                    context.execution_time_millis().unwrap(),
+                    context.next_execution_random_u64().unwrap(),
+                ));
+                Ok(Value::Unit)
+            },
+        ))
+        .unwrap();
+    let module = runtime
+        .load_program(
+            "inputs",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap();
+    let mut options = runtime.execution_options();
+    options.inputs.unix_time_millis = 987_654;
+    options.inputs.random_seed = 52;
+    for _ in 0..2 {
+        let session = runtime.begin_execution(&module, options.clone()).unwrap();
+        runtime.invoke_host("game.sample", &[]).unwrap();
+        runtime.invoke_host("game.sample", &[]).unwrap();
+        drop(session);
+    }
+    let records = observed.borrow();
+    assert_eq!(&records[..2], &records[2..]);
+    assert!(records.iter().all(|(time, _)| *time == 987_654));
+    assert_ne!(records[0].1, records[1].1);
+}

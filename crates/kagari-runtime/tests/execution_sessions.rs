@@ -1,6 +1,6 @@
 use kagari_common::cancellation::CancellationToken;
 use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
-use kagari_runtime::{Runtime, RuntimeErrorKind, value::Value};
+use kagari_runtime::{DeterministicInputs, Runtime, RuntimeErrorKind, value::Value};
 
 fn load(runtime: &mut Runtime, name: &str) -> kagari_runtime::LoadedModule {
     runtime
@@ -12,6 +12,45 @@ fn load(runtime: &mut Runtime, name: &str) -> kagari_runtime::LoadedModule {
             },
         )
         .unwrap()
+}
+
+#[test]
+fn deterministic_inputs_and_random_stream_belong_to_the_root_session() {
+    let mut runtime = Runtime::default();
+    let module = load(&mut runtime, "inputs");
+    assert!(runtime.execution_time_millis().is_err());
+    assert!(runtime.next_execution_random_u64().is_err());
+    let mut options = runtime.execution_options();
+    options.inputs = DeterministicInputs {
+        unix_time_millis: 123_456,
+        random_seed: 42,
+    };
+    let outer = runtime.begin_execution(&module, options.clone()).unwrap();
+    let first = runtime.next_execution_random_u64().unwrap();
+    let mut conflicting = options.clone();
+    conflicting.inputs = DeterministicInputs {
+        unix_time_millis: 999,
+        random_seed: 999,
+    };
+    let nested = runtime.begin_execution(&module, conflicting).unwrap();
+    assert_eq!(runtime.execution_time_millis().unwrap(), 123_456);
+    let second = runtime.next_execution_random_u64().unwrap();
+    drop(outer);
+    let third = runtime.next_execution_random_u64().unwrap();
+    drop(nested);
+
+    let replay = runtime.begin_execution(&module, options.clone()).unwrap();
+    assert_eq!(runtime.execution_time_millis().unwrap(), 123_456);
+    assert_eq!(runtime.next_execution_random_u64().unwrap(), first);
+    assert_eq!(runtime.next_execution_random_u64().unwrap(), second);
+    assert_eq!(runtime.next_execution_random_u64().unwrap(), third);
+    drop(replay);
+
+    options.inputs.random_seed = 43;
+    let changed = runtime.begin_execution(&module, options).unwrap();
+    assert_ne!(runtime.next_execution_random_u64().unwrap(), first);
+    drop(changed);
+    assert!(runtime.next_execution_random_u64().is_err());
 }
 
 #[test]
