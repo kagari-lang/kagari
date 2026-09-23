@@ -589,7 +589,8 @@ Directly nested layout fields, enum variants and payloads, host type members and
 parameters, host path segments, and public ABI declaration members each have a
 4,096-record vector limit; their combined count across the program is limited
 to 1,000,000. ABI types use flat preorder nodes with limits of 4,096 nodes and
-depth 64. Other decoder allocation behavior still needs a separate audit.
+depth 64. Encoded input size, executable operands, identity paths and metadata
+vectors have corresponding preflight limits in the artifact format.
 
 ## Relationship to IR
 

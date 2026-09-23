@@ -19,7 +19,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [ ] R06: Offline host declarations and checked runtime bindings.
 - [ ] R07: Nominal concrete identity, layouts, bounded reachable monomorphization.
 - [ ] R08: Verified IR and linked-only runtime operands.
-- [ ] R09: Canonical bounded artifact format and explicit fingerprint algorithm.
+- [x] R09: Canonical bounded artifact format and explicit fingerprint algorithm.
 - [ ] R10: Shared immutable generations and runtime-local state.
 - [ ] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
 - [x] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
@@ -38,6 +38,16 @@ Focused tests accompany each semantic change. Final gates are `cargo fmt --all
 workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
+
+- R09 acceptance: format 24 fixes field order and little-endian integer encoding;
+  FNV-1a-64 fingerprints use a versioned domain instead of Rust Debug output.
+  Language, format, runtime/helper ABI, host-interface and dependency identities
+  remain separate. Construction and loading enforce the 64 MiB budget, collection
+  counts, nested operand/type depth and identity path limits before publication.
+  Loader validation checks version, checksum, bytecode, derived tables and binding
+  requirements before runtime publication. Conformance tests prove source and
+  decoded-artifact module identity agreement, old-format rejection and malformed
+  payload refusal; the offline example round-trips and validates the artifact.
 
 - R09 encoded-size checkpoint: construction checks canonical encoded program
   and build-metadata size before verification, then checks the assembled artifact
@@ -85,7 +95,7 @@ workload, repetitions and measurements; no unmeasured performance claims.
   module-owned table, concrete layout and public ABI member vector lengths are
   rejected from the encoded sequence header before element deserialization.
   Tiny forged-length inputs fail at that boundary; aggregate post-decode limits
-  remain. Host interface and other decoder allocation paths still need audit.
+  remain. Host interface and metadata decoding are covered by later checkpoints.
 
 - R09 ABI type wire checkpoint: format 24 replaces recursive ABI type encoding
   with flat preorder nodes. At most 4,096 nodes and depth 64 are accepted before
@@ -96,21 +106,21 @@ workload, repetitions and measurements; no unmeasured performance claims.
   and paths, and public ABI declaration members now have 4,096-record per-vector
   and 1,000,000-record program-wide limits. Construction, memory loading,
   encoding and byte decoding reject oversized nested collections before
-  verification. ABI type nesting is now bounded; broader decoder allocation remains open.
+  verification. Later checkpoints bound ABI type nodes and remaining vectors.
 
 - R09 artifact count-limit checkpoint: `.kbc` input remains capped at 64 MiB;
   construction, decoding, encoding and in-memory loading now also bound modules,
   functions, instructions, module/metadata vectors and declared section counts.
   Small crafted payloads with huge counts are rejected before verification or
   execution. The offline_compile example round-trips a valid bounded artifact.
-  A complete audit of nested table allocations remains under R09.
+  The later nested-record and decoder checkpoints close the table-allocation audit.
 
 - R09 artifact-directory checkpoint: generation and loader validation derive
   section records and source/debug name tables from the same program and optional
   metadata. A recomputed outer hash cannot hide stale counts, altered fingerprints,
   missing/reordered sections or forged source names. The offline_compile example
-  checks the function section against executable records. Full table count limits
-  and remaining artifact resource bounds remain unchecked.
+  checks the function section against executable records. Later R09 checkpoints
+  add count, depth and encoded-size bounds.
 
 - R08 named-entry ambiguity checkpoint: VM entry selection rejects multiple
   matching bytecode names before initialization instead of choosing the first.
@@ -1145,10 +1155,11 @@ Implemented foundation slices:
   dependency types, malformed signatures and ABI rejection before reload publication
   with the old entry intact. The source_modules example inspects a dependency-owned
   public result type after encoding. Cross-module trait constraints, full semantic
-  signature/layout agreement and complete artifact resource bounds remain open.
+  signature/layout agreement remains under R07/R08; artifact resource bounds
+  are accepted under R09.
 - R08/R09/R10: LoadedModule is an immutable shared Arc handle; public raw store
   loading and post-load bytecode mutation were removed. Module queries share code.
-  Loaded handles and host slots reject cross-runtime use. Format v10 rejects v1–v9;
+  Loaded handles and host slots reject cross-runtime use. Format v24 rejects v1–v23;
   required host fingerprints derive from declarations rather than caller options.
   The empty string host-dependency side table was removed. Struct layout handles
   retain executable versions. LoadedModule members share an Arc-owned program;
@@ -1360,11 +1371,11 @@ Implemented foundation slices:
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this
   does not claim native compilation of parameterized generic instances.
-- R09: format v10 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v24 uses fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
-  Old formats are rejected even if callers request their version. Full linked
-  identity integration and per-table count/depth limits remain outstanding.
+  Old formats are rejected even if callers request their version. Linked module
+  identity and per-table count/depth limits are covered by R09 acceptance.
   Public const ABI values use tagged scalar encoding with explicit float bits and
   UTF-8 string lengths; older Debug-based const ABI artifacts are rejected.
   Language semantics now has its own `kagari-language-v1` identity, independent

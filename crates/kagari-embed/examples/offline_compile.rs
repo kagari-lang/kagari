@@ -9,7 +9,7 @@ use kagari_common::{
     source_database::SourceLayer,
 };
 use kagari_embed::{ArtifactOptions, CompileOptions, KagariEngine};
-use kagari_ir::bytecode::ArtifactSectionId;
+use kagari_ir::bytecode::{ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION};
 use kagari_runtime::LanguageProfile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -165,6 +165,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let decoded = kagari_embed::BytecodeArtifact::from_bytes(&artifact.to_bytes()?)?;
     decoded.validate_for_loader(&Default::default())?;
+    assert_eq!(decoded.header.format_version, KBC_ARTIFACT_FORMAT_VERSION);
+    assert_eq!(
+        decoded.header.module_identity,
+        decoded.program.modules[decoded.program.root.index()].identity
+    );
     assert_eq!(decoded.tables.sections, artifact.tables.sections);
     println!(
         "bounded artifact decoding retained {} modules and the checked section directory",
