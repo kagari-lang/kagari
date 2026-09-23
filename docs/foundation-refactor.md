@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 nested-record checkpoint: executable struct/enum layouts, host declarations
+  and paths, and public ABI declaration members now have 4,096-record per-vector
+  and 1,000,000-record program-wide limits. Construction, memory loading,
+  encoding and byte decoding reject oversized nested collections before
+  verification. Recursive ABI type nesting and decoder allocation remain open.
+
 - R09 artifact count-limit checkpoint: `.kbc` input remains capped at 64 MiB;
   construction, decoding, encoding and in-memory loading now also bound modules,
   functions, instructions, module/metadata vectors and declared section counts.

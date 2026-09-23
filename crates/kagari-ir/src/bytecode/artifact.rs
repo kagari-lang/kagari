@@ -17,6 +17,7 @@ pub const MAX_ARTIFACT_MODULES: usize = 1024;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = 65_536;
 pub const MAX_ARTIFACT_INSTRUCTIONS: usize = 1_000_000;
 pub const MAX_ARTIFACT_TABLE_RECORDS: usize = 1_000_000;
+pub const MAX_ARTIFACT_NESTED_RECORDS: usize = 4_096;
 
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()
@@ -465,6 +466,105 @@ fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
         .all(|length| length <= MAX_ARTIFACT_TABLE_RECORDS)
 }
 
+fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool {
+    let mut add = |length: usize| {
+        *total = total.saturating_add(length);
+        length <= MAX_ARTIFACT_NESTED_RECORDS && *total <= MAX_ARTIFACT_TABLE_RECORDS
+    };
+    for layout in &module.structures {
+        if !add(layout.arguments.len()) || !add(layout.fields.len()) {
+            return false;
+        }
+    }
+    for layout in &module.enumerations {
+        if !add(layout.arguments.len()) || !add(layout.variants.len()) {
+            return false;
+        }
+        for variant in &layout.variants {
+            if !add(variant.payload.len()) {
+                return false;
+            }
+        }
+    }
+    for ty in &module.host_interface.types {
+        if !add(ty.fields.len()) || !add(ty.methods.len()) {
+            return false;
+        }
+        for method in &ty.methods {
+            if !add(method.params.len()) {
+                return false;
+            }
+        }
+    }
+    for function in &module.host_interface.functions {
+        if !add(function.params.len()) {
+            return false;
+        }
+    }
+    for path in &module.host_interface.field_paths {
+        if !add(path.fields.len()) {
+            return false;
+        }
+    }
+    for item in &module.public_items {
+        use crate::module::PublicAbiItem;
+        let valid = match item {
+            PublicAbiItem::Function(item) => {
+                add(item.generic_params.len())
+                    && add(item.bounds.len())
+                    && item.bounds.iter().all(|bound| add(bound.constraints.len()))
+                    && add(item.params.len())
+            }
+            PublicAbiItem::Const(_) => true,
+            PublicAbiItem::Type(item) => {
+                add(item.generic_params.len())
+                    && add(item.bounds.len())
+                    && item.bounds.iter().all(|bound| add(bound.constraints.len()))
+                    && add(item.fields.len())
+                    && add(item.variants.len())
+                    && item
+                        .variants
+                        .iter()
+                        .all(|variant| add(variant.payload.len()))
+            }
+            PublicAbiItem::Trait(item) => {
+                add(item.generic_params.len())
+                    && add(item.bounds.len())
+                    && item.bounds.iter().all(|bound| add(bound.constraints.len()))
+                    && add(item.methods.len())
+                    && item.methods.iter().all(|method| {
+                        add(method.generic_params.len())
+                            && add(method.bounds.len())
+                            && method
+                                .bounds
+                                .iter()
+                                .all(|bound| add(bound.constraints.len()))
+                            && add(method.params.len())
+                    })
+            }
+            PublicAbiItem::InterfaceTable(item) => {
+                add(item.generic_params.len())
+                    && add(item.bounds.len())
+                    && item.bounds.iter().all(|bound| add(bound.constraints.len()))
+                    && add(item.methods.len())
+                    && item.methods.iter().all(|method| {
+                        add(method.generic_params.len())
+                            && add(method.bounds.len())
+                            && method
+                                .bounds
+                                .iter()
+                                .all(|bound| add(bound.constraints.len()))
+                            && add(method.params.len())
+                    })
+            }
+        };
+        if !valid {
+            return false;
+        }
+    }
+    true
+}
+
 fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
     if program.modules.len() > MAX_ARTIFACT_MODULES {
         return Some("too many modules");
@@ -472,7 +572,11 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
     let mut functions = 0usize;
     let mut instructions = 0usize;
     let mut module_records = 0usize;
+    let mut nested_records = 0usize;
     for module in &program.modules {
+        if !module_nested_count_limit(module, &mut nested_records) {
+            return Some("nested module record limit exceeded");
+        }
         functions = functions.saturating_add(module.functions.len());
         if functions > MAX_ARTIFACT_FUNCTIONS {
             return Some("too many functions");
@@ -1026,6 +1130,117 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
+        use crate::module::abi::{AbiType, BuiltinType};
+        use crate::module::{
+            EnumLayout, EnumVariantLayout, FieldAbi, StructFieldLayout, StructLayout,
+        };
+        use kagari_common::host_interface::{HostFieldPathDeclaration, PathAccess};
+        use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        let id = |kind| DefinitionId {
+            module: valid.modules[0].identity.clone(),
+            path: vec![DefinitionPathSegment {
+                kind,
+                name: "item".into(),
+                occurrence: 0,
+            }],
+        };
+        let field_id = id(DefinitionKind::Field);
+        let mut cases = Vec::new();
+
+        let mut structure = valid.clone();
+        structure.modules[0].structures.push(StructLayout {
+            declaration: id(DefinitionKind::Struct),
+            arguments: Vec::new(),
+            fields: vec![
+                StructFieldLayout {
+                    declaration: field_id.clone(),
+                    name: "field".into(),
+                    ty: AbiType::Builtin(BuiltinType::I32),
+                    mutable: false,
+                };
+                MAX_ARTIFACT_NESTED_RECORDS + 1
+            ],
+        });
+        cases.push(structure);
+
+        let mut enumeration = valid.clone();
+        enumeration.modules[0].enumerations.push(EnumLayout {
+            declaration: id(DefinitionKind::Enum),
+            arguments: Vec::new(),
+            variants: vec![EnumVariantLayout {
+                declaration: id(DefinitionKind::Variant),
+                payload: vec![AbiType::Builtin(BuiltinType::I32); MAX_ARTIFACT_NESTED_RECORDS + 1],
+            }],
+        });
+        cases.push(enumeration);
+
+        let mut host_path = valid.clone();
+        host_path.modules[0]
+            .host_interface
+            .field_paths
+            .push(HostFieldPathDeclaration {
+                root: id(DefinitionKind::Struct),
+                fields: vec![field_id.clone(); MAX_ARTIFACT_NESTED_RECORDS + 1],
+                access: PathAccess::ReadOnly,
+                schema_epoch: 0,
+                capabilities: Default::default(),
+            });
+        cases.push(host_path);
+
+        let mut public_abi = valid.clone();
+        public_abi.modules[0]
+            .public_items
+            .push(crate::module::PublicAbiItem::Type(crate::module::TypeAbi {
+                name: "item".into(),
+                kind: crate::module::TypeAbiKind::Struct,
+                generic_params: Vec::new(),
+                bounds: Vec::new(),
+                fields: vec![
+                    FieldAbi {
+                        name: "field".into(),
+                        ty: AbiType::Builtin(BuiltinType::I32),
+                        mutable: false,
+                    };
+                    MAX_ARTIFACT_NESTED_RECORDS + 1
+                ],
+                variants: Vec::new(),
+            }));
+        cases.push(public_abi);
+
+        for program in cases {
+            assert!(matches!(
+                KbcArtifact::from_program(program.clone(), Default::default()),
+                Err(ArtifactValidationError::ResourceLimit(
+                    "nested module record limit exceeded"
+                ))
+            ));
+            let mut artifact =
+                KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
+            artifact.program = program;
+            assert!(matches!(
+                artifact.validate_for_loader(&Default::default()),
+                Err(ArtifactValidationError::ResourceLimit(
+                    "nested module record limit exceeded"
+                ))
+            ));
+            assert!(artifact.to_bytes().is_err());
+            let crafted = codec().serialize(&artifact).unwrap();
+            assert!(
+                KbcArtifact::from_bytes(&crafted)
+                    .unwrap_err()
+                    .message()
+                    .contains("nested module record limit exceeded")
+            );
+        }
+    }
 
     #[test]
     fn module_count_limit_rejects_memory_and_encoded_artifacts_before_verification() {

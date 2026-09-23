@@ -585,6 +585,11 @@ than 1,024 modules, 65,536 functions, 1,000,000 instructions, or 1,000,000
 records in a module table or metadata table. Section-declared counts have the
 same bound independently of payload size. These are format resource limits;
 compiler instance and diagnostic budgets are separate.
+Directly nested layout fields, enum variants and payloads, host type members and
+parameters, host path segments, and public ABI declaration members each have a
+4,096-record vector limit; their combined count across the program is limited
+to 1,000,000. Recursive ABI type nodes and decoder allocation behavior still
+need a separate audit.
 
 ## Relationship to IR
 
