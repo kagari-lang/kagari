@@ -18,6 +18,7 @@ impl ModuleRef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BytecodeProgram {
     pub root: ModuleRef,
+    #[serde(deserialize_with = "crate::decode_limits::modules")]
     pub modules: Vec<BytecodeModule>,
 }
 

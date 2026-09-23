@@ -9,19 +9,29 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BytecodeModule {
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub dependencies: Vec<super::ModuleRef>,
     pub host_interface: kagari_common::host_interface::HostInterface,
     pub identity: kagari_common::identity::ModuleIdentity,
     pub source_name: String,
     pub module_init: Option<FunctionRef>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub module_slots: BytecodeModuleSlotBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub constants: ConstantPool,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub types: BytecodeTypeTable,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub structures: Vec<crate::module::StructLayout>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub enumerations: Vec<crate::module::EnumLayout>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub paths: PathTable,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub function_table: FunctionTable,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub public_items: PublicItemTable,
+    #[serde(deserialize_with = "crate::decode_limits::functions")]
     pub functions: BytecodeFunctionBuffer,
 }
 
@@ -50,6 +60,7 @@ pub struct BytecodeFunction {
     pub register_count: u16,
     pub local_count: u16,
     pub metadata: FunctionMetadata,
+    #[serde(deserialize_with = "crate::decode_limits::instructions")]
     pub instructions: BytecodeInstructionBuffer,
 }
 

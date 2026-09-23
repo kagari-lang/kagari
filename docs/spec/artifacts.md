@@ -51,6 +51,12 @@ positional initializers and layout/slot field operands.
 Version 24 encodes each ABI type as bounded flat preorder nodes. The decoder
 checks at most 4,096 nodes and depth 64 before rebuilding a recursive type, so
 untrusted ABI types cannot grow the decoder call stack without a checked bound.
+Module, function and instruction sequence lengths are checked as the decoder
+reads each sequence header, before reading their elements. Their limits are
+1,024, 65,536 and 1,000,000 respectively; aggregate post-decode limits still
+apply across modules and functions. Module-owned table vectors have a
+1,000,000-record sequence limit; concrete layout and public ABI member vectors
+have a 4,096-record sequence limit.
 
 Version 23 stores complete concrete ABI types for struct fields. Runtime ABI v24
 checks nested field values before allocation or replacement, including nominal

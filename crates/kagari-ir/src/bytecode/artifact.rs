@@ -13,11 +13,11 @@ use serde::{Deserialize, Serialize};
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 24;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
-pub const MAX_ARTIFACT_MODULES: usize = 1024;
-pub const MAX_ARTIFACT_FUNCTIONS: usize = 65_536;
-pub const MAX_ARTIFACT_INSTRUCTIONS: usize = 1_000_000;
-pub const MAX_ARTIFACT_TABLE_RECORDS: usize = 1_000_000;
-pub const MAX_ARTIFACT_NESTED_RECORDS: usize = 4_096;
+pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
+pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
+pub const MAX_ARTIFACT_INSTRUCTIONS: usize = crate::decode_limits::MAX_INSTRUCTIONS;
+pub const MAX_ARTIFACT_TABLE_RECORDS: usize = crate::decode_limits::MAX_TABLE_RECORDS;
+pub const MAX_ARTIFACT_NESTED_RECORDS: usize = crate::decode_limits::MAX_NESTED_RECORDS;
 
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()
@@ -1171,6 +1171,25 @@ mod canonical_tests {
     use super::*;
 
     #[test]
+    fn decoder_rejects_huge_module_count_before_reading_module_data() {
+        let artifact = KbcArtifact::from_program(
+            BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+            Default::default(),
+        )
+        .unwrap();
+        let mut bytes = artifact.to_bytes().unwrap();
+        let offset = (codec().serialized_size(&artifact.header).unwrap()
+            + codec().serialized_size(&artifact.program.root).unwrap())
+            as usize;
+        bytes[offset..offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        let error = KbcArtifact::from_bytes(&bytes).unwrap_err();
+        assert!(error.message().contains("module count limit exceeded"));
+    }
+
+    #[test]
     fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
         use crate::module::abi::{AbiType, BuiltinType};
         let valid = BytecodeProgram {
@@ -1292,7 +1311,7 @@ mod canonical_tests {
             }));
         cases.push(public_abi);
 
-        for program in cases {
+        for (index, program) in cases.into_iter().enumerate() {
             assert!(matches!(
                 KbcArtifact::from_program(program.clone(), Default::default()),
                 Err(ArtifactValidationError::ResourceLimit(
@@ -1310,12 +1329,13 @@ mod canonical_tests {
             ));
             assert!(artifact.to_bytes().is_err());
             let crafted = codec().serialize(&artifact).unwrap();
-            assert!(
-                KbcArtifact::from_bytes(&crafted)
-                    .unwrap_err()
-                    .message()
-                    .contains("nested module record limit exceeded")
-            );
+            let error = KbcArtifact::from_bytes(&crafted).unwrap_err();
+            let expected = if index == 2 {
+                "nested module record limit exceeded"
+            } else {
+                "nested declaration count limit exceeded"
+            };
+            assert!(error.message().contains(expected), "{index}: {error}");
         }
     }
 
@@ -1351,7 +1371,7 @@ mod canonical_tests {
             KbcArtifact::from_bytes(&crafted)
                 .unwrap_err()
                 .message()
-                .contains("too many modules")
+                .contains("module count limit exceeded")
         );
     }
 

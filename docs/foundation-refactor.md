@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 executable-sequence decoding checkpoint: module, function, instruction,
+  module-owned table, concrete layout and public ABI member vector lengths are
+  rejected from the encoded sequence header before element deserialization.
+  Tiny forged-length inputs fail at that boundary; aggregate post-decode limits
+  remain. Host interface, debug metadata and other decoder allocation paths
+  still need audit.
+
 - R09 ABI type wire checkpoint: format 24 replaces recursive ABI type encoding
   with flat preorder nodes. At most 4,096 nodes and depth 64 are accepted before
   reconstructing the type; previous artifacts are rejected. Broader decoder

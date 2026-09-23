@@ -4,13 +4,16 @@ use kagari_common::identity::DefinitionId;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumLayout {
     pub declaration: DefinitionId,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<super::abi::AbiType>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub variants: Vec<EnumVariantLayout>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumVariantLayout {
     pub declaration: DefinitionId,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub payload: Vec<super::abi::AbiType>,
 }
 
@@ -261,7 +264,9 @@ pub(crate) fn validate_enum_layouts(
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StructLayout {
     pub declaration: DefinitionId,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<super::abi::AbiType>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub fields: Vec<StructFieldLayout>,
 }
 
