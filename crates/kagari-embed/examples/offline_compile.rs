@@ -116,6 +116,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("score")
     );
     println!("offline field navigation selects the member name");
+    let method_dot = text.find(".read_score()").expect("host method call");
+    assert!(source.host_function_at(method_dot).is_none());
+    assert_eq!(
+        source
+            .host_function_at(method_dot + 1)
+            .map(|function| function.symbol.as_str()),
+        Some("demo.Player.read_score")
+    );
+    println!("offline method navigation selects the method name");
     let checked = engine
         .compile_snapshot(
             engine.source_snapshot(),

@@ -39,6 +39,11 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04/R06 call-navigation checkpoint: offline `host_function_at` and
+  `source_function_at` queries restrict dotted callees to their member names.
+  A receiver call retains its separate checked target; dot positions no longer
+  report the outer method. The offline_compile example covers host methods.
+
 - R04 source-member navigation checkpoint: `definition_at` now scopes checked
   field and method targets to their source names for reads, writes and calls.
   Receiver bindings remain queryable and the dot has no declaration target.

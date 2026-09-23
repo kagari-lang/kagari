@@ -92,8 +92,14 @@ impl FileAnalysis {
             .module
             .body
             .expressions()
-            .filter_map(|(id, _)| {
+            .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
+                let span = match &expr.kind {
+                    ExprKind::Field { name, .. } => {
+                        member_name_span(self.source.text(), span, name)?
+                    }
+                    _ => span,
+                };
                 if !(span.start <= offset && offset < span.end) {
                     return None;
                 }
@@ -139,10 +145,22 @@ impl FileAnalysis {
                     && let crate::typeck::CallTarget::HostFunction(host) = call.target
                 {
                     let span = facts.lowered.source_map.expr_span(callee);
+                    let span = match &facts.lowered.module.expr(callee).kind {
+                        ExprKind::Field { name, .. } => {
+                            member_name_span(self.source.text(), span, name)?
+                        }
+                        _ => span,
+                    };
                     return (span.start <= offset && offset < span.end)
                         .then_some((span.end - span.start, host));
                 }
                 let span = facts.lowered.source_map.expr_span(id);
+                let span = match &expr.kind {
+                    ExprKind::Field { name, .. } => {
+                        member_name_span(self.source.text(), span, name)?
+                    }
+                    _ => span,
+                };
                 if !(span.start <= offset && offset < span.end) {
                     return None;
                 }

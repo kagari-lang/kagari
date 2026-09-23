@@ -172,6 +172,9 @@ interface declarations and does not invoke a host callback.
 source field reads, writes and method calls. A receiver position resolves its own
 binding; the `.` has no declaration target.
 
+`host_function_at` and `source_function_at` likewise limit a dotted callee to
+its function name. A nested receiver call keeps its own declaration target.
+
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated

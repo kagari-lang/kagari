@@ -70,6 +70,13 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
             file.result().diagnostics()
         );
         let target = file.host_function_at(text.find("add(").unwrap()).unwrap();
+        assert_eq!(file.host_function_at(text.find(".add(").unwrap()), None);
+        assert_eq!(
+            file.host_function_at(text.find("make()").unwrap())
+                .unwrap()
+                .symbol,
+            "left.make"
+        );
         if argument.is_empty() {
             assert!(
                 file.result()
