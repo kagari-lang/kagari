@@ -42,29 +42,38 @@ impl FileAnalysis {
         offset: usize,
     ) -> Option<&kagari_common::host_interface::HostFieldDeclaration> {
         let facts = self.result.facts();
-        facts
+        let text = self.source.text();
+        let expressions = facts
             .lowered
             .module
             .body
             .expressions()
-            .filter_map(|(id, _)| {
+            .filter_map(|(id, expr)| {
+                let ExprKind::Field { name, .. } = &expr.kind else {
+                    return None;
+                };
                 let field = facts.typed.type_table.expr_field(id)?;
                 let span = facts.lowered.source_map.expr_span(id);
-                if !(span.start <= offset && offset < span.end) {
+                host_member_name_contains(text, span, name, offset)
+                    .then(|| facts.names.hosts.field(field))
+                    .flatten()
+            });
+        let places = facts
+            .lowered
+            .module
+            .body
+            .places()
+            .filter_map(|(id, place)| {
+                let crate::hir::PlaceKind::Field { name, .. } = &place.kind else {
                     return None;
-                }
-                Some((span.end - span.start, facts.names.hosts.field(field)?))
-            })
-            .chain(facts.lowered.module.body.places().filter_map(|(id, _)| {
+                };
                 let field = facts.typed.type_table.place_field(id)?;
                 let span = facts.lowered.source_map.place_span(id);
-                if !(span.start <= offset && offset < span.end) {
-                    return None;
-                }
-                Some((span.end - span.start, facts.names.hosts.field(field)?))
-            }))
-            .min_by_key(|(length, _)| *length)
-            .map(|(_, field)| field)
+                host_member_name_contains(text, span, name, offset)
+                    .then(|| facts.names.hosts.field(field))
+                    .flatten()
+            });
+        expressions.chain(places).next()
     }
     /// Whether this result's signature query reused earlier checked facts.
     /// An unchanged file shares its existing result and this original statistic.
@@ -397,6 +406,24 @@ impl FileAnalysis {
             })
             .collect()
     }
+}
+
+fn host_member_name_contains(
+    text: &str,
+    span: kagari_common::Span,
+    name: &str,
+    offset: usize,
+) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let Some(start) = span.end.checked_sub(name.len()) else {
+        return false;
+    };
+    span.start <= start
+        && start <= offset
+        && offset < span.end
+        && text.get(start..span.end) == Some(name)
 }
 
 fn type_at_in(

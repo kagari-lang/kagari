@@ -91,6 +91,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .expect("register example source"),
         );
     }
+    let query = engine
+        .analyze(
+            engine.source_snapshot(),
+            LanguageProfile {
+                allow_host_calls: true,
+                allow_path_mutation: true,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .expect("offline source should be queryable");
+    let source = query
+        .file(root.expect("entry source"))
+        .expect("query source");
+    let text = source.source().text();
+    let field = text.find("value.score = next").expect("field write");
+    assert!(source.host_field_at(field).is_none());
+    assert!(source.host_field_at(field + "value".len()).is_none());
+    assert_eq!(
+        source
+            .host_field_at(field + "value.".len())
+            .map(|member| member.name.as_str()),
+        Some("score")
+    );
+    println!("offline field navigation selects the member name");
     let checked = engine
         .compile_snapshot(
             engine.source_snapshot(),

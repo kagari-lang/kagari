@@ -163,6 +163,11 @@ creating a runtime; see [host-interop.md](host-interop.md#function-registration)
 executing callbacks. General host imports and mandatory artifact host-interface
 linking remain R06/R08 work.
 
+`FileAnalysis::host_field_at(offset)` returns the checked host field declaration
+only when the byte offset lies on the field name. Offsets on the receiver or `.`
+return no host field, including for a rejected write path. The query uses offline
+interface declarations and does not invoke a host callback.
+
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated

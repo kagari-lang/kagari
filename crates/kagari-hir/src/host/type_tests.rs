@@ -268,6 +268,9 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
             file.host_field_at(text.find("score").unwrap()),
             Some(&field)
         );
+        assert_eq!(file.host_field_at(text.find(call).unwrap()), None);
+        assert_eq!(file.host_field_at(text.find(".score").unwrap()), None);
+
         assert_eq!(
             file.type_at(text.rfind('7').unwrap()),
             Some(TypeId::Builtin(BuiltinType::I32))
@@ -476,6 +479,14 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
             .host_field_at(text.find("score").unwrap()),
         Some(&field)
     );
+    let write_start = text.find("target.score").unwrap();
+    let old_file = old.file(root).unwrap();
+    assert_eq!(old_file.host_field_at(write_start), None);
+    assert_eq!(old_file.host_field_at(write_start + "target".len()), None);
+    assert_eq!(
+        old_file.host_field_at(write_start + "target.".len()),
+        Some(&field)
+    );
     let old_table = &old.file(root).unwrap().result().facts().typed.type_table;
     let old_place = old_table.host_write_places().next().unwrap();
     let old_path = old_table.host_place_path(old_place).unwrap().clone();
@@ -559,7 +570,7 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     declarations.types[1].fields.push(count.clone());
     let path = HostFieldPathDeclaration {
         root: declarations.types[0].id.clone(),
-        fields: vec![related.id, count.id],
+        fields: vec![related.id.clone(), count.id.clone()],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),
@@ -609,6 +620,20 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     assert_eq!(writes.len(), 1);
     assert_eq!(reads[0].declaration, path);
     assert_eq!(writes[0].declaration, path);
+    assert_eq!(
+        file.host_field_at(text.find("value.inner.host").unwrap()),
+        None
+    );
+    assert_eq!(file.host_field_at(text.find(".related").unwrap()), None);
+    assert_eq!(
+        file.host_field_at(text.find("related").unwrap()),
+        Some(&related)
+    );
+    assert_eq!(
+        file.host_field_at(text.find("count").unwrap()),
+        Some(&count)
+    );
+
     let read_span = facts.lowered.source_map.expr_span(reads[0].root);
     let write_span = facts.lowered.source_map.place_span(writes[0].root);
     assert_eq!(&text[read_span.start..read_span.end], "value.inner.host");

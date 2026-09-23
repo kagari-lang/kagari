@@ -39,6 +39,11 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04 host-field navigation checkpoint: `host_field_at` selects a checked member
+  only on its source name, not on the receiver or dot in the enclosing expression.
+  Read/write, mixed source/host paths, recovery after call errors and offline
+  compilation share this query rule. Host path diagnostics still reject codegen.
+
 - R04 assignment diagnostic ownership checkpoint: error descriptions now read
   checked place facts instead of rerunning receiver inference. Host-target probes
   reuse known readable-place types. Nested invalid indexes are diagnosed once per
