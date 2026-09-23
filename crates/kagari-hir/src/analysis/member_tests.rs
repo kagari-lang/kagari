@@ -567,3 +567,28 @@ fn assignment_diagnostics_consume_existing_facts_without_rechecking_receivers() 
         assert!(snapshot.check_program(id, &Default::default()).is_err());
     }
 }
+
+#[test]
+fn field_navigation_targets_only_member_names() {
+    let text = "struct Point { var x: i32 } trait Show { fn show(self) -> i32; } impl Show for Point { fn show(self) -> i32 { self.x } } fn read(p: Point) -> i32 { p.x } fn write(p: Point) { p.x = 1; } fn call<T: Show>(p: T) -> i32 { p.show() }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("member-names.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(id).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    for occurrence in [text.find("p.x }").unwrap(), text.find("p.x =").unwrap()] {
+        assert_eq!(file.definition_at(occurrence).unwrap().name, "p");
+        assert_eq!(file.definition_at(occurrence + 1), None, "dot");
+        assert_eq!(file.definition_at(occurrence + 2).unwrap().name, "x");
+    }
+    let call = text.find("p.show()").unwrap();
+    assert_eq!(file.definition_at(call).unwrap().name, "p");
+    assert_eq!(file.definition_at(call + 1), None);
+    assert_eq!(file.definition_at(call + 2).unwrap().name, "show");
+}

@@ -260,8 +260,14 @@ impl FileAnalysis {
             .module
             .body
             .expressions()
-            .filter_map(|(id, _)| {
+            .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
+                let span = match &expr.kind {
+                    ExprKind::Field { name, .. } => {
+                        member_name_span(self.source.text(), span, name)?
+                    }
+                    _ => span,
+                };
                 let target = facts
                     .names
                     .expr_resolution(id)
@@ -311,7 +317,18 @@ impl FileAnalysis {
                                     .map(|field| &field.declaration)
                             })
                     })?;
-                Some((*span, target))
+                let span = match &facts
+                    .lowered
+                    .module
+                    .place(facts.lowered.source_map.place_id(index))
+                    .kind
+                {
+                    crate::hir::PlaceKind::Field { name, .. } => {
+                        member_name_span(self.source.text(), *span, name)?
+                    }
+                    _ => *span,
+                };
+                Some((span, target))
             });
         let calls = facts
             .lowered
@@ -323,15 +340,22 @@ impl FileAnalysis {
                     return None;
                 };
                 let call = facts.typed.type_table.call_resolution(id)?;
+                let callee_span = facts.lowered.source_map.expr_span(*callee);
+                let callee_span = match &facts.lowered.module.expr(*callee).kind {
+                    ExprKind::Field { name, .. } => {
+                        member_name_span(self.source.text(), callee_span, name)?
+                    }
+                    _ => callee_span,
+                };
                 match call.target {
                     crate::typeck::CallTarget::Function(function) => Some((
-                        facts.lowered.source_map.expr_span(*callee),
+                        callee_span,
                         facts
                             .declarations
                             .target(crate::resolver::ResolvedName::Function(function))?,
                     )),
                     crate::typeck::CallTarget::TraitMethod(function) => Some((
-                        facts.lowered.source_map.expr_span(*callee),
+                        callee_span,
                         &facts.aggregates.trait_method(&function)?.declaration,
                     )),
                     _ => None,
@@ -408,22 +432,31 @@ impl FileAnalysis {
     }
 }
 
+fn member_name_span(
+    text: &str,
+    span: kagari_common::Span,
+    name: &str,
+) -> Option<kagari_common::Span> {
+    if name.is_empty() {
+        return None;
+    }
+    let start = span.end.checked_sub(name.len())?;
+    (span.start <= start && text.get(start..span.end) == Some(name)).then_some(
+        kagari_common::Span {
+            start,
+            end: span.end,
+        },
+    )
+}
+
 fn host_member_name_contains(
     text: &str,
     span: kagari_common::Span,
     name: &str,
     offset: usize,
 ) -> bool {
-    if name.is_empty() {
-        return false;
-    }
-    let Some(start) = span.end.checked_sub(name.len()) else {
-        return false;
-    };
-    span.start <= start
-        && start <= offset
-        && offset < span.end
-        && text.get(start..span.end) == Some(name)
+    member_name_span(text, span, name)
+        .is_some_and(|name_span| name_span.start <= offset && offset < name_span.end)
 }
 
 fn type_at_in(

@@ -168,6 +168,10 @@ only when the byte offset lies on the field name. Offsets on the receiver or `.`
 return no host field, including for a rejected write path. The query uses offline
 interface declarations and does not invoke a host callback.
 
+`FileAnalysis::definition_at(offset)` applies the same name-only rule to checked
+source field reads, writes and method calls. A receiver position resolves its own
+binding; the `.` has no declaration target.
+
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated

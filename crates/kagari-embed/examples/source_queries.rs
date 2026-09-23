@@ -106,7 +106,20 @@ fn main() -> kagari_embed::CompileResult<()> {
         &Default::default(),
     )?;
     let analysis = snapshot.file(file).expect("source belongs to snapshot");
-    let write_member = text.find("p.x = 2").expect("field write") + 2;
+    let write_start = text.find("p.x = 2").expect("field write");
+    assert_eq!(
+        analysis.definition_at(write_start).expect("receiver").name,
+        "p"
+    );
+    assert!(analysis.definition_at(write_start + 1).is_none());
+    assert_eq!(
+        analysis
+            .definition_at(write_start + 2)
+            .expect("member")
+            .name,
+        "x"
+    );
+    let write_member = write_start + 2;
     assert!(
         analysis.member_receiver_type(write_member).is_some(),
         "field write receiver"

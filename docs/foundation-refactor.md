@@ -39,6 +39,11 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R04 source-member navigation checkpoint: `definition_at` now scopes checked
+  field and method targets to their source names for reads, writes and calls.
+  Receiver bindings remain queryable and the dot has no declaration target.
+  The source_queries example and focused regression cover this behavior.
+
 - R04 host-field navigation checkpoint: `host_field_at` selects a checked member
   only on its source name, not on the receiver or dot in the enclosing expression.
   Read/write, mixed source/host paths, recovery after call errors and offline
