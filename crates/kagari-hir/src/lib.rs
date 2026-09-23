@@ -300,6 +300,7 @@ pub fn analyze_source(
         AnalysisPolicy {
             profile,
             const_limits: Default::default(),
+            max_semantic_diagnostics: 1_000,
         },
         imported_functions,
         aggregates,
@@ -311,6 +312,7 @@ pub fn analyze_source(
 pub(crate) struct AnalysisPolicy {
     profile: LanguageFeatureProfile,
     const_limits: typeck::ConstLimits,
+    max_semantic_diagnostics: usize,
 }
 
 pub(crate) fn analyze_parsed(
@@ -332,6 +334,17 @@ pub(crate) fn analyze_parsed(
     );
     if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, policy.profile) {
         analyzed.diagnostics.extend(*diagnostics);
+    }
+    if analyzed.diagnostics.len() > policy.max_semantic_diagnostics {
+        analyzed
+            .diagnostics
+            .truncate(policy.max_semantic_diagnostics);
+        analyzed.diagnostics.push(kagari_common::Diagnostic::error(
+            kagari_common::DiagnosticKind::CompileLimitExceeded {
+                resource: "semantic diagnostics",
+                limit: policy.max_semantic_diagnostics,
+            },
+        ));
     }
     analyzed
         .diagnostics

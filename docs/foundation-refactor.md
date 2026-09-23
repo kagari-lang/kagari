@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R15 diagnostic-output checkpoint: full semantic analysis now emits at most a
+  configurable number of semantic diagnostics per file (default 1,000), followed
+  by one structured limit diagnostic if exceeded. Changing the limit invalidates
+  cached full results without mutating older snapshots; checked compilation still
+  rejects limited results. This bounds output, while earlier diagnostic generation
+  and downstream recursive traversal limits remain in the R15 audit.
+
 - R09 direct-load parity checkpoint: shared verified code construction and direct
   reload preflight now apply artifact count, identity, nested-record and encoded
   size limits before fingerprinting or linking an in-memory program. Oversized
@@ -1383,8 +1390,9 @@ Implemented foundation slices:
   Source/artifact/JIT fallback tests cover declaration order, while cycle and
   initializer errors remain rejected. This removes that scan cost; it is not
   a wall-clock quota or a measured end-to-end performance claim.
-  Downstream recursive traversal limits, semantic diagnostic-count limits and
-  broader resource audits remain outstanding. Source/artifact/JIT
+  Downstream recursive traversal limits, bounded diagnostic generation beyond
+  the final result buffer, and broader resource audits remain outstanding.
+  Source/artifact/JIT
   fallback fixtures cover generic values, recursion, numeric overflow, effects,
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this

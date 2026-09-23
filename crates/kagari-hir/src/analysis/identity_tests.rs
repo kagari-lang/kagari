@@ -15,6 +15,52 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 #[test]
+fn semantic_diagnostic_budget_invalidates_cached_results_without_changing_old_snapshots() {
+    let mut sources = SourceDatabase::default();
+    let text = "fn bad() { missing_one; missing_two; } fn good() -> i32 { 7 }";
+    let id = sources
+        .set("diagnostic-budget.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let original = snapshot(&mut db, &sources);
+    assert!(original.file(id).unwrap().result().diagnostics().len() >= 2);
+
+    db.set_max_semantic_diagnostics(1);
+    let limited = snapshot(&mut db, &sources);
+    let diagnostics = limited.file(id).unwrap().result().diagnostics();
+    assert_eq!(diagnostics.len(), 2);
+    assert!(matches!(
+        diagnostics[1].kind,
+        kagari_common::DiagnosticKind::CompileLimitExceeded {
+            resource: "semantic diagnostics",
+            limit: 1
+        }
+    ));
+    assert!(limited.check_program(id, &Default::default()).is_err());
+    assert!(
+        limited
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .declarations
+            .iter()
+            .any(|declaration| declaration.name == "good")
+    );
+    assert!(original.file(id).unwrap().result().diagnostics().len() >= 2);
+
+    db.set_max_semantic_diagnostics(0);
+    let zero = snapshot(&mut db, &sources);
+    assert!(matches!(
+        zero.file(id).unwrap().result().diagnostics()[0].kind,
+        kagari_common::DiagnosticKind::CompileLimitExceeded {
+            resource: "semantic diagnostics",
+            limit: 0
+        }
+    ));
+}
+
+#[test]
 fn scope_queries_and_navigation_share_resolver_shadowing_and_match_bindings() {
     let text = "fn main(value: i32) -> i32 { var n = value; val n = n + 1; match n { bound => bound + n, _ => n } }";
     let mut sources = SourceDatabase::default();

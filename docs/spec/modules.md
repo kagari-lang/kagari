@@ -569,6 +569,13 @@ snapshots keep their original facts; declaration and signature caches remain val
 Budgets reset per file analysis/query, rather than accumulating across editor queries.
 These are logical traversal limits, not byte-allocation or wall-clock quotas.
 
+`AnalysisDatabase::set_max_semantic_diagnostics` caps the semantic diagnostics
+returned for each file (default 1,000). Exceeding it appends one
+`KG_COMPILE_LIMIT_EXCEEDED` marker after the retained diagnostics; parser diagnostics
+are governed by their own limit. Changing this input invalidates cached full-file
+results, while old immutable snapshots remain usable. Checked compilation rejects
+the limit marker. The cap bounds output, not the work already spent generating it.
+
 Explicit constant type annotations are collected before initializer checking,
 so a reference to an annotated constant is typed independently of declaration
 order. An inferred initializer can use a later annotated constant. This does not

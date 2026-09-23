@@ -61,6 +61,12 @@ impl KagariEngine {
         self.analysis.borrow_mut().set_parse_limits(limits);
     }
 
+    pub fn set_max_semantic_diagnostics(&self, limit: usize) {
+        self.analysis
+            .borrow_mut()
+            .set_max_semantic_diagnostics(limit);
+    }
+
     pub fn set_host_interface(
         &self,
         interface: kagari_common::host_interface::HostInterface,

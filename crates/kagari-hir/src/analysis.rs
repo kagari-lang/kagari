@@ -563,6 +563,7 @@ fn member_receiver_type_in(
 pub struct AnalysisDatabase {
     const_limits: crate::typeck::ConstLimits,
     parse_limits: kagari_syntax::parser::ParseLimits,
+    max_semantic_diagnostics: usize,
     body_cache: HashMap<kagari_common::identity::DefinitionId, Arc<FunctionAnalysis>>,
     body_revision: Revision,
     declaration_cache: Option<DeclarationSnapshot>,
@@ -577,6 +578,7 @@ impl Default for AnalysisDatabase {
         Self {
             parse_limits: Default::default(),
             const_limits: Default::default(),
+            max_semantic_diagnostics: 1_000,
             body_cache: HashMap::new(),
             body_revision: Revision::default(),
             declaration_cache: None,
@@ -589,6 +591,14 @@ impl Default for AnalysisDatabase {
 }
 
 impl AnalysisDatabase {
+    pub fn set_max_semantic_diagnostics(&mut self, limit: usize) {
+        if self.max_semantic_diagnostics != limit {
+            self.max_semantic_diagnostics = limit;
+            self.body_cache.clear();
+            self.files.clear();
+        }
+    }
+
     pub fn set_const_limits(&mut self, limits: crate::typeck::ConstLimits) {
         if self.const_limits != limits {
             self.const_limits = limits;
@@ -688,6 +698,7 @@ impl AnalysisDatabase {
                         crate::AnalysisPolicy {
                             profile,
                             const_limits: self.const_limits,
+                            max_semantic_diagnostics: self.max_semantic_diagnostics,
                         },
                         imported_functions,
                         aggregates,

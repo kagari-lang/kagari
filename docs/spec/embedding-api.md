@@ -184,7 +184,8 @@ options also carry a cancellation token. Limit failures produce
 `KG_COMPILE_LIMIT_EXCEEDED` with the originating source revision, and cancellation
 returns `EmbeddingError::Cancelled`. An unresolved type at code generation gives
 `KG_COMPILE_UNRESOLVED_TYPE`. These failures leave checked analysis reusable.
-Parser depth, const-evaluation and diagnostic-count limits remain R15 work.
+Parser depth, const-evaluation and full semantic diagnostic-output limits are
+available through `KagariEngine` setters; remaining resource audits are R15 work.
 
 `TypeTable::constraint` distinguishes standard constraint identities from user
 trait identities. Bounds are resolved once in their declaring context; inherited
