@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 23;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 24;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = 1024;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = 65_536;
@@ -565,6 +565,42 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
     true
 }
 
+fn module_abi_type_limit(module: &BytecodeModule) -> bool {
+    use crate::module::PublicAbiItem;
+    let valid = |ty: &crate::module::abi::AbiType| ty.within_wire_limits();
+    module.structures.iter().all(|layout| {
+        layout.arguments.iter().all(&valid) && layout.fields.iter().all(|field| valid(&field.ty))
+    }) && module.enumerations.iter().all(|layout| {
+        layout.arguments.iter().all(&valid)
+            && layout
+                .variants
+                .iter()
+                .all(|variant| variant.payload.iter().all(&valid))
+    }) && module.public_items.iter().all(|item| match item {
+        PublicAbiItem::Function(item) => {
+            item.params.iter().all(|param| valid(&param.ty)) && valid(&item.return_type)
+        }
+        PublicAbiItem::Const(item) => valid(&item.ty),
+        PublicAbiItem::Type(item) => {
+            item.fields.iter().all(|field| valid(&field.ty))
+                && item
+                    .variants
+                    .iter()
+                    .all(|variant| variant.payload.iter().all(&valid))
+        }
+        PublicAbiItem::Trait(item) => item.methods.iter().all(|method| {
+            method.params.iter().all(|param| valid(&param.ty)) && valid(&method.return_type)
+        }),
+        PublicAbiItem::InterfaceTable(item) => {
+            valid(&item.trait_type)
+                && valid(&item.for_type)
+                && item.methods.iter().all(|method| {
+                    method.params.iter().all(|param| valid(&param.ty)) && valid(&method.return_type)
+                })
+        }
+    })
+}
+
 fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
     if program.modules.len() > MAX_ARTIFACT_MODULES {
         return Some("too many modules");
@@ -576,6 +612,9 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
     for module in &program.modules {
         if !module_nested_count_limit(module, &mut nested_records) {
             return Some("nested module record limit exceeded");
+        }
+        if !module_abi_type_limit(module) {
+            return Some("ABI type node or depth limit exceeded");
         }
         functions = functions.saturating_add(module.functions.len());
         if functions > MAX_ARTIFACT_FUNCTIONS {
@@ -1130,6 +1169,44 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
+        use crate::module::abi::{AbiType, BuiltinType};
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        let mut deep = AbiType::Builtin(BuiltinType::I32);
+        for _ in 0..64 {
+            deep = AbiType::Array(Box::new(deep));
+        }
+        let mut program = valid.clone();
+        program.modules[0]
+            .public_items
+            .push(crate::module::PublicAbiItem::Const(
+                crate::module::ConstAbi {
+                    name: "deep".into(),
+                    ty: deep,
+                    value: "0".into(),
+                },
+            ));
+        assert!(matches!(
+            KbcArtifact::from_program(program.clone(), Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "ABI type node or depth limit exceeded"
+            ))
+        ));
+        let mut artifact = KbcArtifact::from_program(valid, Default::default()).unwrap();
+        artifact.program = program;
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "ABI type node or depth limit exceeded"
+            ))
+        ));
+        assert!(artifact.to_bytes().is_err());
+    }
 
     #[test]
     fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {

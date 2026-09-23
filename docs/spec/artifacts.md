@@ -41,12 +41,16 @@ KbcArtifact {
 }
 ```
 
-Format version 23 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 24 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 22 are rejected; no migration or compatibility
+format version. Versions 1 through 23 are rejected; no migration or compatibility
 decoder exists. The format stores a complete dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 24 encodes each ABI type as bounded flat preorder nodes. The decoder
+checks at most 4,096 nodes and depth 64 before rebuilding a recursive type, so
+untrusted ABI types cannot grow the decoder call stack without a checked bound.
 
 Version 23 stores complete concrete ABI types for struct fields. Runtime ABI v24
 checks nested field values before allocation or replacement, including nominal

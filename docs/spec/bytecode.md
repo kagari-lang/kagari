@@ -588,8 +588,8 @@ compiler instance and diagnostic budgets are separate.
 Directly nested layout fields, enum variants and payloads, host type members and
 parameters, host path segments, and public ABI declaration members each have a
 4,096-record vector limit; their combined count across the program is limited
-to 1,000,000. Recursive ABI type nodes and decoder allocation behavior still
-need a separate audit.
+to 1,000,000. ABI types use flat preorder nodes with limits of 4,096 nodes and
+depth 64. Other decoder allocation behavior still needs a separate audit.
 
 ## Relationship to IR
 

@@ -115,7 +115,7 @@ impl NominalAbiType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AbiType {
     Host(kagari_common::identity::DefinitionId),
     /// Receiver template in a trait signature, never an executable value layout.
@@ -250,6 +250,8 @@ pub struct InterfaceTableAbi {
     pub for_type: AbiType,
     pub methods: Vec<FunctionAbi>,
 }
+
+mod wire;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenericParameterAbi {
