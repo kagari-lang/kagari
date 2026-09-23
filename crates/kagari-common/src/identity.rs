@@ -1,8 +1,27 @@
 //! Source/semantic identity is distinct from runtime slots and display spelling.
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
+pub const MAX_IDENTITY_PATH_SEGMENTS: usize = 64;
+
+fn module_path<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    crate::decode_limits::bounded_vec(
+        deserializer,
+        MAX_IDENTITY_PATH_SEGMENTS,
+        "module identity path segment",
+    )
+}
+
+fn definition_path<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<DefinitionPathSegment>, D::Error> {
+    crate::decode_limits::bounded_vec(
+        deserializer,
+        MAX_IDENTITY_PATH_SEGMENTS,
+        "definition identity path segment",
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct FileId(u64);
@@ -28,6 +47,7 @@ pub struct PackageId(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ModuleIdentity {
     pub package: PackageId,
+    #[serde(deserialize_with = "module_path")]
     pub path: Vec<String>,
 }
 
@@ -56,6 +76,7 @@ impl std::fmt::Display for ModuleIdentity {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DefinitionId {
     pub module: ModuleIdentity,
+    #[serde(deserialize_with = "definition_path")]
     pub path: Vec<DefinitionPathSegment>,
 }
 
@@ -88,4 +109,48 @@ pub struct FileSpan {
     pub file: FileId,
     pub revision: Revision,
     pub range: crate::Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bincode::Options;
+
+    fn codec() -> impl Options {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+    }
+
+    #[test]
+    fn identity_path_lengths_are_checked_before_decoding_segments() {
+        let module = ModuleIdentity::single_file("main.kgr");
+        let mut bytes = codec().serialize(&module).unwrap();
+        let count_offset = codec().serialized_size(&module.package).unwrap() as usize;
+        bytes[count_offset..count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        let error = codec().deserialize::<ModuleIdentity>(&bytes).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("module identity path segment count limit exceeded")
+        );
+
+        let id = DefinitionId {
+            module,
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Function,
+                name: "main".into(),
+                occurrence: 0,
+            }],
+        };
+        let mut bytes = codec().serialize(&id).unwrap();
+        let count_offset = codec().serialized_size(&id.module).unwrap() as usize;
+        bytes[count_offset..count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        let error = codec().deserialize::<DefinitionId>(&bytes).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("definition identity path segment count limit exceeded")
+        );
+    }
 }

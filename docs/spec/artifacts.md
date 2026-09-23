@@ -63,6 +63,9 @@ Embedded host interfaces and standalone KHI declarations preflight their type,
 function and field-path lists at 1,000,000 records, and fields, methods,
 parameters and path segments at 4,096 records. In-memory host declaration
 validation enforces these limits before encoding or linking.
+Every serialized module and declaration identity checks its path length before
+reading segments, with a limit of 64. This applies to artifact headers and
+embedded identities as well as standalone host declarations.
 
 Version 23 stores complete concrete ABI types for struct fields. Runtime ABI v24
 checks nested field values before allocation or replacement, including nominal

@@ -1,6 +1,7 @@
 pub mod arithmetic;
 pub mod cancellation;
 pub mod capability;
+mod decode_limits;
 pub mod diagnostic;
 pub mod host_interface;
 pub mod identity;

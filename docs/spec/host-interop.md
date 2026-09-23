@@ -169,8 +169,9 @@ fields and a 4 MiB limit. Types and functions are sorted by declaration identity
 rejects other versions, malformed input, duplicates and trailing data. The decoder
 checks declaration-list lengths before reading elements (at most 1,000,000 each),
 and member, parameter and path-segment vectors at 4,096 each. In-memory
-validation uses the same limits before encoding or linking. Function fingerprints
-use domain-separated FNV-1a-64 over the versioned canonical contract;
+validation uses the same limits before encoding or linking. Module and declaration
+identities reject encoded paths longer than 64 segments before reading them.
+Function fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
 documentation is excluded. Binding checks compare the complete contract rather
 than treating a matching fingerprint as sufficient evidence. Each value type uses
 a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child

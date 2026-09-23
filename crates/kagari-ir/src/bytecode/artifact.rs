@@ -1192,6 +1192,39 @@ mod canonical_tests {
     use super::*;
 
     #[test]
+    fn decoder_rejects_forged_header_identity_path_length() {
+        let artifact = KbcArtifact::from_program(
+            BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+            Default::default(),
+        )
+        .unwrap();
+        let mut bytes = artifact.to_bytes().unwrap();
+        let header = &artifact.header;
+        let offset = codec()
+            .serialized_size(&(
+                &header.magic,
+                &header.format_version,
+                &header.language_version,
+                &header.compiler_fingerprint,
+                &header.runtime_abi_version,
+                &header.runtime_helper_abi_version,
+                &header.encoding,
+                &header.module_identity.package,
+            ))
+            .unwrap() as usize;
+        bytes[offset..offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        let error = KbcArtifact::from_bytes(&bytes).unwrap_err();
+        assert!(
+            error
+                .message()
+                .contains("module identity path segment count limit exceeded")
+        );
+    }
+
+    #[test]
     fn debug_table_length_is_rejected_before_decoding_source_names() {
         let debug = DebugMetadata {
             stripped: false,

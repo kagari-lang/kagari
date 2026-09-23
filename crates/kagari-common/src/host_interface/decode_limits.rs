@@ -1,65 +1,15 @@
 //! Bound portable host declaration sequences before reading their elements.
-use serde::{
-    Deserialize, Deserializer,
-    de::{self, SeqAccess, Visitor},
-};
-use std::{fmt, marker::PhantomData};
+use serde::{Deserialize, Deserializer};
 
 pub(super) const MAX_DECLARATIONS: usize = 1_000_000;
 pub(super) const MAX_MEMBERS: usize = 4_096;
-
-fn bounded<'de, D, T>(
-    deserializer: D,
-    limit: usize,
-    label: &'static str,
-) -> Result<Vec<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    struct Bounded<T> {
-        limit: usize,
-        label: &'static str,
-        marker: PhantomData<T>,
-    }
-    impl<'de, T: Deserialize<'de>> Visitor<'de> for Bounded<T> {
-        type Value = Vec<T>;
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(formatter, "at most {} {}", self.limit, self.label)
-        }
-        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
-            if sequence.size_hint().is_some_and(|count| count > self.limit) {
-                return Err(de::Error::custom(format!(
-                    "{} count limit exceeded",
-                    self.label
-                )));
-            }
-            let mut elements = Vec::new();
-            while let Some(element) = sequence.next_element()? {
-                if elements.len() >= self.limit {
-                    return Err(de::Error::custom(format!(
-                        "{} count limit exceeded",
-                        self.label
-                    )));
-                }
-                elements.push(element);
-            }
-            Ok(elements)
-        }
-    }
-    deserializer.deserialize_seq(Bounded {
-        limit,
-        label,
-        marker: PhantomData,
-    })
-}
 
 pub(super) fn declarations<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    bounded(deserializer, MAX_DECLARATIONS, "host declaration")
+    crate::decode_limits::bounded_vec(deserializer, MAX_DECLARATIONS, "host declaration")
 }
 
 pub(super) fn members<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
@@ -67,7 +17,7 @@ where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    bounded(deserializer, MAX_MEMBERS, "host member")
+    crate::decode_limits::bounded_vec(deserializer, MAX_MEMBERS, "host member")
 }
 
 #[cfg(test)]
