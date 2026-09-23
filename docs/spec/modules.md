@@ -156,17 +156,17 @@ functions cannot substitute for these link identities. Generic-instance and gene
 instruction budgets are shared across the whole closure, with cancellation checks.
 
 Current implementation boundary: source imports support graph, definition and
-function signature queries, imported type annotations and call checking. Applied
-user types, namespace-facade calls, foreign trait constraints/implementations,
-cross-module method/enum operations remain pending. Valid source closures compile
+function signature queries, imported type annotations and call checking. Some
+applied user types and cross-module operations remain under the R07/R08 audit.
+Valid source closures compile
 to BytecodeProgram, including dependency initializers and module/function call slots.
 Initialization follows the verified dependency-first order, visits shared dependencies
 once, and caches failure per runtime and execution version. No completed side effect
 is rolled back. Loaded members share one immutable program version; cross-module calls
 resolve within it even after a newer root version is published. Active retention on any
 member keeps all instances in that version. Candidate isolation and initialization
-before publication remain outstanding; the current reload API still publishes before
-ordinary lazy initialization and does not satisfy the full activation contract.
+before publication are implemented for staged reloads; the remaining activation
+audit is tracked under R14.
 The current reload validator requires the same logical member set and checks public
 ABI and typed-path fingerprints for each member. It rejects stale root handles and
 changed member contracts before publication; automatic state migration is absent.

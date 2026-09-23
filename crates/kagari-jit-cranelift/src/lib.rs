@@ -827,7 +827,7 @@ mod tests {
             ValueType::Unit,
             Vec::new(),
         ));
-        let mut bytecode = loaded.bytecode.clone();
+        let mut bytecode = (*loaded.bytecode).clone();
         bytecode.functions[0].instructions.insert(
             0,
             BytecodeInstruction::Jump {

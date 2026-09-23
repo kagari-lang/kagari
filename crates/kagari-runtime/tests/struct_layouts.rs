@@ -26,7 +26,7 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
     let object = runtime
         .alloc_struct(layout.clone(), vec![Value::I32(1), Value::Bool(true)])
         .unwrap();
-    let mut foreign = layout.module().bytecode.clone();
+    let mut foreign = (*layout.module().bytecode).clone();
     foreign.structures[0].declaration.module.path = vec!["other.kgr".into()];
     for field in &mut foreign.structures[0].fields {
         field.declaration.module.path = vec!["other.kgr".into()];
@@ -155,7 +155,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
             "Point",
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![original.module().bytecode.clone()],
+                modules: vec![(*original.module().bytecode).clone()],
             },
         )
         .unwrap();
@@ -231,7 +231,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         &[("x", AbiType::Builtin(BuiltinType::I32), true)],
     );
     let wrong_value = Value::Struct(runtime.alloc_struct(wrong, vec![Value::I32(9)]).unwrap());
-    let mut bytecode = wrapper.module().bytecode.clone();
+    let mut bytecode = (*wrapper.module().bytecode).clone();
     bytecode.structures.push(leaf.layout().clone());
     bytecode.structures[0].fields[0].ty = AbiType::Array(Box::new(AbiType::Tuple(vec![
         AbiType::Struct(NominalAbiType {

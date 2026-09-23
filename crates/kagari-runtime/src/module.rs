@@ -94,6 +94,45 @@ pub struct LoadedModule {
     slot: ModuleRef,
 }
 
+/// Verified executable code that can be linked independently into multiple runtimes.
+/// Host bindings and module instances are created separately for each runtime.
+#[derive(Debug, Clone)]
+pub struct VerifiedProgram {
+    root: ModuleRef,
+    modules: Arc<[Arc<BytecodeModule>]>,
+    dependencies: crate::cache::ReloadDependencySnapshot,
+}
+
+impl VerifiedProgram {
+    pub fn new(program: BytecodeProgram) -> Result<Self, crate::RuntimeError> {
+        kagari_ir::bytecode::verify_program(&program).map_err(|error| {
+            crate::RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
+        })?;
+        Ok(Self::from_verified(program))
+    }
+
+    fn from_verified(program: BytecodeProgram) -> Self {
+        let dependencies = crate::cache::ReloadDependencySnapshot::from_program(&program);
+        Self {
+            root: program.root,
+            modules: program.modules.into_iter().map(Arc::new).collect(),
+            dependencies,
+        }
+    }
+
+    pub fn root(&self) -> ModuleRef {
+        self.root
+    }
+
+    pub fn modules(&self) -> &[Arc<BytecodeModule>] {
+        &self.modules
+    }
+
+    pub(crate) fn dependencies(&self) -> &crate::cache::ReloadDependencySnapshot {
+        &self.dependencies
+    }
+}
+
 #[derive(Debug)]
 struct LinkedProgram {
     root: ModuleRef,
@@ -105,7 +144,7 @@ pub struct LinkedModule {
     pub id: ModuleId,
     pub name: String,
     pub epoch: ModuleEpoch,
-    pub bytecode: BytecodeModule,
+    pub bytecode: Arc<BytecodeModule>,
     registry_owner: crate::host::HostRegistryId,
     pub(crate) host_bindings: LinkedHostBindings,
 }
@@ -386,18 +425,36 @@ impl ModuleStore {
         registry_owner: crate::host::HostRegistryId,
         host_bindings: Vec<LinkedHostBindings>,
     ) -> Result<StagedProgram, crate::RuntimeError> {
+        self.stage_verified_program(
+            name,
+            epoch,
+            VerifiedProgram::from_verified(bytecode),
+            registry_owner,
+            host_bindings,
+        )
+    }
+
+    pub(crate) fn stage_verified_program(
+        &self,
+        name: impl Into<String>,
+        epoch: ModuleEpoch,
+        program: VerifiedProgram,
+        registry_owner: crate::host::HostRegistryId,
+        host_bindings: Vec<LinkedHostBindings>,
+    ) -> Result<StagedProgram, crate::RuntimeError> {
         assert_eq!(
-            bytecode.modules.len(),
+            program.modules.len(),
             host_bindings.len(),
             "each program member must be linked"
         );
         let name = name.into();
         let mut inner = self.inner.borrow_mut();
-        self.resources.admit_modules(bytecode.modules.len())?;
-        let root = bytecode.root;
-        let modules = bytecode
+        self.resources.admit_modules(program.modules.len())?;
+        let root = program.root;
+        let modules = program
             .modules
-            .into_iter()
+            .iter()
+            .cloned()
             .zip(host_bindings)
             .enumerate()
             .map(|(index, (bytecode, host_bindings))| {
@@ -565,6 +622,61 @@ fn live_programs(inner: &ModuleStoreInner) -> std::collections::HashSet<ModuleKe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::{Runtime, RuntimeConfig};
+
+    #[test]
+    fn invalid_code_cannot_become_a_shared_verified_program() {
+        let invalid = BytecodeProgram {
+            root: ModuleRef::new(1),
+            modules: vec![BytecodeModule::default()],
+        };
+        assert!(VerifiedProgram::new(invalid).is_err());
+    }
+
+    #[test]
+    fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
+        let code = VerifiedProgram::new(BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        })
+        .unwrap();
+        let mut first_runtime = Runtime::new(RuntimeConfig::default());
+        let mut second_runtime = Runtime::new(RuntimeConfig::default());
+        let first = first_runtime
+            .load_verified_program("shared", code.clone())
+            .unwrap();
+        let second = second_runtime
+            .load_verified_program("shared", code)
+            .unwrap();
+
+        assert!(Arc::ptr_eq(&first.bytecode, &second.bytecode));
+        assert!(first_runtime.validate_loaded_module(&first).is_ok());
+        assert!(second_runtime.validate_loaded_module(&second).is_ok());
+        assert!(first_runtime.validate_loaded_module(&second).is_err());
+        assert!(second_runtime.validate_loaded_module(&first).is_err());
+        first_runtime
+            .modules()
+            .instance_mut(first.key())
+            .unwrap()
+            .finish_initialization(Value::I32(7));
+        assert_eq!(
+            first_runtime
+                .modules()
+                .instance_snapshot(first.key())
+                .unwrap()
+                .init_result,
+            Some(Value::I32(7))
+        );
+        assert_eq!(
+            second_runtime
+                .modules()
+                .instance_snapshot(second.key())
+                .unwrap()
+                .init_result,
+            None
+        );
+    }
 
     #[test]
     fn staged_programs_keep_instances_alive_without_activating_them() {

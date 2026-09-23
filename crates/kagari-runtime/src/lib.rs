@@ -59,7 +59,7 @@ pub use metadata::{
 };
 pub use module::{
     LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId,
-    ModuleInitializationState, ModuleInstance, ModuleKey, ModuleStore,
+    ModuleInitializationState, ModuleInstance, ModuleKey, ModuleStore, VerifiedProgram,
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
@@ -1316,20 +1316,26 @@ impl Runtime {
         name: impl Into<String>,
         bytecode: BytecodeProgram,
     ) -> Result<LoadedModule, RuntimeError> {
+        self.load_verified_program(name, VerifiedProgram::new(bytecode)?)
+    }
+
+    /// Link shared verified code with this runtime's own host bindings and state.
+    pub fn load_verified_program(
+        &mut self,
+        name: impl Into<String>,
+        program: VerifiedProgram,
+    ) -> Result<LoadedModule, RuntimeError> {
         let name = name.into();
-        kagari_ir::bytecode::verify_program(&bytecode).map_err(|error| {
-            RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
-        })?;
-        let dependencies = ReloadDependencySnapshot::from_program(&bytecode);
-        let bindings = bytecode
-            .modules
+        let dependencies = program.dependencies().clone();
+        let bindings = program
+            .modules()
             .iter()
             .map(|module| self.host.link_module(module, &self.types))
             .collect::<Result<Vec<_>, _>>()?;
         let epoch = self.epochs.reserve(&name)?;
         let module = self
             .modules
-            .stage_program(name, epoch, bytecode, self.host.owner(), bindings)?
+            .stage_verified_program(name, epoch, program, self.host.owner(), bindings)?
             .publish();
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         Ok(module)
@@ -1550,7 +1556,7 @@ impl Runtime {
                 module_name: module.name.clone(),
                 module_identity: module.bytecode.identity.clone(),
                 module_fingerprint: kagari_ir::bytecode::ArtifactFingerprint::of_serialized(
-                    &module.bytecode,
+                    module.bytecode.as_ref(),
                 ),
                 module_id: module.id,
                 published: module.key(),

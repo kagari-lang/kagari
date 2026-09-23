@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R10 shared-code checkpoint: `VerifiedProgram` verifies a `BytecodeProgram` once
+  and owns immutable, reference-counted module code. Multiple runtimes can link
+  that code without copying functions or layouts; each creates its own host slots,
+  module instances, epoch, permissions, heap and execution cache. Loaded handles
+  reject cross-runtime use even when module keys coincide. Full capture/interface
+  ownership and version reclamation remain in the R10 audit.
+
 - R10 cache lifecycle checkpoint: reload removes invalidated interpreter/JIT
   records from the runtime-local registry instead of retaining tombstones and
   their executable metadata. Epoch retention is released with the removed JIT

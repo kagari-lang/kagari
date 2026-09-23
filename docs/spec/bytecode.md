@@ -805,6 +805,11 @@ look up a host call by its diagnostic label and still checks current permissions
 and budget at the call boundary. Scalar callback arguments/results are checked
 against the declaration; nominal opaque-object type validation remains pending.
 
+`VerifiedProgram` checks a complete bytecode dependency closure before splitting
+its modules into shared immutable code handles. Separate runtimes can link the
+same handle without copying functions or layouts, while host bindings and module
+instances remain runtime-owned. `Runtime::load_program` constructs the verified
+handle for one runtime; `Runtime::load_verified_program` accepts a shared handle.
 LoadedModule is an immutable Arc-backed handle constructed by Runtime loading.
 Clone and module queries share executable data. Public raw ModuleStore loading
 and mutation of loaded bytecode are unavailable. Handles and linked host slots

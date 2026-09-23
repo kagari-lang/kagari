@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "offline-demo",
         kagari_ir::bytecode::BytecodeProgram {
             root: kagari_ir::bytecode::ModuleRef::new(0),
-            modules: vec![loaded.bytecode.clone()],
+            modules: vec![(*loaded.bytecode).clone()],
         },
     )?;
     let initialization = runtime.begin_candidate_initialization(&candidate)?;

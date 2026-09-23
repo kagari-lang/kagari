@@ -452,16 +452,10 @@ The runtime distinguishes loaded module code from the compilation pipeline.
 The model is:
 
 ```text
-ModuleStore {
-  loaded: Map<ModuleName, LoadedModule>
-}
-
-LoadedModule {
-  name: ModuleName,
-  epoch: ModuleEpoch,
-  ir: IrModule,
-  state: ModuleRuntimeState
-}
+VerifiedProgram { root: ModuleRef, code: Arc<[Arc<BytecodeModule>]> }
+Runtime { modules: ModuleStore, heap, host_bindings, execution_cache, budgets }
+ModuleStore { loaded: Map<ModuleKey, LoadedModule>, instances: Map<ModuleKey, ModuleInstance> }
+LoadedModule { program: Arc<LinkedProgram>, slot: ModuleRef }
 ```
 
 The execution format is allowed to diverge from raw IR, but the runtime keeps the concept of a loaded module with versioned identity.
