@@ -579,6 +579,13 @@ signature payload in one fixed order. Loader validation rebuilds that directory
 and rejects mismatched section identifiers, record counts, fingerprints and
 source/debug name tables even when the outer content hash is consistent.
 
+The decoder rejects inputs above 64 MiB. Before verification or publication,
+artifact construction, decoding, encoding and in-memory loading also reject more
+than 1,024 modules, 65,536 functions, 1,000,000 instructions, or 1,000,000
+records in a module table or metadata table. Section-declared counts have the
+same bound independently of payload size. These are format resource limits;
+compiler instance and diagnostic budgets are separate.
+
 ## Relationship to IR
 
 Bytecode is lower than construction IR and more execution-oriented.

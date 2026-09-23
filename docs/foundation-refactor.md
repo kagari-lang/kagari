@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 artifact count-limit checkpoint: `.kbc` input remains capped at 64 MiB;
+  construction, decoding, encoding and in-memory loading now also bound modules,
+  functions, instructions, module/metadata vectors and declared section counts.
+  Small crafted payloads with huge counts are rejected before verification or
+  execution. The offline_compile example round-trips a valid bounded artifact.
+  A complete audit of nested table allocations remains under R09.
+
 - R09 artifact-directory checkpoint: generation and loader validation derive
   section records and source/debug name tables from the same program and optional
   metadata. A recomputed outer hash cannot hide stale counts, altered fingerprints,

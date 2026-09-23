@@ -13,6 +13,10 @@ use serde::{Deserialize, Serialize};
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 23;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
+pub const MAX_ARTIFACT_MODULES: usize = 1024;
+pub const MAX_ARTIFACT_FUNCTIONS: usize = 65_536;
+pub const MAX_ARTIFACT_INSTRUCTIONS: usize = 1_000_000;
+pub const MAX_ARTIFACT_TABLE_RECORDS: usize = 1_000_000;
 
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()
@@ -41,6 +45,14 @@ impl KbcArtifact {
         program: BytecodeProgram,
         options: ArtifactBuildOptions,
     ) -> Result<Self, ArtifactValidationError> {
+        if let Some(reason) = program_count_limit(&program) {
+            return Err(ArtifactValidationError::ResourceLimit(reason));
+        }
+        if let Some(reason) =
+            metadata_count_limit(options.debug.as_ref(), options.signatures.as_ref())
+        {
+            return Err(ArtifactValidationError::ResourceLimit(reason));
+        }
         let verification = VerificationMetadata::from_program(&program, &options)?;
         let module = &program.modules[program.root.index()];
         let debug = options.debug;
@@ -73,6 +85,9 @@ impl KbcArtifact {
         &self,
         requirements: &ArtifactCompatibility,
     ) -> Result<(), ArtifactValidationError> {
+        if let Some(reason) = artifact_count_limit(self) {
+            return Err(ArtifactValidationError::ResourceLimit(reason));
+        }
         self.validate_header(requirements)?;
         verify_program(&self.program).map_err(ArtifactValidationError::Bytecode)?;
         if self.header.content_hash != self.compute_content_hash() {
@@ -176,6 +191,11 @@ impl KbcArtifact {
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, ArtifactCodecError> {
+        if let Some(reason) = artifact_count_limit(self) {
+            return Err(ArtifactCodecError {
+                message: reason.into(),
+            });
+        }
         codec().serialize(self).map_err(ArtifactCodecError::from)
     }
 
@@ -192,7 +212,15 @@ impl KbcArtifact {
                 message: "unsupported artifact magic or format version".into(),
             });
         }
-        codec().deserialize(bytes).map_err(ArtifactCodecError::from)
+        let artifact: Self = codec()
+            .deserialize(bytes)
+            .map_err(ArtifactCodecError::from)?;
+        if let Some(reason) = artifact_count_limit(&artifact) {
+            return Err(ArtifactCodecError {
+                message: reason.into(),
+            });
+        }
+        Ok(artifact)
     }
 
     fn validate_header(
@@ -429,6 +457,140 @@ impl ArtifactTables {
         }
         tables
     }
+}
+
+fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
+    lengths
+        .into_iter()
+        .all(|length| length <= MAX_ARTIFACT_TABLE_RECORDS)
+}
+
+fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
+    if program.modules.len() > MAX_ARTIFACT_MODULES {
+        return Some("too many modules");
+    }
+    let mut functions = 0usize;
+    let mut instructions = 0usize;
+    let mut module_records = 0usize;
+    for module in &program.modules {
+        functions = functions.saturating_add(module.functions.len());
+        if functions > MAX_ARTIFACT_FUNCTIONS {
+            return Some("too many functions");
+        }
+        module_records = module_records.saturating_add(
+            [
+                module.dependencies.len(),
+                module.host_interface.types.len(),
+                module.host_interface.functions.len(),
+                module.host_interface.field_paths.len(),
+                module.module_slots.len(),
+                module.constants.len(),
+                module.types.len(),
+                module.structures.len(),
+                module.enumerations.len(),
+                module.paths.len(),
+                module.function_table.len(),
+                module.public_items.len(),
+            ]
+            .into_iter()
+            .fold(0usize, usize::saturating_add),
+        );
+        if module_records > MAX_ARTIFACT_TABLE_RECORDS {
+            return Some("module table record limit exceeded");
+        }
+        for function in &module.functions {
+            instructions = instructions.saturating_add(function.instructions.len());
+            if instructions > MAX_ARTIFACT_INSTRUCTIONS {
+                return Some("too many instructions");
+            }
+            let metadata = &function.metadata;
+            let debug = &metadata.debug;
+            if !within_table_limit([
+                metadata.params.len(),
+                metadata.locals.len(),
+                metadata.registers.len(),
+                metadata.control_flow_targets.len(),
+                debug.source_spans.len(),
+                debug.line_table.len(),
+                debug.safe_debug_points.len(),
+                debug.local_live_ranges.len(),
+                debug.captured_bindings.len(),
+            ]) {
+                return Some("function metadata record limit exceeded");
+            }
+        }
+    }
+    None
+}
+
+fn metadata_count_limit(
+    debug: Option<&DebugMetadata>,
+    signatures: Option<&ArtifactSignatures>,
+) -> Option<&'static str> {
+    if let Some(debug) = debug
+        && (!within_table_limit([
+            debug.source_files.len(),
+            debug.debug_names.len(),
+            debug.functions.len(),
+        ]) || debug.functions.iter().any(|function| {
+            !within_table_limit([
+                function.source_spans.len(),
+                function.line_table.len(),
+                function.safe_debug_points.len(),
+                function.local_live_ranges.len(),
+                function.captured_bindings.len(),
+            ])
+        }))
+    {
+        return Some("debug record limit exceeded");
+    }
+    if signatures.is_some_and(|signatures| signatures.signatures.len() > MAX_ARTIFACT_TABLE_RECORDS)
+    {
+        return Some("signature record limit exceeded");
+    }
+    None
+}
+
+fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static str> {
+    if let Some(reason) = program_count_limit(&artifact.program) {
+        return Some(reason);
+    }
+    if let Some(reason) =
+        metadata_count_limit(artifact.debug.as_ref(), artifact.signatures.as_ref())
+    {
+        return Some(reason);
+    }
+    let tables = &artifact.tables;
+    let verification = &artifact.verification;
+    if !within_table_limit([
+        tables.sections.len(),
+        tables.source_files.len(),
+        tables.debug_names.len(),
+        verification.function_layouts.len(),
+        verification.function_effects.len(),
+        verification.control_flow_targets.len(),
+        verification.typed_path_fingerprints.len(),
+        verification.public_abi_fingerprints.len(),
+        verification.dependency_fingerprints.len(),
+        verification.security_profile_requirements.len(),
+        verification.loader.dependency_fingerprints.len(),
+        verification.loader.typed_path_fingerprints.len(),
+        verification.loader.public_abi_fingerprints.len(),
+    ]) || tables
+        .sections
+        .iter()
+        .any(|section| section.record_count > MAX_ARTIFACT_TABLE_RECORDS)
+        || verification
+            .control_flow_targets
+            .iter()
+            .any(|item| item.targets.len() > MAX_ARTIFACT_TABLE_RECORDS)
+        || verification.function_layouts.iter().any(|item| {
+            !within_table_limit([item.params.len(), item.locals.len(), item.registers.len()])
+        })
+    {
+        return Some("artifact metadata record limit exceeded");
+    }
+    None
 }
 
 fn push_section(sections: &mut Vec<ArtifactSection>, id: ArtifactSectionId, record_count: usize) {
@@ -725,6 +887,7 @@ pub enum ArtifactValidationError {
     UnverifiedBytecode,
     VerificationMetadataMismatch,
     TableMismatch,
+    ResourceLimit(&'static str),
     DependencyFingerprintMismatch,
     HostInterfaceFingerprintMismatch {
         expected: ArtifactFingerprint,
@@ -779,6 +942,7 @@ impl ArtifactValidationError {
             Self::UnverifiedBytecode => "KG_ARTIFACT_UNVERIFIED_BYTECODE",
             Self::VerificationMetadataMismatch => "KG_ARTIFACT_VERIFICATION_METADATA_MISMATCH",
             Self::TableMismatch => "KG_ARTIFACT_TABLE_MISMATCH",
+            Self::ResourceLimit(_) => "KG_ARTIFACT_RESOURCE_LIMIT",
             Self::DependencyFingerprintMismatch => "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH",
             Self::HostInterfaceFingerprintMismatch { .. } => {
                 "KG_ARTIFACT_HOST_INTERFACE_FINGERPRINT_MISMATCH"
@@ -822,6 +986,7 @@ impl Display for ArtifactValidationError {
                 write!(f, "artifact verification metadata differs from its program")
             }
             Self::TableMismatch => write!(f, "artifact tables differ from their program"),
+            Self::ResourceLimit(reason) => write!(f, "artifact resource limit exceeded: {reason}"),
             Self::DependencyFingerprintMismatch => {
                 write!(f, "artifact dependency fingerprints mismatch")
             }
@@ -861,6 +1026,64 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn module_count_limit_rejects_memory_and_encoded_artifacts_before_verification() {
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        let mut excessive = valid.clone();
+        excessive
+            .modules
+            .resize(MAX_ARTIFACT_MODULES + 1, BytecodeModule::default());
+        assert!(matches!(
+            KbcArtifact::from_program(excessive.clone(), Default::default()),
+            Err(ArtifactValidationError::ResourceLimit("too many modules"))
+        ));
+        let mut artifact = KbcArtifact::from_program(valid, Default::default()).unwrap();
+        artifact.program = excessive;
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default()),
+            Err(ArtifactValidationError::ResourceLimit("too many modules"))
+        ));
+        assert!(
+            artifact
+                .to_bytes()
+                .unwrap_err()
+                .message()
+                .contains("too many modules")
+        );
+        let crafted = codec().serialize(&artifact).unwrap();
+        assert!(
+            KbcArtifact::from_bytes(&crafted)
+                .unwrap_err()
+                .message()
+                .contains("too many modules")
+        );
+    }
+
+    #[test]
+    fn declared_section_counts_are_bounded_independently_of_payload_size() {
+        let mut artifact = KbcArtifact::from_program(
+            BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+            Default::default(),
+        )
+        .unwrap();
+        artifact.tables.sections[0].record_count = MAX_ARTIFACT_TABLE_RECORDS + 1;
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "artifact metadata record limit exceeded"
+            ))
+        ));
+        assert!(artifact.to_bytes().is_err());
+        let crafted = codec().serialize(&artifact).unwrap();
+        assert!(KbcArtifact::from_bytes(&crafted).is_err());
+    }
 
     #[test]
     fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {

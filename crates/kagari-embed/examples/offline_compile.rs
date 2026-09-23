@@ -163,6 +163,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "artifact function directory matches {} executable records",
         function_records
     );
+    let decoded = kagari_embed::BytecodeArtifact::from_bytes(&artifact.to_bytes()?)?;
+    decoded.validate_for_loader(&Default::default())?;
+    assert_eq!(decoded.tables.sections, artifact.tables.sections);
+    println!("bounded artifact decoding retained the checked section directory");
     println!(
         "compiled {} required host function; artifact is {} bytes",
         artifact.program.modules[artifact.program.root.index()]
