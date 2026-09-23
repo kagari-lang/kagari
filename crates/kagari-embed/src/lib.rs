@@ -882,7 +882,8 @@ impl EmbeddingError {
                 | RuntimeErrorKind::MetadataConflict => RuntimeFailureKind::ScriptTrap,
             },
             VmError::BytecodeVerification(_) => RuntimeFailureKind::BytecodeVerification,
-            VmError::InvalidFunctionRef(_)
+            VmError::AmbiguousFunction(_)
+            | VmError::InvalidFunctionRef(_)
             | VmError::InvalidModuleSlot(_)
             | VmError::UnsupportedCallTarget(_)
             | VmError::UnsupportedInstruction(_) => RuntimeFailureKind::BytecodeVerification,

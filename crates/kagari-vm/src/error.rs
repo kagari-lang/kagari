@@ -7,6 +7,7 @@ use kagari_runtime::{
 #[derive(Debug, Clone)]
 pub enum VmError {
     MissingFunction(String),
+    AmbiguousFunction(String),
     MissingField(String),
     InvalidFunctionRef(FunctionRef),
     InvalidModuleSlot(ModuleSlot),

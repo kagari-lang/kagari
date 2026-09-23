@@ -178,8 +178,7 @@ impl Vm {
             .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
         let entry_name = entry.to_owned();
-        let entry = find_function_ref(&module.bytecode, &entry_name)
-            .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
+        let entry = find_function_ref(&module.bytecode, &entry_name)?;
         self.execute_module(module)?;
         let mut executor = Executor::new(&self.runtime, module, entry, &[])?;
         let return_value = executor.run()?;
@@ -205,8 +204,7 @@ impl Vm {
             .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
         let entry_name = entry.to_owned();
-        let entry = find_function_ref(&module.bytecode, &entry_name)
-            .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
+        let entry = find_function_ref(&module.bytecode, &entry_name)?;
         self.execute_module(module)?;
 
         match self.try_execute_jit_entry(module, entry, backend)? {
@@ -461,12 +459,18 @@ enum JitEntryResult {
     Fallback(JitExecutionReport),
 }
 
-fn find_function_ref(module: &BytecodeModule, name: &str) -> Option<FunctionRef> {
-    module
+fn find_function_ref(module: &BytecodeModule, name: &str) -> Result<FunctionRef, VmError> {
+    let mut matches = module
         .functions
         .iter()
-        .find(|function| function.name == name)
-        .map(|function| function.id)
+        .filter(|function| function.name == name);
+    let first = matches
+        .next()
+        .ok_or_else(|| VmError::MissingFunction(name.to_owned()))?;
+    if matches.next().is_some() {
+        return Err(VmError::AmbiguousFunction(name.to_owned()));
+    }
+    Ok(first.id)
 }
 
 fn validate_executable_bytecode(module: &BytecodeModule) -> Result<(), VmError> {

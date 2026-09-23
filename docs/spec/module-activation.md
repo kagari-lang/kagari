@@ -34,8 +34,11 @@ of the entry and its dependencies to have succeeded.
 
 For a named entry call, VM verification and entry resolution precede module
 initialization. A missing entry returns its lookup error without executing
-initializer code or changing an instance from `Uninitialized`. Explicit
-`execute_module` remains the operation for initialization alone.
+initializer code or changing an instance from `Uninitialized`. If a loaded
+module contains multiple functions matching a named entry, the VM reports an
+ambiguous entry at the same boundary; it never selects the first match. Internal
+calls continue to use linked function slots. Explicit `execute_module` remains
+the operation for initialization alone.
 
 Runtime initialization owns a `ModuleInitializationGuard`, which retains the
 execution generation without holding a mutable module-store borrow across script

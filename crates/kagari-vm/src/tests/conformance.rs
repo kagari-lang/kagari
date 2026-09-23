@@ -104,6 +104,62 @@ fn missing_entry_is_rejected_before_module_initialization() {
 }
 
 #[test]
+fn ambiguous_entry_is_rejected_before_initialization_on_all_load_routes() {
+    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    let mut bytecode = compile_test_bytecode(
+        "val doomed = [1][3]; fn first() -> i32 { 1 } fn second() -> i32 { 2 }",
+    );
+    let second = bytecode
+        .functions
+        .iter()
+        .position(|function| function.name == "second")
+        .unwrap();
+    bytecode.functions[second].name = "first".into();
+    bytecode.function_table[second].name = "first".into();
+    for encoded in [false, true] {
+        let program = BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![bytecode.clone()],
+        };
+        let program = if encoded {
+            let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
+            let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+            decoded.validate_for_loader(&Default::default()).unwrap();
+            decoded.program
+        } else {
+            program
+        };
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_program("ambiguous-entry.kgr", program)
+            .unwrap();
+        let mut vm = Vm::new(runtime);
+        for jit in [false, true] {
+            let error = if jit {
+                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                vm.execute_with_backend(&loaded, "first", &mut backend)
+                    .unwrap_err()
+            } else {
+                vm.execute(&loaded, "first").unwrap_err()
+            };
+            assert!(
+                matches!(error, VmError::AmbiguousFunction(ref name) if name == "first"),
+                "{encoded}/{jit}: {error:?}"
+            );
+            assert_eq!(vm.runtime().resources().counters().instruction_steps, 0);
+            assert_eq!(vm.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                vm.runtime()
+                    .module_instance_snapshot(&loaded)
+                    .unwrap()
+                    .state,
+                ModuleInitializationState::Uninitialized
+            );
+        }
+    }
+}
+
+#[test]
 fn interpreter_conformance_classifies_failure_paths() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val values = [1]; values[3] }");
     let mut vm = Vm::new(runtime);

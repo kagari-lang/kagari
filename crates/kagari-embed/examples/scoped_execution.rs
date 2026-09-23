@@ -54,4 +54,42 @@ fn main() {
         Value::I32(42)
     );
     println!("two independent budgets completed; cancellation left the runtime reusable");
+    // A crafted product with two equally named entry functions must not pick one.
+    let ambiguous = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "ambiguous.kgr",
+                "fn main() -> i32 { 42 } fn alternative() -> i32 { 43 }",
+            ),
+            CompileOptions::default(),
+            ArtifactOptions::default(),
+        )
+        .unwrap();
+    let mut program = ambiguous.program;
+    let root = program.root.index();
+    let alternative = program.modules[root]
+        .functions
+        .iter()
+        .position(|function| function.name == "alternative")
+        .unwrap();
+    program.modules[root].functions[alternative].name = "main".into();
+    program.modules[root].function_table[alternative].name = "main".into();
+    let ambiguous =
+        kagari_embed::BytecodeArtifact::from_program(program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(ambiguous, LoadOptions::default())
+        .unwrap();
+    let before = runtime.runtime().resources().counters().instruction_steps;
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &fresh)
+            .unwrap_err()
+            .code(),
+        "KG_BYTECODE_VERIFICATION_FAILED"
+    );
+    assert_eq!(
+        runtime.runtime().resources().counters().instruction_steps,
+        before
+    );
+    println!("ambiguous entry was rejected before script execution");
 }

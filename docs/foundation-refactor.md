@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R08 named-entry ambiguity checkpoint: VM entry selection rejects multiple
+  matching bytecode names before initialization instead of choosing the first.
+  The embedding layer classifies this as a bytecode verification failure.
+  Source/encoded and interpreter/JIT fixtures retain uninitialized instances,
+  zero instruction steps and no roots. Internal calls remain slot based.
+
 - R08/R14 entry preflight checkpoint: interpreter and existing JIT routes resolve
   a named entry after bytecode validation and before dependency initialization.
   A missing entry leaves module instances uninitialized and executes no script
