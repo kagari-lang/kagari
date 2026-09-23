@@ -644,6 +644,13 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
         if module_records > MAX_ARTIFACT_TABLE_RECORDS {
             return Some("module table record limit exceeded");
         }
+        if module
+            .function_table
+            .iter()
+            .any(|record| record.params.len() > MAX_ARTIFACT_TABLE_RECORDS)
+        {
+            return Some("function table parameter record limit exceeded");
+        }
         for function in &module.functions {
             instructions = instructions.saturating_add(function.instructions.len());
             if instructions > MAX_ARTIFACT_INSTRUCTIONS {
@@ -661,6 +668,9 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
                 debug.safe_debug_points.len(),
                 debug.local_live_ranges.len(),
                 debug.captured_bindings.len(),
+                debug.frame_layout.params.len(),
+                debug.frame_layout.locals.len(),
+                debug.frame_layout.registers.len(),
             ]) {
                 return Some("function metadata record limit exceeded");
             }
@@ -685,6 +695,9 @@ fn metadata_count_limit(
                 function.safe_debug_points.len(),
                 function.local_live_ranges.len(),
                 function.captured_bindings.len(),
+                function.frame_layout.params.len(),
+                function.frame_layout.locals.len(),
+                function.frame_layout.registers.len(),
             ])
         }))
     {
@@ -1190,6 +1203,100 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        let mut function_table = valid.clone();
+        function_table.modules[0]
+            .function_table
+            .push(crate::bytecode::FunctionRecord {
+                id: FunctionRef::new(0),
+                name: "oversized".into(),
+                params: vec![ValueType::Unit; MAX_ARTIFACT_TABLE_RECORDS + 1],
+                return_type: ValueType::Unit,
+                effects: Default::default(),
+            });
+        let mut debug_frame = valid.clone();
+        let mut function = crate::bytecode::BytecodeFunction::default();
+        function.metadata.debug.frame_layout.params =
+            vec![ValueType::Unit; MAX_ARTIFACT_TABLE_RECORDS + 1];
+        debug_frame.modules[0].functions.push(function);
+        for (program, reason) in [
+            (
+                function_table,
+                "function table parameter record limit exceeded",
+            ),
+            (debug_frame, "function metadata record limit exceeded"),
+        ] {
+            assert!(matches!(
+                KbcArtifact::from_program(program.clone(), Default::default()),
+                Err(ArtifactValidationError::ResourceLimit(found)) if found == reason
+            ));
+            let mut artifact =
+                KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
+            artifact.program = program;
+            assert!(matches!(
+                artifact.validate_for_loader(&Default::default()),
+                Err(ArtifactValidationError::ResourceLimit(found)) if found == reason
+            ));
+            assert!(artifact.to_bytes().is_err());
+            let crafted = codec().serialize(&artifact).unwrap();
+            assert!(
+                KbcArtifact::from_bytes(&crafted)
+                    .unwrap_err()
+                    .message()
+                    .contains("artifact table count limit exceeded")
+            );
+        }
+    }
+
+    #[test]
+    fn detached_debug_frame_layout_is_bounded_before_fingerprinting() {
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        let mut debug = BytecodeDebugMetadata::default();
+        debug.frame_layout.locals = vec![ValueType::Unit; MAX_ARTIFACT_TABLE_RECORDS + 1];
+        let metadata = DebugMetadata {
+            stripped: false,
+            source_files: Vec::new(),
+            debug_names: Vec::new(),
+            functions: vec![debug],
+        };
+        assert!(matches!(
+            KbcArtifact::from_program(
+                valid.clone(),
+                ArtifactBuildOptions {
+                    debug: Some(metadata.clone()),
+                    ..Default::default()
+                }
+            ),
+            Err(ArtifactValidationError::ResourceLimit(
+                "debug record limit exceeded"
+            ))
+        ));
+        let mut artifact = KbcArtifact::from_program(valid, Default::default()).unwrap();
+        artifact.debug = Some(metadata);
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "debug record limit exceeded"
+            ))
+        ));
+        assert!(artifact.to_bytes().is_err());
+        let crafted = codec().serialize(&artifact).unwrap();
+        assert!(
+            KbcArtifact::from_bytes(&crafted)
+                .unwrap_err()
+                .message()
+                .contains("artifact table count limit exceeded")
+        );
+    }
 
     #[test]
     fn decoder_rejects_forged_header_identity_path_length() {

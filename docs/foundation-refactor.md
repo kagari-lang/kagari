@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 nested metadata parity checkpoint: function-table parameter layouts and
+  debug frame parameter/local/register vectors now receive the same in-memory
+  record limit as their decoder preflight. Construction, mutated-artifact load,
+  encoding and byte decoding reject oversized records; detached debug metadata
+  is checked before fingerprinting.
+
 - R09 identity-path decoding checkpoint: shared module and declaration identities
   reject encoded paths longer than 64 segments before reading elements. Forged
   identity lengths fail in direct decoding and complete KBC headers. Host and
