@@ -32,6 +32,11 @@ has no initializer code. Ordinary import
 does not silently retry prior effects. Public execution requires initialization
 of the entry and its dependencies to have succeeded.
 
+For a named entry call, VM verification and entry resolution precede module
+initialization. A missing entry returns its lookup error without executing
+initializer code or changing an instance from `Uninitialized`. Explicit
+`execute_module` remains the operation for initialization alone.
+
 Runtime initialization owns a `ModuleInitializationGuard`, which retains the
 execution generation without holding a mutable module-store borrow across script
 execution. Finishing validates and caches the result as a persistent GC root.

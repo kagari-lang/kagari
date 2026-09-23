@@ -177,10 +177,10 @@ impl Vm {
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
-        self.execute_module(module)?;
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
+        self.execute_module(module)?;
         let mut executor = Executor::new(&self.runtime, module, entry, &[])?;
         let return_value = executor.run()?;
 
@@ -204,10 +204,10 @@ impl Vm {
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
         validate_executable_bytecode(&module.bytecode)?;
-        self.execute_module(module)?;
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
+        self.execute_module(module)?;
 
         match self.try_execute_jit_entry(module, entry, backend)? {
             JitEntryResult::Native { value, report } => Ok(ExecutionReport {

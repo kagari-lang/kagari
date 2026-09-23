@@ -16,6 +16,16 @@ fn main() {
     let loaded = runtime
         .load_program(artifact, LoadOptions::default())
         .unwrap();
+    assert!(
+        runtime
+            .execute(&loaded, "missing", &[], &ExecutionContext::default())
+            .is_err()
+    );
+    assert_eq!(
+        runtime.runtime().resources().counters().instruction_steps,
+        0
+    );
+    println!("missing entry was rejected before any initializer instruction");
     let mut context = ExecutionContext::default();
     context.resources.max_instruction_steps = Some(2);
     for _ in 0..2 {

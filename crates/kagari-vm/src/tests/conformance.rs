@@ -1,6 +1,7 @@
 use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
-    RuntimeErrorKind, SecurityContext, value::StructValueField, value::Value,
+    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleInitializationState,
+    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext,
+    value::StructValueField, value::Value,
 };
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
@@ -55,6 +56,51 @@ fn main() -> i32 {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(13));
+}
+
+#[test]
+fn missing_entry_is_rejected_before_module_initialization() {
+    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    let bytecode = compile_test_bytecode("val doomed = [1][3]; fn main() -> i32 { 42 }");
+    for encoded in [false, true] {
+        let program = BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![bytecode.clone()],
+        };
+        let program = if encoded {
+            let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
+            let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+            decoded.validate_for_loader(&Default::default()).unwrap();
+            decoded.program
+        } else {
+            program
+        };
+        let mut runtime = Runtime::default();
+        let loaded = runtime.load_program("missing-entry.kgr", program).unwrap();
+        let mut vm = Vm::new(runtime);
+        for jit in [false, true] {
+            let error = if jit {
+                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                vm.execute_with_backend(&loaded, "missing", &mut backend)
+                    .unwrap_err()
+            } else {
+                vm.execute(&loaded, "missing").unwrap_err()
+            };
+            assert!(
+                matches!(error, VmError::MissingFunction(ref name) if name == "missing"),
+                "{encoded}/{jit}: {error:?}"
+            );
+            assert_eq!(vm.runtime().resources().counters().instruction_steps, 0);
+            assert_eq!(vm.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                vm.runtime()
+                    .module_instance_snapshot(&loaded)
+                    .unwrap()
+                    .state,
+                ModuleInitializationState::Uninitialized
+            );
+        }
+    }
 }
 
 #[test]

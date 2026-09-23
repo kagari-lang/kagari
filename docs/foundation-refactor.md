@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R08/R14 entry preflight checkpoint: interpreter and existing JIT routes resolve
+  a named entry after bytecode validation and before dependency initialization.
+  A missing entry leaves module instances uninitialized and executes no script
+  instructions. Source and encoded artifact tests cover both backend routes;
+  scoped_execution demonstrates the embedding behavior.
+
 - R04/R06 call-navigation checkpoint: offline `host_function_at` and
   `source_function_at` queries restrict dotted callees to their member names.
   A receiver call retains its separate checked target; dot positions no longer
