@@ -26,6 +26,13 @@ fn codec() -> impl Options {
         .reject_trailing_bytes()
         .with_limit(MAX_ARTIFACT_BYTES)
 }
+
+fn exceeds_encoded_size(value: &impl Serialize) -> bool {
+    matches!(
+        codec().serialized_size(value),
+        Err(error) if matches!(*error, bincode::ErrorKind::SizeLimit)
+    )
+}
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
 pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v24";
@@ -54,6 +61,11 @@ impl KbcArtifact {
         {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
+        if exceeds_encoded_size(&(&program, &options)) {
+            return Err(ArtifactValidationError::ResourceLimit(
+                "artifact encoded size limit exceeded",
+            ));
+        }
         let verification = VerificationMetadata::from_program(&program, &options)?;
         let module = &program.modules[program.root.index()];
         let debug = options.debug;
@@ -78,6 +90,9 @@ impl KbcArtifact {
             debug,
             signatures,
         };
+        if let Some(reason) = artifact_count_limit(&artifact) {
+            return Err(ArtifactValidationError::ResourceLimit(reason));
+        }
         artifact.header.content_hash = artifact.compute_content_hash();
         Ok(artifact)
     }
@@ -849,6 +864,9 @@ fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static str> {
     {
         return Some("artifact metadata record limit exceeded");
     }
+    if exceeds_encoded_size(artifact) {
+        return Some("artifact encoded size limit exceeded");
+    }
     None
 }
 
@@ -1303,6 +1321,39 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn memory_artifacts_reject_oversized_strings_before_fingerprinting() {
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        {
+            let mut program = valid.clone();
+            program.modules[0].source_name = "x".repeat(MAX_ARTIFACT_BYTES as usize);
+            assert!(matches!(
+                KbcArtifact::from_program(program, Default::default()),
+                Err(ArtifactValidationError::ResourceLimit(
+                    "artifact encoded size limit exceeded"
+                ))
+            ));
+        }
+        let mut artifact = KbcArtifact::from_program(valid, Default::default()).unwrap();
+        artifact.header.compiler_fingerprint = "x".repeat(MAX_ARTIFACT_BYTES as usize);
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "artifact encoded size limit exceeded"
+            ))
+        ));
+        assert!(
+            artifact
+                .to_bytes()
+                .unwrap_err()
+                .message()
+                .contains("artifact encoded size limit exceeded")
+        );
+    }
 
     #[test]
     fn typed_path_operands_preflight_before_decoding_registers() {

@@ -62,6 +62,11 @@ section tables, verification summaries and signature lists use the same
 Per-instruction operand vectors (calls, aggregate constructors and dynamic path
 arguments) preflight at 4,096 registers; the executable program also limits
 their combined count to 1,000,000 before verification or fingerprinting.
+Construction measures the canonical encoded size of the program and build
+metadata before verification, then measures the completed artifact before
+fingerprinting. In-memory loading and encoding repeat the 64 MiB size check.
+This also bounds strings and signature bytes without a second, conflicting
+per-field byte limit. Byte decoding checks the input length before reading it.
 In-memory artifact checks include function-table parameter layouts and the
 parameter/local/register vectors in both attached and detached debug frame
 layouts before validation, fingerprinting or encoding.

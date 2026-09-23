@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 encoded-size checkpoint: construction checks canonical encoded program
+  and build-metadata size before verification, then checks the assembled artifact
+  before content hashing. In-memory loading and encoding repeat the 64 MiB
+  bound. Oversized source names and mutated header strings are rejected before
+  fingerprinting; byte decoding already checks input length before parsing.
+
 - R09 instruction-operand checkpoint: calls, tuple/array/nominal constructors
   and typed path instructions preflight their register vectors at 4,096 elements.
   The complete program permits at most 1,000,000 embedded operand records.
@@ -49,7 +55,7 @@ workload, repetitions and measurements; no unmeasured performance claims.
   encoding now reject overlong module, host, aggregate, header and public ABI
   identity paths before fingerprinting. Host declarations reject the same shape
   before KHI encoding or binding. Tests cover source-owned, host-owned and
-  mutated header identities. Scalar/string resource audit remains open.
+  mutated header identities. Encoded-size checks now bound scalar/string data.
 
 - R09 nested metadata parity checkpoint: function-table parameter layouts and
   debug frame parameter/local/register vectors now receive the same in-memory
