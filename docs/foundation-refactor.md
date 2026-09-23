@@ -39,6 +39,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 artifact-directory checkpoint: generation and loader validation derive
+  section records and source/debug name tables from the same program and optional
+  metadata. A recomputed outer hash cannot hide stale counts, altered fingerprints,
+  missing/reordered sections or forged source names. The offline_compile example
+  checks the function section against executable records. Full table count limits
+  and remaining artifact resource bounds remain unchecked.
+
 - R08 named-entry ambiguity checkpoint: VM entry selection rejects multiple
   matching bytecode names before initialization instead of choosing the first.
   The embedding layer classifies this as a bytecode verification failure.

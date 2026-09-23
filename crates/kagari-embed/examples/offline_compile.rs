@@ -9,6 +9,7 @@ use kagari_common::{
     source_database::SourceLayer,
 };
 use kagari_embed::{ArtifactOptions, CompileOptions, KagariEngine};
+use kagari_ir::bytecode::ArtifactSectionId;
 use kagari_runtime::LanguageProfile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -142,6 +143,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let artifact = engine
         .emit_bytecode(&checked, ArtifactOptions::default())
         .expect("emit checked program");
+    let function_records: usize = artifact
+        .program
+        .modules
+        .iter()
+        .map(|module| module.functions.len())
+        .sum();
+    assert_eq!(
+        artifact
+            .tables
+            .sections
+            .iter()
+            .find(|section| section.id == ArtifactSectionId::Functions)
+            .unwrap()
+            .record_count,
+        function_records
+    );
+    println!(
+        "artifact function directory matches {} executable records",
+        function_records
+    );
     println!(
         "compiled {} required host function; artifact is {} bytes",
         artifact.program.modules[artifact.program.root.index()]

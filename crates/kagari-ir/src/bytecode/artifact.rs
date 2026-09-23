@@ -43,25 +43,9 @@ impl KbcArtifact {
     ) -> Result<Self, ArtifactValidationError> {
         let verification = VerificationMetadata::from_program(&program, &options)?;
         let module = &program.modules[program.root.index()];
-        let mut tables = ArtifactTables::from_program(&program);
         let debug = options.debug;
         let signatures = options.signatures;
-        if let Some(debug) = &debug {
-            push_section(
-                &mut tables.sections,
-                ArtifactSectionId::Debug,
-                debug.source_files.len() + debug.debug_names.len(),
-            );
-            tables.source_files = debug.source_files.clone();
-            tables.debug_names = debug.debug_names.clone();
-        }
-        if let Some(signatures) = &signatures {
-            push_section(
-                &mut tables.sections,
-                ArtifactSectionId::Signatures,
-                signatures.signatures.len(),
-            );
-        }
+        let tables = ArtifactTables::with_metadata(&program, debug.as_ref(), signatures.as_ref());
         let mut artifact = Self {
             header: ArtifactHeader {
                 magic: KBC_MAGIC,
@@ -178,6 +162,15 @@ impl KbcArtifact {
         );
         if self.verification != derived {
             return Err(ArtifactValidationError::VerificationMetadataMismatch);
+        }
+        if self.tables
+            != ArtifactTables::with_metadata(
+                &self.program,
+                self.debug.as_ref(),
+                self.signatures.as_ref(),
+            )
+        {
+            return Err(ArtifactValidationError::TableMismatch);
         }
         Ok(())
     }
@@ -411,6 +404,30 @@ impl ArtifactTables {
                 .collect(),
             debug_names: Vec::new(),
         }
+    }
+    fn with_metadata(
+        program: &BytecodeProgram,
+        debug: Option<&DebugMetadata>,
+        signatures: Option<&ArtifactSignatures>,
+    ) -> Self {
+        let mut tables = Self::from_program(program);
+        if let Some(debug) = debug {
+            push_section(
+                &mut tables.sections,
+                ArtifactSectionId::Debug,
+                debug.source_files.len() + debug.debug_names.len(),
+            );
+            tables.source_files = debug.source_files.clone();
+            tables.debug_names = debug.debug_names.clone();
+        }
+        if let Some(signatures) = signatures {
+            push_section(
+                &mut tables.sections,
+                ArtifactSectionId::Signatures,
+                signatures.signatures.len(),
+            );
+        }
+        tables
     }
 }
 
@@ -707,6 +724,7 @@ pub enum ArtifactValidationError {
     ContentHashMismatch,
     UnverifiedBytecode,
     VerificationMetadataMismatch,
+    TableMismatch,
     DependencyFingerprintMismatch,
     HostInterfaceFingerprintMismatch {
         expected: ArtifactFingerprint,
@@ -760,6 +778,7 @@ impl ArtifactValidationError {
             Self::ContentHashMismatch => "KG_ARTIFACT_CONTENT_HASH_MISMATCH",
             Self::UnverifiedBytecode => "KG_ARTIFACT_UNVERIFIED_BYTECODE",
             Self::VerificationMetadataMismatch => "KG_ARTIFACT_VERIFICATION_METADATA_MISMATCH",
+            Self::TableMismatch => "KG_ARTIFACT_TABLE_MISMATCH",
             Self::DependencyFingerprintMismatch => "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH",
             Self::HostInterfaceFingerprintMismatch { .. } => {
                 "KG_ARTIFACT_HOST_INTERFACE_FINGERPRINT_MISMATCH"
@@ -802,6 +821,7 @@ impl Display for ArtifactValidationError {
             Self::VerificationMetadataMismatch => {
                 write!(f, "artifact verification metadata differs from its program")
             }
+            Self::TableMismatch => write!(f, "artifact tables differ from their program"),
             Self::DependencyFingerprintMismatch => {
                 write!(f, "artifact dependency fingerprints mismatch")
             }
@@ -841,6 +861,39 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {
+        let artifact = KbcArtifact::from_program(
+            BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+            Default::default(),
+        )
+        .unwrap();
+        assert!(artifact.validate_for_loader(&Default::default()).is_ok());
+        for change in 0..5 {
+            let mut changed = artifact.clone();
+            match change {
+                0 => changed.tables.sections[0].record_count += 1,
+                1 => changed.tables.sections[0].fingerprint = ArtifactFingerprint(0),
+                2 => changed.tables.sections.swap(0, 1),
+                3 => {
+                    changed.tables.sections.pop();
+                }
+                _ => changed.tables.source_files.push("forged.kgr".into()),
+            }
+            changed.header.content_hash = changed.compute_content_hash();
+            assert!(
+                matches!(
+                    changed.validate_for_loader(&Default::default()),
+                    Err(ArtifactValidationError::TableMismatch)
+                ),
+                "change {change}"
+            );
+        }
+    }
 
     #[test]
     fn invalid_host_types_are_rejected_before_fingerprinting_memory_artifacts() {

@@ -574,6 +574,11 @@ The current code shape lives in:
 The current implementation defines the execution-layer boundary and wraps bytecode in versioned `.kbc` artifact metadata.
 Artifact serialization is implemented separately from bytecode semantics so the binary exchange format can evolve without changing VM behavior.
 
+The `.kbc` section directory is derived from the program, debug payload and
+signature payload in one fixed order. Loader validation rebuilds that directory
+and rejects mismatched section identifiers, record counts, fingerprints and
+source/debug name tables even when the outer content hash is consistent.
+
 ## Relationship to IR
 
 Bytecode is lower than construction IR and more execution-oriented.
