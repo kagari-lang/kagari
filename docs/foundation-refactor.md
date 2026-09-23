@@ -39,6 +39,11 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 direct-load parity checkpoint: shared verified code construction and direct
+  reload preflight now apply artifact count, identity, nested-record and encoded
+  size limits before fingerprinting or linking an in-memory program. Oversized
+  programs return a resource-limit error without publishing a version.
+
 - R10 shared-code checkpoint: `VerifiedProgram` verifies a `BytecodeProgram` once
   and owns immutable, reference-counted module code. Multiple runtimes can link
   that code without copying functions or layouts; each creates its own host slots,

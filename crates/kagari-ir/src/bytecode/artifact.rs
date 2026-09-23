@@ -33,6 +33,21 @@ fn exceeds_encoded_size(value: &impl Serialize) -> bool {
         Err(error) if matches!(*error, bincode::ErrorKind::SizeLimit)
     )
 }
+
+/// Apply the artifact's in-memory resource budget before hashing or linking code.
+pub fn validate_program_resource_limits(
+    program: &BytecodeProgram,
+) -> Result<(), ArtifactValidationError> {
+    if let Some(reason) = program_count_limit(program) {
+        return Err(ArtifactValidationError::ResourceLimit(reason));
+    }
+    if exceeds_encoded_size(program) {
+        return Err(ArtifactValidationError::ResourceLimit(
+            "artifact encoded size limit exceeded",
+        ));
+    }
+    Ok(())
+}
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
 pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v24";

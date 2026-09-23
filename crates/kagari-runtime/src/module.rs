@@ -105,6 +105,8 @@ pub struct VerifiedProgram {
 
 impl VerifiedProgram {
     pub fn new(program: BytecodeProgram) -> Result<Self, crate::RuntimeError> {
+        kagari_ir::bytecode::validate_program_resource_limits(&program)
+            .map_err(|error| crate::RuntimeError::resource_limit(error.to_string()))?;
         kagari_ir::bytecode::verify_program(&program).map_err(|error| {
             crate::RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
         })?;
@@ -632,6 +634,18 @@ mod tests {
             modules: vec![BytecodeModule::default()],
         };
         assert!(VerifiedProgram::new(invalid).is_err());
+    }
+
+    #[test]
+    fn shared_verification_rejects_in_memory_resource_exhaustion() {
+        let oversized = BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default(); 1_025],
+        };
+        assert_eq!(
+            VerifiedProgram::new(oversized).unwrap_err().kind(),
+            crate::RuntimeErrorKind::ResourceLimitExceeded
+        );
     }
 
     #[test]

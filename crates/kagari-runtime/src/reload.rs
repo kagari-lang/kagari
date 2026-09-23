@@ -86,6 +86,8 @@ impl std::fmt::Display for ReloadValidationError {
 impl std::error::Error for ReloadValidationError {}
 
 pub fn validate_load_candidate(bytecode: &BytecodeProgram) -> Result<(), ReloadValidationError> {
+    kagari_ir::bytecode::validate_program_resource_limits(bytecode)
+        .map_err(ReloadValidationError::Artifact)?;
     verify_program(bytecode).map_err(ReloadValidationError::Bytecode)
 }
 
@@ -211,6 +213,20 @@ impl ModuleEpochAllocator {
 #[cfg(test)]
 mod epoch_tests {
     use super::*;
+
+    #[test]
+    fn reload_preflight_rejects_oversized_in_memory_programs() {
+        let oversized = BytecodeProgram {
+            root: kagari_ir::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default(); 1_025],
+        };
+        assert!(matches!(
+            validate_load_candidate(&oversized),
+            Err(ReloadValidationError::Artifact(
+                ArtifactValidationError::ResourceLimit(_)
+            ))
+        ));
+    }
 
     #[test]
     fn exhausted_epoch_space_is_rejected_without_reusing_an_identity() {

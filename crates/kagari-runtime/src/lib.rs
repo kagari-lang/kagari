@@ -1347,6 +1347,8 @@ impl Runtime {
         bytecode: BytecodeProgram,
     ) -> Result<StagedReload, ReloadValidationError> {
         let name = name.into();
+        kagari_ir::bytecode::validate_program_resource_limits(&bytecode)
+            .map_err(ReloadValidationError::Artifact)?;
         let dependencies = ReloadDependencySnapshot::from_program(&bytecode);
         let candidate = self.prepare_reload(active, name, bytecode, dependencies)?;
         self.stage_prepared_reload(candidate)

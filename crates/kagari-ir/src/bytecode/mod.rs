@@ -18,6 +18,7 @@ pub use artifact::{
     KAGARI_RUNTIME_HELPER_ABI_VERSION, KBC_ARTIFACT_FORMAT_VERSION, KBC_MAGIC, KbcArtifact,
     LoaderValidationMetadata, ModuleEpoch, PathDescriptorFingerprint, PathFingerprintBuffer,
     PublicAbiFingerprint, PublicAbiFingerprintBuffer, SourceFileTable, VerificationMetadata,
+    validate_program_resource_limits,
 };
 pub use instruction::{
     BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, EnumId, FieldRef, FunctionRef,
