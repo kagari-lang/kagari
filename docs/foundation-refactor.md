@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R09 in-memory identity checkpoint: KBC construction, in-memory loading and
+  encoding now reject overlong module, host, aggregate, header and public ABI
+  identity paths before fingerprinting. Host declarations reject the same shape
+  before KHI encoding or binding. Tests cover source-owned, host-owned and
+  mutated header identities. Scalar/string resource audit remains open.
+
 - R09 nested metadata parity checkpoint: function-table parameter layouts and
   debug frame parameter/local/register vectors now receive the same in-memory
   record limit as their decoder preflight. Construction, mutated-artifact load,
@@ -48,8 +54,8 @@ workload, repetitions and measurements; no unmeasured performance claims.
 - R09 identity-path decoding checkpoint: shared module and declaration identities
   reject encoded paths longer than 64 segments before reading elements. Forged
   identity lengths fail in direct decoding and complete KBC headers. Host and
-  identity guards share one common sequence preflight implementation. Remaining
-  in-memory identity-shape and scalar/string resource audit is open.
+  identity guards share one common sequence preflight implementation. In-memory
+  identity limits are checked separately; scalar/string resource audit remains.
 
 - R09 host declaration decoding checkpoint: standalone KHI and embedded KBC
   host interfaces now reject oversized declaration/member/path vectors during

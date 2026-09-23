@@ -69,6 +69,9 @@ validation enforces these limits before encoding or linking.
 Every serialized module and declaration identity checks its path length before
 reading segments, with a limit of 64. This applies to artifact headers and
 embedded identities as well as standalone host declarations.
+In-memory artifact construction, loader validation and encoding also reject
+overlong module, host and public ABI identities before fingerprinting or
+publication.
 
 Version 23 stores complete concrete ABI types for struct fields. Runtime ABI v24
 checks nested field values before allocation or replacement, including nominal

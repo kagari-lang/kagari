@@ -568,6 +568,24 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
     true
 }
 
+fn generic_identity_limit(
+    params: &[crate::module::abi::GenericParameterAbi],
+    bounds: &[crate::module::abi::GenericBoundAbi],
+) -> bool {
+    params.iter().all(|param| param.owner.within_path_limit())
+        && bounds.iter().all(|bound| {
+            bound.owner.within_path_limit()
+                && bound.constraints.iter().all(|constraint| match constraint {
+                    crate::module::abi::ConstraintAbi::Standard(_) => true,
+                    crate::module::abi::ConstraintAbi::Trait(id) => id.within_path_limit(),
+                })
+        })
+}
+
+fn function_abi_identity_limit(function: &crate::module::FunctionAbi) -> bool {
+    generic_identity_limit(&function.generic_params, &function.bounds)
+}
+
 fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     use crate::module::PublicAbiItem;
     let valid = |ty: &crate::module::abi::AbiType| ty.within_wire_limits();
@@ -581,27 +599,64 @@ fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 .all(|variant| variant.payload.iter().all(&valid))
     }) && module.public_items.iter().all(|item| match item {
         PublicAbiItem::Function(item) => {
-            item.params.iter().all(|param| valid(&param.ty)) && valid(&item.return_type)
+            function_abi_identity_limit(item)
+                && item.params.iter().all(|param| valid(&param.ty))
+                && valid(&item.return_type)
         }
         PublicAbiItem::Const(item) => valid(&item.ty),
         PublicAbiItem::Type(item) => {
-            item.fields.iter().all(|field| valid(&field.ty))
+            generic_identity_limit(&item.generic_params, &item.bounds)
+                && item.fields.iter().all(|field| valid(&field.ty))
                 && item
                     .variants
                     .iter()
                     .all(|variant| variant.payload.iter().all(&valid))
         }
-        PublicAbiItem::Trait(item) => item.methods.iter().all(|method| {
-            method.params.iter().all(|param| valid(&param.ty)) && valid(&method.return_type)
-        }),
+        PublicAbiItem::Trait(item) => {
+            generic_identity_limit(&item.generic_params, &item.bounds)
+                && item.methods.iter().all(|method| {
+                    function_abi_identity_limit(method)
+                        && method.params.iter().all(|param| valid(&param.ty))
+                        && valid(&method.return_type)
+                })
+        }
         PublicAbiItem::InterfaceTable(item) => {
-            valid(&item.trait_type)
+            generic_identity_limit(&item.generic_params, &item.bounds)
+                && valid(&item.trait_type)
                 && valid(&item.for_type)
                 && item.methods.iter().all(|method| {
-                    method.params.iter().all(|param| valid(&param.ty)) && valid(&method.return_type)
+                    function_abi_identity_limit(method)
+                        && method.params.iter().all(|param| valid(&param.ty))
+                        && valid(&method.return_type)
                 })
         }
     })
+}
+
+fn host_identity_limit(interface: &kagari_common::host_interface::HostInterface) -> bool {
+    let valid = |id: &kagari_common::identity::DefinitionId| id.within_path_limit();
+    let value = |ty: &kagari_common::host_interface::HostValueType| {
+        ty.nominal_references().into_iter().all(valid)
+    };
+    interface.types.iter().all(|ty| {
+        valid(&ty.id)
+            && ty
+                .fields
+                .iter()
+                .all(|field| valid(&field.id) && value(&field.ty))
+            && ty.methods.iter().all(|method| {
+                valid(&method.id)
+                    && method.params.iter().all(|param| value(&param.ty))
+                    && value(&method.return_type)
+            })
+    }) && interface.functions.iter().all(|function| {
+        valid(&function.id)
+            && function.params.iter().all(|param| value(&param.ty))
+            && value(&function.return_type)
+    }) && interface
+        .field_paths
+        .iter()
+        .all(|path| valid(&path.root) && path.fields.iter().all(valid))
 }
 
 fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
@@ -613,11 +668,30 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
     let mut module_records = 0usize;
     let mut nested_records = 0usize;
     for module in &program.modules {
+        if !module.identity.within_path_limit()
+            || !host_identity_limit(&module.host_interface)
+            || module.structures.iter().any(|layout| {
+                !layout.declaration.within_path_limit()
+                    || layout
+                        .fields
+                        .iter()
+                        .any(|field| !field.declaration.within_path_limit())
+            })
+            || module.enumerations.iter().any(|layout| {
+                !layout.declaration.within_path_limit()
+                    || layout
+                        .variants
+                        .iter()
+                        .any(|variant| !variant.declaration.within_path_limit())
+            })
+        {
+            return Some("identity path segment limit exceeded");
+        }
         if !module_nested_count_limit(module, &mut nested_records) {
             return Some("nested module record limit exceeded");
         }
         if !module_abi_type_limit(module) {
-            return Some("ABI type node or depth limit exceeded");
+            return Some("ABI type resource limit exceeded");
         }
         functions = functions.saturating_add(module.functions.len());
         if functions > MAX_ARTIFACT_FUNCTIONS {
@@ -711,6 +785,21 @@ fn metadata_count_limit(
 }
 
 fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static str> {
+    if !artifact.header.module_identity.within_path_limit()
+        || !artifact
+            .verification
+            .loader
+            .module_identity
+            .within_path_limit()
+        || artifact
+            .verification
+            .dependency_fingerprints
+            .iter()
+            .chain(&artifact.verification.loader.dependency_fingerprints)
+            .any(|dependency| !dependency.module_id.within_path_limit())
+    {
+        return Some("identity path segment limit exceeded");
+    }
     if let Some(reason) = program_count_limit(&artifact.program) {
         return Some(reason);
     }
@@ -1205,6 +1294,76 @@ mod canonical_tests {
     use super::*;
 
     #[test]
+    fn oversized_memory_identity_paths_reject_before_fingerprinting() {
+        use crate::module::abi::AbiType;
+        use kagari_common::host_interface::{
+            HostInterface, HostTypeDeclaration, host_type_identity,
+        };
+        use kagari_common::identity::MAX_IDENTITY_PATH_SEGMENTS;
+
+        let valid = BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        };
+        for case in 0..3 {
+            let mut program = valid.clone();
+            let reason = if case == 2 {
+                "ABI type resource limit exceeded"
+            } else {
+                "identity path segment limit exceeded"
+            };
+            match case {
+                0 => {
+                    program.modules[0].identity.path =
+                        vec!["part".into(); MAX_IDENTITY_PATH_SEGMENTS + 1];
+                }
+                1 => {
+                    let mut host = HostTypeDeclaration::new("demo.Player");
+                    host.id.module.path = vec!["part".into(); MAX_IDENTITY_PATH_SEGMENTS + 1];
+                    program.modules[0].host_interface = HostInterface {
+                        types: vec![host],
+                        ..Default::default()
+                    };
+                }
+                _ => {
+                    let mut id = host_type_identity("demo.Player");
+                    id.module.path = vec!["part".into(); MAX_IDENTITY_PATH_SEGMENTS + 1];
+                    program.modules[0]
+                        .public_items
+                        .push(crate::module::PublicAbiItem::Const(
+                            crate::module::ConstAbi {
+                                name: "bad".into(),
+                                ty: AbiType::Host(id),
+                                value: "0".into(),
+                            },
+                        ));
+                }
+            }
+            assert!(matches!(
+                KbcArtifact::from_program(program.clone(), Default::default()),
+                Err(ArtifactValidationError::ResourceLimit(found)) if found == reason
+            ));
+            let mut artifact =
+                KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
+            artifact.program = program;
+            assert!(matches!(
+                artifact.validate_for_loader(&Default::default()),
+                Err(ArtifactValidationError::ResourceLimit(found)) if found == reason
+            ));
+            assert!(artifact.to_bytes().is_err());
+        }
+        let mut artifact = KbcArtifact::from_program(valid, Default::default()).unwrap();
+        artifact.header.module_identity.path = vec!["part".into(); MAX_IDENTITY_PATH_SEGMENTS + 1];
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default()),
+            Err(ArtifactValidationError::ResourceLimit(
+                "identity path segment limit exceeded"
+            ))
+        ));
+        assert!(artifact.to_bytes().is_err());
+    }
+
+    #[test]
     fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
         let valid = BytecodeProgram {
             root: crate::bytecode::ModuleRef::new(0),
@@ -1392,7 +1551,7 @@ mod canonical_tests {
         assert!(matches!(
             KbcArtifact::from_program(program.clone(), Default::default()),
             Err(ArtifactValidationError::ResourceLimit(
-                "ABI type node or depth limit exceeded"
+                "ABI type resource limit exceeded"
             ))
         ));
         let mut artifact = KbcArtifact::from_program(valid, Default::default()).unwrap();
@@ -1400,7 +1559,7 @@ mod canonical_tests {
         assert!(matches!(
             artifact.validate_for_loader(&Default::default()),
             Err(ArtifactValidationError::ResourceLimit(
-                "ABI type node or depth limit exceeded"
+                "ABI type resource limit exceeded"
             ))
         ));
         assert!(artifact.to_bytes().is_err());

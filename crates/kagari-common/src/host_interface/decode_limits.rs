@@ -86,4 +86,18 @@ mod tests {
             Err(HostInterfaceError::Encoding)
         );
     }
+
+    #[test]
+    fn in_memory_host_identity_path_is_bounded_before_encoding() {
+        let mut function =
+            HostFunctionDeclaration::new("demo.read", Vec::new(), super::super::HostValueType::I32);
+        function.id.module.path =
+            vec!["part".into(); crate::identity::MAX_IDENTITY_PATH_SEGMENTS + 1];
+        assert_eq!(function.validate(), Err(HostInterfaceError::TooLarge));
+        let interface = HostInterface {
+            functions: vec![function],
+            ..Default::default()
+        };
+        assert_eq!(interface.to_bytes(), Err(HostInterfaceError::TooLarge));
+    }
 }

@@ -265,6 +265,9 @@ fn validate_member(
     name: &str,
     kind: DefinitionKind,
 ) -> Result<(), HostInterfaceError> {
+    if !id.within_path_limit() {
+        return Err(HostInterfaceError::TooLarge);
+    }
     if name.is_empty() || *id != member_id(owner, kind, name) {
         Err(HostInterfaceError::InvalidDeclaration)
     } else {

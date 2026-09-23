@@ -42,12 +42,27 @@ impl AbiType {
                 return Err("ABI type depth or node limit exceeded");
             }
             let node = match ty {
-                Self::Host(id) => Node::Host(id.clone()),
-                Self::SelfType(id) => Node::SelfType(id.clone()),
-                Self::Parameter { owner, position } => Node::Parameter {
-                    owner: owner.clone(),
-                    position: *position,
-                },
+                Self::Host(id) => {
+                    if !id.within_path_limit() {
+                        return Err("ABI identity path limit exceeded");
+                    }
+                    Node::Host(id.clone())
+                }
+                Self::SelfType(id) => {
+                    if !id.within_path_limit() {
+                        return Err("ABI identity path limit exceeded");
+                    }
+                    Node::SelfType(id.clone())
+                }
+                Self::Parameter { owner, position } => {
+                    if !owner.within_path_limit() {
+                        return Err("ABI identity path limit exceeded");
+                    }
+                    Node::Parameter {
+                        owner: owner.clone(),
+                        position: *position,
+                    }
+                }
                 Self::Builtin(ty) => Node::Builtin(*ty),
                 Self::Tuple(elements) => {
                     if elements.len() > MAX_NODES {
@@ -70,6 +85,9 @@ impl AbiType {
                     Node::Set
                 }
                 Self::Struct(ty) => {
+                    if !ty.declaration.within_path_limit() {
+                        return Err("ABI identity path limit exceeded");
+                    }
                     if ty.arguments.len() > MAX_NODES {
                         return Err("ABI type node limit exceeded");
                     }
@@ -77,6 +95,9 @@ impl AbiType {
                     Node::Struct(ty.declaration.clone(), ty.arguments.len() as u32)
                 }
                 Self::Enum(ty) => {
+                    if !ty.declaration.within_path_limit() {
+                        return Err("ABI identity path limit exceeded");
+                    }
                     if ty.arguments.len() > MAX_NODES {
                         return Err("ABI type node limit exceeded");
                     }
@@ -84,6 +105,9 @@ impl AbiType {
                     Node::Enum(ty.declaration.clone(), ty.arguments.len() as u32)
                 }
                 Self::Trait(ty) => {
+                    if !ty.declaration.within_path_limit() {
+                        return Err("ABI identity path limit exceeded");
+                    }
                     if ty.arguments.len() > MAX_NODES {
                         return Err("ABI type node limit exceeded");
                     }

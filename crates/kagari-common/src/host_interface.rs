@@ -42,6 +42,9 @@ pub fn host_type_identity(symbol: &str) -> DefinitionId {
 }
 
 pub fn validate_host_type_identity(id: &DefinitionId) -> Result<(), HostInterfaceError> {
+    if !id.within_path_limit() {
+        return Err(HostInterfaceError::TooLarge);
+    }
     if id.module.package.0.is_empty()
         || id.module.path.iter().any(String::is_empty)
         || id.path.iter().any(|part| part.name.is_empty())
@@ -146,6 +149,9 @@ impl HostFunctionDeclaration {
     }
 
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
+        if !self.id.within_path_limit() {
+            return Err(HostInterfaceError::TooLarge);
+        }
         if self.symbol.is_empty()
             || self.symbol.split('.').any(str::is_empty)
             || self.id.path.last().is_none_or(|p| {
@@ -274,10 +280,11 @@ impl HostInterface {
         ]
         .into_iter()
         .any(|count| count > decode_limits::MAX_DECLARATIONS)
-            || self
-                .field_paths
-                .iter()
-                .any(|path| path.fields.len() > decode_limits::MAX_MEMBERS)
+            || self.field_paths.iter().any(|path| {
+                path.fields.len() > decode_limits::MAX_MEMBERS
+                    || !path.root.within_path_limit()
+                    || path.fields.iter().any(|id| !id.within_path_limit())
+            })
         {
             return Err(HostInterfaceError::TooLarge);
         }

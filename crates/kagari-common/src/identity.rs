@@ -52,6 +52,10 @@ pub struct ModuleIdentity {
 }
 
 impl ModuleIdentity {
+    pub fn within_path_limit(&self) -> bool {
+        self.path.len() <= MAX_IDENTITY_PATH_SEGMENTS
+    }
+
     /// An unnamed package uses the complete source name as its module path.
     pub fn single_file(source_name: impl Into<String>) -> Self {
         Self {
@@ -109,6 +113,12 @@ pub struct FileSpan {
     pub file: FileId,
     pub revision: Revision,
     pub range: crate::Span,
+}
+
+impl DefinitionId {
+    pub fn within_path_limit(&self) -> bool {
+        self.module.within_path_limit() && self.path.len() <= MAX_IDENTITY_PATH_SEGMENTS
+    }
 }
 
 #[cfg(test)]
