@@ -1074,7 +1074,7 @@ impl Runtime {
 
     pub fn execution_artifact(&self, id: ExecutionArtifactId) -> Option<ExecutionArtifactRecord> {
         let artifact = self.execution_artifacts.get(id)?;
-        if !artifact.valid || !self.modules.is_reachable(artifact.module) {
+        if !self.modules.is_reachable(artifact.module) {
             return None;
         }
         Some(artifact)
@@ -2205,6 +2205,8 @@ mod tests {
 
         assert!(runtime.execution_artifact(interpreter_cache).is_none());
         assert!(runtime.execution_artifact(jit_artifact).is_none());
+        assert!(runtime.execution_artifacts.get(interpreter_cache).is_none());
+        assert!(runtime.execution_artifacts.get(jit_artifact).is_none());
         assert_eq!(
             runtime
                 .modules()
@@ -2265,6 +2267,7 @@ mod tests {
         assert_eq!(reloaded.id, loaded.id);
         assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
         assert!(runtime.execution_artifact(artifact).is_none());
+        assert!(runtime.execution_artifacts.get(artifact).is_none());
         assert_eq!(
             runtime
                 .modules()
@@ -2396,6 +2399,7 @@ mod tests {
             )
         ));
         assert!(runtime.execution_artifact(artifact).is_some());
+        assert!(runtime.execution_artifacts.get(artifact).is_some());
         assert_eq!(
             runtime
                 .modules()

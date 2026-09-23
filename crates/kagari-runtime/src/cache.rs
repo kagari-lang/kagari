@@ -71,7 +71,6 @@ pub struct ExecutionArtifactRecord {
     pub function: Option<FunctionRef>,
     pub dependencies: ReloadDependencySnapshot,
     pub executable: Option<ExecutableFunctionArtifact>,
-    pub valid: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,7 +114,6 @@ impl ExecutionArtifactRegistry {
                 function,
                 dependencies,
                 executable: None,
-                valid: true,
             },
         );
         id
@@ -140,7 +138,6 @@ impl ExecutionArtifactRegistry {
                 function,
                 dependencies,
                 executable: Some(executable),
-                valid: true,
             },
         );
         id
@@ -155,15 +152,18 @@ impl ExecutionArtifactRegistry {
         invalidation: &ReloadInvalidation,
     ) -> Vec<ExecutionArtifactRecord> {
         let mut inner = self.inner.borrow_mut();
-        let mut invalidated = Vec::new();
-        for artifact in inner.artifacts.values_mut() {
-            if !artifact.valid || !artifact_invalidated_by_reload(artifact, invalidation) {
-                continue;
-            }
-            artifact.valid = false;
-            invalidated.push(artifact.clone());
-        }
+        let mut invalidated = inner
+            .artifacts
+            .iter()
+            .filter_map(|(id, artifact)| {
+                artifact_invalidated_by_reload(artifact, invalidation).then_some(*id)
+            })
+            .collect::<Vec<_>>();
+        invalidated.sort_by_key(|id| id.index());
         invalidated
+            .into_iter()
+            .filter_map(|id| inner.artifacts.remove(&id))
+            .collect()
     }
 }
 

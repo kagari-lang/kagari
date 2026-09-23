@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R10 cache lifecycle checkpoint: reload removes invalidated interpreter/JIT
+  records from the runtime-local registry instead of retaining tombstones and
+  their executable metadata. Epoch retention is released with the removed JIT
+  records; active-call retention remains independent. Tests inspect the registry
+  after reload as well as public artifact lookup.
+
 - R09 acceptance: format 24 fixes field order and little-endian integer encoding;
   FNV-1a-64 fingerprints use a versioned domain instead of Rust Debug output.
   Language, format, runtime/helper ABI, host-interface and dependency identities

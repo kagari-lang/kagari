@@ -160,6 +160,9 @@ Compiled JIT artifacts are tied to:
 - runtime helper ABI version
 
 When a reload invalidates any of these dependencies, affected compiled artifacts must stop being used.
+The runtime removes invalidated cache records and releases their epoch retention
+after publication; a caller already executing a pinned version keeps its own
+active-call retention until it exits.
 New calls use artifacts from the latest successfully published epoch.
 Old calls may continue using old artifacts only while the owning epoch remains valid and reachable.
 
