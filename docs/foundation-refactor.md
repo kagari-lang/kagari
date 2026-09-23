@@ -39,6 +39,10 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
+  byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
+  and lossless CST tokens instead of slicing inside a code point and panicking.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

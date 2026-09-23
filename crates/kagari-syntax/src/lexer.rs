@@ -276,7 +276,7 @@ pub fn lex_with_cancellation(
             }
             _ => {
                 chars.next();
-                tokens.push(token(TokenKind::Unknown, index, index + 1));
+                tokens.push(token(TokenKind::Unknown, index, index + ch.len_utf8()));
             }
         }
     }

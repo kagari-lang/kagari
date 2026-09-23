@@ -20,6 +20,18 @@ fn line_comments_keep_unicode_ranges_and_crlf_trivia() {
 }
 
 #[test]
+fn unsupported_unicode_tokens_keep_utf8_boundaries_and_parse_without_panicking() {
+    let text = "fn main() { 中😀 }";
+    let unknown = lex(text)
+        .into_iter()
+        .filter(|token| token.kind == TokenKind::Unknown)
+        .map(|token| text[token.span.start..token.span.end].to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(unknown, ["中", "😀"]);
+    assert!(!crate::parse(&common::source(text)).diagnostics().is_empty());
+}
+
+#[test]
 fn lexes_function_signature_tokens() {
     let source = common::source("fn add(lhs: int) -> int {}");
     let tokens = lex(source.text());

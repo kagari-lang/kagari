@@ -82,6 +82,9 @@ IDENT ::= XID_START XID_CONTINUE* ;
 
 The portable identifier subset is ASCII letters, digits, and `_`.
 Implementations may accept broader Unicode identifiers only when they preserve the same token boundaries.
+An unsupported Unicode scalar is one unknown token spanning all of its UTF-8
+bytes. The lossless CST keeps the token and analysis reports a diagnostic; the
+parser must never slice through a code point during recovery.
 
 ### Keywords
 
