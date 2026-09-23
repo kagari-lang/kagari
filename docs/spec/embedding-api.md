@@ -174,6 +174,10 @@ binding; the `.` has no declaration target.
 
 `host_function_at` and `source_function_at` likewise limit a dotted callee to
 its function name. A nested receiver call keeps its own declaration target.
+These member-name ranges are captured from CST nodes during HIR lowering for
+both reads and write places; queries do not infer them by scanning source text
+or subtracting a name length from the whole expression range. Trailing trivia
+and non-ASCII comments therefore cannot move a member target.
 
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic

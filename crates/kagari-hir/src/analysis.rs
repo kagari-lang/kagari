@@ -42,19 +42,18 @@ impl FileAnalysis {
         offset: usize,
     ) -> Option<&kagari_common::host_interface::HostFieldDeclaration> {
         let facts = self.result.facts();
-        let text = self.source.text();
         let expressions = facts
             .lowered
             .module
             .body
             .expressions()
             .filter_map(|(id, expr)| {
-                let ExprKind::Field { name, .. } = &expr.kind else {
+                let ExprKind::Field { .. } = &expr.kind else {
                     return None;
                 };
                 let field = facts.typed.type_table.expr_field(id)?;
-                let span = facts.lowered.source_map.expr_span(id);
-                host_member_name_contains(text, span, name, offset)
+                let span = facts.lowered.source_map.expr_member_span(id)?;
+                (span.start <= offset && offset < span.end)
                     .then(|| facts.names.hosts.field(field))
                     .flatten()
             });
@@ -64,12 +63,12 @@ impl FileAnalysis {
             .body
             .places()
             .filter_map(|(id, place)| {
-                let crate::hir::PlaceKind::Field { name, .. } = &place.kind else {
+                let crate::hir::PlaceKind::Field { .. } = &place.kind else {
                     return None;
                 };
                 let field = facts.typed.type_table.place_field(id)?;
-                let span = facts.lowered.source_map.place_span(id);
-                host_member_name_contains(text, span, name, offset)
+                let span = facts.lowered.source_map.place_member_span(id)?;
+                (span.start <= offset && offset < span.end)
                     .then(|| facts.names.hosts.field(field))
                     .flatten()
             });
@@ -95,9 +94,7 @@ impl FileAnalysis {
             .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
                 let span = match &expr.kind {
-                    ExprKind::Field { name, .. } => {
-                        member_name_span(self.source.text(), span, name)?
-                    }
+                    ExprKind::Field { .. } => facts.lowered.source_map.expr_member_span(id)?,
                     _ => span,
                 };
                 if !(span.start <= offset && offset < span.end) {
@@ -146,8 +143,8 @@ impl FileAnalysis {
                 {
                     let span = facts.lowered.source_map.expr_span(callee);
                     let span = match &facts.lowered.module.expr(callee).kind {
-                        ExprKind::Field { name, .. } => {
-                            member_name_span(self.source.text(), span, name)?
+                        ExprKind::Field { .. } => {
+                            facts.lowered.source_map.expr_member_span(callee)?
                         }
                         _ => span,
                     };
@@ -156,9 +153,7 @@ impl FileAnalysis {
                 }
                 let span = facts.lowered.source_map.expr_span(id);
                 let span = match &expr.kind {
-                    ExprKind::Field { name, .. } => {
-                        member_name_span(self.source.text(), span, name)?
-                    }
+                    ExprKind::Field { .. } => facts.lowered.source_map.expr_member_span(id)?,
                     _ => span,
                 };
                 if !(span.start <= offset && offset < span.end) {
@@ -281,9 +276,7 @@ impl FileAnalysis {
             .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
                 let span = match &expr.kind {
-                    ExprKind::Field { name, .. } => {
-                        member_name_span(self.source.text(), span, name)?
-                    }
+                    ExprKind::Field { .. } => facts.lowered.source_map.expr_member_span(id)?,
                     _ => span,
                 };
                 let target = facts
@@ -341,9 +334,10 @@ impl FileAnalysis {
                     .place(facts.lowered.source_map.place_id(index))
                     .kind
                 {
-                    crate::hir::PlaceKind::Field { name, .. } => {
-                        member_name_span(self.source.text(), *span, name)?
-                    }
+                    crate::hir::PlaceKind::Field { .. } => facts
+                        .lowered
+                        .source_map
+                        .place_member_span(facts.lowered.source_map.place_id(index))?,
                     _ => *span,
                 };
                 Some((span, target))
@@ -360,9 +354,7 @@ impl FileAnalysis {
                 let call = facts.typed.type_table.call_resolution(id)?;
                 let callee_span = facts.lowered.source_map.expr_span(*callee);
                 let callee_span = match &facts.lowered.module.expr(*callee).kind {
-                    ExprKind::Field { name, .. } => {
-                        member_name_span(self.source.text(), callee_span, name)?
-                    }
+                    ExprKind::Field { .. } => facts.lowered.source_map.expr_member_span(*callee)?,
                     _ => callee_span,
                 };
                 match call.target {
@@ -448,33 +440,6 @@ impl FileAnalysis {
             })
             .collect()
     }
-}
-
-fn member_name_span(
-    text: &str,
-    span: kagari_common::Span,
-    name: &str,
-) -> Option<kagari_common::Span> {
-    if name.is_empty() {
-        return None;
-    }
-    let start = span.end.checked_sub(name.len())?;
-    (span.start <= start && text.get(start..span.end) == Some(name)).then_some(
-        kagari_common::Span {
-            start,
-            end: span.end,
-        },
-    )
-}
-
-fn host_member_name_contains(
-    text: &str,
-    span: kagari_common::Span,
-    name: &str,
-    offset: usize,
-) -> bool {
-    member_name_span(text, span, name)
-        .is_some_and(|name_span| name_span.start <= offset && offset < name_span.end)
 }
 
 fn type_at_in(

@@ -12,6 +12,33 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 }
 
 #[test]
+fn member_queries_use_cst_name_ranges_with_trailing_trivia() {
+    let text = "struct P { var x: i32 } fn read(p: P) -> i32 { p.x // 中文 😀\n } fn write(p: P) { p.x // comment\n = 7; }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("member-trivia.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let snapshot = analyze(&mut db, &sources);
+    let file = snapshot.file(id).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let field = file
+        .result()
+        .facts()
+        .declarations
+        .field(file.result().facts().lowered.module.structs[0].fields[0].id);
+    for (start, _) in text.match_indices("p.x") {
+        assert_eq!(file.definition_at(start + 2), field);
+        assert_ne!(file.definition_at(start), field);
+        assert_ne!(file.definition_at(start + 1), field);
+    }
+}
+
+#[test]
 fn members_keep_module_ownership_and_exact_declaration_locations() {
     let text = "// 中文 😀\r\nenum State { Ready, Running }\r\nstruct Point { var x: i32 }";
     let mut sources = SourceDatabase::default();

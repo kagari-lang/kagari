@@ -43,6 +43,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.
 
+- R04 member-origin checkpoint: lowering stores the exact CST name range for
+  field reads and writes in the HIR source map. Definition, host-field and host
+  call navigation consume that range directly; the source-text suffix heuristic
+  is removed. Tests cover member access with trailing Unicode comments, including
+  a write target. Other semantic recovery/target ownership audits remain open.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

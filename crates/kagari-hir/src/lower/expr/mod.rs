@@ -179,6 +179,12 @@ impl Lowerer {
             ),
         };
 
-        self.alloc_expr(syntax_span(expr), ExprData { kind })
+        let id = self.alloc_expr(syntax_span(expr), ExprData { kind });
+        if let ast::Expr::FieldExpr(field) = expr
+            && let Some(name) = field.name()
+        {
+            self.source_map.insert_expr_member(id, syntax_span(&name));
+        }
+        id
     }
 }

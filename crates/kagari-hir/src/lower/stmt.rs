@@ -126,7 +126,7 @@ impl Lowerer {
                     .receiver()
                     .map(|expr| self.lower_place(&expr))
                     .unwrap_or_else(|| self.synthetic_name_place("<missing>"));
-                self.alloc_place(
+                let id = self.alloc_place(
                     syntax_span(field),
                     PlaceData {
                         kind: PlaceKind::Field {
@@ -134,7 +134,11 @@ impl Lowerer {
                             name: field.name_text().unwrap_or_default(),
                         },
                     },
-                )
+                );
+                if let Some(name) = field.name() {
+                    self.source_map.insert_place_member(id, syntax_span(&name));
+                }
+                id
             }
             ast::Expr::IndexExpr(index_expr) => {
                 let base = index_expr
