@@ -366,6 +366,12 @@ use a fresh token for a new root call. Execution cancellation reports
 `KG_RUNTIME_CANCELLED`, separate from analysis cancellation and script traps.
 Completed host effects survive cancellation.
 
+With `ExecutionContext::tracing_enabled`, a successful `ExecutionReport` contains
+the root code fingerprint, deterministic inputs and ordered host-call trace.
+`ExecutionSession::trace` also permits inspection while a lower-level session is
+active, including after a host error. Trace capture is bounded and marks omitted
+data; it does not automatically replay host results.
+
 At the lower-level API, Vm starts a session from Runtime defaults automatically.
 Hosts can select explicit ExecutionOptions with Runtime::begin_execution and keep
 the returned ExecutionSession alive while driving the VM. Nested scopes inherit

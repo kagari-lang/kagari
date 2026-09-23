@@ -68,7 +68,7 @@ pub use security::{
 };
 pub use session::{
     CandidateSession, DeterministicInputs, ExecutionCounters, ExecutionEvent, ExecutionObserver,
-    ExecutionOptions, ExecutionPhase, ExecutionSession,
+    ExecutionOptions, ExecutionPhase, ExecutionSession, ExecutionTrace, HostCallTrace, TraceValue,
 };
 
 use crate::{
@@ -287,6 +287,7 @@ impl Runtime {
             resources: self.resources.policy(),
             cancellation: Default::default(),
             inputs: Default::default(),
+            record_host_calls: false,
         }
     }
 
@@ -1252,17 +1253,27 @@ impl Runtime {
             ));
         }
         self.validate_bound_host_boundary(function.symbol(), Some(function))?;
-        let context = host::HostCallContext::new(self, args)?;
-        let result = function.invoke(&context, args);
-        self.resources.ensure_execution_allowed()?;
-        let value = result?;
-        HostBorrowTable::validate_no_escape(&value)?;
-        if !self.gc.validate_value(&value) {
-            return Err(RuntimeError::host_call_failure(
-                "invalid heap reference in host result",
-            ));
+        let session = self.resources.active_session();
+        let trace_index = session
+            .as_ref()
+            .and_then(|session| session.begin_host_call(function.symbol(), args));
+        let result = (|| {
+            let context = host::HostCallContext::new(self, args)?;
+            let result = function.invoke(&context, args);
+            self.resources.ensure_execution_allowed()?;
+            let value = result?;
+            HostBorrowTable::validate_no_escape(&value)?;
+            if !self.gc.validate_value(&value) {
+                return Err(RuntimeError::host_call_failure(
+                    "invalid heap reference in host result",
+                ));
+            }
+            Ok(value)
+        })();
+        if let (Some(session), Some(index)) = (session, trace_index) {
+            session.finish_host_call(index, &result);
         }
-        Ok(value)
+        result
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {

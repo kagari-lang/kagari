@@ -5,6 +5,7 @@ use std::{
 };
 
 use kagari_common::cancellation::CancellationToken;
+use kagari_ir::bytecode::ArtifactFingerprint;
 
 use crate::{
     HostExposurePolicy, LoadedModule, ModuleEpochRetention, ModuleStore, ResourceCounters,
@@ -34,6 +35,85 @@ pub struct ExecutionOptions {
     pub resources: ResourcePolicy,
     pub cancellation: CancellationToken,
     pub inputs: DeterministicInputs,
+    pub record_host_calls: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TraceValue {
+    Unit,
+    Bool(bool),
+    I32(i32),
+    I64(i64),
+    F32Bits(u32),
+    F64Bits(u64),
+    Str {
+        prefix: String,
+        truncated: bool,
+    },
+    Tuple {
+        elements: Vec<Self>,
+        truncated: bool,
+    },
+    Opaque(String),
+}
+
+impl TraceValue {
+    fn capture(value: &crate::value::Value, depth: usize, remaining: &mut usize) -> Self {
+        if *remaining == 0 {
+            return Self::Opaque("trace value budget".into());
+        }
+        *remaining -= 1;
+        use crate::value::Value;
+        match value {
+            Value::Unit => Self::Unit,
+            Value::Bool(value) => Self::Bool(*value),
+            Value::I32(value) => Self::I32(*value),
+            Value::I64(value) => Self::I64(*value),
+            Value::F32(value) => Self::F32Bits(value.to_bits()),
+            Value::F64(value) => Self::F64Bits(value.to_bits()),
+            Value::Str(value) => Self::Str {
+                prefix: value.chars().take(256).collect(),
+                truncated: value.chars().nth(256).is_some(),
+            },
+            Value::Tuple(values) if depth < 4 => Self::Tuple {
+                elements: values
+                    .iter()
+                    .take(16)
+                    .map(|value| Self::capture(value, depth + 1, remaining))
+                    .collect(),
+                truncated: values.len() > 16,
+            },
+            Value::Tuple(_) => Self::Opaque("tuple depth limit".into()),
+            Value::Array(id) => Self::Opaque(format!("array:{id:?}")),
+            Value::Map(id) => Self::Opaque(format!("map:{id:?}")),
+            Value::Set(id) => Self::Opaque(format!("set:{id:?}")),
+            Value::Enum(id) => Self::Opaque(format!("enum:{id:?}")),
+            Value::Struct(id) => Self::Opaque(format!("struct:{id:?}")),
+            Value::GcHandle(id) => Self::Opaque(format!("gc:{id:?}")),
+            Value::Interface(id) => Self::Opaque(format!("interface:{id:?}")),
+            Value::HostRoot(_) => Self::Opaque("host root".into()),
+            Value::HostPathView(_) => Self::Opaque("host path".into()),
+            Value::Ephemeral(_) => Self::Opaque("ephemeral".into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostCallTrace {
+    pub symbol: String,
+    pub symbol_truncated: bool,
+    pub arguments: Vec<TraceValue>,
+    pub omitted_arguments: usize,
+    pub outcome: Option<Result<TraceValue, RuntimeErrorKind>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionTrace {
+    pub root_identity: kagari_common::identity::ModuleIdentity,
+    pub code_fingerprint: ArtifactFingerprint,
+    pub inputs: DeterministicInputs,
+    pub host_calls: Vec<HostCallTrace>,
+    pub dropped_host_calls: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +150,8 @@ pub(crate) struct SessionState {
     pub baseline: ResourceCounters,
     pub termination: RefCell<Option<RuntimeError>>,
     random_counter: Cell<u64>,
+    host_calls: RefCell<Vec<HostCallTrace>>,
+    dropped_host_calls: Cell<usize>,
     started: Instant,
 }
 
@@ -93,6 +175,8 @@ impl SessionState {
             baseline,
             termination: RefCell::new(None),
             random_counter: Cell::new(0),
+            host_calls: RefCell::new(Vec::new()),
+            dropped_host_calls: Cell::new(0),
             started: Instant::now(),
         }
     }
@@ -109,6 +193,49 @@ impl SessionState {
         value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         value ^ (value >> 31)
+    }
+
+    pub(crate) fn begin_host_call(
+        &self,
+        symbol: &str,
+        args: &[crate::value::Value],
+    ) -> Option<usize> {
+        if !self.options.record_host_calls {
+            return None;
+        }
+        let mut calls = self.host_calls.borrow_mut();
+        if calls.len() >= 10_000 {
+            self.dropped_host_calls
+                .set(self.dropped_host_calls.get().saturating_add(1));
+            return None;
+        }
+        let index = calls.len();
+        let mut remaining = 128;
+        calls.push(HostCallTrace {
+            symbol: symbol.chars().take(256).collect(),
+            symbol_truncated: symbol.chars().nth(256).is_some(),
+            arguments: args
+                .iter()
+                .take(32)
+                .map(|value| TraceValue::capture(value, 0, &mut remaining))
+                .collect(),
+            omitted_arguments: args.len().saturating_sub(32),
+            outcome: None,
+        });
+        Some(index)
+    }
+
+    pub(crate) fn finish_host_call(
+        &self,
+        index: usize,
+        result: &Result<crate::value::Value, RuntimeError>,
+    ) {
+        if let Some(call) = self.host_calls.borrow_mut().get_mut(index) {
+            call.outcome = Some(match result {
+                Ok(value) => Ok(TraceValue::capture(value, 0, &mut 128)),
+                Err(error) => Err(error.kind()),
+            });
+        }
     }
 
     pub(crate) fn terminate(&self, error: RuntimeError) -> RuntimeError {
@@ -160,6 +287,18 @@ pub struct ExecutionCounters {
 }
 
 impl ExecutionSession {
+    pub fn trace(&self) -> Option<ExecutionTrace> {
+        self.state
+            .options
+            .record_host_calls
+            .then(|| ExecutionTrace {
+                root_identity: self.state.root.bytecode.identity.clone(),
+                code_fingerprint: self.state.root.program_fingerprint(),
+                inputs: self.state.options.inputs,
+                host_calls: self.state.host_calls.borrow().clone(),
+                dropped_host_calls: self.state.dropped_host_calls.get(),
+            })
+    }
     pub fn host_scope_count(&self) -> usize {
         self.state.host_scopes.borrow().len()
     }
@@ -232,5 +371,62 @@ impl Drop for CandidateSession<'_> {
         drop(self.execution.take());
         let previous = self.previous.take().filter(|state| state.scopes.get() != 0);
         self.resources.replace_session(previous);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value::Value;
+    use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
+
+    #[test]
+    fn trace_values_report_truncation_and_stop_at_a_shared_budget() {
+        let mut budget = 128;
+        assert_eq!(
+            TraceValue::capture(&Value::Str("x".repeat(300)), 0, &mut budget),
+            TraceValue::Str {
+                prefix: "x".repeat(256),
+                truncated: true,
+            }
+        );
+        let mut budget = 3;
+        let captured = TraceValue::capture(&Value::Tuple(vec![Value::I32(1); 20]), 0, &mut budget);
+        let TraceValue::Tuple {
+            elements,
+            truncated,
+        } = captured
+        else {
+            panic!("expected tuple trace");
+        };
+        assert!(truncated);
+        assert_eq!(elements.len(), 16);
+        assert_eq!(&elements[..2], &[TraceValue::I32(1), TraceValue::I32(1)]);
+        assert!(elements[2..].iter().all(
+            |value| matches!(value, TraceValue::Opaque(reason) if reason == "trace value budget")
+        ));
+    }
+
+    #[test]
+    fn trace_call_limit_reports_omitted_invocations() {
+        let mut runtime = crate::Runtime::default();
+        let module = runtime
+            .load_program(
+                "trace-cap",
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+            )
+            .unwrap();
+        let mut options = runtime.execution_options();
+        options.record_host_calls = true;
+        let session = runtime.begin_execution(&module, options).unwrap();
+        for _ in 0..10_001 {
+            session.state.begin_host_call("ping", &[]);
+        }
+        let trace = session.trace().unwrap();
+        assert_eq!(trace.host_calls.len(), 10_000);
+        assert_eq!(trace.dropped_host_calls, 1);
     }
 }

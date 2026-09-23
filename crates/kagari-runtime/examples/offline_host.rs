@@ -51,7 +51,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let binding = loaded
         .host_binding(kagari_ir::bytecode::HostImportId::new(0))
         .unwrap();
+    let mut options = runtime.execution_options();
+    options.record_host_calls = true;
+    options.inputs.unix_time_millis = 1_000;
+    let session = runtime.begin_execution(&loaded, options)?;
     assert_eq!(runtime.invoke_bound_host(binding, &[])?, Value::I32(42));
+    let trace = session.trace().expect("recording was enabled");
+    assert_eq!(trace.code_fingerprint, loaded.program_fingerprint());
+    assert_eq!(trace.inputs.unix_time_millis, 1_000);
+    assert_eq!(trace.host_calls.len(), 1);
+    assert_eq!(trace.host_calls[0].symbol, "demo.limit");
+    assert_eq!(
+        trace.host_calls[0].outcome,
+        Some(Ok(kagari_runtime::TraceValue::I32(42)))
+    );
+    drop(session);
     let candidate = runtime.stage_reload_program(
         &loaded,
         "offline-demo",

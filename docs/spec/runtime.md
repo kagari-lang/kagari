@@ -447,7 +447,13 @@ deadlines do not expose a script clock. `ExecutionOptions::inputs` instead suppl
 a fixed logical Unix time in milliseconds and a random seed for the root session.
 Host callbacks access those values through `HostCallContext`; random draws use a
 per-root SplitMix64 stream, including synchronous reentry. A new root starts at
-the seed again. This does not record external host results or provide replay.
+the seed again. When host-call recording is enabled, the root session retains an
+ordered trace with the complete verified code fingerprint, root identity, inputs,
+bounded argument/result snapshots and outcome categories. It reserves call slots
+before entering callbacks, preserving order through synchronous reentry. The
+trace caps at 10,000 calls and reports further dropped calls; captured strings,
+tuples and argument lists also report truncation. Opaque handles are diagnostic
+runtime identities. The trace is not an external-result replay format.
 
 ## Module Store
 

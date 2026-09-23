@@ -26,7 +26,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [ ] R13: Failure-atomic standard mutation and dirty-record commit.
 - [ ] R14: Acyclic initialization and isolated prepare/initialize/publish.
 - [ ] R15: Compile-time capability and resource limits.
-- [ ] R16: Injectable deterministic context and host trace fixtures.
+- [x] R16: Injectable deterministic context and host trace fixtures.
 - [ ] R17: Interpreter/JIT/debugger contract equivalence.
 - [ ] R18: Obsolete-path audit, full validation, reproducible resource baselines.
 
@@ -39,12 +39,24 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R16 acceptance: optional per-root trace records the verified dependency
+  closure fingerprint, root identity, explicit time/seed inputs and ordered host
+  invocations with bounded argument/result snapshots and outcome categories.
+  Invocation slots are reserved before callbacks, so synchronous reentry keeps
+  call order. The trace reports dropped calls after its 10,000-call cap. The
+  runtime session exposes it directly; successful embedding reports include it
+  when `tracing_enabled` is set. Replaceable host callbacks provide external
+  results. Tests compare source-built and decoded artifacts under identical
+  inputs and results, plus nested calls, host failures and trace limits. Opaque
+  runtime handles are diagnostic identities, not replay data; full replay and
+  cross-platform floating-point bit identity remain later work.
+
 - R16 execution-input checkpoint: `ExecutionContext` supplies fixed logical time
   and a random seed to the root session. Host callbacks read the time and a
   deterministic SplitMix64 stream through `HostCallContext`; synchronous reentry
   consumes the same stream, and the next root resets it. Equal inputs produce
-  equal observed host results in tests. Code-version/input/host-call trace
-  recording and a replaceable test host remain outstanding.
+  equal observed host results in tests. The trace and replaceable-host acceptance
+  are recorded above.
 
 - R15 diagnostic-output checkpoint: full semantic analysis now emits at most a
   configurable number of semantic diagnostics per file (default 1,000), followed

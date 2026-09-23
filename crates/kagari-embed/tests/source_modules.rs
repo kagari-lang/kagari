@@ -328,6 +328,46 @@ fn diamond_initialization_is_dependency_first_once_per_runtime_and_failure_is_ca
 }
 
 #[test]
+fn execution_report_records_code_inputs_and_ordered_host_results() {
+    let (engine, artifact, mut context, declaration) = host_fixture(false);
+    context.tracing_enabled = true;
+    context.inputs.unix_time_millis = 31_415;
+    context.inputs.random_seed = 27;
+    let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let mut traces = Vec::new();
+    for artifact in [artifact, decoded] {
+        let mut runtime = engine.runtime(context.clone());
+        runtime
+            .register_host_function(kagari_runtime::host::HostFunction::new(
+                declaration.clone(),
+                |_, args| Ok(args[0].clone()),
+            ))
+            .unwrap();
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
+        assert_eq!(report.return_value, Value::I32(42));
+        let trace = report.trace.unwrap();
+        assert_eq!(trace.code_fingerprint, loaded.program_fingerprint());
+        assert_eq!(trace.inputs, context.inputs);
+        assert_eq!(trace.host_calls.len(), 4);
+        let observed = trace
+            .host_calls
+            .iter()
+            .map(|call| (call.arguments.clone(), call.outcome.clone()))
+            .collect::<Vec<_>>();
+        let expected = (1..=4)
+            .map(|value| {
+                let value = kagari_runtime::TraceValue::I32(value);
+                (vec![value.clone()], Some(Ok(value)))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(observed, expected);
+        traces.push(trace);
+    }
+    assert_eq!(traces[0], traces[1]);
+}
+
+#[test]
 fn dependency_bindings_and_execution_policy_are_checked_before_initialization() {
     use std::sync::{Arc, Mutex};
     let (engine, _, context, declaration) = host_fixture(false);

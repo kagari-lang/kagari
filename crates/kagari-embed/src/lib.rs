@@ -556,6 +556,7 @@ impl ExecutionContext {
             resources: self.resources,
             cancellation: self.cancellation.clone(),
             inputs: self.inputs,
+            record_host_calls: self.tracing_enabled,
         }
     }
     pub fn security_context(&self) -> SecurityContext {

@@ -138,6 +138,7 @@ impl VerifiedProgram {
 #[derive(Debug)]
 struct LinkedProgram {
     root: ModuleRef,
+    fingerprint: kagari_ir::bytecode::ArtifactFingerprint,
     modules: Vec<LinkedModule>,
 }
 /// Immutable executable data, exposed only through a shared loaded handle.
@@ -165,6 +166,10 @@ impl Deref for LoadedModule {
 }
 
 impl LoadedModule {
+    pub fn program_fingerprint(&self) -> kagari_ir::bytecode::ArtifactFingerprint {
+        self.program.fingerprint
+    }
+
     pub fn slot(&self) -> ModuleRef {
         self.slot
     }
@@ -453,6 +458,7 @@ impl ModuleStore {
         let mut inner = self.inner.borrow_mut();
         self.resources.admit_modules(program.modules.len())?;
         let root = program.root;
+        let fingerprint = program.dependencies.module_fingerprint;
         let modules = program
             .modules
             .iter()
@@ -484,7 +490,11 @@ impl ModuleStore {
                 }
             })
             .collect();
-        let program = Arc::new(LinkedProgram { root, modules });
+        let program = Arc::new(LinkedProgram {
+            root,
+            fingerprint,
+            modules,
+        });
         let loaded = LoadedModule {
             program,
             slot: root,

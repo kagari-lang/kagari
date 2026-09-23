@@ -366,3 +366,76 @@ fn host_callbacks_observe_replayable_root_inputs() {
     assert!(records.iter().all(|(time, _)| *time == 987_654));
     assert_ne!(records[0].1, records[1].1);
 }
+
+#[test]
+fn host_trace_keeps_invocation_order_across_reentry() {
+    let mut runtime = runtime();
+    runtime
+        .register_host_function(HostFunction::new(
+            HostFunctionDeclaration::new("game.inner", vec![], HostValueType::I32),
+            |_, _| Ok(Value::I32(2)),
+        ))
+        .unwrap();
+    runtime
+        .register_host_function(HostFunction::new(
+            HostFunctionDeclaration::new("game.outer", vec![], HostValueType::I32),
+            |context, _| {
+                let inner = context.runtime().invoke_host("game.inner", &[]).unwrap();
+                assert_eq!(inner, Value::I32(2));
+                Ok(Value::I32(3))
+            },
+        ))
+        .unwrap();
+    runtime
+        .register_host_function(HostFunction::new(
+            HostFunctionDeclaration::new("game.fail", vec![], HostValueType::I32),
+            |_, _| Err(HostError::new("expected failure")),
+        ))
+        .unwrap();
+    let module = runtime
+        .load_program(
+            "trace",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap();
+    let mut options = runtime.execution_options();
+    options.record_host_calls = true;
+    options.inputs.unix_time_millis = 10;
+    let session = runtime.begin_execution(&module, options).unwrap();
+    assert_eq!(
+        runtime.invoke_host("game.outer", &[]).unwrap(),
+        Value::I32(3)
+    );
+    assert_eq!(
+        runtime.invoke_host("game.fail", &[]).unwrap_err().kind(),
+        RuntimeErrorKind::HostCallFailure
+    );
+    let trace = session.trace().unwrap();
+    assert_eq!(trace.code_fingerprint, module.program_fingerprint());
+    assert_eq!(trace.root_identity, module.bytecode.identity);
+    assert_eq!(trace.inputs.unix_time_millis, 10);
+    assert_eq!(trace.dropped_host_calls, 0);
+    assert_eq!(
+        trace
+            .host_calls
+            .iter()
+            .map(|call| call.symbol.as_str())
+            .collect::<Vec<_>>(),
+        vec!["game.outer", "game.inner", "game.fail"]
+    );
+    assert_eq!(
+        trace.host_calls[0].outcome,
+        Some(Ok(kagari_runtime::TraceValue::I32(3)))
+    );
+    assert_eq!(
+        trace.host_calls[1].outcome,
+        Some(Ok(kagari_runtime::TraceValue::I32(2)))
+    );
+    assert_eq!(
+        trace.host_calls[2].outcome,
+        Some(Err(RuntimeErrorKind::HostCallFailure))
+    );
+}

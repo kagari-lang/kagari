@@ -35,6 +35,7 @@ pub struct ExecutionReport {
     pub entry: String,
     pub return_value: Value,
     pub jit: Option<JitExecutionReport>,
+    pub trace: Option<kagari_runtime::ExecutionTrace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,6 +190,7 @@ impl Vm {
             entry: entry_name,
             return_value,
             jit: None,
+            trace: _session.trace(),
         })
     }
 
@@ -214,6 +216,7 @@ impl Vm {
                 entry: entry_name,
                 return_value: value,
                 jit: Some(report),
+                trace: _session.trace(),
             }),
             JitEntryResult::Fallback(report) => {
                 let return_value = self.execute_interpreter_entry(module, entry)?;
@@ -223,6 +226,7 @@ impl Vm {
                     entry: entry_name,
                     return_value,
                     jit: Some(report),
+                    trace: _session.trace(),
                 })
             }
         }
