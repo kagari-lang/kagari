@@ -56,7 +56,9 @@ reads each sequence header, before reading their elements. Their limits are
 1,024, 65,536 and 1,000,000 respectively; aggregate post-decode limits still
 apply across modules and functions. Module-owned table vectors have a
 1,000,000-record sequence limit; concrete layout and public ABI member vectors
-have a 4,096-record sequence limit.
+have a 4,096-record sequence limit. Function metadata, debug tables, artifact
+section tables, verification summaries and signature lists use the same
+1,000,000-record preflight limit as artifact tables.
 
 Version 23 stores complete concrete ABI types for struct fields. Runtime ABI v24
 checks nested field values before allocation or replacement, including nominal

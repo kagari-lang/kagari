@@ -66,10 +66,14 @@ pub struct BytecodeFunction {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FunctionMetadata {
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub locals: TypeLayoutBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub registers: TypeLayoutBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetBuffer,
     pub effects: EffectSet,
     pub debug: BytecodeDebugMetadata,
@@ -79,6 +83,7 @@ pub struct FunctionMetadata {
 pub struct FunctionRecord {
     pub id: FunctionRef,
     pub name: String,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
     pub effects: EffectSet,
@@ -87,10 +92,15 @@ pub struct FunctionRecord {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BytecodeDebugMetadata {
     pub function_span: Span,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub source_spans: InstructionSourceSpanBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub line_table: LineTableBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub safe_debug_points: SafeDebugPointBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub local_live_ranges: LocalLiveRangeBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub captured_bindings: CapturedBindingDebugBuffer,
     pub frame_layout: FrameLayout,
 }
@@ -160,8 +170,11 @@ pub struct CapturedBindingDebugInfo {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FrameLayout {
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: TypeLayoutBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub locals: TypeLayoutBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub registers: TypeLayoutBuffer,
 }
 

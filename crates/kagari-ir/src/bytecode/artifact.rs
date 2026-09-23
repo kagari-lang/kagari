@@ -380,8 +380,11 @@ impl ArtifactFingerprint {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactTables {
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub sections: ArtifactSectionBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub source_files: SourceFileTable,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub debug_names: DebugNameTable,
 }
 
@@ -777,13 +780,20 @@ pub struct VerificationMetadata {
     pub bytecode_verified: bool,
     /// Root-member summaries. Dependency metadata remains in its BytecodeModule;
     /// all members are verified before these derived summaries are accepted.
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub function_layouts: FunctionLayoutBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub function_effects: FunctionEffectBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetMetadataBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub typed_path_fingerprints: PathFingerprintBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub dependency_fingerprints: DependencyFingerprintBuffer,
     pub host_interface_fingerprint: ArtifactFingerprint,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub security_profile_requirements: Vec<String>,
     pub loader: LoaderValidationMetadata,
 }
@@ -870,9 +880,12 @@ impl VerificationMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionLayoutMetadata {
     pub function: FunctionRef,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub locals: Vec<ValueType>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub registers: Vec<ValueType>,
 }
 
@@ -885,6 +898,7 @@ pub struct FunctionEffectMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlFlowTargetMetadata {
     pub function: FunctionRef,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub targets: Vec<crate::bytecode::JumpTarget>,
 }
 
@@ -911,8 +925,11 @@ pub struct LoaderValidationMetadata {
     pub module_identity: ModuleIdentity,
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub dependency_fingerprints: DependencyFingerprintBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub typed_path_fingerprints: PathFingerprintBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
     pub security_profile: Option<String>,
 }
@@ -968,8 +985,11 @@ impl Default for ArtifactCompatibility {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DebugMetadata {
     pub stripped: bool,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub source_files: SourceFileTable,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub debug_names: DebugNameTable,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub functions: Vec<BytecodeDebugMetadata>,
 }
 
@@ -994,6 +1014,7 @@ impl DebugMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactSignatures {
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub signatures: Vec<ArtifactSignature>,
 }
 
@@ -1169,6 +1190,24 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 #[cfg(test)]
 mod canonical_tests {
     use super::*;
+
+    #[test]
+    fn debug_table_length_is_rejected_before_decoding_source_names() {
+        let debug = DebugMetadata {
+            stripped: false,
+            source_files: Vec::new(),
+            debug_names: Vec::new(),
+            functions: Vec::new(),
+        };
+        let mut bytes = codec().serialize(&debug).unwrap();
+        bytes[1..9].copy_from_slice(&u64::MAX.to_le_bytes());
+        let error = codec().deserialize::<DebugMetadata>(&bytes).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("artifact table count limit exceeded")
+        );
+    }
 
     #[test]
     fn decoder_rejects_huge_module_count_before_reading_module_data() {
