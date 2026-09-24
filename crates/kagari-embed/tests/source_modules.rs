@@ -274,6 +274,65 @@ fn ambiguous_dependency_trait_implementations_reject_bound_call() {
 }
 
 #[test]
+fn sibling_dependency_implementations_reject_even_when_unused_and_recover_after_edit() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "api",
+        include_str!("../../../examples/imported-traits/api.kgr"),
+    );
+    insert(
+        &engine,
+        "model",
+        "pub struct Holder { val number: i32 } pub fn make() -> Holder { Holder { number: 9 } }",
+    );
+    insert(
+        &engine,
+        "a",
+        "use pkg::api::Echo; use pkg::model::Holder; impl Echo<i32> for Holder { fn get(self) -> i32 { self.number } }",
+    );
+    insert(
+        &engine,
+        "b",
+        "use pkg::api::Echo; use pkg::model::Holder; impl Echo<i32> for Holder { fn get(self) -> i32 { self.number + 1 } }",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::a; use pkg::b; fn main() -> i32 { 1 }",
+    );
+    let before = engine.source_snapshot();
+    let compile_from = |sources| {
+        engine.compile_snapshot(
+            sources,
+            root,
+            CompileOptions::default(),
+            &CancellationToken::default(),
+        )
+    };
+    let error = compile_from(before.clone()).unwrap_err();
+    let EmbeddingError::Diagnostics { diagnostics } = error else {
+        panic!("expected source diagnostics");
+    };
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "KG_TYPE_INVALID_TRAIT_IMPL"
+            && diagnostic
+                .span
+                .is_some_and(|location| location.file == root)
+    }));
+
+    engine
+        .set_source(
+            "mem://b",
+            "pub fn helper() -> i32 { 2 }".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    assert!(compile_from(engine.source_snapshot()).is_ok());
+    assert!(compile_from(before).is_err());
+}
+
+#[test]
 fn facade_call_signatures_supply_context_to_nominal_constructors() {
     let engine = KagariEngine::default();
     insert(

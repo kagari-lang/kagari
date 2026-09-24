@@ -13,6 +13,23 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
+    pub(crate) fn duplicate_concrete_implementations(
+        &self,
+    ) -> Vec<(&ImplementationSignature, &ImplementationSignature)> {
+        let mut seen = std::collections::HashMap::new();
+        let mut duplicates = Vec::new();
+        for implementation in self.implementations.values() {
+            if !implementation.generic_params.is_empty() {
+                continue;
+            }
+            let key = (&implementation.trait_type, &implementation.for_type);
+            if let Some(previous) = seen.insert(key, implementation.as_ref()) {
+                duplicates.push((previous, implementation.as_ref()));
+            }
+        }
+        duplicates
+    }
+
     pub(crate) fn add_implementations(
         &mut self,
         declarations: &Declarations,

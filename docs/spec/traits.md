@@ -465,8 +465,9 @@ These analysis capabilities do not imply executable dynamic interface values.
 Concrete implementations defined in a dependency are visible to bound-call
 resolution through the checked implementation catalog. Their methods link by
 declaration identity and signature to the defining module. Multiple matching
-concrete implementations reject the call. Generic dependency implementations,
-whole-closure coherence and runtime interface dispatch remain tracked in the
+concrete implementations reject the whole reachable closure during signature
+checking, including when unused. Generic dependency implementations,
+generic-pattern coherence and runtime interface dispatch remain tracked in the
 [foundation roadmap](../foundation-refactor.md).
 
 ### Remaining execution work

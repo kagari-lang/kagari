@@ -106,6 +106,26 @@ impl PreparedAnalysis {
             &mut diagnostics,
             cancel,
         );
+        for (first, second) in aggregates.duplicate_concrete_implementations() {
+            cancel.check()?;
+            diagnostics.push(
+                Diagnostic::error(kagari_common::DiagnosticKind::InvalidTraitImpl {
+                    trait_name: first
+                        .trait_type
+                        .declaration
+                        .path
+                        .last()
+                        .map(|segment| segment.name.clone())
+                        .unwrap_or_default(),
+                    type_name: first.for_type.display_name(),
+                    reason: format!(
+                        "overlapping concrete implementations in {} and {}",
+                        first.id.module, second.id.module
+                    ),
+                })
+                .with_span(kagari_common::Span::default()),
+            );
+        }
         cancel.check()?;
         if &self.signatures.diagnostics()[self.local_signature_diagnostics..]
             == diagnostics.as_slice()

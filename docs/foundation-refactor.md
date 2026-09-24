@@ -584,6 +584,13 @@ R02 acceptance evidence:
   Generic dependency implementations, cross-module overlap coherence outside
   bound calls, and runtime interface values remain open.
 
+- R07 dependency-closure coherence checkpoint: signature completion rejects
+  duplicate concrete trait/receiver implementations in a module's reachable
+  closure even when no call uses them. The diagnostic belongs to the importing
+  source revision. Rechecking after an overlay edit removes the conflict from
+  the new snapshot without changing the old one. Generic-pattern overlap and
+  runtime interface values remain open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover
