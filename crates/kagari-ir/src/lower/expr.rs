@@ -450,35 +450,47 @@ impl FunctionLowerer<'_, '_> {
         Ok(dst)
     }
 
+    fn lower_host_path_read(
+        &mut self,
+        expr_id: hir::ExprId,
+        checked: kagari_hir::typeck::ResolvedHostPath,
+    ) -> Result<IrValue, IrLoweringError> {
+        let root_or_view = self.lower_expr(checked.root)?;
+        if self.current_block_terminated() {
+            return Ok(root_or_view);
+        }
+        let dynamic_args = match self.lower_host_path_arguments(&checked.dynamic_arguments)? {
+            ControlFlow::Break(value) => return Ok(value),
+            ControlFlow::Continue(values) => values,
+        };
+        let dst = self.alloc_temp(self.expr_type(expr_id)?);
+        let fingerprint = checked
+            .contract
+            .fingerprint()
+            .map_err(|_| IrLoweringError::MissingBinding("checked host path contract"))?;
+        self.emit(Instruction::ReadPath {
+            dst,
+            root_or_view,
+            dynamic_args,
+            path: crate::module::PathRef {
+                declaration: Some(checked.declaration),
+                contract_fingerprint: fingerprint,
+                root_ty: root_or_view.ty,
+                result_ty: dst.ty,
+                read_only: true,
+                debug_name: "host path read".into(),
+            },
+        });
+        Ok(dst)
+    }
+
     fn lower_field(
         &mut self,
         expr_id: hir::ExprId,
         receiver: hir::ExprId,
     ) -> Result<IrValue, IrLoweringError> {
         if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
-            let root_or_view = self.lower_expr(checked.root)?;
-            if self.current_block_terminated() {
-                return Ok(root_or_view);
-            }
-            let dst = self.alloc_temp(self.expr_type(expr_id)?);
-            let fingerprint = checked
-                .contract
-                .fingerprint()
-                .map_err(|_| IrLoweringError::MissingBinding("checked host path contract"))?;
-            self.emit(Instruction::ReadPath {
-                dst,
-                root_or_view,
-                dynamic_args: Default::default(),
-                path: crate::module::PathRef {
-                    declaration: Some(checked.declaration),
-                    contract_fingerprint: fingerprint,
-                    root_ty: root_or_view.ty,
-                    result_ty: dst.ty,
-                    read_only: true,
-                    debug_name: "host field read".into(),
-                },
-            });
-            return Ok(dst);
+            return self.lower_host_path_read(expr_id, checked);
         }
         let base = self.lower_expr(receiver)?;
         if self.current_block_terminated() {
@@ -509,33 +521,7 @@ impl FunctionLowerer<'_, '_> {
         index: hir::ExprId,
     ) -> Result<IrValue, IrLoweringError> {
         if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
-            let root_or_view = self.lower_expr(checked.root)?;
-            if self.current_block_terminated() {
-                return Ok(root_or_view);
-            }
-            let dynamic_index = self.lower_expr(index)?;
-            if self.current_block_terminated() {
-                return Ok(dynamic_index);
-            }
-            let dst = self.alloc_temp(self.expr_type(expr_id)?);
-            let fingerprint = checked
-                .contract
-                .fingerprint()
-                .map_err(|_| IrLoweringError::MissingBinding("checked host index contract"))?;
-            self.emit(Instruction::ReadPath {
-                dst,
-                root_or_view,
-                dynamic_args: smallvec::smallvec![dynamic_index],
-                path: crate::module::PathRef {
-                    declaration: Some(checked.declaration),
-                    contract_fingerprint: fingerprint,
-                    root_ty: root_or_view.ty,
-                    result_ty: dst.ty,
-                    read_only: true,
-                    debug_name: "host index read".into(),
-                },
-            });
-            return Ok(dst);
+            return self.lower_host_path_read(expr_id, checked);
         }
         let base = self.lower_expr(receiver)?;
         if self.current_block_terminated() {

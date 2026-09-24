@@ -572,14 +572,14 @@ collection must match the preceding segment's result (or the root for the first
 segment), and field identities must belong to that current owner. The requested
 result type and access must agree with the generated segments. Rejection neither
 publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
-output exposed to adapters. Source host index paths remain separate pending work.
+output exposed to adapters.
 
 `HostIndexSegmentDeclaration` and `HostVirtualSegmentDeclaration` now carry
 portable result and input types (`HostValueType`) rather than runtime `TypeId`
 slots. Registration resolves these against the current runtime after validating
 the declaration, rejects missing nominal dependencies before publishing a
 descriptor, and derives the same path fingerprint even when unrelated runtime
-type registrations shift slots. Source-level host index syntax remains pending.
+type registrations shift slots.
 
 Index and virtual registrations do not accept a caller-supplied member
 fingerprint. They have no portable member declaration yet, so their member
@@ -612,13 +612,15 @@ and paths longer than 256 segments are rejected. `Runtime::register_host_path` c
 types are registered and derives the runtime descriptor. Every registered runtime
 path is exported in its interface; the offline and runtime fingerprints must agree
 before publication. Linking checks required contracts even if a module has no path
-instruction; missing or ambiguous bindings reject publication. Source indexing
-selects a declared root index segment or a nominal field chain ending in one
-index segment by field identities and the argument's exact type.
-The root and index evaluate once, left to right; assignment captures both before
-its RHS, while the final read or modification uses the linked descriptor. An
-intermediate field in the selected path is not read separately. Repeated indexes,
-fields after an index and virtual members in source remain pending.
+instruction; missing or ambiguous bindings reject publication. Source field and
+index syntax selects one declared ordered path by field or virtual name and the
+exact type of each index expression. The suffix can mix fields, multiple indexes
+and virtual members. Each source index step must use a distinct declared dynamic
+slot; its evaluated value is passed to that slot even when slot order differs from
+source order. The root and each index evaluate once, left to right; assignment
+captures them before its RHS, while the final read or modification uses one linked
+descriptor. Intermediate segments are not read separately. Required host types
+include nominal values reached through index and virtual segment results.
 
 Bytecode path records require that contract fingerprint. The loader resolves all
 records before publishing the program, rejects missing/ambiguous contracts and

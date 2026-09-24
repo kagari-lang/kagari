@@ -4,7 +4,7 @@ use kagari_common::{
         HostFieldDeclaration, HostFunctionDeclaration, HostIndexSegmentDeclaration, HostInterface,
         HostMethodDeclaration, HostParameter, HostPassingStyle, HostPathDeclaration,
         HostPathSegmentDeclaration, HostTypeDeclaration, HostTypeOwnership, HostValueType,
-        PathAccess,
+        HostVirtualSegmentDeclaration, PathAccess,
     },
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
@@ -39,6 +39,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         vec![],
         HostValueType::I32,
     ));
+    let mut child = HostTypeDeclaration::new("demo.Child");
+    let mut child_score = HostFieldDeclaration::new(&child.id, "score", HostValueType::I32);
+    child_score.path_access = PathAccess::ReadOnly;
+    child.fields.push(child_score.clone());
     let path_declaration = kagari_common::host_interface::HostPathDeclaration {
         root: player.id.clone(),
         segments: vec![
@@ -81,9 +85,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         schema_epoch: 0,
         capabilities: Default::default(),
     };
+    let nested_declaration = HostPathDeclaration {
+        root: player.id.clone(),
+        segments: vec![
+            HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
+                slot: 0,
+                collection: HostValueType::Opaque(player.id.clone()),
+                index: HostValueType::I32,
+                result: HostValueType::Opaque(child.id.clone()),
+                access: PathAccess::ReadOnly,
+            }),
+            HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
+                slot: 1,
+                collection: HostValueType::Opaque(child.id.clone()),
+                index: HostValueType::I32,
+                result: HostValueType::Opaque(child.id.clone()),
+                access: PathAccess::ReadOnly,
+            }),
+            HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
+                name: "selected".into(),
+                result: HostValueType::Opaque(child.id.clone()),
+                access: PathAccess::ReadOnly,
+            }),
+            HostPathSegmentDeclaration::Field(child_score.id.clone()),
+        ],
+        access: PathAccess::ReadOnly,
+        schema_epoch: 0,
+        capabilities: Default::default(),
+    };
     let declarations = HostInterface {
-        paths: vec![path_declaration, index_declaration, field_index_declaration],
-        types: vec![player],
+        paths: vec![
+            path_declaration,
+            index_declaration,
+            field_index_declaration,
+            nested_declaration,
+        ],
+        types: vec![player, child],
         functions: vec![HostFunctionDeclaration::new(
             "demo.echo",
             vec![HostParameter {
@@ -97,14 +134,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A build process may read these bytes from the binding provider's interface file.
     let offline_bytes = declarations.to_bytes()?;
     let offline = HostInterface::from_bytes(&offline_bytes)?;
-    let path = offline.paths[0].contract(&offline)?;
+    let player_type = offline
+        .types
+        .iter()
+        .find(|ty| ty.symbol == "demo.Player")
+        .expect("player declaration");
+    let path = offline
+        .paths
+        .iter()
+        .find(|path| {
+            path.root == player_type.id
+                && path.segments
+                    == [HostPathSegmentDeclaration::Field(
+                        player_type.fields[0].id.clone(),
+                    )]
+        })
+        .expect("declared score field path")
+        .contract(&offline)?;
     println!(
         "offline field path fingerprint: {:016x}",
         path.fingerprint()?
     );
     println!(
         "offline member: {}.{}",
-        offline.types[0].symbol, offline.types[0].fields[0].name
+        player_type.symbol, player_type.fields[0].name
     );
     let engine = KagariEngine::default();
     engine.set_host_interface(offline)?;
@@ -116,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn indexed_scores(value: api::Player, index: i32) -> i32 { value.scores[index] } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api as api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn indexed_scores(value: api::Player, index: i32) -> i32 { value.scores[index] } pub fn nested_score(value: api::Player, first: i32, second: i32) -> i32 { value[first][second].selected.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");
@@ -246,11 +299,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         artifact.to_bytes()?.len()
     );
     let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
-    assert_eq!(required.types.len(), 1);
-    assert_eq!(required.paths.len(), 3);
+    assert_eq!(required.types.len(), 2);
+    assert_eq!(required.paths.len(), 4);
     println!(
         "public signature requires {} without registering a runtime",
-        required.types[0].symbol
+        required
+            .types
+            .iter()
+            .find(|ty| ty.symbol == "demo.Player")
+            .unwrap()
+            .symbol
     );
     Ok(())
 }

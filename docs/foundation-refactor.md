@@ -151,6 +151,18 @@ workload, repetitions and measurements; no unmeasured performance claims.
   Paths with multiple indexes, fields after an index and virtual source members
   remain open.
 
+- R06 mixed-path checkpoint: HIR selects one declared path for an ordered source
+  suffix of fields, indexes and virtual members, including repeated indexes and
+  fields after indexes. Each dynamic index is evaluated once in source order,
+  then passed by its declared slot to one typed IR path operation; write targets
+  capture the root and indexes before the RHS. IR includes nominal types reached
+  only through index or virtual path results in the required host interface.
+  Source, encoded artifact and existing JIT fallback tests exercise a two-index,
+  virtual-member and trailing-field compound assignment. `offline_compile`
+  compiles that path using declarations alone. Source syntax requires each index
+  step to have a distinct dynamic slot; repeated-slot declarations remain valid
+  for runtime adapters but do not map to independent source expressions.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

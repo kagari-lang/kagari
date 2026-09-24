@@ -1,6 +1,7 @@
 use super::{IrLoweringError, state::FunctionLowerer};
 use crate::module::{AggregateFieldRef, Instruction, IrValue, LocalId, ValueType};
 use kagari_hir::{hir, types::TypeId};
+use std::ops::ControlFlow;
 
 pub(super) struct PreparedPlace {
     host_path: Option<crate::module::PathRef>,
@@ -47,16 +48,9 @@ impl FunctionLowerer<'_, '_> {
             for projection in &prepared.projections {
                 value = self.read_projection(value, projection);
             }
-            let dynamic_args = if let hir::PlaceKind::Index { index, .. } =
-                self.analyzed.lowered.module.place(id).kind
-            {
-                let arg = self.lower_expr(index)?;
-                if self.current_block_terminated() {
-                    return Ok(None);
-                }
-                smallvec::smallvec![arg]
-            } else {
-                Default::default()
+            let dynamic_args = match self.lower_host_path_arguments(&checked.dynamic_arguments)? {
+                ControlFlow::Break(_) => return Ok(None),
+                ControlFlow::Continue(values) => values,
             };
             let path = crate::module::PathRef {
                 declaration: Some(checked.declaration),
@@ -67,7 +61,7 @@ impl FunctionLowerer<'_, '_> {
                 root_ty: value.ty,
                 result_ty: self.place_type(id)?,
                 read_only: false,
-                debug_name: "host field write".into(),
+                debug_name: "host path write".into(),
             };
             return Ok(Some(PreparedPlace {
                 host_path: Some(path),

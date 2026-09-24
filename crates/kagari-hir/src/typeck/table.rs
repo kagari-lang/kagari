@@ -87,6 +87,8 @@ pub struct TypeTable {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedHostPath {
     pub root: ExprId,
+    /// Source-order expressions paired with their declared runtime argument slots.
+    pub dynamic_arguments: Vec<(u32, ExprId)>,
     pub declaration: kagari_common::host_interface::HostPathDeclaration,
     pub contract: kagari_common::host_interface::HostPathContract,
 }
@@ -94,6 +96,7 @@ pub struct ResolvedHostPath {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedHostPlacePath {
     pub root: PlaceId,
+    pub dynamic_arguments: Vec<(u32, ExprId)>,
     pub declaration: kagari_common::host_interface::HostPathDeclaration,
     pub contract: kagari_common::host_interface::HostPathContract,
 }
@@ -157,10 +160,18 @@ impl TypeTable {
             for path in result.host_paths.values_mut() {
                 assert_eq!(path.root.arena(), from);
                 path.root = ExprId::new(to, path.root.owner(), path.root.index());
+                for (_, argument) in &mut path.dynamic_arguments {
+                    assert_eq!(argument.arena(), from);
+                    *argument = ExprId::new(to, argument.owner(), argument.index());
+                }
             }
             for path in result.host_place_paths.values_mut() {
                 assert_eq!(path.root.arena(), from);
                 path.root = PlaceId::new(to, path.root.owner(), path.root.index());
+                for (_, argument) in &mut path.dynamic_arguments {
+                    assert_eq!(argument.arena(), from);
+                    *argument = ExprId::new(to, argument.owner(), argument.index());
+                }
             }
             result
         }
@@ -343,10 +354,19 @@ impl TypeTable {
                 let Some(root) = place_ids.get(&path.root) else {
                     return false;
                 };
+                let Some(dynamic_arguments) = path
+                    .dynamic_arguments
+                    .iter()
+                    .map(|(slot, argument)| expr_ids.get(argument).copied().map(|id| (*slot, id)))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return false;
+                };
                 host_place_paths.push((
                     *new_id,
                     ResolvedHostPlacePath {
                         root: *root,
+                        dynamic_arguments,
                         declaration: path.declaration.clone(),
                         contract: path.contract.clone(),
                     },
@@ -359,10 +379,19 @@ impl TypeTable {
                 let Some(root) = expr_ids.get(&path.root) else {
                     return false;
                 };
+                let Some(dynamic_arguments) = path
+                    .dynamic_arguments
+                    .iter()
+                    .map(|(slot, argument)| expr_ids.get(argument).copied().map(|id| (*slot, id)))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return false;
+                };
                 host_paths.push((
                     *new_id,
                     ResolvedHostPath {
                         root: *root,
+                        dynamic_arguments,
                         declaration: path.declaration.clone(),
                         contract: path.contract.clone(),
                     },

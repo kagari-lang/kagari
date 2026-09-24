@@ -21,6 +21,20 @@ use crate::{
     types::{BuiltinType, TypeId},
 };
 
+#[derive(Clone)]
+enum HostPathNode<Id> {
+    Member { node: Id, name: String },
+    Index { node: Id, argument: ExprId },
+}
+
+impl<Id: Copy> HostPathNode<Id> {
+    fn id(&self) -> Id {
+        match self {
+            Self::Member { node, .. } | Self::Index { node, .. } => *node,
+        }
+    }
+}
+
 pub(crate) struct BodyChecker<'a> {
     aggregates: &'a crate::aggregates::AggregateCatalog,
     imported_functions: &'a crate::imports::ImportedFunctions,
@@ -271,10 +285,7 @@ impl<'a> BodyChecker<'a> {
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        if let Some(ty) = self
-            .infer_host_index_write(place_id, env)
-            .or_else(|| self.infer_host_field_write(place_id, env))
-        {
+        if let Some(ty) = self.infer_host_path_write(place_id, env) {
             self.type_table.insert_place(place_id, ty.clone());
             return Some(ty);
         }
@@ -472,10 +483,7 @@ impl<'a> BodyChecker<'a> {
             return ty;
         }
 
-        if let Some(ty) = self
-            .infer_host_index_read(expr_id, env)
-            .or_else(|| self.infer_host_field_read(expr_id, env))
-        {
+        if let Some(ty) = self.infer_host_path_read(expr_id, env) {
             env.exprs.insert(expr_id, ty.clone());
             self.type_table.insert_expr(expr_id, ty.clone());
             return ty;
@@ -2240,127 +2248,83 @@ impl<'a> BodyChecker<'a> {
             .cloned()
     }
 
-    fn infer_host_index_write(
-        &mut self,
-        place_id: PlaceId,
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let PlaceKind::Index { base, index } = self.lowered.module.place(place_id).kind else {
-            return None;
-        };
-        let mut root = base;
-        let mut chain = Vec::new();
-        while let PlaceKind::Field { base, name } = &self.lowered.module.place(root).kind {
-            chain.push((root, name.clone()));
-            root = *base;
-        }
-        chain.reverse();
-        let mut ty = self.resolve_readable_place_type(root, env)?;
-        let mut prefix = 0;
-        while !matches!(ty, TypeId::Host(_)) && prefix < chain.len() {
-            root = chain[prefix].0;
-            ty = self.resolve_readable_place_type(root, env)?;
-            prefix += 1;
-        }
-        chain.drain(..prefix);
-        let TypeId::Host(owner) = &ty else {
-            return None;
-        };
-        let owner = owner.clone();
-        let mut fields = Vec::new();
-        for (place, name) in chain {
-            let field = self.resolve_host_declared_field(&ty, &name);
-            let Some(field) = field else {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnknownName { name })
-                        .with_span(self.lowered.source_map.place_span(place)),
-                );
-                return Some(TypeId::Error);
-            };
-            self.type_table.insert_place_field(place, field.id.clone());
-            fields.push(field.id);
-            ty = crate::host::signature_type(&field.ty);
-            self.type_table.insert_place(place, ty.clone());
-        }
-        let index_ty = self.infer_expr_type(index, env);
-        match self.names.hosts.index_path(&owner, &fields, &index_ty) {
-            Ok((declaration, contract))
-                if declaration.access == kagari_common::host_interface::PathAccess::ReadWrite =>
-            {
-                let result = crate::host::signature_type(&contract.result);
-                self.type_table.insert_host_place_path(
-                    place_id,
-                    super::ResolvedHostPlacePath {
-                        root,
-                        declaration,
-                        contract,
-                    },
-                );
-                Some(result)
-            }
-            Ok(_) | Err(_) => {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidHostPath {
-                        reason: "host index path is missing, ambiguous, or read-only".into(),
-                    })
-                    .with_span(self.lowered.source_map.place_span(place_id)),
-                );
-                Some(TypeId::Error)
+    fn infer_host_path_read(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> Option<TypeId> {
+        use kagari_common::host_interface::HostPathSegmentDeclaration as Segment;
+        let mut root = expr_id;
+        let mut steps = Vec::new();
+        loop {
+            match &self.lowered.module.expr(root).kind {
+                ExprKind::Field { receiver, name } => {
+                    steps.push(HostPathNode::Member {
+                        node: root,
+                        name: name.clone(),
+                    });
+                    root = *receiver;
+                }
+                ExprKind::Index { receiver, index } => {
+                    steps.push(HostPathNode::Index {
+                        node: root,
+                        argument: *index,
+                    });
+                    root = *receiver;
+                }
+                _ => break,
             }
         }
-    }
-
-    fn infer_host_index_read(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> Option<TypeId> {
-        let ExprKind::Index { receiver, index } = self.lowered.module.expr(expr_id).kind else {
+        if steps.is_empty() {
             return None;
-        };
-        let mut root = receiver;
-        let mut chain = Vec::new();
-        while let ExprKind::Field { receiver, name } = &self.lowered.module.expr(root).kind {
-            chain.push((root, name.clone()));
-            root = *receiver;
         }
-        chain.reverse();
-        let mut ty = self.infer_expr_type(root, env);
+        steps.reverse();
+        let mut root_ty = self.infer_expr_type(root, env);
         let mut prefix = 0;
-        while !matches!(ty, TypeId::Host(_)) && prefix < chain.len() {
-            root = chain[prefix].0;
-            ty = self.infer_expr_type(root, env);
+        while !matches!(root_ty, TypeId::Host(_)) && prefix + 1 < steps.len() {
+            root = steps[prefix].id();
+            root_ty = self.infer_expr_type(root, env);
             prefix += 1;
         }
-        chain.drain(..prefix);
-        let TypeId::Host(owner) = &ty else {
+        steps.drain(..prefix);
+        let TypeId::Host(owner) = root_ty else {
             return None;
         };
-        let owner = owner.clone();
-        let mut fields = Vec::new();
-        for (expr, name) in chain {
-            let field = self.resolve_host_declared_field(&ty, &name);
-            let Some(field) = field else {
-                self.diagnostics.push(
-                    Diagnostic::error(if name.is_empty() {
-                        DiagnosticKind::ExpectedFieldName
-                    } else {
-                        DiagnosticKind::UnknownName { name }
-                    })
-                    .with_span(self.lowered.source_map.expr_span(expr)),
-                );
-                return Some(TypeId::Error);
-            };
-            self.type_table.insert_expr_field(expr, field.id.clone());
-            fields.push(field.id);
-            ty = crate::host::signature_type(&field.ty);
-            self.type_table.insert_expr(expr, ty.clone());
-            env.exprs.insert(expr, ty.clone());
-        }
-        let index_ty = self.infer_expr_type(index, env);
-        match self.names.hosts.index_path(&owner, &fields, &index_ty) {
+        let source = steps
+            .iter()
+            .map(|step| match step {
+                HostPathNode::Member { name, .. } => {
+                    crate::host::HostSourcePathStep::Member(name.clone())
+                }
+                HostPathNode::Index { argument, .. } => {
+                    crate::host::HostSourcePathStep::Index(self.infer_expr_type(*argument, env))
+                }
+            })
+            .collect::<Vec<_>>();
+        match self.names.hosts.source_path(&owner, &source) {
             Ok((declaration, contract)) => {
+                let mut dynamic_arguments = Vec::new();
+                for ((step, declared), result) in steps
+                    .iter()
+                    .zip(&declaration.segments)
+                    .zip(&contract.segments)
+                {
+                    if let (HostPathNode::Member { node, .. }, Segment::Field(id)) =
+                        (step, declared)
+                    {
+                        self.type_table.insert_expr_field(*node, id.clone());
+                    }
+                    if let (HostPathNode::Index { argument, .. }, Segment::Index(index)) =
+                        (step, declared)
+                    {
+                        dynamic_arguments.push((index.slot, *argument));
+                    }
+                    let ty = crate::host::signature_type(&result.result);
+                    self.type_table.insert_expr(step.id(), ty.clone());
+                    env.exprs.insert(step.id(), ty);
+                }
                 let result = crate::host::signature_type(&contract.result);
                 self.type_table.insert_host_path(
                     expr_id,
                     super::ResolvedHostPath {
                         root,
+                        dynamic_arguments,
                         declaration,
                         contract,
                     },
@@ -2368,149 +2332,179 @@ impl<'a> BodyChecker<'a> {
                 Some(result)
             }
             Err(reason) => {
+                let mut current = TypeId::Host(owner);
+                let mut recovered_all_members = true;
+                for step in &steps {
+                    match step {
+                        HostPathNode::Member { node, name } => {
+                            let Some(field) = self.resolve_host_declared_field(&current, name)
+                            else {
+                                recovered_all_members = false;
+                                break;
+                            };
+                            self.type_table.insert_expr_field(*node, field.id.clone());
+                            current = crate::host::signature_type(&field.ty);
+                        }
+                        HostPathNode::Index { .. } => {
+                            recovered_all_members = false;
+                            if let TypeId::Array(element) = current {
+                                current = *element;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.type_table.insert_expr(step.id(), current.clone());
+                    env.exprs.insert(step.id(), current.clone());
+                }
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidHostPath {
                         reason: reason.into(),
                     })
                     .with_span(self.lowered.source_map.expr_span(expr_id)),
                 );
-                Some(TypeId::Error)
+                Some(if recovered_all_members {
+                    current
+                } else {
+                    TypeId::Error
+                })
             }
         }
     }
 
-    fn infer_host_field_write(
+    fn infer_host_path_write(
         &mut self,
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        let PlaceKind::Field { .. } = self.lowered.module.place(place_id).kind else {
-            return None;
-        };
+        use kagari_common::host_interface::{HostPathSegmentDeclaration as Segment, PathAccess};
         let mut root = place_id;
-        let mut chain = Vec::new();
-        while let PlaceKind::Field { base, name } = &self.lowered.module.place(root).kind {
-            chain.push((root, name.clone()));
-            root = *base;
+        let mut steps = Vec::new();
+        loop {
+            match &self.lowered.module.place(root).kind {
+                PlaceKind::Field { base, name } => {
+                    steps.push(HostPathNode::Member {
+                        node: root,
+                        name: name.clone(),
+                    });
+                    root = *base;
+                }
+                PlaceKind::Index { base, index } => {
+                    steps.push(HostPathNode::Index {
+                        node: root,
+                        argument: *index,
+                    });
+                    root = *base;
+                }
+                _ => break,
+            }
         }
-        chain.reverse();
-        let mut ty = self.resolve_readable_place_type(root, env)?;
+        if steps.is_empty() {
+            return None;
+        }
+        steps.reverse();
+        let mut root_ty = self.resolve_readable_place_type(root, env)?;
         let mut prefix = 0;
-        while !matches!(ty, TypeId::Host(_)) && prefix + 1 < chain.len() {
-            root = chain[prefix].0;
-            ty = self.resolve_readable_place_type(root, env)?;
+        while !matches!(root_ty, TypeId::Host(_)) && prefix + 1 < steps.len() {
+            root = steps[prefix].id();
+            root_ty = self.resolve_readable_place_type(root, env)?;
             prefix += 1;
         }
-        chain.drain(..prefix);
-        let TypeId::Host(owner) = &ty else {
+        steps.drain(..prefix);
+        let TypeId::Host(owner) = root_ty else {
             return None;
         };
-        let owner = owner.clone();
-        let mut fields = Vec::new();
-        for (place, name) in chain {
-            let field = self.resolve_host_declared_field(&ty, &name);
-            let Some(field) = field else {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnknownName { name })
-                        .with_span(self.lowered.source_map.place_span(place)),
-                );
-                return Some(TypeId::Error);
-            };
-            self.type_table.insert_place_field(place, field.id.clone());
-            fields.push(field.id);
-            ty = crate::host::signature_type(&field.ty);
-            self.type_table.insert_place(place, ty.clone());
-        }
-        let resolved =
-            self.names
-                .hosts
-                .field_path(&owner, &fields)
-                .and_then(|(declaration, contract)| {
-                    if declaration.access != kagari_common::host_interface::PathAccess::ReadWrite {
-                        Err("field path is read-only")
-                    } else {
-                        Ok((declaration, contract))
+        let source = steps
+            .iter()
+            .map(|step| match step {
+                HostPathNode::Member { name, .. } => {
+                    crate::host::HostSourcePathStep::Member(name.clone())
+                }
+                HostPathNode::Index { argument, .. } => {
+                    crate::host::HostSourcePathStep::Index(self.infer_expr_type(*argument, env))
+                }
+            })
+            .collect::<Vec<_>>();
+        match self.names.hosts.source_path(&owner, &source) {
+            Ok((declaration, contract)) => {
+                let mut dynamic_arguments = Vec::new();
+                for ((step, declared), result) in steps
+                    .iter()
+                    .zip(&declaration.segments)
+                    .zip(&contract.segments)
+                {
+                    if let (HostPathNode::Member { node, .. }, Segment::Field(id)) =
+                        (step, declared)
+                    {
+                        self.type_table.insert_place_field(*node, id.clone());
                     }
-                });
-        match resolved {
-            Ok((declaration, contract)) => self.type_table.insert_host_place_path(
-                place_id,
-                super::ResolvedHostPlacePath {
-                    root,
-                    declaration,
-                    contract,
-                },
-            ),
-            Err(reason) => self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidHostPath {
-                    reason: reason.into(),
-                })
-                .with_span(self.lowered.source_map.place_span(place_id)),
-            ),
-        }
-        Some(ty)
-    }
-
-    fn infer_host_field_read(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> Option<TypeId> {
-        let ExprKind::Field { .. } = self.lowered.module.expr(expr_id).kind else {
-            return None;
-        };
-        let mut root = expr_id;
-        let mut chain = Vec::new();
-        while let ExprKind::Field { receiver, name } = &self.lowered.module.expr(root).kind {
-            chain.push((root, name.clone()));
-            root = *receiver;
-        }
-        chain.reverse();
-        let mut ty = self.infer_expr_type(root, env);
-        let mut prefix = 0;
-        while !matches!(ty, TypeId::Host(_)) && prefix + 1 < chain.len() {
-            root = chain[prefix].0;
-            ty = self.infer_expr_type(root, env);
-            prefix += 1;
-        }
-        chain.drain(..prefix);
-        let TypeId::Host(owner) = &ty else {
-            return None;
-        };
-        let owner = owner.clone();
-        let mut fields = Vec::new();
-        for (expr, name) in chain {
-            let field = self.resolve_host_declared_field(&ty, &name);
-            let Some(field) = field else {
+                    if let (HostPathNode::Index { argument, .. }, Segment::Index(index)) =
+                        (step, declared)
+                    {
+                        dynamic_arguments.push((index.slot, *argument));
+                    }
+                    self.type_table
+                        .insert_place(step.id(), crate::host::signature_type(&result.result));
+                }
+                let result = crate::host::signature_type(&contract.result);
+                if declaration.access != PathAccess::ReadWrite {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidHostPath {
+                            reason: "host path is read-only".into(),
+                        })
+                        .with_span(self.lowered.source_map.place_span(place_id)),
+                    );
+                } else {
+                    self.type_table.insert_host_place_path(
+                        place_id,
+                        super::ResolvedHostPlacePath {
+                            root,
+                            dynamic_arguments,
+                            declaration,
+                            contract,
+                        },
+                    );
+                }
+                Some(result)
+            }
+            Err(reason) => {
+                let mut current = TypeId::Host(owner);
+                let mut recovered_all_members = true;
+                for step in &steps {
+                    match step {
+                        HostPathNode::Member { node, name } => {
+                            let Some(field) = self.resolve_host_declared_field(&current, name)
+                            else {
+                                recovered_all_members = false;
+                                break;
+                            };
+                            self.type_table.insert_place_field(*node, field.id.clone());
+                            current = crate::host::signature_type(&field.ty);
+                        }
+                        HostPathNode::Index { .. } => {
+                            recovered_all_members = false;
+                            if let TypeId::Array(element) = current {
+                                current = *element;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.type_table.insert_place(step.id(), current.clone());
+                }
                 self.diagnostics.push(
-                    Diagnostic::error(if name.is_empty() {
-                        DiagnosticKind::ExpectedFieldName
-                    } else {
-                        DiagnosticKind::UnknownName { name }
+                    Diagnostic::error(DiagnosticKind::InvalidHostPath {
+                        reason: reason.into(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(expr)),
+                    .with_span(self.lowered.source_map.place_span(place_id)),
                 );
-                return Some(TypeId::Error);
-            };
-            self.type_table.insert_expr_field(expr, field.id.clone());
-            fields.push(field.id);
-            ty = crate::host::signature_type(&field.ty);
-            self.type_table.insert_expr(expr, ty.clone());
-            env.exprs.insert(expr, ty.clone());
-        }
-        match self.names.hosts.field_path(&owner, &fields) {
-            Ok((declaration, contract)) => self.type_table.insert_host_path(
-                expr_id,
-                super::ResolvedHostPath {
-                    root,
-                    declaration,
-                    contract,
-                },
-            ),
-            Err(reason) => self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidHostPath {
-                    reason: reason.into(),
+                Some(if recovered_all_members {
+                    current
+                } else {
+                    TypeId::Error
                 })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
-            ),
+            }
         }
-        Some(ty)
     }
 
     fn resolve_field(

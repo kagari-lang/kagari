@@ -1,5 +1,8 @@
 use super::IrLoweringError;
-use kagari_common::{host_interface::HostTypeDeclaration, identity::DefinitionId};
+use kagari_common::{
+    host_interface::{HostPathSegmentDeclaration, HostTypeDeclaration},
+    identity::DefinitionId,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn collect(
@@ -20,6 +23,29 @@ pub(super) fn collect(
             .and_then(|path| path.declaration.as_ref())
         {
             pending.push(declaration.root.clone());
+            for segment in &declaration.segments {
+                match segment {
+                    HostPathSegmentDeclaration::Field(field) => {
+                        let mut owner = field.clone();
+                        owner.path.pop();
+                        pending.push(owner);
+                    }
+                    HostPathSegmentDeclaration::Index(index) => {
+                        for ty in [&index.collection, &index.index, &index.result] {
+                            pending.extend(ty.nominal_references().into_iter().cloned());
+                        }
+                    }
+                    HostPathSegmentDeclaration::Virtual(virtual_step) => {
+                        pending.extend(
+                            virtual_step
+                                .result
+                                .nominal_references()
+                                .into_iter()
+                                .cloned(),
+                        );
+                    }
+                }
+            }
         }
         if let crate::module::Instruction::Call {
             callee: crate::module::CallTarget::HostFunction(function),

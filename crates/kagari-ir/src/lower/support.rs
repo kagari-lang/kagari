@@ -8,6 +8,7 @@ use crate::module::instruction::{
 };
 use crate::module::types::ValueType;
 use kagari_hir::typeck::ScalarValue;
+use std::ops::ControlFlow;
 
 impl From<ScalarValue> for Constant {
     fn from(value: ScalarValue) -> Self {
@@ -22,6 +23,36 @@ impl From<ScalarValue> for Constant {
 }
 
 impl FunctionLowerer<'_, '_> {
+    pub(super) fn lower_host_path_arguments(
+        &mut self,
+        arguments: &[(u32, hir::ExprId)],
+    ) -> Result<ControlFlow<IrValue, crate::module::ValueBuffer>, IrLoweringError> {
+        let mut ordered = vec![None; arguments.len()];
+        for (slot, argument) in arguments {
+            let value = self.lower_expr(*argument)?;
+            if self.current_block_terminated() {
+                return Ok(ControlFlow::Break(value));
+            }
+            let Some(target) = ordered.get_mut(*slot as usize) else {
+                return Err(IrLoweringError::MissingBinding("host path argument slot"));
+            };
+            if target.replace(value).is_some() {
+                return Err(IrLoweringError::MissingBinding(
+                    "repeated source path argument",
+                ));
+            }
+        }
+        let values = ordered
+            .into_iter()
+            .map(|value| {
+                value.ok_or(IrLoweringError::MissingBinding(
+                    "missing host path argument",
+                ))
+            })
+            .collect::<Result<crate::module::ValueBuffer, _>>()?;
+        Ok(ControlFlow::Continue(values))
+    }
+
     pub(crate) fn bind_local(
         &mut self,
         hir_local: hir::LocalId,

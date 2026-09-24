@@ -32,6 +32,12 @@ pub struct HostTypeId {
     index: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HostSourcePathStep {
+    Member(String),
+    Index(TypeId),
+}
+
 #[derive(Debug)]
 pub struct HostDeclarations {
     revision: u64,
@@ -210,10 +216,10 @@ impl HostDeclarations {
         self.revision
     }
 
-    pub(crate) fn field_path(
+    pub(crate) fn source_path(
         &self,
         root: &kagari_common::identity::DefinitionId,
-        fields: &[kagari_common::identity::DefinitionId],
+        steps: &[HostSourcePathStep],
     ) -> Result<
         (
             kagari_common::host_interface::HostPathDeclaration,
@@ -221,61 +227,35 @@ impl HostDeclarations {
         ),
         &'static str,
     > {
-        let mut matches = self
-            .interface
-            .paths
-            .iter()
-            .filter(|path| {
-                &path.root == root
-                    && path.segments.len() == fields.len()
-                    && path.segments.iter().zip(fields).all(|(segment, field)| {
-                        matches!(segment, kagari_common::host_interface::HostPathSegmentDeclaration::Field(id) if id == field)
-                    })
-            });
-        let declaration = matches.next().ok_or("field chain has no declared path")?;
-        if matches.next().is_some() {
-            return Err("field chain has ambiguous path declarations");
-        }
-        let contract = declaration
-            .contract(&self.interface)
-            .map_err(|_| "invalid declared path")?;
-        Ok((declaration.clone(), contract))
-    }
-
-    pub(crate) fn index_path(
-        &self,
-        root: &kagari_common::identity::DefinitionId,
-        fields: &[kagari_common::identity::DefinitionId],
-        index_type: &TypeId,
-    ) -> Result<
-        (
-            kagari_common::host_interface::HostPathDeclaration,
-            kagari_common::host_interface::HostPathContract,
-        ),
-        &'static str,
-    > {
+        use kagari_common::host_interface::HostPathSegmentDeclaration as Segment;
         let mut matches = self.interface.paths.iter().filter(|path| {
-            &path.root == root
-                && path.segments.len() == fields.len() + 1
-                && path.segments[..fields.len()]
-                    .iter()
-                    .zip(fields)
-                    .all(|(segment, field)| {
-                        matches!(segment, kagari_common::host_interface::HostPathSegmentDeclaration::Field(id) if id == field)
-                    })
-                && matches!(
-                    path.segments.last(),
-                    Some(kagari_common::host_interface::HostPathSegmentDeclaration::Index(index))
-                        if &signature_type(&index.index) == index_type
-                )
+            if &path.root != root || path.segments.len() != steps.len() {
+                return false;
+            }
+            let mut source_slots = std::collections::HashSet::new();
+            path.segments
+                .iter()
+                .zip(steps)
+                .all(|(segment, source)| match (segment, source) {
+                    (Segment::Field(id), HostSourcePathStep::Member(name)) => {
+                        self.field(id).is_some_and(|field| field.name == *name)
+                    }
+                    (Segment::Virtual(virtual_step), HostSourcePathStep::Member(name)) => {
+                        virtual_step.name == *name
+                    }
+                    (Segment::Index(index), HostSourcePathStep::Index(ty)) => {
+                        source_slots.insert(index.slot) && signature_type(&index.index) == *ty
+                    }
+                    _ => false,
+                })
         });
-        let declaration = matches.next().ok_or("index has no declared host path")?;
+        let declaration = matches.next().ok_or("path has no declared host contract")?;
         if matches.next().is_some() {
-            return Err("index has ambiguous host path declarations");
+            return Err("path has ambiguous host declarations");
         }
         let contract = declaration
             .contract(&self.interface)
-            .map_err(|_| "invalid declared host index path")?;
+            .map_err(|_| "invalid declared host path")?;
         Ok((declaration.clone(), contract))
     }
 
