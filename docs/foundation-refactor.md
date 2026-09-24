@@ -79,6 +79,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   Tests include nested applications, source facades, host types and CRLF/Unicode.
   The source_queries example checks both sides of this range distinction.
 
+- R04 declaration-origin checkpoint: named module, function, method, const,
+  struct, enum and trait declarations now expose their identifier token as the
+  target location. The full item range remains in the HIR source map for
+  diagnostics and lowering. Name ranges trim CST trivia, including leading
+  spaces; source_modules verifies an imported target lands on `Data` itself.
+  Parameter, local, field and variant name ranges use the same token boundary.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

@@ -197,6 +197,11 @@ offline host-type queries select only the terminal CST name. For `lib::Box<T>`,
 Nested type arguments keep their own targets. This also applies to trait bounds,
 where targets and explicit constructor type arguments.
 
+Named declaration locations point to the identifier token. The HIR source map
+separately retains the complete item range for diagnostics and code lowering.
+The same token-boundary rule applies to local bindings and named members, so
+leading or trailing trivia does not become part of a declaration target.
+
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated

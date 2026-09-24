@@ -6,7 +6,7 @@ use crate::hir::{
     TraitRef, TypeRefId, Variant, Visibility, Writeability,
 };
 use crate::hir::{BodyOwner, HirOwner};
-use crate::lower::context::{Lowerer, syntax_span};
+use crate::lower::context::{Lowerer, syntax_span, token_span};
 
 impl Lowerer {
     pub(crate) fn lower_module(&mut self, module: &ast::SourceFile) {
@@ -126,8 +126,13 @@ impl Lowerer {
     }
 
     fn lower_module_decl(&mut self, module_def: &ast::ModuleDef) -> ModuleDecl {
+        let id = self.source_map.push_module(syntax_span(module_def));
+        if let Some(name) = module_def.name() {
+            self.source_map
+                .insert_item_name(crate::hir::Item::Module(id), token_span(&name));
+        }
         ModuleDecl {
-            id: self.source_map.push_module(syntax_span(module_def)),
+            id,
             visibility: if module_def.is_pub() {
                 Visibility::Public
             } else {
@@ -203,6 +208,10 @@ impl Lowerer {
     }
     fn lower_trait(&mut self, trait_def: &ast::TraitDef) -> TraitDef {
         let id = self.source_map.push_trait(syntax_span(trait_def));
+        if let Some(name) = trait_def.name() {
+            self.source_map
+                .insert_item_name(crate::hir::Item::Trait(id), token_span(&name));
+        }
         let generic_params = trait_def
             .generic_params()
             .map(|params| self.lower_generic_params(&params))
@@ -297,6 +306,10 @@ impl Lowerer {
         inherited_generics: &[GenericParam],
     ) -> Function {
         let id = self.source_map.push_function(syntax_span(method));
+        if let Some(name) = method.name() {
+            self.source_map
+                .insert_item_name(crate::hir::Item::Function(id), token_span(&name));
+        }
         let previous_owner = self
             .source_map
             .set_owner(HirOwner::Body(BodyOwner::Function(id)));
@@ -365,7 +378,7 @@ impl Lowerer {
                     id: self.source_map.push_param(
                         param
                             .name()
-                            .map(|name| syntax_span(&name))
+                            .map(|name| token_span(&name))
                             .unwrap_or_else(|| syntax_span(&param)),
                     ),
                     writeability: Writeability::Val,
@@ -378,6 +391,10 @@ impl Lowerer {
 
     fn lower_function(&mut self, function: &ast::FnDef) -> Function {
         let id = self.source_map.push_function(syntax_span(function));
+        if let Some(name) = function.name() {
+            self.source_map
+                .insert_item_name(crate::hir::Item::Function(id), token_span(&name));
+        }
         let previous_owner = self
             .source_map
             .set_owner(HirOwner::Body(BodyOwner::Function(id)));
@@ -390,7 +407,7 @@ impl Lowerer {
                         id: self.source_map.push_param(
                             param
                                 .name()
-                                .map(|name| syntax_span(&name))
+                                .map(|name| token_span(&name))
                                 .unwrap_or_else(|| syntax_span(&param)),
                         ),
                         writeability: Writeability::Val,
@@ -447,7 +464,7 @@ impl Lowerer {
                 id: self.source_map.push_generic_param(
                     param
                         .name()
-                        .map(|name| syntax_span(&name))
+                        .map(|name| token_span(&name))
                         .unwrap_or_else(|| syntax_span(&param)),
                 ),
                 name: param.name_text().unwrap_or_default(),
@@ -466,7 +483,7 @@ impl Lowerer {
                 let name = predicate.name();
                 let target_ref = self.alloc_type(
                     name.as_ref()
-                        .map(syntax_span)
+                        .map(token_span)
                         .unwrap_or_else(|| syntax_span(&predicate)),
                     crate::hir::TypeData {
                         kind: crate::hir::TypeKind::Named(
@@ -476,7 +493,7 @@ impl Lowerer {
                 );
                 if let Some(name) = name {
                     self.source_map
-                        .insert_type_name(target_ref, syntax_span(&name));
+                        .insert_type_name(target_ref, token_span(&name));
                 }
                 TraitBound {
                     target: predicate.name_text().unwrap_or_default(),
@@ -511,13 +528,17 @@ impl Lowerer {
             crate::hir::TypeData { kind },
         );
         if let Some(name) = trait_ref.path().and_then(|path| path.segments().last()) {
-            self.source_map.insert_type_name(ty, syntax_span(&name));
+            self.source_map.insert_type_name(ty, token_span(&name));
         }
         TraitRef { ty }
     }
 
     fn lower_const(&mut self, const_def: &ast::ConstDef) -> ConstItem {
         let id = self.source_map.push_const(syntax_span(const_def));
+        if let Some(name) = const_def.name() {
+            self.source_map
+                .insert_item_name(crate::hir::Item::Const(id), token_span(&name));
+        }
         let previous_owner = self
             .source_map
             .set_owner(HirOwner::Body(BodyOwner::Const(id)));
@@ -541,6 +562,10 @@ impl Lowerer {
 
     fn lower_struct(&mut self, struct_def: &ast::StructDef) -> Struct {
         let id = self.source_map.push_struct(syntax_span(struct_def));
+        if let Some(name) = struct_def.name() {
+            self.source_map
+                .insert_item_name(crate::hir::Item::Struct(id), token_span(&name));
+        }
         let generic_params = struct_def
             .generic_params()
             .map(|params| self.lower_generic_params(&params))
@@ -557,7 +582,7 @@ impl Lowerer {
                             field_id,
                             field
                                 .name()
-                                .map(|name| syntax_span(&name))
+                                .map(|name| token_span(&name))
                                 .unwrap_or_else(|| syntax_span(&field)),
                         );
                         Field {
@@ -595,6 +620,10 @@ impl Lowerer {
 
     fn lower_enum(&mut self, enum_def: &ast::EnumDef) -> Enum {
         let id = self.source_map.push_enum(syntax_span(enum_def));
+        if let Some(name) = enum_def.name() {
+            self.source_map
+                .insert_item_name(crate::hir::Item::Enum(id), token_span(&name));
+        }
         let generic_params = enum_def
             .generic_params()
             .map(|params| self.lower_generic_params(&params))
@@ -612,7 +641,7 @@ impl Lowerer {
                             variant_id,
                             variant
                                 .name()
-                                .map(|name| syntax_span(&name))
+                                .map(|name| token_span(&name))
                                 .unwrap_or_else(|| syntax_span(&variant)),
                         );
                         Variant {

@@ -80,7 +80,7 @@ impl Module {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Item {
     Function(FunctionId),
     Const(ConstId),

@@ -6,7 +6,7 @@ use kagari_syntax::kind::SyntaxKind;
 use smallvec::{SmallVec, smallvec};
 
 use crate::hir::{BlockData, ExprData, ExprId, ExprKind, FieldInit, MatchArm, PrefixOp};
-use crate::lower::context::{Lowerer, lower_binary_op, syntax_span};
+use crate::lower::context::{Lowerer, lower_binary_op, syntax_span, token_span};
 
 impl Lowerer {
     pub(crate) fn lower_expr(&mut self, expr: &ast::Expr) -> ExprId {
@@ -22,7 +22,7 @@ impl Lowerer {
                     let name = path.path().and_then(|path| path.text()).unwrap_or_default();
                     let mut span = syntax_span(&arguments);
                     if let Some(base) = path.path() {
-                        span.start = syntax_span(&base).start;
+                        span.start = token_span(&base).start;
                     }
                     let id = self.alloc_type(
                         span,
@@ -31,7 +31,7 @@ impl Lowerer {
                         },
                     );
                     if let Some(base) = path.path().and_then(|path| path.segments().last()) {
-                        self.source_map.insert_type_name(id, syntax_span(&base));
+                        self.source_map.insert_type_name(id, token_span(&base));
                     }
                     id
                 }),
@@ -129,7 +129,7 @@ impl Lowerer {
                         .path()
                         .and_then(|path| path.path()?.segments().last())
                     {
-                        self.source_map.insert_type_name(id, syntax_span(&base));
+                        self.source_map.insert_type_name(id, token_span(&base));
                     }
                     id
                 }),
@@ -194,15 +194,13 @@ impl Lowerer {
         match expr {
             ast::Expr::FieldExpr(field) => {
                 if let Some(name) = field.name() {
-                    self.source_map
-                        .insert_expr_reference(id, syntax_span(&name));
+                    self.source_map.insert_expr_reference(id, token_span(&name));
                 }
             }
             ast::Expr::PathExpr(path) => {
                 let name = path.name().or_else(|| path.path()?.segments().last());
                 if let Some(name) = name {
-                    self.source_map
-                        .insert_expr_reference(id, syntax_span(&name));
+                    self.source_map.insert_expr_reference(id, token_span(&name));
                 }
                 if let Some(path_segments) = path.path() {
                     let mut previous = None;
@@ -217,7 +215,7 @@ impl Lowerer {
                         previous
                     };
                     if let Some(owner) = owner {
-                        self.source_map.insert_expr_owner(id, syntax_span(&owner));
+                        self.source_map.insert_expr_owner(id, token_span(&owner));
                     }
                 }
             }
@@ -226,14 +224,13 @@ impl Lowerer {
                     .path()
                     .and_then(|path| path.name().or_else(|| path.path()?.segments().last()))
                 {
-                    self.source_map
-                        .insert_expr_reference(id, syntax_span(&name));
+                    self.source_map.insert_expr_reference(id, token_span(&name));
                 }
                 let spans = struct_expr
                     .field_list()
                     .map(|list| {
                         list.fields()
-                            .map(|field| field.name().map(|name| syntax_span(&name)))
+                            .map(|field| field.name().map(|name| token_span(&name)))
                             .collect()
                     })
                     .unwrap_or_default();

@@ -53,6 +53,15 @@ fn main() {
     let type_offset = file.source().text().find("Data)").unwrap();
     let declaration = snapshot.definition_at(root.file, type_offset).unwrap();
     assert_ne!(declaration.location.file, root.file);
+    let defining_text = snapshot
+        .file(declaration.location.file)
+        .unwrap()
+        .source()
+        .text();
+    assert_eq!(
+        &defining_text[declaration.location.range.start..declaration.location.range.end],
+        "Data"
+    );
     println!(
         "imported type {} has a dependency-owned definition",
         declaration.name

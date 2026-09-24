@@ -4,7 +4,7 @@ use smallvec::{SmallVec, smallvec};
 use crate::hir::{
     BlockData, BlockId, PlaceData, PlaceId, PlaceKind, StmtData, StmtId, StmtKind, Writeability,
 };
-use crate::lower::context::{Lowerer, syntax_span};
+use crate::lower::context::{Lowerer, syntax_span, token_span};
 
 impl Lowerer {
     pub(crate) fn lower_block(&mut self, block: &ast::BlockExpr) -> BlockId {
@@ -30,7 +30,7 @@ impl Lowerer {
             ast::Stmt::BindingStmt(stmt) => StmtKind::Binding {
                 local: self.source_map.push_local(
                     stmt.name()
-                        .map(|name| syntax_span(&name))
+                        .map(|name| token_span(&name))
                         .unwrap_or_else(|| syntax_span(stmt)),
                 ),
                 writeability: if stmt.is_var() {
@@ -136,7 +136,7 @@ impl Lowerer {
                     },
                 );
                 if let Some(name) = field.name() {
-                    self.source_map.insert_place_member(id, syntax_span(&name));
+                    self.source_map.insert_place_member(id, token_span(&name));
                 }
                 id
             }

@@ -15,6 +15,53 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 #[test]
+fn named_declarations_point_to_identifier_tokens() {
+    let text = "// 中文 😀\r\nconst C: i32 = 1; struct S { val x: i32 } enum E { V } trait T { fn f(self); } fn run() {}";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("declaration-names.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let analyzed = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let file = analyzed.file(id).unwrap();
+    for (name, source, name_offset) in [
+        ("C", "const C", 6),
+        ("S", "struct S", 7),
+        ("E", "enum E", 5),
+        ("T", "trait T", 6),
+        ("f", "fn f(self)", 3),
+        ("run", "fn run()", 3),
+    ] {
+        let declaration = file
+            .result()
+            .facts()
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == name)
+            .unwrap();
+        let range = declaration.location.range;
+        assert_eq!(&text[range.start..range.end], name);
+        assert_eq!(range.start, text.find(source).unwrap() + name_offset);
+    }
+    let function = file
+        .result()
+        .facts()
+        .lowered
+        .module
+        .functions
+        .iter()
+        .find(|function| function.name == "run")
+        .unwrap();
+    let item = file
+        .result()
+        .facts()
+        .lowered
+        .source_map
+        .function_span(function.id);
+    assert!(item.start < item.end);
+    assert!(item.end > text.find("fn run()").unwrap() + "fn run()".len());
+}
+
+#[test]
 fn semantic_diagnostic_budget_invalidates_cached_results_without_changing_old_snapshots() {
     let mut sources = SourceDatabase::default();
     let text = "fn bad() { missing_one; missing_two; } fn good() -> i32 { 7 }";
@@ -277,7 +324,7 @@ fn trait_call_navigation_consumes_checked_method_target_even_with_bad_arguments(
         .definition_at(text.find("show(true)").unwrap())
         .unwrap();
     assert_eq!(method.name, "show");
-    assert_eq!(method.location.range.start, text.find("fn show").unwrap());
+    assert_eq!(method.location.range.start, text.find("show(self").unwrap());
     let receiver = analysis
         .definition_at(text.find("value.show").unwrap())
         .unwrap();

@@ -2,7 +2,7 @@ use kagari_syntax::ast;
 use smallvec::SmallVec;
 
 use crate::hir::{TypeData, TypeKind, TypeRefId};
-use crate::lower::context::{Lowerer, syntax_span};
+use crate::lower::context::{Lowerer, syntax_span, token_span};
 
 impl Lowerer {
     pub(crate) fn lower_type(&mut self, ty: &ast::TypeRef) -> TypeRefId {
@@ -44,7 +44,7 @@ impl Lowerer {
             .and_then(|path| path.segments().last())
             .or_else(|| ty.name())
         {
-            self.source_map.insert_type_name(id, syntax_span(&name));
+            self.source_map.insert_type_name(id, token_span(&name));
         }
         id
     }

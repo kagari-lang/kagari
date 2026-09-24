@@ -10,6 +10,7 @@ pub struct SourceMap {
     arena: crate::hir::HirArenaId,
     owner: crate::hir::HirOwner,
     generic_param_spans: Vec<Span>,
+    item_name_spans: std::collections::HashMap<crate::hir::Item, Span>,
     field_spans: std::collections::HashMap<crate::hir::FieldId, Span>,
     variant_spans: std::collections::HashMap<crate::hir::VariantId, Span>,
     function_spans: Vec<Span>,
@@ -224,6 +225,19 @@ impl SourceMap {
         self.expr_spans.push(span);
         self.expr_owners.push(self.owner);
         id
+    }
+
+    pub(crate) fn insert_item_name(&mut self, item: crate::hir::Item, span: Span) {
+        self.item_name_spans.insert(item, span);
+    }
+
+    pub fn item_name_span(&self, item: crate::hir::Item) -> Option<Span> {
+        self.item_name_spans.get(&item).copied()
+    }
+
+    pub fn item_declaration_span(&self, item: crate::hir::Item) -> Span {
+        self.item_name_span(item)
+            .unwrap_or_else(|| self.item_span(item))
     }
 
     pub(crate) fn insert_expr_reference(&mut self, id: ExprId, span: Span) {

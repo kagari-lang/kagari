@@ -229,7 +229,7 @@ impl Declarations {
                 &[],
                 kind,
                 &item.name,
-                map.function_span(item.id),
+                map.item_declaration_span(crate::hir::Item::Function(item.id)),
             );
             builder.generic_params(&owner, &item.generic_params, map);
         }
@@ -242,7 +242,7 @@ impl Declarations {
                 &[],
                 DefinitionKind::Const,
                 &item.name,
-                map.const_span(item.id),
+                map.item_declaration_span(crate::hir::Item::Const(item.id)),
             );
         }
         for item in &module.modules {
@@ -254,7 +254,7 @@ impl Declarations {
                 &[],
                 DefinitionKind::Module,
                 &item.name,
-                map.module_span(item.id),
+                map.item_declaration_span(crate::hir::Item::Module(item.id)),
             );
         }
         for item in &module.structs {
@@ -266,7 +266,7 @@ impl Declarations {
                 &[],
                 DefinitionKind::Struct,
                 &item.name,
-                map.struct_span(item.id),
+                map.item_declaration_span(crate::hir::Item::Struct(item.id)),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for field in &item.fields {
@@ -291,7 +291,7 @@ impl Declarations {
                 &[],
                 DefinitionKind::Enum,
                 &item.name,
-                map.enum_span(item.id),
+                map.item_declaration_span(crate::hir::Item::Enum(item.id)),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for variant in &item.variants {
@@ -316,7 +316,7 @@ impl Declarations {
                 &[],
                 DefinitionKind::Trait,
                 &item.name,
-                map.trait_span(item.id),
+                map.item_declaration_span(crate::hir::Item::Trait(item.id)),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
@@ -328,7 +328,7 @@ impl Declarations {
                     &owner.path,
                     DefinitionKind::Method,
                     &method.name,
-                    map.function_span(method.function),
+                    map.item_declaration_span(crate::hir::Item::Function(method.function)),
                 );
                 let function = module
                     .functions
@@ -353,7 +353,7 @@ impl Declarations {
                     &owner.path,
                     DefinitionKind::Method,
                     &method.name,
-                    map.function_span(method.function),
+                    map.item_declaration_span(crate::hir::Item::Function(method.function)),
                 );
                 let function = module
                     .functions
