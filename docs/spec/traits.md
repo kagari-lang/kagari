@@ -439,6 +439,8 @@ Local impl headers and bounds resolve applied trait types with checked argument
 arity. Executable interface values remain separate work.
 Trait methods compare local generic binders by position after substituting
 trait arguments and `Self`; binder spelling does not affect impl matching.
+The same substitution applies to method bounds in the public interface table,
+including type arguments nested inside applied trait constraints.
 Local and imported interface annotations use these same contracts for argument
 checking, Self substitution, and definition queries. Invalid parameter types retain
 Error facts without discarding later parameters or unrelated declarations.

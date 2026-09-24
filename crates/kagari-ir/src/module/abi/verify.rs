@@ -197,19 +197,6 @@ fn same_method_contract(
         DefinitionKind::Method,
         &implemented.name,
     );
-    if !declared
-        .bounds
-        .iter()
-        .zip(&implemented.bounds)
-        .all(|(expected, actual)| {
-            expected.position == actual.position
-                && expected.constraints == actual.constraints
-                && ((expected.owner == trait_method && actual.owner == impl_method)
-                    || (expected.owner == *trait_owner && actual.owner == *impl_owner))
-        })
-    {
-        return false;
-    }
     let matches_type = |expected: &AbiType, actual: &AbiType| {
         let mut pending = vec![(expected, actual)];
         while let Some((expected, actual)) = pending.pop() {
@@ -281,6 +268,30 @@ fn same_method_contract(
         }
         true
     };
+    if !declared
+        .bounds
+        .iter()
+        .zip(&implemented.bounds)
+        .all(|(expected, actual)| {
+            expected.position == actual.position
+                && expected.constraints.len() == actual.constraints.len()
+                && ((expected.owner == trait_method && actual.owner == impl_method)
+                    || (expected.owner == *trait_owner && actual.owner == *impl_owner))
+                && expected
+                    .constraints
+                    .iter()
+                    .zip(&actual.constraints)
+                    .all(|(expected, actual)| match (expected, actual) {
+                        (ConstraintAbi::Standard(a), ConstraintAbi::Standard(b)) => a == b,
+                        (ConstraintAbi::Trait(a), ConstraintAbi::Trait(b)) => {
+                            matches_type(&AbiType::Trait(a.clone()), &AbiType::Trait(b.clone()))
+                        }
+                        _ => false,
+                    })
+        })
+    {
+        return false;
+    }
     declared
         .params
         .iter()
@@ -550,14 +561,14 @@ mod tests {
         ));
         implemented.params[0].ty = original_param;
         declared.bounds.push(GenericBoundAbi {
-            owner: trait_method,
+            owner: trait_method.clone(),
             position: 0,
             constraints: vec![ConstraintAbi::Standard(
                 kagari_hir::builtin::surface::StandardTypeConstraint::HashKey,
             )],
         });
         implemented.bounds.push(GenericBoundAbi {
-            owner: impl_method,
+            owner: impl_method.clone(),
             position: 0,
             constraints: declared.bounds[0].constraints.clone(),
         });
@@ -571,6 +582,40 @@ mod tests {
             &cancel,
         ));
         implemented.bounds[0].constraints.clear();
+        assert!(!same_method_contract(
+            &declared,
+            &implemented,
+            &trait_owner,
+            &[],
+            &impl_owner,
+            &for_type,
+            &cancel,
+        ));
+        let marker = owner(&module, &[], DefinitionKind::Trait, "Marker");
+        let applied = |parameter_owner| {
+            ConstraintAbi::Trait(NominalAbiType {
+                declaration: marker.clone(),
+                arguments: vec![AbiType::Array(Box::new(AbiType::Parameter {
+                    owner: parameter_owner,
+                    position: 0,
+                }))],
+            })
+        };
+        declared.bounds[0].constraints = vec![applied(trait_method.clone())];
+        implemented.bounds[0].constraints = vec![applied(impl_method)];
+        assert!(same_method_contract(
+            &declared,
+            &implemented,
+            &trait_owner,
+            &[],
+            &impl_owner,
+            &for_type,
+            &cancel,
+        ));
+        let ConstraintAbi::Trait(instance) = &mut implemented.bounds[0].constraints[0] else {
+            unreachable!()
+        };
+        instance.arguments[0] = AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::Bool)));
         assert!(!same_method_contract(
             &declared,
             &implemented,

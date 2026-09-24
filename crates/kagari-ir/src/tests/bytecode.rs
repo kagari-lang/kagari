@@ -106,6 +106,14 @@ fn applied_trait_interface_table_preserves_method_contract() {
 }
 
 #[test]
+fn applied_trait_method_bounds_match_across_binder_owners() {
+    let module = common::bytecode_ok(
+        "pub trait Marker<T> {} pub struct Holder {} impl Marker<i32> for Holder {} pub trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } impl Consumer<i32> for Holder { fn take<V: Marker<i32>>(self, value: V) -> V { value } } fn main() {}",
+    );
+    verify_module(&module).unwrap();
+}
+
+#[test]
 fn applied_trait_template_keeps_impl_and_trait_arguments() {
     let module = common::bytecode_ok(
         "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn main() {}",

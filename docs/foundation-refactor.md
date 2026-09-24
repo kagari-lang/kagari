@@ -543,6 +543,12 @@ R02 acceptance evidence:
   with different names match and different binder counts are rejected. Generic
   method invocation and runtime interface dispatch remain separate work.
 
+- R07 applied method-bound checkpoint: interface ABI validation now compares
+  method bounds after substituting trait arguments, `Self`, and method-local
+  binders. Equivalent applied bounds with different binder declarations pass;
+  changed nested type arguments fail. A source-to-bytecode regression covers
+  a method bound that refers to an applied trait parameter.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover
