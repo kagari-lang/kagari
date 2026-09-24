@@ -143,10 +143,18 @@ pub(crate) fn validate(
             || table.methods.len() != interface.methods.len()
             || !table.methods.iter().all(|method| {
                 cancel.check().is_ok()
-                    && interface
-                        .methods
-                        .iter()
-                        .any(|declared| declared.name == method.name)
+                    && interface.methods.iter().any(|declared| {
+                        declared.name == method.name
+                            && same_method_contract(
+                                declared,
+                                method,
+                                &instance.declaration,
+                                &instance.arguments,
+                                &table.declaration,
+                                &table.for_type,
+                                cancel,
+                            )
+                    })
             })
         {
             cancel
@@ -156,6 +164,127 @@ pub(crate) fn validate(
         }
     }
     Ok(())
+}
+
+fn same_method_contract(
+    declared: &FunctionAbi,
+    implemented: &FunctionAbi,
+    trait_owner: &DefinitionId,
+    trait_arguments: &[AbiType],
+    impl_owner: &DefinitionId,
+    for_type: &AbiType,
+    cancel: &CancellationToken,
+) -> bool {
+    if declared.generic_params.len() != implemented.generic_params.len()
+        || declared.params.len() != implemented.params.len()
+        || declared.bounds.len() != implemented.bounds.len()
+    {
+        return false;
+    }
+    let trait_method = owner(
+        &trait_owner.module,
+        &trait_owner.path,
+        DefinitionKind::Method,
+        &declared.name,
+    );
+    let impl_method = owner(
+        &impl_owner.module,
+        &impl_owner.path,
+        DefinitionKind::Method,
+        &implemented.name,
+    );
+    if !declared
+        .bounds
+        .iter()
+        .zip(&implemented.bounds)
+        .all(|(expected, actual)| {
+            expected.position == actual.position
+                && expected.constraints == actual.constraints
+                && ((expected.owner == trait_method && actual.owner == impl_method)
+                    || (expected.owner == *trait_owner && actual.owner == *impl_owner))
+        })
+    {
+        return false;
+    }
+    let matches_type = |expected: &AbiType, actual: &AbiType| {
+        let mut pending = vec![(expected, actual)];
+        while let Some((expected, actual)) = pending.pop() {
+            if cancel.check().is_err() {
+                return false;
+            }
+            match (expected, actual) {
+                (AbiType::SelfType(id), actual) if id == trait_owner => {
+                    pending.push((for_type, actual));
+                }
+                (
+                    AbiType::Parameter {
+                        owner: id,
+                        position,
+                    },
+                    actual,
+                ) if id == trait_owner => {
+                    let Some(argument) = trait_arguments.get(*position) else {
+                        return false;
+                    };
+                    pending.push((argument, actual));
+                }
+                (
+                    AbiType::Parameter {
+                        owner: id,
+                        position,
+                    },
+                    AbiType::Parameter {
+                        owner: actual_owner,
+                        position: actual_position,
+                    },
+                ) if id == &trait_method
+                    && actual_owner == &impl_method
+                    && position == actual_position => {}
+                (
+                    AbiType::Parameter {
+                        owner: expected_owner,
+                        position: expected_position,
+                    },
+                    AbiType::Parameter {
+                        owner: actual_owner,
+                        position: actual_position,
+                    },
+                ) if expected_owner == actual_owner && expected_position == actual_position => {}
+                (AbiType::Builtin(a), AbiType::Builtin(b)) if a == b => {}
+                (AbiType::Host(a), AbiType::Host(b)) if a == b => {}
+                (AbiType::Tuple(a), AbiType::Tuple(b)) if a.len() == b.len() => {
+                    pending.extend(a.iter().zip(b));
+                }
+                (AbiType::Array(a), AbiType::Array(b)) | (AbiType::Set(a), AbiType::Set(b)) => {
+                    pending.push((a, b))
+                }
+                (AbiType::Map { key: ak, value: av }, AbiType::Map { key: bk, value: bv }) => {
+                    pending.extend([(ak.as_ref(), bk.as_ref()), (av.as_ref(), bv.as_ref())])
+                }
+                (AbiType::Struct(a), AbiType::Struct(b))
+                | (AbiType::Enum(a), AbiType::Enum(b))
+                | (AbiType::Trait(a), AbiType::Trait(b))
+                    if a.declaration == b.declaration && a.arguments.len() == b.arguments.len() =>
+                {
+                    pending.extend(a.arguments.iter().zip(&b.arguments));
+                }
+                (
+                    AbiType::StandardEnum { kind: ak, args: aa },
+                    AbiType::StandardEnum { kind: bk, args: ba },
+                ) if ak == bk && aa.len() == ba.len() => pending.extend(aa.iter().zip(ba)),
+                _ => return false,
+            }
+        }
+        true
+    };
+    declared
+        .params
+        .iter()
+        .zip(&implemented.params)
+        .all(|(expected, actual)| {
+            expected.mutable == actual.mutable && matches_type(&expected.ty, &actual.ty)
+        })
+        && matches_type(&declared.return_type, &implemented.return_type)
 }
 
 fn aggregate_shape_valid(ty: &TypeAbi, cancel: &CancellationToken) -> bool {
@@ -335,6 +464,115 @@ mod tests {
     use crate::bytecode::{BytecodeVerificationError, verify_module};
 
     #[test]
+    fn interface_method_contract_substitutes_self_and_method_binders_inside_containers() {
+        let module = ModuleIdentity::single_file("interface.kgr");
+        let trait_owner = owner(&module, &[], DefinitionKind::Trait, "Read");
+        let impl_owner = owner(&module, &[], DefinitionKind::Impl, "");
+        let trait_method = owner(&module, &trait_owner.path, DefinitionKind::Method, "read");
+        let impl_method = owner(&module, &impl_owner.path, DefinitionKind::Method, "read");
+        let for_type = AbiType::Struct(NominalAbiType {
+            declaration: owner(&module, &[], DefinitionKind::Struct, "Player"),
+            arguments: Vec::new(),
+        });
+        let mut declared = FunctionAbi {
+            name: "read".into(),
+            generic_params: vec![GenericParameterAbi {
+                owner: trait_method.clone(),
+                position: 0,
+            }],
+            bounds: Vec::new(),
+            params: vec![ParameterAbi {
+                name: "input".into(),
+                ty: AbiType::Array(Box::new(AbiType::Tuple(vec![
+                    AbiType::SelfType(trait_owner.clone()),
+                    AbiType::Parameter {
+                        owner: trait_method.clone(),
+                        position: 0,
+                    },
+                ]))),
+                mutable: false,
+            }],
+            return_type: AbiType::Builtin(BuiltinType::I32),
+        };
+        let mut implemented = FunctionAbi {
+            name: "read".into(),
+            generic_params: vec![GenericParameterAbi {
+                owner: impl_method.clone(),
+                position: 0,
+            }],
+            bounds: Vec::new(),
+            params: vec![ParameterAbi {
+                name: "renamed".into(),
+                ty: AbiType::Array(Box::new(AbiType::Tuple(vec![
+                    for_type.clone(),
+                    AbiType::Parameter {
+                        owner: impl_method.clone(),
+                        position: 0,
+                    },
+                ]))),
+                mutable: false,
+            }],
+            return_type: AbiType::Builtin(BuiltinType::I32),
+        };
+        let cancel = CancellationToken::default();
+        assert!(same_method_contract(
+            &declared,
+            &implemented,
+            &trait_owner,
+            &[],
+            &impl_owner,
+            &for_type,
+            &cancel,
+        ));
+        let original_param = implemented.params[0].ty.clone();
+        implemented.params[0].ty = AbiType::Array(Box::new(AbiType::Tuple(vec![
+            for_type.clone(),
+            AbiType::Builtin(BuiltinType::Bool),
+        ])));
+        assert!(!same_method_contract(
+            &declared,
+            &implemented,
+            &trait_owner,
+            &[],
+            &impl_owner,
+            &for_type,
+            &cancel,
+        ));
+        implemented.params[0].ty = original_param;
+        declared.bounds.push(GenericBoundAbi {
+            owner: trait_method,
+            position: 0,
+            constraints: vec![ConstraintAbi::Standard(
+                kagari_hir::builtin::surface::StandardTypeConstraint::HashKey,
+            )],
+        });
+        implemented.bounds.push(GenericBoundAbi {
+            owner: impl_method,
+            position: 0,
+            constraints: declared.bounds[0].constraints.clone(),
+        });
+        assert!(same_method_contract(
+            &declared,
+            &implemented,
+            &trait_owner,
+            &[],
+            &impl_owner,
+            &for_type,
+            &cancel,
+        ));
+        implemented.bounds[0].constraints.clear();
+        assert!(!same_method_contract(
+            &declared,
+            &implemented,
+            &trait_owner,
+            &[],
+            &impl_owner,
+            &for_type,
+            &cancel,
+        ));
+    }
+
+    #[test]
     fn interface_tables_require_distinct_local_impl_identities() {
         let original = crate::tests::common::bytecode_ok(
             "struct Player { val value: i32 } pub trait Display { fn show(self) -> i32; } impl Display for Player { fn show(self) -> i32 { self.value } } fn main() -> i32 { 1 }",
@@ -360,6 +598,21 @@ mod tests {
                 0 => table.declaration.module.package.0 = "foreign".into(),
                 1 => table.declaration.path[0].kind = DefinitionKind::Trait,
                 _ => table.declaration.path[0].name = "fabricated".into(),
+            }
+            assert!(matches!(
+                verify_module(&module),
+                Err(BytecodeVerificationError::InvalidPublicAbi)
+            ));
+        }
+        for corruption in 0..3 {
+            let mut module = original.clone();
+            let PublicAbiItem::InterfaceTable(table) = &mut module.public_items[table_index] else {
+                unreachable!()
+            };
+            match corruption {
+                0 => table.methods[0].return_type = AbiType::Builtin(BuiltinType::Bool),
+                1 => table.methods[0].params[0].mutable = true,
+                _ => table.methods[0].params[0].ty = AbiType::Builtin(BuiltinType::I32),
             }
             assert!(matches!(
                 verify_module(&module),

@@ -476,7 +476,9 @@ R02 acceptance evidence:
   declaration identity, and the public interface-table ABI carries it separately
   from its diagnostic display label. IR/bytecode validation requires a unique,
   local impl identity, verifies method binder ownership against that impl, and
-  checks complete unique method rosters for local public traits.
+  checks complete unique method rosters and signatures for local public traits.
+  Signature comparison substitutes trait `Self`, trait arguments and method
+  binders through nested ABI types, and checks parameter mutability and bounds.
   Public ABI reload keys use the canonical encoded identity, so equal display
   labels in different packages cannot alias. KBC format/runtime ABI v27 reject
   older products. The layouts example prints the checked table; executable
