@@ -33,6 +33,7 @@ fn main() {
         .trait_implementations
         .push(HostTraitImplementationDeclaration::new(
             trait_id,
+            vec![],
             vec![HostTraitMethodBinding {
                 trait_method,
                 host_method: method.id.clone(),

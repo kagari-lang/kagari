@@ -398,10 +398,12 @@ A host object may:
 
 Host borrowing rules do not leak into the script trait model.
 If a host-backed value is exposed through an interface, method calls must still respect host registration, capability, path mutation, and call-boundary rules.
-Concrete host types with a checked non-generic trait table satisfy static trait
-bounds. A specialized bound call selects the mapped host method by declaration
-identity and uses the normal host call contract. Dynamic interface values remain
-future work.
+Concrete host types with a checked applied trait table satisfy matching static
+trait bounds. Ordered arguments distinguish `Readable<i32>` from
+`Readable<bool>` on the same host type. A specialized bound call selects the
+mapped host method by declaration identity and uses the normal host call
+contract. Host declaration arguments use `HostValueType`; dynamic interface
+values remain future work.
 
 ## Initial Feature Set
 

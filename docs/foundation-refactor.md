@@ -629,13 +629,12 @@ R02 acceptance evidence:
 - R07 host trait-signature checkpoint: signature completion compares each host
   binding with the script trait in its defining module. It rejects missing or
   extra methods, receiver/parameter count and type mismatches, return type
-  mismatches, and generic traits or methods without a concrete host binding.
+  mismatches, and generic methods without a concrete host binding.
   These are source diagnostics before code generation; changes to host
   declarations or script signatures invalidate them. Host passing styles remain
-  explicit ABI properties. Executable host interface dispatch and applied
-  generic trait bindings remain open, so R07 stays unchecked.
+  explicit ABI properties. Executable interface dispatch remains open.
 
-- R07 static host trait-call checkpoint: a non-generic trait table on a concrete
+- R07 static host trait-call checkpoint: a trait table on a concrete
   host type satisfies static generic bounds. Reachable specialization resolves
   the trait method identity to its declared host method and emits an ordinary
   verified host call, retaining the host capability and borrow contract. The
@@ -643,7 +642,17 @@ R02 acceptance evidence:
   encoded artifacts through the interpreter and existing JIT fallback; removing
   the host trait table rejects the bound before code generation. A same-trait
   script implementation for that host type is rejected as an overlap. Runtime
-  interface values, dynamic dispatch and applied generic host traits remain open.
+  interface values and dynamic dispatch remain open.
+
+- R07 applied host-trait checkpoint: KHI v9 stores ordered concrete trait
+  arguments in each host implementation; duplicate applications are rejected,
+  disjoint applications remain independent, and the type fingerprint includes
+  their arguments. Signature completion substitutes trait parameters, checks
+  their bounds, then checks every bound host method. Static generic calls match
+  the complete applied identity. The [host bound example](../examples/host-trait-bound.kgr)
+  selects distinct `Readable<i32>` and `Readable<bool>` methods through source,
+  artifact and JIT fallback. KBC format/runtime ABI v32 reject older products.
+  Dynamic interface values remain R08 work.
 
 - R07 generic trait-method call checkpoint: method-local type parameters are
   inferred from arguments and expected results, their bounds are checked by the

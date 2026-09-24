@@ -190,7 +190,10 @@ including its explicit nominal receiver and passing style. KHI v8 carries the
 same checked method call contracts; old interface versions are rejected.
 Version 31 and runtime ABI v31 add the KHI v8 host trait implementation table to
 portable host type contracts. Old KBC and KHI products reject before execution.
-The runtime ABI identity is `kagari-runtime-abi-v31`; the runtime-helper ABI is
+Version 32 and runtime ABI v32 add ordered applied trait arguments in KHI v9;
+distinct applications on one host type are separate identity keys. Older KBC and
+KHI formats are rejected before execution.
+The runtime ABI identity is `kagari-runtime-abi-v32`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and

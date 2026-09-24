@@ -38,6 +38,7 @@ fn host_trait_table_requires_bound_method_callbacks_before_linking() {
         .trait_implementations
         .push(HostTraitImplementationDeclaration::new(
             trait_id,
+            vec![],
             vec![HostTraitMethodBinding {
                 trait_method,
                 host_method: method.id.clone(),

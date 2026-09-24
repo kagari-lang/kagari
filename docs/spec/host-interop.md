@@ -164,7 +164,7 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 8, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 9, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. The decoder
 checks declaration-list lengths before reading elements (at most 1,000,000 each),
@@ -775,17 +775,20 @@ Reflection is defined in [reflection.md](reflection.md).
 
 Host types may implement script-visible traits.
 
-An offline host type may declare a trait identity and map each trait method
-identity to one of its declared host methods. KHI v8 validates the owners and
-unique mappings, and includes this table in the type ABI fingerprint. Linking
+An offline host type may declare a trait identity, ordered concrete trait type
+arguments, and a mapping from each trait method identity to a declared host method.
+KHI v9 validates identities, argument types and unique applied mappings, and
+includes this table in the type ABI fingerprint. Type arguments use the portable
+`HostValueType` vocabulary, including nested values and opaque host types; script
+nominal types are not host declaration arguments. Linking
 requires an identical registered table and bound callbacks for all mapped host
 methods before publication. Signature analysis checks the script trait's method
-roster, receiver, parameters and result against each bound host method. Generic
-trait applications and dynamic interface dispatch remain pending R07/R08 work.
-For a concrete host receiver, a non-generic table satisfies a static trait
-bound. Reachable generic calls select the mapped host method by declaration
+roster, receiver, parameters, result and applied trait-parameter bounds against
+each bound host method. Dynamic interface dispatch remains pending R08 work.
+For a concrete host receiver, an applied trait table satisfies the exact static
+trait bound. Reachable generic calls select the mapped host method by declaration
 identity and execute it with the normal host capability, effect and borrow checks.
-A script implementation of the same trait for that host type is an overlap.
+A script implementation of the same applied trait for that host type is an overlap.
 
 Behavior:
 

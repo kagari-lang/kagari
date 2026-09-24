@@ -72,6 +72,7 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
         .trait_implementations
         .push(HostTraitImplementationDeclaration::new(
             trait_id,
+            vec![],
             vec![HostTraitMethodBinding {
                 trait_method,
                 host_method: method.id.clone(),
@@ -131,7 +132,7 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
 fn host_trait_table_is_checked_against_script_trait_signatures() {
     let engine = KagariEngine::default();
     let path = "mem://host-trait-contract";
-    let source = "trait Readable { fn get(self, amount: i32) -> i32; } use demo::Counter; fn accept(value: Counter) {}";
+    let source = "trait Readable<T: HashKey> { fn get(self, amount: T) -> T; } use demo::Counter; fn accept(value: Counter) {}";
     let file = engine
         .set_source(path, source.into(), SourceLayer::Base)
         .unwrap();
@@ -170,6 +171,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     host.trait_implementations
         .push(HostTraitImplementationDeclaration::new(
             trait_id,
+            vec![HostValueType::I32],
             vec![HostTraitMethodBinding {
                 trait_method,
                 host_method: method.id,
@@ -216,6 +218,21 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             if reason.contains("parameter 1")
     )));
 
+    let mut wrong_arity = host.clone();
+    wrong_arity.trait_implementations[0].trait_arguments.clear();
+    assert!(install(wrong_arity).iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+            if reason.contains("type argument count")
+    )));
+    let mut unsatisfied_bound = host.clone();
+    unsatisfied_bound.trait_implementations[0].trait_arguments = vec![HostValueType::F32];
+    assert!(install(unsatisfied_bound).iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+            if reason.contains("does not satisfy its bound")
+    )));
+
     let mut extra = host.clone();
     let mut extra_method = extra.trait_implementations[0].methods[0].clone();
     extra_method.trait_method.path.last_mut().unwrap().name = "extra".into();
@@ -228,11 +245,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
 
     assert!(install(host).is_empty());
     engine
-        .set_source(
-            path,
-            source.replace("-> i32;", "-> bool;"),
-            SourceLayer::Base,
-        )
+        .set_source(path, source.replace("-> T;", "-> bool;"), SourceLayer::Base)
         .unwrap();
     let changed = engine
         .signatures(engine.source_snapshot(), &Default::default())
@@ -283,14 +296,25 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     let mut host = HostTypeDeclaration::new("demo.Counter");
     host.ownership = HostTypeOwnership::HostRoot;
     host.path_access = kagari_common::host_interface::PathAccess::ReadOnly;
-    let method = HostMethodDeclaration::new(&host.id, "read", vec![], HostValueType::I32);
-    host.methods.push(method.clone());
+    let number = HostMethodDeclaration::new(&host.id, "number", vec![], HostValueType::I32);
+    let flag = HostMethodDeclaration::new(&host.id, "flag", vec![], HostValueType::Bool);
+    host.methods.extend([number.clone(), flag.clone()]);
+    host.trait_implementations
+        .push(HostTraitImplementationDeclaration::new(
+            trait_id.clone(),
+            vec![HostValueType::I32],
+            vec![HostTraitMethodBinding {
+                trait_method: trait_method.clone(),
+                host_method: number.id.clone(),
+            }],
+        ));
     host.trait_implementations
         .push(HostTraitImplementationDeclaration::new(
             trait_id,
+            vec![HostValueType::Bool],
             vec![HostTraitMethodBinding {
                 trait_method,
-                host_method: method.id.clone(),
+                host_method: flag.id.clone(),
             }],
         ));
     let make =
@@ -331,7 +355,11 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                 ..Default::default()
             },
             host_policy: HostExposurePolicy {
-                allowed_host_functions: vec!["demo.make".into(), "demo.Counter.read".into()],
+                allowed_host_functions: vec![
+                    "demo.make".into(),
+                    "demo.Counter.number".into(),
+                    "demo.Counter.flag".into(),
+                ],
                 ..Default::default()
             },
             jit_policy: if jit {
@@ -360,10 +388,21 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         let trace = calls.clone();
         runtime
             .register_host_function(
-                HostFunction::method(&host, &method.id, move |_, args| {
-                    trace.borrow_mut().push("read");
+                HostFunction::method(&host, &number.id, move |_, args| {
+                    trace.borrow_mut().push("number");
                     assert!(matches!(args, [Value::HostRoot(_)]));
                     Ok(Value::I32(42))
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        let trace = calls.clone();
+        runtime
+            .register_host_function(
+                HostFunction::method(&host, &flag.id, move |_, args| {
+                    trace.borrow_mut().push("flag");
+                    assert!(matches!(args, [Value::HostRoot(_)]));
+                    Ok(Value::Bool(true))
                 })
                 .unwrap(),
             )
@@ -377,14 +416,14 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         }
         .unwrap();
         assert_eq!(report.return_value, Value::I32(42));
-        assert_eq!(*calls.borrow(), ["make", "read"]);
+        assert_eq!(*calls.borrow(), ["make", "flag", "make", "number"]);
     }
     let source = include_str!("../../../examples/host-trait-bound.kgr");
     engine
         .set_source(
             "mem://host-trait-bound",
             format!(
-                "{source}\nuse demo::Counter; impl Readable for Counter {{ fn get(self) -> i32 {{ 7 }} }}"
+                "{source}\nuse demo::Counter; impl Readable<i32> for Counter {{ fn get(self) -> i32 {{ 7 }} }}"
             ),
             SourceLayer::Base,
         )

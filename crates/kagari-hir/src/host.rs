@@ -1,6 +1,7 @@
 //! Declaration queries do not depend on the runtime or invoke host callbacks.
 use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostTypeDeclaration, HostValueType,
+    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostTraitImplementationDeclaration,
+    HostTypeDeclaration, HostValueType,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -55,19 +56,30 @@ pub struct HostDeclarations {
 }
 
 impl HostDeclarations {
+    fn matches_trait_application(
+        implementation: &HostTraitImplementationDeclaration,
+        trait_type: &NominalType,
+    ) -> bool {
+        implementation.trait_id == trait_type.declaration
+            && implementation.trait_arguments.len() == trait_type.arguments.len()
+            && implementation
+                .trait_arguments
+                .iter()
+                .zip(&trait_type.arguments)
+                .all(|(declared, required)| signature_type(declared) == *required)
+    }
+
     pub fn implements(&self, trait_type: &NominalType, receiver: &TypeId) -> bool {
         let TypeId::Host(host_id) = receiver else {
             return false;
         };
-        trait_type.arguments.is_empty()
-            && self
-                .nominal_type(host_id)
-                .and_then(|id| self.type_declaration(id))
-                .is_some_and(|host| {
-                    host.trait_implementations
-                        .iter()
-                        .any(|implementation| implementation.trait_id == trait_type.declaration)
+        self.nominal_type(host_id)
+            .and_then(|id| self.type_declaration(id))
+            .is_some_and(|host| {
+                host.trait_implementations.iter().any(|implementation| {
+                    Self::matches_trait_application(implementation, trait_type)
                 })
+            })
     }
 
     pub fn trait_method_binding(
@@ -79,14 +91,11 @@ impl HostDeclarations {
         let TypeId::Host(host_id) = receiver else {
             return None;
         };
-        if !trait_type.arguments.is_empty() {
-            return None;
-        }
         let host = self.type_declaration(self.nominal_type(host_id)?)?;
         let implementation = host
             .trait_implementations
             .iter()
-            .find(|implementation| implementation.trait_id == trait_type.declaration)?;
+            .find(|implementation| Self::matches_trait_application(implementation, trait_type))?;
         let binding = implementation
             .methods
             .iter()
@@ -136,9 +145,50 @@ impl HostDeclarations {
                     report("trait declaration is missing from its source module".into());
                     continue;
                 };
-                if !trait_signature.generic_params.is_empty() {
-                    report("host trait binding requires a concrete, non-generic trait".into());
+                if trait_signature.generic_params.len() != implementation.trait_arguments.len() {
+                    report(format!(
+                        "trait type argument count differs: expected {}, found {}",
+                        trait_signature.generic_params.len(),
+                        implementation.trait_arguments.len()
+                    ));
                     continue;
+                }
+                let substitution: crate::types::TypeSubstitution = trait_signature
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(implementation.trait_arguments.iter().map(signature_type))
+                    .collect();
+                for (parameter, argument) in trait_signature
+                    .generic_params
+                    .iter()
+                    .zip(&implementation.trait_arguments)
+                {
+                    cancel.check()?;
+                    let actual = signature_type(argument);
+                    for constraint in trait_signature.bounds.get(parameter).into_iter().flatten() {
+                        let satisfied = match constraint {
+                            crate::typeck::ConstraintTarget::Standard(standard) => {
+                                crate::typeck::type_satisfies_standard_constraint(
+                                    &actual,
+                                    *standard,
+                                    &Default::default(),
+                                )
+                            }
+                            crate::typeck::ConstraintTarget::Trait(required) => {
+                                let required = required.instantiate(&substitution);
+                                aggregates.implementation_count(&required, &actual)
+                                    + usize::from(self.implements(&required, &actual))
+                                    == 1
+                            }
+                        };
+                        if !satisfied {
+                            report(format!(
+                                "trait type argument `{}` does not satisfy its bound",
+                                actual.display_name()
+                            ));
+                        }
+                    }
                 }
                 for method in &trait_signature.methods {
                     cancel.check()?;
@@ -155,7 +205,7 @@ impl HostDeclarations {
                         .iter()
                         .find(|candidate| candidate.id == binding.host_method)
                         .expect("validated host method binding");
-                    if !method.generic_params.is_empty() {
+                    if method.generic_params.len() != trait_signature.generic_params.len() {
                         report(format!(
                             "method `{}` cannot have generic parameters",
                             method.name
@@ -166,7 +216,12 @@ impl HostDeclarations {
                     let expected = method
                         .params
                         .iter()
-                        .map(|parameter| parameter.ty.with_self(&trait_signature.id, &receiver))
+                        .map(|parameter| {
+                            parameter
+                                .ty
+                                .with_self(&trait_signature.id, &receiver)
+                                .instantiate(&substitution)
+                        })
                         .collect::<Vec<_>>();
                     if expected.first() != Some(&receiver)
                         || expected.len() != host_method.params.len() + 1
@@ -190,8 +245,10 @@ impl HostDeclarations {
                             ));
                         }
                     }
-                    let expected_return =
-                        method.return_type.with_self(&trait_signature.id, &receiver);
+                    let expected_return = method
+                        .return_type
+                        .with_self(&trait_signature.id, &receiver)
+                        .instantiate(&substitution);
                     let actual_return = signature_type(&host_method.return_type);
                     if expected_return != actual_return {
                         report(format!(

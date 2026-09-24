@@ -971,41 +971,24 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
 
 #[test]
 fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
-    for previous in [
-        "kagari-runtime-abi-v5",
-        "kagari-runtime-abi-v6",
-        "kagari-runtime-abi-v7",
-        "kagari-runtime-abi-v8",
-        "kagari-runtime-abi-v9",
-        "kagari-runtime-abi-v10",
-        "kagari-runtime-abi-v11",
-        "kagari-runtime-abi-v12",
-        "kagari-runtime-abi-v13",
-        "kagari-runtime-abi-v14",
-        "kagari-runtime-abi-v15",
-        "kagari-runtime-abi-v16",
-        "kagari-runtime-abi-v17",
-        "kagari-runtime-abi-v18",
-        "kagari-runtime-abi-v19",
-        "kagari-runtime-abi-v20",
-        "kagari-runtime-abi-v21",
-        "kagari-runtime-abi-v22",
-        "kagari-runtime-abi-v23",
-        "kagari-runtime-abi-v24",
-    ] {
+    for version in 5..32 {
+        let previous = format!("kagari-runtime-abi-v{version}");
         let artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {
                 root: crate::bytecode::ModuleRef::new(0),
                 modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
             },
             ArtifactBuildOptions {
-                runtime_abi_version: previous.into(),
+                runtime_abi_version: previous.clone(),
                 ..Default::default()
             },
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        for runtime_abi_version in [crate::bytecode::KAGARI_RUNTIME_ABI_VERSION, previous] {
+        for runtime_abi_version in [
+            crate::bytecode::KAGARI_RUNTIME_ABI_VERSION,
+            previous.as_str(),
+        ] {
             let requirements = ArtifactCompatibility {
                 runtime_abi_version: runtime_abi_version.into(),
                 ..Default::default()

@@ -1,13 +1,21 @@
 use demo::make;
 
-trait Readable {
-    fn get(self) -> i32;
+trait Readable<T> {
+    fn get(self) -> T;
 }
 
-fn read<T: Readable>(value: T) -> i32 {
+fn read_number<T: Readable<i32>>(value: T) -> i32 {
+    value.get()
+}
+
+fn read_flag<T: Readable<bool>>(value: T) -> bool {
     value.get()
 }
 
 fn main() -> i32 {
-    read(make())
+    if read_flag(make()) {
+        read_number(make())
+    } else {
+        0
+    }
 }

@@ -8,7 +8,7 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 8;
+const VERSION: u16 = 9;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod decode_limits;

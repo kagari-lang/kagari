@@ -92,14 +92,21 @@ pub struct HostTraitMethodBinding {
 pub struct HostTraitImplementationDeclaration {
     pub trait_id: DefinitionId,
     #[serde(deserialize_with = "super::decode_limits::members")]
+    pub trait_arguments: Vec<HostValueType>,
+    #[serde(deserialize_with = "super::decode_limits::members")]
     pub methods: Vec<HostTraitMethodBinding>,
     pub documentation: String,
 }
 
 impl HostTraitImplementationDeclaration {
-    pub fn new(trait_id: DefinitionId, methods: Vec<HostTraitMethodBinding>) -> Self {
+    pub fn new(
+        trait_id: DefinitionId,
+        trait_arguments: Vec<HostValueType>,
+        methods: Vec<HostTraitMethodBinding>,
+    ) -> Self {
         Self {
             trait_id,
+            trait_arguments,
             methods,
             documentation: String::new(),
         }
@@ -242,6 +249,7 @@ impl HostTypeDeclaration {
         }
         let mut implemented_traits = std::collections::HashSet::new();
         let mut mapped_methods = 0usize;
+        let mut trait_arguments = 0usize;
         for implementation in &self.trait_implementations {
             let trait_id = &implementation.trait_id;
             if !trait_id.within_path_limit() {
@@ -257,7 +265,14 @@ impl HostTypeDeclaration {
             {
                 return Err(HostInterfaceError::InvalidDeclaration);
             }
-            if !implemented_traits.insert(trait_id) {
+            trait_arguments = trait_arguments.saturating_add(implementation.trait_arguments.len());
+            if trait_arguments > super::decode_limits::MAX_MEMBERS {
+                return Err(HostInterfaceError::TooLarge);
+            }
+            for argument in &implementation.trait_arguments {
+                argument.validate()?;
+            }
+            if !implemented_traits.insert((trait_id, &implementation.trait_arguments)) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
             mapped_methods = mapped_methods.saturating_add(implementation.methods.len());
@@ -296,6 +311,11 @@ impl HostTypeDeclaration {
                     .map(|param| &param.ty)
                     .chain(std::iter::once(&method.return_type))
             }))
+            .chain(
+                self.trait_implementations
+                    .iter()
+                    .flat_map(|implementation| &implementation.trait_arguments),
+            )
     }
     pub fn clear_documentation(&mut self) {
         self.documentation.clear();
@@ -391,6 +411,7 @@ mod tests {
             .trait_implementations
             .push(HostTraitImplementationDeclaration::new(
                 trait_id.clone(),
+                vec![],
                 vec![HostTraitMethodBinding {
                     trait_method: trait_method.clone(),
                     host_method: method.id.clone(),
@@ -428,6 +449,44 @@ mod tests {
         let mut changed = owner.clone();
         changed.trait_implementations.clear();
         assert_ne!(changed.fingerprint().unwrap(), fingerprint);
+
+        let mut applied = owner.clone();
+        applied.trait_implementations[0].trait_arguments = vec![HostValueType::I32];
+        assert_ne!(applied.fingerprint().unwrap(), fingerprint);
+        let mut disjoint = applied.trait_implementations[0].clone();
+        disjoint.trait_arguments = vec![HostValueType::Bool];
+        applied.trait_implementations.push(disjoint);
+        applied.validate().unwrap();
+        assert_eq!(
+            HostInterface::from_bytes(
+                &HostInterface {
+                    paths: vec![],
+                    types: vec![applied.clone()],
+                    functions: vec![],
+                }
+                .to_bytes()
+                .unwrap()
+            )
+            .unwrap()
+            .types,
+            vec![applied.clone()]
+        );
+        applied.trait_implementations[1].trait_arguments = vec![HostValueType::I32];
+        assert_eq!(
+            applied.validate(),
+            Err(HostInterfaceError::DuplicateDeclaration)
+        );
+        applied.trait_implementations[1].trait_arguments =
+            vec![HostValueType::Opaque(host_type_identity("demo.Missing"))];
+        assert_eq!(
+            HostInterface {
+                paths: vec![],
+                types: vec![applied],
+                functions: vec![],
+            }
+            .validate(),
+            Err(HostInterfaceError::InvalidDeclaration)
+        );
     }
 
     #[test]
@@ -490,7 +549,7 @@ mod tests {
         let bytes = first.to_bytes().unwrap();
         assert_eq!(bytes, second.to_bytes().unwrap());
         assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), first);
-        for version in 1_u16..8 {
+        for version in 1_u16..super::super::VERSION {
             let mut old = bytes.clone();
             old[4..6].copy_from_slice(&version.to_le_bytes());
             assert_eq!(
