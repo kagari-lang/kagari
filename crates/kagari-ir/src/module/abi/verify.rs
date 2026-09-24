@@ -16,6 +16,7 @@ pub(crate) fn validate(
 ) -> Result<(), LayoutValidationError> {
     let invalid = || LayoutValidationError::Invalid;
     let mut aggregate_names = HashSet::new();
+    let mut trait_names = HashSet::new();
     let mut interface_identities = HashSet::new();
     for item in items {
         cancel
@@ -53,19 +54,24 @@ pub(crate) fn validate(
             }
             PublicAbiItem::Trait(ty) => {
                 let owner = owner(module, &[], DefinitionKind::Trait, &ty.name);
-                parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
-                    bounds_valid(&ty.bounds, &params)
-                        && ty.methods.iter().all(|method| {
-                            function_valid(
-                                method,
-                                module,
-                                &owner.path,
-                                &params,
-                                Some(&owner),
-                                cancel,
-                            )
-                        })
-                })
+                let mut methods = HashSet::new();
+                trait_names.insert(&ty.name)
+                    && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(
+                        |params| {
+                            bounds_valid(&ty.bounds, &params)
+                                && ty.methods.iter().all(|method| {
+                                    methods.insert(&method.name)
+                                        && function_valid(
+                                            method,
+                                            module,
+                                            &owner.path,
+                                            &params,
+                                            Some(&owner),
+                                            cancel,
+                                        )
+                                })
+                        },
+                    )
             }
             PublicAbiItem::InterfaceTable(table) => {
                 let owner = &table.declaration;
@@ -78,17 +84,71 @@ pub(crate) fn validate(
                 .then(|| parameters(&table.generic_params, owner, &Parameters::new()))
                 .flatten();
                 params.is_some_and(|params| {
+                    let mut methods = HashSet::new();
                     bounds_valid(&table.bounds, &params)
                         && matches!(table.trait_type, AbiType::Trait(_))
                         && type_valid(&table.trait_type, &params, None, cancel)
                         && type_valid(&table.for_type, &params, None, cancel)
                         && table.methods.iter().all(|method| {
-                            function_valid(method, module, &owner.path, &params, None, cancel)
+                            methods.insert(&method.name)
+                                && function_valid(
+                                    method,
+                                    module,
+                                    &owner.path,
+                                    &params,
+                                    None,
+                                    cancel,
+                                )
                         })
                 })
             }
         };
         if !valid {
+            cancel
+                .check()
+                .map_err(|_| LayoutValidationError::Cancelled)?;
+            return Err(invalid());
+        }
+    }
+    for item in items {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        let PublicAbiItem::InterfaceTable(table) = item else {
+            continue;
+        };
+        let AbiType::Trait(instance) = &table.trait_type else {
+            return Err(invalid());
+        };
+        if instance.declaration.module != *module {
+            continue;
+        }
+        if instance.declaration.path.len() != 1
+            || instance.declaration.path[0].kind != DefinitionKind::Trait
+            || instance.declaration.path[0].occurrence != 0
+        {
+            return Err(invalid());
+        }
+        let Some(trait_name) = instance.declaration.path.last().map(|part| &part.name) else {
+            return Err(invalid());
+        };
+        let Some(PublicAbiItem::Trait(interface)) = items
+            .iter()
+            .find(|item| matches!(item, PublicAbiItem::Trait(ty) if &ty.name == trait_name))
+        else {
+            // Private traits are absent from the public ABI table.
+            continue;
+        };
+        if instance.arguments.len() != interface.generic_params.len()
+            || table.methods.len() != interface.methods.len()
+            || !table.methods.iter().all(|method| {
+                cancel.check().is_ok()
+                    && interface
+                        .methods
+                        .iter()
+                        .any(|declared| declared.name == method.name)
+            })
+        {
             cancel
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
@@ -277,7 +337,7 @@ mod tests {
     #[test]
     fn interface_tables_require_distinct_local_impl_identities() {
         let original = crate::tests::common::bytecode_ok(
-            "struct Player { val value: i32 } trait Display { fn show(self) -> i32; } impl Display for Player { fn show(self) -> i32 { self.value } } fn main() -> i32 { 1 }",
+            "struct Player { val value: i32 } pub trait Display { fn show(self) -> i32; } impl Display for Player { fn show(self) -> i32 { self.value } } fn main() -> i32 { 1 }",
         );
         let table_index = original
             .public_items
@@ -306,7 +366,20 @@ mod tests {
                 Err(BytecodeVerificationError::InvalidPublicAbi)
             ));
         }
-        let mut duplicate = original;
+        let mut wrong_trait = original.clone();
+        let PublicAbiItem::InterfaceTable(table) = &mut wrong_trait.public_items[table_index]
+        else {
+            unreachable!()
+        };
+        let AbiType::Trait(reference) = &mut table.trait_type else {
+            unreachable!()
+        };
+        reference.declaration.path[0].occurrence = 1;
+        assert!(matches!(
+            verify_module(&wrong_trait),
+            Err(BytecodeVerificationError::InvalidPublicAbi)
+        ));
+        let mut duplicate = original.clone();
         duplicate
             .public_items
             .push(duplicate.public_items[table_index].clone());
@@ -314,6 +387,21 @@ mod tests {
             verify_module(&duplicate),
             Err(BytecodeVerificationError::InvalidPublicAbi)
         ));
+        for corruption in 0..3 {
+            let mut module = original.clone();
+            let PublicAbiItem::InterfaceTable(table) = &mut module.public_items[table_index] else {
+                unreachable!()
+            };
+            match corruption {
+                0 => table.methods.clear(),
+                1 => table.methods[0].name = "other".into(),
+                _ => table.methods.push(table.methods[0].clone()),
+            }
+            assert!(matches!(
+                verify_module(&module),
+                Err(BytecodeVerificationError::InvalidPublicAbi)
+            ));
+        }
     }
 
     #[test]

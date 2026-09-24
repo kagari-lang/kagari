@@ -110,8 +110,9 @@ Version 26 replaces those field-only records with KHI v7 `HostPathDeclaration`
 records. Ordered field, index and virtual segments share one portable contract;
 the loader rejects older artifact and interface formats before execution.
 Version 27 adds the declaration identity of each interface implementation to its
-public ABI record. Verification requires a unique local `Impl` identity and method
-binders owned by it. Reload keys encode this identity canonically; the human-readable
+public ABI record. Verification requires a unique local `Impl` identity, method
+binders owned by it, and a complete method roster for local public traits. Reload
+keys encode this identity canonically; the human-readable
 `Type as Trait` label is diagnostic only. Older formats are rejected before execution.
 Version 11 adds ordered enum payload types to public variant ABI records. These
 use structural `AbiType` encoding, preserving nominal declaration identity and
