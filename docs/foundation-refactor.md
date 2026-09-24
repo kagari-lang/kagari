@@ -17,7 +17,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R04: Recoverable HIR analysis; checked-only code generation.
 - [x] R05: Immutable queries, cancellation, parse/body reuse and invalidation.
 - [x] R06: Offline host declarations and checked runtime bindings.
-- [ ] R07: Nominal concrete identity, layouts, bounded reachable monomorphization.
+- [x] R07: Nominal concrete identity, layouts, bounded reachable monomorphization.
 - [ ] R08: Verified IR and linked-only runtime operands.
 - [x] R09: Canonical bounded artifact format and explicit fingerprint algorithm.
 - [ ] R10: Shared immutable generations and runtime-local state.
@@ -662,6 +662,18 @@ R02 acceptance evidence:
   substitutions. The [generic method example](../examples/generic-trait-methods.kgr)
   produces distinct bool and i32 method instances and runs through source,
   artifact and JIT fallback. Dynamic interface values remain R08 work.
+
+- R07 acceptance: nominal types and generic binders use declaration identity,
+  ordered concrete arguments and owner/position rather than display names.
+  Reachable struct/enum layouts, field slots and interface method tables are
+  encoded and verified with concrete signatures. Function instances are keyed
+  by declaration and arguments, deduplicated and charged to a configurable
+  limit shared with layout instances; public generic entry functions are
+  rejected, leaving public overloads with concrete signatures. Local, imported
+  and host trait implementations participate in checked static dispatch,
+  including applied generic traits. Source, encoded artifact, interpreter and
+  existing JIT fallback fixtures exercise those paths. Dynamic interface values
+  and their linked dispatch belong to R08.
 
 R03 acceptance evidence:
 
