@@ -41,10 +41,12 @@ KbcArtifact {
 }
 ```
 
-Format version 24 uses `bincode` with fixed-width integers, little-endian byte order,
-and declaration-order fields. Any change to this representation requires a new
-format version. Versions 1 through 23 are rejected; no migration or compatibility
-decoder exists. The format stores a complete dependency-first BytecodeProgram, its
+Format version 25 uses `bincode` with fixed-width integers, little-endian byte order,
+and declaration-order fields. It changes runtime path binding identity: index and
+virtual segment fingerprints come from resolved contract fields instead of a
+caller-supplied member fingerprint. Versions 1 through 24 are rejected; no
+migration or compatibility decoder exists. The format stores a complete
+dependency-first BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
 
@@ -153,7 +155,7 @@ Version 19 permits required host call records with member declaration identities
 These records must equal the declaring host type's generated method contract,
 including its explicit nominal receiver and passing style. KHI v6 carries the
 same checked method call contracts; old interface versions are rejected.
-The runtime ABI identity is `kagari-runtime-abi-v24`; the runtime-helper ABI is
+The runtime ABI identity is `kagari-runtime-abi-v25`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and

@@ -575,6 +575,15 @@ publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
 output exposed to adapters. Index and virtual segment declarations and source
 host index paths remain separate pending work.
 
+Index and virtual registrations do not accept a caller-supplied member
+fingerprint. They have no portable member declaration yet, so their member
+fingerprint slot is zero. The versioned whole-path encoder still includes the
+index slot and portable collection/index/result types, or the virtual name and
+result type, plus access, schema and capabilities. Identical resolved contracts
+produce identical path fingerprints; changes to those inputs change the path
+fingerprint. These runtime-only segments cannot stand in for a declared field
+path in an offline interface.
+
 The common declaration layer owns `HostPathContract` and the whole-path ABI encoder;
 runtime registration cannot supply its own fingerprint. `HostInterface::field_path_contract`
 resolves a field chain by declaration identity, validates root ownership, visibility

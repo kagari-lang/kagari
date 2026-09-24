@@ -110,6 +110,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   punctuation and unknown nested names cannot borrow a host target. The
   offline_compile example and embedding test require no runtime registration.
 
+- R06 path-fingerprint input checkpoint: runtime index and virtual path
+  registrations no longer accept arbitrary member fingerprints. The shared
+  canonical whole-path encoder derives identity from their resolved inputs;
+  only declared fields contribute a member fingerprint. Tests compare equal
+  contracts and changed permissions/names. Artifact format/runtime ABI v25
+  rejects prior products. Portable index/virtual declarations remain open.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.
@@ -1507,7 +1514,7 @@ Implemented foundation slices:
   constraints and distinct concrete types sharing a runtime representation.
   The existing native JIT still only supports zero-argument scalar entries; this
   does not claim native compilation of parameterized generic instances.
-- R09: format v24 uses fixed little-endian encoding, bounded decoding and strict
+- R09: format v25 retains fixed little-endian encoding, bounded decoding and strict
   trailing-data rejection. Compatibility fingerprints use canonical serialization
   and explicit FNV-1a-64 rather than Debug; content checks cover header metadata.
   Old formats are rejected even if callers request their version. Linked module

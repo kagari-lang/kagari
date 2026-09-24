@@ -568,6 +568,9 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
         "kagari-runtime-abi-v19",
         "kagari-runtime-abi-v20",
         "kagari-runtime-abi-v21",
+        "kagari-runtime-abi-v22",
+        "kagari-runtime-abi-v23",
+        "kagari-runtime-abi-v24",
     ] {
         let artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {

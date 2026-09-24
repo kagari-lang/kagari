@@ -176,13 +176,11 @@ pub enum HostPathSegment {
         index_type: TypeId,
         result_type: TypeId,
         access: PathAccess,
-        abi_fingerprint: AbiFingerprint,
     },
     Virtual {
         name: String,
         result_type: TypeId,
         access: PathAccess,
-        abi_fingerprint: AbiFingerprint,
     },
 }
 
@@ -207,13 +205,8 @@ impl HostPathSegment {
         match self {
             Self::Field {
                 abi_fingerprint, ..
-            }
-            | Self::Index {
-                abi_fingerprint, ..
-            }
-            | Self::Virtual {
-                abi_fingerprint, ..
             } => *abi_fingerprint,
+            Self::Index { .. } | Self::Virtual { .. } => AbiFingerprint(0),
         }
     }
 
@@ -241,13 +234,11 @@ pub enum HostPathSegmentRegistration {
         index_type: TypeId,
         result_type: TypeId,
         access: PathAccess,
-        abi_fingerprint: AbiFingerprint,
     },
     Virtual {
         name: String,
         result_type: TypeId,
         access: PathAccess,
-        abi_fingerprint: AbiFingerprint,
     },
 }
 
@@ -1722,25 +1713,21 @@ impl HostRegistry {
                     index_type,
                     result_type,
                     access,
-                    abi_fingerprint,
                 } => HostPathSegment::Index {
                     slot: *slot,
                     collection_type: *collection_type,
                     index_type: *index_type,
                     result_type: *result_type,
                     access: *access,
-                    abi_fingerprint: *abi_fingerprint,
                 },
                 HostPathSegmentRegistration::Virtual {
                     name,
                     result_type,
                     access,
-                    abi_fingerprint,
                 } => HostPathSegment::Virtual {
                     name: name.clone(),
                     result_type: *result_type,
                     access: *access,
-                    abi_fingerprint: *abi_fingerprint,
                 },
             };
             current = resolved.result_type();

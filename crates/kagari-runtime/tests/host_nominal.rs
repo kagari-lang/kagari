@@ -279,8 +279,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
 #[test]
 fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
     use kagari_runtime::{
-        AbiFingerprint, DynamicPathArguments, HostPathDescriptorRegistration,
-        HostPathSegmentRegistration,
+        DynamicPathArguments, HostPathDescriptorRegistration, HostPathSegmentRegistration,
     };
     let mut local = runtime();
     let mut foreign = runtime();
@@ -299,7 +298,6 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
                     name: "self".into(),
                     result_type: ty,
                     access: PathAccess::ReadOnly,
-                    abi_fingerprint: AbiFingerprint(1),
                 }],
                 access: PathAccess::ReadOnly,
                 schema_epoch: HostSchemaEpoch::new(0),
@@ -515,8 +513,7 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
 #[test]
 fn paths_reject_types_without_portable_contracts_before_publication() {
     use kagari_runtime::{
-        AbiFingerprint, HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind,
-        TypeRegistration,
+        HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind, TypeRegistration,
     };
     let mut runtime = runtime();
     let mut owner = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
@@ -536,7 +533,6 @@ fn paths_reject_types_without_portable_contracts_before_publication() {
             name: "value".into(),
             result_type,
             access: PathAccess::ReadOnly,
-            abi_fingerprint: AbiFingerprint(1),
         }],
         access: PathAccess::ReadOnly,
         schema_epoch: HostSchemaEpoch::new(0),

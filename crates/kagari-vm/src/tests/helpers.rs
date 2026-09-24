@@ -1755,7 +1755,6 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                 index_type: field.result_type,
                 result_type: field.result_type,
                 access: PathAccess::ReadWrite,
-                abi_fingerprint: AbiFingerprint(711),
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),

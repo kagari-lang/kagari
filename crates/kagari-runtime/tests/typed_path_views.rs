@@ -549,6 +549,74 @@ fn register_hp_descriptor(
 }
 
 #[test]
+fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
+    let mut runtime = path_mutation_runtime();
+    let scalar = register_i32(&runtime);
+    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let index = |access| HostPathDescriptorRegistration {
+        root_type: owner,
+        result_type: scalar,
+        segments: vec![HostPathSegmentRegistration::Index {
+            slot: DynamicPathArgSlot::new(0),
+            collection_type: owner,
+            index_type: scalar,
+            result_type: scalar,
+            access,
+        }],
+        access,
+        schema_epoch: HostSchemaEpoch::new(0),
+        capability_requirements: CapabilitySet::default(),
+    };
+    let first = runtime
+        .register_host_path_descriptor(index(PathAccess::ReadOnly))
+        .unwrap();
+    let repeated = runtime
+        .register_host_path_descriptor(index(PathAccess::ReadOnly))
+        .unwrap();
+    let writable = runtime
+        .register_host_path_descriptor(index(PathAccess::ReadWrite))
+        .unwrap();
+    let fingerprint =
+        |runtime: &Runtime, id| runtime.host().path_descriptor(id).unwrap().abi_fingerprint;
+    assert_eq!(
+        fingerprint(&runtime, first),
+        fingerprint(&runtime, repeated)
+    );
+    assert_ne!(
+        fingerprint(&runtime, first),
+        fingerprint(&runtime, writable)
+    );
+    assert_eq!(
+        runtime.host().path_descriptor(first).unwrap().segments[0].abi_fingerprint(),
+        AbiFingerprint(0)
+    );
+
+    let virtual_path = |name: &str| HostPathDescriptorRegistration {
+        root_type: owner,
+        result_type: scalar,
+        segments: vec![HostPathSegmentRegistration::Virtual {
+            name: name.into(),
+            result_type: scalar,
+            access: PathAccess::ReadOnly,
+        }],
+        access: PathAccess::ReadOnly,
+        schema_epoch: HostSchemaEpoch::new(0),
+        capability_requirements: CapabilitySet::default(),
+    };
+    let health = runtime
+        .register_host_path_descriptor(virtual_path("health"))
+        .unwrap();
+    let mana = runtime
+        .register_host_path_descriptor(virtual_path("mana"))
+        .unwrap();
+    assert_ne!(fingerprint(&runtime, health), fingerprint(&runtime, mana));
+    assert_eq!(
+        runtime.host().path_descriptor(health).unwrap().segments[0].abi_fingerprint(),
+        AbiFingerprint(0)
+    );
+}
+
+#[test]
 fn heap_path_temporaries_survive_collection_during_write_preparation() {
     use std::{
         cell::{Cell, RefCell},
@@ -666,7 +734,6 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
         index_type: scalar,
         result_type: scalar,
         access: PathAccess::ReadWrite,
-        abi_fingerprint: AbiFingerprint(22),
     };
     for segments in [
         vec![field(scalar)],
@@ -768,7 +835,6 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
                     index_type: i32_id,
                     result_type: item_id,
                     access: PathAccess::ReadWrite,
-                    abi_fingerprint: AbiFingerprint(31),
                 },
                 HostPathSegmentRegistration::Field {
                     declaration: runtime
@@ -899,7 +965,6 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
                 index_type: i32_id,
                 result_type: i32_id,
                 access: PathAccess::ReadOnly,
-                abi_fingerprint: AbiFingerprint(71),
             }],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
