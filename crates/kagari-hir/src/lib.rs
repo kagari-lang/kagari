@@ -100,6 +100,7 @@ impl PreparedAnalysis {
         let mut diagnostics = DiagnosticBuffer::new();
         typeck::validate_signature_applications(
             &self.lowered,
+            &self.declarations,
             self.signatures.facts(),
             aggregates,
             &mut diagnostics,

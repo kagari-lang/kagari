@@ -38,6 +38,7 @@ impl MethodSignature {
 pub struct TraitSignature {
     pub id: DefinitionId,
     pub generic_params: Vec<GenericParameterType>,
+    pub bounds: crate::typeck::GenericBounds,
     pub methods: Vec<MethodSignature>,
     pub declaration: Declaration,
 }
@@ -77,13 +78,21 @@ impl AggregateCatalog {
                 unreachable!("nominal trait");
             };
             let mut generic_params = Vec::new();
+            let mut bounds = crate::typeck::GenericBounds::new();
             for param in &item.generic_params {
                 cancel.check()?;
-                generic_params.push(
-                    declarations
-                        .generic_type(param.id)
-                        .expect("trait parameter identity"),
-                );
+                let identity = declarations
+                    .generic_type(param.id)
+                    .expect("trait parameter identity");
+                let constraints = param
+                    .bounds
+                    .iter()
+                    .filter_map(|reference| signatures.type_table().constraint(reference.ty))
+                    .collect::<Vec<_>>();
+                if !constraints.is_empty() {
+                    bounds.insert(identity.clone(), constraints);
+                }
+                generic_params.push(identity);
             }
             let mut methods = Vec::new();
             for (slot, method) in item.methods.iter().enumerate() {
@@ -125,6 +134,7 @@ impl AggregateCatalog {
                 Arc::new(TraitSignature {
                     id: id.clone(),
                     generic_params,
+                    bounds,
                     methods,
                     declaration: declaration.clone(),
                 }),
@@ -165,6 +175,7 @@ impl AggregateCatalog {
             && self.traits.iter().all(|(id, a)| {
                 other.trait_(id).is_some_and(|b| {
                     a.generic_params == b.generic_params
+                        && a.bounds == b.bounds
                         && a.methods.len() == b.methods.len()
                         && a.methods
                             .iter()

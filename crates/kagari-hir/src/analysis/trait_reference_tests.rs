@@ -137,7 +137,7 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
 }
 
 #[test]
-fn imported_trait_headers_keep_nominal_navigation_even_before_execution_support() {
+fn imported_trait_headers_keep_distinct_executable_identities() {
     let mut sources = SourceDatabase::default();
     let mut insert = |name: &str, text: &str| {
         sources
@@ -184,16 +184,184 @@ fn imported_trait_headers_keep_nominal_navigation_even_before_execution_support(
             .iter()
             .any(|d| d.kind.code() == "KG_TYPE_UNKNOWN_TRAIT")
     );
-    assert_eq!(
+    assert!(analysis.result().clone().into_codegen().is_ok());
+}
+
+#[test]
+fn imported_applied_trait_methods_validate_and_resolve_bound_calls() {
+    let mut sources = SourceDatabase::default();
+    let mut root = None;
+    let valid_root = "use pkg::api::Echo; struct Holder { val number: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.number } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn accepts(value: Echo<i32>) {} fn main() -> i32 { read(Holder { number: 7 }) }";
+    for (name, text) in [
+        ("api", "pub trait Echo<T> { fn get(self) -> T; }"),
+        ("root", valid_root),
+    ] {
+        sources
+            .bind_module(
+                name,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+        let file = sources.set(name, text.into(), SourceLayer::Base).unwrap();
+        if name == "root" {
+            root = Some(file);
+        }
+    }
+    let mut db = AnalysisDatabase::default();
+    let snapshot = analyze(&mut db, &sources);
+    let root = root.unwrap();
+    let analysis = snapshot.file(root).unwrap();
+    assert!(analysis.result().clone().into_codegen().is_ok());
+
+    let invalid = "use pkg::api::Echo; struct Holder { val number: i32 } impl Echo<i32> for Holder { fn get(self) -> bool { true } } fn main() {}";
+    sources
+        .set("root", invalid.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analyze(&mut db, &sources);
+    let analysis = snapshot.file(root).unwrap();
+    assert!(
         analysis
             .result()
             .diagnostics()
             .iter()
-            .filter(|d| d.kind.code() == "KG_TYPE_INVALID_TRAIT_REFERENCE")
-            .count(),
-        3
+            .any(|diagnostic| matches!(
+                &diagnostic.kind,
+                kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, .. }
+                    if method_name == "get"
+            ))
     );
     assert!(analysis.result().clone().into_codegen().is_err());
+
+    let missing = "use pkg::api::Echo; struct Holder { val number: i32 } impl Echo<i32> for Holder {} fn main() {}";
+    sources
+        .set("root", missing.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analyze(&mut db, &sources);
+    let analysis = snapshot.file(root).unwrap();
+    assert!(
+        analysis
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(
+                &diagnostic.kind,
+                kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
+                    if method_name == "get" && reason == "missing impl method"
+            ))
+    );
+
+    sources
+        .set("root", valid_root.into(), SourceLayer::Base)
+        .unwrap();
+    assert!(
+        analyze(&mut db, &sources)
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+    sources
+        .set(
+            "api",
+            "pub trait Echo<T> { fn get(self) -> bool; }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let snapshot = analyze(&mut db, &sources);
+    let analysis = snapshot.file(root).unwrap();
+    assert!(
+        analysis
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(
+                &diagnostic.kind,
+                kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, .. }
+                    if method_name == "get"
+            ))
+    );
+}
+
+#[test]
+fn imported_trait_parameter_bounds_reject_invalid_implementations() {
+    let mut sources = SourceDatabase::default();
+    let mut root = None;
+    for (name, text) in [
+        ("api", "pub trait Echo<T: HashKey> { fn get(self) -> i32; }"),
+        (
+            "root",
+            "use pkg::api::Echo; struct Holder {} impl Echo<Holder> for Holder { fn get(self) -> i32 { 1 } } fn main() {}",
+        ),
+    ] {
+        sources
+            .bind_module(
+                name,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+        let file = sources.set(name, text.into(), SourceLayer::Base).unwrap();
+        if name == "root" {
+            root = Some(file);
+        }
+    }
+    let mut db = AnalysisDatabase::default();
+    let snapshot = analyze(&mut db, &sources);
+    let analysis = snapshot.file(root.unwrap()).unwrap();
+    assert!(analysis.result().diagnostics().iter().any(|diagnostic| {
+        diagnostic.kind.code() == "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"
+    }));
+    assert!(analysis.result().clone().into_codegen().is_err());
+}
+
+#[test]
+fn imported_generic_method_rejects_interface_annotations() {
+    let mut sources = SourceDatabase::default();
+    let mut root = None;
+    for (name, text) in [
+        (
+            "api",
+            "pub trait Mapper<T> { fn map<U>(self, value: U) -> T; }",
+        ),
+        (
+            "root",
+            "use pkg::api::Mapper; fn use_interface(value: Mapper<i32>) {}",
+        ),
+    ] {
+        sources
+            .bind_module(
+                name,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+        let file = sources.set(name, text.into(), SourceLayer::Base).unwrap();
+        if name == "root" {
+            root = Some(file);
+        }
+    }
+    let mut db = AnalysisDatabase::default();
+    let snapshot = analyze(&mut db, &sources);
+    let analysis = snapshot.file(root.unwrap()).unwrap();
+    assert!(
+        analysis
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(
+                &diagnostic.kind,
+                kagari_common::DiagnosticKind::InvalidInterfaceType { reason, .. }
+                    if reason == "method `map` is not interface-compatible"
+            ))
+    );
 }
 
 #[test]

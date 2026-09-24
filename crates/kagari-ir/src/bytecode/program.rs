@@ -122,6 +122,52 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 pending.extend_from_slice(&program.modules[dependency.index()].dependencies);
             }
         }
+        for item in &module.public_items {
+            let crate::module::PublicAbiItem::InterfaceTable(table) = item else {
+                continue;
+            };
+            let crate::module::abi::AbiType::Trait(instance) = &table.trait_type else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            if instance.declaration.module == module.identity {
+                continue;
+            }
+            if instance.declaration.path.len() != 1
+                || instance.declaration.path[0].kind
+                    != kagari_common::identity::DefinitionKind::Trait
+                || instance.declaration.path[0].occurrence != 0
+            {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
+            let Some((owner_index, owner)) = program
+                .modules
+                .iter()
+                .enumerate()
+                .find(|(_, owner)| owner.identity == instance.declaration.module)
+            else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            if !reachable.contains(&ModuleRef::new(owner_index)) {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
+            let Some(trait_name) = instance.declaration.path.last().map(|part| &part.name) else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            let Some(crate::module::PublicAbiItem::Trait(interface)) = owner
+                .public_items
+                .iter()
+                .find(|item| matches!(item, crate::module::PublicAbiItem::Trait(interface) if &interface.name == trait_name))
+            else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            if !crate::module::abi::verify::interface_contract_matches(
+                table,
+                interface,
+                &Default::default(),
+            ) {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
+        }
         for instruction in module
             .functions
             .iter()

@@ -1,0 +1,19 @@
+use pkg::api::Echo;
+
+struct Holder {
+    val number: i32,
+}
+
+impl Echo<i32> for Holder {
+    fn get(self) -> i32 {
+        self.number
+    }
+}
+
+fn read<U: Echo<i32>>(value: U) -> i32 {
+    value.get()
+}
+
+fn main() -> i32 {
+    read(Holder { number: 7 })
+}

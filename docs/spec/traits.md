@@ -437,6 +437,11 @@ arguments; the type kind also participates in identity. Substitution retains the
 declaration and recursively replaces arguments by their parameter owner/position.
 Local impl headers and bounds resolve applied trait types with checked argument
 arity. Executable interface values remain separate work.
+An imported trait can be used in a bound or implemented locally. Its method
+identities come from the defining module; after shared signatures are available,
+the local implementation is checked against that module's trait contract.
+Whole-program loading also checks the imported interface table against the
+dependency's public ABI before execution.
 Trait methods compare local generic binders by position after substituting
 trait arguments and `Self`; binder spelling does not affect impl matching.
 The same substitution applies to method bounds in the public interface table,
@@ -457,7 +462,7 @@ declarations within a trait or impl produce `KG_RESOLVE_DUPLICATE_METHOD`.
 Ambiguous calls have no selected method target and cannot enter code generation.
 
 These analysis capabilities do not imply executable dynamic interface values.
-Imported trait constraints/impls and runtime interface dispatch remain tracked in
+Implementations defined in another imported module and runtime interface dispatch remain tracked in
 the [foundation roadmap](../foundation-refactor.md).
 
 ### Remaining execution work

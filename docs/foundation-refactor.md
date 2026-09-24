@@ -561,6 +561,17 @@ R02 acceptance evidence:
   otherwise interface-compatible; a generic method still rejects that use.
   Runtime interface construction and dispatch remain outstanding.
 
+- R07 imported-trait implementation checkpoint: imported trait declarations now
+  retain stable method identities during signature checking. Local implementations
+  of imported applied traits use the shared checked trait catalog to validate
+  method roster, signatures, method bounds and trait-argument bounds. Bound calls
+  link to the local concrete method slot. Whole-program bytecode verification
+  matches an imported interface table against the dependency's public trait ABI
+  and rejects a changed contract before execution. The
+  [two-module example](../examples/imported-traits/main.kgr) runs from source and
+  encoded artifacts through the interpreter and existing JIT fallback. Importing
+  an implementation from another module and runtime interface values remain open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

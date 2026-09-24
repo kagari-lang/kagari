@@ -14,6 +14,13 @@ pub struct ImportedType {
     pub id: SourceTypeId,
     pub declaration: Declaration,
     pub ty: TypeId,
+    pub trait_methods: Vec<ImportedTraitMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportedTraitMethod {
+    pub name: String,
+    pub declaration: kagari_common::identity::DefinitionId,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -32,6 +39,16 @@ impl ImportedTypes {
     }
     pub fn target(&self, id: SourceTypeId) -> Option<&ImportedType> {
         self.types.values().find(|ty| ty.id == id)
+    }
+
+    pub fn by_declaration(
+        &self,
+        id: &kagari_common::identity::DefinitionId,
+    ) -> Option<&ImportedType> {
+        self.types.values().find(|ty| match &ty.ty {
+            TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty) => &ty.declaration == id,
+            _ => false,
+        })
     }
 }
 
@@ -138,6 +155,27 @@ impl<'a> TypeCatalog<'a> {
                     .map(TypeId::Generic)
                     .collect(),
             }),
+            trait_methods: match item {
+                ExportItem::Trait(id) => module
+                    .lowered
+                    .module
+                    .traits
+                    .iter()
+                    .find(|item| item.id == id)
+                    .into_iter()
+                    .flat_map(|item| &item.methods)
+                    .filter_map(|method| {
+                        Some(ImportedTraitMethod {
+                            name: method.name.clone(),
+                            declaration: module
+                                .declarations
+                                .definition(ResolvedName::Function(method.function))?
+                                .clone(),
+                        })
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            },
         }))
     }
 }

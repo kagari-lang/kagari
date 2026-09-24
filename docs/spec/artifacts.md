@@ -292,6 +292,9 @@ Interface method slots are checked against their concrete function identities:
 the impl and method type arguments must instantiate the declared signature to
 the executable parameter and return layouts. A slot with a mismatched instance
 is rejected before execution.
+For an implementation of an imported trait, whole-program verification also
+checks the interface table against the trait's public ABI in its dependency
+module and requires that module to be reachable.
 
 ## Verification Metadata
 

@@ -187,7 +187,12 @@ fn resolve_constraint(
                 if context
                     .declarations
                     .definition_target(&instance.declaration)
-                    .is_some() =>
+                    .is_some()
+                    || context
+                        .declarations
+                        .imported_types()
+                        .by_declaration(&instance.declaration)
+                        .is_some() =>
             {
                 Some(ConstraintTarget::Trait(instance.clone()))
             }
@@ -199,8 +204,6 @@ fn resolve_constraint(
         && matches!(resolved.target, Some(TypeTarget::Trait(id)) if lowered.module.traits.iter().any(|item| item.id == id && !item.generic_params.is_empty()))
     {
         Some("generic trait references require concrete type arguments")
-    } else if matches!(resolved.ty, TypeId::Trait(_)) && target.is_none() {
-        Some("imported trait constraints and implementations are not yet supported")
     } else if !resolved.ty.is_unresolved() && target.is_none() {
         Some("expected a trait, not another type or generic parameter")
     } else {

@@ -111,6 +111,75 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
 }
 
 #[test]
+fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "api",
+        include_str!("../../../examples/imported-traits/api.kgr"),
+    );
+    let root = insert(
+        &engine,
+        "root",
+        include_str!("../../../examples/imported-traits/main.kgr"),
+    );
+    let mut context = ExecutionContext::default();
+    context.language_profile.allow_jit = true;
+    context.capabilities.jit = true;
+    let artifact = compile(
+        &engine,
+        root,
+        CompileOptions {
+            language_profile: context.language_profile,
+        },
+    );
+    let mut wrong_contract = artifact.program.clone();
+    let api = wrong_contract
+        .modules
+        .iter_mut()
+        .find(|module| module.identity.path == ["api"])
+        .unwrap();
+    let method = api.public_items.iter_mut().find_map(|item| match item {
+        kagari_ir::module::PublicAbiItem::Trait(interface) => interface.methods.first_mut(),
+        _ => None,
+    });
+    method.unwrap().return_type =
+        kagari_ir::module::abi::AbiType::Builtin(kagari_hir::types::BuiltinType::Bool);
+    assert!(matches!(
+        kagari_ir::bytecode::verify_program(&wrong_contract),
+        Err(kagari_ir::bytecode::BytecodeVerificationError::InvalidInterfaceTable)
+    ));
+    assert!(matches!(
+        kagari_ir::bytecode::KbcArtifact::from_program(wrong_contract, Default::default()),
+        Err(kagari_ir::bytecode::ArtifactValidationError::Bytecode(
+            kagari_ir::bytecode::BytecodeVerificationError::InvalidInterfaceTable
+        ))
+    ));
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        context.jit_policy = if jit {
+            kagari_embed::JitPolicy::Enabled
+        } else {
+            kagari_embed::JitPolicy::Disabled
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let report = if jit {
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+        } else {
+            runtime.execute(&loaded, "main", &[], &context)
+        }
+        .unwrap();
+        assert_eq!(report.return_value, Value::I32(7));
+    }
+}
+
+#[test]
 fn facade_call_signatures_supply_context_to_nominal_constructors() {
     let engine = KagariEngine::default();
     insert(

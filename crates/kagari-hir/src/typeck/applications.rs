@@ -18,14 +18,18 @@ pub(super) fn validate(
             return;
         }
         match ty {
-            TypeId::Struct(instance) | TypeId::Enum(instance) => {
+            TypeId::Struct(instance) | TypeId::Enum(instance) | TypeId::Trait(instance) => {
                 let contract = match ty {
                     TypeId::Struct(_) => catalog
                         .structure(&instance.declaration)
                         .map(|s| (&s.generic_params, &s.bounds)),
-                    _ => catalog
+                    TypeId::Enum(_) => catalog
                         .enumeration(&instance.declaration)
                         .map(|s| (&s.generic_params, &s.bounds)),
+                    TypeId::Trait(_) => catalog
+                        .trait_(&instance.declaration)
+                        .map(|s| (&s.generic_params, &s.bounds)),
+                    _ => unreachable!(),
                 };
                 if let Some((parameters, required)) = contract {
                     let substitution = parameters
@@ -87,7 +91,6 @@ pub(super) fn validate(
                 }
                 pending.extend(&instance.arguments);
             }
-            TypeId::Trait(instance) => pending.extend(&instance.arguments),
             TypeId::Tuple(types) | TypeId::StandardEnum { args: types, .. } => {
                 pending.extend(types)
             }
@@ -103,6 +106,7 @@ pub(super) fn validate(
 
 pub(crate) fn validate_signatures(
     lowered: &LoweredModule,
+    declarations: &crate::declarations::Declarations,
     signatures: &ModuleSignatures,
     catalog: &AggregateCatalog,
     diagnostics: &mut crate::DiagnosticBuffer,
@@ -113,6 +117,14 @@ pub(crate) fn validate_signatures(
             return;
         }
         for parameter in &function.params {
+            validate_imported_interface_type(
+                &parameter.ty,
+                catalog,
+                lowered.source.module_identity(),
+                lowered.source_map.param_span(parameter.id),
+                diagnostics,
+                cancel,
+            );
             validate(
                 &parameter.ty,
                 &function.bounds,
@@ -123,6 +135,14 @@ pub(crate) fn validate_signatures(
                 cancel,
             );
         }
+        validate_imported_interface_type(
+            &function.return_type,
+            catalog,
+            lowered.source.module_identity(),
+            lowered.source_map.function_span(function.id),
+            diagnostics,
+            cancel,
+        );
         validate(
             &function.return_type,
             &function.bounds,
@@ -134,6 +154,102 @@ pub(crate) fn validate_signatures(
         );
     }
     let identity = lowered.source.module_identity();
+    for impl_block in &lowered.module.impls {
+        if cancel.check().is_err() {
+            return;
+        }
+        let Some(trait_ref) = &impl_block.trait_ref else {
+            continue;
+        };
+        let Some(ConstraintTarget::Trait(instance)) =
+            signatures.type_table().constraint(trait_ref.ty)
+        else {
+            continue;
+        };
+        if instance.declaration.module == *identity {
+            continue;
+        }
+        let Some(contract) = catalog.trait_(&instance.declaration) else {
+            continue;
+        };
+        let available = super::constraints::implementation_bounds(
+            impl_block,
+            declarations,
+            signatures.type_table(),
+        );
+        validate(
+            &TypeId::Trait(instance.clone()),
+            &available,
+            catalog,
+            signatures.type_table(),
+            lowered.source_map.type_span(trait_ref.ty),
+            diagnostics,
+            cancel,
+        );
+        let Some(receiver) = impl_block
+            .for_type
+            .and_then(|ty| signatures.type_table().type_ref(ty))
+            .map(|resolved| &resolved.ty)
+        else {
+            continue;
+        };
+        let span = lowered.source_map.impl_span(impl_block.id);
+        for method in &contract.methods {
+            let Some(implementation) = impl_block
+                .methods
+                .iter()
+                .find(|candidate| candidate.name == method.name)
+            else {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                        trait_name: contract.declaration.name.clone(),
+                        method_name: method.name.clone(),
+                        reason: "missing impl method".into(),
+                    })
+                    .with_span(span),
+                );
+                continue;
+            };
+            let Some(actual) = signatures
+                .functions()
+                .iter()
+                .find(|function| function.id == implementation.function)
+            else {
+                continue;
+            };
+            super::check::compare_method_contract(
+                method,
+                actual,
+                &super::check::MethodComparison {
+                    trait_name: &contract.declaration.name,
+                    method_name: &method.name,
+                    trait_generic_count: contract.generic_params.len(),
+                    impl_generic_count: impl_block.generic_params.len(),
+                    receiver,
+                    trait_owner: &contract.id,
+                    trait_arguments: &instance.arguments,
+                    span,
+                },
+                diagnostics,
+            );
+        }
+        for method in &impl_block.methods {
+            if !contract
+                .methods
+                .iter()
+                .any(|declared| declared.name == method.name)
+            {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                        trait_name: contract.declaration.name.clone(),
+                        method_name: method.name.clone(),
+                        reason: "method is not declared by trait".into(),
+                    })
+                    .with_span(span),
+                );
+            }
+        }
+    }
     for structure in catalog.structures().filter(|s| &s.id.module == identity) {
         for field in &structure.fields {
             validate(
@@ -160,6 +276,59 @@ pub(crate) fn validate_signatures(
                     cancel,
                 );
             }
+        }
+    }
+}
+
+fn validate_imported_interface_type(
+    ty: &TypeId,
+    catalog: &AggregateCatalog,
+    module: &kagari_common::identity::ModuleIdentity,
+    span: Span,
+    diagnostics: &mut crate::DiagnosticBuffer,
+    cancel: &CancellationToken,
+) {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        if cancel.check().is_err() {
+            return;
+        }
+        match ty {
+            TypeId::Trait(instance) => {
+                if &instance.declaration.module != module
+                    && let Some(contract) = catalog.trait_(&instance.declaration)
+                {
+                    for method in &contract.methods {
+                        if !super::check::interface_method_compatible(
+                            method.generic_params.len(),
+                            contract.generic_params.len(),
+                            method.params.iter().any(|param| param.name == "self"),
+                            &method.return_type,
+                        ) {
+                            diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                                    trait_name: contract.declaration.name.clone(),
+                                    reason: format!(
+                                        "method `{}` is not interface-compatible",
+                                        method.name
+                                    ),
+                                })
+                                .with_span(span),
+                            );
+                        }
+                    }
+                }
+                pending.extend(&instance.arguments);
+            }
+            TypeId::Struct(instance) | TypeId::Enum(instance) => {
+                pending.extend(&instance.arguments)
+            }
+            TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
+                pending.extend(items)
+            }
+            TypeId::Array(item) | TypeId::Set(item) => pending.push(item),
+            TypeId::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+            _ => {}
         }
     }
 }

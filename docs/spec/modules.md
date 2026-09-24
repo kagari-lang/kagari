@@ -79,8 +79,9 @@ Generic traits cannot be used by omitting their arguments. Argument types and
 the resolved base declaration remain available for tooling. Generic binders and explicit declarations shadow
 standard constraint names. A standard constraint cannot itself be implemented by
 an impl. Imported trait references retain their nominal type and defining source
-location through aliases and facades; constraint/impl execution support remains
-pending and is diagnosed explicitly, instead of reporting a known trait as unknown.
+location through aliases and facades. A local implementation of an imported trait
+is checked against the defining module's method contract and can execute through
+a bound call. Importing an implementation defined in a dependency remains open.
 
 Checked trait constraints, implementation-table keys and trait-method call targets
 use nominal declaration identities. Module-local trait/function slots cannot be
@@ -156,8 +157,11 @@ functions cannot substitute for these link identities. Generic-instance and gene
 instruction budgets are shared across the whole closure, with cancellation checks.
 
 Current implementation boundary: source imports support graph, definition and
-function signature queries, imported type annotations and call checking. Some
-applied user types and cross-module operations remain under the R07/R08 audit.
+function signature queries, imported type annotations and call checking. A
+module may implement an imported trait and call that implementation through an
+applied bound; the imported declaration and public method contract retain their
+defining module identity. Implementations defined in dependencies and dynamic
+interface values remain under the R07/R08 audit.
 Valid source closures compile
 to BytecodeProgram, including dependency initializers and module/function call slots.
 Initialization follows the verified dependency-first order, visits shared dependencies

@@ -143,24 +143,7 @@ pub(crate) fn validate(
             // Private traits are absent from the public ABI table.
             continue;
         };
-        if instance.arguments.len() != interface.generic_params.len()
-            || table.methods.len() != interface.methods.len()
-            || !table.methods.iter().all(|method| {
-                cancel.check().is_ok()
-                    && interface.methods.iter().any(|declared| {
-                        declared.name == method.name
-                            && same_method_contract(
-                                declared,
-                                method,
-                                &instance.declaration,
-                                &instance.arguments,
-                                &table.declaration,
-                                &table.for_type,
-                                cancel,
-                            )
-                    })
-            })
-        {
+        if !interface_contract_matches(table, interface, cancel) {
             cancel
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
@@ -168,6 +151,35 @@ pub(crate) fn validate(
         }
     }
     Ok(())
+}
+
+pub(crate) fn interface_contract_matches(
+    table: &InterfaceTableAbi,
+    interface: &TraitAbi,
+    cancel: &CancellationToken,
+) -> bool {
+    let AbiType::Trait(instance) = &table.trait_type else {
+        return false;
+    };
+    let mut matched = HashSet::new();
+    instance.arguments.len() == interface.generic_params.len()
+        && table.methods.len() == interface.methods.len()
+        && table.methods.iter().all(|method| {
+            cancel.check().is_ok()
+                && interface.methods.iter().any(|declared| {
+                    declared.name == method.name
+                        && same_method_contract(
+                            declared,
+                            method,
+                            &instance.declaration,
+                            &instance.arguments,
+                            &table.declaration,
+                            &table.for_type,
+                            cancel,
+                        )
+                        && matched.insert(&declared.name)
+                })
+        })
 }
 
 fn same_method_contract(

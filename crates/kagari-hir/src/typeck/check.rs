@@ -618,18 +618,24 @@ fn validate_trait_surface(
             );
             continue;
         };
-        let Some(ResolvedName::Trait(local_id)) = declarations.definition_target(&id.declaration)
-        else {
-            unreachable!("checked local trait identity");
-        };
-        let trait_def = lowered
-            .module
-            .traits
-            .iter()
-            .find(|item| item.id == local_id)
-            .expect("resolved local trait");
+        let trait_def = declarations
+            .definition_target(&id.declaration)
+            .and_then(|target| match target {
+                ResolvedName::Trait(local_id) => lowered
+                    .module
+                    .traits
+                    .iter()
+                    .find(|item| item.id == local_id),
+                _ => None,
+            });
+        let imported_trait = declarations
+            .imported_types()
+            .by_declaration(&id.declaration);
 
-        if let Some(TypeId::Trait(applied)) = table.type_ref(reference.ty).map(|entry| &entry.ty) {
+        if let (Some(trait_def), Some(TypeId::Trait(applied))) = (
+            trait_def,
+            table.type_ref(reference.ty).map(|entry| &entry.ty),
+        ) {
             let required = super::constraints::parameter_bounds(
                 &trait_def.generic_params,
                 declarations,
@@ -740,42 +746,58 @@ fn validate_trait_surface(
         }
         seen_impls.push((id.clone(), for_ty.clone()));
 
-        validate_impl_methods(
-            lowered,
-            function_index,
-            trait_def,
-            impl_block,
-            (
-                &for_ty,
-                declarations
-                    .definition(ResolvedName::Trait(trait_def.id))
-                    .expect("checked trait declaration"),
-                match table.type_ref(reference.ty).map(|resolved| &resolved.ty) {
-                    Some(TypeId::Trait(ty)) => ty.arguments.as_slice(),
-                    _ => &[],
-                },
-            ),
-            diagnostics,
-        );
-        let methods = trait_def
-            .methods
-            .iter()
-            .filter_map(|method| {
-                impl_block
-                    .methods
-                    .iter()
-                    .find(|implementation| implementation.name == method.name)
-                    .map(|implementation| {
-                        (
-                            declarations
-                                .definition(ResolvedName::Function(method.function))
-                                .expect("trait method declaration")
-                                .clone(),
-                            implementation.function,
-                        )
-                    })
-            })
-            .collect();
+        if let Some(trait_def) = trait_def {
+            validate_impl_methods(
+                lowered,
+                function_index,
+                trait_def,
+                impl_block,
+                (
+                    &for_ty,
+                    declarations
+                        .definition(ResolvedName::Trait(trait_def.id))
+                        .expect("checked trait declaration"),
+                    match table.type_ref(reference.ty).map(|resolved| &resolved.ty) {
+                        Some(TypeId::Trait(ty)) => ty.arguments.as_slice(),
+                        _ => &[],
+                    },
+                ),
+                diagnostics,
+            );
+        }
+        let methods = if let Some(trait_def) = trait_def {
+            trait_def
+                .methods
+                .iter()
+                .filter_map(|method| {
+                    impl_block
+                        .methods
+                        .iter()
+                        .find(|implementation| implementation.name == method.name)
+                        .map(|implementation| {
+                            (
+                                declarations
+                                    .definition(ResolvedName::Function(method.function))
+                                    .expect("trait method declaration")
+                                    .clone(),
+                                implementation.function,
+                            )
+                        })
+                })
+                .collect()
+        } else {
+            imported_trait
+                .into_iter()
+                .flat_map(|trait_type| &trait_type.trait_methods)
+                .filter_map(|method| {
+                    impl_block
+                        .methods
+                        .iter()
+                        .find(|implementation| implementation.name == method.name)
+                        .map(|implementation| (method.declaration.clone(), implementation.function))
+                })
+                .collect()
+        };
         let parameters = impl_block
             .generic_params
             .iter()
@@ -902,9 +924,23 @@ fn trait_method_interface_compatible(
     let Some(function) = function_index.by_id.get(&function_id) else {
         return false;
     };
-    hir_function.generic_params.len() == trait_generic_count
-        && function.params.iter().any(|param| param.name == "self")
-        && !matches!(function.return_type, TypeId::SelfType(_))
+    interface_method_compatible(
+        hir_function.generic_params.len(),
+        trait_generic_count,
+        function.params.iter().any(|param| param.name == "self"),
+        &function.return_type,
+    )
+}
+
+pub(super) fn interface_method_compatible(
+    generic_count: usize,
+    trait_generic_count: usize,
+    has_receiver: bool,
+    return_type: &TypeId,
+) -> bool {
+    generic_count == trait_generic_count
+        && has_receiver
+        && !matches!(return_type, TypeId::SelfType(_))
 }
 
 fn validate_interface_type(
@@ -1077,6 +1113,178 @@ fn validate_impl_methods(
     }
 }
 
+pub(super) trait MethodSignatureView {
+    fn generic_params(&self) -> &[crate::types::GenericParameterType];
+    fn bounds(&self) -> &super::GenericBounds;
+    fn params_len(&self) -> usize;
+    fn param(&self, index: usize) -> (&str, crate::hir::Writeability, &TypeId);
+    fn return_type(&self) -> &TypeId;
+}
+
+impl MethodSignatureView for TypedFunction {
+    fn generic_params(&self) -> &[crate::types::GenericParameterType] {
+        &self.generic_params
+    }
+    fn bounds(&self) -> &super::GenericBounds {
+        &self.bounds
+    }
+    fn params_len(&self) -> usize {
+        self.params.len()
+    }
+    fn param(&self, index: usize) -> (&str, crate::hir::Writeability, &TypeId) {
+        let param = &self.params[index];
+        (&param.name, param.writeability, &param.ty)
+    }
+    fn return_type(&self) -> &TypeId {
+        &self.return_type
+    }
+}
+
+impl MethodSignatureView for crate::aggregates::MethodSignature {
+    fn generic_params(&self) -> &[crate::types::GenericParameterType] {
+        &self.generic_params
+    }
+    fn bounds(&self) -> &super::GenericBounds {
+        &self.bounds
+    }
+    fn params_len(&self) -> usize {
+        self.params.len()
+    }
+    fn param(&self, index: usize) -> (&str, crate::hir::Writeability, &TypeId) {
+        let param = &self.params[index];
+        (&param.name, param.writeability, &param.ty)
+    }
+    fn return_type(&self) -> &TypeId {
+        &self.return_type
+    }
+}
+
+pub(super) struct MethodComparison<'a> {
+    pub trait_name: &'a str,
+    pub method_name: &'a str,
+    pub trait_generic_count: usize,
+    pub impl_generic_count: usize,
+    pub receiver: &'a TypeId,
+    pub trait_owner: &'a kagari_common::identity::DefinitionId,
+    pub trait_arguments: &'a [TypeId],
+    pub span: kagari_common::Span,
+}
+
+pub(super) fn compare_method_contract(
+    expected: &impl MethodSignatureView,
+    actual: &TypedFunction,
+    comparison: &MethodComparison<'_>,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    let mismatch = |reason: String| {
+        Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+            trait_name: comparison.trait_name.to_string(),
+            method_name: comparison.method_name.to_string(),
+            reason,
+        })
+        .with_span(comparison.span)
+    };
+    if expected.params_len() != actual.params.len() {
+        diagnostics.push(mismatch("parameter count differs".into()));
+        return;
+    }
+    let expected_method_params = expected
+        .generic_params()
+        .iter()
+        .skip(comparison.trait_generic_count)
+        .collect::<Vec<_>>();
+    let actual_method_params = actual
+        .generic_params
+        .iter()
+        .skip(comparison.impl_generic_count)
+        .collect::<Vec<_>>();
+    if expected_method_params.len() != actual_method_params.len() {
+        diagnostics.push(mismatch("generic parameter count differs".into()));
+        return;
+    }
+    let substitution = expected
+        .generic_params()
+        .iter()
+        .take(comparison.trait_generic_count)
+        .cloned()
+        .zip(comparison.trait_arguments.iter().cloned())
+        .chain(
+            expected_method_params
+                .into_iter()
+                .zip(actual_method_params)
+                .map(|(expected, actual)| (expected.clone(), TypeId::Generic(actual.clone()))),
+        )
+        .collect();
+    for (expected_param, actual_param) in expected
+        .generic_params()
+        .iter()
+        .skip(comparison.trait_generic_count)
+        .zip(
+            actual
+                .generic_params
+                .iter()
+                .skip(comparison.impl_generic_count),
+        )
+    {
+        let required = expected
+            .bounds()
+            .get(expected_param)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let provided = actual
+            .bounds
+            .get(actual_param)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let substituted = required
+            .iter()
+            .map(|constraint| match constraint {
+                super::ConstraintTarget::Standard(value) => {
+                    super::ConstraintTarget::Standard(*value)
+                }
+                super::ConstraintTarget::Trait(instance) => {
+                    super::ConstraintTarget::Trait(instance.instantiate(&substitution))
+                }
+            })
+            .collect::<Vec<_>>();
+        if substituted.len() != provided.len()
+            || !substituted
+                .iter()
+                .all(|constraint| provided.contains(constraint))
+        {
+            diagnostics.push(mismatch("generic bound differs".into()));
+            return;
+        }
+    }
+    for (index, actual_param) in actual.params.iter().enumerate() {
+        let (name, writeability, ty) = expected.param(index);
+        if writeability != actual_param.writeability {
+            diagnostics.push(mismatch(format!("parameter `{name}` mutability differs")));
+        }
+        let expected_ty = ty
+            .with_self(comparison.trait_owner, comparison.receiver)
+            .instantiate(&substitution);
+        if expected_ty != actual_param.ty {
+            diagnostics.push(mismatch(format!(
+                "parameter `{name}` expected `{}`, found `{}`",
+                display_type_id(&expected_ty),
+                display_type_id(&actual_param.ty)
+            )));
+        }
+    }
+    let expected_return = expected
+        .return_type()
+        .with_self(comparison.trait_owner, comparison.receiver)
+        .instantiate(&substitution);
+    if expected_return != actual.return_type {
+        diagnostics.push(mismatch(format!(
+            "return type expected `{}`, found `{}`",
+            display_type_id(&expected_return),
+            display_type_id(&actual.return_type)
+        )));
+    }
+}
+
 fn compare_impl_method_signature(
     function_index: &FunctionTypeIndex,
     trait_def: &crate::hir::TraitDef,
@@ -1097,133 +1305,21 @@ fn compare_impl_method_signature(
     let Some(impl_function) = function_index.by_id.get(&impl_method.function) else {
         return;
     };
-    if trait_function.params.len() != impl_function.params.len() {
-        diagnostics.push(
-            Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                trait_name: trait_def.name.clone(),
-                method_name: trait_method.name.clone(),
-                reason: "parameter count differs".to_string(),
-            })
-            .with_span(span),
-        );
-        return;
-    }
-    let trait_method_params = trait_function
-        .generic_params
-        .iter()
-        .skip(trait_def.generic_params.len())
-        .collect::<Vec<_>>();
-    let impl_method_params = impl_function
-        .generic_params
-        .iter()
-        .skip(receiver.3)
-        .collect::<Vec<_>>();
-    if trait_method_params.len() != impl_method_params.len() {
-        diagnostics.push(
-            Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                trait_name: trait_def.name.clone(),
-                method_name: trait_method.name.clone(),
-                reason: "generic parameter count differs".to_string(),
-            })
-            .with_span(span),
-        );
-        return;
-    }
-    let trait_substitution = trait_function
-        .generic_params
-        .iter()
-        .take(trait_def.generic_params.len())
-        .cloned()
-        .zip(receiver.2.iter().cloned())
-        .chain(
-            trait_method_params
-                .into_iter()
-                .zip(impl_method_params)
-                .map(|(expected, actual)| (expected.clone(), TypeId::Generic(actual.clone()))),
-        )
-        .collect();
-    for (expected_param, actual_param) in trait_function
-        .generic_params
-        .iter()
-        .skip(trait_def.generic_params.len())
-        .zip(impl_function.generic_params.iter().skip(receiver.3))
-    {
-        let expected = trait_function
-            .bounds
-            .get(expected_param)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        let actual = impl_function
-            .bounds
-            .get(actual_param)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        let substituted = expected
-            .iter()
-            .map(|constraint| match constraint {
-                super::ConstraintTarget::Standard(value) => {
-                    super::ConstraintTarget::Standard(*value)
-                }
-                super::ConstraintTarget::Trait(instance) => {
-                    super::ConstraintTarget::Trait(instance.instantiate(&trait_substitution))
-                }
-            })
-            .collect::<Vec<_>>();
-        if substituted.len() != actual.len()
-            || !substituted
-                .iter()
-                .all(|constraint| actual.contains(constraint))
-        {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                    trait_name: trait_def.name.clone(),
-                    method_name: trait_method.name.clone(),
-                    reason: "generic bound differs".to_string(),
-                })
-                .with_span(span),
-            );
-            return;
-        }
-    }
-    for (trait_param, impl_param) in trait_function.params.iter().zip(&impl_function.params) {
-        let expected = trait_param
-            .ty
-            .with_self(receiver.1, receiver.0)
-            .instantiate(&trait_substitution);
-        if expected != impl_param.ty {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                    trait_name: trait_def.name.clone(),
-                    method_name: trait_method.name.clone(),
-                    reason: format!(
-                        "parameter `{}` expected `{}`, found `{}`",
-                        trait_param.name,
-                        display_type_id(&expected),
-                        display_type_id(&impl_param.ty)
-                    ),
-                })
-                .with_span(span),
-            );
-        }
-    }
-    let expected_return = trait_function
-        .return_type
-        .with_self(receiver.1, receiver.0)
-        .instantiate(&trait_substitution);
-    if expected_return != impl_function.return_type {
-        diagnostics.push(
-            Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                trait_name: trait_def.name.clone(),
-                method_name: trait_method.name.clone(),
-                reason: format!(
-                    "return type expected `{}`, found `{}`",
-                    display_type_id(&expected_return),
-                    display_type_id(&impl_function.return_type)
-                ),
-            })
-            .with_span(span),
-        );
-    }
+    compare_method_contract(
+        trait_function,
+        impl_function,
+        &MethodComparison {
+            trait_name: &trait_def.name,
+            method_name: &trait_method.name,
+            trait_generic_count: trait_def.generic_params.len(),
+            impl_generic_count: receiver.3,
+            receiver: receiver.0,
+            trait_owner: receiver.1,
+            trait_arguments: receiver.2,
+            span,
+        },
+        diagnostics,
+    );
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
