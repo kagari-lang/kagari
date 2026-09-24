@@ -273,6 +273,9 @@ impl FileAnalysis {
         if let Some(member) = facts.declarations.member_at(offset) {
             return Some(member);
         }
+        if let Some(declaration) = facts.declarations.site_at(offset) {
+            return Some(declaration);
+        }
         let expressions = facts
             .lowered
             .module

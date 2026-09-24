@@ -41,6 +41,7 @@ fn named_declarations_point_to_identifier_tokens() {
         let range = declaration.location.range;
         assert_eq!(&text[range.start..range.end], name);
         assert_eq!(range.start, text.find(source).unwrap() + name_offset);
+        assert_eq!(file.definition_at(range.start), Some(declaration));
     }
     let function = file
         .result()
@@ -59,6 +60,34 @@ fn named_declarations_point_to_identifier_tokens() {
         .function_span(function.id);
     assert!(item.start < item.end);
     assert!(item.end > text.find("fn run()").unwrap() + "fn run()".len());
+}
+
+#[test]
+fn declaration_site_navigation_excludes_synthetic_module_span() {
+    let text = "// 中文 😀\r\nval top = 1; fn run<T>(value: T) -> T { val local = value; local }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("declaration-sites.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(id).unwrap();
+    for (name, source, name_offset) in [
+        ("top", "val top", 4),
+        ("run", "fn run", 3),
+        ("T", "run<T>", 4),
+        ("value", "(value: T)", 1),
+        ("local", "val local", 4),
+    ] {
+        let offset = text.find(source).unwrap() + name_offset;
+        assert_eq!(file.definition_at(offset).unwrap().name, name);
+    }
+    let keyword = text.find("fn run").unwrap();
+    assert!(file.definition_at(keyword).is_none());
+    assert!(file.definition_at(keyword + 1).is_none());
+    assert!(
+        file.definition_at(text.find("{ val local").unwrap())
+            .is_none()
+    );
 }
 
 #[test]

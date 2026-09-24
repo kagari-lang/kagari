@@ -86,6 +86,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   spaces; source_modules verifies an imported target lands on `Data` itself.
   Parameter, local, field and variant name ranges use the same token boundary.
 
+- R04 declaration-site checkpoint: `definition_at` resolves a declaration's
+  own identifier for named items, parameters, generic parameters and local
+  bindings. The semantic table explicitly records navigable sites so the
+  synthetic module initializer and missing names cannot claim surrounding
+  source. Tests cover declaration and reference queries beside CRLF and Unicode;
+  source_queries exercises function and local declaration sites.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

@@ -1,6 +1,6 @@
 //! Declaration and binding identities owned by one semantic analysis.
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -54,6 +54,7 @@ pub struct Declarations {
     analysis: AnalysisId,
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
+    sites: HashSet<DeclarationKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -104,6 +105,22 @@ impl Declarations {
             .filter(|(key, _)| matches!(key, DeclarationKey::Field(_) | DeclarationKey::Variant(_)))
             .map(|(_, d)| d)
             .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
+    }
+
+    /// Declaration-site lookup uses only identifier-sized ranges. Synthetic
+    /// module initialization and incomplete names cannot claim surrounding code.
+    pub fn site_at(&self, offset: usize) -> Option<&Declaration> {
+        self.targets
+            .iter()
+            .filter(|(key, _)| self.sites.contains(key))
+            .map(|(_, declaration)| declaration)
+            .filter(|declaration| {
+                let range = declaration.location.range;
+                range.start <= offset && offset < range.end
+            })
+            .min_by_key(|declaration| {
+                declaration.location.range.end - declaration.location.range.start
+            })
     }
 
     pub fn imported_types(&self) -> &crate::imports::ImportedTypes {
@@ -210,6 +227,7 @@ impl Declarations {
                 analysis,
                 targets: HashMap::new(),
                 identities: HashMap::new(),
+                sites: HashSet::new(),
             },
             occurrences: HashMap::new(),
         };
@@ -230,6 +248,8 @@ impl Declarations {
                 kind,
                 &item.name,
                 map.item_declaration_span(crate::hir::Item::Function(item.id)),
+                map.item_name_span(crate::hir::Item::Function(item.id))
+                    .is_some(),
             );
             builder.generic_params(&owner, &item.generic_params, map);
         }
@@ -243,6 +263,8 @@ impl Declarations {
                 DefinitionKind::Const,
                 &item.name,
                 map.item_declaration_span(crate::hir::Item::Const(item.id)),
+                map.item_name_span(crate::hir::Item::Const(item.id))
+                    .is_some(),
             );
         }
         for item in &module.modules {
@@ -255,6 +277,8 @@ impl Declarations {
                 DefinitionKind::Module,
                 &item.name,
                 map.item_declaration_span(crate::hir::Item::Module(item.id)),
+                map.item_name_span(crate::hir::Item::Module(item.id))
+                    .is_some(),
             );
         }
         for item in &module.structs {
@@ -267,6 +291,8 @@ impl Declarations {
                 DefinitionKind::Struct,
                 &item.name,
                 map.item_declaration_span(crate::hir::Item::Struct(item.id)),
+                map.item_name_span(crate::hir::Item::Struct(item.id))
+                    .is_some(),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for field in &item.fields {
@@ -279,6 +305,7 @@ impl Declarations {
                     DeclarationId::Definition(id),
                     &field.name,
                     map.field_span(field.id),
+                    !field.name.is_empty(),
                 );
             }
         }
@@ -292,6 +319,8 @@ impl Declarations {
                 DefinitionKind::Enum,
                 &item.name,
                 map.item_declaration_span(crate::hir::Item::Enum(item.id)),
+                map.item_name_span(crate::hir::Item::Enum(item.id))
+                    .is_some(),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for variant in &item.variants {
@@ -304,6 +333,7 @@ impl Declarations {
                     DeclarationId::Definition(id),
                     &variant.name,
                     map.variant_span(variant.id),
+                    !variant.name.is_empty(),
                 );
             }
         }
@@ -317,6 +347,8 @@ impl Declarations {
                 DefinitionKind::Trait,
                 &item.name,
                 map.item_declaration_span(crate::hir::Item::Trait(item.id)),
+                map.item_name_span(crate::hir::Item::Trait(item.id))
+                    .is_some(),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
@@ -329,6 +361,8 @@ impl Declarations {
                     DefinitionKind::Method,
                     &method.name,
                     map.item_declaration_span(crate::hir::Item::Function(method.function)),
+                    map.item_name_span(crate::hir::Item::Function(method.function))
+                        .is_some(),
                 );
                 let function = module
                     .functions
@@ -354,6 +388,8 @@ impl Declarations {
                     DefinitionKind::Method,
                     &method.name,
                     map.item_declaration_span(crate::hir::Item::Function(method.function)),
+                    map.item_name_span(crate::hir::Item::Function(method.function))
+                        .is_some(),
                 );
                 let function = module
                     .functions
@@ -416,6 +452,7 @@ impl Declarations {
                     }),
                     &binding.name,
                     range,
+                    !binding.name.is_empty() && !binding.name.starts_with('<'),
                 );
             }
         }
@@ -455,6 +492,7 @@ impl Builder<'_> {
                 },
                 &param.name,
                 map.generic_param_span(param.id),
+                !param.name.is_empty(),
             );
             position += 1;
         }
@@ -491,9 +529,16 @@ impl Builder<'_> {
         kind: DefinitionKind,
         name: &str,
         range: Span,
+        site: bool,
     ) -> DefinitionId {
         let id = self.identity(parent, kind, name);
-        self.insert(key, DeclarationId::Definition(id.clone()), name, range);
+        self.insert(
+            key,
+            DeclarationId::Definition(id.clone()),
+            name,
+            range,
+            site,
+        );
         id
     }
 
@@ -503,8 +548,12 @@ impl Builder<'_> {
         id: DeclarationId,
         name: &str,
         range: Span,
+        site: bool,
     ) {
         let key = key.into();
+        if site {
+            self.result.sites.insert(key);
+        }
         self.result.identities.insert(id.clone(), key);
         self.result.targets.insert(
             key,

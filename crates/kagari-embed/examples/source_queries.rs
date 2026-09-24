@@ -106,6 +106,20 @@ fn main() -> kagari_embed::CompileResult<()> {
         &Default::default(),
     )?;
     let analysis = snapshot.file(file).expect("source belongs to snapshot");
+    let good_name = text.find("fn good").expect("function declaration") + "fn ".len();
+    assert_eq!(
+        analysis
+            .definition_at(good_name)
+            .expect("declaration site")
+            .id,
+        kagari_hir::declarations::DeclarationId::Definition(good.clone())
+    );
+    assert!(analysis.definition_at(good_name - "fn ".len()).is_none());
+    let local_name = text.find("val answer").expect("local declaration") + "val ".len();
+    assert_eq!(
+        analysis.definition_at(local_name).expect("local site").name,
+        "answer"
+    );
     let write_start = text.find("p.x = 2").expect("field write");
     assert_eq!(
         analysis.definition_at(write_start).expect("receiver").name,

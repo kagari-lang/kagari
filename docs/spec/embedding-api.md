@@ -201,6 +201,10 @@ Named declaration locations point to the identifier token. The HIR source map
 separately retains the complete item range for diagnostics and code lowering.
 The same token-boundary rule applies to local bindings and named members, so
 leading or trailing trivia does not become part of a declaration target.
+`FileAnalysis::definition_at` also resolves a declaration's own identifier,
+including named items, parameters, generic parameters and local bindings.
+Only explicitly recorded declaration sites participate; a synthetic module
+initializer or incomplete name cannot turn its wider source span into a target.
 
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
