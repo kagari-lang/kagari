@@ -39,7 +39,22 @@ impl PublicAbiItem {
     }
 
     pub fn fingerprint_name(&self) -> String {
-        format!("{}:{}", self.category(), self.name())
+        if let Self::InterfaceTable(table) = self {
+            use bincode::Options;
+            use std::fmt::Write;
+            let encoded = bincode::DefaultOptions::new()
+                .with_fixint_encoding()
+                .with_little_endian()
+                .serialize(&table.declaration)
+                .expect("validated interface declaration identity");
+            let mut name = String::from("interface_table:");
+            for byte in encoded {
+                write!(name, "{byte:02x}").expect("writing to a String cannot fail");
+            }
+            name
+        } else {
+            format!("{}:{}", self.category(), self.name())
+        }
     }
 }
 
@@ -256,6 +271,7 @@ pub struct TraitAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceTableAbi {
+    pub declaration: kagari_common::identity::DefinitionId,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,

@@ -16,6 +16,7 @@ pub(crate) fn validate(
 ) -> Result<(), LayoutValidationError> {
     let invalid = || LayoutValidationError::Invalid;
     let mut aggregate_names = HashSet::new();
+    let mut interface_identities = HashSet::new();
     for item in items {
         cancel
             .check()
@@ -67,42 +68,22 @@ pub(crate) fn validate(
                 })
             }
             PublicAbiItem::InterfaceTable(table) => {
-                let template_owner = table.generic_params.first().map(|param| &param.owner);
-                let params = match template_owner {
-                    Some(owner)
-                        if owner.module == *module
-                            && owner.path.len() == 1
-                            && owner.path[0].kind == DefinitionKind::Impl =>
-                    {
-                        parameters(&table.generic_params, owner, &Parameters::new())
-                    }
-                    Some(_) => None,
-                    None => Some(Parameters::new()),
-                };
+                let owner = &table.declaration;
+                let params = (interface_identities.insert(owner)
+                    && owner.module == *module
+                    && owner.path.len() == 1
+                    && owner.path[0].kind == DefinitionKind::Impl
+                    && owner.path[0].name.is_empty()
+                    && owner.within_path_limit())
+                .then(|| parameters(&table.generic_params, owner, &Parameters::new()))
+                .flatten();
                 params.is_some_and(|params| {
                     bounds_valid(&table.bounds, &params)
                         && matches!(table.trait_type, AbiType::Trait(_))
                         && type_valid(&table.trait_type, &params, None, cancel)
                         && type_valid(&table.for_type, &params, None, cancel)
                         && table.methods.iter().all(|method| {
-                            // Concrete impls need no template owner; method binders carry
-                            // their declaring impl path even when no outer parameter exists.
-                            let parent =
-                                template_owner.map(|id| id.path.as_slice()).or_else(|| {
-                                    method.generic_params.first().map(|param| {
-                                        &param.owner.path
-                                            [..param.owner.path.len().saturating_sub(1)]
-                                    })
-                                });
-                            if let Some(parent) = parent {
-                                parent.len() == 1
-                                    && parent[0].kind == DefinitionKind::Impl
-                                    && function_valid(method, module, parent, &params, None, cancel)
-                            } else {
-                                method.generic_params.is_empty()
-                                    && bounds_valid(&method.bounds, &params)
-                                    && signature_valid(method, &params, None, cancel)
-                            }
+                            function_valid(method, module, &owner.path, &params, None, cancel)
                         })
                 })
             }
@@ -292,6 +273,48 @@ fn type_valid(
 mod tests {
     use super::*;
     use crate::bytecode::{BytecodeVerificationError, verify_module};
+
+    #[test]
+    fn interface_tables_require_distinct_local_impl_identities() {
+        let original = crate::tests::common::bytecode_ok(
+            "struct Player { val value: i32 } trait Display { fn show(self) -> i32; } impl Display for Player { fn show(self) -> i32 { self.value } } fn main() -> i32 { 1 }",
+        );
+        let table_index = original
+            .public_items
+            .iter()
+            .position(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
+            .expect("checked interface table");
+        let PublicAbiItem::InterfaceTable(table) = &original.public_items[table_index] else {
+            unreachable!()
+        };
+        assert_eq!(table.declaration.module, original.identity);
+        assert_eq!(table.declaration.path.len(), 1);
+        assert_eq!(table.declaration.path[0].kind, DefinitionKind::Impl);
+        assert!(table.declaration.path[0].name.is_empty());
+        for corruption in 0..3 {
+            let mut module = original.clone();
+            let PublicAbiItem::InterfaceTable(table) = &mut module.public_items[table_index] else {
+                unreachable!()
+            };
+            match corruption {
+                0 => table.declaration.module.package.0 = "foreign".into(),
+                1 => table.declaration.path[0].kind = DefinitionKind::Trait,
+                _ => table.declaration.path[0].name = "fabricated".into(),
+            }
+            assert!(matches!(
+                verify_module(&module),
+                Err(BytecodeVerificationError::InvalidPublicAbi)
+            ));
+        }
+        let mut duplicate = original;
+        duplicate
+            .public_items
+            .push(duplicate.public_items[table_index].clone());
+        assert!(matches!(
+            verify_module(&duplicate),
+            Err(BytecodeVerificationError::InvalidPublicAbi)
+        ));
+    }
 
     #[test]
     fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() {

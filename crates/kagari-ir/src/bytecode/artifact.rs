@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 26;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 27;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +50,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v26";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v27";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -651,7 +651,8 @@ fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 })
         }
         PublicAbiItem::InterfaceTable(item) => {
-            generic_identity_limit(&item.generic_params, &item.bounds)
+            item.declaration.within_path_limit()
+                && generic_identity_limit(&item.generic_params, &item.bounds)
                 && valid(&item.trait_type)
                 && valid(&item.for_type)
                 && item.methods.iter().all(|method| {

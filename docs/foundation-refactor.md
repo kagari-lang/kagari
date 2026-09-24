@@ -472,6 +472,15 @@ R02 acceptance evidence:
   representation, changed permissions, renamed and missing fields in local and
   imported layouts. The public `Pair` in the layouts example exercises this check.
 
+- R07 interface-identity checkpoint: HIR retains each anonymous impl's
+  declaration identity, and the public interface-table ABI carries it separately
+  from its diagnostic display label. IR/bytecode validation requires a unique,
+  local impl identity and verifies method binder ownership against that impl.
+  Public ABI reload keys use the canonical encoded identity, so equal display
+  labels in different packages cannot alias. KBC format/runtime ABI v27 reject
+  older products. The layouts example prints the checked table; executable
+  dispatch tables and generic impl specialization remain open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

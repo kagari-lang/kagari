@@ -175,6 +175,11 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             trait_type.display_name()
         );
         public_items.push(PublicAbiItem::InterfaceTable(InterfaceTableAbi {
+            declaration: module
+                .declarations
+                .impl_identity(impl_block.id)
+                .expect("checked impl declaration identity")
+                .clone(),
             name,
             generic_params: generic_param_abi(module, &impl_block.generic_params),
             bounds: canonical_bounds(

@@ -1,4 +1,4 @@
-//! Inspect verified struct layouts without creating a runtime.
+//! Inspect verified struct layouts and interface identities without a runtime.
 use kagari_common::SourceFile;
 use kagari_hir::analyze_source;
 use kagari_ir::{
@@ -9,7 +9,7 @@ use kagari_ir::{
 fn main() {
     let source = SourceFile::new(
         "layouts.kgr",
-        "pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: [i32] } fn main() -> i32 { val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
+        "pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: [i32] } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } fn main() -> i32 { val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
     );
     let checked = analyze_source(&source, Default::default())
         .into_codegen()
@@ -37,6 +37,23 @@ fn main() {
         kagari_ir::module::IrVerificationErrorKind::Cancelled,
     );
     let bytecode = lower_to_bytecode(&ir).unwrap();
+    let interface = bytecode
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            kagari_ir::module::PublicAbiItem::InterfaceTable(table) => Some(table),
+            _ => None,
+        })
+        .expect("checked interface declaration");
+    assert_eq!(interface.declaration.module, bytecode.identity);
+    assert_eq!(
+        interface.declaration.path[0].kind,
+        kagari_common::identity::DefinitionKind::Impl
+    );
+    println!(
+        "interface {} has a stable declaration identity",
+        interface.name
+    );
     let (structure, fields) = bytecode
         .functions
         .iter()

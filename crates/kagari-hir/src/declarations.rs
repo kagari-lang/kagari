@@ -55,6 +55,7 @@ pub struct Declarations {
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
     sites: HashSet<DeclarationKey>,
+    impl_identities: HashMap<crate::hir::ImplId, DefinitionId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,6 +73,10 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    pub fn impl_identity(&self, id: crate::hir::ImplId) -> Option<&DefinitionId> {
+        self.impl_identities.get(&id)
+    }
+
     pub(crate) fn host_type(&self, name: &str) -> Option<crate::host::HostTypeId> {
         let resolved = if let Some(binding) = self.names.lookup(name) {
             binding.target()
@@ -231,6 +236,7 @@ impl Declarations {
                 targets: HashMap::new(),
                 identities: HashMap::new(),
                 sites: HashSet::new(),
+                impl_identities: HashMap::new(),
             },
             occurrences: HashMap::new(),
         };
@@ -380,6 +386,10 @@ impl Declarations {
                 return builder.result;
             }
             let owner = builder.identity(&[], DefinitionKind::Impl, "");
+            builder
+                .result
+                .impl_identities
+                .insert(item.id, owner.clone());
             builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
                 if cancel.check().is_err() {

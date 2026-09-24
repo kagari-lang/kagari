@@ -439,6 +439,18 @@ pub fn greet(player: Player) -> String {
                 && item.for_type == player
                 && item.methods.iter().any(|method| method.name == "show")
     )));
+    let table = module
+        .public_items
+        .iter()
+        .find(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
+        .unwrap();
+    let mut same_label = table.clone();
+    let PublicAbiItem::InterfaceTable(other) = &mut same_label else {
+        unreachable!()
+    };
+    other.declaration.module.package.0 = "other-package".into();
+    assert_eq!(table.name(), same_label.name());
+    assert_ne!(table.fingerprint_name(), same_label.fingerprint_name());
     assert!(module.public_items.iter().any(|item| matches!(
         item,
         PublicAbiItem::Function(item)
@@ -466,7 +478,14 @@ pub fn greet(player: Player) -> String {
     assert!(names.contains(&"type:Player"));
     assert!(names.contains(&"type:Status"));
     assert!(names.contains(&"trait:Display"));
-    assert!(names.contains(&"interface_table:Player as Display"));
+    assert_eq!(
+        names
+            .iter()
+            .filter(|name| name.starts_with("interface_table:"))
+            .count(),
+        1
+    );
+    assert!(!names.contains(&"interface_table:Player as Display"));
     assert!(names.contains(&"function:greet"));
 }
 
