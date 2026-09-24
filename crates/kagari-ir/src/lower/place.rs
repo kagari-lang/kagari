@@ -4,6 +4,7 @@ use kagari_hir::{hir, types::TypeId};
 
 pub(super) struct PreparedPlace {
     host_path: Option<crate::module::PathRef>,
+    dynamic_args: crate::module::ValueBuffer,
     root: Root,
     projections: Vec<Projection>,
 }
@@ -46,6 +47,17 @@ impl FunctionLowerer<'_, '_> {
             for projection in &prepared.projections {
                 value = self.read_projection(value, projection);
             }
+            let dynamic_args = if let hir::PlaceKind::Index { index, .. } =
+                self.analyzed.lowered.module.place(id).kind
+            {
+                let arg = self.lower_expr(index)?;
+                if self.current_block_terminated() {
+                    return Ok(None);
+                }
+                smallvec::smallvec![arg]
+            } else {
+                Default::default()
+            };
             let path = crate::module::PathRef {
                 declaration: Some(checked.declaration),
                 contract_fingerprint: checked
@@ -59,6 +71,7 @@ impl FunctionLowerer<'_, '_> {
             };
             return Ok(Some(PreparedPlace {
                 host_path: Some(path),
+                dynamic_args,
                 root: Root::Value(value),
                 projections: Vec::new(),
             }));
@@ -94,6 +107,7 @@ impl FunctionLowerer<'_, '_> {
                 };
                 Ok(Some(PreparedPlace {
                     host_path: None,
+                    dynamic_args: Default::default(),
                     root,
                     projections: Vec::new(),
                 }))
@@ -105,6 +119,7 @@ impl FunctionLowerer<'_, '_> {
                 }
                 Ok(Some(PreparedPlace {
                     host_path: None,
+                    dynamic_args: Default::default(),
                     root: Root::Value(value),
                     projections: Vec::new(),
                 }))
@@ -168,7 +183,7 @@ impl FunctionLowerer<'_, '_> {
                     dst: None,
                     root_or_view,
                     path,
-                    dynamic_args: Default::default(),
+                    dynamic_args: place.dynamic_args,
                     op: Self::lower_binary_op(op),
                     value: rhs,
                 });
@@ -176,7 +191,7 @@ impl FunctionLowerer<'_, '_> {
                 self.emit(Instruction::SetPath {
                     root_or_view,
                     path,
-                    dynamic_args: Default::default(),
+                    dynamic_args: place.dynamic_args,
                     value: rhs,
                 });
             }

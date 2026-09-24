@@ -178,6 +178,7 @@ impl HostInterface {
         }
         let mut current = HostValueType::Opaque(root.id.clone());
         let mut segments = Vec::with_capacity(declaration.segments.len());
+        let mut dynamic_parameters = std::collections::BTreeMap::<u32, HostValueType>::new();
         for step in &declaration.segments {
             let resolved = match step {
                 HostPathSegmentDeclaration::Field(field_id) => {
@@ -210,6 +211,12 @@ impl HostInterface {
                 }
                 HostPathSegmentDeclaration::Index(index) => {
                     index.validate()?;
+                    if dynamic_parameters
+                        .insert(index.slot, index.index.clone())
+                        .is_some_and(|existing| existing != index.index)
+                    {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
                     if current != index.collection
                         || !allows(index.access, declaration.access)
                         || index
@@ -253,6 +260,14 @@ impl HostInterface {
             }
             current = resolved.result.clone();
             segments.push(resolved);
+        }
+        if dynamic_parameters
+            .keys()
+            .copied()
+            .enumerate()
+            .any(|(expected, actual)| actual as usize != expected)
+        {
+            return Err(HostInterfaceError::InvalidDeclaration);
         }
         Ok(HostPathContract {
             root_fingerprint: root.fingerprint()?,
@@ -428,6 +443,14 @@ mod tests {
         if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
             index.collection = HostValueType::Array(Box::new(HostValueType::I32));
             index.index = HostValueType::opaque("game.Missing");
+        }
+        assert_eq!(
+            broken.validate(),
+            Err(HostInterfaceError::InvalidDeclaration)
+        );
+        if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
+            index.index = HostValueType::I32;
+            index.slot = 1;
         }
         assert_eq!(
             broken.validate(),

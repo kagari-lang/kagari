@@ -508,6 +508,35 @@ impl FunctionLowerer<'_, '_> {
         receiver: hir::ExprId,
         index: hir::ExprId,
     ) -> Result<IrValue, IrLoweringError> {
+        if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
+            let root_or_view = self.lower_expr(checked.root)?;
+            if self.current_block_terminated() {
+                return Ok(root_or_view);
+            }
+            let dynamic_index = self.lower_expr(index)?;
+            if self.current_block_terminated() {
+                return Ok(dynamic_index);
+            }
+            let dst = self.alloc_temp(self.expr_type(expr_id)?);
+            let fingerprint = checked
+                .contract
+                .fingerprint()
+                .map_err(|_| IrLoweringError::MissingBinding("checked host index contract"))?;
+            self.emit(Instruction::ReadPath {
+                dst,
+                root_or_view,
+                dynamic_args: smallvec::smallvec![dynamic_index],
+                path: crate::module::PathRef {
+                    declaration: Some(checked.declaration),
+                    contract_fingerprint: fingerprint,
+                    root_ty: root_or_view.ty,
+                    result_ty: dst.ty,
+                    read_only: true,
+                    debug_name: "host index read".into(),
+                },
+            });
+            return Ok(dst);
+        }
         let base = self.lower_expr(receiver)?;
         if self.current_block_terminated() {
             return Ok(base);

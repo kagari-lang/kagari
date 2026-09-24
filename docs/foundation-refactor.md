@@ -132,6 +132,16 @@ workload, repetitions and measurements; no unmeasured performance claims.
   ABI v26 reject earlier products. Offline roundtrip and runtime rebinding
   tests cover mixed paths; source host index syntax remains open.
 
+- R06 source-index checkpoint: a declared single root index is now selected in
+  HIR for reads and assignment targets. IR passes the captured index as a typed
+  dynamic path argument; compound assignment captures the root and index before
+  its RHS. Source, encoded artifact, interpreter and existing JIT fallback tests
+  agree on call and modification order. Primitive runtime type registration also
+  exposes its portable host type contract, so a path need not rely on an unrelated
+  host member to bind its scalar index or result. Field/index chains and virtual
+  source members remain open. `offline_compile` also emits a declared source
+  index read without starting a runtime.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

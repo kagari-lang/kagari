@@ -607,13 +607,16 @@ unrelated runtime type registrations therefore does not change a path fingerprin
 KHI v7 stores `HostInterface.paths` as portable `HostPathDeclaration` records:
 nominal root, ordered field/index/virtual segments, access, schema epoch and
 required capabilities. Encoding sorts these records independently of registration
-order; duplicate records, invalid chains and paths longer than 256 segments are
-rejected. `Runtime::register_host_path` consumes the same declaration after its
+order; duplicate records, invalid chains, noncontiguous dynamic argument slots
+and paths longer than 256 segments are rejected. `Runtime::register_host_path` consumes the same declaration after its
 types are registered and derives the runtime descriptor. Every registered runtime
 path is exported in its interface; the offline and runtime fingerprints must agree
 before publication. Linking checks required contracts even if a module has no path
-instruction; missing or ambiguous bindings reject publication. Source host index
-paths remain pending.
+instruction; missing or ambiguous bindings reject publication. Source indexing
+currently selects a declared root index segment by its exact argument type.
+The root and index evaluate once, left to right; assignment captures both before
+its RHS, while the final read or modification uses the linked descriptor. Field
+plus index chains, repeated indexes and virtual members in source remain pending.
 
 Bytecode path records require that contract fingerprint. The loader resolves all
 records before publishing the program, rejects missing/ambiguous contracts and

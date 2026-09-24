@@ -271,7 +271,10 @@ impl<'a> BodyChecker<'a> {
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        if let Some(ty) = self.infer_host_field_write(place_id, env) {
+        if let Some(ty) = self
+            .infer_host_index_write(place_id, env)
+            .or_else(|| self.infer_host_field_write(place_id, env))
+        {
             self.type_table.insert_place(place_id, ty.clone());
             return Some(ty);
         }
@@ -469,7 +472,10 @@ impl<'a> BodyChecker<'a> {
             return ty;
         }
 
-        if let Some(ty) = self.infer_host_field_read(expr_id, env) {
+        if let Some(ty) = self
+            .infer_host_index_read(expr_id, env)
+            .or_else(|| self.infer_host_field_read(expr_id, env))
+        {
             env.exprs.insert(expr_id, ty.clone());
             self.type_table.insert_expr(expr_id, ty.clone());
             return ty;
@@ -2215,6 +2221,80 @@ impl<'a> BodyChecker<'a> {
                 self.const_root_name(*receiver)
             }
             _ => None,
+        }
+    }
+
+    fn infer_host_index_write(
+        &mut self,
+        place_id: PlaceId,
+        env: &mut BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let PlaceKind::Index { base, index } = self.lowered.module.place(place_id).kind else {
+            return None;
+        };
+        let base_ty = self.resolve_readable_place_type(base, env)?;
+        let TypeId::Host(owner) = base_ty else {
+            return None;
+        };
+        let index_ty = self.infer_expr_type(index, env);
+        match self.names.hosts.index_path(&owner, &index_ty) {
+            Ok((declaration, contract))
+                if declaration.access == kagari_common::host_interface::PathAccess::ReadWrite =>
+            {
+                let result = crate::host::signature_type(&contract.result);
+                self.type_table.insert_host_place_path(
+                    place_id,
+                    super::ResolvedHostPlacePath {
+                        root: base,
+                        declaration,
+                        contract,
+                    },
+                );
+                Some(result)
+            }
+            Ok(_) | Err(_) => {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidHostPath {
+                        reason: "host index path is missing, ambiguous, or read-only".into(),
+                    })
+                    .with_span(self.lowered.source_map.place_span(place_id)),
+                );
+                Some(TypeId::Error)
+            }
+        }
+    }
+
+    fn infer_host_index_read(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> Option<TypeId> {
+        let ExprKind::Index { receiver, index } = self.lowered.module.expr(expr_id).kind else {
+            return None;
+        };
+        let receiver_ty = self.infer_expr_type(receiver, env);
+        let TypeId::Host(owner) = receiver_ty else {
+            return None;
+        };
+        let index_ty = self.infer_expr_type(index, env);
+        match self.names.hosts.index_path(&owner, &index_ty) {
+            Ok((declaration, contract)) => {
+                let result = crate::host::signature_type(&contract.result);
+                self.type_table.insert_host_path(
+                    expr_id,
+                    super::ResolvedHostPath {
+                        root: receiver,
+                        declaration,
+                        contract,
+                    },
+                );
+                Some(result)
+            }
+            Err(reason) => {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidHostPath {
+                        reason: reason.into(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                );
+                Some(TypeId::Error)
+            }
         }
     }
 

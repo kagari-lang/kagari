@@ -242,6 +242,35 @@ impl HostDeclarations {
         Ok((declaration.clone(), contract))
     }
 
+    pub(crate) fn index_path(
+        &self,
+        root: &kagari_common::identity::DefinitionId,
+        index_type: &TypeId,
+    ) -> Result<
+        (
+            kagari_common::host_interface::HostPathDeclaration,
+            kagari_common::host_interface::HostPathContract,
+        ),
+        &'static str,
+    > {
+        let mut matches = self.interface.paths.iter().filter(|path| {
+            &path.root == root
+                && matches!(
+                    path.segments.as_slice(),
+                    [kagari_common::host_interface::HostPathSegmentDeclaration::Index(index)]
+                        if &signature_type(&index.index) == index_type
+                )
+        });
+        let declaration = matches.next().ok_or("index has no declared host path")?;
+        if matches.next().is_some() {
+            return Err("index has ambiguous host path declarations");
+        }
+        let contract = declaration
+            .contract(&self.interface)
+            .map_err(|_| "invalid declared host index path")?;
+        Ok((declaration.clone(), contract))
+    }
+
     pub fn resolve_type(&self, path: &str) -> Option<HostTypeId> {
         self.type_paths.get(path).copied()
     }

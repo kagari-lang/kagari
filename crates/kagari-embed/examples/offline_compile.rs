@@ -1,8 +1,9 @@
 //! Compile against declarations without registering callbacks or starting services.
 use kagari_common::{
     host_interface::{
-        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
-        HostParameter, HostPassingStyle, HostTypeDeclaration, HostTypeOwnership, HostValueType,
+        HostFieldDeclaration, HostFunctionDeclaration, HostIndexSegmentDeclaration, HostInterface,
+        HostMethodDeclaration, HostParameter, HostPassingStyle, HostPathDeclaration,
+        HostPathSegmentDeclaration, HostTypeDeclaration, HostTypeOwnership, HostValueType,
         PathAccess,
     },
     identity::{ModuleIdentity, PackageId},
@@ -42,8 +43,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         schema_epoch: 0,
         capabilities: Default::default(),
     };
+    let index_declaration = HostPathDeclaration {
+        root: player.id.clone(),
+        segments: vec![HostPathSegmentDeclaration::Index(
+            HostIndexSegmentDeclaration {
+                slot: 0,
+                collection: HostValueType::Opaque(player.id.clone()),
+                index: HostValueType::I32,
+                result: HostValueType::I32,
+                access: PathAccess::ReadOnly,
+            },
+        )],
+        access: PathAccess::ReadOnly,
+        schema_epoch: 0,
+        capabilities: Default::default(),
+    };
     let declarations = HostInterface {
-        paths: vec![path_declaration],
+        paths: vec![path_declaration, index_declaration],
         types: vec![player],
         functions: vec![HostFunctionDeclaration::new(
             "demo.echo",
@@ -77,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api as api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");
@@ -201,7 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
     assert_eq!(required.types.len(), 1);
-    assert_eq!(required.paths.len(), 1);
+    assert_eq!(required.paths.len(), 2);
     println!(
         "public signature requires {} without registering a runtime",
         required.types[0].symbol
