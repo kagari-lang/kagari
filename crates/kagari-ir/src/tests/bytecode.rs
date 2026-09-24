@@ -13,6 +13,42 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
+fn applied_trait_interface_table_preserves_method_contract() {
+    let module = common::bytecode_ok(
+        "pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn main() {}",
+    );
+    assert_eq!(module.interface_tables.len(), 1);
+    assert_eq!(module.interface_tables[0].methods.len(), 1);
+    verify_module(&module).unwrap();
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+        .unwrap()
+        .validate_for_loader(&ArtifactCompatibility::default())
+        .unwrap();
+}
+
+#[test]
+fn applied_trait_template_keeps_impl_and_trait_arguments() {
+    let module = common::bytecode_ok(
+        "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn main() {}",
+    );
+    assert_eq!(module.interface_tables.len(), 1);
+    assert!(module.interface_tables[0].methods.is_empty());
+    assert!(module.public_items.iter().any(|item| matches!(item,
+        PublicAbiItem::InterfaceTable(table)
+            if table.generic_params.len() == 1
+                && matches!(&table.trait_type, crate::module::abi::AbiType::Trait(instance) if instance.arguments.len() == 1)
+    )));
+}
+
+#[test]
 fn generic_interface_implementation_specializes_reachable_method() {
     let module = common::bytecode_ok(
         "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",

@@ -165,6 +165,12 @@ pub(super) fn resolve_type_in(
                     nominal.arguments = args;
                     TypeId::Enum(nominal)
                 }
+                TypeId::Trait(mut nominal)
+                    if !nominal.arguments.is_empty() && nominal.arguments.len() == args.len() =>
+                {
+                    nominal.arguments = args;
+                    TypeId::Trait(nominal)
+                }
                 _ if prelude => surface::standard_generic_type(name, args).unwrap_or(TypeId::Error),
                 _ => TypeId::Error,
             }

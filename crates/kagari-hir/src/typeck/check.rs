@@ -628,6 +628,68 @@ fn validate_trait_surface(
             .find(|item| item.id == local_id)
             .expect("resolved local trait");
 
+        if let Some(TypeId::Trait(applied)) = table.type_ref(reference.ty).map(|entry| &entry.ty) {
+            let required = super::constraints::parameter_bounds(
+                &trait_def.generic_params,
+                declarations,
+                table,
+            );
+            let available =
+                super::constraints::implementation_bounds(impl_block, declarations, table);
+            let source_arguments = match &lowered.module.type_ref(reference.ty).kind {
+                crate::hir::TypeKind::Generic { args, .. } => args.as_slice(),
+                _ => &[],
+            };
+            for ((parameter, actual), source_argument) in trait_def
+                .generic_params
+                .iter()
+                .zip(&applied.arguments)
+                .zip(source_arguments)
+            {
+                if actual.is_unresolved() {
+                    continue;
+                }
+                let Some(parameter) = declarations.generic_type(parameter.id) else {
+                    continue;
+                };
+                let span = lowered.source_map.type_span(*source_argument);
+                for constraint in required.get(&parameter).into_iter().flatten() {
+                    match constraint {
+                        super::ConstraintTarget::Standard(standard) => {
+                            validate_standard_constraint_type(
+                                actual,
+                                *standard,
+                                &available,
+                                span,
+                                diagnostics,
+                            );
+                        }
+                        super::ConstraintTarget::Trait(required_trait) => {
+                            let satisfied = match actual {
+                                TypeId::Generic(parameter) => available
+                                    .get(parameter)
+                                    .is_some_and(|bounds| bounds.contains(constraint)),
+                                _ => table.implements(required_trait, actual),
+                            };
+                            if !satisfied {
+                                diagnostics.push(
+                                    Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
+                                        type_name: actual.display_name(),
+                                        trait_name: required_trait
+                                            .path
+                                            .last()
+                                            .map(|part| part.name.clone())
+                                            .unwrap_or_default(),
+                                    })
+                                    .with_span(span),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let Some(for_ty) = impl_block
             .for_type
             .and_then(|ty| table.type_ref(ty))
@@ -682,6 +744,10 @@ fn validate_trait_surface(
                 declarations
                     .definition(ResolvedName::Trait(trait_def.id))
                     .expect("checked trait declaration"),
+                match table.type_ref(reference.ty).map(|resolved| &resolved.ty) {
+                    Some(TypeId::Trait(ty)) => ty.arguments.as_slice(),
+                    _ => &[],
+                },
             ),
             diagnostics,
         );
@@ -948,7 +1014,7 @@ fn validate_impl_methods(
     function_index: &FunctionTypeIndex,
     trait_def: &crate::hir::TraitDef,
     impl_block: &crate::hir::Impl,
-    receiver: (&TypeId, &kagari_common::identity::DefinitionId),
+    receiver: (&TypeId, &kagari_common::identity::DefinitionId, &[TypeId]),
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
     for trait_method in &trait_def.methods {
@@ -1000,7 +1066,7 @@ fn compare_impl_method_signature(
     trait_def: &crate::hir::TraitDef,
     trait_method: &crate::hir::TraitMethod,
     impl_method: &crate::hir::ImplMethod,
-    receiver: (&TypeId, &kagari_common::identity::DefinitionId),
+    receiver: (&TypeId, &kagari_common::identity::DefinitionId, &[TypeId]),
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
@@ -1021,8 +1087,18 @@ fn compare_impl_method_signature(
         );
         return;
     }
+    let trait_substitution = trait_function
+        .generic_params
+        .iter()
+        .take(trait_def.generic_params.len())
+        .cloned()
+        .zip(receiver.2.iter().cloned())
+        .collect();
     for (trait_param, impl_param) in trait_function.params.iter().zip(&impl_function.params) {
-        let expected = trait_param.ty.with_self(receiver.1, receiver.0);
+        let expected = trait_param
+            .ty
+            .with_self(receiver.1, receiver.0)
+            .instantiate(&trait_substitution);
         if expected != impl_param.ty {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
@@ -1039,7 +1115,10 @@ fn compare_impl_method_signature(
             );
         }
     }
-    let expected_return = trait_function.return_type.with_self(receiver.1, receiver.0);
+    let expected_return = trait_function
+        .return_type
+        .with_self(receiver.1, receiver.0)
+        .instantiate(&trait_substitution);
     if expected_return != impl_function.return_type {
         diagnostics.push(
             Diagnostic::error(DiagnosticKind::TraitMethodMismatch {

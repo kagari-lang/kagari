@@ -133,6 +133,8 @@ For generic implementations, the table owns implementation binders and bounds;
 each method record owns only its additional method binders and bounds. Executable
 method slots carry the full concrete argument list in implementation-then-method
 parameter order. Verification rejects slots with a different argument count.
+Applied local generic trait arguments remain part of the public interface-table
+type and method contract; they cannot be replaced by a bare trait declaration.
 Version 11 adds ordered enum payload types to public variant ABI records. These
 use structural `AbiType` encoding, preserving nominal declaration identity and
 container arguments instead of display strings or erased instruction ValueTypes.

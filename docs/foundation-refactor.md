@@ -482,7 +482,7 @@ R02 acceptance evidence:
   Public ABI reload keys use the canonical encoded identity, so equal display
   labels in different packages cannot alias. KBC format/runtime ABI v27 reject
   older products. The layouts example prints the checked table; executable
-  dispatch tables and generic impl specialization remain open.
+  method tables and generic impl specialization are covered by later R07 entries.
 
 - R07 executable-function identity checkpoint: bytecode functions and their
   function records now retain concrete declaration identity plus type arguments
@@ -490,8 +490,8 @@ R02 acceptance evidence:
   or mismatched identities before execution; artifact limits bound their encoded
   type arguments. Hand-authored functions without a source declaration use an
   explicit absent identity. KBC format/runtime ABI v28 reject older products.
-  The layouts example checks the function records. Interface method slots still
-  need to link these identities to executable functions.
+  The layouts example checks the function records. A later R07 entry links
+  interface method slots to these executable identities.
 
 - R07 executable interface-table checkpoint: bytecode now carries verified
   implementation tables with trait method identities and concrete function
@@ -513,6 +513,16 @@ R02 acceptance evidence:
   executable method slot's concrete argument arity. The language contract tests
   exercise source, artifact, interpreter and existing JIT routes. Runtime
   interface values and dispatch remain R07/R08 work.
+
+- R07 applied-trait implementation checkpoint: local impl headers now resolve
+  applied generic trait arguments instead of discarding them. Method-signature
+  checking substitutes the trait's arguments and Self into each implementation
+  contract; interface ABI tables retain the applied trait identity and round-trip
+  through KBC. The `applied_traits` example inspects the verified method slot and
+  encoded artifact. Invalid arity, unknown arguments, unsatisfied trait-parameter
+  bounds and signature mismatches reject compilation. Applied
+  generic bounds, imported trait implementations and dynamic interface values
+  remain open.
 
 R03 acceptance evidence:
 
@@ -794,7 +804,7 @@ Implemented foundation slices:
   facades, distinct field representations, bounds, malformed binders, source/artifact/
   JIT fallback behavior and the standard-library example. Backwards generic-call
   constraints, generic impl specialization
-  and interface tables remain pending. The shared argument-inference entry for
+  and interface tables were pending at this checkpoint. The shared argument-inference entry for
   calls and enum payloads is now used by
   concrete and trait parameter contexts too, with cancellation between operands.
   Constraint matching now uses an explicit work stack and checks analysis cancellation
@@ -1153,7 +1163,7 @@ Implemented foundation slices:
   Function exports may use types imported from another source module. Public facade
   target traversal is shared by type imports, imported calls and definition queries;
   cyclic or stale targets cannot escape their snapshot. Imported trait implementation
-  contracts and generic impl specialization remain pending.
+  contracts remain pending; local generic impl specialization is covered above.
   Aggregate contracts from reachable dependencies participate in body invalidation,
   including when a function's nominal return type stays unchanged but its fields
   change. Unrelated module results remain shared. Local body edits can reuse nominal
@@ -1420,9 +1430,10 @@ Implemented foundation slices:
   targets, and signatures/locals/temporaries use instantiated types. Static trait
   calls on existing concrete implementations use HIR implementation targets.
   Return/break/continue terminate block lowering, preventing later effects and
-  unreachable generic calls from being emitted. Generic impl specialization,
-  applied trait arguments and dynamic implementation tables remain outstanding;
-  public ABI labels still need linked identities. Generic struct/enum instances
+  unreachable generic calls from being emitted. Later R07 entries add local
+  generic impl specialization, applied impl-header trait arguments and executable
+  method tables; applied bounds and runtime interface dispatch remain outstanding.
+  Generic struct/enum instances
   now have concrete layouts keyed by declaration and arguments; backwards
   contextual constraints for generic-call arguments
   remain outstanding. Explicit Struct constructor arguments now retain owned type

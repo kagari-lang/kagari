@@ -153,8 +153,10 @@ IR compilation starts from module initialization and the currently callable
 non-generic functions, enqueues called instances, and deduplicates by declaration
 identity plus concrete arguments. IR InstanceId is separate from HIR FunctionId.
 Signatures, locals, temporaries and direct calls use the selected instance.
-Static trait calls on a concrete type use checked implementation targets; generic
-impl specialization, applied traits and dynamic interface tables remain pending.
+Static trait calls on a concrete type use checked implementation targets;
+reachable generic impl methods specialize by receiver arguments. Local applied
+trait impl headers retain their arguments in checked ABI tables. Applied generic
+bounds and runtime interface dispatch remain pending.
 
 `lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule` after
 checking IR structure, operations and definite initialization. Bytecode generation

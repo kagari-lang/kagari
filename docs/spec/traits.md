@@ -97,13 +97,16 @@ trait calls replaces only that trait's `Self` throughout composite types.
 The current foundation implementation records standard constraint identities and
 user trait declaration targets in HIR. It retains navigation in invalid bounds
 and reports inherited invalid references once. Applied bounds such as `Show<i32>`
-are currently rejected, with their type argument facts retained; R07 must provide
-concrete trait instantiation before such bounds can compile. Private generic
+are currently rejected, with their type argument facts retained. Local impl
+headers may apply a generic trait to concrete types or impl parameters; the
+checked method contract substitutes those arguments, validates declared
+trait-parameter bounds and retains them in the
+interface-table ABI. Private generic
 functions now infer argument types and compile reachable concrete instances,
 including calls through existing concrete trait implementations. Instances are
 deduplicated by declaration and arguments, with configurable growth limits.
-Public functions require concrete signatures. Generic impl specialization and
-dynamic interface dispatch still require the remaining R07/R08 work.
+Public functions require concrete signatures. Generic impl methods specialize
+at reachable concrete receivers; dynamic interface dispatch remains R08 work.
 
 Struct and enum declarations retain generic binders and inline bounds in checked
 signatures. Type applications such as `Cell<i32>` resolve those binders, check
@@ -432,7 +435,8 @@ function body runs; method shadowing does not change the receiver's outer binder
 Semantic nominal types pair their declaration identity with ordered type
 arguments; the type kind also participates in identity. Substitution retains the
 declaration and recursively replaces arguments by their parameter owner/position.
-This representation does not by itself enable source-level applied trait types.
+Local impl headers resolve applied trait types with checked argument arity.
+Applied generic bounds and executable interface values remain separate work.
 Local and imported interface annotations use these same contracts for argument
 checking, Self substitution, and definition queries. Invalid parameter types retain
 Error facts without discarding later parameters or unrelated declarations.
@@ -444,8 +448,8 @@ declarations within a trait or impl produce `KG_RESOLVE_DUPLICATE_METHOD`.
 Ambiguous calls have no selected method target and cannot enter code generation.
 
 These analysis capabilities do not imply executable dynamic interface values.
-Imported trait constraints/impls, runtime interface dispatch, and applied trait
-arguments remain tracked in the [foundation roadmap](../foundation-refactor.md).
+Imported trait constraints/impls, runtime interface dispatch, and applied
+generic bounds remain tracked in the [foundation roadmap](../foundation-refactor.md).
 
 ### Remaining execution work
 

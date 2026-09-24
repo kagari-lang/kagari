@@ -64,6 +64,7 @@ pub(super) fn resolve_constraints(
                 table,
                 diagnostics,
                 cancel,
+                true,
             );
         }
         resolve_owner(
@@ -105,7 +106,15 @@ fn resolve_owner(
     };
     for param in generics {
         for reference in &param.bounds {
-            resolve_constraint(lowered, reference, context, table, diagnostics, cancel);
+            resolve_constraint(
+                lowered,
+                reference,
+                context,
+                table,
+                diagnostics,
+                cancel,
+                false,
+            );
         }
     }
     for bound in bounds {
@@ -127,7 +136,15 @@ fn resolve_owner(
             );
         }
         for reference in &bound.traits {
-            resolve_constraint(lowered, reference, context, table, diagnostics, cancel);
+            resolve_constraint(
+                lowered,
+                reference,
+                context,
+                table,
+                diagnostics,
+                cancel,
+                false,
+            );
         }
     }
 }
@@ -139,23 +156,52 @@ fn resolve_constraint(
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
+    allow_applied: bool,
 ) {
     if cancel.check().is_err() || table.has_constraint(reference.ty) {
         return;
     }
-    // Generic trait applications require concrete type arguments and implementation
-    // tables. Retain their argument facts, but never silently erase the arguments.
+    // Impl headers retain applied trait arguments; bounds still reject applications
+    // until their target identity includes the applied arguments.
     let (name, applied) = match &lowered.module.type_ref(reference.ty).kind {
         hir::TypeKind::Generic { name, args } => {
-            for arg in args {
-                resolve_type_in(&lowered.module, *arg, context, table, cancel);
+            if !allow_applied {
+                for arg in args {
+                    resolve_type_in(&lowered.module, *arg, context, table, cancel);
+                }
             }
             (name, true)
         }
         hir::TypeKind::Named(name) => (name, false),
         _ => unreachable!("trait references have a named base"),
     };
-    let mut resolved = super::ty::resolve_named_type(name, context);
+    let mut resolved = if applied && allow_applied {
+        resolve_type_in(&lowered.module, reference.ty, context, table, cancel);
+        table
+            .type_ref(reference.ty)
+            .cloned()
+            .expect("resolved trait application")
+    } else {
+        super::ty::resolve_named_type(name, context)
+    };
+    if applied
+        && allow_applied
+        && let hir::TypeKind::Generic { args, .. } = &lowered.module.type_ref(reference.ty).kind
+    {
+        for argument in args {
+            if table
+                .type_ref(*argument)
+                .is_some_and(|resolved| resolved.ty.is_unresolved())
+            {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                        type_name: super::ty::display_type(&lowered.module, *argument),
+                    })
+                    .with_span(lowered.source_map.type_span(*argument)),
+                );
+            }
+        }
+    }
     // Standard constraints are a fallback, so a binder or explicit declaration
     // cannot resolve differently here and in an ordinary type annotation.
     let standard = (resolved.target.is_none() && context.declarations.names.lookup(name).is_none())
@@ -171,9 +217,12 @@ fn resolve_constraint(
                 .map(ConstraintTarget::Trait),
             _ => None,
         });
-    let reason = if applied {
+    let reason = if applied && !allow_applied {
         Some("generic trait applications require concrete instantiation")
-    } else if matches!(resolved.target, Some(TypeTarget::Trait(id)) if lowered.module.traits.iter().any(|item| item.id == id && !item.generic_params.is_empty()))
+    } else if applied && !matches!(resolved.ty, TypeId::Trait(_)) {
+        Some("invalid generic trait application")
+    } else if !applied
+        && matches!(resolved.target, Some(TypeTarget::Trait(id)) if lowered.module.traits.iter().any(|item| item.id == id && !item.generic_params.is_empty()))
     {
         Some("generic trait references require concrete type arguments")
     } else if matches!(resolved.ty, TypeId::Trait(_)) && target.is_none() {
@@ -183,7 +232,7 @@ fn resolve_constraint(
     } else {
         None
     };
-    if applied {
+    if applied && !allow_applied {
         resolved.ty = TypeId::Error;
     }
     if standard.is_none() || applied {

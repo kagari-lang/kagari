@@ -656,9 +656,9 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             Expected::Diagnostic("KG_RESOLVE_DUPLICATE_METHOD"),
         ),
         Case::new(
-            "applied-impl-trait-not-erased",
+            "applied-impl-trait-preserves-arguments",
             "trait View<T> {} struct Point {} impl View<i32> for Point {} fn main() {}",
-            Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE"),
+            Expected::Value(Value::Unit),
         ),
         Case::new(
             "generic-binder-shadows-trait",
@@ -900,6 +900,11 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("generic-impl-trait-bound-rejected", "trait Key {} impl Key for i32 {} trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Key> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: \"a\" }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("generic-impl-repeated-binder-rejected", "trait Get { fn get(self) -> i32; } struct Pair<T, U> { val left: T, val right: U } impl<T> Get for Pair<T, T> { fn get(self) -> i32 { 1 } } fn read<V: Get>(x: V) -> i32 { x.get() } fn main() -> i32 { read(Pair { left: 1, right: true }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("generic-impl-overlap-rejected", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 1 } } impl Get for Holder<i32> { fn get(self) -> i32 { 2 } } fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_IMPL")),
+        Case::new("applied-trait-impl-signature-rejected", "trait Echo<T> { fn get(self) -> T; } struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> String { \"bad\" } } fn main() {}", Expected::Diagnostic("KG_TYPE_TRAIT_METHOD_MISMATCH")),
+        Case::new("applied-trait-impl-arity-rejected", "trait Echo<T> {} struct Pair {} impl Echo<i32, bool> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE")),
+        Case::new("applied-trait-impl-unknown-argument", "trait Echo<T> {} struct Pair {} impl Echo<Missing> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
+        Case::new("applied-trait-impl-bound-rejected", "trait Echo<T: HashKey> {} struct Pair {} impl Echo<f32> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED")),
+        Case::new("applied-trait-impl-bound-accepted", "trait Echo<T: HashKey> {} struct Pair {} impl Echo<i32> for Pair {} fn main() {}", Expected::Value(Value::Unit)),
         Case::new("generic-conflicting-arguments", "fn choose<T>(a: T, b: T) -> T { a } fn main() -> i32 { choose(1, true) }", Expected::Diagnostic("KG_TYPE_ARGUMENT_TYPE_MISMATCH")),
         Case::new("generic-missing-argument", "fn unused<T>() {} fn main() { unused(); }", Expected::Diagnostic("KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT")),
         Case::new("generic-public-entry", "pub fn echo<T>(value: T) -> T { value } fn main() {}", Expected::Diagnostic("KG_TYPE_PUBLIC_GENERIC_FUNCTION")),
