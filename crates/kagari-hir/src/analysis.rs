@@ -381,6 +381,23 @@ impl FileAnalysis {
                         })
                         .next()
                 });
+        let enum_owners = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter_map(|(id, expr)| {
+                let ExprKind::Name { .. } = &expr.kind else {
+                    return None;
+                };
+                let span = facts.lowered.source_map.expr_owner_span(id)?;
+                if !(span.start <= offset && offset < span.end) {
+                    return None;
+                }
+                let constructor = facts.typed.type_table.enum_constructor(id)?;
+                let enumeration = facts.aggregates.enumeration(&constructor.enumeration)?;
+                Some((span, &enumeration.declaration))
+            });
         let calls = facts
             .lowered
             .module
@@ -450,6 +467,7 @@ impl FileAnalysis {
         expressions
             .chain(places)
             .chain(initializer_fields)
+            .chain(enum_owners)
             .chain(calls)
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .min_by_key(|(span, _)| span.end - span.start)

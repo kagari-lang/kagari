@@ -193,6 +193,22 @@ impl Lowerer {
                     self.source_map
                         .insert_expr_reference(id, syntax_span(&name));
                 }
+                if let Some(path_segments) = path.path() {
+                    let mut previous = None;
+                    let mut last = None;
+                    for segment in path_segments.segments() {
+                        previous = last;
+                        last = Some(segment);
+                    }
+                    let owner = if path.name().is_some() {
+                        last
+                    } else {
+                        previous
+                    };
+                    if let Some(owner) = owner {
+                        self.source_map.insert_expr_owner(id, syntax_span(&owner));
+                    }
+                }
             }
             ast::Expr::StructExpr(struct_expr) => {
                 if let Some(name) = struct_expr

@@ -65,6 +65,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
   its target. The source_queries example demonstrates this under a rejected
   assignment. Remaining R04 source-owner and target coverage is still open.
 
+- R04 enum-owner checkpoint: qualified enum constructors retain separate CST
+  ranges for the enum owner and variant. Definition queries use the checked
+  constructor's nominal owner on `Event` and its variant target on `Ready`;
+  `::` stays targetless. Known enum owners remain navigable beside unknown
+  variants and through source facades. Broader R04 audit remains open.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

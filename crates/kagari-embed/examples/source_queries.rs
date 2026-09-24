@@ -192,7 +192,13 @@ fn main() -> kagari_embed::CompileResult<()> {
         .expect("resolved prelude helper");
     println!("prelude helper target -> {helper:?}");
     let constructor_start = text.find("Mode::Running").expect("constructor reference");
-    assert!(analysis.definition_at(constructor_start).is_none());
+    assert_eq!(
+        analysis
+            .definition_at(constructor_start)
+            .expect("enum owner")
+            .name,
+        "Mode"
+    );
     assert!(
         analysis
             .definition_at(constructor_start + "Mode".len())

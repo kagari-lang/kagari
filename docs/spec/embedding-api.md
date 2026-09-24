@@ -177,7 +177,9 @@ its function name. A nested receiver call keeps its own declaration target.
 Qualified path expressions also navigate only on their final name: in
 `api::run()`, `run` can resolve to the imported function, while `api` and `::`
 do not resolve to that function. This applies to cross-file definition queries
-and enum-variant references. Reference-name ranges are captured from CST nodes
+and enum-variant references. For `Event::Ready`, `Event` resolves to the enum
+declaration and `Ready` to the variant; `::` has no target. Reference-name
+ranges are captured from CST nodes
 during HIR lowering for paths and field reads; write-place member ranges are
 captured there as well. Queries do not infer them by scanning source text or
 subtracting a name length from the whole expression range. Trailing trivia and

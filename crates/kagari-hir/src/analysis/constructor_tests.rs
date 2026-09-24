@@ -113,6 +113,13 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
         }))
     );
     assert_eq!(analysis.type_at(wrong), analysis.type_at(good));
+    for owner in [good, wrong, text.find("Event::Absent").unwrap()] {
+        assert_eq!(
+            analysis.definition_at(owner),
+            Some(&enumeration.declaration)
+        );
+        assert!(analysis.definition_at(owner + "Event".len()).is_none());
+    }
     assert_eq!(
         analysis.definition_at(good + "Event::".len()),
         analysis.definition_at(wrong + "Event::".len())
@@ -201,6 +208,13 @@ fn source_facades_and_lexical_shadowing_do_not_confuse_constructor_owners() {
     let b = analysis
         .definition_at(text.find("right::Event::Data").unwrap() + "right::Event::".len())
         .unwrap();
+    assert_eq!(
+        analysis
+            .definition_at(text.find("facade::Event::Data").unwrap() + "facade::".len())
+            .unwrap()
+            .name,
+        "Event"
+    );
     assert_eq!(a.location.file, left);
     assert_eq!(b.location.file, right);
     assert_ne!(a.id, b.id);
