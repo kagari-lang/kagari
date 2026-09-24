@@ -106,7 +106,7 @@ Version 21 carries portable field path declarations in required host interfaces.
 KHI v6 uses the same records, including field identities, access, schema and
 capabilities. Linking rejects required field paths without a unique matching
 runtime binding before program publication.
-Version 26 replaces those field-only records with KHI v7 `HostPathDeclaration`
+Version 26 replaces those field-only records with `HostPathDeclaration`
 records. Ordered field, index and virtual segments share one portable contract;
 the loader rejects older artifact and interface formats before execution.
 Version 27 adds the declaration identity of each interface implementation to its
@@ -186,9 +186,11 @@ annotation-only public signatures and concrete layout arguments. Registration an
 linking still validate full declaration contracts before execution.
 Version 19 permits required host call records with member declaration identities.
 These records must equal the declaring host type's generated method contract,
-including its explicit nominal receiver and passing style. KHI v7 carries the
+including its explicit nominal receiver and passing style. KHI v8 carries the
 same checked method call contracts; old interface versions are rejected.
-The runtime ABI identity is `kagari-runtime-abi-v30`; the runtime-helper ABI is
+Version 31 and runtime ABI v31 add the KHI v8 host trait implementation table to
+portable host type contracts. Old KBC and KHI products reject before execution.
+The runtime ABI identity is `kagari-runtime-abi-v31`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and

@@ -8,7 +8,7 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 7;
+const VERSION: u16 = 8;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod decode_limits;
@@ -21,7 +21,8 @@ mod value_type;
 pub use value_type::HostValueType;
 mod type_declaration;
 pub use type_declaration::{
-    HostFieldDeclaration, HostMethodDeclaration, HostReflectionPolicy, HostTypeDeclaration,
+    HostFieldDeclaration, HostMethodDeclaration, HostReflectionPolicy,
+    HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
     HostTypeOwnership, PathAccess, Visibility,
 };
 

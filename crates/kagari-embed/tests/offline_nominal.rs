@@ -1,9 +1,11 @@
 use kagari_common::{
     SourceFile,
     host_interface::{
-        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostParameter,
-        HostPassingStyle, HostTypeDeclaration, HostTypeOwnership, HostValueType,
+        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
+        HostParameter, HostPassingStyle, HostTraitImplementationDeclaration,
+        HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, HostValueType,
     },
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
 use kagari_embed::{
@@ -42,6 +44,87 @@ fn interface() -> HostInterface {
         types: vec![item, related, HostTypeDeclaration::new("unused.Other")],
         functions: vec![make, take],
     }
+}
+
+#[test]
+fn artifact_host_trait_table_requires_callback_before_publication() {
+    let mut counter = HostTypeDeclaration::new("demo.Counter");
+    let method = HostMethodDeclaration::new(&counter.id, "read", vec![], HostValueType::I32);
+    counter.methods.push(method.clone());
+    let trait_id = DefinitionId {
+        module: ModuleIdentity {
+            package: PackageId("pkg".into()),
+            path: vec!["api".into()],
+        },
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: "Readable".into(),
+            occurrence: 0,
+        }],
+    };
+    let mut trait_method = trait_id.clone();
+    trait_method.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: "get".into(),
+        occurrence: 0,
+    });
+    counter
+        .trait_implementations
+        .push(HostTraitImplementationDeclaration::new(
+            trait_id,
+            vec![HostTraitMethodBinding {
+                trait_method,
+                host_method: method.id.clone(),
+            }],
+        ));
+    let engine = KagariEngine::default();
+    engine
+        .set_host_interface(HostInterface {
+            paths: vec![],
+            types: vec![counter.clone()],
+            functions: vec![],
+        })
+        .unwrap();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "host-trait.kgr",
+                "use demo::Counter; pub fn identity(value: Counter) -> Counter { value } fn main() {}",
+            ),
+            CompileOptions::default(),
+            ArtifactOptions::default(),
+        )
+        .unwrap();
+    let encoded =
+        kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let required = &encoded.program.modules[encoded.program.root.index()].host_interface;
+    assert_eq!(
+        required.types[0].trait_implementations,
+        counter.trait_implementations
+    );
+    let context = ExecutionContext {
+        host_policy: HostExposurePolicy {
+            allowed_host_types: vec![counter.symbol.clone()],
+            allowed_host_functions: vec!["demo.Counter.read".into()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut runtime = engine.runtime(context);
+    runtime
+        .register_host_type(HostTypeRegistration::new(counter.clone(), "Counter"))
+        .unwrap();
+    assert!(
+        runtime
+            .load_program(encoded.clone(), Default::default())
+            .is_err()
+    );
+    runtime
+        .register_host_function(
+            HostFunction::method(&counter, &method.id, |_, _| Ok(Value::I32(42))).unwrap(),
+        )
+        .unwrap();
+    runtime.load_program(encoded, Default::default()).unwrap();
 }
 
 #[test]

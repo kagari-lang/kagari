@@ -82,6 +82,30 @@ pub struct HostMethodDeclaration {
     pub documentation: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostTraitMethodBinding {
+    pub trait_method: DefinitionId,
+    pub host_method: DefinitionId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostTraitImplementationDeclaration {
+    pub trait_id: DefinitionId,
+    #[serde(deserialize_with = "super::decode_limits::members")]
+    pub methods: Vec<HostTraitMethodBinding>,
+    pub documentation: String,
+}
+
+impl HostTraitImplementationDeclaration {
+    pub fn new(trait_id: DefinitionId, methods: Vec<HostTraitMethodBinding>) -> Self {
+        Self {
+            trait_id,
+            methods,
+            documentation: String::new(),
+        }
+    }
+}
+
 impl HostMethodDeclaration {
     pub fn new(
         owner: &DefinitionId,
@@ -119,6 +143,8 @@ pub struct HostTypeDeclaration {
     pub fields: Vec<HostFieldDeclaration>,
     #[serde(deserialize_with = "super::decode_limits::members")]
     pub methods: Vec<HostMethodDeclaration>,
+    #[serde(deserialize_with = "super::decode_limits::members")]
+    pub trait_implementations: Vec<HostTraitImplementationDeclaration>,
     pub path_access: PathAccess,
     pub reflection: HostReflectionPolicy,
     pub documentation: String,
@@ -163,6 +189,7 @@ impl HostTypeDeclaration {
             ownership: HostTypeOwnership::Opaque,
             fields: Vec::new(),
             methods: Vec::new(),
+            trait_implementations: Vec::new(),
             path_access: PathAccess::None,
             reflection: HostReflectionPolicy::Hidden,
             documentation: String::new(),
@@ -172,6 +199,7 @@ impl HostTypeDeclaration {
         validate_host_type_identity(&self.id)?;
         if self.fields.len() > super::decode_limits::MAX_MEMBERS
             || self.methods.len() > super::decode_limits::MAX_MEMBERS
+            || self.trait_implementations.len() > super::decode_limits::MAX_MEMBERS
             || self
                 .methods
                 .iter()
@@ -212,6 +240,49 @@ impl HostTypeDeclaration {
                 return Err(HostInterfaceError::InvalidDeclaration);
             }
         }
+        let mut implemented_traits = std::collections::HashSet::new();
+        let mut mapped_methods = 0usize;
+        for implementation in &self.trait_implementations {
+            let trait_id = &implementation.trait_id;
+            if !trait_id.within_path_limit() {
+                return Err(HostInterfaceError::TooLarge);
+            }
+            if trait_id.module.package.0.is_empty()
+                || trait_id.module.path.iter().any(String::is_empty)
+                || trait_id.path.iter().any(|segment| segment.name.is_empty())
+                || trait_id
+                    .path
+                    .last()
+                    .is_none_or(|segment| segment.kind != DefinitionKind::Trait)
+            {
+                return Err(HostInterfaceError::InvalidDeclaration);
+            }
+            if !implemented_traits.insert(trait_id) {
+                return Err(HostInterfaceError::DuplicateDeclaration);
+            }
+            mapped_methods = mapped_methods.saturating_add(implementation.methods.len());
+            if mapped_methods > super::decode_limits::MAX_MEMBERS {
+                return Err(HostInterfaceError::TooLarge);
+            }
+            let mut bound_methods = std::collections::HashSet::new();
+            for binding in &implementation.methods {
+                if !binding.trait_method.within_path_limit() {
+                    return Err(HostInterfaceError::TooLarge);
+                }
+                let mut trait_owner = binding.trait_method.clone();
+                if trait_owner.path.pop().is_none_or(|segment| {
+                    segment.kind != DefinitionKind::Method || segment.name.is_empty()
+                }) || trait_owner != *trait_id
+                    || !bound_methods.insert(&binding.trait_method)
+                    || !self
+                        .methods
+                        .iter()
+                        .any(|method| method.id == binding.host_method)
+                {
+                    return Err(HostInterfaceError::InvalidDeclaration);
+                }
+            }
+        }
         Ok(())
     }
     pub fn value_types(&self) -> impl Iterator<Item = &HostValueType> {
@@ -228,6 +299,9 @@ impl HostTypeDeclaration {
     }
     pub fn clear_documentation(&mut self) {
         self.documentation.clear();
+        for implementation in &mut self.trait_implementations {
+            implementation.documentation.clear();
+        }
         for field in &mut self.fields {
             field.documentation.clear();
         }
@@ -285,6 +359,76 @@ fn fingerprint(domain: &[u8], value: &impl Serialize) -> Result<u64, HostInterfa
 mod tests {
     use super::*;
     use crate::host_interface::HostInterface;
+    use crate::identity::{ModuleIdentity, PackageId};
+
+    fn script_trait(name: &str) -> DefinitionId {
+        DefinitionId {
+            module: ModuleIdentity {
+                package: PackageId("pkg".into()),
+                path: vec!["api".into()],
+            },
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Trait,
+                name: name.into(),
+                occurrence: 0,
+            }],
+        }
+    }
+
+    #[test]
+    fn host_trait_bindings_round_trip_and_validate_method_ownership() {
+        let mut owner = HostTypeDeclaration::new("demo.Counter");
+        let method = HostMethodDeclaration::new(&owner.id, "read", vec![], HostValueType::I32);
+        owner.methods.push(method.clone());
+        let trait_id = script_trait("Readable");
+        let mut trait_method = trait_id.clone();
+        trait_method.path.push(DefinitionPathSegment {
+            kind: DefinitionKind::Method,
+            name: "get".into(),
+            occurrence: 0,
+        });
+        owner
+            .trait_implementations
+            .push(HostTraitImplementationDeclaration::new(
+                trait_id.clone(),
+                vec![HostTraitMethodBinding {
+                    trait_method: trait_method.clone(),
+                    host_method: method.id.clone(),
+                }],
+            ));
+        owner.validate().unwrap();
+        let interface = HostInterface {
+            paths: vec![],
+            types: vec![owner.clone()],
+            functions: vec![],
+        };
+        assert_eq!(
+            HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap(),
+            interface
+        );
+        let fingerprint = owner.fingerprint().unwrap();
+        owner.trait_implementations[0].documentation = "For the editor".into();
+        assert_eq!(owner.fingerprint().unwrap(), fingerprint);
+        for corruption in 0..5 {
+            let mut invalid = owner.clone();
+            let implementation = &mut invalid.trait_implementations[0];
+            match corruption {
+                0 => implementation.trait_id.path[0].kind = DefinitionKind::Struct,
+                1 => implementation.methods[0].trait_method.path[0].name = "Other".into(),
+                2 => implementation.methods[0].host_method.path[1].name = "missing".into(),
+                3 => implementation
+                    .methods
+                    .push(implementation.methods[0].clone()),
+                _ => invalid
+                    .trait_implementations
+                    .push(invalid.trait_implementations[0].clone()),
+            }
+            assert!(invalid.validate().is_err(), "corruption {corruption}");
+        }
+        let mut changed = owner.clone();
+        changed.trait_implementations.clear();
+        assert_ne!(changed.fingerprint().unwrap(), fingerprint);
+    }
 
     #[test]
     fn callable_method_contracts_cannot_override_their_declaring_member() {
@@ -346,7 +490,7 @@ mod tests {
         let bytes = first.to_bytes().unwrap();
         assert_eq!(bytes, second.to_bytes().unwrap());
         assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), first);
-        for version in [1_u16, 2, 3, 4] {
+        for version in 1_u16..8 {
             let mut old = bytes.clone();
             old[4..6].copy_from_slice(&version.to_le_bytes());
             assert_eq!(

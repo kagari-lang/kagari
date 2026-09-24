@@ -1529,6 +1529,29 @@ impl HostRegistry {
                     required.symbol
                 )));
             }
+            for implementation in &required.trait_implementations {
+                for method in &implementation.methods {
+                    let bound = self
+                        .function_declarations
+                        .get(&method.host_method)
+                        .and_then(|id| self.bound_function(*id))
+                        .ok_or_else(|| {
+                            RuntimeError::metadata_conflict(format!(
+                                "missing host trait method binding `{}`",
+                                method.host_method.path.last().map_or("", |part| &part.name)
+                            ))
+                        })?;
+                    let declared = actual
+                        .declaration
+                        .method_contract(&method.host_method)
+                        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+                    if !declared.matches_binding(&bound.declaration) {
+                        return Err(RuntimeError::metadata_conflict(
+                            "host trait method binding differs from its declaration",
+                        ));
+                    }
+                }
+            }
         }
         interface
             .functions

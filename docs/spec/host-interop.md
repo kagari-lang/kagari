@@ -164,7 +164,7 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 7, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 8, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. The decoder
 checks declaration-list lengths before reading elements (at most 1,000,000 each),
@@ -604,7 +604,7 @@ or display strings. Types without such contracts reject registration. Field
 declaration fingerprints and the root contract exclude documentation. Reordering
 unrelated runtime type registrations therefore does not change a path fingerprint.
 
-KHI v7 stores `HostInterface.paths` as portable `HostPathDeclaration` records:
+KHI v8 stores `HostInterface.paths` as portable `HostPathDeclaration` records:
 nominal root, ordered field/index/virtual segments, access, schema epoch and
 required capabilities. Encoding sorts these records independently of registration
 order; duplicate records, invalid chains, noncontiguous dynamic argument slots
@@ -769,6 +769,13 @@ Reflection is defined in [reflection.md](reflection.md).
 ## Interaction with Traits
 
 Host types may implement script-visible traits.
+
+An offline host type may declare a trait identity and map each trait method
+identity to one of its declared host methods. KHI v8 validates the owners and
+unique mappings, and includes this table in the type ABI fingerprint. Linking
+requires an identical registered table and bound callbacks for all mapped host
+methods before publication. Agreement with the script trait's method signatures
+and dynamic interface dispatch remain pending R07/R08 work.
 
 Behavior:
 

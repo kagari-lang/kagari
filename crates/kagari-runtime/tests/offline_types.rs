@@ -1,11 +1,96 @@
 use kagari_common::host_interface::{
     HostFieldDeclaration, HostInterface, HostMethodDeclaration, HostParameter, HostPassingStyle,
-    HostTypeDeclaration, HostTypeOwnership, HostValueType, PathAccess,
+    HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
+    HostTypeOwnership, HostValueType, PathAccess,
+};
+use kagari_common::identity::{
+    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
 use kagari_ir::bytecode::{
     ArtifactFingerprint, BytecodeModule, BytecodeProgram, KbcArtifact, ModuleRef,
 };
+use kagari_runtime::host::HostFunction;
 use kagari_runtime::{HostTypeRegistration, Runtime, RuntimeErrorKind, TypeKind};
+
+#[test]
+fn host_trait_table_requires_bound_method_callbacks_before_linking() {
+    let mut owner = HostTypeDeclaration::new("demo.Counter");
+    let method = HostMethodDeclaration::new(&owner.id, "read", vec![], HostValueType::I32);
+    owner.methods.push(method.clone());
+    let trait_id = DefinitionId {
+        module: ModuleIdentity {
+            package: PackageId("pkg".into()),
+            path: vec!["api".into()],
+        },
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: "Readable".into(),
+            occurrence: 0,
+        }],
+    };
+    let mut trait_method = trait_id.clone();
+    trait_method.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: "get".into(),
+        occurrence: 0,
+    });
+    owner
+        .trait_implementations
+        .push(HostTraitImplementationDeclaration::new(
+            trait_id,
+            vec![HostTraitMethodBinding {
+                trait_method,
+                host_method: method.id.clone(),
+            }],
+        ));
+    let offline = HostInterface {
+        paths: vec![],
+        types: vec![owner.clone()],
+        functions: vec![],
+    };
+    let decoded = HostInterface::from_bytes(&offline.to_bytes().unwrap()).unwrap();
+    let mut runtime = Runtime::default();
+    runtime
+        .register_host_type(HostTypeRegistration::new(owner.clone(), "Counter"))
+        .unwrap();
+    assert_eq!(
+        runtime.host().link_interface(&decoded).unwrap_err().kind(),
+        RuntimeErrorKind::MetadataConflict
+    );
+    runtime
+        .register_host_function(
+            HostFunction::method(&owner, &method.id, |_, _| {
+                Ok(kagari_runtime::value::Value::I32(1))
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    runtime.host().link_interface(&decoded).unwrap();
+    assert_eq!(runtime.host().interface().types[0], owner);
+
+    let mut stale = owner.clone();
+    stale.trait_implementations.clear();
+    let mut mismatched = Runtime::default();
+    mismatched
+        .register_host_type(HostTypeRegistration::new(stale.clone(), "Counter"))
+        .unwrap();
+    mismatched
+        .register_host_function(
+            HostFunction::method(&stale, &method.id, |_, _| {
+                Ok(kagari_runtime::value::Value::I32(1))
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        mismatched
+            .host()
+            .link_interface(&decoded)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::MetadataConflict
+    );
+}
 
 fn declarations() -> (HostTypeDeclaration, HostTypeDeclaration) {
     let mut a = HostTypeDeclaration::new("model.Player");

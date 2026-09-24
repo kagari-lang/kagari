@@ -614,6 +614,18 @@ R02 acceptance evidence:
   requires more than one planning pass. Runtime interface values and dispatch
   remain open.
 
+- R07 host trait-table declaration checkpoint: KHI v8 attaches trait identity
+  and trait-method-to-host-method bindings to an offline host type. Validation
+  rejects foreign method owners, duplicate mappings and missing host methods;
+  the type fingerprint covers the table but excludes documentation. Runtime
+  linking requires both an identical registered type table and callbacks for
+  every mapped host method before publication. KBC format/runtime ABI v31 reject
+  older products. Script trait signature agreement and executable host interface
+  dispatch remain open, so this does not complete R07. The
+  [host trait-table example](../crates/kagari-runtime/examples/host_trait_table.rs)
+  demonstrates offline round-trip and callback linking; an encoded-artifact test
+  rejects missing callbacks before module publication.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover
