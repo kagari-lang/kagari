@@ -106,7 +106,7 @@ impl PreparedAnalysis {
             &mut diagnostics,
             cancel,
         );
-        for (first, second) in aggregates.duplicate_concrete_implementations() {
+        for (first, second) in aggregates.overlapping_implementations() {
             cancel.check()?;
             diagnostics.push(
                 Diagnostic::error(kagari_common::DiagnosticKind::InvalidTraitImpl {
@@ -119,7 +119,7 @@ impl PreparedAnalysis {
                         .unwrap_or_default(),
                     type_name: first.for_type.display_name(),
                     reason: format!(
-                        "overlapping concrete implementations in {} and {}",
+                        "overlapping implementations in {} and {}",
                         first.id.module, second.id.module
                     ),
                 })

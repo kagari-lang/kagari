@@ -591,6 +591,15 @@ R02 acceptance evidence:
   the new snapshot without changing the old one. Generic-pattern overlap and
   runtime interface values remain open.
 
+- R07 generic coherence checkpoint: the same conservative overlap rule used
+  for implementations in one module now applies across the reachable dependency
+  closure, including generic receiver and applied-trait patterns. Overlap fails
+  during signature checking even when no method is called. Distinct concrete
+  applications such as `Echo<i32>` and `Echo<bool>` remain independent. The
+  regression checks a sibling-module template/concrete conflict, an overlay
+  repair and retained old-snapshot diagnostics. Executing methods from generic
+  implementations defined in dependencies remains open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

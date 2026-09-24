@@ -818,7 +818,7 @@ fn validate_trait_surface(
     }
 }
 
-fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool {
+pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool {
     if left == right {
         return true;
     }

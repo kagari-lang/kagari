@@ -466,8 +466,10 @@ Concrete implementations defined in a dependency are visible to bound-call
 resolution through the checked implementation catalog. Their methods link by
 declaration identity and signature to the defining module. Multiple matching
 concrete implementations reject the whole reachable closure during signature
-checking, including when unused. Generic dependency implementations,
-generic-pattern coherence and runtime interface dispatch remain tracked in the
+checking, including when unused. Generic templates use the same conservative
+overlap rule across modules as within one module; distinct concrete trait
+applications stay independent. Executing generic dependency implementations
+and runtime interface dispatch remain tracked in the
 [foundation roadmap](../foundation-refactor.md).
 
 ### Remaining execution work

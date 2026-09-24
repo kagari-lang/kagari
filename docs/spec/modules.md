@@ -164,8 +164,8 @@ defining module identity. Concrete implementations defined in dependencies are
 visible to bound calls and link to their defining module's method slot. Generic
 dependency implementations and dynamic interface values remain under the R07/R08
 audit.
-Duplicate concrete implementations in the reachable closure are signature
-errors even when unused; unrelated roots do not see the conflict.
+Overlapping concrete or generic implementations in the reachable closure are
+signature errors even when unused; unrelated roots do not see the conflict.
 Valid source closures compile
 to BytecodeProgram, including dependency initializers and module/function call slots.
 Initialization follows the verified dependency-first order, visits shared dependencies

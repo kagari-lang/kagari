@@ -26,6 +26,7 @@ pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
 pub type GenericBounds = HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>>;
 
+pub(crate) use check::possibly_overlapping_impls;
 pub(crate) use check::{check_bodies_controlled, check_signatures};
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,

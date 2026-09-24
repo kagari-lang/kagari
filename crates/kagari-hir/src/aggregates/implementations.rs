@@ -13,21 +13,37 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
-    pub(crate) fn duplicate_concrete_implementations(
+    pub(crate) fn overlapping_implementations(
         &self,
     ) -> Vec<(&ImplementationSignature, &ImplementationSignature)> {
-        let mut seen = std::collections::HashMap::new();
-        let mut duplicates = Vec::new();
+        let mut by_trait: BTreeMap<&DefinitionId, Vec<&ImplementationSignature>> = BTreeMap::new();
+        let mut overlaps = Vec::new();
         for implementation in self.implementations.values() {
-            if !implementation.generic_params.is_empty() {
-                continue;
+            let previous = by_trait
+                .entry(&implementation.trait_type.declaration)
+                .or_default();
+            if let Some(conflict) = previous.iter().copied().find(|candidate| {
+                (candidate.trait_type.arguments == implementation.trait_type.arguments
+                    || !candidate
+                        .trait_type
+                        .arguments
+                        .iter()
+                        .all(TypeId::is_concrete)
+                    || !implementation
+                        .trait_type
+                        .arguments
+                        .iter()
+                        .all(TypeId::is_concrete))
+                    && crate::typeck::possibly_overlapping_impls(
+                        &candidate.for_type,
+                        &implementation.for_type,
+                    )
+            }) {
+                overlaps.push((conflict, implementation.as_ref()));
             }
-            let key = (&implementation.trait_type, &implementation.for_type);
-            if let Some(previous) = seen.insert(key, implementation.as_ref()) {
-                duplicates.push((previous, implementation.as_ref()));
-            }
+            previous.push(implementation);
         }
-        duplicates
+        overlaps
     }
 
     pub(crate) fn add_implementations(
