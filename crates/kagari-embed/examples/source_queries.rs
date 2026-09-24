@@ -182,8 +182,15 @@ fn main() -> kagari_embed::CompileResult<()> {
         })
         .expect("resolved prelude helper");
     println!("prelude helper target -> {helper:?}");
+    let constructor_start = text.find("Mode::Running").expect("constructor reference");
+    assert!(analysis.definition_at(constructor_start).is_none());
+    assert!(
+        analysis
+            .definition_at(constructor_start + "Mode".len())
+            .is_none()
+    );
     let constructor = analysis
-        .definition_at(text.find("Mode::Running").expect("constructor reference"))
+        .definition_at(constructor_start + "Mode::".len())
         .expect("resolved variant target");
     println!("constructor {} -> {:?}", constructor.name, constructor.id);
     assert!(std::sync::Arc::ptr_eq(

@@ -107,6 +107,58 @@ fn qualified_standard_source_and_host_calls_respect_lexical_bindings() {
 }
 
 #[test]
+fn qualified_call_navigation_selects_only_the_terminal_name() {
+    let text = "// 中文 😀\r\nuse pkg::library as api; fn source() -> i32 { api::number() } fn host() -> i32 { demo::number() }";
+    let (sources, mut db, file) = setup(text);
+    let snapshot = snapshot(&mut db, &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(analysis.result().diagnostics().is_empty());
+
+    let source_call = text.find("api::number()").unwrap();
+    for offset in source_call..source_call + "api::".len() {
+        assert!(
+            analysis.source_function_at(offset).is_none(),
+            "offset {offset}"
+        );
+        assert!(
+            snapshot.definition_at(file, offset).is_none(),
+            "offset {offset}"
+        );
+    }
+    let source_name = source_call + "api::".len();
+    assert_eq!(
+        analysis
+            .source_function_at(source_name)
+            .unwrap()
+            .signature
+            .name,
+        "number"
+    );
+    assert_eq!(
+        snapshot.definition_at(file, source_name).unwrap().name,
+        "number"
+    );
+
+    let host_call = text.find("demo::number()").unwrap();
+    for offset in host_call..host_call + "demo::".len() {
+        assert!(
+            analysis.host_function_at(offset).is_none(),
+            "offset {offset}"
+        );
+    }
+    let host_name = host_call + "demo::".len();
+    assert_eq!(
+        analysis.host_function_at(host_name).unwrap().symbol,
+        "demo.number"
+    );
+    assert!(
+        analysis
+            .host_function_at(host_name + "number".len())
+            .is_none()
+    );
+}
+
+#[test]
 fn invalid_or_ambiguous_imports_never_leave_a_fallback_target() {
     let cases = [
         (

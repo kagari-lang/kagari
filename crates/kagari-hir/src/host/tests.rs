@@ -96,7 +96,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     );
     assert_eq!(
         first_file
-            .host_function_at(text.rfind("demo::echo").unwrap())
+            .host_function_at(text.rfind("demo::echo").unwrap() + "demo::".len())
             .unwrap()
             .id,
         declaration().id
@@ -124,7 +124,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     assert_ne!(first.host_revision(), second.host_revision());
     assert_eq!(second_file.result().facts().typed.reused_bodies, 0);
     assert!(!second_file.result().diagnostics().is_empty());
-    let offset = text.rfind("demo::echo").unwrap();
+    let offset = text.rfind("demo::echo").unwrap() + "demo::".len();
     assert_eq!(
         first_file.host_function_at(offset).unwrap().return_type,
         HostValueType::I32

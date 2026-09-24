@@ -113,13 +113,16 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
         }))
     );
     assert_eq!(analysis.type_at(wrong), analysis.type_at(good));
-    assert_eq!(analysis.definition_at(good), analysis.definition_at(wrong));
     assert_eq!(
-        analysis.definition_at(good),
+        analysis.definition_at(good + "Event::".len()),
+        analysis.definition_at(wrong + "Event::".len())
+    );
+    assert_eq!(
+        analysis.definition_at(good + "Event::".len()),
         Some(&enumeration.variants[1].declaration)
     );
     assert_eq!(
-        analysis.definition_at(text.find("Event::Empty").unwrap()),
+        analysis.definition_at(text.find("Event::Empty").unwrap() + "Event::".len()),
         Some(&enumeration.variants[0].declaration)
     );
     assert!(
@@ -193,10 +196,10 @@ fn source_facades_and_lexical_shadowing_do_not_confuse_constructor_owners() {
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let analysis = snapshot.file(root).unwrap();
     let a = analysis
-        .definition_at(text.find("facade::Event::Data").unwrap())
+        .definition_at(text.find("facade::Event::Data").unwrap() + "facade::Event::".len())
         .unwrap();
     let b = analysis
-        .definition_at(text.find("right::Event::Data").unwrap())
+        .definition_at(text.find("right::Event::Data").unwrap() + "right::Event::".len())
         .unwrap();
     assert_eq!(a.location.file, left);
     assert_eq!(b.location.file, right);

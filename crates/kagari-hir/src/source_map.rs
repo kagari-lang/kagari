@@ -27,7 +27,7 @@ pub struct SourceMap {
     block_spans: Vec<Span>,
     block_owners: Vec<crate::hir::HirOwner>,
     expr_spans: Vec<Span>,
-    expr_member_spans: std::collections::HashMap<ExprId, Span>,
+    expr_reference_spans: std::collections::HashMap<ExprId, Span>,
     expr_owners: Vec<crate::hir::HirOwner>,
     place_spans: Vec<Span>,
     place_member_spans: std::collections::HashMap<PlaceId, Span>,
@@ -215,12 +215,12 @@ impl SourceMap {
         id
     }
 
-    pub(crate) fn insert_expr_member(&mut self, id: ExprId, span: Span) {
-        self.expr_member_spans.insert(id, span);
+    pub(crate) fn insert_expr_reference(&mut self, id: ExprId, span: Span) {
+        self.expr_reference_spans.insert(id, span);
     }
 
-    pub fn expr_member_span(&self, id: ExprId) -> Option<Span> {
-        self.expr_member_spans.get(&id).copied()
+    pub fn expr_reference_span(&self, id: ExprId) -> Option<Span> {
+        self.expr_reference_spans.get(&id).copied()
     }
 
     pub(crate) fn push_place(&mut self, span: Span) -> PlaceId {

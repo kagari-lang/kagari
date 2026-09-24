@@ -49,6 +49,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   is removed. Tests cover member access with trailing Unicode comments, including
   a write target. Other semantic recovery/target ownership audits remain open.
 
+- R04 qualified-reference checkpoint: HIR also stores the terminal CST name
+  range for path expressions. Source, host and local declaration queries select
+  that name instead of treating an entire qualified call as one target. A
+  qualifier and its `::` separators no longer navigate to the final function
+  or enum variant. The same range is used when following source imports across
+  files. Tests include source and host calls after Unicode/CRLF text; existing
+  constructor/query examples now select the referenced member name. Broader
+  semantic-target and source-owner integration remains open.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

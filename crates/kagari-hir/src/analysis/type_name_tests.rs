@@ -188,7 +188,7 @@ fn introducing_and_removing_a_type_collision_invalidates_cached_targets() {
     );
     assert!(
         analysis
-            .definition_at(text.find("Event::Ready").unwrap())
+            .definition_at(text.find("Event::Ready").unwrap() + "Event::".len())
             .is_some()
     );
     assert!(analysis.result().diagnostics().is_empty());

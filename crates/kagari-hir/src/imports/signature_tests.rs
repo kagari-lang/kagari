@@ -23,7 +23,7 @@ fn signatures_and_imported_calls_survive_dependency_body_errors() {
     let snapshot = analyze(&db);
     let file = snapshot.file(root).unwrap();
     let signature = file
-        .source_function_at(text.find("lib::echo(42)").unwrap())
+        .source_function_at(text.find("lib::echo(42)").unwrap() + "lib::".len())
         .unwrap();
     assert_eq!(signature.id.file, library);
     assert_eq!(
@@ -112,10 +112,10 @@ fn imported_nominal_signatures_distinguish_same_named_types() {
         DiagnosticKind::ArgumentTypeMismatch { .. }
     ));
     let left = file
-        .source_function_at(text.find("l::make()").unwrap())
+        .source_function_at(text.find("l::make()").unwrap() + "l::".len())
         .unwrap();
     let right = file
-        .source_function_at(text.find("r::make()").unwrap())
+        .source_function_at(text.find("r::make()").unwrap() + "r::".len())
         .unwrap();
     assert_ne!(left.signature.return_type, right.signature.return_type);
     assert_ne!(left.declaration, right.declaration);

@@ -66,9 +66,11 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
         "relay::service::echo",
     ] {
         assert_eq!(
-            file.host_function_at(text.find(spelling).unwrap())
-                .unwrap()
-                .id,
+            file.host_function_at(
+                text.find(spelling).unwrap() + spelling.rfind("::").map_or(0, |colon| colon + 2),
+            )
+            .unwrap()
+            .id,
             declaration.id
         );
     }
@@ -92,7 +94,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     let current = current.file(root).unwrap();
     assert_eq!(current.result().facts().typed.reused_bodies, 0);
     assert!(!current.result().diagnostics().is_empty());
-    let offset = text.find("pkg::relay::call").unwrap();
+    let offset = text.find("pkg::relay::call").unwrap() + "pkg::relay::".len();
     assert_eq!(
         file.host_function_at(offset).unwrap().return_type,
         HostValueType::I32

@@ -112,10 +112,10 @@ fn definition_queries_distinguish_modules_and_follow_source_facades() {
     let root = insert(&mut db, "root", text);
     let snapshot = analyze(&db);
     let a = snapshot
-        .definition_at(root, text.find("l::same()").unwrap())
+        .definition_at(root, text.find("l::same()").unwrap() + "l::".len())
         .unwrap();
     let b = snapshot
-        .definition_at(root, text.find("r::same()").unwrap())
+        .definition_at(root, text.find("r::same()").unwrap() + "r::".len())
         .unwrap();
     assert_eq!(a.location.file, left);
     assert_eq!(b.location.file, right);

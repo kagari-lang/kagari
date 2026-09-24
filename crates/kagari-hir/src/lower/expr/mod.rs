@@ -180,10 +180,21 @@ impl Lowerer {
         };
 
         let id = self.alloc_expr(syntax_span(expr), ExprData { kind });
-        if let ast::Expr::FieldExpr(field) = expr
-            && let Some(name) = field.name()
-        {
-            self.source_map.insert_expr_member(id, syntax_span(&name));
+        match expr {
+            ast::Expr::FieldExpr(field) => {
+                if let Some(name) = field.name() {
+                    self.source_map
+                        .insert_expr_reference(id, syntax_span(&name));
+                }
+            }
+            ast::Expr::PathExpr(path) => {
+                let name = path.name().or_else(|| path.path()?.segments().last());
+                if let Some(name) = name {
+                    self.source_map
+                        .insert_expr_reference(id, syntax_span(&name));
+                }
+            }
+            _ => {}
         }
         id
     }

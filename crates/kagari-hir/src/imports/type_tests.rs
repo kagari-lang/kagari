@@ -34,12 +34,20 @@ fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
     snapshot.check_program(root, &Default::default()).unwrap();
     for spelling in ["lib::Data", "lib::answer()"] {
         let target = snapshot
-            .definition_at(root, text.find(spelling).unwrap())
+            .definition_at(
+                root,
+                text.find(spelling).unwrap()
+                    + if spelling == "lib::answer()" {
+                        "lib::".len()
+                    } else {
+                        0
+                    },
+            )
             .unwrap();
         assert_eq!(target.location.file, library);
     }
     assert_eq!(
-        file.source_function_at(text.find("lib::answer()").unwrap())
+        file.source_function_at(text.find("lib::answer()").unwrap() + "lib::".len())
             .unwrap()
             .id
             .file,

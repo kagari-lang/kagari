@@ -52,7 +52,7 @@ impl FileAnalysis {
                     return None;
                 };
                 let field = facts.typed.type_table.expr_field(id)?;
-                let span = facts.lowered.source_map.expr_member_span(id)?;
+                let span = facts.lowered.source_map.expr_reference_span(id)?;
                 (span.start <= offset && offset < span.end)
                     .then(|| facts.names.hosts.field(field))
                     .flatten()
@@ -94,7 +94,9 @@ impl FileAnalysis {
             .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
                 let span = match &expr.kind {
-                    ExprKind::Field { .. } => facts.lowered.source_map.expr_member_span(id)?,
+                    ExprKind::Field { .. } | ExprKind::Name { .. } => {
+                        facts.lowered.source_map.expr_reference_span(id)?
+                    }
                     _ => span,
                 };
                 if !(span.start <= offset && offset < span.end) {
@@ -143,8 +145,8 @@ impl FileAnalysis {
                 {
                     let span = facts.lowered.source_map.expr_span(callee);
                     let span = match &facts.lowered.module.expr(callee).kind {
-                        ExprKind::Field { .. } => {
-                            facts.lowered.source_map.expr_member_span(callee)?
+                        ExprKind::Field { .. } | ExprKind::Name { .. } => {
+                            facts.lowered.source_map.expr_reference_span(callee)?
                         }
                         _ => span,
                     };
@@ -153,7 +155,9 @@ impl FileAnalysis {
                 }
                 let span = facts.lowered.source_map.expr_span(id);
                 let span = match &expr.kind {
-                    ExprKind::Field { .. } => facts.lowered.source_map.expr_member_span(id)?,
+                    ExprKind::Field { .. } | ExprKind::Name { .. } => {
+                        facts.lowered.source_map.expr_reference_span(id)?
+                    }
                     _ => span,
                 };
                 if !(span.start <= offset && offset < span.end) {
@@ -276,7 +280,9 @@ impl FileAnalysis {
             .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
                 let span = match &expr.kind {
-                    ExprKind::Field { .. } => facts.lowered.source_map.expr_member_span(id)?,
+                    ExprKind::Field { .. } | ExprKind::Name { .. } => {
+                        facts.lowered.source_map.expr_reference_span(id)?
+                    }
                     _ => span,
                 };
                 let target = facts
@@ -354,7 +360,9 @@ impl FileAnalysis {
                 let call = facts.typed.type_table.call_resolution(id)?;
                 let callee_span = facts.lowered.source_map.expr_span(*callee);
                 let callee_span = match &facts.lowered.module.expr(*callee).kind {
-                    ExprKind::Field { .. } => facts.lowered.source_map.expr_member_span(*callee)?,
+                    ExprKind::Field { .. } | ExprKind::Name { .. } => {
+                        facts.lowered.source_map.expr_reference_span(*callee)?
+                    }
                     _ => callee_span,
                 };
                 match call.target {
@@ -729,7 +737,11 @@ impl AnalysisSnapshot {
             .body
             .expressions()
             .filter_map(|(id, _)| {
-                let span = facts.lowered.source_map.expr_span(id);
+                let span = facts
+                    .lowered
+                    .source_map
+                    .expr_reference_span(id)
+                    .unwrap_or_else(|| facts.lowered.source_map.expr_span(id));
                 if !(span.start <= offset && offset < span.end) {
                     return None;
                 }
