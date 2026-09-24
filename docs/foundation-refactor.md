@@ -115,7 +115,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   canonical whole-path encoder derives identity from their resolved inputs;
   only declared fields contribute a member fingerprint. Tests compare equal
   contracts and changed permissions/names. Artifact format/runtime ABI v25
-  rejects prior products. Portable index/virtual declarations remain open.
+  rejects prior products. Complete portable index/virtual paths remain open.
+
+- R06 portable-segment checkpoint: index and virtual registrations now carry
+  common, serializable segment declarations with `HostValueType` contracts
+  instead of runtime type slots. Registration checks and resolves every type
+  before publishing a descriptor; unrelated runtime slot shifts preserve the
+  canonical path fingerprint. VM dynamic-argument and runtime tests exercise
+  the new API. A complete KHI path declaration and source host index syntax
+  remain for the next R06 work.
 
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host

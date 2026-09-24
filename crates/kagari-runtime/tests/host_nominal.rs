@@ -1,7 +1,7 @@
 use kagari_common::{
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
-        host_type_identity,
+        HostVirtualSegmentDeclaration, host_type_identity,
     },
     identity::DefinitionId,
 };
@@ -295,9 +295,11 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
                 root_type: ty,
                 result_type: ty,
                 segments: vec![HostPathSegmentRegistration::Virtual {
-                    name: "self".into(),
-                    result_type: ty,
-                    access: PathAccess::ReadOnly,
+                    declaration: HostVirtualSegmentDeclaration {
+                        name: "self".into(),
+                        result: HostValueType::opaque("game.Player"),
+                        access: PathAccess::ReadOnly,
+                    },
                 }],
                 access: PathAccess::ReadOnly,
                 schema_epoch: HostSchemaEpoch::new(0),
@@ -530,9 +532,11 @@ fn paths_reject_types_without_portable_contracts_before_publication() {
         root_type,
         result_type,
         segments: vec![HostPathSegmentRegistration::Virtual {
-            name: "value".into(),
-            result_type,
-            access: PathAccess::ReadOnly,
+            declaration: HostVirtualSegmentDeclaration {
+                name: "value".into(),
+                result: HostValueType::opaque("game.Unregistered"),
+                access: PathAccess::ReadOnly,
+            },
         }],
         access: PathAccess::ReadOnly,
         schema_epoch: HostSchemaEpoch::new(0),

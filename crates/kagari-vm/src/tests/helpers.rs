@@ -1737,8 +1737,8 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
 
 #[test]
 fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
+    use kagari_common::host_interface::{HostIndexSegmentDeclaration, HostValueType};
     use kagari_ir::bytecode::{BytecodeProgram, ModuleRef};
-    use kagari_runtime::DynamicPathArgSlot;
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let field = runtime
         .host()
@@ -1750,11 +1750,13 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
             root_type: field.root_type,
             result_type: field.result_type,
             segments: vec![HostPathSegmentRegistration::Index {
-                slot: DynamicPathArgSlot::new(0),
-                collection_type: field.root_type,
-                index_type: field.result_type,
-                result_type: field.result_type,
-                access: PathAccess::ReadWrite,
+                declaration: HostIndexSegmentDeclaration {
+                    slot: 0,
+                    collection: HostValueType::opaque("game.Player"),
+                    index: HostValueType::I32,
+                    result: HostValueType::I32,
+                    access: PathAccess::ReadWrite,
+                },
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),

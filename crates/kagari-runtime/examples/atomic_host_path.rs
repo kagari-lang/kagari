@@ -1,6 +1,8 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
+use kagari_common::host_interface::{HostValueType, HostVirtualSegmentDeclaration};
 use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter, HostSchemaEpoch,
+    CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
+    HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
     HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, ResourcePolicy, Runtime,
     RuntimeConfig, RuntimeErrorKind, SecurityContext,
     host::{HostError, PreparedHostPathWrite},
@@ -59,6 +61,7 @@ fn main() {
         capabilities: CapabilitySet::default(),
     };
     let player = runtime.register_host_type(player).unwrap();
+    let scalar = runtime.types().get(player).unwrap().fields[0].ty;
     let root = runtime
         .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
         .unwrap();
@@ -84,7 +87,34 @@ fn main() {
                 }),
         )
         .unwrap();
+    let preview = runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: player,
+            result_type: scalar,
+            segments: vec![HostPathSegmentRegistration::Virtual {
+                declaration: HostVirtualSegmentDeclaration {
+                    name: "hp_preview".into(),
+                    result: HostValueType::I32,
+                    access: PathAccess::ReadOnly,
+                },
+            }],
+            access: PathAccess::ReadOnly,
+            schema_epoch: HostSchemaEpoch::new(0),
+            capability_requirements: CapabilitySet::default(),
+        })
+        .unwrap();
+    let preview_hp = hp.clone();
+    runtime
+        .register_host_path_adapter(
+            preview,
+            HostPathAdapter::new().with_read(move |_, _| Ok(Value::I32(preview_hp.get()))),
+        )
+        .unwrap();
     let root = Value::HostRoot(root);
+    assert_eq!(
+        runtime.read_host_path(&root, preview, vec![]).unwrap(),
+        Value::I32(10)
+    );
     runtime
         .set_host_path(&root, path, vec![], Value::I32(20))
         .unwrap();

@@ -14,7 +14,8 @@ const MAX_BYTES: u64 = 4 * 1024 * 1024;
 mod decode_limits;
 mod path;
 pub use path::{
-    HostFieldPathDeclaration, HostPathContract, HostPathInput, HostPathSegmentContract,
+    HostFieldPathDeclaration, HostIndexSegmentDeclaration, HostPathContract, HostPathInput,
+    HostPathSegmentContract, HostVirtualSegmentDeclaration,
 };
 mod value_type;
 pub use value_type::HostValueType;

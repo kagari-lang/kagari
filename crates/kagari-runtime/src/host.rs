@@ -229,16 +229,10 @@ pub enum HostPathSegmentRegistration {
         declaration: DefinitionId,
     },
     Index {
-        slot: DynamicPathArgSlot,
-        collection_type: TypeId,
-        index_type: TypeId,
-        result_type: TypeId,
-        access: PathAccess,
+        declaration: kagari_common::host_interface::HostIndexSegmentDeclaration,
     },
     Virtual {
-        name: String,
-        result_type: TypeId,
-        access: PathAccess,
+        declaration: kagari_common::host_interface::HostVirtualSegmentDeclaration,
     },
 }
 
@@ -1646,6 +1640,20 @@ impl HostRegistry {
         self.roots.values().copied()
     }
 
+    fn portable_path_type(
+        &self,
+        declaration: &HostValueType,
+        types: &crate::metadata::TypeRegistry,
+    ) -> Result<TypeId, RuntimeError> {
+        let resolved = match declaration {
+            HostValueType::Opaque(id) => self.host_type_by_declaration(id).map(|ty| ty.type_id),
+            ty => types.host_value_type_id(ty),
+        };
+        resolved.ok_or_else(|| {
+            RuntimeError::typed_path_validation("path segment type has no registered declaration")
+        })
+    }
+
     pub(crate) fn register_path_descriptor(
         &mut self,
         registration: HostPathDescriptorRegistration,
@@ -1707,28 +1715,28 @@ impl HostRegistry {
                         abi_fingerprint: field.abi_fingerprint,
                     }
                 }
-                HostPathSegmentRegistration::Index {
-                    slot,
-                    collection_type,
-                    index_type,
-                    result_type,
-                    access,
-                } => HostPathSegment::Index {
-                    slot: *slot,
-                    collection_type: *collection_type,
-                    index_type: *index_type,
-                    result_type: *result_type,
-                    access: *access,
-                },
-                HostPathSegmentRegistration::Virtual {
-                    name,
-                    result_type,
-                    access,
-                } => HostPathSegment::Virtual {
-                    name: name.clone(),
-                    result_type: *result_type,
-                    access: *access,
-                },
+                HostPathSegmentRegistration::Index { declaration } => {
+                    declaration
+                        .validate()
+                        .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
+                    HostPathSegment::Index {
+                        slot: DynamicPathArgSlot::new(declaration.slot as usize),
+                        collection_type: self.portable_path_type(&declaration.collection, types)?,
+                        index_type: self.portable_path_type(&declaration.index, types)?,
+                        result_type: self.portable_path_type(&declaration.result, types)?,
+                        access: declaration.access,
+                    }
+                }
+                HostPathSegmentRegistration::Virtual { declaration } => {
+                    declaration
+                        .validate()
+                        .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
+                    HostPathSegment::Virtual {
+                        name: declaration.name.clone(),
+                        result_type: self.portable_path_type(&declaration.result, types)?,
+                        access: declaration.access,
+                    }
+                }
             };
             current = resolved.result_type();
             segments.push(resolved);

@@ -28,6 +28,45 @@ impl HostFieldPathDeclaration {
     }
 }
 
+/// Portable contract for one dynamic index step; runtime type slots are resolved
+/// only when a host binds the declaration.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HostIndexSegmentDeclaration {
+    pub slot: u32,
+    pub collection: HostValueType,
+    pub index: HostValueType,
+    pub result: HostValueType,
+    pub access: PathAccess,
+}
+
+impl HostIndexSegmentDeclaration {
+    pub fn validate(&self) -> Result<(), HostInterfaceError> {
+        if self.slot >= 4096 || self.access == PathAccess::None {
+            return Err(HostInterfaceError::InvalidDeclaration);
+        }
+        self.collection.validate()?;
+        self.index.validate()?;
+        self.result.validate()
+    }
+}
+
+/// Portable contract for a host-defined virtual step.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HostVirtualSegmentDeclaration {
+    pub name: String,
+    pub result: HostValueType,
+    pub access: PathAccess,
+}
+
+impl HostVirtualSegmentDeclaration {
+    pub fn validate(&self) -> Result<(), HostInterfaceError> {
+        if self.name.is_empty() || self.name.len() > 4096 || self.access == PathAccess::None {
+            return Err(HostInterfaceError::InvalidDeclaration);
+        }
+        self.result.validate()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostPathInput {
     Field {

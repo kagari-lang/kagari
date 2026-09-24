@@ -572,8 +572,16 @@ collection must match the preceding segment's result (or the root for the first
 segment), and field identities must belong to that current owner. The requested
 result type and access must agree with the generated segments. Rejection neither
 publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
-output exposed to adapters. Index and virtual segment declarations and source
+output exposed to adapters. Complete index/virtual path declarations and source
 host index paths remain separate pending work.
+
+`HostIndexSegmentDeclaration` and `HostVirtualSegmentDeclaration` now carry
+portable result and input types (`HostValueType`) rather than runtime `TypeId`
+slots. Registration resolves these against the current runtime after validating
+the declaration, rejects missing nominal dependencies before publishing a
+descriptor, and derives the same path fingerprint even when unrelated runtime
+type registrations shift slots. The containing index/virtual path is not yet a
+KHI declaration; source-level host index syntax remains pending.
 
 Index and virtual registrations do not accept a caller-supplied member
 fingerprint. They have no portable member declaration yet, so their member

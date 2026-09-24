@@ -1,10 +1,13 @@
+use kagari_common::host_interface::{
+    HostIndexSegmentDeclaration, HostValueType, HostVirtualSegmentDeclaration,
+};
 use kagari_runtime::host::PreparedHostPathWrite;
 use std::sync::{Arc, Mutex};
 
 use kagari_ir::bytecode::BinaryOp;
 use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
-    HostBorrowTable, HostExposurePolicy, HostObjectId, HostPathAdapter, HostPathDescriptorId,
+    AbiFingerprint, CapabilitySet, DynamicPathArgument, DynamicPathArguments, HostBorrowTable,
+    HostExposurePolicy, HostObjectId, HostPathAdapter, HostPathDescriptorId,
     HostPathDescriptorRegistration, HostPathOperation, HostPathSegmentRegistration,
     HostReflectionPolicy, HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration,
     LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
@@ -557,11 +560,13 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         root_type: owner,
         result_type: scalar,
         segments: vec![HostPathSegmentRegistration::Index {
-            slot: DynamicPathArgSlot::new(0),
-            collection_type: owner,
-            index_type: scalar,
-            result_type: scalar,
-            access,
+            declaration: HostIndexSegmentDeclaration {
+                slot: 0,
+                collection: HostValueType::opaque("game.Player"),
+                index: HostValueType::I32,
+                result: HostValueType::I32,
+                access,
+            },
         }],
         access,
         schema_epoch: HostSchemaEpoch::new(0),
@@ -595,9 +600,11 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         root_type: owner,
         result_type: scalar,
         segments: vec![HostPathSegmentRegistration::Virtual {
-            name: name.into(),
-            result_type: scalar,
-            access: PathAccess::ReadOnly,
+            declaration: HostVirtualSegmentDeclaration {
+                name: name.into(),
+                result: HostValueType::I32,
+                access: PathAccess::ReadOnly,
+            },
         }],
         access: PathAccess::ReadOnly,
         schema_epoch: HostSchemaEpoch::new(0),
@@ -614,6 +621,64 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         runtime.host().path_descriptor(health).unwrap().segments[0].abi_fingerprint(),
         AbiFingerprint(0)
     );
+
+    let mut shifted = path_mutation_runtime();
+    let shifted_scalar = register_i32(&shifted);
+    register_host_root_type(&mut shifted, "game.Opaque", PathAccess::ReadOnly);
+    let shifted_owner = register_host_root_type(&mut shifted, "game.Player", PathAccess::ReadWrite);
+    let shifted_index = shifted
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            root_type: shifted_owner,
+            result_type: shifted_scalar,
+            ..index(PathAccess::ReadOnly)
+        })
+        .unwrap();
+    assert_ne!(owner, shifted_owner);
+    assert_eq!(
+        fingerprint(&runtime, first),
+        fingerprint(&shifted, shifted_index)
+    );
+}
+
+#[test]
+fn portable_path_segments_reject_unbound_types_before_publication() {
+    let mut runtime = path_mutation_runtime();
+    let scalar = register_i32(&runtime);
+    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    for segment in [
+        HostPathSegmentRegistration::Index {
+            declaration: HostIndexSegmentDeclaration {
+                slot: 0,
+                collection: HostValueType::opaque("game.Player"),
+                index: HostValueType::opaque("game.Missing"),
+                result: HostValueType::I32,
+                access: PathAccess::ReadOnly,
+            },
+        },
+        HostPathSegmentRegistration::Virtual {
+            declaration: HostVirtualSegmentDeclaration {
+                name: "missing".into(),
+                result: HostValueType::opaque("game.Missing"),
+                access: PathAccess::ReadOnly,
+            },
+        },
+    ] {
+        assert_eq!(
+            runtime
+                .register_host_path_descriptor(HostPathDescriptorRegistration {
+                    root_type: owner,
+                    result_type: scalar,
+                    segments: vec![segment],
+                    access: PathAccess::ReadOnly,
+                    schema_epoch: HostSchemaEpoch::new(0),
+                    capability_requirements: CapabilitySet::default(),
+                })
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::TypedPathValidation
+        );
+        assert_eq!(runtime.host().path_descriptors().count(), 0);
+    }
 }
 
 #[test]
@@ -729,11 +794,17 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
         .id,
     };
     let index = |collection_type| HostPathSegmentRegistration::Index {
-        slot: DynamicPathArgSlot::new(0),
-        collection_type,
-        index_type: scalar,
-        result_type: scalar,
-        access: PathAccess::ReadWrite,
+        declaration: HostIndexSegmentDeclaration {
+            slot: 0,
+            collection: if collection_type == player {
+                HostValueType::opaque("game.Player")
+            } else {
+                HostValueType::I32
+            },
+            index: HostValueType::I32,
+            result: HostValueType::I32,
+            access: PathAccess::ReadWrite,
+        },
     };
     for segments in [
         vec![field(scalar)],
@@ -830,11 +901,13 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
             result_type: i32_id,
             segments: vec![
                 HostPathSegmentRegistration::Index {
-                    slot: DynamicPathArgSlot::new(0),
-                    collection_type: player_id,
-                    index_type: i32_id,
-                    result_type: item_id,
-                    access: PathAccess::ReadWrite,
+                    declaration: HostIndexSegmentDeclaration {
+                        slot: 0,
+                        collection: HostValueType::opaque("game.Player"),
+                        index: HostValueType::I32,
+                        result: HostValueType::opaque("game.Item"),
+                        access: PathAccess::ReadWrite,
+                    },
                 },
                 HostPathSegmentRegistration::Field {
                     declaration: runtime
@@ -960,11 +1033,13 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
             root_type: player_id,
             result_type: i32_id,
             segments: vec![HostPathSegmentRegistration::Index {
-                slot: DynamicPathArgSlot::new(0),
-                collection_type: player_id,
-                index_type: i32_id,
-                result_type: i32_id,
-                access: PathAccess::ReadOnly,
+                declaration: HostIndexSegmentDeclaration {
+                    slot: 0,
+                    collection: HostValueType::opaque("game.Player"),
+                    index: HostValueType::I32,
+                    result: HostValueType::I32,
+                    access: PathAccess::ReadOnly,
+                },
             }],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
