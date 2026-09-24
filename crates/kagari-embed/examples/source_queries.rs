@@ -417,5 +417,27 @@ fn main() -> kagari_embed::CompileResult<()> {
     assert_eq!(moved.reused_bodies(), 1);
     assert_eq!(moved.checked_bodies(), 0);
     println!("leading comment edits reuse body facts with updated source locations");
+    let incomplete = "struct Damaged { val : i32, val intact: i32 } enum State { (i32), Ready }";
+    engine.set_source(source_name, incomplete.into(), SourceLayer::Overlay)?;
+    let headers = engine.declarations(engine.source_snapshot(), &Default::default())?;
+    let header = headers.file(file).expect("incomplete declarations");
+    assert!(
+        header
+            .member_at(incomplete.find(": i32").unwrap())
+            .is_none()
+    );
+    assert!(
+        header
+            .member_at(incomplete.find("(i32)").unwrap())
+            .is_none()
+    );
+    assert_eq!(
+        header
+            .member_at(incomplete.find("intact").unwrap())
+            .unwrap()
+            .name,
+        "intact"
+    );
+    println!("incomplete members retain neighboring declaration targets");
     Ok(())
 }

@@ -102,7 +102,10 @@ impl Declarations {
     pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
         self.targets
             .iter()
-            .filter(|(key, _)| matches!(key, DeclarationKey::Field(_) | DeclarationKey::Variant(_)))
+            .filter(|(key, _)| {
+                self.sites.contains(key)
+                    && matches!(key, DeclarationKey::Field(_) | DeclarationKey::Variant(_))
+            })
             .map(|(_, d)| d)
             .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
     }

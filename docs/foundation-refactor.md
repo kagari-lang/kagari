@@ -93,6 +93,11 @@ workload, repetitions and measurements; no unmeasured performance claims.
   source. Tests cover declaration and reference queries beside CRLF and Unicode;
   source_queries exercises function and local declaration sites.
 
+- R04 incomplete-member checkpoint: declaration-only member queries now use
+  the same explicit site set. A field or variant with a missing identifier
+  retains its recovery fact but cannot make the surrounding type annotation or
+  payload a navigation target; valid neighbors remain available.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

@@ -39,6 +39,35 @@ fn member_queries_use_cst_name_ranges_with_trailing_trivia() {
 }
 
 #[test]
+fn missing_member_names_do_not_claim_their_recovery_spans() {
+    let text = "struct Packet { val : i32, val count: i32 } enum Event { (i32), Ready }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("missing-member-names.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let header = snapshot.declaration_snapshot().file(id).unwrap();
+    let facts = snapshot.file(id).unwrap().result().facts();
+    assert_eq!(facts.lowered.module.structs[0].fields.len(), 2);
+    assert_eq!(facts.lowered.module.enums[0].variants.len(), 2);
+    assert!(facts.lowered.module.structs[0].fields[0].name.is_empty());
+    assert!(facts.lowered.module.enums[0].variants[0].name.is_empty());
+    assert!(header.member_at(text.find(": i32").unwrap()).is_none());
+    assert!(header.member_at(text.find("(i32)").unwrap()).is_none());
+    let file = snapshot.file(id).unwrap();
+    assert!(file.definition_at(text.find(": i32").unwrap()).is_none());
+    assert!(file.definition_at(text.find("(i32)").unwrap()).is_none());
+    assert_eq!(
+        header.member_at(text.find("count").unwrap()).unwrap().name,
+        "count"
+    );
+    assert_eq!(
+        header.member_at(text.find("Ready").unwrap()).unwrap().name,
+        "Ready"
+    );
+}
+
+#[test]
 fn struct_initializer_labels_follow_checked_field_targets_after_errors() {
     let text = "// 中文 😀\r\nstruct Packet { val count: i32, val label: String } fn good() -> Packet { Packet { count: 1, label: \"ok\" } } fn bad() { Packet { count: true, missing: 3 }; }";
     let mut sources = SourceDatabase::default();

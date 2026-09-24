@@ -205,6 +205,9 @@ leading or trailing trivia does not become part of a declaration target.
 including named items, parameters, generic parameters and local bindings.
 Only explicitly recorded declaration sites participate; a synthetic module
 initializer or incomplete name cannot turn its wider source span into a target.
+`FileDeclarations::member_at` applies this rule to fields and enum variants
+before body analysis; missing member names retain recovery facts but have no
+declaration-site target.
 
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
