@@ -16,7 +16,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R03: Unified source database, revisions, identities, overlays, coordinates.
 - [x] R04: Recoverable HIR analysis; checked-only code generation.
 - [x] R05: Immutable queries, cancellation, parse/body reuse and invalidation.
-- [ ] R06: Offline host declarations and checked runtime bindings.
+- [x] R06: Offline host declarations and checked runtime bindings.
 - [ ] R07: Nominal concrete identity, layouts, bounded reachable monomorphization.
 - [ ] R08: Verified IR and linked-only runtime operands.
 - [x] R09: Canonical bounded artifact format and explicit fingerprint algorithm.
@@ -162,6 +162,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
   compiles that path using declarations alone. Source syntax requires each index
   step to have a distinct dynamic slot; repeated-slot declarations remain valid
   for runtime adapters but do not map to independent source expressions.
+
+- R06 acceptance: one portable KHI declaration provides nominal type/member
+  identities, signatures, access, passing/effects, documentation and canonical
+  fingerprints for offline analysis and runtime registration. Compilation and
+  queries do not register callbacks or start a runtime; source, artifact and JIT
+  fallback execution link required bindings by identity and contract before
+  publication. Host function and method boundaries validate opaque nominal roots,
+  including nested values. The host trait implementation table remains R07 work.
 
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
@@ -1315,7 +1323,7 @@ Implemented foundation slices:
   Runtime path registration also rejects disconnected field owners
   and index collections before publishing or consuming a descriptor slot; tests
   cover both root and intermediate mismatches. Format 22/runtime ABI v23
-  reject prior products. R06 remains unchecked.
+  reject prior products. Later R06 checkpoints complete the source path model.
   Source facades now re-export host functions and modules using one final import
   binding table. Name resolution, imported signature/type catalogs and navigation
   share those targets; downstream facade traversal and the unsupported-host-export
@@ -1329,8 +1337,8 @@ Implemented foundation slices:
   publication, resource counters or initialization. Calls carry HostImportId and
   resolve to registry-owned slots; execution has no host-symbol fallback.
   IR/bytecode checks verify call representations and reject conflicting imports.
-  Runtime scalar callback arguments/results are also checked. Nominal opaque
-  object validation remains open.
+  Runtime scalar callback arguments/results are also checked. Later R06 work
+  validates nominal opaque roots and nested callback values.
 - R07/R08/R09: public function parameters/results, const types, struct fields,
   trait methods and interface targets now encode checked structural AbiType facts,
   preserving module/declaration identity and nested arguments. Generic binders
