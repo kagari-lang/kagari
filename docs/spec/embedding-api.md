@@ -54,6 +54,9 @@ profile-independent tools; their results cannot be passed to code generation.
 `FileSignatures::definition_at(byte_offset)` follows declaration sites and
 checked signature type names, including imported source types. It does not
 offer body-reference navigation before that body has been analyzed.
+`FileSignatures::host_type_at(byte_offset)` returns the checked offline host
+declaration for a signature type name. Host declarations have no synthetic
+source location; this query reads the interface catalog without registration.
 Full `analyze` and compilation still enforce the requested language profile.
 
 Signature queries build the shared aggregate catalog after declaration signatures

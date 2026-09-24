@@ -4,6 +4,7 @@ use kagari_common::{
         HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostParameter,
         HostPassingStyle, HostTypeDeclaration, HostTypeOwnership, HostValueType,
     },
+    source_database::SourceLayer,
 };
 use kagari_embed::{
     ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
@@ -41,6 +42,40 @@ fn interface() -> HostInterface {
         types: vec![item, related, HostTypeDeclaration::new("unused.Other")],
         functions: vec![make, take],
     }
+}
+
+#[test]
+fn offline_host_type_navigation_is_available_from_signature_query() {
+    let engine = KagariEngine::default();
+    engine.set_host_interface(interface()).unwrap();
+    let text = "// 中文 😀\r\nuse left::Item; fn accept(value: Item) -> Item { value }";
+    let file = engine
+        .set_source("mem://host-signature", text.into(), SourceLayer::Base)
+        .unwrap();
+    let signatures = engine
+        .signatures(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    let signature = signatures.file(file).unwrap();
+    let annotation = text.find("value: Item").unwrap() + "value: ".len();
+    assert_eq!(
+        signature.host_type_at(annotation).unwrap().symbol,
+        "left.Item"
+    );
+    assert!(signature.definition_at(annotation).is_none());
+    assert!(signature.host_type_at(annotation - 1).is_none());
+    assert!(signature.diagnostics().is_empty());
+
+    let full = engine
+        .analyze(
+            engine.source_snapshot(),
+            LanguageProfile::default(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        full.file(file).unwrap().host_type_at(annotation),
+        signature.host_type_at(annotation)
+    );
 }
 
 #[test]

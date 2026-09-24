@@ -201,25 +201,13 @@ impl FileAnalysis {
     ) -> Option<&kagari_common::host_interface::HostTypeDeclaration> {
         use crate::{resolver::ResolvedName, typeck::TypeTarget};
         let facts = self.result.facts();
-        if let Some((index, _)) = facts
-            .lowered
-            .source_map
-            .type_spans()
-            .iter()
-            .enumerate()
-            .filter(|(_, span)| span.start <= offset && offset < span.end)
-            .min_by_key(|(_, span)| span.end - span.start)
+        if let Some(target) =
+            type_reference_target_at(&facts.lowered, &facts.typed.type_table, offset)
         {
-            let type_id = facts.lowered.source_map.type_id(index);
-            let name_span = facts.lowered.source_map.type_name_span(type_id)?;
-            if !(name_span.start <= offset && offset < name_span.end) {
-                return None;
-            }
-            let Some(TypeTarget::Host(id)) = facts.typed.type_table.type_ref(type_id)?.target
-            else {
-                return None;
+            return match target {
+                Some(TypeTarget::Host(id)) => facts.names.hosts.type_declaration(id),
+                _ => None,
             };
-            return facts.names.hosts.type_declaration(id);
         }
         if let Some(TypeId::Host(id)) = self.type_at(offset) {
             return facts
@@ -485,20 +473,8 @@ fn type_reference_at<'a>(
     declarations: &'a crate::declarations::Declarations,
     offset: usize,
 ) -> Option<Option<&'a crate::declarations::Declaration>> {
-    let (index, _) = lowered
-        .source_map
-        .type_spans()
-        .iter()
-        .enumerate()
-        .filter(|(_, span)| span.start <= offset && offset < span.end)
-        .min_by_key(|(_, span)| span.end - span.start)?;
-    let type_id = lowered.source_map.type_id(index);
-    let target = lowered
-        .source_map
-        .type_name_span(type_id)
-        .filter(|span| span.start <= offset && offset < span.end)
-        .and_then(|_| table.type_ref(type_id)?.target)
-        .and_then(|target| match target {
+    type_reference_target_at(lowered, table, offset).map(|target| {
+        target.and_then(|target| match target {
             crate::typeck::TypeTarget::Host(_) => None,
             crate::typeck::TypeTarget::Source(id) => declarations
                 .imported_types()
@@ -514,7 +490,28 @@ fn type_reference_at<'a>(
                 declarations.target(crate::resolver::ResolvedName::Trait(id))
             }
             crate::typeck::TypeTarget::Generic(id) => declarations.generic_parameter(id),
-        });
+        })
+    })
+}
+
+fn type_reference_target_at(
+    lowered: &crate::lower::LoweredModule,
+    table: &crate::typeck::TypeTable,
+    offset: usize,
+) -> Option<Option<crate::typeck::TypeTarget>> {
+    let (index, _) = lowered
+        .source_map
+        .type_spans()
+        .iter()
+        .enumerate()
+        .filter(|(_, span)| span.start <= offset && offset < span.end)
+        .min_by_key(|(_, span)| span.end - span.start)?;
+    let type_id = lowered.source_map.type_id(index);
+    let target = lowered
+        .source_map
+        .type_name_span(type_id)
+        .filter(|span| span.start <= offset && offset < span.end)
+        .and_then(|_| table.type_ref(type_id)?.target);
     Some(target)
 }
 

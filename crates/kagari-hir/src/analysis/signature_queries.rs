@@ -26,6 +26,23 @@ impl FileSignatures {
         })
     }
 
+    /// Read an offline host type declaration from a checked signature name.
+    pub fn host_type_at(
+        &self,
+        offset: usize,
+    ) -> Option<&kagari_common::host_interface::HostTypeDeclaration> {
+        match type_reference_target_at(
+            &self.prepared.lowered,
+            self.prepared.signatures.facts().type_table(),
+            offset,
+        )? {
+            Some(crate::typeck::TypeTarget::Host(id)) => {
+                self.prepared.declarations.hosts.type_declaration(id)
+            }
+            _ => None,
+        }
+    }
+
     /// Type annotations checked by this signature query; body annotations have
     /// no facts until a body query checks them.
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {

@@ -105,6 +105,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
   binders, imported facades, errors, Unicode/CRLF and agreement with full
   analysis; source_queries navigates an enum payload type from signatures.
 
+- R04/R06 offline signature-host checkpoint: signature queries now expose
+  checked host type declarations from offline interface data without checking
+  bodies. Full analysis and signatures share one annotation target selector;
+  punctuation and unknown nested names cannot borrow a host target. The
+  offline_compile example and embedding test require no runtime registration.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

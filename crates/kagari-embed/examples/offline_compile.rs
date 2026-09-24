@@ -92,6 +92,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .expect("register example source"),
         );
     }
+    let signatures = engine
+        .signatures(engine.source_snapshot(), &Default::default())
+        .expect("offline signatures should be queryable");
+    let signature = signatures.file(root.expect("entry source")).unwrap();
+    let signature_text = signature.source().text();
+    let host_annotation = signature_text.find("value: api::Player").unwrap() + "value: api::".len();
+    assert_eq!(
+        signature.host_type_at(host_annotation).unwrap().symbol,
+        "demo.Player"
+    );
+    assert!(signature.host_type_at(host_annotation - 2).is_none());
+    println!("offline host type navigation is available before body analysis");
     let query = engine
         .analyze(
             engine.source_snapshot(),
