@@ -115,6 +115,11 @@ binders owned by it, and a complete method roster and substituted signatures for
 local public traits. Reload
 keys encode this identity canonically; the human-readable
 `Type as Trait` label is diagnostic only. Older formats are rejected before execution.
+Version 28 carries concrete function declaration identities and type arguments in
+both executable functions and their directory records. The verifier checks their
+agreement, module ownership, concrete type arguments and uniqueness; source
+lowering always emits identities. Identity argument vectors obey the artifact
+record limits. Older formats are rejected before execution.
 Version 11 adds ordered enum payload types to public variant ABI records. These
 use structural `AbiType` encoding, preserving nominal declaration identity and
 container arguments instead of display strings or erased instruction ValueTypes.
@@ -164,7 +169,7 @@ Version 19 permits required host call records with member declaration identities
 These records must equal the declaring host type's generated method contract,
 including its explicit nominal receiver and passing style. KHI v7 carries the
 same checked method call contracts; old interface versions are rejected.
-The runtime ABI identity is `kagari-runtime-abi-v27`; the runtime-helper ABI is
+The runtime ABI identity is `kagari-runtime-abi-v28`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -183,6 +188,7 @@ ABI v26 requires complete portable path declarations, including index and virtua
 segments, in the required host interface.
 ABI v27 requires identity-bearing interface implementation records and rejects
 display-label-only reload keys.
+ABI v28 requires identity-bearing executable function records.
 The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration

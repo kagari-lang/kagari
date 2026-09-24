@@ -213,6 +213,7 @@ fn path_module(
         }],
         function_table: vec![kagari_ir::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
+            identity: None,
             name: name.to_owned(),
             params: metadata.params.clone(),
             return_type: metadata.return_type,
@@ -220,6 +221,7 @@ fn path_module(
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
+            identity: None,
             name: name.to_owned(),
             parameter_count: 0,
             register_count: metadata.registers.len() as u16,

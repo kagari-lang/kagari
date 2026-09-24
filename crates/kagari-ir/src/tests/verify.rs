@@ -157,6 +157,12 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     }
     let mut second = good.clone();
     second.identity = kagari_common::identity::ModuleIdentity::single_file("second.kgr");
+    for function in &mut second.functions {
+        function.identity.as_mut().unwrap().declaration.module = second.identity.clone();
+    }
+    for record in &mut second.function_table {
+        record.identity.as_mut().unwrap().declaration.module = second.identity.clone();
+    }
     second.dependencies = vec![crate::bytecode::ModuleRef::new(0)];
     let mut program = crate::bytecode::BytecodeProgram {
         root: crate::bytecode::ModuleRef::new(1),

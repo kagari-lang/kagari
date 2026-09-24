@@ -898,6 +898,7 @@ mod tests {
         };
         module.function_table.push(FunctionRecord {
             id: function.id,
+            identity: function.identity.clone(),
             name: function.name.clone(),
             params: function.metadata.params.clone(),
             return_type: function.metadata.return_type,

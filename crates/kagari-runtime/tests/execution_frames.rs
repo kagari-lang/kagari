@@ -44,6 +44,7 @@ fn loaded(runtime: &mut Runtime) -> LoadedModule {
                     types: vec![ValueType::Unit, ValueType::HeapObject],
                     function_table: vec![FunctionRecord {
                         id: function.id,
+                        identity: function.identity.clone(),
                         name: function.name.clone(),
                         params: vec![],
                         return_type: ValueType::Unit,

@@ -70,6 +70,7 @@ fn test_function(
     };
     BytecodeFunction {
         id: FunctionRef::new(id),
+        identity: None,
         name: name.to_owned(),
         parameter_count: 0,
         register_count: metadata.registers.len() as u16,
@@ -112,6 +113,7 @@ fn verified_module(
         .iter()
         .map(|function| FunctionRecord {
             id: function.id,
+            identity: function.identity.clone(),
             name: function.name.clone(),
             params: function.metadata.params.clone(),
             return_type: function.metadata.return_type,

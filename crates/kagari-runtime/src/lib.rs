@@ -1664,6 +1664,7 @@ mod tests {
             types: vec![ValueType::Unit],
             function_table: vec![kagari_ir::bytecode::FunctionRecord {
                 id: FunctionRef::new(0),
+                identity: None,
                 name: "main".to_owned(),
                 params: metadata.params.clone(),
                 return_type: metadata.return_type,

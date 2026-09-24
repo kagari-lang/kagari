@@ -1,4 +1,8 @@
-use std::fmt::{self, Display, Formatter};
+use kagari_common::identity::DefinitionKind;
+use std::{
+    collections::HashSet,
+    fmt::{self, Display, Formatter},
+};
 
 use crate::{
     bytecode::{
@@ -35,6 +39,9 @@ pub enum BytecodeVerificationError {
         table: usize,
     },
     FunctionRecordMismatch {
+        function: FunctionRef,
+    },
+    InvalidFunctionIdentity {
         function: FunctionRef,
     },
     MetadataCountMismatch {
@@ -118,6 +125,7 @@ impl BytecodeVerificationError {
                 "KG_BYTECODE_FUNCTION_TABLE_LENGTH_MISMATCH"
             }
             Self::FunctionRecordMismatch { .. } => "KG_BYTECODE_FUNCTION_RECORD_MISMATCH",
+            Self::InvalidFunctionIdentity { .. } => "KG_BYTECODE_INVALID_FUNCTION_IDENTITY",
             Self::MetadataCountMismatch { .. } => "KG_BYTECODE_METADATA_COUNT_MISMATCH",
             Self::InvalidRegister { .. } => "KG_BYTECODE_INVALID_REGISTER",
             Self::InvalidLocal { .. } => "KG_BYTECODE_INVALID_LOCAL",
@@ -169,6 +177,9 @@ impl Display for BytecodeVerificationError {
             ),
             Self::FunctionRecordMismatch { function } => {
                 write!(f, "function record mismatch for {function:?}")
+            }
+            Self::InvalidFunctionIdentity { function } => {
+                write!(f, "invalid function identity for {function:?}")
             }
             Self::MetadataCountMismatch {
                 function,
@@ -318,6 +329,7 @@ pub(super) fn verify_module_with_program(
     {
         return Err(BytecodeVerificationError::InvalidModuleInit(init));
     }
+    let mut identities = HashSet::new();
     for (index, function) in module.functions.iter().enumerate() {
         let expected_ref = FunctionRef::new(index);
         if function.id != expected_ref {
@@ -329,12 +341,34 @@ pub(super) fn verify_module_with_program(
             unreachable!("function table length was already checked");
         };
         if record.id != function.id
+            || record.identity != function.identity
             || record.name != function.name
             || record.params != function.metadata.params
             || record.return_type != function.metadata.return_type
             || record.effects != function.metadata.effects
         {
             return Err(BytecodeVerificationError::FunctionRecordMismatch {
+                function: function.id,
+            });
+        }
+        if let Some(identity) = &function.identity
+            && (identity.declaration.module != module.identity
+                || !identity.declaration.within_path_limit()
+                || !identity.declaration.path.last().is_some_and(|part| {
+                    matches!(
+                        part.kind,
+                        DefinitionKind::Function
+                            | DefinitionKind::Method
+                            | DefinitionKind::ModuleInit
+                    )
+                })
+                || identity.arguments.iter().any(|ty| {
+                    !ty.within_wire_limits()
+                        || !crate::module::abi::verify::concrete_type_valid(ty, &Default::default())
+                })
+                || !identities.insert(identity))
+        {
+            return Err(BytecodeVerificationError::InvalidFunctionIdentity {
                 function: function.id,
             });
         }

@@ -13,6 +13,136 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
+fn executable_function_identities_survive_lowering_and_reject_mismatched_records() {
+    let module = common::bytecode_ok(
+        "fn id<T>(value: T) -> T { value } fn other() -> i32 { 2 } fn main() -> i32 { id(1) + other() }",
+    );
+    assert!(module.functions.iter().all(|function| {
+        function.identity.is_some()
+            && module.function_table[function.id.index()].identity == function.identity
+    }));
+    let generic = module
+        .functions
+        .iter()
+        .position(|function| {
+            function.identity.as_ref().is_some_and(|identity| {
+                identity
+                    .declaration
+                    .path
+                    .last()
+                    .is_some_and(|part| part.name == "id")
+            })
+        })
+        .expect("reachable generic instance");
+    assert_eq!(
+        module.functions[generic]
+            .identity
+            .as_ref()
+            .unwrap()
+            .arguments,
+        [crate::module::abi::AbiType::Builtin(
+            kagari_hir::types::BuiltinType::I32
+        )]
+    );
+    let mut mismatched_record = module.clone();
+    mismatched_record.function_table[generic].identity = None;
+    assert!(matches!(
+        verify_module(&mismatched_record),
+        Err(BytecodeVerificationError::FunctionRecordMismatch { .. })
+    ));
+    let mut duplicate = module.clone();
+    let other = duplicate
+        .functions
+        .iter()
+        .position(|function| {
+            function.identity.as_ref().is_some_and(|identity| {
+                identity
+                    .declaration
+                    .path
+                    .last()
+                    .is_some_and(|part| part.name == "other")
+            })
+        })
+        .unwrap();
+    duplicate.functions[other].identity = duplicate.functions[generic].identity.clone();
+    duplicate.function_table[other].identity = duplicate.functions[other].identity.clone();
+    assert!(matches!(
+        verify_module(&duplicate),
+        Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
+    ));
+    let mut foreign = module.clone();
+    foreign.functions[generic]
+        .identity
+        .as_mut()
+        .unwrap()
+        .declaration
+        .module
+        .package
+        .0 = "foreign".into();
+    foreign.function_table[generic].identity = foreign.functions[generic].identity.clone();
+    assert!(matches!(
+        verify_module(&foreign),
+        Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
+    ));
+    let mut wrong_kind = module.clone();
+    wrong_kind.functions[generic]
+        .identity
+        .as_mut()
+        .unwrap()
+        .declaration
+        .path
+        .last_mut()
+        .unwrap()
+        .kind = kagari_common::identity::DefinitionKind::Struct;
+    wrong_kind.function_table[generic].identity = wrong_kind.functions[generic].identity.clone();
+    assert!(matches!(
+        verify_module(&wrong_kind),
+        Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
+    ));
+    let mut oversized = module.clone();
+    oversized.functions[generic]
+        .identity
+        .as_mut()
+        .unwrap()
+        .arguments = vec![
+        crate::module::abi::AbiType::Builtin(kagari_hir::types::BuiltinType::I32);
+        crate::decode_limits::MAX_NESTED_RECORDS + 1
+    ];
+    oversized.function_table[generic].identity = oversized.functions[generic].identity.clone();
+    assert!(matches!(
+        KbcArtifact::from_program(
+            crate::bytecode::BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![oversized],
+            },
+            Default::default(),
+        ),
+        Err(ArtifactValidationError::ResourceLimit(
+            "nested module record limit exceeded"
+        ))
+    ));
+    let mut unresolved = module;
+    unresolved.functions[generic]
+        .identity
+        .as_mut()
+        .unwrap()
+        .arguments[0] = crate::module::abi::AbiType::Parameter {
+        owner: unresolved.function_table[generic]
+            .identity
+            .as_ref()
+            .unwrap()
+            .declaration
+            .clone(),
+        position: 0,
+    };
+    unresolved.function_table[generic].identity = unresolved.functions[generic].identity.clone();
+    assert!(matches!(
+        verify_module(&unresolved),
+        Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
+    ));
+}
+
+#[test]
 fn host_imports_are_interned_and_checked_before_execution() {
     let module = common::bytecode_ok(r#"fn main() { print("one"); print("two"); }"#);
     assert_eq!(
@@ -273,6 +403,12 @@ fn main() -> i32 { add(1, 2) }
         path: vec!["main".into()],
     };
     module.identity = identity.clone();
+    for function in &mut module.functions {
+        function.identity.as_mut().unwrap().declaration.module = identity.clone();
+    }
+    for record in &mut module.function_table {
+        record.identity.as_mut().unwrap().declaration.module = identity.clone();
+    }
     let dependency_module = BytecodeModule {
         identity: ModuleIdentity {
             package: PackageId("pkg".into()),
@@ -843,6 +979,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
         structures: common::bytecode_ok("struct Point { var x: i32 }").structures,
         function_table: vec![crate::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
+            identity: None,
             name: "write_bad_field".to_owned(),
             params: Vec::new(),
             return_type: ValueType::Unit,
@@ -850,6 +987,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
+            identity: None,
             name: "write_bad_field".to_owned(),
             parameter_count: 0,
             local_count: 0,
@@ -900,6 +1038,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
         }],
         function_table: vec![crate::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
+            identity: None,
             name: "read_missing_path".to_owned(),
             params: vec![ValueType::HostHandle],
             return_type: ValueType::I32,
@@ -907,6 +1046,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
+            identity: None,
             name: "read_missing_path".to_owned(),
             parameter_count: 1,
             local_count: 1,
@@ -948,6 +1088,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
         }],
         function_table: vec![crate::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
+            identity: None,
             name: "write_readonly_path".to_owned(),
             params: vec![ValueType::HostHandle, ValueType::I32],
             return_type: ValueType::Unit,
@@ -955,6 +1096,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
+            identity: None,
             name: "write_readonly_path".to_owned(),
             parameter_count: 2,
             local_count: 2,
@@ -1184,6 +1326,7 @@ fn verifier_accepts_resolved_typed_path_instructions() {
         }],
         function_table: vec![crate::bytecode::FunctionRecord {
             id: FunctionRef::new(0),
+            identity: None,
             name: "read_health".to_owned(),
             params: vec![ValueType::HostHandle],
             return_type: ValueType::I32,
@@ -1191,6 +1334,7 @@ fn verifier_accepts_resolved_typed_path_instructions() {
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
+            identity: None,
             name: "read_health".to_owned(),
             parameter_count: 1,
             local_count: 1,

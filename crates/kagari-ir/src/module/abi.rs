@@ -283,6 +283,27 @@ pub struct InterfaceTableAbi {
     pub methods: Vec<FunctionAbi>,
 }
 
+/// Concrete executable identity; diagnostic function names are not binding keys.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ConcreteFunctionIdentity {
+    pub declaration: kagari_common::identity::DefinitionId,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub arguments: Vec<AbiType>,
+}
+
+impl ConcreteFunctionIdentity {
+    pub(crate) fn from_ir(instance: &super::function::FunctionInstance) -> Self {
+        Self {
+            declaration: instance.declaration.clone(),
+            arguments: instance
+                .arguments
+                .iter()
+                .map(AbiType::from_checked_type)
+                .collect(),
+        }
+    }
+}
+
 mod wire;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

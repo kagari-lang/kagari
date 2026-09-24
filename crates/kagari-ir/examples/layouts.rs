@@ -37,6 +37,12 @@ fn main() {
         kagari_ir::module::IrVerificationErrorKind::Cancelled,
     );
     let bytecode = lower_to_bytecode(&ir).unwrap();
+    assert!(bytecode.functions.iter().all(|function| {
+        function.identity.as_ref().is_some_and(|identity| {
+            identity.declaration.module == bytecode.identity
+                && bytecode.function_table[function.id.index()].identity == function.identity
+        })
+    }));
     let interface = bytecode
         .public_items
         .iter()
@@ -53,6 +59,10 @@ fn main() {
     println!(
         "interface {} has a stable declaration identity",
         interface.name
+    );
+    println!(
+        "{} executable functions retain their declaration identities",
+        bytecode.functions.len()
     );
     let (structure, fields) = bytecode
         .functions

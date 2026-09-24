@@ -9,6 +9,10 @@ use std::collections::HashSet;
 
 type Parameters = HashSet<(DefinitionId, usize)>;
 
+pub(crate) fn concrete_type_valid(ty: &AbiType, cancel: &CancellationToken) -> bool {
+    type_valid(ty, &Parameters::new(), None, cancel)
+}
+
 pub(crate) fn validate(
     items: &[PublicAbiItem],
     module: &ModuleIdentity,

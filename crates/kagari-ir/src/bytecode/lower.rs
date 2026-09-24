@@ -215,6 +215,9 @@ fn lower_function(
 
     Ok(BytecodeFunction {
         id: FunctionRef::new(function.id.index()),
+        identity: Some(crate::module::ConcreteFunctionIdentity::from_ir(
+            &function.instance,
+        )),
         name: function.name.clone(),
         parameter_count: function.params.len() as u16,
         register_count: function.temps.len() as u16,
@@ -229,6 +232,7 @@ fn collect_function_table(functions: &[BytecodeFunction]) -> Vec<FunctionRecord>
         .iter()
         .map(|function| FunctionRecord {
             id: function.id,
+            identity: function.identity.clone(),
             name: function.name.clone(),
             params: function.metadata.params.clone(),
             return_type: function.metadata.return_type,

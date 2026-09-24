@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 27;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 28;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +50,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v27";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v28";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -504,6 +504,24 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
         *total = total.saturating_add(length);
         length <= MAX_ARTIFACT_NESTED_RECORDS && *total <= MAX_ARTIFACT_TABLE_RECORDS
     };
+    for function in &module.functions {
+        if function
+            .identity
+            .as_ref()
+            .is_some_and(|identity| !add(identity.arguments.len()))
+        {
+            return false;
+        }
+    }
+    for record in &module.function_table {
+        if record
+            .identity
+            .as_ref()
+            .is_some_and(|identity| !add(identity.arguments.len()))
+        {
+            return false;
+        }
+    }
     for layout in &module.structures {
         if !add(layout.arguments.len()) || !add(layout.fields.len()) {
             return false;
@@ -619,7 +637,15 @@ fn function_abi_identity_limit(function: &crate::module::FunctionAbi) -> bool {
 fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     use crate::module::PublicAbiItem;
     let valid = |ty: &crate::module::abi::AbiType| ty.within_wire_limits();
-    module.structures.iter().all(|layout| {
+    module.functions.iter().all(|function| {
+        function.identity.as_ref().is_none_or(|identity| {
+            identity.declaration.within_path_limit() && identity.arguments.iter().all(&valid)
+        })
+    }) && module.function_table.iter().all(|record| {
+        record.identity.as_ref().is_none_or(|identity| {
+            identity.declaration.within_path_limit() && identity.arguments.iter().all(&valid)
+        })
+    }) && module.structures.iter().all(|layout| {
         layout.arguments.iter().all(&valid) && layout.fields.iter().all(|field| valid(&field.ty))
     }) && module.enumerations.iter().all(|layout| {
         layout.arguments.iter().all(&valid)
@@ -1537,6 +1563,7 @@ mod canonical_tests {
             .function_table
             .push(crate::bytecode::FunctionRecord {
                 id: FunctionRef::new(0),
+                identity: None,
                 name: "oversized".into(),
                 params: vec![ValueType::Unit; MAX_ARTIFACT_TABLE_RECORDS + 1],
                 return_type: ValueType::Unit,

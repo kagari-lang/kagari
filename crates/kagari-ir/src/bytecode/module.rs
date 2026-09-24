@@ -2,7 +2,7 @@ use crate::{
     bytecode::instruction::{
         BytecodeInstruction, ConstantOperand, FunctionRef, JumpTarget, LocalSlot, PathId,
     },
-    module::{EffectSet, PublicAbiItem, ValueType},
+    module::{ConcreteFunctionIdentity, EffectSet, PublicAbiItem, ValueType},
 };
 use kagari_common::Span;
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,7 @@ pub struct PathRecord {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BytecodeFunction {
     pub id: FunctionRef,
+    pub identity: Option<ConcreteFunctionIdentity>,
     pub name: String,
     pub parameter_count: u16,
     pub register_count: u16,
@@ -82,6 +83,7 @@ pub struct FunctionMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionRecord {
     pub id: FunctionRef,
+    pub identity: Option<ConcreteFunctionIdentity>,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: TypeLayoutBuffer,

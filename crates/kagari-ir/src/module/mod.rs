@@ -14,8 +14,8 @@ mod verify;
 pub use verify::{IrVerificationError, IrVerificationErrorKind, VerifiedIrModule, verify_ir};
 
 pub use abi::{
-    ConstAbi, FieldAbi, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem,
-    PublicAbiItemBuffer, TraitAbi, TypeAbi, TypeAbiKind, VariantAbi,
+    ConcreteFunctionIdentity, ConstAbi, FieldAbi, FunctionAbi, InterfaceTableAbi, ModuleAbi,
+    ParameterAbi, PublicAbiItem, PublicAbiItemBuffer, TraitAbi, TypeAbi, TypeAbiKind, VariantAbi,
 };
 pub use function::{
     BasicBlock, BlockBuffer, CapturedBindingDebugBuffer, FunctionBuffer,

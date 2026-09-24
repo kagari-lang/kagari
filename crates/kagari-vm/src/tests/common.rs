@@ -74,6 +74,7 @@ pub fn test_function_module(
         ),
         function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
+            identity: None,
             name: name.to_owned(),
             params: metadata.params.clone(),
             return_type: metadata.return_type,
@@ -81,6 +82,7 @@ pub fn test_function_module(
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
+            identity: None,
             name: name.to_owned(),
             parameter_count: 0,
             register_count: metadata.registers.len() as u16,

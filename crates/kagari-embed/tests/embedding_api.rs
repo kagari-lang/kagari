@@ -203,6 +203,7 @@ fn host_path_artifact(
                 }],
                 function_table: vec![FunctionRecord {
                     id: FunctionRef::new(0),
+                    identity: None,
                     name: "main".to_owned(),
                     params: metadata.params.clone(),
                     return_type: metadata.return_type,
@@ -210,6 +211,7 @@ fn host_path_artifact(
                 }],
                 functions: vec![BytecodeFunction {
                     id: FunctionRef::new(0),
+                    identity: None,
                     name: "main".to_owned(),
                     parameter_count: 0,
                     register_count: metadata.registers.len() as u16,

@@ -484,6 +484,15 @@ R02 acceptance evidence:
   older products. The layouts example prints the checked table; executable
   dispatch tables and generic impl specialization remain open.
 
+- R07 executable-function identity checkpoint: bytecode functions and their
+  function records now retain concrete declaration identity plus type arguments
+  from verified IR. Bytecode verification rejects foreign, unresolved, duplicated
+  or mismatched identities before execution; artifact limits bound their encoded
+  type arguments. Hand-authored functions without a source declaration use an
+  explicit absent identity. KBC format/runtime ABI v28 reject older products.
+  The layouts example checks the function records. Interface method slots still
+  need to link these identities to executable functions.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover
