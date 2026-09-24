@@ -56,8 +56,28 @@ fn main() {
         interface.declaration.path[0].kind,
         kagari_common::identity::DefinitionKind::Impl
     );
+    let executable_table = bytecode
+        .interface_tables
+        .iter()
+        .find(|table| table.declaration == interface.declaration)
+        .expect("executable interface table");
+    assert_eq!(executable_table.methods.len(), 1);
+    let method = &executable_table.methods[0];
+    assert_eq!(method.method.path.last().unwrap().name, "get");
+    assert_eq!(
+        bytecode.functions[method.function.index()]
+            .identity
+            .as_ref()
+            .unwrap()
+            .declaration
+            .path
+            .last()
+            .unwrap()
+            .name,
+        "get"
+    );
     println!(
-        "interface {} has a stable declaration identity",
+        "interface {} has a stable declaration identity and executable method slot",
         interface.name
     );
     println!(

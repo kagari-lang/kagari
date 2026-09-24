@@ -10,8 +10,8 @@ use crate::bytecode::instruction::{
 use crate::bytecode::module::{
     BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, BytecodeModuleSlot,
     CapturedBindingDebugInfo, DebugPointId, FrameLayout, FunctionMetadata, FunctionRecord,
-    InstructionSourceSpan, LineTableEntry, LocalLiveRange, PathRecord, SafeDebugPoint,
-    SafeDebugPointKind,
+    InstructionSourceSpan, InterfaceMethodSlot, InterfaceTableRecord, LineTableEntry,
+    LocalLiveRange, PathRecord, SafeDebugPoint, SafeDebugPointKind,
 };
 use crate::bytecode::verify_module;
 use crate::module::{
@@ -96,6 +96,7 @@ fn lower_linked_module(
         types: Vec::new(),
         structures: ir.structures.clone(),
         enumerations: ir.enumerations.clone(),
+        interface_tables: collect_interface_tables(ir),
         paths: context.paths,
         function_table: Vec::new(),
         public_items: ir.abi.public_items.clone(),
@@ -106,6 +107,55 @@ fn lower_linked_module(
     module.function_table = collect_function_table(&module.functions);
 
     Ok(module)
+}
+
+fn collect_interface_tables(ir: &VerifiedIrModule) -> Vec<InterfaceTableRecord> {
+    use crate::module::{PublicAbiItem, abi::AbiType};
+    use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+    ir.abi
+        .public_items
+        .iter()
+        .filter_map(|item| {
+            let PublicAbiItem::InterfaceTable(table) = item else {
+                return None;
+            };
+            let AbiType::Trait(trait_type) = &table.trait_type else {
+                unreachable!("verified interface trait type")
+            };
+            let mut methods = Vec::new();
+            for declared in &table.methods {
+                let segment = DefinitionPathSegment {
+                    kind: DefinitionKind::Method,
+                    name: declared.name.clone(),
+                    occurrence: 0,
+                };
+                let mut impl_path = table.declaration.path.clone();
+                impl_path.push(segment.clone());
+                let implementation = DefinitionId {
+                    module: ir.identity.clone(),
+                    path: impl_path,
+                };
+                let mut trait_path = trait_type.declaration.path.clone();
+                trait_path.push(segment);
+                let method = DefinitionId {
+                    module: trait_type.declaration.module.clone(),
+                    path: trait_path,
+                };
+                for function in &ir.functions {
+                    if function.instance.declaration == implementation {
+                        methods.push(InterfaceMethodSlot {
+                            method: method.clone(),
+                            function: FunctionRef::new(function.id.index()),
+                        });
+                    }
+                }
+            }
+            Some(InterfaceTableRecord {
+                declaration: table.declaration.clone(),
+                methods,
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Default)]

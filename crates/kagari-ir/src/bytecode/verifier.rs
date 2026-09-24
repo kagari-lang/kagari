@@ -19,6 +19,7 @@ pub enum BytecodeVerificationError {
     InvalidStructLayout,
     InvalidEnumLayout,
     InvalidPublicAbi,
+    InvalidInterfaceTable,
     InvalidPathLayout,
     InvalidStructId {
         function: FunctionRef,
@@ -115,6 +116,7 @@ impl BytecodeVerificationError {
             Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
             Self::InvalidEnumLayout => "KG_BYTECODE_INVALID_ENUM_LAYOUT",
             Self::InvalidPublicAbi => "KG_BYTECODE_INVALID_PUBLIC_ABI",
+            Self::InvalidInterfaceTable => "KG_BYTECODE_INVALID_INTERFACE_TABLE",
             Self::InvalidPathLayout => "KG_BYTECODE_INVALID_PATH_LAYOUT",
             Self::InvalidStructId { .. } => "KG_BYTECODE_INVALID_STRUCT_ID",
             Self::InvalidHostInterface(_) => "KG_BYTECODE_INVALID_HOST_INTERFACE",
@@ -153,6 +155,7 @@ impl Display for BytecodeVerificationError {
             Self::InvalidStructLayout => write!(f, "invalid struct layouts"),
             Self::InvalidEnumLayout => write!(f, "invalid enum layouts"),
             Self::InvalidPublicAbi => write!(f, "invalid public ABI"),
+            Self::InvalidInterfaceTable => write!(f, "invalid executable interface table"),
             Self::InvalidPathLayout => write!(f, "invalid host path layout"),
             Self::InvalidStructId {
                 function,
@@ -373,6 +376,101 @@ pub(super) fn verify_module_with_program(
             });
         }
         verify_function(module, function, program)?;
+    }
+    verify_interface_tables(module)?;
+    Ok(())
+}
+
+fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
+    use crate::module::{PublicAbiItem, abi::AbiType};
+    let declared = module
+        .public_items
+        .iter()
+        .filter_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) => Some(table),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if declared.len() != module.interface_tables.len() {
+        return Err(BytecodeVerificationError::InvalidInterfaceTable);
+    }
+    for (abi, table) in declared.into_iter().zip(&module.interface_tables) {
+        let AbiType::Trait(trait_type) = &abi.trait_type else {
+            return Err(BytecodeVerificationError::InvalidInterfaceTable);
+        };
+        if table.declaration != abi.declaration {
+            return Err(BytecodeVerificationError::InvalidInterfaceTable);
+        }
+        let mut used = HashSet::new();
+        for slot in &table.methods {
+            let Some(segment) = slot.method.path.last() else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            if segment.kind != DefinitionKind::Method
+                || segment.occurrence != 0
+                || slot.method.module != trait_type.declaration.module
+                || slot.method.path.len() != trait_type.declaration.path.len() + 1
+                || slot.method.path[..slot.method.path.len() - 1] != trait_type.declaration.path
+                || !used.insert(slot.function)
+            {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
+            let Some(method) = abi
+                .methods
+                .iter()
+                .find(|method| method.name == segment.name)
+            else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            let Some(function) = module.functions.get(slot.function.index()) else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            let Some(identity) = &function.identity else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            if identity.declaration.module != abi.declaration.module
+                || identity.declaration.path.len() != abi.declaration.path.len() + 1
+                || identity.declaration.path[..identity.declaration.path.len() - 1]
+                    != abi.declaration.path
+                || identity.declaration.path.last() != Some(segment)
+            {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
+            if abi.generic_params.is_empty()
+                && method.generic_params.is_empty()
+                && (!identity.arguments.is_empty()
+                    || function.metadata.params
+                        != method
+                            .params
+                            .iter()
+                            .map(|parameter| parameter.ty.representation())
+                            .collect::<Vec<_>>()
+                    || function.metadata.return_type != method.return_type.representation())
+            {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
+        }
+        if abi.generic_params.is_empty()
+            && abi
+                .methods
+                .iter()
+                .filter(|method| method.generic_params.is_empty())
+                .any(|method| {
+                    table
+                        .methods
+                        .iter()
+                        .filter(|slot| {
+                            slot.method
+                                .path
+                                .last()
+                                .is_some_and(|part| part.name == method.name)
+                        })
+                        .count()
+                        != 1
+                })
+        {
+            return Err(BytecodeVerificationError::InvalidInterfaceTable);
+        }
     }
     Ok(())
 }

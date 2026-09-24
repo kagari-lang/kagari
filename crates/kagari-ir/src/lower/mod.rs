@@ -42,8 +42,19 @@ pub fn lower_to_ir(
     let mut planner = instances::InstancePlanner::new(module, options);
     planner.check()?;
     let mut module_init = None;
+    let interface_methods = module
+        .lowered
+        .module
+        .impls
+        .iter()
+        .filter(|implementation| {
+            implementation.trait_ref.is_some() && implementation.generic_params.is_empty()
+        })
+        .flat_map(|implementation| implementation.methods.iter().map(|method| method.function))
+        .collect::<std::collections::HashSet<_>>();
     for function in &module.lowered.module.functions {
-        if matches!(function.kind, FunctionKind::User | FunctionKind::ModuleInit)
+        if (matches!(function.kind, FunctionKind::User | FunctionKind::ModuleInit)
+            || interface_methods.contains(&function.id))
             && function.generic_params.is_empty()
         {
             let id = planner.enqueue(

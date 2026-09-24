@@ -31,9 +31,10 @@ pub use module::{
     BytecodeModule, BytecodeModuleSlot, BytecodeModuleSlotBuffer, BytecodeTypeTable,
     CapturedBindingDebugBuffer, CapturedBindingDebugInfo, ConstantPool, ControlFlowTargetBuffer,
     DebugPointId, FrameLayout, FunctionMetadata, FunctionRecord, FunctionTable,
-    InstructionSourceSpan, InstructionSourceSpanBuffer, LineTableBuffer, LineTableEntry,
-    LocalLiveRange, LocalLiveRangeBuffer, PathRecord, PathTable, PublicItemRecord, PublicItemTable,
-    SafeDebugPoint, SafeDebugPointBuffer, SafeDebugPointKind, TypeLayoutBuffer,
+    InstructionSourceSpan, InstructionSourceSpanBuffer, InterfaceMethodSlot, InterfaceTableRecord,
+    LineTableBuffer, LineTableEntry, LocalLiveRange, LocalLiveRangeBuffer, PathRecord, PathTable,
+    PublicItemRecord, PublicItemTable, SafeDebugPoint, SafeDebugPointBuffer, SafeDebugPointKind,
+    TypeLayoutBuffer,
 };
 pub use program::{BytecodeProgram, ModuleRef, verify_program};
 pub use verifier::{BytecodeVerificationError, verify_module};

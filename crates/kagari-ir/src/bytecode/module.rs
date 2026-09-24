@@ -26,6 +26,8 @@ pub struct BytecodeModule {
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub enumerations: Vec<crate::module::EnumLayout>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
+    pub interface_tables: Vec<InterfaceTableRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub paths: PathTable,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub function_table: FunctionTable,
@@ -89,6 +91,19 @@ pub struct FunctionRecord {
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
     pub effects: EffectSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceTableRecord {
+    pub declaration: kagari_common::identity::DefinitionId,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
+    pub methods: Vec<InterfaceMethodSlot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceMethodSlot {
+    pub method: kagari_common::identity::DefinitionId,
+    pub function: FunctionRef,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

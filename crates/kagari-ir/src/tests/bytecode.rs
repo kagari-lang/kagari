@@ -13,6 +13,79 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
+fn concrete_interface_methods_have_verified_executable_slots() {
+    let module = common::bytecode_ok(
+        "pub struct Pair { val number: i32 } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } fn main() -> i32 { 1 }",
+    );
+    assert_eq!(module.interface_tables.len(), 1);
+    let table = &module.interface_tables[0];
+    assert_eq!(table.methods.len(), 1);
+    let slot = &table.methods[0];
+    assert_eq!(slot.method.path.last().unwrap().name, "get");
+    let function = &module.functions[slot.function.index()];
+    let identity = function.identity.as_ref().unwrap();
+    assert_eq!(identity.declaration.path.last().unwrap().name, "get");
+    assert_eq!(
+        identity.declaration.path[0].kind,
+        kagari_common::identity::DefinitionKind::Impl
+    );
+    assert!(identity.arguments.is_empty());
+    verify_module(&module).unwrap();
+
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module.clone()],
+        },
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    decoded
+        .validate_for_loader(&ArtifactCompatibility::default())
+        .unwrap();
+    assert_eq!(
+        decoded.program.modules[0].interface_tables[0].methods[0].function,
+        slot.function
+    );
+
+    let mut missing = module.clone();
+    missing.interface_tables[0].methods.clear();
+    assert!(matches!(
+        verify_module(&missing),
+        Err(BytecodeVerificationError::InvalidInterfaceTable)
+    ));
+    let mut wrong_target = module.clone();
+    wrong_target.interface_tables[0].methods[0].function = wrong_target
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .unwrap()
+        .id;
+    assert!(matches!(
+        verify_module(&wrong_target),
+        Err(BytecodeVerificationError::InvalidInterfaceTable)
+    ));
+    let mut wrong_method = module.clone();
+    wrong_method.interface_tables[0].methods[0]
+        .method
+        .path
+        .last_mut()
+        .unwrap()
+        .name = "other".into();
+    assert!(matches!(
+        verify_module(&wrong_method),
+        Err(BytecodeVerificationError::InvalidInterfaceTable)
+    ));
+    let mut missing_table = module;
+    missing_table.interface_tables.clear();
+    assert!(matches!(
+        verify_module(&missing_table),
+        Err(BytecodeVerificationError::InvalidInterfaceTable)
+    ));
+}
+
+#[test]
 fn executable_function_identities_survive_lowering_and_reject_mismatched_records() {
     let module = common::bytecode_ok(
         "fn id<T>(value: T) -> T { value } fn other() -> i32 { 2 } fn main() -> i32 { id(1) + other() }",

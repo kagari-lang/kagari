@@ -493,6 +493,15 @@ R02 acceptance evidence:
   The layouts example checks the function records. Interface method slots still
   need to link these identities to executable functions.
 
+- R07 executable interface-table checkpoint: bytecode now carries verified
+  implementation tables with trait method identities and concrete function
+  slots. Non-generic implementation methods are emitted even when uncalled, so
+  concrete public tables have complete method rosters. Verification rejects
+  missing, foreign or mismatched slots before loading, and artifact limits bound
+  the records. KBC format/runtime ABI v29 reject older products. The layouts
+  example checks the executable slot. Generic implementation specialization and
+  runtime interface dispatch remain open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover
