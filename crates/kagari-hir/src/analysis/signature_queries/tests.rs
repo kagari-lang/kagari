@@ -14,6 +14,59 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapsh
 }
 
 #[test]
+fn signature_navigation_uses_checked_type_targets_before_body_analysis() {
+    let text = "// 中文 😀\r\nstruct Box<T> { val data: T }\r\nfn bad(x: Box<Missing>) {}\r\nfn good<T>(value: Box<T>) -> Box<T> { missing }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("signature-targets.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let signatures = query(&mut db, &sources);
+    let file = signatures.file(id).unwrap();
+    assert_eq!(file.diagnostics().len(), 1);
+    assert!(
+        db.files.is_empty(),
+        "signature query must not analyze bodies"
+    );
+
+    let bad_annotation = text.find("Box<Missing>").unwrap();
+    let structure = file.definition_at(bad_annotation).unwrap();
+    assert_eq!(structure.name, "Box");
+    assert_eq!(
+        &text[structure.location.range.start..structure.location.range.end],
+        "Box"
+    );
+    assert!(file.definition_at(bad_annotation + "Box".len()).is_none());
+    assert!(file.definition_at(text.find("Missing>").unwrap()).is_none());
+    assert_eq!(
+        file.definition_at(text.find("fn good").unwrap() + 3)
+            .unwrap()
+            .name,
+        "good"
+    );
+    assert_eq!(
+        file.definition_at(text.find("Box<T>)").unwrap() + "Box<".len())
+            .unwrap()
+            .location
+            .range
+            .start,
+        text.find("good<T>").unwrap() + "good<".len()
+    );
+    assert!(
+        file.definition_at(text.find("{ missing }").unwrap() + 2)
+            .is_none()
+    );
+
+    let full = db
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    assert_eq!(
+        full.file(id).unwrap().definition_at(bad_annotation),
+        Some(structure)
+    );
+}
+
+#[test]
 fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
     let text = "fn before() {} struct Key<T: HashKey> { val value: T } struct Holder { val key: Key<f32> } enum Packet { Data(Key<f32>) } fn bad(x: Key<f32>) {} fn unresolved(x: Absent) {} fn good() -> i32 { 7 }";
     let mut sources = SourceDatabase::default();
@@ -89,7 +142,7 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
             )
             .unwrap();
     }
-    sources
+    let types_id = sources
         .set(
             "mem://types",
             "pub struct Key<T> { val value: T }".into(),
@@ -113,6 +166,13 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
     let mut db = AnalysisDatabase::default();
     let original = query(&mut db, &sources);
     assert!(original.file(id).unwrap().diagnostics().is_empty());
+    let imported = original
+        .file(id)
+        .unwrap()
+        .definition_at("use pkg::facade::Key; fn accept(x: ".len())
+        .expect("imported signature target");
+    assert_eq!(imported.name, "Key");
+    assert_eq!(imported.location.file, types_id);
     sources
         .set(
             "mem://types",
@@ -122,6 +182,16 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
         .unwrap();
     let changed = query(&mut db, &sources);
     assert_eq!(changed.file(id).unwrap().diagnostics().len(), 1);
+    assert_eq!(
+        changed
+            .file(id)
+            .unwrap()
+            .definition_at("use pkg::facade::Key; fn accept(x: ".len())
+            .unwrap()
+            .location
+            .file,
+        types_id
+    );
     assert_eq!(
         changed.file(id).unwrap().diagnostics()[0].kind.code(),
         "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"

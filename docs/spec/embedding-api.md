@@ -51,6 +51,9 @@ per-file module names, named declarations and parse/declaration diagnostics.
 signature facts and signature diagnostics. Neither entry resolves body names,
 collects local bindings, checks bodies or evaluates constants. These queries are
 profile-independent tools; their results cannot be passed to code generation.
+`FileSignatures::definition_at(byte_offset)` follows declaration sites and
+checked signature type names, including imported source types. It does not
+offer body-reference navigation before that body has been analyzed.
 Full `analyze` and compilation still enforce the requested language profile.
 
 Signature queries build the shared aggregate catalog after declaration signatures

@@ -270,9 +270,6 @@ impl FileAnalysis {
 
     pub fn definition_at(&self, offset: usize) -> Option<&crate::declarations::Declaration> {
         let facts = self.result.facts();
-        if let Some(member) = facts.declarations.member_at(offset) {
-            return Some(member);
-        }
         if let Some(declaration) = facts.declarations.site_at(offset) {
             return Some(declaration);
         }
@@ -433,41 +430,13 @@ impl FileAnalysis {
                     _ => None,
                 }
             });
-        // Select the innermost annotation before resolving its target. An unknown
-        // type argument must not navigate to the enclosing application declaration.
-        if let Some((index, _)) = facts
-            .lowered
-            .source_map
-            .type_spans()
-            .iter()
-            .enumerate()
-            .filter(|(_, span)| span.start <= offset && offset < span.end)
-            .min_by_key(|(_, span)| span.end - span.start)
-        {
-            let type_id = facts.lowered.source_map.type_id(index);
-            let name_span = facts.lowered.source_map.type_name_span(type_id)?;
-            if !(name_span.start <= offset && offset < name_span.end) {
-                return None;
-            }
-            let target = facts.typed.type_table.type_ref(type_id)?.target?;
-            return match target {
-                crate::typeck::TypeTarget::Host(_) => None,
-                crate::typeck::TypeTarget::Source(id) => facts
-                    .declarations
-                    .imported_types()
-                    .target(id)
-                    .map(|ty| &ty.declaration),
-                crate::typeck::TypeTarget::Struct(id) => facts
-                    .declarations
-                    .target(crate::resolver::ResolvedName::Struct(id)),
-                crate::typeck::TypeTarget::Enum(id) => facts
-                    .declarations
-                    .target(crate::resolver::ResolvedName::Enum(id)),
-                crate::typeck::TypeTarget::Trait(id) => facts
-                    .declarations
-                    .target(crate::resolver::ResolvedName::Trait(id)),
-                crate::typeck::TypeTarget::Generic(id) => facts.declarations.generic_parameter(id),
-            };
+        if let Some(target) = type_reference_at(
+            &facts.lowered,
+            &facts.typed.type_table,
+            &facts.declarations,
+            offset,
+        ) {
+            return target;
         }
         expressions
             .chain(places)
@@ -505,6 +474,48 @@ impl FileAnalysis {
             })
             .collect()
     }
+}
+
+/// An enclosing annotation claims the position even when its terminal name is
+/// unresolved. This prevents an outer expression or type application target
+/// from leaking into a missing nested type reference.
+fn type_reference_at<'a>(
+    lowered: &crate::lower::LoweredModule,
+    table: &crate::typeck::TypeTable,
+    declarations: &'a crate::declarations::Declarations,
+    offset: usize,
+) -> Option<Option<&'a crate::declarations::Declaration>> {
+    let (index, _) = lowered
+        .source_map
+        .type_spans()
+        .iter()
+        .enumerate()
+        .filter(|(_, span)| span.start <= offset && offset < span.end)
+        .min_by_key(|(_, span)| span.end - span.start)?;
+    let type_id = lowered.source_map.type_id(index);
+    let target = lowered
+        .source_map
+        .type_name_span(type_id)
+        .filter(|span| span.start <= offset && offset < span.end)
+        .and_then(|_| table.type_ref(type_id)?.target)
+        .and_then(|target| match target {
+            crate::typeck::TypeTarget::Host(_) => None,
+            crate::typeck::TypeTarget::Source(id) => declarations
+                .imported_types()
+                .target(id)
+                .map(|ty| &ty.declaration),
+            crate::typeck::TypeTarget::Struct(id) => {
+                declarations.target(crate::resolver::ResolvedName::Struct(id))
+            }
+            crate::typeck::TypeTarget::Enum(id) => {
+                declarations.target(crate::resolver::ResolvedName::Enum(id))
+            }
+            crate::typeck::TypeTarget::Trait(id) => {
+                declarations.target(crate::resolver::ResolvedName::Trait(id))
+            }
+            crate::typeck::TypeTarget::Generic(id) => declarations.generic_parameter(id),
+        });
+    Some(target)
 }
 
 fn type_at_in(

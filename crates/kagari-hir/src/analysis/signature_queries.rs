@@ -12,6 +12,20 @@ pub struct FileSignatures {
 }
 
 impl FileSignatures {
+    /// Navigate checked signature type names and declaration sites without
+    /// resolving any function body.
+    pub fn definition_at(&self, offset: usize) -> Option<&crate::declarations::Declaration> {
+        self.prepared.declarations.site_at(offset).or_else(|| {
+            type_reference_at(
+                &self.prepared.lowered,
+                self.prepared.signatures.facts().type_table(),
+                &self.prepared.declarations,
+                offset,
+            )
+            .flatten()
+        })
+    }
+
     /// Type annotations checked by this signature query; body annotations have
     /// no facts until a body query checks them.
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {

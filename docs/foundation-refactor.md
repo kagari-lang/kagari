@@ -98,6 +98,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   retains its recovery fact but cannot make the surrounding type annotation or
   payload a navigation target; valid neighbors remain available.
 
+- R04 signature-navigation checkpoint: signature queries now resolve named
+  declaration sites and checked type-reference targets before body analysis.
+  Full and signature queries share one type-target selector, including the
+  innermost-annotation rule for unresolved nested types. Tests cover generic
+  binders, imported facades, errors, Unicode/CRLF and agreement with full
+  analysis; source_queries navigates an enum payload type from signatures.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

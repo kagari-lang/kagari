@@ -64,9 +64,17 @@ fn main() -> kagari_embed::CompileResult<()> {
         inspect.bounds
     );
     assert_eq!(inspect.bounds[&inspect.generic_params[0]].len(), 1);
+    let payload_point = text.find("Running(Point").expect("payload") + "Running(".len();
+    assert_eq!(
+        signature
+            .definition_at(payload_point)
+            .expect("checked signature target")
+            .name,
+        "Point"
+    );
     println!(
         "enum payload type before body analysis: {:?}",
-        signature.type_at(text.find("Running(Point").expect("payload") + "Running(".len())
+        signature.type_at(payload_point)
     );
     println!(
         "{} function signatures before body analysis",
@@ -106,6 +114,10 @@ fn main() -> kagari_embed::CompileResult<()> {
         &Default::default(),
     )?;
     let analysis = snapshot.file(file).expect("source belongs to snapshot");
+    assert_eq!(
+        analysis.definition_at(payload_point),
+        signature.definition_at(payload_point)
+    );
     let good_name = text.find("fn good").expect("function declaration") + "fn ".len();
     assert_eq!(
         analysis
