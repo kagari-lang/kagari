@@ -142,6 +142,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   source members remain open. `offline_compile` also emits a declared source
   index read without starting a runtime.
 
+- R06 field-index checkpoint: source reads and assignment targets now select a
+  complete nominal field chain followed by one declared index. HIR retains field
+  identity and type facts without requiring a separate intermediate field path;
+  IR evaluates the host root and dynamic index once and uses one linked path
+  operation. Source, artifact and JIT fallback tests verify no intermediate read
+  and identical modification order; `offline_compile` exercises offline binding.
+  Paths with multiple indexes, fields after an index and virtual source members
+  remain open.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

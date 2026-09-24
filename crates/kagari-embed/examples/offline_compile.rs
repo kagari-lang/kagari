@@ -24,6 +24,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     player.fields[0].path_access = PathAccess::ReadWrite;
     player.fields[0].writable = true;
+    let mut scores = HostFieldDeclaration::new(
+        &player.id,
+        "scores",
+        HostValueType::Array(Box::new(HostValueType::I32)),
+    );
+    scores.path_access = PathAccess::ReadOnly;
+    player.fields.push(scores);
     player.documentation =
         "Host-owned player metadata, available without business services.".into();
     player.methods.push(HostMethodDeclaration::new(
@@ -58,8 +65,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         schema_epoch: 0,
         capabilities: Default::default(),
     };
+    let field_index_declaration = HostPathDeclaration {
+        root: player.id.clone(),
+        segments: vec![
+            HostPathSegmentDeclaration::Field(player.fields[1].id.clone()),
+            HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
+                slot: 0,
+                collection: HostValueType::Array(Box::new(HostValueType::I32)),
+                index: HostValueType::I32,
+                result: HostValueType::I32,
+                access: PathAccess::ReadOnly,
+            }),
+        ],
+        access: PathAccess::ReadOnly,
+        schema_epoch: 0,
+        capabilities: Default::default(),
+    };
     let declarations = HostInterface {
-        paths: vec![path_declaration, index_declaration],
+        paths: vec![path_declaration, index_declaration, field_index_declaration],
         types: vec![player],
         functions: vec![HostFunctionDeclaration::new(
             "demo.echo",
@@ -93,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api as api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn indexed_scores(value: api::Player, index: i32) -> i32 { value.scores[index] } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");
@@ -147,6 +170,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .host_field_at(field + "value.".len())
             .map(|member| member.name.as_str()),
         Some("score")
+    );
+    let indexed = text.find("value.scores[index]").expect("host field index");
+    assert_eq!(
+        source
+            .host_field_at(indexed + "value.".len())
+            .map(|member| member.name.as_str()),
+        Some("scores")
     );
     println!("offline field navigation selects the member name");
     let method_dot = text.find(".read_score()").expect("host method call");
@@ -217,7 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
     assert_eq!(required.types.len(), 1);
-    assert_eq!(required.paths.len(), 2);
+    assert_eq!(required.paths.len(), 3);
     println!(
         "public signature requires {} without registering a runtime",
         required.types[0].symbol

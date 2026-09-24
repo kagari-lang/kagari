@@ -2224,6 +2224,22 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn resolve_host_declared_field(
+        &self,
+        owner: &TypeId,
+        name: &str,
+    ) -> Option<kagari_common::host_interface::HostFieldDeclaration> {
+        let TypeId::Host(id) = owner else {
+            return None;
+        };
+        self.names
+            .hosts
+            .nominal_type(id)
+            .and_then(|id| self.names.hosts.type_declaration(id))
+            .and_then(|owner| owner.fields.iter().find(|field| field.name == name))
+            .cloned()
+    }
+
     fn infer_host_index_write(
         &mut self,
         place_id: PlaceId,
@@ -2232,12 +2248,42 @@ impl<'a> BodyChecker<'a> {
         let PlaceKind::Index { base, index } = self.lowered.module.place(place_id).kind else {
             return None;
         };
-        let base_ty = self.resolve_readable_place_type(base, env)?;
-        let TypeId::Host(owner) = base_ty else {
+        let mut root = base;
+        let mut chain = Vec::new();
+        while let PlaceKind::Field { base, name } = &self.lowered.module.place(root).kind {
+            chain.push((root, name.clone()));
+            root = *base;
+        }
+        chain.reverse();
+        let mut ty = self.resolve_readable_place_type(root, env)?;
+        let mut prefix = 0;
+        while !matches!(ty, TypeId::Host(_)) && prefix < chain.len() {
+            root = chain[prefix].0;
+            ty = self.resolve_readable_place_type(root, env)?;
+            prefix += 1;
+        }
+        chain.drain(..prefix);
+        let TypeId::Host(owner) = &ty else {
             return None;
         };
+        let owner = owner.clone();
+        let mut fields = Vec::new();
+        for (place, name) in chain {
+            let field = self.resolve_host_declared_field(&ty, &name);
+            let Some(field) = field else {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownName { name })
+                        .with_span(self.lowered.source_map.place_span(place)),
+                );
+                return Some(TypeId::Error);
+            };
+            self.type_table.insert_place_field(place, field.id.clone());
+            fields.push(field.id);
+            ty = crate::host::signature_type(&field.ty);
+            self.type_table.insert_place(place, ty.clone());
+        }
         let index_ty = self.infer_expr_type(index, env);
-        match self.names.hosts.index_path(&owner, &index_ty) {
+        match self.names.hosts.index_path(&owner, &fields, &index_ty) {
             Ok((declaration, contract))
                 if declaration.access == kagari_common::host_interface::PathAccess::ReadWrite =>
             {
@@ -2245,7 +2291,7 @@ impl<'a> BodyChecker<'a> {
                 self.type_table.insert_host_place_path(
                     place_id,
                     super::ResolvedHostPlacePath {
-                        root: base,
+                        root,
                         declaration,
                         contract,
                     },
@@ -2268,18 +2314,53 @@ impl<'a> BodyChecker<'a> {
         let ExprKind::Index { receiver, index } = self.lowered.module.expr(expr_id).kind else {
             return None;
         };
-        let receiver_ty = self.infer_expr_type(receiver, env);
-        let TypeId::Host(owner) = receiver_ty else {
+        let mut root = receiver;
+        let mut chain = Vec::new();
+        while let ExprKind::Field { receiver, name } = &self.lowered.module.expr(root).kind {
+            chain.push((root, name.clone()));
+            root = *receiver;
+        }
+        chain.reverse();
+        let mut ty = self.infer_expr_type(root, env);
+        let mut prefix = 0;
+        while !matches!(ty, TypeId::Host(_)) && prefix < chain.len() {
+            root = chain[prefix].0;
+            ty = self.infer_expr_type(root, env);
+            prefix += 1;
+        }
+        chain.drain(..prefix);
+        let TypeId::Host(owner) = &ty else {
             return None;
         };
+        let owner = owner.clone();
+        let mut fields = Vec::new();
+        for (expr, name) in chain {
+            let field = self.resolve_host_declared_field(&ty, &name);
+            let Some(field) = field else {
+                self.diagnostics.push(
+                    Diagnostic::error(if name.is_empty() {
+                        DiagnosticKind::ExpectedFieldName
+                    } else {
+                        DiagnosticKind::UnknownName { name }
+                    })
+                    .with_span(self.lowered.source_map.expr_span(expr)),
+                );
+                return Some(TypeId::Error);
+            };
+            self.type_table.insert_expr_field(expr, field.id.clone());
+            fields.push(field.id);
+            ty = crate::host::signature_type(&field.ty);
+            self.type_table.insert_expr(expr, ty.clone());
+            env.exprs.insert(expr, ty.clone());
+        }
         let index_ty = self.infer_expr_type(index, env);
-        match self.names.hosts.index_path(&owner, &index_ty) {
+        match self.names.hosts.index_path(&owner, &fields, &index_ty) {
             Ok((declaration, contract)) => {
                 let result = crate::host::signature_type(&contract.result);
                 self.type_table.insert_host_path(
                     expr_id,
                     super::ResolvedHostPath {
-                        root: receiver,
+                        root,
                         declaration,
                         contract,
                     },
@@ -2327,16 +2408,7 @@ impl<'a> BodyChecker<'a> {
         let owner = owner.clone();
         let mut fields = Vec::new();
         for (place, name) in chain {
-            let field = if let TypeId::Host(id) = &ty {
-                self.names
-                    .hosts
-                    .nominal_type(id)
-                    .and_then(|id| self.names.hosts.type_declaration(id))
-                    .and_then(|owner| owner.fields.iter().find(|field| field.name == name))
-                    .cloned()
-            } else {
-                None
-            };
+            let field = self.resolve_host_declared_field(&ty, &name);
             let Some(field) = field else {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownName { name })
@@ -2404,16 +2476,7 @@ impl<'a> BodyChecker<'a> {
         let owner = owner.clone();
         let mut fields = Vec::new();
         for (expr, name) in chain {
-            let field = if let TypeId::Host(id) = &ty {
-                self.names
-                    .hosts
-                    .nominal_type(id)
-                    .and_then(|id| self.names.hosts.type_declaration(id))
-                    .and_then(|owner| owner.fields.iter().find(|field| field.name == name))
-                    .cloned()
-            } else {
-                None
-            };
+            let field = self.resolve_host_declared_field(&ty, &name);
             let Some(field) = field else {
                 self.diagnostics.push(
                     Diagnostic::error(if name.is_empty() {

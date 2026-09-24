@@ -613,10 +613,12 @@ types are registered and derives the runtime descriptor. Every registered runtim
 path is exported in its interface; the offline and runtime fingerprints must agree
 before publication. Linking checks required contracts even if a module has no path
 instruction; missing or ambiguous bindings reject publication. Source indexing
-currently selects a declared root index segment by its exact argument type.
+selects a declared root index segment or a nominal field chain ending in one
+index segment by field identities and the argument's exact type.
 The root and index evaluate once, left to right; assignment captures both before
-its RHS, while the final read or modification uses the linked descriptor. Field
-plus index chains, repeated indexes and virtual members in source remain pending.
+its RHS, while the final read or modification uses the linked descriptor. An
+intermediate field in the selected path is not read separately. Repeated indexes,
+fields after an index and virtual members in source remain pending.
 
 Bytecode path records require that contract fingerprint. The loader resolves all
 records before publishing the program, rejects missing/ambiguous contracts and

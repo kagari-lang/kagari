@@ -558,6 +558,15 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
 
 #[test]
 fn source_host_index_paths_capture_index_before_rhs_across_backends() {
+    assert_source_index_path(false);
+}
+
+#[test]
+fn source_host_field_index_paths_skip_intermediate_reads() {
+    assert_source_index_path(true);
+}
+
+fn assert_source_index_path(field_prefix: bool) {
     use kagari_common::host_interface::{
         HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration, PathAccess,
     };
@@ -570,6 +579,16 @@ fn source_host_index_paths_capture_index_before_rhs_across_backends() {
     let mut player = HostTypeDeclaration::new("game.Player");
     player.ownership = HostTypeOwnership::HostRoot;
     player.path_access = PathAccess::ReadWrite;
+    let collection = if field_prefix {
+        let ty = HostValueType::Array(Box::new(HostValueType::I32));
+        let mut field = HostFieldDeclaration::new(&player.id, "scores", ty.clone());
+        field.path_access = PathAccess::ReadWrite;
+        field.writable = true;
+        player.fields.push(field);
+        ty
+    } else {
+        HostValueType::Opaque(player.id.clone())
+    };
     let make = HostFunctionDeclaration::new(
         "game.make",
         vec![],
@@ -577,17 +596,24 @@ fn source_host_index_paths_capture_index_before_rhs_across_backends() {
     );
     let index = HostFunctionDeclaration::new("game.index", vec![], HostValueType::I32);
     let rhs = HostFunctionDeclaration::new("game.rhs", vec![], HostValueType::I32);
+    let mut segments = Vec::new();
+    if field_prefix {
+        segments.push(HostPathSegmentDeclaration::Field(
+            player.fields[0].id.clone(),
+        ));
+    }
+    segments.push(HostPathSegmentDeclaration::Index(
+        HostIndexSegmentDeclaration {
+            slot: 0,
+            collection,
+            index: HostValueType::I32,
+            result: HostValueType::I32,
+            access: PathAccess::ReadWrite,
+        },
+    ));
     let path = HostPathDeclaration {
         root: player.id.clone(),
-        segments: vec![HostPathSegmentDeclaration::Index(
-            HostIndexSegmentDeclaration {
-                slot: 0,
-                collection: HostValueType::Opaque(player.id.clone()),
-                index: HostValueType::I32,
-                result: HostValueType::I32,
-                access: PathAccess::ReadWrite,
-            },
-        )],
+        segments,
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),
@@ -605,9 +631,12 @@ fn source_host_index_paths_capture_index_before_rhs_across_backends() {
         allow_jit: true,
         ..Default::default()
     };
+    let prefix = if field_prefix { ".scores" } else { "" };
     let source = SourceFile::new(
         "host-index.kgr",
-        "use game as api; fn main() -> i32 { var player = api::make(); player[api::index()] += api::rhs(); player[1] }",
+        format!(
+            "use game as api; fn main() -> i32 {{ var player = api::make(); player{prefix}[api::index()] += api::rhs(); player{prefix}[1] }}"
+        ),
     );
     let artifact = engine
         .compile_to_artifact(
@@ -623,7 +652,7 @@ fn source_host_index_paths_capture_index_before_rhs_across_backends() {
             .compile_to_artifact(
                 SourceFile::new(
                     "invalid-host-index.kgr",
-                    "use game as api; fn main() -> i32 { api::make()[true] }",
+                    format!("use game as api; fn main() -> i32 {{ api::make(){prefix}[true] }}"),
                 ),
                 CompileOptions {
                     language_profile: profile,
@@ -668,14 +697,16 @@ fn source_host_index_paths_capture_index_before_rhs_across_backends() {
         let player_id = runtime
             .register_host_type(HostTypeRegistration::new(player.clone(), "Player"))
             .unwrap();
-        runtime
-            .runtime()
-            .types()
-            .register(TypeRegistration {
-                abi_fingerprint: AbiFingerprint(10),
-                ..TypeRegistration::new("i32", TypeKind::Primitive)
-            })
-            .unwrap();
+        if runtime.runtime().types().id_by_name("i32").is_none() {
+            runtime
+                .runtime()
+                .types()
+                .register(TypeRegistration {
+                    abi_fingerprint: AbiFingerprint(10),
+                    ..TypeRegistration::new("i32", TypeKind::Primitive)
+                })
+                .unwrap();
+        }
         let root = runtime
             .runtime_mut()
             .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))

@@ -245,6 +245,7 @@ impl HostDeclarations {
     pub(crate) fn index_path(
         &self,
         root: &kagari_common::identity::DefinitionId,
+        fields: &[kagari_common::identity::DefinitionId],
         index_type: &TypeId,
     ) -> Result<
         (
@@ -255,9 +256,16 @@ impl HostDeclarations {
     > {
         let mut matches = self.interface.paths.iter().filter(|path| {
             &path.root == root
+                && path.segments.len() == fields.len() + 1
+                && path.segments[..fields.len()]
+                    .iter()
+                    .zip(fields)
+                    .all(|(segment, field)| {
+                        matches!(segment, kagari_common::host_interface::HostPathSegmentDeclaration::Field(id) if id == field)
+                    })
                 && matches!(
-                    path.segments.as_slice(),
-                    [kagari_common::host_interface::HostPathSegmentDeclaration::Index(index)]
+                    path.segments.last(),
+                    Some(kagari_common::host_interface::HostPathSegmentDeclaration::Index(index))
                         if &signature_type(&index.index) == index_type
                 )
         });
