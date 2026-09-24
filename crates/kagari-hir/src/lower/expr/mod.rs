@@ -194,6 +194,24 @@ impl Lowerer {
                         .insert_expr_reference(id, syntax_span(&name));
                 }
             }
+            ast::Expr::StructExpr(struct_expr) => {
+                if let Some(name) = struct_expr
+                    .path()
+                    .and_then(|path| path.name().or_else(|| path.path()?.segments().last()))
+                {
+                    self.source_map
+                        .insert_expr_reference(id, syntax_span(&name));
+                }
+                let spans = struct_expr
+                    .field_list()
+                    .map(|list| {
+                        list.fields()
+                            .map(|field| field.name().map(|name| syntax_span(&name)))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.source_map.insert_struct_fields(id, spans);
+            }
             _ => {}
         }
         id

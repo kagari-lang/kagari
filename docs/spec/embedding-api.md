@@ -183,6 +183,12 @@ captured there as well. Queries do not infer them by scanning source text or
 subtracting a name length from the whole expression range. Trailing trivia and
 non-ASCII comments therefore cannot move a target.
 
+Struct initializer type names and field labels use the same source-map rule.
+The semantic table records each checked field identity in source order; a
+known label remains navigable when another initializer field or value is
+invalid. Unknown labels have no declaration target, and code generation still
+rejects the invalid initializer.
+
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated

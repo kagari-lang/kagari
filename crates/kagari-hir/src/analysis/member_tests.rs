@@ -39,6 +39,46 @@ fn member_queries_use_cst_name_ranges_with_trailing_trivia() {
 }
 
 #[test]
+fn struct_initializer_labels_follow_checked_field_targets_after_errors() {
+    let text = "// 中文 😀\r\nstruct Packet { val count: i32, val label: String } fn good() -> Packet { Packet { count: 1, label: \"ok\" } } fn bad() { Packet { count: true, missing: 3 }; }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("initializer-labels.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(id).unwrap();
+    let fields = &file.result().facts().lowered.module.structs[0].fields;
+    let count = file
+        .result()
+        .facts()
+        .declarations
+        .field(fields[0].id)
+        .unwrap();
+    let label = file
+        .result()
+        .facts()
+        .declarations
+        .field(fields[1].id)
+        .unwrap();
+
+    for (start, _) in text.match_indices("count:") {
+        if start < text.find("fn good").unwrap() {
+            continue;
+        }
+        assert_eq!(file.definition_at(start), Some(count));
+        assert!(file.definition_at(start + "count".len()).is_none());
+    }
+    let label_start = text.find("label: \"ok\"").unwrap();
+    assert_eq!(file.definition_at(label_start), Some(label));
+    let constructor = text.find("Packet { count: 1").unwrap();
+    assert_eq!(file.definition_at(constructor).unwrap().name, "Packet");
+    assert!(file.definition_at(constructor + "Packet".len()).is_none());
+    let missing_start = text.find("missing: 3").unwrap();
+    assert!(file.definition_at(missing_start).is_none());
+    assert!(file.result().clone().into_codegen().is_err());
+}
+
+#[test]
 fn members_keep_module_ownership_and_exact_declaration_locations() {
     let text = "// 中文 😀\r\nenum State { Ready, Running }\r\nstruct Point { var x: i32 }";
     let mut sources = SourceDatabase::default();

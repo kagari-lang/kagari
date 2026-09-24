@@ -161,6 +161,15 @@ fn main() -> kagari_embed::CompileResult<()> {
         analysis.type_at(readonly).is_some(),
         "known type survives write rejection"
     );
+    let initializer_field =
+        text.find("Point { x: 2").expect("struct initializer") + "Point { ".len();
+    assert_eq!(
+        analysis
+            .definition_at(initializer_field)
+            .expect("checked initializer field")
+            .name,
+        "x"
+    );
     let index_member = text.find("missing[p.x]").expect("broken assignment") + "missing[p.".len();
     assert_eq!(
         analysis

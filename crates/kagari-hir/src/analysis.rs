@@ -280,7 +280,9 @@ impl FileAnalysis {
             .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
                 let span = match &expr.kind {
-                    ExprKind::Field { .. } | ExprKind::Name { .. } => {
+                    ExprKind::Field { .. }
+                    | ExprKind::Name { .. }
+                    | ExprKind::StructInit { .. } => {
                         facts.lowered.source_map.expr_reference_span(id)?
                     }
                     _ => span,
@@ -308,6 +310,14 @@ impl FileAnalysis {
                             .and_then(|target| target.variant.as_ref())
                             .and_then(|variant| facts.aggregates.variant(variant))
                             .map(|variant| &variant.declaration)
+                    })
+                    .or_else(|| {
+                        facts
+                            .typed
+                            .type_table
+                            .struct_init(id)
+                            .and_then(|target| facts.aggregates.structure(&target.structure))
+                            .map(|structure| &structure.declaration)
                     })?;
                 Some((span, target))
             });
@@ -348,6 +358,29 @@ impl FileAnalysis {
                 };
                 Some((span, target))
             });
+        let initializer_fields =
+            facts
+                .lowered
+                .module
+                .body
+                .expressions()
+                .filter_map(|(id, expr)| {
+                    let ExprKind::StructInit { .. } = &expr.kind else {
+                        return None;
+                    };
+                    let spans = facts.lowered.source_map.struct_field_spans(id)?;
+                    let resolved = facts.typed.type_table.struct_init(id)?;
+                    spans
+                        .iter()
+                        .zip(&resolved.fields)
+                        .filter_map(|(span, field)| {
+                            let span = (*span)?;
+                            let field = facts.aggregates.field(field.as_ref()?)?;
+                            (span.start <= offset && offset < span.end)
+                                .then_some((span, &field.declaration))
+                        })
+                        .next()
+                });
         let calls = facts
             .lowered
             .module
@@ -416,6 +449,7 @@ impl FileAnalysis {
         }
         expressions
             .chain(places)
+            .chain(initializer_fields)
             .chain(calls)
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .min_by_key(|(span, _)| span.end - span.start)

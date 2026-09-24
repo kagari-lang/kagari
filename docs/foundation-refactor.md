@@ -58,6 +58,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   constructor/query examples now select the referenced member name. Broader
   semantic-target and source-owner integration remains open.
 
+- R04 initializer-target checkpoint: struct construction records the CST ranges
+  of its type name and each field label. Definition queries use the checked
+  aggregate and per-field identities, including known labels beside invalid
+  values or unknown labels. A label's `:` and value expression do not inherit
+  its target. The source_queries example demonstrates this under a rejected
+  assignment. Remaining R04 source-owner and target coverage is still open.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.
