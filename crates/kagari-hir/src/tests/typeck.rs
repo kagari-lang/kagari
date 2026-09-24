@@ -1647,6 +1647,30 @@ fn private_trait_method_bounds_match_after_trait_and_method_substitution() {
 }
 
 #[test]
+fn applied_trait_interface_type_allows_inherited_binders_only() {
+    let valid = common::lower_ok(
+        "trait Echo<T> { fn get(self) -> T; } fn use_interface(value: Echo<i32>) {}",
+    );
+    let names = resolve_names(&valid).into_checked().unwrap();
+    check_module(&valid, &names, None)
+        .into_checked()
+        .expect("an applied trait interface has concrete inherited arguments");
+
+    let invalid = common::lower_ok(
+        "trait Echo<T> { fn get<U>(self, value: U) -> T; } fn use_interface(value: Echo<i32>) {}",
+    );
+    let names = resolve_names(&invalid).into_checked().unwrap();
+    let diagnostics = check_module(&invalid, &names, None)
+        .into_checked()
+        .expect_err("a method-local generic binder is not interface compatible");
+    assert!(diagnostics.iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        DiagnosticKind::InvalidInterfaceType { reason, .. }
+            if reason == "method `get` is not interface-compatible"
+    )));
+}
+
+#[test]
 fn wide_const_dependencies_keep_values_and_error_owners_by_declaration_slot() {
     let mut text = String::new();
     for index in 0..2_000 {

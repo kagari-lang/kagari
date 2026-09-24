@@ -555,6 +555,12 @@ R02 acceptance evidence:
   when no public interface ABI record exists. Tests cover equivalent and changed
   applied arguments.
 
+- R07 applied interface-type checkpoint: interface compatibility distinguishes
+  a trait's inherited type parameters from method-local generic parameters.
+  `Echo<i32>` may appear in an interface annotation when its methods are
+  otherwise interface-compatible; a generic method still rejects that use.
+  Runtime interface construction and dispatch remain outstanding.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

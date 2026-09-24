@@ -889,6 +889,7 @@ fn trait_method_interface_compatible(
     lowered: &LoweredModule,
     function_index: &FunctionTypeIndex,
     function_id: crate::hir::FunctionId,
+    trait_generic_count: usize,
 ) -> bool {
     let Some(hir_function) = lowered
         .module
@@ -901,7 +902,7 @@ fn trait_method_interface_compatible(
     let Some(function) = function_index.by_id.get(&function_id) else {
         return false;
     };
-    hir_function.generic_params.is_empty()
+    hir_function.generic_params.len() == trait_generic_count
         && function.params.iter().any(|param| param.name == "self")
         && !matches!(function.return_type, TypeId::SelfType(_))
 }
@@ -933,8 +934,12 @@ fn validate_interface_type(
                     == Some(&trait_name.declaration)
             }) {
                 for method in &trait_def.methods {
-                    if !trait_method_interface_compatible(lowered, function_index, method.function)
-                    {
+                    if !trait_method_interface_compatible(
+                        lowered,
+                        function_index,
+                        method.function,
+                        trait_def.generic_params.len(),
+                    ) {
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
                                 trait_name: trait_def.name.clone(),
