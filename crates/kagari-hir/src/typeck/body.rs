@@ -644,7 +644,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     helper_ty
                 } else if let Some(method_ty) =
-                    self.infer_trait_method_call_type(expr_id, *callee, args, env)
+                    self.infer_trait_method_call_type(expr_id, *callee, args, env, expected)
                 {
                     method_ty
                 } else {
@@ -1763,6 +1763,7 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> Option<TypeId> {
         let expr = self.lowered.module.expr(callee);
         let ExprKind::Field { receiver, name } = &expr.kind else {
@@ -1815,7 +1816,7 @@ impl<'a> BodyChecker<'a> {
             .aggregates
             .trait_(&interface.declaration)
             .expect("catalog trait");
-        let trait_substitution = trait_contract
+        let mut substitution = trait_contract
             .generic_params
             .iter()
             .cloned()
@@ -1823,6 +1824,23 @@ impl<'a> BodyChecker<'a> {
             .collect();
         let self_owner = &method.owner;
         let self_ty = receiver_ty;
+        let method_generics = &method.generic_params[trait_contract.generic_params.len()..];
+        let return_pattern = method
+            .return_type
+            .with_self(self_owner, &self_ty)
+            .instantiate(&substitution);
+        if let Some(expected) = expected
+            && super::inference::infer(
+                &return_pattern,
+                expected,
+                method_generics,
+                &mut substitution,
+                self.cancel,
+            )
+            .is_err()
+        {
+            return Some(TypeId::Unknown);
+        }
         self.type_table.insert_call(
             call_expr,
             CallTarget::TraitMethod {
@@ -1842,10 +1860,35 @@ impl<'a> BodyChecker<'a> {
                 param
                     .ty
                     .with_self(self_owner, &self_ty)
-                    .instantiate(&trait_substitution)
+                    .instantiate(&substitution)
             })
             .collect::<Vec<_>>();
-        let arg_tys = self.infer_typed_args(args, param_types.iter().cloned(), env);
+        let arg_tys = self.infer_generic_args(
+            args,
+            param_types.iter().cloned(),
+            method_generics,
+            &mut substitution,
+            env,
+        );
+        let mut suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
+        for (argument, _) in &arg_tys {
+            let Ok(completes) =
+                super::completion::expr_can_complete(&self.lowered.module, *argument, self.cancel)
+            else {
+                return Some(TypeId::Unknown);
+            };
+            suppress_missing |= !completes;
+        }
+        let type_arguments = self.finish_inferred_arguments(
+            &mut substitution,
+            method_generics,
+            &method.name,
+            callee,
+            suppress_missing,
+        );
+        self.type_table
+            .insert_type_arguments(call_expr, type_arguments);
+        self.check_generic_call_bounds(method_generics, &method.bounds, &substitution, env, callee);
         if params.len() != arg_tys.len() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CallArityMismatch {
@@ -1863,18 +1906,13 @@ impl<'a> BodyChecker<'a> {
             self.check_arg_type(
                 name,
                 &param.name,
-                param_types[index].clone(),
+                param_types[index].instantiate(&substitution),
                 index,
                 &arg_tys,
             );
         }
 
-        Some(
-            method
-                .return_type
-                .with_self(self_owner, &self_ty)
-                .instantiate(&trait_substitution),
-        )
+        Some(return_pattern.instantiate(&substitution))
     }
 
     fn enum_member_owner(&self, expr: ExprId) -> Option<kagari_common::identity::DefinitionId> {
@@ -2160,23 +2198,36 @@ impl<'a> BodyChecker<'a> {
         );
         self.type_table
             .insert_type_arguments(call_expr, type_arguments);
-        for parameter in &function.generic_params {
+        self.check_generic_call_bounds(
+            &function.generic_params,
+            &function.bounds,
+            &substitution,
+            env,
+            callee,
+        );
+        self.check_function_arguments(function, &substitution, callee, &arg_tys);
+        function.return_type.instantiate(&substitution)
+    }
+
+    fn check_generic_call_bounds(
+        &mut self,
+        parameters: &[crate::types::GenericParameterType],
+        bounds: &super::GenericBounds,
+        substitution: &crate::types::TypeSubstitution,
+        env: &BodyTypeEnv,
+        callee: ExprId,
+    ) {
+        for parameter in parameters {
             let Some(actual) = substitution.get(parameter) else {
                 continue;
             };
-            for constraint in function
-                .bounds
-                .get(parameter)
-                .into_iter()
-                .flatten()
-                .cloned()
-            {
+            for constraint in bounds.get(parameter).into_iter().flatten().cloned() {
                 match constraint {
                     super::ConstraintTarget::Standard(constraint) => {
                         self.check_standard_constraint(actual, constraint, env, callee)
                     }
                     super::ConstraintTarget::Trait(trait_type) => {
-                        let trait_type = trait_type.instantiate(&substitution);
+                        let trait_type = trait_type.instantiate(substitution);
                         let satisfied = match actual {
                             TypeId::Generic(parameter) => {
                                 env.generic_bounds.get(parameter).is_some_and(|bounds| {
@@ -2219,8 +2270,6 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
-        self.check_function_arguments(function, &substitution, callee, &arg_tys);
-        function.return_type.instantiate(&substitution)
     }
 
     fn check_function_arguments(

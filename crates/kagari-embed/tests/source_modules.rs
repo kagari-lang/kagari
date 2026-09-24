@@ -180,6 +180,58 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
 }
 
 #[test]
+fn imported_generic_trait_method_specializes_across_execution_routes() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "api",
+        "pub trait Echo { fn echo<U>(self, value: U) -> U; }",
+    );
+    insert(
+        &engine,
+        "model",
+        "use pkg::api::Echo; pub struct Holder<T> { val marker: T } impl<T> Echo for Holder<T> { fn echo<V>(self, value: V) -> V { value } } pub fn make() -> Holder<bool> { Holder { marker: true } }",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::api::Echo; use pkg::model::make; fn read<T: Echo>(value: T) -> i32 { value.echo(42) } fn main() -> i32 { read(make()) }",
+    );
+    let mut context = ExecutionContext::default();
+    context.language_profile.allow_jit = true;
+    context.capabilities.jit = true;
+    let artifact = compile(
+        &engine,
+        root,
+        CompileOptions {
+            language_profile: context.language_profile,
+        },
+    );
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        context.jit_policy = if jit {
+            kagari_embed::JitPolicy::Enabled
+        } else {
+            kagari_embed::JitPolicy::Disabled
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let report = if jit {
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+        } else {
+            runtime.execute(&loaded, "main", &[], &context)
+        }
+        .unwrap();
+        assert_eq!(report.return_value, Value::I32(42));
+    }
+}
+
+#[test]
 fn dependency_defined_trait_impl_dispatches_through_bound_call() {
     let engine = KagariEngine::default();
     insert(

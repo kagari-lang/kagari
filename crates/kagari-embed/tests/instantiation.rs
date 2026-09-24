@@ -2,6 +2,38 @@ use kagari_common::SourceFile;
 use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine};
 
 #[test]
+fn generic_trait_methods_infer_concrete_arguments_across_execution_routes() {
+    execute_contextual_source(
+        include_str!("../../../examples/generic-trait-methods.kgr"),
+        42,
+    );
+}
+
+#[test]
+fn generic_trait_method_bounds_reject_invalid_arguments() {
+    let source = include_str!("../../../examples/generic-trait-methods.kgr")
+        .replace("fn echo<U>(", "fn echo<U: HashKey>(")
+        .replace("fn echo<V>(", "fn echo<V: HashKey>(")
+        .replace("value.echo(42)", "value.echo([42]); 42");
+    let error = KagariEngine::default()
+        .compile_to_artifact(
+            SourceFile::new("generic-method-bound.kgr", source),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap_err();
+    let EmbeddingError::Diagnostics { diagnostics } = error else {
+        panic!("expected source diagnostics")
+    };
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED" }),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
 fn explicit_enum_arguments_execute_with_distinct_concrete_layouts() {
     execute_contextual_source(
         "enum Token<T> { Empty, Data(T) } fn empty<T>() -> Token<T> { Token<T>::Empty } fn main() -> i32 { val a = Token<i32>::Data(7); val b = Token<bool>::Data(true); val e: Token<i32> = empty(); if a == Token<i32>::Data(7) && b == Token<bool>::Data(true) && e == Token<i32>::Empty() { 42 } else { 0 } }",

@@ -540,8 +540,8 @@ R02 acceptance evidence:
   A forged concrete function identity with the right arity but wrong argument
   representation is rejected before loading. Trait implementation signature
   checks compare method-local generic binders by position, so equivalent binders
-  with different names match and different binder counts are rejected. Generic
-  method invocation and runtime interface dispatch remain separate work.
+  with different names match and different binder counts are rejected. Runtime
+  interface dispatch remains separate work.
 
 - R07 applied method-bound checkpoint: interface ABI validation now compares
   method bounds after substituting trait arguments, `Self`, and method-local
@@ -644,6 +644,15 @@ R02 acceptance evidence:
   the host trait table rejects the bound before code generation. A same-trait
   script implementation for that host type is rejected as an overlap. Runtime
   interface values, dynamic dispatch and applied generic host traits remain open.
+
+- R07 generic trait-method call checkpoint: method-local type parameters are
+  inferred from arguments and expected results, their bounds are checked by the
+  shared generic-call rule, and concrete method arguments are recorded in HIR.
+  Local and imported implementations specialize by receiver, impl and method
+  arguments; IR verifies imported method parameter and result layouts after all
+  substitutions. The [generic method example](../examples/generic-trait-methods.kgr)
+  produces distinct bool and i32 method instances and runs through source,
+  artifact and JIT fallback. Dynamic interface values remain R08 work.
 
 R03 acceptance evidence:
 

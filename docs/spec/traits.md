@@ -107,6 +107,11 @@ including calls through existing concrete trait implementations. Instances are
 deduplicated by declaration and arguments, with configurable growth limits.
 Public functions require concrete signatures. Generic impl methods specialize
 at reachable concrete receivers; dynamic interface dispatch remains R08 work.
+Static trait-method calls infer method-local generic arguments from their
+arguments and expected result, check those arguments against the method's
+bounds, and specialize reachable local or dependency-defined implementations.
+The method's arguments follow the implementation's type arguments in the
+concrete instance key; interface values still reject generic methods.
 
 Struct and enum declarations retain generic binders and inline bounds in checked
 signatures. Type applications such as `Cell<i32>` resolve those binders, check
