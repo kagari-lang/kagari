@@ -549,7 +549,8 @@ impl FunctionLowerer<'_, '_> {
             .call_resolution(expr)
             .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
         let span = self.analyzed.lowered.source_map.expr_span(expr);
-        let target = if let SemanticCallTarget::TraitMethod(method) = call.target {
+        let (target, impl_arguments) = if let SemanticCallTarget::TraitMethod(method) = call.target
+        {
             let receiver = call
                 .receiver
                 .ok_or(IrLoweringError::MissingBinding("trait receiver"))?;
@@ -563,7 +564,7 @@ impl FunctionLowerer<'_, '_> {
                 .planner
                 .arguments(&[ty], &self.instance.substitution, span)?;
             let ty = types.pop().expect("receiver type");
-            let implementation = self
+            let (implementation, impl_arguments) = self
                 .analyzed
                 .typed
                 .type_table
@@ -571,9 +572,9 @@ impl FunctionLowerer<'_, '_> {
                 .ok_or(IrLoweringError::UnsupportedExpr(
                     "interface dispatch requires linked implementation tables",
                 ))?;
-            SemanticCallTarget::Function(implementation)
+            (SemanticCallTarget::Function(implementation), impl_arguments)
         } else {
-            call.target
+            (call.target, Vec::new())
         };
         let (callee, args) = match target {
             SemanticCallTarget::TerminatingCallee => {
@@ -615,7 +616,11 @@ impl FunctionLowerer<'_, '_> {
                 let target = match target {
                     SemanticCallTarget::Function(id) => {
                         let arguments = self.planner.arguments(
-                            &call.type_arguments,
+                            &impl_arguments
+                                .iter()
+                                .chain(&call.type_arguments)
+                                .cloned()
+                                .collect::<Vec<_>>(),
                             &self.instance.substitution,
                             span,
                         )?;

@@ -13,6 +13,60 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
+fn generic_interface_implementation_specializes_reachable_method() {
+    let module = common::bytecode_ok(
+        "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",
+    );
+    assert_eq!(module.interface_tables.len(), 1);
+    assert_eq!(module.interface_tables[0].methods.len(), 2);
+    let abi = module
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) => Some(table),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(abi.generic_params.len(), 1);
+    assert!(abi.methods[0].generic_params.is_empty());
+    let arguments = module.interface_tables[0]
+        .methods
+        .iter()
+        .map(|slot| {
+            module.functions[slot.function.index()]
+                .identity
+                .as_ref()
+                .unwrap()
+                .arguments
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        arguments.contains(&vec![crate::module::abi::AbiType::Builtin(
+            kagari_hir::types::BuiltinType::I32
+        )])
+    );
+    assert!(
+        arguments.contains(&vec![crate::module::abi::AbiType::Builtin(
+            kagari_hir::types::BuiltinType::String
+        )])
+    );
+    let mut wrong_arity = module.clone();
+    let method = wrong_arity.interface_tables[0].methods[0].function.index();
+    wrong_arity.functions[method]
+        .identity
+        .as_mut()
+        .unwrap()
+        .arguments
+        .clear();
+    wrong_arity.function_table[method].identity = wrong_arity.functions[method].identity.clone();
+    assert!(matches!(
+        verify_module(&wrong_arity),
+        Err(BytecodeVerificationError::InvalidInterfaceTable)
+    ));
+}
+
+#[test]
 fn concrete_interface_methods_have_verified_executable_slots() {
     let module = common::bytecode_ok(
         "pub struct Pair { val number: i32 } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } fn main() -> i32 { 1 }",

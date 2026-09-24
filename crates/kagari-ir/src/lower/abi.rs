@@ -145,7 +145,9 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                                 .functions
                                 .iter()
                                 .find(|function| function.id == method.function)
-                                .and_then(|function| function_abi(module, function))
+                                .and_then(|function| {
+                                    method_abi(module, function, &trait_item.generic_params)
+                                })
                         })
                         .collect(),
                 }));
@@ -225,7 +227,9 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         .functions
                         .iter()
                         .find(|function| function.id == method.function)
-                        .and_then(|function| function_abi(module, function))
+                        .and_then(|function| {
+                            method_abi(module, function, &impl_block.generic_params)
+                        })
                 })
                 .collect(),
         }));
@@ -255,6 +259,24 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
             .collect(),
         return_type: AbiType::from_checked_type(&typed.return_type),
     })
+}
+
+fn method_abi(
+    module: &AnalyzedModule,
+    function: &hir::Function,
+    outer: &[hir::GenericParam],
+) -> Option<FunctionAbi> {
+    let mut method = function_abi(module, function)?;
+    let inherited = generic_param_abi(module, outer);
+    method
+        .generic_params
+        .retain(|parameter| !inherited.contains(parameter));
+    method.bounds.retain(|bound| {
+        !inherited
+            .iter()
+            .any(|parameter| parameter.owner == bound.owner && parameter.position == bound.position)
+    });
+    Some(method)
 }
 
 fn generic_param_abi(

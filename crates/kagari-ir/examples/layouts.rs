@@ -9,7 +9,7 @@ use kagari_ir::{
 fn main() {
     let source = SourceFile::new(
         "layouts.kgr",
-        "pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: [i32] } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } fn main() -> i32 { val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
+        "pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: [i32] } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } impl<T> Number for Deferred<T> { fn get(self) -> i32 { 7 } } fn read<T: Number>(value: T) -> i32 { value.get() } fn main() -> i32 { read(Deferred { payload: 1 }); val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
     );
     let checked = analyze_source(&source, Default::default())
         .into_codegen()
@@ -76,6 +76,22 @@ fn main() {
             .name,
         "get"
     );
+    let generic_table = bytecode
+        .interface_tables
+        .iter()
+        .find(|table| table.declaration != interface.declaration)
+        .expect("specialized generic interface table");
+    assert_eq!(generic_table.methods.len(), 1);
+    assert_eq!(
+        bytecode.functions[generic_table.methods[0].function.index()]
+            .identity
+            .as_ref()
+            .unwrap()
+            .arguments,
+        [kagari_ir::module::abi::AbiType::Builtin(
+            kagari_hir::types::BuiltinType::I32
+        )]
+    );
     println!(
         "interface {} has a stable declaration identity and executable method slot",
         interface.name
@@ -92,6 +108,7 @@ fn main() {
             if let BytecodeInstruction::MakeStruct {
                 structure, fields, ..
             } = instruction
+                && bytecode.structures[structure.index()].name() == "Pair"
             {
                 Some((structure, fields))
             } else {

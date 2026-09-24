@@ -129,6 +129,10 @@ emits uncalled concrete implementation methods so those slots remain linkable.
 Generic implementations and methods retain only their reachable instances;
 runtime interface dispatch is a separate linking step. Table and method counts
 obey the artifact resource limits. Older formats are rejected before execution.
+For generic implementations, the table owns implementation binders and bounds;
+each method record owns only its additional method binders and bounds. Executable
+method slots carry the full concrete argument list in implementation-then-method
+parameter order. Verification rejects slots with a different argument count.
 Version 11 adds ordered enum payload types to public variant ABI records. These
 use structural `AbiType` encoding, preserving nominal declaration identity and
 container arguments instead of display strings or erased instruction ValueTypes.

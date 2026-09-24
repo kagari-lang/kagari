@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::ScalarValue;
 use crate::builtin::{BuiltinFunction, surface::StandardIntrinsic};
 use crate::hir::{ExprId, FieldId, FunctionId, LocalId, PatternId, PlaceId};
-use crate::types::TypeId;
+use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
 use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,11 +64,18 @@ pub struct ResolvedEnumConstructor {
     pub variant: Option<DefinitionId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TraitImplementation {
+    parameters: Vec<GenericParameterType>,
+    bounds: super::GenericBounds,
+    methods: HashMap<DefinitionId, FunctionId>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
     host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
     host_paths: HashMap<ExprId, ResolvedHostPath>,
-    implementations: HashMap<(DefinitionId, TypeId), HashMap<DefinitionId, FunctionId>>,
+    implementations: HashMap<(DefinitionId, TypeId), TraitImplementation>,
     constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
     type_refs: HashMap<crate::hir::TypeRefId, ResolvedTypeRef>,
     field_types: HashMap<FieldId, TypeId>,
@@ -208,21 +215,91 @@ impl TypeTable {
         &mut self,
         trait_id: DefinitionId,
         ty: TypeId,
+        parameters: Vec<GenericParameterType>,
+        bounds: super::GenericBounds,
         methods: HashMap<DefinitionId, FunctionId>,
     ) {
         self.implementations
             .entry((trait_id, ty))
-            .or_insert(methods);
+            .or_insert(TraitImplementation {
+                parameters,
+                bounds,
+                methods,
+            });
     }
     pub fn implements(&self, trait_id: &DefinitionId, ty: &TypeId) -> bool {
-        self.implementations
-            .contains_key(&(trait_id.clone(), ty.clone()))
+        self.implements_with_guard(trait_id, ty, &mut HashSet::new())
     }
-    pub fn implementation_method(&self, method: &DefinitionId, ty: &TypeId) -> Option<FunctionId> {
+    pub fn implementation_method(
+        &self,
+        method: &DefinitionId,
+        ty: &TypeId,
+    ) -> Option<(FunctionId, Vec<TypeId>)> {
         self.implementations
             .iter()
-            .filter(|((_, target), _)| target == ty)
-            .find_map(|(_, methods)| methods.get(method).copied())
+            .find_map(|((_, pattern), implementation)| {
+                let function = *implementation.methods.get(method)?;
+                let matched = match_implementation(pattern, ty, &implementation.parameters)?;
+                if !self.implementation_bounds_hold(implementation, &matched, &mut HashSet::new()) {
+                    return None;
+                }
+                let arguments = implementation
+                    .parameters
+                    .iter()
+                    .map(|parameter| matched.get(parameter).cloned())
+                    .collect::<Option<Vec<_>>>()?;
+                Some((function, arguments))
+            })
+    }
+    fn implements_with_guard(
+        &self,
+        trait_id: &DefinitionId,
+        ty: &TypeId,
+        visiting: &mut HashSet<(DefinitionId, TypeId)>,
+    ) -> bool {
+        let key = (trait_id.clone(), ty.clone());
+        if !visiting.insert(key.clone()) {
+            return false;
+        }
+        let found =
+            self.implementations
+                .iter()
+                .any(|((owner, pattern), implementation)| {
+                    owner == trait_id
+                        && match_implementation(pattern, ty, &implementation.parameters)
+                            .is_some_and(|matched| {
+                                self.implementation_bounds_hold(implementation, &matched, visiting)
+                            })
+                });
+        visiting.remove(&key);
+        found
+    }
+    fn implementation_bounds_hold(
+        &self,
+        implementation: &TraitImplementation,
+        matched: &TypeSubstitution,
+        visiting: &mut HashSet<(DefinitionId, TypeId)>,
+    ) -> bool {
+        implementation
+            .bounds
+            .iter()
+            .all(|(parameter, constraints)| {
+                let Some(actual) = matched.get(parameter) else {
+                    return false;
+                };
+                constraints.iter().all(|constraint| match constraint {
+                    ConstraintTarget::Standard(standard) => {
+                        super::constraints::type_satisfies_standard_constraint(
+                            actual,
+                            *standard,
+                            &Default::default(),
+                        )
+                    }
+                    ConstraintTarget::Trait(trait_id) => {
+                        self.implements_with_guard(trait_id, actual, visiting)
+                    }
+                })
+            })
     }
     pub(crate) fn insert_constraint(
         &mut self,
@@ -530,4 +607,72 @@ impl TypeTable {
     pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall> {
         self.calls.get(&id).cloned()
     }
+}
+
+fn match_implementation(
+    pattern: &TypeId,
+    actual: &TypeId,
+    parameters: &[GenericParameterType],
+) -> Option<TypeSubstitution> {
+    let mut bindings = TypeSubstitution::new();
+    let mut pending = vec![(pattern, actual)];
+    while let Some((pattern, actual)) = pending.pop() {
+        match (pattern, actual) {
+            (TypeId::Generic(parameter), actual) if parameters.contains(parameter) => {
+                if let Some(bound) = bindings.get(parameter) {
+                    if bound != actual {
+                        return None;
+                    }
+                } else {
+                    bindings.insert(parameter.clone(), actual.clone());
+                }
+            }
+            (TypeId::Struct(left), TypeId::Struct(right))
+            | (TypeId::Enum(left), TypeId::Enum(right))
+            | (TypeId::Trait(left), TypeId::Trait(right)) => {
+                if left.declaration != right.declaration
+                    || left.arguments.len() != right.arguments.len()
+                {
+                    return None;
+                }
+                pending.extend(left.arguments.iter().zip(&right.arguments));
+            }
+            (TypeId::Tuple(left), TypeId::Tuple(right))
+            | (TypeId::StandardEnum { args: left, .. }, TypeId::StandardEnum { args: right, .. })
+                if left.len() == right.len() =>
+            {
+                if let (
+                    TypeId::StandardEnum {
+                        kind: left_kind, ..
+                    },
+                    TypeId::StandardEnum {
+                        kind: right_kind, ..
+                    },
+                ) = (pattern, actual)
+                    && left_kind != right_kind
+                {
+                    return None;
+                }
+                pending.extend(left.iter().zip(right));
+            }
+            (TypeId::Array(left), TypeId::Array(right))
+            | (TypeId::Set(left), TypeId::Set(right)) => pending.push((left, right)),
+            (
+                TypeId::Map {
+                    key: left_key,
+                    value: left_value,
+                },
+                TypeId::Map {
+                    key: right_key,
+                    value: right_value,
+                },
+            ) => {
+                pending.push((left_key, right_key));
+                pending.push((left_value, right_value));
+            }
+            (left, right) if left == right => {}
+            _ => return None,
+        }
+    }
+    Some(bindings)
 }

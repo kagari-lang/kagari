@@ -256,6 +256,32 @@ pub(super) fn function_bounds(
     result
 }
 
+pub(super) fn implementation_bounds(
+    implementation: &hir::Impl,
+    declarations: &crate::declarations::Declarations,
+    table: &TypeTable,
+) -> super::GenericBounds {
+    let mut result = parameter_bounds(&implementation.generic_params, declarations, table);
+    for bound in &implementation.bounds {
+        let Some(TypeTarget::Generic(id)) = table
+            .type_ref(bound.target_ref)
+            .and_then(|reference| reference.target)
+        else {
+            continue;
+        };
+        let Some(parameter) = declarations.generic_type(id) else {
+            continue;
+        };
+        result.entry(parameter).or_default().extend(
+            bound
+                .traits
+                .iter()
+                .filter_map(|reference| table.constraint(reference.ty)),
+        );
+    }
+    result
+}
+
 pub(super) fn parameter_bounds(
     params: &[hir::GenericParam],
     declarations: &crate::declarations::Declarations,

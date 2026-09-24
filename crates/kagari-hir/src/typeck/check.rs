@@ -599,7 +599,7 @@ fn validate_trait_surface(
         }
     }
 
-    let mut seen_impls = HashSet::new();
+    let mut seen_impls = Vec::new();
     for impl_block in &lowered.module.impls {
         let Some(reference) = &impl_block.trait_ref else {
             continue;
@@ -657,16 +657,20 @@ fn validate_trait_surface(
             continue;
         }
 
-        if !seen_impls.insert((id.clone(), for_ty.clone())) {
+        if seen_impls.iter().any(|(previous_trait, previous_type)| {
+            previous_trait == &id && possibly_overlapping_impls(previous_type, &for_ty)
+        }) {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                     trait_name: trait_name.to_string(),
                     type_name: type_name.clone(),
-                    reason: "duplicate impl".to_string(),
+                    reason: "overlapping impl".to_string(),
                 })
                 .with_span(lowered.source_map.impl_span(impl_block.id)),
             );
+            continue;
         }
+        seen_impls.push((id.clone(), for_ty.clone()));
 
         validate_impl_methods(
             lowered,
@@ -700,7 +704,34 @@ fn validate_trait_surface(
                     })
             })
             .collect();
-        table.insert_implementation(id, for_ty, methods);
+        let parameters = impl_block
+            .generic_params
+            .iter()
+            .filter_map(|parameter| declarations.generic_type(parameter.id))
+            .collect();
+        let bounds = super::constraints::implementation_bounds(impl_block, declarations, table);
+        table.insert_implementation(id, for_ty, parameters, bounds, methods);
+    }
+}
+
+fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool {
+    if left == right {
+        return true;
+    }
+    if left.is_concrete() && right.is_concrete() {
+        return false;
+    }
+    match (left, right) {
+        (TypeId::Struct(left), TypeId::Struct(right))
+        | (TypeId::Enum(left), TypeId::Enum(right)) => left.declaration == right.declaration,
+        (TypeId::StandardEnum { kind: left, .. }, TypeId::StandardEnum { kind: right, .. }) => {
+            left == right
+        }
+        (TypeId::Tuple(left), TypeId::Tuple(right)) => left.len() == right.len(),
+        (TypeId::Array(_), TypeId::Array(_))
+        | (TypeId::Set(_), TypeId::Set(_))
+        | (TypeId::Map { .. }, TypeId::Map { .. }) => true,
+        _ => false,
     }
 }
 

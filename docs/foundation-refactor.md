@@ -502,6 +502,18 @@ R02 acceptance evidence:
   example checks the executable slot. Generic implementation specialization and
   runtime interface dispatch remain open.
 
+- R07 generic interface-implementation checkpoint: trait implementation lookup
+  matches a receiver against its impl type template, preserves repeated binder
+  equality, checks impl parameter bounds, and passes the inferred arguments to
+  reachable method monomorphization. A generic implementation and another
+  implementation for the same trait and receiver head are rejected as
+  overlapping; this conservative coherence rule avoids order-dependent lookup.
+  Method ABI records carry only method-local binders and bounds, while the table
+  owns inherited impl binders and bounds. Bytecode verification checks each
+  executable method slot's concrete argument arity. The language contract tests
+  exercise source, artifact, interpreter and existing JIT routes. Runtime
+  interface values and dispatch remain R07/R08 work.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

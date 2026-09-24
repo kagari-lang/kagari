@@ -436,6 +436,9 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
+            if identity.arguments.len() != abi.generic_params.len() + method.generic_params.len() {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
             if abi.generic_params.is_empty()
                 && method.generic_params.is_empty()
                 && (!identity.arguments.is_empty()
