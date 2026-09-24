@@ -1137,6 +1137,49 @@ fn compare_impl_method_signature(
                 .map(|(expected, actual)| (expected.clone(), TypeId::Generic(actual.clone()))),
         )
         .collect();
+    for (expected_param, actual_param) in trait_function
+        .generic_params
+        .iter()
+        .skip(trait_def.generic_params.len())
+        .zip(impl_function.generic_params.iter().skip(receiver.3))
+    {
+        let expected = trait_function
+            .bounds
+            .get(expected_param)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let actual = impl_function
+            .bounds
+            .get(actual_param)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let substituted = expected
+            .iter()
+            .map(|constraint| match constraint {
+                super::ConstraintTarget::Standard(value) => {
+                    super::ConstraintTarget::Standard(*value)
+                }
+                super::ConstraintTarget::Trait(instance) => {
+                    super::ConstraintTarget::Trait(instance.instantiate(&trait_substitution))
+                }
+            })
+            .collect::<Vec<_>>();
+        if substituted.len() != actual.len()
+            || !substituted
+                .iter()
+                .all(|constraint| actual.contains(constraint))
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                    trait_name: trait_def.name.clone(),
+                    method_name: trait_method.name.clone(),
+                    reason: "generic bound differs".to_string(),
+                })
+                .with_span(span),
+            );
+            return;
+        }
+    }
     for (trait_param, impl_param) in trait_function.params.iter().zip(&impl_function.params) {
         let expected = trait_param
             .ty

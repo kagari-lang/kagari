@@ -549,6 +549,12 @@ R02 acceptance evidence:
   changed nested type arguments fail. A source-to-bytecode regression covers
   a method bound that refers to an applied trait parameter.
 
+- R07 private method-bound checkpoint: HIR checks trait impl method-local bounds
+  with the same trait-argument and binder substitution used for method signatures.
+  This catches mismatched bounds on private traits before code generation, even
+  when no public interface ABI record exists. Tests cover equivalent and changed
+  applied arguments.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

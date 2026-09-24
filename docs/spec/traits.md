@@ -441,6 +441,8 @@ Trait methods compare local generic binders by position after substituting
 trait arguments and `Self`; binder spelling does not affect impl matching.
 The same substitution applies to method bounds in the public interface table,
 including type arguments nested inside applied trait constraints.
+Semantic checking applies it to private trait implementations as well, before
+any executable interface table is generated.
 Local and imported interface annotations use these same contracts for argument
 checking, Self substitution, and definition queries. Invalid parameter types retain
 Error facts without discarding later parameters or unrelated declarations.

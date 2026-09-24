@@ -1624,6 +1624,29 @@ fn trait_method_generic_binders_match_by_position() {
 }
 
 #[test]
+fn private_trait_method_bounds_match_after_trait_and_method_substitution() {
+    let valid = common::lower_ok(
+        "trait Marker<T> {} trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } struct Holder {} impl Consumer<i32> for Holder { fn take<V: Marker<i32>>(self, value: V) -> V { value } }",
+    );
+    let names = resolve_names(&valid).into_checked().unwrap();
+    check_module(&valid, &names, None)
+        .into_checked()
+        .expect("equivalent applied method bounds should match");
+
+    let invalid = common::lower_ok(
+        "trait Marker<T> {} trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } struct Holder {} impl Consumer<i32> for Holder { fn take<V: Marker<bool>>(self, value: V) -> V { value } }",
+    );
+    let names = resolve_names(&invalid).into_checked().unwrap();
+    let diagnostics = check_module(&invalid, &names, None)
+        .into_checked()
+        .expect_err("different private method bounds should fail");
+    assert!(diagnostics.iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        DiagnosticKind::TraitMethodMismatch { reason, .. } if reason == "generic bound differs"
+    )));
+}
+
+#[test]
 fn wide_const_dependencies_keep_values_and_error_owners_by_declaration_slot() {
     let mut text = String::new();
     for index in 0..2_000 {
