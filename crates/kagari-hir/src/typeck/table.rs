@@ -87,14 +87,14 @@ pub struct TypeTable {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedHostPath {
     pub root: ExprId,
-    pub declaration: kagari_common::host_interface::HostFieldPathDeclaration,
+    pub declaration: kagari_common::host_interface::HostPathDeclaration,
     pub contract: kagari_common::host_interface::HostPathContract,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedHostPlacePath {
     pub root: PlaceId,
-    pub declaration: kagari_common::host_interface::HostFieldPathDeclaration,
+    pub declaration: kagari_common::host_interface::HostPathDeclaration,
     pub contract: kagari_common::host_interface::HostPathContract,
 }
 

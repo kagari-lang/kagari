@@ -45,7 +45,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         composite(),
     );
     let interface = HostInterface {
-        field_paths: vec![],
+        paths: vec![],
         types: Vec::new(),
         functions: vec![make.clone(), echo.clone()],
     };
@@ -161,7 +161,7 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
     let engine = KagariEngine::default();
     engine
         .set_host_interface(HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: Vec::new(),
             functions: vec![HostFunctionDeclaration::new(
                 "demo.take",
@@ -202,7 +202,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
     let engine = KagariEngine::default();
     engine
         .set_host_interface(HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: vec![],
             functions: vec![declaration.clone()],
         })

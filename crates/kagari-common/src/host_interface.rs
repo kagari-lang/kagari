@@ -8,14 +8,14 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 6;
+const VERSION: u16 = 7;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod decode_limits;
 mod path;
 pub use path::{
-    HostFieldPathDeclaration, HostIndexSegmentDeclaration, HostPathContract, HostPathInput,
-    HostPathSegmentContract, HostVirtualSegmentDeclaration,
+    HostIndexSegmentDeclaration, HostPathContract, HostPathDeclaration, HostPathInput,
+    HostPathSegmentContract, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
 };
 mod value_type;
 pub use value_type::HostValueType;
@@ -253,7 +253,7 @@ fn validate_signature(
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostInterface {
     #[serde(deserialize_with = "decode_limits::declarations")]
-    pub field_paths: Vec<HostFieldPathDeclaration>,
+    pub paths: Vec<HostPathDeclaration>,
     #[serde(deserialize_with = "decode_limits::declarations")]
     pub types: Vec<HostTypeDeclaration>,
     #[serde(deserialize_with = "decode_limits::declarations")]
@@ -269,22 +269,21 @@ struct HostInterfaceWire {
     #[serde(deserialize_with = "decode_limits::declarations")]
     functions: Vec<HostFunctionDeclaration>,
     #[serde(deserialize_with = "decode_limits::declarations")]
-    field_paths: Vec<HostFieldPathDeclaration>,
+    paths: Vec<HostPathDeclaration>,
 }
 
 impl HostInterface {
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
-        if [
-            self.types.len(),
-            self.functions.len(),
-            self.field_paths.len(),
-        ]
-        .into_iter()
-        .any(|count| count > decode_limits::MAX_DECLARATIONS)
-            || self.field_paths.iter().any(|path| {
-                path.fields.len() > decode_limits::MAX_MEMBERS
+        if [self.types.len(), self.functions.len(), self.paths.len()]
+            .into_iter()
+            .any(|count| count > decode_limits::MAX_DECLARATIONS)
+            || self.paths.iter().any(|path| {
+                path.segments.len() > decode_limits::MAX_MEMBERS
                     || !path.root.within_path_limit()
-                    || path.fields.iter().any(|id| !id.within_path_limit())
+                    || path.segments.iter().any(|step| match step {
+                        HostPathSegmentDeclaration::Field(id) => !id.within_path_limit(),
+                        _ => false,
+                    })
             })
         {
             return Err(HostInterfaceError::TooLarge);
@@ -347,14 +346,8 @@ impl HostInterface {
             }
         }
         let mut paths = std::collections::BTreeSet::new();
-        for path in &self.field_paths {
-            self.resolve_field_path(
-                &path.root,
-                &path.fields,
-                path.access,
-                path.schema_epoch,
-                path.capabilities,
-            )?;
+        for path in &self.paths {
+            self.resolve_path(path)?;
             if !paths.insert(
                 codec()
                     .serialize(path)
@@ -372,8 +365,8 @@ impl HostInterface {
         functions.sort_by(|a, b| a.id.cmp(&b.id));
         let mut types = self.types.iter().collect::<Vec<_>>();
         types.sort_by(|a, b| a.id.cmp(&b.id));
-        let mut field_paths = self
-            .field_paths
+        let mut paths = self
+            .paths
             .iter()
             .map(|path| {
                 codec()
@@ -382,13 +375,10 @@ impl HostInterface {
                     .map_err(|_| HostInterfaceError::Encoding)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        field_paths.sort_by(|a, b| a.0.cmp(&b.0));
-        let field_paths = field_paths
-            .into_iter()
-            .map(|(_, path)| path)
-            .collect::<Vec<_>>();
+        paths.sort_by(|a, b| a.0.cmp(&b.0));
+        let paths = paths.into_iter().map(|(_, path)| path).collect::<Vec<_>>();
         codec()
-            .serialize(&(MAGIC, VERSION, types, functions, field_paths))
+            .serialize(&(MAGIC, VERSION, types, functions, paths))
             .map_err(|_| HostInterfaceError::Encoding)
     }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, HostInterfaceError> {
@@ -403,7 +393,7 @@ impl HostInterface {
         let HostInterfaceWire {
             types,
             functions,
-            field_paths,
+            paths,
             ..
         } = codec()
             .deserialize(bytes)
@@ -411,7 +401,7 @@ impl HostInterface {
         let interface = Self {
             types,
             functions,
-            field_paths,
+            paths,
         };
         interface.validate()?;
         Ok(interface)

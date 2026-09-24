@@ -35,7 +35,7 @@ fn offline_host_facades_preserve_initialization_linking_and_backend_call_traces(
         .set_host_interface(
             HostInterface::from_bytes(
                 &HostInterface {
-                    field_paths: vec![],
+                    paths: vec![],
                     types: Vec::new(),
                     functions: vec![definition.clone()],
                 }
@@ -187,7 +187,7 @@ fn offline_host_facades_preserve_initialization_linking_and_backend_call_traces(
 fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let definition = declaration();
     let encoded = HostInterface {
-        field_paths: vec![],
+        paths: vec![],
         types: Vec::new(),
         functions: vec![definition.clone()],
     }
@@ -265,7 +265,7 @@ fn host_calls_require_profile_and_cannot_run_in_scalar_constants() {
     let engine = KagariEngine::default();
     engine
         .set_host_interface(HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: Vec::new(),
             functions: vec![declaration()],
         })

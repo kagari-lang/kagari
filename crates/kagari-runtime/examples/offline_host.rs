@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     declaration.effects.may_read_immutable_configuration = true;
     declaration.documentation = "Read the immutable request limit snapshot.".into();
     let bytes = HostInterface {
-        field_paths: vec![],
+        paths: vec![],
         types: Vec::new(),
         functions: vec![declaration.clone()],
     }

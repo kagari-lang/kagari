@@ -17,7 +17,7 @@ pub(super) fn collect(
         cancel.check().map_err(|_| IrLoweringError::Cancelled)?;
         if let Some(declaration) = instruction
             .path_reference()
-            .and_then(|path| path.field_declaration.as_ref())
+            .and_then(|path| path.declaration.as_ref())
         {
             pending.push(declaration.root.clone());
         }

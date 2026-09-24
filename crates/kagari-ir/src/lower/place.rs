@@ -47,7 +47,7 @@ impl FunctionLowerer<'_, '_> {
                 value = self.read_projection(value, projection);
             }
             let path = crate::module::PathRef {
-                field_declaration: Some(checked.declaration),
+                declaration: Some(checked.declaration),
                 contract_fingerprint: checked
                     .contract
                     .fingerprint()

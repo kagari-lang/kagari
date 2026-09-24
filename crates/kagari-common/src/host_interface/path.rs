@@ -5,27 +5,28 @@ use super::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct HostFieldPathDeclaration {
+pub struct HostPathDeclaration {
     pub root: DefinitionId,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub fields: Vec<DefinitionId>,
+    pub segments: Vec<HostPathSegmentDeclaration>,
     pub access: PathAccess,
     pub schema_epoch: u64,
     pub capabilities: CapabilitySet,
 }
-impl HostFieldPathDeclaration {
+impl HostPathDeclaration {
     pub fn contract(
         &self,
         interface: &HostInterface,
     ) -> Result<HostPathContract, HostInterfaceError> {
-        interface.field_path_contract(
-            &self.root,
-            &self.fields,
-            self.access,
-            self.schema_epoch,
-            self.capabilities,
-        )
+        interface.path_contract(self)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum HostPathSegmentDeclaration {
+    Field(DefinitionId),
+    Index(HostIndexSegmentDeclaration),
+    Virtual(HostVirtualSegmentDeclaration),
 }
 
 /// Portable contract for one dynamic index step; runtime type slots are resolved
@@ -148,74 +149,117 @@ impl HostPathContract {
     }
 }
 impl HostInterface {
-    /// Resolve a field chain entirely from declarations, without invoking runtime bindings.
-    pub fn field_path_contract(
+    /// Resolve the complete path without invoking runtime bindings.
+    pub fn path_contract(
         &self,
-        root: &DefinitionId,
-        fields: &[DefinitionId],
-        access: PathAccess,
-        schema_epoch: u64,
-        capabilities: CapabilitySet,
+        declaration: &HostPathDeclaration,
     ) -> Result<HostPathContract, HostInterfaceError> {
         self.validate()?;
-        self.resolve_field_path(root, fields, access, schema_epoch, capabilities)
+        self.resolve_path(declaration)
     }
-    pub(super) fn resolve_field_path(
+    pub(super) fn resolve_path(
         &self,
-        root: &DefinitionId,
-        fields: &[DefinitionId],
-        access: PathAccess,
-        schema_epoch: u64,
-        capabilities: CapabilitySet,
+        declaration: &HostPathDeclaration,
     ) -> Result<HostPathContract, HostInterfaceError> {
-        if fields.len() > 256 {
+        if declaration.segments.len() > 256 {
             return Err(HostInterfaceError::TooLarge);
         }
         let root = self
             .types
             .iter()
-            .find(|ty| &ty.id == root)
+            .find(|ty| ty.id == declaration.root)
             .ok_or(HostInterfaceError::InvalidDeclaration)?;
         if root.ownership != HostTypeOwnership::HostRoot
-            || !allows(root.path_access, access)
-            || access == PathAccess::None
-            || fields.is_empty()
+            || !allows(root.path_access, declaration.access)
+            || declaration.access == PathAccess::None
+            || declaration.segments.is_empty()
         {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
         let mut current = HostValueType::Opaque(root.id.clone());
-        let mut segments = Vec::with_capacity(fields.len());
-        for field_id in fields {
-            let HostValueType::Opaque(owner) = &current else {
-                return Err(HostInterfaceError::InvalidDeclaration);
+        let mut segments = Vec::with_capacity(declaration.segments.len());
+        for step in &declaration.segments {
+            let resolved = match step {
+                HostPathSegmentDeclaration::Field(field_id) => {
+                    let HostValueType::Opaque(owner) = &current else {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    };
+                    let owner = self
+                        .types
+                        .iter()
+                        .find(|ty| &ty.id == owner)
+                        .ok_or(HostInterfaceError::InvalidDeclaration)?;
+                    let field = owner
+                        .fields
+                        .iter()
+                        .find(|field| &field.id == field_id)
+                        .ok_or(HostInterfaceError::InvalidDeclaration)?;
+                    if field.visibility != Visibility::Public
+                        || !allows(field.path_access, declaration.access)
+                    {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
+                    HostPathSegmentContract {
+                        input: HostPathInput::Field {
+                            owner: current.clone(),
+                        },
+                        result: field.ty.clone(),
+                        access: field.path_access,
+                        member_fingerprint: field.fingerprint()?,
+                    }
+                }
+                HostPathSegmentDeclaration::Index(index) => {
+                    index.validate()?;
+                    if current != index.collection
+                        || !allows(index.access, declaration.access)
+                        || index
+                            .index
+                            .nominal_references()
+                            .into_iter()
+                            .any(|id| !self.types.iter().any(|ty| &ty.id == id))
+                    {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
+                    HostPathSegmentContract {
+                        input: HostPathInput::Index {
+                            slot: u64::from(index.slot),
+                            collection: index.collection.clone(),
+                            index: index.index.clone(),
+                        },
+                        result: index.result.clone(),
+                        access: index.access,
+                        member_fingerprint: 0,
+                    }
+                }
+                HostPathSegmentDeclaration::Virtual(virtual_step) => {
+                    virtual_step.validate()?;
+                    if !allows(virtual_step.access, declaration.access) {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
+                    HostPathSegmentContract {
+                        input: HostPathInput::Virtual {
+                            name: virtual_step.name.clone(),
+                        },
+                        result: virtual_step.result.clone(),
+                        access: virtual_step.access,
+                        member_fingerprint: 0,
+                    }
+                }
             };
-            let owner = self
-                .types
-                .iter()
-                .find(|ty| &ty.id == owner)
-                .ok_or(HostInterfaceError::InvalidDeclaration)?;
-            let field = owner
-                .fields
-                .iter()
-                .find(|field| &field.id == field_id)
-                .ok_or(HostInterfaceError::InvalidDeclaration)?;
-            if field.visibility != Visibility::Public || !allows(field.path_access, access) {
-                return Err(HostInterfaceError::InvalidDeclaration);
+            for nominal in resolved.result.nominal_references() {
+                if !self.types.iter().any(|ty| &ty.id == nominal) {
+                    return Err(HostInterfaceError::InvalidDeclaration);
+                }
             }
-            segments.push(HostPathSegmentContract {
-                input: HostPathInput::Field { owner: current },
-                result: field.ty.clone(),
-                access: field.path_access,
-                member_fingerprint: field.fingerprint()?,
-            });
-            current = field.ty.clone();
+            current = resolved.result.clone();
+            segments.push(resolved);
         }
         Ok(HostPathContract {
             root_fingerprint: root.fingerprint()?,
             result: current,
-            schema_epoch,
-            access,
-            capabilities,
+            schema_epoch: declaration.schema_epoch,
+            access: declaration.access,
+            capabilities: declaration.capabilities,
             segments,
         })
     }
@@ -314,6 +358,84 @@ mod tests {
     use crate::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
 
     #[test]
+    fn mixed_path_roundtrips_offline_and_rejects_broken_segment_contracts() {
+        let mut root = HostTypeDeclaration::new("game.Inventory");
+        root.ownership = HostTypeOwnership::HostRoot;
+        root.path_access = PathAccess::ReadWrite;
+        let items_type = HostValueType::Array(Box::new(HostValueType::I32));
+        let mut items = HostFieldDeclaration::new(&root.id, "items", items_type.clone());
+        items.path_access = PathAccess::ReadWrite;
+        items.writable = true;
+        root.fields.push(items.clone());
+        let declaration = HostPathDeclaration {
+            root: root.id.clone(),
+            segments: vec![
+                HostPathSegmentDeclaration::Field(items.id),
+                HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
+                    slot: 0,
+                    collection: items_type,
+                    index: HostValueType::I32,
+                    result: HostValueType::I32,
+                    access: PathAccess::ReadOnly,
+                }),
+                HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
+                    name: "preview".into(),
+                    result: HostValueType::I32,
+                    access: PathAccess::ReadOnly,
+                }),
+            ],
+            access: PathAccess::ReadOnly,
+            schema_epoch: 4,
+            capabilities: CapabilitySet::default(),
+        };
+        let interface = HostInterface {
+            types: vec![root],
+            functions: vec![],
+            paths: vec![declaration.clone()],
+        };
+        let bytes = interface.to_bytes().unwrap();
+        let decoded = HostInterface::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded, interface);
+        assert_eq!(
+            declaration
+                .contract(&interface)
+                .unwrap()
+                .fingerprint()
+                .unwrap(),
+            decoded.paths[0]
+                .contract(&decoded)
+                .unwrap()
+                .fingerprint()
+                .unwrap()
+        );
+        let mut old = bytes.clone();
+        old[4..6].copy_from_slice(&6u16.to_le_bytes());
+        assert!(matches!(
+            HostInterface::from_bytes(&old),
+            Err(HostInterfaceError::Version)
+        ));
+
+        let mut broken = interface.clone();
+        if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
+            index.collection = HostValueType::I32;
+        } else {
+            panic!("expected index segment");
+        }
+        assert_eq!(
+            broken.validate(),
+            Err(HostInterfaceError::InvalidDeclaration)
+        );
+        if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
+            index.collection = HostValueType::Array(Box::new(HostValueType::I32));
+            index.index = HostValueType::opaque("game.Missing");
+        }
+        assert_eq!(
+            broken.validate(),
+            Err(HostInterfaceError::InvalidDeclaration)
+        );
+    }
+
+    #[test]
     fn nested_field_contracts_resolve_nominal_owners_without_runtime_registration() {
         let mut child = HostTypeDeclaration::new("game.Child");
         let mut count = HostFieldDeclaration::new(&child.id, "count", HostValueType::I32);
@@ -327,63 +449,54 @@ mod tests {
         nested.path_access = PathAccess::ReadOnly;
         root.fields.push(nested.clone());
         let catalog = HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: vec![root.clone(), child],
             functions: vec![],
         };
         let fields = [nested.id.clone(), count.id.clone()];
-        let contract = catalog
-            .field_path_contract(
-                &root.id,
-                &fields,
-                PathAccess::ReadOnly,
-                7,
-                CapabilitySet::default(),
-            )
-            .unwrap();
-        let declaration = HostFieldPathDeclaration {
+        let declaration = HostPathDeclaration {
             root: root.id.clone(),
-            fields: fields.to_vec(),
+            segments: fields
+                .iter()
+                .cloned()
+                .map(HostPathSegmentDeclaration::Field)
+                .collect(),
             access: PathAccess::ReadOnly,
             schema_epoch: 7,
             capabilities: CapabilitySet::default(),
         };
+        let contract = declaration.contract(&catalog).unwrap();
         let mut published = catalog.clone();
         let mut next_schema = declaration.clone();
         next_schema.schema_epoch = 8;
-        published.field_paths = vec![declaration.clone(), next_schema];
+        published.paths = vec![declaration.clone(), next_schema];
         let encoded = published.to_bytes().unwrap();
-        published.field_paths.reverse();
+        published.paths.reverse();
         assert_eq!(encoded, published.to_bytes().unwrap());
         let decoded_paths = HostInterface::from_bytes(&encoded).unwrap();
-        assert_eq!(decoded_paths.field_paths.len(), 2);
+        assert_eq!(decoded_paths.paths.len(), 2);
         assert!(
             decoded_paths
-                .field_paths
+                .paths
                 .iter()
                 .all(|path| path.contract(&decoded_paths).is_ok())
         );
-        published.field_paths.push(declaration.clone());
+        published.paths.push(declaration.clone());
         assert_eq!(
             published.validate(),
             Err(HostInterfaceError::DuplicateDeclaration)
         );
-        published.field_paths = vec![declaration];
-        published.field_paths[0].fields = vec![count.id.clone(); 257];
+        published.paths = vec![declaration.clone()];
+        published.paths[0].segments =
+            vec![HostPathSegmentDeclaration::Field(count.id.clone()); 257];
         assert_eq!(published.validate(), Err(HostInterfaceError::TooLarge));
         assert_eq!(contract.result, HostValueType::I32);
         assert_eq!(contract.segments.len(), 2);
         let decoded = HostInterface::from_bytes(&catalog.to_bytes().unwrap()).unwrap();
         assert_eq!(
             contract.fingerprint().unwrap(),
-            decoded
-                .field_path_contract(
-                    &root.id,
-                    &fields,
-                    PathAccess::ReadOnly,
-                    7,
-                    CapabilitySet::default()
-                )
+            declaration
+                .contract(&decoded)
                 .unwrap()
                 .fingerprint()
                 .unwrap()
@@ -396,13 +509,13 @@ mod tests {
         ] {
             assert!(
                 catalog
-                    .field_path_contract(
-                        &root.id,
-                        &invalid,
-                        PathAccess::ReadOnly,
-                        7,
-                        CapabilitySet::default()
-                    )
+                    .path_contract(&HostPathDeclaration {
+                        segments: invalid
+                            .into_iter()
+                            .map(HostPathSegmentDeclaration::Field)
+                            .collect(),
+                        ..declaration.clone()
+                    })
                     .is_err()
             );
         }

@@ -201,7 +201,7 @@ fn reject(module: IrModule) -> Error {
 }
 
 #[test]
-fn layouts_reject_duplicate_owners_and_foreign_field_declarations() {
+fn layouts_reject_duplicate_owners_and_foreign_declarations() {
     let source = "struct P { var value: i32 } fn main() -> i32 { P { value: 42 }.value }";
     let mut module = raw(source);
     module.structures.push(module.structures[0].clone());
@@ -582,7 +582,7 @@ fn readonly_path_modification_is_rejected_before_effects_or_flow() {
         dst: Some(value),
         root_or_view: value,
         path: crate::module::PathRef {
-            field_declaration: None,
+            declaration: None,
             contract_fingerprint: 0,
             root_ty: ValueType::I32,
             result_ty: ValueType::I32,

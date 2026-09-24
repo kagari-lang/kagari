@@ -14,7 +14,7 @@ pub(super) fn verify(
     use Instruction::*;
     let contract = |error| context.error(Error::Contract(error));
     if let Some(path) = instruction.path_reference()
-        && let Some(declaration) = &path.field_declaration
+        && let Some(declaration) = &path.declaration
     {
         let catalog = kagari_common::host_interface::HostInterface {
             types: module.host_types.clone(),

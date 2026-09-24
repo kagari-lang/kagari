@@ -50,7 +50,7 @@ fn declarations() -> (HostTypeDeclaration, HostTypeDeclaration) {
 fn offline_members_generate_runtime_metadata_and_resolve_mutual_references() {
     let (a, b) = declarations();
     let interface = HostInterface {
-        field_paths: vec![],
+        paths: vec![],
         types: vec![a.clone(), b.clone()],
         functions: vec![],
     };
@@ -139,7 +139,7 @@ fn unresolved_members_and_duplicate_batches_publish_no_metadata() {
 fn type_contract_changes_reject_artifacts_before_publication_but_documentation_does_not() {
     let (a, b) = declarations();
     let interface = HostInterface {
-        field_paths: vec![],
+        paths: vec![],
         types: vec![a.clone(), b.clone()],
         functions: vec![],
     };

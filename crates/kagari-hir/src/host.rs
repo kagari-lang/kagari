@@ -216,16 +216,22 @@ impl HostDeclarations {
         fields: &[kagari_common::identity::DefinitionId],
     ) -> Result<
         (
-            kagari_common::host_interface::HostFieldPathDeclaration,
+            kagari_common::host_interface::HostPathDeclaration,
             kagari_common::host_interface::HostPathContract,
         ),
         &'static str,
     > {
         let mut matches = self
             .interface
-            .field_paths
+            .paths
             .iter()
-            .filter(|path| &path.root == root && path.fields == fields);
+            .filter(|path| {
+                &path.root == root
+                    && path.segments.len() == fields.len()
+                    && path.segments.iter().zip(fields).all(|(segment, field)| {
+                        matches!(segment, kagari_common::host_interface::HostPathSegmentDeclaration::Field(id) if id == field)
+                    })
+            });
         let declaration = matches.next().ok_or("field chain has no declared path")?;
         if matches.next().is_some() {
             return Err("field chain has ambiguous path declarations");

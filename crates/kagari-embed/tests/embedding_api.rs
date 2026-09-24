@@ -155,7 +155,7 @@ fn host_path_artifact(
             root: kagari_ir::bytecode::ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 host_interface: kagari_common::host_interface::HostInterface {
-                    field_paths: vec![],
+                    paths: vec![],
                     types: if instructions.iter().any(|instruction| {
                         matches!(
                             instruction,

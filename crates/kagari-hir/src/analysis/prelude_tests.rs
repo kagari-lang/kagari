@@ -273,7 +273,7 @@ fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
         let file = sources.set("host.kgr", text, SourceLayer::Base).unwrap();
         let mut db = AnalysisDatabase::default();
         let hosts = crate::host::HostDeclarations::new(HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: Vec::new(),
             functions: vec![HostFunctionDeclaration::new(
                 name,

@@ -31,15 +31,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         vec![],
         HostValueType::I32,
     ));
-    let path_declaration = kagari_common::host_interface::HostFieldPathDeclaration {
+    let path_declaration = kagari_common::host_interface::HostPathDeclaration {
         root: player.id.clone(),
-        fields: vec![player.fields[0].id.clone()],
+        segments: vec![
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(
+                player.fields[0].id.clone(),
+            ),
+        ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),
     };
     let declarations = HostInterface {
-        field_paths: vec![path_declaration],
+        paths: vec![path_declaration],
         types: vec![player],
         functions: vec![HostFunctionDeclaration::new(
             "demo.echo",
@@ -54,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A build process may read these bytes from the binding provider's interface file.
     let offline_bytes = declarations.to_bytes()?;
     let offline = HostInterface::from_bytes(&offline_bytes)?;
-    let path = offline.field_paths[0].contract(&offline)?;
+    let path = offline.paths[0].contract(&offline)?;
     println!(
         "offline field path fingerprint: {:016x}",
         path.fingerprint()?
@@ -197,7 +201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
     assert_eq!(required.types.len(), 1);
-    assert_eq!(required.field_paths.len(), 1);
+    assert_eq!(required.paths.len(), 1);
     println!(
         "public signature requires {} without registering a runtime",
         required.types[0].symbol

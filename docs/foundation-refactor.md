@@ -122,8 +122,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   instead of runtime type slots. Registration checks and resolves every type
   before publishing a descriptor; unrelated runtime slot shifts preserve the
   canonical path fingerprint. VM dynamic-argument and runtime tests exercise
-  the new API. A complete KHI path declaration and source host index syntax
-  remain for the next R06 work.
+  the new API. Source host index syntax remains for later R06 work.
+
+- R06 complete-path declaration checkpoint: KHI v7 replaces field-only records
+  with ordered field/index/virtual `HostPathDeclaration` segments. Runtime
+  registration exports every path, verifies that its portable and resolved
+  fingerprints agree, and linking requires a unique matching binding. The old
+  field-path data type and registration entry are removed. KBC format/runtime
+  ABI v26 reject earlier products. Offline roundtrip and runtime rebinding
+  tests cover mixed paths; source host index syntax remains open.
 
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host

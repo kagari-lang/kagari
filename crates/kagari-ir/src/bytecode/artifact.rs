@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 25;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 26;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +50,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v25";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v26";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -534,8 +534,8 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
             return false;
         }
     }
-    for path in &module.host_interface.field_paths {
-        if !add(path.fields.len()) {
+    for path in &module.host_interface.paths {
+        if !add(path.segments.len()) {
             return false;
         }
     }
@@ -683,10 +683,18 @@ fn host_identity_limit(interface: &kagari_common::host_interface::HostInterface)
         valid(&function.id)
             && function.params.iter().all(|param| value(&param.ty))
             && value(&function.return_type)
-    }) && interface
-        .field_paths
-        .iter()
-        .all(|path| valid(&path.root) && path.fields.iter().all(valid))
+    }) && interface.paths.iter().all(|path| {
+        valid(&path.root)
+            && path.segments.iter().all(|segment| match segment {
+                kagari_common::host_interface::HostPathSegmentDeclaration::Field(id) => valid(id),
+                kagari_common::host_interface::HostPathSegmentDeclaration::Index(index) => {
+                    value(&index.collection) && value(&index.index) && value(&index.result)
+                }
+                kagari_common::host_interface::HostPathSegmentDeclaration::Virtual(
+                    virtual_step,
+                ) => value(&virtual_step.result),
+            })
+    })
 }
 
 fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
@@ -733,7 +741,7 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
                 module.dependencies.len(),
                 module.host_interface.types.len(),
                 module.host_interface.functions.len(),
-                module.host_interface.field_paths.len(),
+                module.host_interface.paths.len(),
                 module.module_slots.len(),
                 module.constants.len(),
                 module.types.len(),
@@ -1725,7 +1733,7 @@ mod canonical_tests {
         use crate::module::{
             EnumLayout, EnumVariantLayout, FieldAbi, StructFieldLayout, StructLayout,
         };
-        use kagari_common::host_interface::{HostFieldPathDeclaration, PathAccess};
+        use kagari_common::host_interface::{HostPathDeclaration, PathAccess};
         use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
 
         let valid = BytecodeProgram {
@@ -1773,10 +1781,15 @@ mod canonical_tests {
         let mut host_path = valid.clone();
         host_path.modules[0]
             .host_interface
-            .field_paths
-            .push(HostFieldPathDeclaration {
+            .paths
+            .push(HostPathDeclaration {
                 root: id(DefinitionKind::Struct),
-                fields: vec![field_id.clone(); MAX_ARTIFACT_NESTED_RECORDS + 1],
+                segments: vec![
+                    kagari_common::host_interface::HostPathSegmentDeclaration::Field(
+                        field_id.clone()
+                    );
+                    MAX_ARTIFACT_NESTED_RECORDS + 1
+                ],
                 access: PathAccess::ReadOnly,
                 schema_epoch: 0,
                 capabilities: Default::default(),
@@ -2039,12 +2052,49 @@ mod canonical_tests {
     }
 
     #[test]
+    fn artifact_preserves_portable_virtual_path_declarations() {
+        use kagari_common::host_interface::{
+            HostPathDeclaration, HostPathSegmentDeclaration, HostTypeDeclaration,
+            HostTypeOwnership, HostValueType, HostVirtualSegmentDeclaration, PathAccess,
+        };
+        let mut root = HostTypeDeclaration::new("game.Player");
+        root.ownership = HostTypeOwnership::HostRoot;
+        root.path_access = PathAccess::ReadOnly;
+        let path = HostPathDeclaration {
+            root: root.id.clone(),
+            segments: vec![HostPathSegmentDeclaration::Virtual(
+                HostVirtualSegmentDeclaration {
+                    name: "preview".into(),
+                    result: HostValueType::I32,
+                    access: PathAccess::ReadOnly,
+                },
+            )],
+            access: PathAccess::ReadOnly,
+            schema_epoch: 1,
+            capabilities: Default::default(),
+        };
+        let mut module = BytecodeModule::default();
+        module.host_interface.types.push(root);
+        module.host_interface.paths.push(path.clone());
+        let artifact = KbcArtifact::from_program(
+            crate::bytecode::BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![module],
+            },
+            ArtifactBuildOptions::default(),
+        )
+        .unwrap();
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        assert_eq!(decoded.program.modules[0].host_interface.paths, vec![path]);
+    }
+
+    #[test]
     fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
         use kagari_common::host_interface::{
             HostFunctionDeclaration, HostInterface, HostValueType, standard_log,
         };
         let interface = HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: Vec::new(),
             functions: vec![
                 standard_log(),

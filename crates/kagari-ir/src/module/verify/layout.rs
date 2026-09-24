@@ -29,7 +29,7 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
     }
     crate::module::host::validate(
         &kagari_common::host_interface::HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: module.host_types.clone(),
             functions: functions.into_values().collect(),
         },

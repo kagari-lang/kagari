@@ -38,7 +38,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     let declaration = super::tests::declaration();
     db.set_host_declarations(
         HostDeclarations::new(HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: Vec::new(),
             functions: vec![declaration.clone()],
         })
@@ -82,7 +82,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     changed.return_type = HostValueType::String;
     db.set_host_declarations(
         HostDeclarations::new(HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: Vec::new(),
             functions: vec![changed],
         })
@@ -118,7 +118,7 @@ fn host_facades_do_not_override_local_shadowing_or_duplicate_export_errors() {
         let mut db = AnalysisDatabase::default();
         db.set_host_declarations(
             HostDeclarations::new(HostInterface {
-                field_paths: vec![],
+                paths: vec![],
                 types: Vec::new(),
                 functions: vec![super::tests::declaration()],
             })

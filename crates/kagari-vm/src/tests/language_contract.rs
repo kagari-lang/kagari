@@ -207,7 +207,7 @@ fn compile(case: &Case<'_>, route: Route) -> Option<kagari_ir::bytecode::Bytecod
     if case.array.is_some() {
         analysis.set_host_declarations(
             kagari_hir::host::HostDeclarations::new(kagari_common::host_interface::HostInterface {
-                field_paths: vec![],
+                paths: vec![],
                 types: vec![],
                 functions: vec![observe.clone()],
             })

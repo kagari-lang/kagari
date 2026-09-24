@@ -106,6 +106,9 @@ Version 21 carries portable field path declarations in required host interfaces.
 KHI v6 uses the same records, including field identities, access, schema and
 capabilities. Linking rejects required field paths without a unique matching
 runtime binding before program publication.
+Version 26 replaces those field-only records with KHI v7 `HostPathDeclaration`
+records. Ordered field, index and virtual segments share one portable contract;
+the loader rejects older artifact and interface formats before execution.
 Version 11 adds ordered enum payload types to public variant ABI records. These
 use structural `AbiType` encoding, preserving nominal declaration identity and
 container arguments instead of display strings or erased instruction ValueTypes.
@@ -153,9 +156,9 @@ annotation-only public signatures and concrete layout arguments. Registration an
 linking still validate full declaration contracts before execution.
 Version 19 permits required host call records with member declaration identities.
 These records must equal the declaring host type's generated method contract,
-including its explicit nominal receiver and passing style. KHI v6 carries the
+including its explicit nominal receiver and passing style. KHI v7 carries the
 same checked method call contracts; old interface versions are rejected.
-The runtime ABI identity is `kagari-runtime-abi-v25`; the runtime-helper ABI is
+The runtime ABI identity is `kagari-runtime-abi-v26`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -170,6 +173,8 @@ handle representation and source nominal host contracts. ABI v20 requires
 declaration-derived method binding and receiver contracts. ABI v21 requires
 contract-linked path slots. ABI v22 requires declared field path bindings; all prior ABI products
 are rejected.
+ABI v26 requires complete portable path declarations, including index and virtual
+segments, in the required host interface.
 The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration

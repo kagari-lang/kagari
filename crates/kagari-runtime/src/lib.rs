@@ -528,11 +528,11 @@ impl Runtime {
             .register_path_descriptor(registration, &self.types)
     }
 
-    pub fn register_host_field_path(
+    pub fn register_host_path(
         &mut self,
-        declaration: &kagari_common::host_interface::HostFieldPathDeclaration,
+        declaration: &kagari_common::host_interface::HostPathDeclaration,
     ) -> Result<host::HostPathDescriptorId, RuntimeError> {
-        self.host.register_field_path(declaration, &self.types)
+        self.host.register_path(declaration, &self.types)
     }
 
     pub fn register_host_path_adapter(

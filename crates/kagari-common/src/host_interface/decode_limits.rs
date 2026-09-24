@@ -23,8 +23,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::super::{
-        HostFieldDeclaration, HostFieldPathDeclaration, HostFunctionDeclaration, HostInterface,
-        HostInterfaceError, HostTypeDeclaration, MAGIC, PathAccess, VERSION,
+        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostInterfaceError,
+        HostPathDeclaration, HostTypeDeclaration, MAGIC, PathAccess, VERSION,
     };
     use super::*;
     use bincode::Options;
@@ -60,15 +60,18 @@ mod tests {
 
         let owner = HostTypeDeclaration::new("demo.Player");
         let field = HostFieldDeclaration::new(&owner.id, "score", super::super::HostValueType::I32);
-        let path = HostFieldPathDeclaration {
+        let path = HostPathDeclaration {
             root: owner.id,
-            fields: vec![field.id; MAX_MEMBERS + 1],
+            segments: vec![
+                crate::host_interface::HostPathSegmentDeclaration::Field(field.id);
+                MAX_MEMBERS + 1
+            ],
             access: PathAccess::ReadOnly,
             schema_epoch: 0,
             capabilities: Default::default(),
         };
         let interface = HostInterface {
-            field_paths: vec![path.clone()],
+            paths: vec![path.clone()],
             ..Default::default()
         };
         assert_eq!(interface.validate(), Err(HostInterfaceError::TooLarge));

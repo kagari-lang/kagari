@@ -255,7 +255,7 @@ mod tests {
         };
         let a = HostFunctionDeclaration::new("host.make", vec![], ty);
         let interface = HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: Vec::new(),
             functions: vec![a.clone()],
         };

@@ -638,6 +638,22 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         fingerprint(&runtime, first),
         fingerprint(&shifted, shifted_index)
     );
+
+    let offline = runtime.host().interface();
+    let encoded = offline.to_bytes().unwrap();
+    let offline = kagari_common::host_interface::HostInterface::from_bytes(&encoded).unwrap();
+    assert_eq!(offline.paths.len(), 4);
+    let mut bound = path_mutation_runtime();
+    register_i32(&bound);
+    register_host_root_type(&mut bound, "game.Player", PathAccess::ReadWrite);
+    for path in &offline.paths {
+        let id = bound.register_host_path(path).unwrap();
+        assert_eq!(
+            bound.host().path_descriptor(id).unwrap().abi_fingerprint.0,
+            path.contract(&offline).unwrap().fingerprint().unwrap()
+        );
+    }
+    bound.host().link_interface(&offline).unwrap();
 }
 
 #[test]

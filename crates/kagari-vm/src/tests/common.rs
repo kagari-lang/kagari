@@ -97,7 +97,7 @@ pub fn with_host_imports(
     functions: Vec<kagari_common::host_interface::HostFunctionDeclaration>,
 ) -> BytecodeModule {
     module.host_interface = kagari_common::host_interface::HostInterface {
-        field_paths: vec![],
+        paths: vec![],
         types: Vec::new(),
         functions,
     };

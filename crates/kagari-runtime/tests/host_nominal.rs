@@ -124,7 +124,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             host_interface: HostInterface {
-                field_paths: vec![],
+                paths: vec![],
                 types: vec![expected_type],
                 functions: vec![declaration],
             },
@@ -350,9 +350,11 @@ fn path_fields_are_derived_from_nominal_declarations() {
     let disabled = HostFieldDeclaration::new(&owner.id, "disabled", HostValueType::I32);
     owner.fields = vec![hp.clone(), hidden.clone(), disabled.clone()];
     let catalog = HostInterface {
-        field_paths: vec![kagari_common::host_interface::HostFieldPathDeclaration {
+        paths: vec![kagari_common::host_interface::HostPathDeclaration {
             root: owner.id.clone(),
-            fields: vec![hp.id.clone()],
+            segments: vec![
+                kagari_common::host_interface::HostPathSegmentDeclaration::Field(hp.id.clone()),
+            ],
             access: PathAccess::ReadOnly,
             schema_epoch: 0,
             capabilities: CapabilitySet::default(),
@@ -361,15 +363,7 @@ fn path_fields_are_derived_from_nominal_declarations() {
         functions: vec![],
     };
     let offline = HostInterface::from_bytes(&catalog.to_bytes().unwrap()).unwrap();
-    let contract = offline
-        .field_path_contract(
-            &owner.id,
-            std::slice::from_ref(&hp.id),
-            PathAccess::ReadOnly,
-            0,
-            CapabilitySet::default(),
-        )
-        .unwrap();
+    let contract = offline.paths[0].contract(&offline).unwrap();
     for (field, access) in [
         (&hidden.id, PathAccess::ReadOnly),
         (&disabled.id, PathAccess::ReadOnly),
@@ -377,13 +371,15 @@ fn path_fields_are_derived_from_nominal_declarations() {
     ] {
         assert!(
             offline
-                .field_path_contract(
-                    &owner.id,
-                    std::slice::from_ref(field),
+                .path_contract(&kagari_common::host_interface::HostPathDeclaration {
+                    segments: vec![
+                        kagari_common::host_interface::HostPathSegmentDeclaration::Field(
+                            field.clone()
+                        )
+                    ],
                     access,
-                    0,
-                    CapabilitySet::default()
-                )
+                    ..offline.paths[0].clone()
+                })
                 .is_err()
         );
     }
@@ -418,11 +414,9 @@ fn path_fields_are_derived_from_nominal_declarations() {
         assert_eq!(runtime.host().path_descriptors().count(), 0);
     }
     assert!(runtime.host().link_interface(&offline).is_err());
-    let id = runtime
-        .register_host_field_path(&offline.field_paths[0])
-        .unwrap();
+    let id = runtime.register_host_path(&offline.paths[0]).unwrap();
     assert!(runtime.host().link_interface(&offline).is_ok());
-    assert_eq!(runtime.host().interface().field_paths, offline.field_paths);
+    assert_eq!(runtime.host().interface().paths, offline.paths);
     let descriptor = runtime.host().path_descriptor(id).unwrap();
     assert_eq!(
         descriptor.abi_fingerprint.0,

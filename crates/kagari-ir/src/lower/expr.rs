@@ -470,7 +470,7 @@ impl FunctionLowerer<'_, '_> {
                 root_or_view,
                 dynamic_args: Default::default(),
                 path: crate::module::PathRef {
-                    field_declaration: Some(checked.declaration),
+                    declaration: Some(checked.declaration),
                     contract_fingerprint: fingerprint,
                     root_ty: root_or_view.ty,
                     result_ty: dst.ty,

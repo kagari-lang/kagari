@@ -164,7 +164,7 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 6, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 7, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. The decoder
 checks declaration-list lengths before reading elements (at most 1,000,000 each),
@@ -572,16 +572,14 @@ collection must match the preceding segment's result (or the root for the first
 segment), and field identities must belong to that current owner. The requested
 result type and access must agree with the generated segments. Rejection neither
 publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
-output exposed to adapters. Complete index/virtual path declarations and source
-host index paths remain separate pending work.
+output exposed to adapters. Source host index paths remain separate pending work.
 
 `HostIndexSegmentDeclaration` and `HostVirtualSegmentDeclaration` now carry
 portable result and input types (`HostValueType`) rather than runtime `TypeId`
 slots. Registration resolves these against the current runtime after validating
 the declaration, rejects missing nominal dependencies before publishing a
 descriptor, and derives the same path fingerprint even when unrelated runtime
-type registrations shift slots. The containing index/virtual path is not yet a
-KHI declaration; source-level host index syntax remains pending.
+type registrations shift slots. Source-level host index syntax remains pending.
 
 Index and virtual registrations do not accept a caller-supplied member
 fingerprint. They have no portable member declaration yet, so their member
@@ -589,12 +587,11 @@ fingerprint slot is zero. The versioned whole-path encoder still includes the
 index slot and portable collection/index/result types, or the virtual name and
 result type, plus access, schema and capabilities. Identical resolved contracts
 produce identical path fingerprints; changes to those inputs change the path
-fingerprint. These runtime-only segments cannot stand in for a declared field
-path in an offline interface.
+fingerprint. These segments can be included in an offline `HostPathDeclaration`.
 
 The common declaration layer owns `HostPathContract` and the whole-path ABI encoder;
-runtime registration cannot supply its own fingerprint. `HostInterface::field_path_contract`
-resolves a field chain by declaration identity, validates root ownership, visibility
+runtime registration cannot supply its own fingerprint. `HostInterface::path_contract`
+resolves a path by declaration identity and portable segment contracts, validates root ownership, visibility
 and path access, and returns its result type and portable contract without callbacks
 or runtime registration. Runtime registration uses the same encoder. The
 `kagari-host-path-v1\0` encoding uses FNV-1a 64 over fixed-order fields:
@@ -607,15 +604,16 @@ or display strings. Types without such contracts reject registration. Field
 declaration fingerprints and the root contract exclude documentation. Reordering
 unrelated runtime type registrations therefore does not change a path fingerprint.
 
-KHI v6 stores `HostInterface.field_paths` as portable `HostFieldPathDeclaration`
-records: nominal root, ordered field identities, access, schema epoch and required
-capabilities. Encoding sorts these records independently of registration order;
-duplicate records, invalid chains and chains longer than 256 fields are rejected.
-`Runtime::register_host_field_path` consumes the same declaration after its types
-are registered and derives the runtime descriptor. Exported runtime interfaces
-retain registered field path declarations. Linking checks these required contracts
-even if a module has no path instruction; missing or ambiguous bindings reject
-publication. Index/virtual path declarations and source host index paths remain pending.
+KHI v7 stores `HostInterface.paths` as portable `HostPathDeclaration` records:
+nominal root, ordered field/index/virtual segments, access, schema epoch and
+required capabilities. Encoding sorts these records independently of registration
+order; duplicate records, invalid chains and paths longer than 256 segments are
+rejected. `Runtime::register_host_path` consumes the same declaration after its
+types are registered and derives the runtime descriptor. Every registered runtime
+path is exported in its interface; the offline and runtime fingerprints must agree
+before publication. Linking checks required contracts even if a module has no path
+instruction; missing or ambiguous bindings reject publication. Source host index
+paths remain pending.
 
 Bytecode path records require that contract fingerprint. The loader resolves all
 records before publishing the program, rejects missing/ambiguous contracts and

@@ -19,7 +19,7 @@ pub struct AggregateFieldRef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRef {
-    pub field_declaration: Option<kagari_common::host_interface::HostFieldPathDeclaration>,
+    pub declaration: Option<kagari_common::host_interface::HostPathDeclaration>,
     pub contract_fingerprint: u64,
     pub root_ty: ValueType,
     pub result_ty: ValueType,

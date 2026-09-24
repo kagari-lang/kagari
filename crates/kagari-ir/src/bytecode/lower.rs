@@ -66,7 +66,7 @@ fn lower_linked_module(
         structures: &ir.structures,
         enumerations: &ir.enumerations,
         host_interface: kagari_common::host_interface::HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: ir.host_types.clone(),
             functions: Vec::new(),
         },
@@ -152,10 +152,10 @@ impl BytecodeLoweringContext<'_> {
     }
 
     fn path_id(&mut self, path: &PathRef) -> PathId {
-        if let Some(declaration) = &path.field_declaration
-            && !self.host_interface.field_paths.contains(declaration)
+        if let Some(declaration) = &path.declaration
+            && !self.host_interface.paths.contains(declaration)
         {
-            self.host_interface.field_paths.push(declaration.clone());
+            self.host_interface.paths.push(declaration.clone());
         }
         if let Some(record) = self.paths.iter().find(|record| {
             record.contract_fingerprint == path.contract_fingerprint

@@ -21,7 +21,7 @@ fn interface() -> HostInterface {
         HostValueType::I32,
     );
     HostInterface {
-        field_paths: vec![],
+        paths: vec![],
         types: vec![left, right],
         functions: vec![make, take],
     }
@@ -200,8 +200,8 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
     use kagari_common::{
         DiagnosticKind,
         host_interface::{
-            HostFieldDeclaration, HostFieldPathDeclaration, HostMethodDeclaration,
-            HostTypeOwnership, PathAccess,
+            HostFieldDeclaration, HostMethodDeclaration, HostPathDeclaration, HostTypeOwnership,
+            PathAccess,
         },
     };
     let mut declarations = interface();
@@ -223,9 +223,11 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
     let mut field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
     field.path_access = PathAccess::ReadOnly;
     owner.fields.push(field.clone());
-    declarations.field_paths.push(HostFieldPathDeclaration {
+    declarations.paths.push(HostPathDeclaration {
         root: owner.id.clone(),
-        fields: vec![field.id.clone()],
+        segments: vec![
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(field.id.clone()),
+        ],
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
         capabilities: Default::default(),
@@ -352,7 +354,7 @@ fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_const
 #[test]
 fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     use kagari_common::host_interface::{
-        HostFieldDeclaration, HostFieldPathDeclaration, HostTypeOwnership, PathAccess,
+        HostFieldDeclaration, HostPathDeclaration, HostTypeOwnership, PathAccess,
     };
     let mut declarations = interface();
     let owner = &mut declarations.types[0];
@@ -362,14 +364,16 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     field.path_access = PathAccess::ReadOnly;
     field.documentation = "Offline score documentation".into();
     owner.fields.push(field.clone());
-    let path = HostFieldPathDeclaration {
+    let path = HostPathDeclaration {
         root: owner.id.clone(),
-        fields: vec![field.id.clone()],
+        segments: vec![
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(field.id.clone()),
+        ],
         access: PathAccess::ReadOnly,
         schema_epoch: 2,
         capabilities: Default::default(),
     };
-    declarations.field_paths.push(path.clone());
+    declarations.paths.push(path.clone());
     let mut sources = SourceDatabase::default();
     let text = "fn neighbor() -> i32 { 1 } fn read() -> i32 { left::make().score }";
     let root = sources
@@ -419,9 +423,9 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         if ambiguous {
             let mut other = path.clone();
             other.schema_epoch = 3;
-            invalid.field_paths.push(other);
+            invalid.paths.push(other);
         } else {
-            invalid.field_paths.clear();
+            invalid.paths.clear();
         }
         db.set_host_declarations(HostDeclarations::new(invalid).unwrap());
         let snapshot = db
@@ -461,7 +465,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
 #[test]
 fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     use kagari_common::host_interface::{
-        HostFieldDeclaration, HostFieldPathDeclaration, HostTypeOwnership, PathAccess,
+        HostFieldDeclaration, HostPathDeclaration, HostTypeOwnership, PathAccess,
     };
     let mut declarations = interface();
     let owner = &mut declarations.types[0];
@@ -471,9 +475,11 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     field.writable = true;
     field.path_access = PathAccess::ReadWrite;
     owner.fields.push(field.clone());
-    declarations.field_paths.push(HostFieldPathDeclaration {
+    declarations.paths.push(HostPathDeclaration {
         root: owner.id.clone(),
-        fields: vec![field.id.clone()],
+        segments: vec![
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(field.id.clone()),
+        ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),
@@ -534,7 +540,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     );
     assert_eq!(file.host_field_at(changed.find("neighbor").unwrap()), None);
     new.check_program(root, &Default::default()).unwrap();
-    declarations.field_paths[0].access = PathAccess::ReadOnly;
+    declarations.paths[0].access = PathAccess::ReadOnly;
     db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
     let readonly = db
         .snapshot(sources.snapshot(), profile, &Default::default())
@@ -570,7 +576,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
 #[test]
 fn mixed_field_chains_resolve_the_complete_host_suffix() {
     use kagari_common::host_interface::{
-        HostFieldDeclaration, HostFieldPathDeclaration, HostTypeOwnership, PathAccess,
+        HostFieldDeclaration, HostPathDeclaration, HostTypeOwnership, PathAccess,
     };
     let mut declarations = interface();
     let mut related = HostFieldDeclaration::new(
@@ -588,14 +594,17 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     declarations.types[0].path_access = PathAccess::ReadWrite;
     declarations.types[0].fields.push(related.clone());
     declarations.types[1].fields.push(count.clone());
-    let path = HostFieldPathDeclaration {
+    let path = HostPathDeclaration {
         root: declarations.types[0].id.clone(),
-        fields: vec![related.id.clone(), count.id.clone()],
+        segments: vec![
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(related.id.clone()),
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(count.id.clone()),
+        ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),
     };
-    declarations.field_paths.push(path.clone());
+    declarations.paths.push(path.clone());
     // Query abstract signatures without constructing a script heap object that
     // contains a host handle (which execution deliberately rejects).
     let text = "struct Box { val host: left::Item } struct Outer { val inner: Box } fn read(value: Outer) -> i32 { value.inner.host.related.count } fn write(value: Outer) { value.inner.host.related.count += 1; }";

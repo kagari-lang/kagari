@@ -53,9 +53,11 @@ fn main() {
     let hp_declaration = hp.id.clone();
     player.declaration.fields.push(hp);
 
-    let path_declaration = kagari_common::host_interface::HostFieldPathDeclaration {
+    let path_declaration = kagari_common::host_interface::HostPathDeclaration {
         root: player.declaration.id.clone(),
-        fields: vec![hp_declaration],
+        segments: vec![
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(hp_declaration),
+        ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: CapabilitySet::default(),
@@ -65,7 +67,7 @@ fn main() {
     let root = runtime
         .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
         .unwrap();
-    let path = runtime.register_host_field_path(&path_declaration).unwrap();
+    let path = runtime.register_host_path(&path_declaration).unwrap();
     let hp = Rc::new(Cell::new(10));
     let read_hp = hp.clone();
     let prepare_hp = hp.clone();

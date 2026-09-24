@@ -218,7 +218,7 @@ fn host_fixture(
     );
     engine
         .set_host_interface(HostInterface {
-            field_paths: vec![],
+            paths: vec![],
             types: Vec::new(),
             functions: vec![declaration.clone()],
         })

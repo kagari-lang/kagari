@@ -38,7 +38,7 @@ fn interface() -> HostInterface {
         HostValueType::I32,
     );
     HostInterface {
-        field_paths: vec![],
+        paths: vec![],
         types: vec![item, related, HostTypeDeclaration::new("unused.Other")],
         functions: vec![make, take],
     }
@@ -420,15 +420,20 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
 
 #[test]
 fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
-    use kagari_common::host_interface::{HostFieldPathDeclaration, PathAccess};
+    use kagari_common::host_interface::{HostPathDeclaration, PathAccess};
     let mut declarations = interface();
     declarations.types[0].fields[0].path_access = PathAccess::ReadOnly;
     let mut count =
         HostFieldDeclaration::new(&declarations.types[1].id, "count", HostValueType::I32);
     count.path_access = PathAccess::ReadOnly;
-    let path = HostFieldPathDeclaration {
+    let path = HostPathDeclaration {
         root: declarations.types[0].id.clone(),
-        fields: vec![declarations.types[0].fields[0].id.clone(), count.id.clone()],
+        segments: vec![
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(
+                declarations.types[0].fields[0].id.clone(),
+            ),
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(count.id.clone()),
+        ],
         access: PathAccess::ReadOnly,
         schema_epoch: 7,
         capabilities: CapabilitySet {
@@ -437,7 +442,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         },
     };
     declarations.types[1].fields.push(count);
-    declarations.field_paths.push(path.clone());
+    declarations.paths.push(path.clone());
     let engine = KagariEngine::default();
     engine.set_host_interface(declarations.clone()).unwrap();
     let profile = LanguageProfile {
@@ -458,7 +463,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         )
         .unwrap();
     let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
-    assert_eq!(required.field_paths, vec![path.clone()]);
+    assert_eq!(required.paths, vec![path.clone()]);
     assert_eq!(required.types.len(), 2);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -518,10 +523,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 .is_err()
         );
         assert!(trace.borrow().is_empty());
-        let descriptor = runtime
-            .runtime_mut()
-            .register_host_field_path(&path)
-            .unwrap();
+        let descriptor = runtime.runtime_mut().register_host_path(&path).unwrap();
         let calls = trace.clone();
         runtime
             .runtime_mut()
@@ -556,7 +558,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
 
 #[test]
 fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_failure() {
-    use kagari_common::host_interface::{HostFieldPathDeclaration, PathAccess};
+    use kagari_common::host_interface::{HostPathDeclaration, PathAccess};
     use kagari_runtime::host::{HostError, PreparedHostPathWrite};
     use std::cell::Cell;
     let mut declarations = interface();
@@ -567,15 +569,20 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
         HostFieldDeclaration::new(&declarations.types[1].id, "count", HostValueType::I32);
     count.path_access = PathAccess::ReadWrite;
     count.writable = true;
-    let path = HostFieldPathDeclaration {
+    let path = HostPathDeclaration {
         root: declarations.types[0].id.clone(),
-        fields: vec![declarations.types[0].fields[0].id.clone(), count.id.clone()],
+        segments: vec![
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(
+                declarations.types[0].fields[0].id.clone(),
+            ),
+            kagari_common::host_interface::HostPathSegmentDeclaration::Field(count.id.clone()),
+        ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),
     };
     declarations.types[1].fields.push(count);
-    declarations.field_paths.push(path.clone());
+    declarations.paths.push(path.clone());
     let rhs = HostFunctionDeclaration::new("left.rhs", vec![], HostValueType::I32);
     declarations.functions.push(rhs.clone());
     let engine = KagariEngine::default();
@@ -697,10 +704,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                         Ok(Value::I32(rhs_value))
                     }))
                     .unwrap();
-                let descriptor = runtime
-                    .runtime_mut()
-                    .register_host_field_path(&path)
-                    .unwrap();
+                let descriptor = runtime.runtime_mut().register_host_path(&path).unwrap();
                 let (reads, value, absent) = (trace.clone(), state.clone(), removed.clone());
                 let (writes, target) = (trace.clone(), state.clone());
                 runtime
