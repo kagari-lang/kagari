@@ -468,7 +468,7 @@ fn trait_parameter_context_keeps_targets_through_invalid_payloads() {
                 .type_table
                 .call_resolution(id)
                 .is_some_and(|call| {
-                    matches!(call.target, crate::typeck::CallTarget::TraitMethod(_))
+                    matches!(call.target, crate::typeck::CallTarget::TraitMethod { .. })
                 })
         }));
         assert_eq!(analysis.into_codegen().is_ok(), valid);

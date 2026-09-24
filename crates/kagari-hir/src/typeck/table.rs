@@ -3,13 +3,13 @@ use std::collections::{HashMap, HashSet};
 use super::ScalarValue;
 use crate::builtin::{BuiltinFunction, surface::StandardIntrinsic};
 use crate::hir::{ExprId, FieldId, FunctionId, LocalId, PatternId, PlaceId};
-use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
+use crate::types::{GenericParameterType, NominalType, TypeId, TypeSubstitution};
 use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstraintTarget {
     Standard(crate::builtin::surface::StandardTypeConstraint),
-    Trait(DefinitionId),
+    Trait(NominalType),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,7 +38,10 @@ pub enum CallTarget {
     Function(FunctionId),
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(BuiltinFunction),
-    TraitMethod(DefinitionId),
+    TraitMethod {
+        method: DefinitionId,
+        interface: NominalType,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,7 +78,7 @@ struct TraitImplementation {
 pub struct TypeTable {
     host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
     host_paths: HashMap<ExprId, ResolvedHostPath>,
-    implementations: HashMap<(DefinitionId, TypeId), TraitImplementation>,
+    implementations: HashMap<(NominalType, TypeId), TraitImplementation>,
     constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
     type_refs: HashMap<crate::hir::TypeRefId, ResolvedTypeRef>,
     field_types: HashMap<FieldId, TypeId>,
@@ -213,33 +216,40 @@ impl TypeTable {
     }
     pub(crate) fn insert_implementation(
         &mut self,
-        trait_id: DefinitionId,
+        trait_type: NominalType,
         ty: TypeId,
         parameters: Vec<GenericParameterType>,
         bounds: super::GenericBounds,
         methods: HashMap<DefinitionId, FunctionId>,
     ) {
         self.implementations
-            .entry((trait_id, ty))
+            .entry((trait_type, ty))
             .or_insert(TraitImplementation {
                 parameters,
                 bounds,
                 methods,
             });
     }
-    pub fn implements(&self, trait_id: &DefinitionId, ty: &TypeId) -> bool {
-        self.implements_with_guard(trait_id, ty, &mut HashSet::new())
+    pub fn implements(&self, trait_type: &NominalType, ty: &TypeId) -> bool {
+        self.implements_with_guard(trait_type, ty, &mut HashSet::new())
     }
     pub fn implementation_method(
         &self,
         method: &DefinitionId,
+        trait_type: &NominalType,
         ty: &TypeId,
     ) -> Option<(FunctionId, Vec<TypeId>)> {
         self.implementations
             .iter()
-            .find_map(|((_, pattern), implementation)| {
+            .find_map(|((implemented_trait, pattern), implementation)| {
                 let function = *implementation.methods.get(method)?;
-                let matched = match_implementation(pattern, ty, &implementation.parameters)?;
+                let matched = match_implementation(
+                    implemented_trait,
+                    trait_type,
+                    pattern,
+                    ty,
+                    &implementation.parameters,
+                )?;
                 if !self.implementation_bounds_hold(implementation, &matched, &mut HashSet::new()) {
                     return None;
                 }
@@ -253,23 +263,28 @@ impl TypeTable {
     }
     fn implements_with_guard(
         &self,
-        trait_id: &DefinitionId,
+        trait_type: &NominalType,
         ty: &TypeId,
-        visiting: &mut HashSet<(DefinitionId, TypeId)>,
+        visiting: &mut HashSet<(NominalType, TypeId)>,
     ) -> bool {
-        let key = (trait_id.clone(), ty.clone());
+        let key = (trait_type.clone(), ty.clone());
         if !visiting.insert(key.clone()) {
             return false;
         }
         let found =
             self.implementations
                 .iter()
-                .any(|((owner, pattern), implementation)| {
-                    owner == trait_id
-                        && match_implementation(pattern, ty, &implementation.parameters)
-                            .is_some_and(|matched| {
-                                self.implementation_bounds_hold(implementation, &matched, visiting)
-                            })
+                .any(|((implemented_trait, pattern), implementation)| {
+                    match_implementation(
+                        implemented_trait,
+                        trait_type,
+                        pattern,
+                        ty,
+                        &implementation.parameters,
+                    )
+                    .is_some_and(|matched| {
+                        self.implementation_bounds_hold(implementation, &matched, visiting)
+                    })
                 });
         visiting.remove(&key);
         found
@@ -278,7 +293,7 @@ impl TypeTable {
         &self,
         implementation: &TraitImplementation,
         matched: &TypeSubstitution,
-        visiting: &mut HashSet<(DefinitionId, TypeId)>,
+        visiting: &mut HashSet<(NominalType, TypeId)>,
     ) -> bool {
         implementation
             .bounds
@@ -295,9 +310,11 @@ impl TypeTable {
                             &Default::default(),
                         )
                     }
-                    ConstraintTarget::Trait(trait_id) => {
-                        self.implements_with_guard(trait_id, actual, visiting)
-                    }
+                    ConstraintTarget::Trait(trait_type) => self.implements_with_guard(
+                        &trait_type.instantiate(matched),
+                        actual,
+                        visiting,
+                    ),
                 })
             })
     }
@@ -610,12 +627,25 @@ impl TypeTable {
 }
 
 fn match_implementation(
+    implemented_trait: &NominalType,
+    requested_trait: &NominalType,
     pattern: &TypeId,
     actual: &TypeId,
     parameters: &[GenericParameterType],
 ) -> Option<TypeSubstitution> {
+    if implemented_trait.declaration != requested_trait.declaration
+        || implemented_trait.arguments.len() != requested_trait.arguments.len()
+    {
+        return None;
+    }
     let mut bindings = TypeSubstitution::new();
     let mut pending = vec![(pattern, actual)];
+    pending.extend(
+        implemented_trait
+            .arguments
+            .iter()
+            .zip(&requested_trait.arguments),
+    );
     while let Some((pattern, actual)) = pending.pop() {
         match (pattern, actual) {
             (TypeId::Generic(parameter), actual) if parameters.contains(parameter) => {

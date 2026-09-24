@@ -43,7 +43,7 @@ pub(crate) fn validate(
                     && aggregate_shape_valid(ty, cancel)
                     && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(
                         |params| {
-                            bounds_valid(&ty.bounds, &params)
+                            bounds_valid(&ty.bounds, &params, cancel)
                                 && ty
                                     .fields
                                     .iter()
@@ -62,7 +62,7 @@ pub(crate) fn validate(
                 trait_names.insert(&ty.name)
                     && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(
                         |params| {
-                            bounds_valid(&ty.bounds, &params)
+                            bounds_valid(&ty.bounds, &params, cancel)
                                 && ty.methods.iter().all(|method| {
                                     methods.insert(&method.name)
                                         && function_valid(
@@ -89,7 +89,7 @@ pub(crate) fn validate(
                 .flatten();
                 params.is_some_and(|params| {
                     let mut methods = HashSet::new();
-                    bounds_valid(&table.bounds, &params)
+                    bounds_valid(&table.bounds, &params, cancel)
                         && matches!(table.trait_type, AbiType::Trait(_))
                         && type_valid(&table.trait_type, &params, None, cancel)
                         && type_valid(&table.for_type, &params, None, cancel)
@@ -341,7 +341,11 @@ fn parameters(
     }
     Some(params)
 }
-fn bounds_valid(bounds: &[GenericBoundAbi], params: &Parameters) -> bool {
+fn bounds_valid(
+    bounds: &[GenericBoundAbi],
+    params: &Parameters,
+    cancel: &CancellationToken,
+) -> bool {
     if !bounds
         .windows(2)
         .all(|pair| (&pair[0].owner, pair[0].position) < (&pair[1].owner, pair[1].position))
@@ -356,7 +360,9 @@ fn bounds_valid(bounds: &[GenericBoundAbi], params: &Parameters) -> bool {
             && bound.constraints.windows(2).all(|pair| pair[0] < pair[1])
             && bound.constraints.iter().all(|constraint| match constraint {
                 ConstraintAbi::Standard(_) => true,
-                ConstraintAbi::Trait(id) => nominal_valid(id, DefinitionKind::Trait),
+                ConstraintAbi::Trait(ty) => {
+                    type_valid(&AbiType::Trait(ty.clone()), params, None, cancel)
+                }
             })
     })
 }
@@ -376,7 +382,7 @@ fn function_valid(
     };
     let owner = owner(module, parent, kind, &function.name);
     parameters(&function.generic_params, &owner, outer).is_some_and(|params| {
-        bounds_valid(&function.bounds, &params)
+        bounds_valid(&function.bounds, &params, cancel)
             && signature_valid(function, &params, self_owner, cancel)
     })
 }

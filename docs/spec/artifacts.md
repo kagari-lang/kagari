@@ -135,6 +135,10 @@ method slots carry the full concrete argument list in implementation-then-method
 parameter order. Verification rejects slots with a different argument count.
 Applied local generic trait arguments remain part of the public interface-table
 type and method contract; they cannot be replaced by a bare trait declaration.
+Version 30 records applied trait arguments in generic bound constraints, including
+inline and `where` bounds. Canonical ordering compares the complete structural
+trait type. Verification checks bound argument shapes and identities; artifact
+resource limits include their argument vectors. Older formats are rejected.
 Version 11 adds ordered enum payload types to public variant ABI records. These
 use structural `AbiType` encoding, preserving nominal declaration identity and
 container arguments instead of display strings or erased instruction ValueTypes.
@@ -184,7 +188,7 @@ Version 19 permits required host call records with member declaration identities
 These records must equal the declaring host type's generated method contract,
 including its explicit nominal receiver and passing style. KHI v7 carries the
 same checked method call contracts; old interface versions are rejected.
-The runtime ABI identity is `kagari-runtime-abi-v29`; the runtime-helper ABI is
+The runtime ABI identity is `kagari-runtime-abi-v30`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
@@ -205,6 +209,7 @@ ABI v27 requires identity-bearing interface implementation records and rejects
 display-label-only reload keys.
 ABI v28 requires identity-bearing executable function records.
 ABI v29 requires verified executable interface method tables.
+ABI v30 requires applied trait bound identity in public signatures and templates.
 The helper ABI preserves cancellation
 and commit EngineFault independently of resource/trap status.
 Host calls use HostImportId operands and a required HostInterface declaration

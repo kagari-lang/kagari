@@ -155,8 +155,8 @@ identity plus concrete arguments. IR InstanceId is separate from HIR FunctionId.
 Signatures, locals, temporaries and direct calls use the selected instance.
 Static trait calls on a concrete type use checked implementation targets;
 reachable generic impl methods specialize by receiver arguments. Local applied
-trait impl headers retain their arguments in checked ABI tables. Applied generic
-bounds and runtime interface dispatch remain pending.
+trait impl headers and bounds retain their arguments in checked ABI tables.
+Runtime interface dispatch remains pending.
 
 `lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule` after
 checking IR structure, operations and definite initialization. Bytecode generation

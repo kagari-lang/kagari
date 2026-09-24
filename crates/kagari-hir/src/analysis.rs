@@ -411,9 +411,9 @@ impl FileAnalysis {
                             .declarations
                             .target(crate::resolver::ResolvedName::Function(function))?,
                     )),
-                    crate::typeck::CallTarget::TraitMethod(function) => Some((
+                    crate::typeck::CallTarget::TraitMethod { method, .. } => Some((
                         callee_span,
-                        &facts.aggregates.trait_method(&function)?.declaration,
+                        &facts.aggregates.trait_method(&method)?.declaration,
                     )),
                     _ => None,
                 }

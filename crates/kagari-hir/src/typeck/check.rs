@@ -599,7 +599,7 @@ fn validate_trait_surface(
         }
     }
 
-    let mut seen_impls = Vec::new();
+    let mut seen_impls: Vec<(crate::types::NominalType, TypeId)> = Vec::new();
     for impl_block in &lowered.module.impls {
         let Some(reference) = &impl_block.trait_ref else {
             continue;
@@ -618,7 +618,8 @@ fn validate_trait_surface(
             );
             continue;
         };
-        let Some(ResolvedName::Trait(local_id)) = declarations.definition_target(&id) else {
+        let Some(ResolvedName::Trait(local_id)) = declarations.definition_target(&id.declaration)
+        else {
             unreachable!("checked local trait identity");
         };
         let trait_def = lowered
@@ -676,6 +677,7 @@ fn validate_trait_surface(
                                     Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
                                         type_name: actual.display_name(),
                                         trait_name: required_trait
+                                            .declaration
                                             .path
                                             .last()
                                             .map(|part| part.name.clone())
@@ -720,7 +722,11 @@ fn validate_trait_surface(
         }
 
         if seen_impls.iter().any(|(previous_trait, previous_type)| {
-            previous_trait == &id && possibly_overlapping_impls(previous_type, &for_ty)
+            previous_trait.declaration == id.declaration
+                && (previous_trait.arguments == id.arguments
+                    || !previous_trait.arguments.iter().all(TypeId::is_concrete)
+                    || !id.arguments.iter().all(TypeId::is_concrete))
+                && possibly_overlapping_impls(previous_type, &for_ty)
         }) {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {

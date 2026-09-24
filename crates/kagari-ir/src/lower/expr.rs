@@ -549,33 +549,41 @@ impl FunctionLowerer<'_, '_> {
             .call_resolution(expr)
             .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
         let span = self.analyzed.lowered.source_map.expr_span(expr);
-        let (target, impl_arguments) = if let SemanticCallTarget::TraitMethod(method) = call.target
-        {
-            let receiver = call
-                .receiver
-                .ok_or(IrLoweringError::MissingBinding("trait receiver"))?;
-            let ty = self
-                .analyzed
-                .typed
-                .type_table
-                .expr_type(receiver)
-                .ok_or(IrLoweringError::MissingExprType(receiver))?;
-            let mut types = self
-                .planner
-                .arguments(&[ty], &self.instance.substitution, span)?;
-            let ty = types.pop().expect("receiver type");
-            let (implementation, impl_arguments) = self
-                .analyzed
-                .typed
-                .type_table
-                .implementation_method(&method, &ty)
-                .ok_or(IrLoweringError::UnsupportedExpr(
-                    "interface dispatch requires linked implementation tables",
-                ))?;
-            (SemanticCallTarget::Function(implementation), impl_arguments)
-        } else {
-            (call.target, Vec::new())
-        };
+        let (target, impl_arguments) =
+            if let SemanticCallTarget::TraitMethod { method, interface } = call.target {
+                let receiver = call
+                    .receiver
+                    .ok_or(IrLoweringError::MissingBinding("trait receiver"))?;
+                let ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(receiver)
+                    .ok_or(IrLoweringError::MissingExprType(receiver))?;
+                let mut types = self
+                    .planner
+                    .arguments(&[ty], &self.instance.substitution, span)?;
+                let ty = types.pop().expect("receiver type");
+                let interface = kagari_hir::types::NominalType {
+                    declaration: interface.declaration,
+                    arguments: self.planner.arguments(
+                        &interface.arguments,
+                        &self.instance.substitution,
+                        span,
+                    )?,
+                };
+                let (implementation, impl_arguments) = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .implementation_method(&method, &interface, &ty)
+                    .ok_or(IrLoweringError::UnsupportedExpr(
+                        "interface dispatch requires linked implementation tables",
+                    ))?;
+                (SemanticCallTarget::Function(implementation), impl_arguments)
+            } else {
+                (call.target, Vec::new())
+            };
         let (callee, args) = match target {
             SemanticCallTarget::TerminatingCallee => {
                 let callee = call.receiver.ok_or(IrLoweringError::MissingBinding(
@@ -595,7 +603,7 @@ impl FunctionLowerer<'_, '_> {
                     ControlFlow::Break(value) => return Ok(value),
                 }
             }
-            SemanticCallTarget::TraitMethod(_) => {
+            SemanticCallTarget::TraitMethod { .. } => {
                 return Err(IrLoweringError::UnsupportedExpr(
                     "interface dispatch requires linked implementation tables",
                 ));
@@ -666,7 +674,7 @@ impl FunctionLowerer<'_, '_> {
                     )),
                     SemanticCallTarget::TerminatingCallee
                     | SemanticCallTarget::RuntimeHelper(_)
-                    | SemanticCallTarget::TraitMethod(_) => {
+                    | SemanticCallTarget::TraitMethod { .. } => {
                         unreachable!()
                     }
                 };

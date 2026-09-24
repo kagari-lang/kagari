@@ -91,7 +91,7 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
         panic!("trait")
     };
     assert!(
-        matches!(&interface.methods[0].bounds[0].constraints[0], kagari_ir::module::abi::ConstraintAbi::Trait(id) if id.module.path == ["root"] && id.path.last().unwrap().name == "LeftMarker")
+        matches!(&interface.methods[0].bounds[0].constraints[0], kagari_ir::module::abi::ConstraintAbi::Trait(id) if id.declaration.module.path == ["root"] && id.declaration.path.last().unwrap().name == "LeftMarker")
     );
 }
 

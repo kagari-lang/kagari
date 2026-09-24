@@ -28,6 +28,11 @@ pub(super) fn validate(
                         .map(|s| (&s.generic_params, &s.bounds)),
                 };
                 if let Some((parameters, required)) = contract {
+                    let substitution = parameters
+                        .iter()
+                        .cloned()
+                        .zip(instance.arguments.iter().cloned())
+                        .collect();
                     for (parameter, actual) in parameters.iter().zip(&instance.arguments) {
                         for constraint in required.get(parameter).into_iter().flatten() {
                             // Trait implementation identity needs complete members;
@@ -48,11 +53,16 @@ pub(super) fn validate(
                                     )
                                 }
                                 ConstraintTarget::Trait(id) => {
+                                    let applied = id.instantiate(&substitution);
                                     let satisfied = match actual {
-                                        TypeId::Generic(parameter) => bounds
-                                            .get(parameter)
-                                            .is_some_and(|bounds| bounds.contains(constraint)),
-                                        _ => table.implements(id, actual),
+                                        TypeId::Generic(parameter) => {
+                                            bounds.get(parameter).is_some_and(|bounds| {
+                                                bounds.contains(&ConstraintTarget::Trait(
+                                                    applied.clone(),
+                                                ))
+                                            })
+                                        }
+                                        _ => table.implements(&applied, actual),
                                     };
                                     if !satisfied {
                                         diagnostics.push(
@@ -60,7 +70,7 @@ pub(super) fn validate(
                                                 DiagnosticKind::GenericBoundNotSatisfied {
                                                     type_name: actual.display_name(),
                                                     trait_name: catalog
-                                                        .trait_(id)
+                                                        .trait_(&id.declaration)
                                                         .expect("checked trait contract")
                                                         .declaration
                                                         .name

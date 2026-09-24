@@ -26,7 +26,9 @@ impl std::hash::Hash for GenericParameterType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum BuiltinType {
     Unit,
     Bool,
@@ -52,6 +54,17 @@ pub struct NominalType {
 }
 
 impl NominalType {
+    pub fn instantiate(&self, substitution: &TypeSubstitution) -> Self {
+        Self {
+            declaration: self.declaration.clone(),
+            arguments: self
+                .arguments
+                .iter()
+                .map(|argument| argument.instantiate(substitution))
+                .collect(),
+        }
+    }
+
     fn map_arguments(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
         Self {
             declaration: self.declaration.clone(),

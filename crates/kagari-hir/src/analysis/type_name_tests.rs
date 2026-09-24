@@ -82,10 +82,14 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
             for item in &facts.lowered.module.traits {
                 assert!(
                     !facts.typed.type_table.implements(
-                        facts
-                            .declarations
-                            .definition(crate::resolver::ResolvedName::Trait(item.id))
-                            .unwrap(),
+                        &crate::types::NominalType {
+                            declaration: facts
+                                .declarations
+                                .definition(crate::resolver::ResolvedName::Trait(item.id))
+                                .unwrap()
+                                .clone(),
+                            arguments: Vec::new(),
+                        },
                         &TypeId::Struct(crate::types::NominalType {
                             declaration: valid.id.clone(),
                             arguments: Vec::new()

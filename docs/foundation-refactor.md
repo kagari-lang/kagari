@@ -524,6 +524,16 @@ R02 acceptance evidence:
   generic bounds, imported trait implementations and dynamic interface values
   remain open.
 
+- R07 applied-bound identity checkpoint: HIR constraints, selected trait-call
+  targets and public ABI now retain the complete nominal trait application.
+  Bounds in inline and `where` form distinguish `Echo<i32>` from `Echo<String>`;
+  concrete and template implementations specialize by both receiver and trait
+  arguments. Multiple disjoint applications on one receiver select distinct
+  methods, while overlapping templates are rejected. KBC format/runtime ABI v30
+  reject older products. The `applied_traits` example compiles a bound call and
+  round-trips its artifact. Imported trait constraints/impls and runtime interface
+  values remain open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

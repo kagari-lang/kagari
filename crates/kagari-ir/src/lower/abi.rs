@@ -308,7 +308,9 @@ fn constraint_abi(target: kagari_hir::typeck::ConstraintTarget) -> ConstraintAbi
         kagari_hir::typeck::ConstraintTarget::Standard(constraint) => {
             ConstraintAbi::Standard(constraint)
         }
-        kagari_hir::typeck::ConstraintTarget::Trait(id) => ConstraintAbi::Trait(id),
+        kagari_hir::typeck::ConstraintTarget::Trait(ty) => {
+            ConstraintAbi::Trait(crate::module::abi::NominalAbiType::from_checked_type(&ty))
+        }
     }
 }
 

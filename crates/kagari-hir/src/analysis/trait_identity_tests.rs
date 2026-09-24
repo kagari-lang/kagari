@@ -42,6 +42,13 @@ fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
     (definition, method, point)
 }
 
+fn interface(id: &DefinitionId) -> crate::types::NominalType {
+    crate::types::NominalType {
+        declaration: id.clone(),
+        arguments: Vec::new(),
+    }
+}
+
 #[test]
 fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
     let mut sources = SourceDatabase::default();
@@ -79,10 +86,18 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
         [(fa, &ta, &ma, &pa, &tb, &mb), (fb, &tb, &mb, &pb, &ta, &ma)]
     {
         let table = &facts.typed.type_table;
-        assert!(table.implements(own_trait, point));
-        assert!(!table.implements(foreign_trait, point));
-        assert!(table.implementation_method(own_method, point).is_some());
-        assert!(table.implementation_method(foreign_method, point).is_none());
+        assert!(table.implements(&interface(own_trait), point));
+        assert!(!table.implements(&interface(foreign_trait), point));
+        assert!(
+            table
+                .implementation_method(own_method, &interface(own_trait), point)
+                .is_some()
+        );
+        assert!(
+            table
+                .implementation_method(foreign_method, &interface(foreign_trait), point)
+                .is_none()
+        );
         let read = facts
             .lowered
             .module
@@ -92,7 +107,7 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
             .unwrap();
         assert_eq!(
             table.constraint(read.generic_params[0].bounds[0].ty),
-            Some(ConstraintTarget::Trait(own_trait.clone()))
+            Some(ConstraintTarget::Trait(interface(own_trait)))
         );
         let method = facts
             .lowered
@@ -100,7 +115,7 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
             .body
             .expressions()
             .find_map(|(id, _)| match table.call_resolution(id)?.target {
-                CallTarget::TraitMethod(id) => Some(id),
+                CallTarget::TraitMethod { method, .. } => Some(method),
                 _ => None,
             })
             .unwrap();
@@ -130,7 +145,7 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
     let previous_impl = before
         .typed
         .type_table
-        .implementation_method(&method_id, &point)
+        .implementation_method(&method_id, &interface(&trait_id), &point)
         .unwrap();
     let edited = format!("trait Earlier {{ fn other(self); }} fn earlier() {{}} {SOURCE}");
     sources
@@ -145,8 +160,10 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
     );
     let facts = after.result().facts();
     let table = &facts.typed.type_table;
-    assert!(table.implements(&trait_id, &point));
-    let next_impl = table.implementation_method(&method_id, &point).unwrap();
+    assert!(table.implements(&interface(&trait_id), &point));
+    let next_impl = table
+        .implementation_method(&method_id, &interface(&trait_id), &point)
+        .unwrap();
     assert_ne!(previous_impl, next_impl);
     let read = facts
         .lowered
@@ -157,7 +174,7 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         .unwrap();
     assert_eq!(
         table.constraint(read.generic_params[0].bounds[0].ty),
-        Some(ConstraintTarget::Trait(trait_id))
+        Some(ConstraintTarget::Trait(interface(&trait_id)))
     );
     assert_eq!(
         after
@@ -175,10 +192,11 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         DeclarationId::Definition(method_id)
     );
     assert_eq!(
-        before
-            .typed
-            .type_table
-            .implementation_method(&targets(before).1, &point),
+        before.typed.type_table.implementation_method(
+            &targets(before).1,
+            &interface(&trait_id),
+            &point
+        ),
         Some(previous_impl)
     );
 }
@@ -213,7 +231,7 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
             original
                 .type_table()
                 .call_resolution(expr)
-                .filter(|call| matches!(call.target, CallTarget::TraitMethod(_)))
+                .filter(|call| matches!(call.target, CallTarget::TraitMethod { .. }))
                 .map(|call| (expr, call))
         })
         .unwrap();
@@ -239,7 +257,7 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
             reused
                 .type_table()
                 .call_resolution(id)
-                .filter(|call| matches!(call.target, CallTarget::TraitMethod(_)))
+                .filter(|call| matches!(call.target, CallTarget::TraitMethod { .. }))
         })
         .unwrap();
     assert_eq!(old_call.1.target, new_call.target);

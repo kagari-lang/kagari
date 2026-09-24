@@ -13,7 +13,7 @@ use kagari_ir::{
 fn main() {
     let source = SourceFile::new(
         "applied_traits.kgr",
-        "pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn main() {}",
+        "pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(Pair { number: 42 }) }",
     );
     let checked = analyze_source(&source, Default::default())
         .into_codegen()

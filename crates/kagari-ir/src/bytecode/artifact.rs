@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 29;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 30;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +50,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v29";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v30";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -568,14 +568,14 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
             PublicAbiItem::Function(item) => {
                 add(item.generic_params.len())
                     && add(item.bounds.len())
-                    && item.bounds.iter().all(|bound| add(bound.constraints.len()))
+                    && add_abi_bounds(&item.bounds, &mut add)
                     && add(item.params.len())
             }
             PublicAbiItem::Const(_) => true,
             PublicAbiItem::Type(item) => {
                 add(item.generic_params.len())
                     && add(item.bounds.len())
-                    && item.bounds.iter().all(|bound| add(bound.constraints.len()))
+                    && add_abi_bounds(&item.bounds, &mut add)
                     && add(item.fields.len())
                     && add(item.variants.len())
                     && item
@@ -586,30 +586,24 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
             PublicAbiItem::Trait(item) => {
                 add(item.generic_params.len())
                     && add(item.bounds.len())
-                    && item.bounds.iter().all(|bound| add(bound.constraints.len()))
+                    && add_abi_bounds(&item.bounds, &mut add)
                     && add(item.methods.len())
                     && item.methods.iter().all(|method| {
                         add(method.generic_params.len())
                             && add(method.bounds.len())
-                            && method
-                                .bounds
-                                .iter()
-                                .all(|bound| add(bound.constraints.len()))
+                            && add_abi_bounds(&method.bounds, &mut add)
                             && add(method.params.len())
                     })
             }
             PublicAbiItem::InterfaceTable(item) => {
                 add(item.generic_params.len())
                     && add(item.bounds.len())
-                    && item.bounds.iter().all(|bound| add(bound.constraints.len()))
+                    && add_abi_bounds(&item.bounds, &mut add)
                     && add(item.methods.len())
                     && item.methods.iter().all(|method| {
                         add(method.generic_params.len())
                             && add(method.bounds.len())
-                            && method
-                                .bounds
-                                .iter()
-                                .all(|bound| add(bound.constraints.len()))
+                            && add_abi_bounds(&method.bounds, &mut add)
                             && add(method.params.len())
                     })
             }
@@ -621,6 +615,19 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
     true
 }
 
+fn add_abi_bounds(
+    bounds: &[crate::module::abi::GenericBoundAbi],
+    add: &mut impl FnMut(usize) -> bool,
+) -> bool {
+    bounds.iter().all(|bound| {
+        add(bound.constraints.len())
+            && bound.constraints.iter().all(|constraint| match constraint {
+                crate::module::abi::ConstraintAbi::Trait(ty) => add(ty.arguments.len()),
+                _ => true,
+            })
+    })
+}
+
 fn generic_identity_limit(
     params: &[crate::module::abi::GenericParameterAbi],
     bounds: &[crate::module::abi::GenericBoundAbi],
@@ -630,7 +637,10 @@ fn generic_identity_limit(
             bound.owner.within_path_limit()
                 && bound.constraints.iter().all(|constraint| match constraint {
                     crate::module::abi::ConstraintAbi::Standard(_) => true,
-                    crate::module::abi::ConstraintAbi::Trait(id) => id.within_path_limit(),
+                    crate::module::abi::ConstraintAbi::Trait(ty) => {
+                        ty.declaration.within_path_limit()
+                            && ty.arguments.iter().all(|arg| arg.within_wire_limits())
+                    }
                 })
         })
 }

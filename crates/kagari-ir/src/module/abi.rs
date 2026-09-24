@@ -120,7 +120,7 @@ pub struct VariantAbi {
 
 /// Semantic ABI types preserve nominal identity and container arguments, whereas
 /// ValueType describes only the representation used by instruction operands.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NominalAbiType {
     pub declaration: kagari_common::identity::DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -140,7 +140,7 @@ impl NominalAbiType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AbiType {
     Host(kagari_common::identity::DefinitionId),
     /// Receiver template in a trait signature, never an executable value layout.
@@ -323,7 +323,7 @@ pub struct GenericBoundAbi {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ConstraintAbi {
     Standard(kagari_hir::builtin::surface::StandardTypeConstraint),
-    Trait(kagari_common::identity::DefinitionId),
+    Trait(NominalAbiType),
 }
 
 pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;

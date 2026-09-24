@@ -97,7 +97,7 @@ trait calls replaces only that trait's `Self` throughout composite types.
 The current foundation implementation records standard constraint identities and
 user trait declaration targets in HIR. It retains navigation in invalid bounds
 and reports inherited invalid references once. Applied bounds such as `Show<i32>`
-are currently rejected, with their type argument facts retained. Local impl
+retain their trait declaration and ordered type arguments in HIR and ABI. Local impl
 headers may apply a generic trait to concrete types or impl parameters; the
 checked method contract substitutes those arguments, validates declared
 trait-parameter bounds and retains them in the
@@ -435,8 +435,8 @@ function body runs; method shadowing does not change the receiver's outer binder
 Semantic nominal types pair their declaration identity with ordered type
 arguments; the type kind also participates in identity. Substitution retains the
 declaration and recursively replaces arguments by their parameter owner/position.
-Local impl headers resolve applied trait types with checked argument arity.
-Applied generic bounds and executable interface values remain separate work.
+Local impl headers and bounds resolve applied trait types with checked argument
+arity. Executable interface values remain separate work.
 Local and imported interface annotations use these same contracts for argument
 checking, Self substitution, and definition queries. Invalid parameter types retain
 Error facts without discarding later parameters or unrelated declarations.
@@ -448,8 +448,8 @@ declarations within a trait or impl produce `KG_RESOLVE_DUPLICATE_METHOD`.
 Ambiguous calls have no selected method target and cannot enter code generation.
 
 These analysis capabilities do not imply executable dynamic interface values.
-Imported trait constraints/impls, runtime interface dispatch, and applied
-generic bounds remain tracked in the [foundation roadmap](../foundation-refactor.md).
+Imported trait constraints/impls and runtime interface dispatch remain tracked in
+the [foundation roadmap](../foundation-refactor.md).
 
 ### Remaining execution work
 

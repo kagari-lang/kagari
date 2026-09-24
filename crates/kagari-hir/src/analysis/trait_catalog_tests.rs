@@ -143,7 +143,7 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
         .expressions()
         .filter_map(
             |(id, _)| match facts.typed.type_table.call_resolution(id)?.target {
-                CallTarget::TraitMethod(id) => Some(id),
+                CallTarget::TraitMethod { method, .. } => Some(method),
                 _ => None,
             },
         )

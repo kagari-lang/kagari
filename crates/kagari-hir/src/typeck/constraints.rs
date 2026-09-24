@@ -64,7 +64,6 @@ pub(super) fn resolve_constraints(
                 table,
                 diagnostics,
                 cancel,
-                true,
             );
         }
         resolve_owner(
@@ -106,15 +105,7 @@ fn resolve_owner(
     };
     for param in generics {
         for reference in &param.bounds {
-            resolve_constraint(
-                lowered,
-                reference,
-                context,
-                table,
-                diagnostics,
-                cancel,
-                false,
-            );
+            resolve_constraint(lowered, reference, context, table, diagnostics, cancel);
         }
     }
     for bound in bounds {
@@ -136,15 +127,7 @@ fn resolve_owner(
             );
         }
         for reference in &bound.traits {
-            resolve_constraint(
-                lowered,
-                reference,
-                context,
-                table,
-                diagnostics,
-                cancel,
-                false,
-            );
+            resolve_constraint(lowered, reference, context, table, diagnostics, cancel);
         }
     }
 }
@@ -156,26 +139,17 @@ fn resolve_constraint(
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
-    allow_applied: bool,
 ) {
     if cancel.check().is_err() || table.has_constraint(reference.ty) {
         return;
     }
-    // Impl headers retain applied trait arguments; bounds still reject applications
-    // until their target identity includes the applied arguments.
+    // Every trait constraint retains its applied type arguments in its identity.
     let (name, applied) = match &lowered.module.type_ref(reference.ty).kind {
-        hir::TypeKind::Generic { name, args } => {
-            if !allow_applied {
-                for arg in args {
-                    resolve_type_in(&lowered.module, *arg, context, table, cancel);
-                }
-            }
-            (name, true)
-        }
+        hir::TypeKind::Generic { name, .. } => (name, true),
         hir::TypeKind::Named(name) => (name, false),
         _ => unreachable!("trait references have a named base"),
     };
-    let mut resolved = if applied && allow_applied {
+    let resolved = if applied {
         resolve_type_in(&lowered.module, reference.ty, context, table, cancel);
         table
             .type_ref(reference.ty)
@@ -185,7 +159,6 @@ fn resolve_constraint(
         super::ty::resolve_named_type(name, context)
     };
     if applied
-        && allow_applied
         && let hir::TypeKind::Generic { args, .. } = &lowered.module.type_ref(reference.ty).kind
     {
         for argument in args {
@@ -209,17 +182,18 @@ fn resolve_constraint(
         .flatten();
     let target = standard
         .map(ConstraintTarget::Standard)
-        .or(match resolved.target {
-            Some(TypeTarget::Trait(id)) if matches!(resolved.ty, TypeId::Trait(_)) => context
-                .declarations
-                .definition(crate::resolver::ResolvedName::Trait(id))
-                .cloned()
-                .map(ConstraintTarget::Trait),
+        .or(match &resolved.ty {
+            TypeId::Trait(instance)
+                if context
+                    .declarations
+                    .definition_target(&instance.declaration)
+                    .is_some() =>
+            {
+                Some(ConstraintTarget::Trait(instance.clone()))
+            }
             _ => None,
         });
-    let reason = if applied && !allow_applied {
-        Some("generic trait applications require concrete instantiation")
-    } else if applied && !matches!(resolved.ty, TypeId::Trait(_)) {
+    let reason = if applied && !matches!(resolved.ty, TypeId::Trait(_)) {
         Some("invalid generic trait application")
     } else if !applied
         && matches!(resolved.target, Some(TypeTarget::Trait(id)) if lowered.module.traits.iter().any(|item| item.id == id && !item.generic_params.is_empty()))
@@ -232,9 +206,6 @@ fn resolve_constraint(
     } else {
         None
     };
-    if applied && !allow_applied {
-        resolved.ty = TypeId::Error;
-    }
     if standard.is_none() || applied {
         table.insert_type_ref(reference.ty, resolved);
     }

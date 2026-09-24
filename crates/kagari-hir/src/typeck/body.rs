@@ -1769,25 +1769,27 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
-        let trait_ids = match &receiver_ty {
-            TypeId::Trait(ty) => vec![ty.declaration.clone()],
+        let trait_types = match &receiver_ty {
+            TypeId::Trait(ty) => vec![ty.clone()],
             TypeId::Generic(parameter) => env
                 .generic_bounds
                 .get(parameter)?
                 .iter()
                 .filter_map(|bound| match bound {
-                    super::ConstraintTarget::Trait(id) => Some(id.clone()),
+                    super::ConstraintTarget::Trait(ty) => Some(ty.clone()),
                     _ => None,
                 })
                 .collect(),
             _ => return None,
         };
         let mut candidates = Vec::new();
-        for owner in trait_ids {
-            if let Some(contract) = self.aggregates.trait_(&owner) {
+        for interface in trait_types {
+            if let Some(contract) = self.aggregates.trait_(&interface.declaration) {
                 for method in &contract.methods {
-                    if method.name == *name && !candidates.contains(&method.id) {
-                        candidates.push(method.id.clone());
+                    if method.name == *name
+                        && !candidates.contains(&(method.id.clone(), interface.clone()))
+                    {
+                        candidates.push((method.id.clone(), interface.clone()));
                     }
                 }
             }
@@ -1805,14 +1807,28 @@ impl<'a> BodyChecker<'a> {
         }
         let method = self
             .aggregates
-            .trait_method(&candidates[0])
+            .trait_method(&candidates[0].0)
             .expect("catalog method")
             .clone();
+        let interface = &candidates[0].1;
+        let trait_contract = self
+            .aggregates
+            .trait_(&interface.declaration)
+            .expect("catalog trait");
+        let trait_substitution = trait_contract
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(interface.arguments.iter().cloned())
+            .collect();
         let self_owner = &method.owner;
         let self_ty = receiver_ty;
         self.type_table.insert_call(
             call_expr,
-            CallTarget::TraitMethod(method.id.clone()),
+            CallTarget::TraitMethod {
+                method: method.id.clone(),
+                interface: interface.clone(),
+            },
             Some(*receiver),
         );
         let params = method
@@ -1822,7 +1838,12 @@ impl<'a> BodyChecker<'a> {
             .collect::<Vec<_>>();
         let param_types = params
             .iter()
-            .map(|param| param.ty.with_self(self_owner, &self_ty))
+            .map(|param| {
+                param
+                    .ty
+                    .with_self(self_owner, &self_ty)
+                    .instantiate(&trait_substitution)
+            })
             .collect::<Vec<_>>();
         let arg_tys = self.infer_typed_args(args, param_types.iter().cloned(), env);
         if params.len() != arg_tys.len() {
@@ -1848,7 +1869,12 @@ impl<'a> BodyChecker<'a> {
             );
         }
 
-        Some(method.return_type.with_self(self_owner, &self_ty))
+        Some(
+            method
+                .return_type
+                .with_self(self_owner, &self_ty)
+                .instantiate(&trait_substitution),
+        )
     }
 
     fn enum_member_owner(&self, expr: ExprId) -> Option<kagari_common::identity::DefinitionId> {
@@ -2149,20 +2175,24 @@ impl<'a> BodyChecker<'a> {
                     super::ConstraintTarget::Standard(constraint) => {
                         self.check_standard_constraint(actual, constraint, env, callee)
                     }
-                    super::ConstraintTarget::Trait(trait_id) => {
+                    super::ConstraintTarget::Trait(trait_type) => {
+                        let trait_type = trait_type.instantiate(&substitution);
                         let satisfied = match actual {
                             TypeId::Generic(parameter) => {
                                 env.generic_bounds.get(parameter).is_some_and(|bounds| {
-                                    bounds
-                                        .contains(&super::ConstraintTarget::Trait(trait_id.clone()))
+                                    bounds.contains(&super::ConstraintTarget::Trait(
+                                        trait_type.clone(),
+                                    ))
                                 })
                             }
-                            _ => self.type_table.implements(&trait_id, actual),
+                            _ => self.type_table.implements(&trait_type, actual),
                         };
                         if !satisfied && !actual.is_unresolved() {
                             let trait_name = self
                                 .declarations
-                                .get(&crate::declarations::DeclarationId::Definition(trait_id))
+                                .get(&crate::declarations::DeclarationId::Definition(
+                                    trait_type.declaration,
+                                ))
                                 .expect("resolved trait")
                                 .name
                                 .clone();

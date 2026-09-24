@@ -73,11 +73,10 @@ Trait references in impl headers and generic constraints share declaration-owned
 type references, source ranges and checked targets. Implementations and ABI
 lowering consume those facts rather than resolving an impl's trait spelling again.
 Type arguments (including an explicitly empty argument list) are preserved.
-Local generic trait applications in impl headers retain their concrete or
-template arguments and participate in method-signature validation. Applied
-generic bounds remain unsupported and produce `KG_TYPE_INVALID_TRAIT_REFERENCE`;
-generic traits also cannot be used by omitting their arguments. Their argument types and resolved base declaration
-remain available for tooling. Generic binders and explicit declarations shadow
+Local generic trait applications in impl headers and generic bounds retain their
+concrete or template arguments and participate in method-signature validation.
+Generic traits cannot be used by omitting their arguments. Argument types and
+the resolved base declaration remain available for tooling. Generic binders and explicit declarations shadow
 standard constraint names. A standard constraint cannot itself be implemented by
 an impl. Imported trait references retain their nominal type and defining source
 location through aliases and facades; constraint/impl execution support remains

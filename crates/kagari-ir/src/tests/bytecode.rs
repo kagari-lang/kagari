@@ -13,6 +13,77 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
+fn applied_trait_bounds_change_public_abi_fingerprint() {
+    let fingerprint = |argument: &str| {
+        let module = common::bytecode_ok(&format!(
+            "pub trait Echo<T> {{}} pub struct Bag<T: Echo<{argument}>> {{ val value: T }} fn main() {{}}"
+        ));
+        let bag = module
+            .public_items
+            .iter()
+            .find_map(|item| match item {
+                PublicAbiItem::Type(item) if item.name == "Bag" => Some(item),
+                _ => None,
+            })
+            .unwrap();
+        assert!(matches!(&bag.bounds[0].constraints[0],
+            crate::module::abi::ConstraintAbi::Trait(ty) if ty.arguments.len() == 1));
+        let artifact = KbcArtifact::from_program(
+            crate::bytecode::BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![module],
+            },
+            ArtifactBuildOptions::default(),
+        )
+        .unwrap();
+        artifact
+            .verification
+            .public_abi_fingerprints
+            .into_iter()
+            .find(|item| item.name == "type:Bag")
+            .unwrap()
+            .fingerprint
+    };
+    assert_ne!(fingerprint("i32"), fingerprint("String"));
+}
+
+#[test]
+fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
+    let mut module = common::bytecode_ok(
+        "pub trait Echo<T> {} pub struct Bag<T: Echo<T>> { val value: T } fn main() {}",
+    );
+    let bag = module
+        .public_items
+        .iter_mut()
+        .find_map(|item| match item {
+            PublicAbiItem::Type(item) if item.name == "Bag" => Some(item),
+            _ => None,
+        })
+        .unwrap();
+    let crate::module::abi::ConstraintAbi::Trait(ty) = &mut bag.bounds[0].constraints[0] else {
+        panic!("trait bound");
+    };
+    let crate::module::abi::AbiType::Parameter { owner, .. } = &mut ty.arguments[0] else {
+        panic!("template argument");
+    };
+    *owner = ty.declaration.clone();
+    assert!(matches!(
+        verify_module(&module),
+        Err(BytecodeVerificationError::InvalidPublicAbi)
+    ));
+    assert!(matches!(
+        KbcArtifact::from_program(
+            crate::bytecode::BytecodeProgram {
+                root: crate::bytecode::ModuleRef::new(0),
+                modules: vec![module],
+            },
+            ArtifactBuildOptions::default(),
+        ),
+        Err(ArtifactValidationError::Bytecode(_))
+    ));
+}
+
+#[test]
 fn applied_trait_interface_table_preserves_method_contract() {
     let module = common::bytecode_ok(
         "pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn main() {}",

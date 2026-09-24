@@ -164,11 +164,28 @@ fn inherited_unknown_bounds_are_reported_once_at_the_reference() {
 }
 
 #[test]
-fn applied_constraints_are_not_silently_erased() {
-    let source = "trait Show<T> { fn show(self); } fn bad<T: Show<i32>>(value: T) {}";
+fn applied_constraints_preserve_type_arguments() {
+    let source = "trait Show<T> { fn show(self); } fn read<T: Show<i32>>(value: T) {}";
     let analysis = analyze_source(&SourceFile::new("applied.kgr", source), Default::default());
-    assert!(!analysis.diagnostics().is_empty());
-    assert!(analysis.into_codegen().is_err());
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    let facts = analysis.facts();
+    let read = facts
+        .lowered
+        .module
+        .functions
+        .iter()
+        .find(|function| function.name == "read")
+        .unwrap();
+    assert!(
+        matches!(facts.typed.type_table.constraint(read.generic_params[0].bounds[0].ty),
+        Some(crate::typeck::ConstraintTarget::Trait(instance))
+            if instance.arguments == [crate::types::TypeId::Builtin(crate::types::BuiltinType::I32)])
+    );
+    assert!(analysis.into_codegen().is_ok());
 }
 
 #[test]
