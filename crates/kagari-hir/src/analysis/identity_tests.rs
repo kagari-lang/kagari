@@ -230,6 +230,38 @@ fn assignment_navigation_resolves_the_retained_target_and_broken_neighbors_survi
 }
 
 #[test]
+fn r04_recovery_keeps_semantic_targets_but_rejects_codegen() {
+    let text = "// 中文 😀\r\nstruct Point { var x: i32 }\r\nfn broken(p: Point) { p.; missing }\r\nfn good(p: Point) -> i32 { p.x }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("r04-acceptance.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(id).unwrap();
+    let incomplete = text.find("p.;").unwrap() + 2;
+    let good_receiver = text.rfind("p.x").unwrap();
+    let good_member = good_receiver + 2;
+    assert!(matches!(
+        file.member_receiver_type(incomplete),
+        Some(TypeId::Struct(_))
+    ));
+    let broken_binding = file.definition_at(incomplete - 2).unwrap();
+    let good_binding = file.definition_at(good_receiver).unwrap();
+    assert_ne!(broken_binding.id, good_binding.id);
+    assert_eq!(good_binding.name, "p");
+    assert_eq!(file.definition_at(good_member).unwrap().name, "x");
+    assert!(file.definition_at(text.find("missing").unwrap()).is_none());
+    assert_eq!(
+        file.visible_bindings(good_receiver)
+            .iter()
+            .map(|binding| binding.declaration.name.as_str())
+            .collect::<Vec<_>>(),
+        ["p"]
+    );
+    assert!(file.result().clone().into_codegen().is_err());
+}
+
+#[test]
 fn function_scopes_do_not_inherit_module_initialization_bindings() {
     let text = "val outside = 1; struct P { val field: i32 } fn good(value: i32) -> i32 { value }";
     let mut sources = SourceDatabase::default();

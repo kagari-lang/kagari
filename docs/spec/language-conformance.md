@@ -117,6 +117,6 @@ R02 acceptance evidence (run the shared command above):
 | Backend/load equivalence | Fresh source/artifact × interpreter/JIT runtimes; selected scalar fixtures require native invocation |
 
 This accepts the R02 test entry and its initial contract cases. It does not mark the
-remaining R04–R18 implementation and audit requirements complete. In particular,
+remaining unchecked foundation implementation and audit requirements complete. In particular,
 source function values/callback execution, observers for other heap shapes and a
 general heap write-event trace are not established by these tests.

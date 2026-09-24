@@ -14,7 +14,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R01: Authoritative value, failure, and activation contracts.
 - [x] R02: Source/result/diagnostic/host-effect conformance harness.
 - [x] R03: Unified source database, revisions, identities, overlays, coordinates.
-- [ ] R04: Recoverable HIR analysis; checked-only code generation.
+- [x] R04: Recoverable HIR analysis; checked-only code generation.
 - [x] R05: Immutable queries, cancellation, parse/body reuse and invalidation.
 - [ ] R06: Offline host declarations and checked runtime bindings.
 - [ ] R07: Nominal concrete identity, layouts, bounded reachable monomorphization.
@@ -47,7 +47,7 @@ workload, repetitions and measurements; no unmeasured performance claims.
   field reads and writes in the HIR source map. Definition, host-field and host
   call navigation consume that range directly; the source-text suffix heuristic
   is removed. Tests cover member access with trailing Unicode comments, including
-  a write target. Other semantic recovery/target ownership audits remain open.
+  a write target.
 
 - R04 qualified-reference checkpoint: HIR also stores the terminal CST name
   range for path expressions. Source, host and local declaration queries select
@@ -55,21 +55,20 @@ workload, repetitions and measurements; no unmeasured performance claims.
   qualifier and its `::` separators no longer navigate to the final function
   or enum variant. The same range is used when following source imports across
   files. Tests include source and host calls after Unicode/CRLF text; existing
-  constructor/query examples now select the referenced member name. Broader
-  semantic-target and source-owner integration remains open.
+  constructor/query examples now select the referenced member name.
 
 - R04 initializer-target checkpoint: struct construction records the CST ranges
   of its type name and each field label. Definition queries use the checked
   aggregate and per-field identities, including known labels beside invalid
   values or unknown labels. A label's `:` and value expression do not inherit
   its target. The source_queries example demonstrates this under a rejected
-  assignment. Remaining R04 source-owner and target coverage is still open.
+  assignment.
 
 - R04 enum-owner checkpoint: qualified enum constructors retain separate CST
   ranges for the enum owner and variant. Definition queries use the checked
   constructor's nominal owner on `Event` and its variant target on `Ready`;
   `::` stays targetless. Known enum owners remain navigable beside unknown
-  variants and through source facades. Broader R04 audit remains open.
+  variants and through source facades.
 
 - R04 type-name checkpoint: type lowering records a separate terminal-name
   range for annotations, bounds, where targets and explicit constructor type
@@ -433,9 +432,30 @@ R03 acceptance evidence:
 - The source_queries example exposes declaration-site member navigation alongside
   independent declaration, signature and function queries.
 
-This completes source identity and query provenance. Applied generic types and
-remaining executable layouts retain R04/R07 acceptance;
-R03 does not imply those execution features are complete.
+This completes source identity and query provenance. Concrete executable
+layouts and interface dispatch retain R07/R08 acceptance; R03 does not imply
+those execution features are complete.
+
+R04 acceptance evidence:
+
+- [Recovery and identity tests](../crates/kagari-hir/src/analysis/identity_tests.rs)
+  retain declaration, scope, receiver and member facts beside parse/name errors;
+  the integrated R04 case rejects code generation for that erroneous result.
+  [Function queries](../crates/kagari-hir/src/analysis/body_queries/tests.rs)
+  keep an incomplete member receiver typed while excluding unrelated bodies.
+- [Type recovery tests](../crates/kagari-hir/src/analysis/generic_type_tests.rs)
+  cover `Unknown`/`Error` holes, independent composite members, erroneous
+  annotations, call arguments and checked-only conversion. Member, constructor,
+  owner and arena tests cover semantic targets and source ownership.
+- [Signature queries](../crates/kagari-hir/src/analysis/signature_queries/tests.rs)
+  navigate checked source/imported type targets before body analysis;
+  [offline host tests](../crates/kagari-embed/tests/offline_nominal.rs) verify
+  host declarations are queryable without runtime bindings. The source_queries
+  and offline_compile examples exercise both paths.
+- IR lowering takes only the sealed `CheckedAnalysis` type; its production
+  dependencies contain HIR and common data, not the syntax crate. Ordinary
+  calls, fields and writes consume resolver/type-table target identities.
+  Concrete interface dispatch and execution linking remain R07/R08 work.
 
 R05 acceptance evidence:
 
@@ -463,8 +483,8 @@ R05 acceptance evidence:
 Full analysis batches bodies through the same resolver/type checker used by the
 single-function query. Module constants remain shared semantic prerequisites and
 are checked when querying a body. This is bounded query caching, not a complete
-incremental dependency framework. R04 recovery coverage,
-R15 resource limits and R18 performance measurements retain separate acceptance.
+incremental dependency framework. R15 resource limits and R18 performance
+measurements retain separate acceptance.
 
 R12 acceptance evidence:
 
@@ -574,8 +594,7 @@ Implemented foundation slices:
   Cross-file definition queries follow public source facades and keep old snapshot
   locations. The source_modules embedding example prints a dependency-first graph.
 - R04: analysis retains facts and diagnostics; unknown/missing expressions are
-  represented explicitly, and codegen requires a sealed CheckedAnalysis. More
-  semantic-target and source-owner integration remains outstanding.
+  represented explicitly, and codegen requires a sealed CheckedAnalysis.
   Host calls with missing or extra arguments preserve their declared return type
   and downstream member facts. Available arguments still receive type checking;
   arity/type diagnostics reject code generation. Free-function and method recovery
@@ -634,7 +653,7 @@ Implemented foundation slices:
   trait/method IDs even with matching local slots, preserve targets across declaration
   reordering and rebase cached receivers. Source/artifact/JIT fixtures distinguish
   two same-named trait methods implemented by one receiver type. Imported trait
-  execution and other semantic contracts retain the R04 audit. The shared aggregate
+  execution and interface linking retain R07/R08 acceptance. The shared aggregate
   catalog now owns checked trait/method contracts, including nominal parameters,
   bounds, Self types and source targets. Method calls and navigation consume this
   catalog for local and imported interface annotations; local HIR method lookup is
