@@ -620,11 +620,20 @@ R02 acceptance evidence:
   the type fingerprint covers the table but excludes documentation. Runtime
   linking requires both an identical registered type table and callbacks for
   every mapped host method before publication. KBC format/runtime ABI v31 reject
-  older products. Script trait signature agreement and executable host interface
-  dispatch remain open, so this does not complete R07. The
+  older products. Executable host interface dispatch remains open, so this
+  does not complete R07. The
   [host trait-table example](../crates/kagari-runtime/examples/host_trait_table.rs)
   demonstrates offline round-trip and callback linking; an encoded-artifact test
   rejects missing callbacks before module publication.
+
+- R07 host trait-signature checkpoint: signature completion compares each host
+  binding with the script trait in its defining module. It rejects missing or
+  extra methods, receiver/parameter count and type mismatches, return type
+  mismatches, and generic traits or methods without a concrete host binding.
+  These are source diagnostics before code generation; changes to host
+  declarations or script signatures invalidate them. Host passing styles remain
+  explicit ABI properties. Executable host interface dispatch and applied
+  generic trait bindings remain open, so R07 stays unchecked.
 
 R03 acceptance evidence:
 

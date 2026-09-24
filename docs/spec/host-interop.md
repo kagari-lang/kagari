@@ -242,8 +242,13 @@ contracts before publication, even if there are no host calls in the program.
 `HostHandle` is a separate execution representation; script heap objects cannot
 satisfy an opaque host parameter's representation. Runtime nominal identity,
 ownership, borrow and escape checks still apply. This does not authorize host
-handles or borrows as default script heap payloads. Host field/path binding, host trait implementations and generated typed paths
-remain R06/R07 work.
+handles or borrows as default script heap payloads. Host field/path binding,
+executable host trait dispatch and generated typed paths remain R06/R07 work.
+An offline host trait table maps each script trait method identity to a host
+method identity. When the script trait's defining module is analyzed, its
+non-generic signature must have an exact method roster and matching receiver,
+parameter and return types. Mismatches are source diagnostics before code
+generation. Host passing styles and effects remain part of the host ABI.
 Host methods are callable through their receiver: `player.read_score()`.
 `HostTypeDeclaration::method_contract` derives the executable contract from the
 member identity, signature, receiver passing style, effects, capabilities and cost.

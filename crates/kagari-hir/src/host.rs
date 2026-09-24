@@ -5,6 +5,11 @@ use kagari_common::host_interface::{
 use std::{collections::HashMap, sync::Arc};
 
 use crate::types::{BuiltinType, TypeId};
+use kagari_common::{
+    Diagnostic, DiagnosticKind, Span,
+    cancellation::{CancellationToken, Cancelled},
+    identity::ModuleIdentity,
+};
 
 #[cfg(test)]
 mod facade_tests;
@@ -50,6 +55,132 @@ pub struct HostDeclarations {
 }
 
 impl HostDeclarations {
+    /// Check host method tables only where the target script trait is defined.
+    /// This keeps diagnostics owned by one source file and makes signature
+    /// changes invalidate the result through the aggregate catalog.
+    pub(crate) fn validate_trait_implementations(
+        &self,
+        aggregates: &crate::aggregates::AggregateCatalog,
+        module: &ModuleIdentity,
+        cancel: &CancellationToken,
+    ) -> Result<crate::DiagnosticBuffer, Cancelled> {
+        let mut diagnostics = crate::DiagnosticBuffer::new();
+        for host in &self.interface.types {
+            cancel.check()?;
+            for implementation in &host.trait_implementations {
+                cancel.check()?;
+                if &implementation.trait_id.module != module {
+                    continue;
+                }
+                let trait_signature = aggregates.trait_(&implementation.trait_id);
+                let mut report = |reason: String| {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
+                            trait_name: implementation
+                                .trait_id
+                                .path
+                                .last()
+                                .map(|segment| segment.name.clone())
+                                .unwrap_or_default(),
+                            type_name: host.symbol.clone(),
+                            reason,
+                        })
+                        .with_span(Span::default()),
+                    );
+                };
+                let Some(trait_signature) = trait_signature else {
+                    report("trait declaration is missing from its source module".into());
+                    continue;
+                };
+                if !trait_signature.generic_params.is_empty() {
+                    report("host trait binding requires a concrete, non-generic trait".into());
+                    continue;
+                }
+                for method in &trait_signature.methods {
+                    cancel.check()?;
+                    let Some(binding) = implementation
+                        .methods
+                        .iter()
+                        .find(|binding| binding.trait_method == method.id)
+                    else {
+                        report(format!("missing method `{}`", method.name));
+                        continue;
+                    };
+                    let host_method = host
+                        .methods
+                        .iter()
+                        .find(|candidate| candidate.id == binding.host_method)
+                        .expect("validated host method binding");
+                    if !method.generic_params.is_empty() {
+                        report(format!(
+                            "method `{}` cannot have generic parameters",
+                            method.name
+                        ));
+                        continue;
+                    }
+                    let receiver = TypeId::Host(host.id.clone());
+                    let expected = method
+                        .params
+                        .iter()
+                        .map(|parameter| parameter.ty.with_self(&trait_signature.id, &receiver))
+                        .collect::<Vec<_>>();
+                    if expected.first() != Some(&receiver)
+                        || expected.len() != host_method.params.len() + 1
+                    {
+                        report(format!(
+                            "method `{}` receiver or parameter count differs",
+                            method.name
+                        ));
+                        continue;
+                    }
+                    for (index, (expected, actual)) in
+                        expected[1..].iter().zip(&host_method.params).enumerate()
+                    {
+                        if *expected != signature_type(&actual.ty) {
+                            report(format!(
+                                "method `{}` parameter {} expected `{}`, found `{}`",
+                                method.name,
+                                index + 1,
+                                expected.display_name(),
+                                signature_type(&actual.ty).display_name()
+                            ));
+                        }
+                    }
+                    let expected_return =
+                        method.return_type.with_self(&trait_signature.id, &receiver);
+                    let actual_return = signature_type(&host_method.return_type);
+                    if expected_return != actual_return {
+                        report(format!(
+                            "method `{}` return type expected `{}`, found `{}`",
+                            method.name,
+                            expected_return.display_name(),
+                            actual_return.display_name()
+                        ));
+                    }
+                }
+                for binding in &implementation.methods {
+                    cancel.check()?;
+                    if !trait_signature
+                        .methods
+                        .iter()
+                        .any(|method| method.id == binding.trait_method)
+                    {
+                        report(format!(
+                            "extra trait method binding `{}`",
+                            binding
+                                .trait_method
+                                .path
+                                .last()
+                                .map(|segment| segment.name.as_str())
+                                .unwrap_or_default()
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(diagnostics)
+    }
+
     pub fn new(mut interface: HostInterface) -> Result<Arc<Self>, HostInterfaceError> {
         interface.validate()?;
         let mut present = interface

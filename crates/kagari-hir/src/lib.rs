@@ -106,6 +106,11 @@ impl PreparedAnalysis {
             &mut diagnostics,
             cancel,
         );
+        diagnostics.extend(self.declarations.hosts.validate_trait_implementations(
+            aggregates,
+            self.lowered.source.module_identity(),
+            cancel,
+        )?);
         for (first, second) in aggregates.overlapping_implementations() {
             cancel.check()?;
             diagnostics.push(

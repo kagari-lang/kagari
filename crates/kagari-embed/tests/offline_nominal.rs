@@ -128,6 +128,130 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
 }
 
 #[test]
+fn host_trait_table_is_checked_against_script_trait_signatures() {
+    let engine = KagariEngine::default();
+    let path = "mem://host-trait-contract";
+    let source = "trait Readable { fn get(self, amount: i32) -> i32; } use demo::Counter; fn accept(value: Counter) {}";
+    let file = engine
+        .set_source(path, source.into(), SourceLayer::Base)
+        .unwrap();
+    let module = engine
+        .source_snapshot()
+        .file(file)
+        .unwrap()
+        .module_identity()
+        .clone();
+    let trait_id = DefinitionId {
+        module,
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: "Readable".into(),
+            occurrence: 0,
+        }],
+    };
+    let mut trait_method = trait_id.clone();
+    trait_method.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: "get".into(),
+        occurrence: 0,
+    });
+    let mut host = HostTypeDeclaration::new("demo.Counter");
+    let method = HostMethodDeclaration::new(
+        &host.id,
+        "read",
+        vec![HostParameter {
+            name: "amount".into(),
+            ty: HostValueType::I32,
+            passing: HostPassingStyle::Owned,
+        }],
+        HostValueType::I32,
+    );
+    host.methods.push(method.clone());
+    host.trait_implementations
+        .push(HostTraitImplementationDeclaration::new(
+            trait_id,
+            vec![HostTraitMethodBinding {
+                trait_method,
+                host_method: method.id,
+            }],
+        ));
+    let install = |host: HostTypeDeclaration| {
+        engine
+            .set_host_interface(HostInterface {
+                paths: vec![],
+                types: vec![host],
+                functions: vec![],
+            })
+            .unwrap();
+        engine
+            .signatures(engine.source_snapshot(), &Default::default())
+            .unwrap()
+            .file(file)
+            .unwrap()
+            .diagnostics()
+            .to_vec()
+    };
+    assert!(install(host.clone()).is_empty());
+
+    let mut wrong_result = host.clone();
+    wrong_result.methods[0].return_type = HostValueType::Bool;
+    assert!(install(wrong_result).iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+            if reason.contains("return type")
+    )));
+
+    let mut missing = host.clone();
+    missing.trait_implementations[0].methods.clear();
+    assert!(install(missing).iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+            if reason.contains("missing method")
+    )));
+    let mut wrong_argument = host.clone();
+    wrong_argument.methods[0].params[0].ty = HostValueType::Bool;
+    assert!(install(wrong_argument).iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+            if reason.contains("parameter 1")
+    )));
+
+    let mut extra = host.clone();
+    let mut extra_method = extra.trait_implementations[0].methods[0].clone();
+    extra_method.trait_method.path.last_mut().unwrap().name = "extra".into();
+    extra.trait_implementations[0].methods.push(extra_method);
+    assert!(install(extra).iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+            if reason.contains("extra trait method")
+    )));
+
+    assert!(install(host).is_empty());
+    engine
+        .set_source(
+            path,
+            source.replace("-> i32;", "-> bool;"),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let changed = engine
+        .signatures(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        changed
+            .file(file)
+            .unwrap()
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(
+                &diagnostic.kind,
+                kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+                    if reason.contains("return type")
+            ))
+    );
+}
+
+#[test]
 fn offline_host_type_navigation_is_available_from_signature_query() {
     let engine = KagariEngine::default();
     engine.set_host_interface(interface()).unwrap();
