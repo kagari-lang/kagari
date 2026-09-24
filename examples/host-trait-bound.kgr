@@ -1,0 +1,13 @@
+use demo::make;
+
+trait Readable {
+    fn get(self) -> i32;
+}
+
+fn read<T: Readable>(value: T) -> i32 {
+    value.get()
+}
+
+fn main() -> i32 {
+    read(make())
+}

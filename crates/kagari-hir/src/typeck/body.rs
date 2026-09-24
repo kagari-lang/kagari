@@ -151,7 +151,7 @@ impl<'a> BodyChecker<'a> {
                 super::applications::validate(
                     &local_ty,
                     &env.generic_bounds,
-                    self.aggregates,
+                    (self.aggregates, &self.declarations.hosts),
                     self.type_table,
                     self.lowered.source_map.stmt_span(stmt_id),
                     self.diagnostics,
@@ -903,7 +903,7 @@ impl<'a> BodyChecker<'a> {
         super::applications::validate(
             &ty,
             &env.generic_bounds,
-            self.aggregates,
+            (self.aggregates, &self.declarations.hosts),
             self.type_table,
             self.lowered.source_map.expr_span(expr_id),
             self.diagnostics,
@@ -2185,7 +2185,10 @@ impl<'a> BodyChecker<'a> {
                                     ))
                                 })
                             }
-                            _ => match self.aggregates.implementation_count(&trait_type, actual) {
+                            _ => match self.aggregates.implementation_count(&trait_type, actual)
+                                + usize::from(
+                                    self.declarations.hosts.implements(&trait_type, actual),
+                                ) {
                                 0 => self.type_table.implements(&trait_type, actual),
                                 1 => true,
                                 _ => false,

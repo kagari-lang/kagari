@@ -635,6 +635,16 @@ R02 acceptance evidence:
   explicit ABI properties. Executable host interface dispatch and applied
   generic trait bindings remain open, so R07 stays unchecked.
 
+- R07 static host trait-call checkpoint: a non-generic trait table on a concrete
+  host type satisfies static generic bounds. Reachable specialization resolves
+  the trait method identity to its declared host method and emits an ordinary
+  verified host call, retaining the host capability and borrow contract. The
+  [host bound example](../examples/host-trait-bound.kgr) runs from source and
+  encoded artifacts through the interpreter and existing JIT fallback; removing
+  the host trait table rejects the bound before code generation. A same-trait
+  script implementation for that host type is rejected as an overlap. Runtime
+  interface values, dynamic dispatch and applied generic host traits remain open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

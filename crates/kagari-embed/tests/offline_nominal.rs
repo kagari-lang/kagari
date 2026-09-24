@@ -252,6 +252,184 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
 }
 
 #[test]
+fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
+    let engine = KagariEngine::default();
+    let file = engine
+        .set_source(
+            "mem://host-trait-bound",
+            include_str!("../../../examples/host-trait-bound.kgr").into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let trait_id = DefinitionId {
+        module: engine
+            .source_snapshot()
+            .file(file)
+            .unwrap()
+            .module_identity()
+            .clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: "Readable".into(),
+            occurrence: 0,
+        }],
+    };
+    let mut trait_method = trait_id.clone();
+    trait_method.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: "get".into(),
+        occurrence: 0,
+    });
+    let mut host = HostTypeDeclaration::new("demo.Counter");
+    host.ownership = HostTypeOwnership::HostRoot;
+    host.path_access = kagari_common::host_interface::PathAccess::ReadOnly;
+    let method = HostMethodDeclaration::new(&host.id, "read", vec![], HostValueType::I32);
+    host.methods.push(method.clone());
+    host.trait_implementations
+        .push(HostTraitImplementationDeclaration::new(
+            trait_id,
+            vec![HostTraitMethodBinding {
+                trait_method,
+                host_method: method.id.clone(),
+            }],
+        ));
+    let make =
+        HostFunctionDeclaration::new("demo.make", vec![], HostValueType::Opaque(host.id.clone()));
+    let interface = HostInterface {
+        paths: vec![],
+        types: vec![host.clone()],
+        functions: vec![make.clone()],
+    };
+    engine.set_host_interface(interface).unwrap();
+    let profile = LanguageProfile {
+        allow_host_calls: true,
+        allow_jit: true,
+        ..Default::default()
+    };
+    let checked = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            file,
+            CompileOptions {
+                language_profile: profile,
+            },
+            &Default::default(),
+        )
+        .unwrap();
+    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        let context = ExecutionContext {
+            language_profile: profile,
+            capabilities: CapabilitySet {
+                host_calls: true,
+                jit: true,
+                ..Default::default()
+            },
+            host_policy: HostExposurePolicy {
+                allowed_host_functions: vec!["demo.make".into(), "demo.Counter.read".into()],
+                ..Default::default()
+            },
+            jit_policy: if jit {
+                kagari_embed::JitPolicy::Enabled
+            } else {
+                kagari_embed::JitPolicy::Disabled
+            },
+            ..Default::default()
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let host_id = runtime
+            .register_host_type(HostTypeRegistration::new(host.clone(), "Counter"))
+            .unwrap();
+        let root = runtime
+            .runtime_mut()
+            .register_host_root(HostObjectId(7), host_id, HostSchemaEpoch::new(0))
+            .unwrap();
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let trace = calls.clone();
+        runtime
+            .register_host_function(HostFunction::new(make.clone(), move |_, _| {
+                trace.borrow_mut().push("make");
+                Ok(Value::HostRoot(root))
+            }))
+            .unwrap();
+        let trace = calls.clone();
+        runtime
+            .register_host_function(
+                HostFunction::method(&host, &method.id, move |_, args| {
+                    trace.borrow_mut().push("read");
+                    assert!(matches!(args, [Value::HostRoot(_)]));
+                    Ok(Value::I32(42))
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let report = if jit {
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+        } else {
+            runtime.execute(&loaded, "main", &[], &context)
+        }
+        .unwrap();
+        assert_eq!(report.return_value, Value::I32(42));
+        assert_eq!(*calls.borrow(), ["make", "read"]);
+    }
+    let source = include_str!("../../../examples/host-trait-bound.kgr");
+    engine
+        .set_source(
+            "mem://host-trait-bound",
+            format!(
+                "{source}\nuse demo::Counter; impl Readable for Counter {{ fn get(self) -> i32 {{ 7 }} }}"
+            ),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let signatures = engine
+        .signatures(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        signatures
+            .file(file)
+            .unwrap()
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(
+                &diagnostic.kind,
+                kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+                    if reason.contains("host and script implementations overlap")
+            ))
+    );
+    engine
+        .set_source("mem://host-trait-bound", source.into(), SourceLayer::Base)
+        .unwrap();
+    let mut unimplemented = host;
+    unimplemented.trait_implementations.clear();
+    engine
+        .set_host_interface(HostInterface {
+            paths: vec![],
+            types: vec![unimplemented],
+            functions: vec![make],
+        })
+        .unwrap();
+    let error = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            file,
+            CompileOptions {
+                language_profile: profile,
+            },
+            &Default::default(),
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"));
+}
+
+#[test]
 fn offline_host_type_navigation_is_available_from_signature_query() {
     let engine = KagariEngine::default();
     engine.set_host_interface(interface()).unwrap();

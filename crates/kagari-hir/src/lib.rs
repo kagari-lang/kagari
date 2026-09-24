@@ -111,6 +111,30 @@ impl PreparedAnalysis {
             self.lowered.source.module_identity(),
             cancel,
         )?);
+        for implementation in aggregates.implementations() {
+            cancel.check()?;
+            if implementation.id.module == *self.lowered.source.module_identity()
+                && self
+                    .declarations
+                    .hosts
+                    .implements(&implementation.trait_type, &implementation.for_type)
+            {
+                diagnostics.push(
+                    Diagnostic::error(kagari_common::DiagnosticKind::InvalidTraitImpl {
+                        trait_name: implementation
+                            .trait_type
+                            .declaration
+                            .path
+                            .last()
+                            .map(|segment| segment.name.clone())
+                            .unwrap_or_default(),
+                        type_name: implementation.for_type.display_name(),
+                        reason: "host and script implementations overlap".into(),
+                    })
+                    .with_span(kagari_common::Span::default()),
+                );
+            }
+        }
         for (first, second) in aggregates.overlapping_implementations() {
             cancel.check()?;
             diagnostics.push(

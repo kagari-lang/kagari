@@ -15,6 +15,10 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
+    pub(crate) fn implementations(&self) -> impl Iterator<Item = &ImplementationSignature> {
+        self.implementations.values().map(AsRef::as_ref)
+    }
+
     pub(crate) fn overlapping_implementations(
         &self,
     ) -> Vec<(&ImplementationSignature, &ImplementationSignature)> {

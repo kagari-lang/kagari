@@ -6,12 +6,13 @@ use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::Cancellation
 pub(super) fn validate(
     ty: &TypeId,
     bounds: &GenericBounds,
-    catalog: &AggregateCatalog,
+    sources: (&AggregateCatalog, &crate::host::HostDeclarations),
     table: &TypeTable,
     span: Span,
     diagnostics: &mut crate::DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
+    let (catalog, hosts) = sources;
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         if cancel.check().is_err() {
@@ -66,7 +67,9 @@ pub(super) fn validate(
                                                 ))
                                             })
                                         }
-                                        _ => match catalog.implementation_count(&applied, actual) {
+                                        _ => match catalog.implementation_count(&applied, actual)
+                                            + usize::from(hosts.implements(&applied, actual))
+                                        {
                                             0 => table.implements(&applied, actual),
                                             1 => true,
                                             _ => false,
@@ -132,7 +135,7 @@ pub(crate) fn validate_signatures(
             validate(
                 &parameter.ty,
                 &function.bounds,
-                catalog,
+                (catalog, &declarations.hosts),
                 signatures.type_table(),
                 lowered.source_map.param_span(parameter.id),
                 diagnostics,
@@ -150,7 +153,7 @@ pub(crate) fn validate_signatures(
         validate(
             &function.return_type,
             &function.bounds,
-            catalog,
+            (catalog, &declarations.hosts),
             signatures.type_table(),
             lowered.source_map.function_span(function.id),
             diagnostics,
@@ -184,7 +187,7 @@ pub(crate) fn validate_signatures(
         validate(
             &TypeId::Trait(instance.clone()),
             &available,
-            catalog,
+            (catalog, &declarations.hosts),
             signatures.type_table(),
             lowered.source_map.type_span(trait_ref.ty),
             diagnostics,
@@ -259,7 +262,7 @@ pub(crate) fn validate_signatures(
             validate(
                 &field.ty,
                 &structure.bounds,
-                catalog,
+                (catalog, &declarations.hosts),
                 signatures.type_table(),
                 field.declaration.location.range,
                 diagnostics,
@@ -273,7 +276,7 @@ pub(crate) fn validate_signatures(
                 validate(
                     payload,
                     &enumeration.bounds,
-                    catalog,
+                    (catalog, &declarations.hosts),
                     signatures.type_table(),
                     variant.declaration.location.range,
                     diagnostics,

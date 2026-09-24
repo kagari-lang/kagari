@@ -779,13 +779,19 @@ An offline host type may declare a trait identity and map each trait method
 identity to one of its declared host methods. KHI v8 validates the owners and
 unique mappings, and includes this table in the type ABI fingerprint. Linking
 requires an identical registered table and bound callbacks for all mapped host
-methods before publication. Agreement with the script trait's method signatures
-and dynamic interface dispatch remain pending R07/R08 work.
+methods before publication. Signature analysis checks the script trait's method
+roster, receiver, parameters and result against each bound host method. Generic
+trait applications and dynamic interface dispatch remain pending R07/R08 work.
+For a concrete host receiver, a non-generic table satisfies a static trait
+bound. Reachable generic calls select the mapped host method by declaration
+identity and execute it with the normal host capability, effect and borrow checks.
+A script implementation of the same trait for that host type is an overlap.
 
 Behavior:
 
 - trait metadata may be attached during type registration
-- host values may be viewed through trait/interface value types
+- host values may be viewed through trait/interface value types after runtime
+  interface dispatch is implemented
 - `is<T>` and `downcast<T>` rely on concrete type identity
 
 Trait-system behavior is defined in [traits.md](traits.md).

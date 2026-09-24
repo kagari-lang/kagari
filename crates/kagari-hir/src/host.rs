@@ -4,7 +4,7 @@ use kagari_common::host_interface::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::types::{BuiltinType, TypeId};
+use crate::types::{BuiltinType, NominalType, TypeId};
 use kagari_common::{
     Diagnostic, DiagnosticKind, Span,
     cancellation::{CancellationToken, Cancelled},
@@ -55,6 +55,50 @@ pub struct HostDeclarations {
 }
 
 impl HostDeclarations {
+    pub fn implements(&self, trait_type: &NominalType, receiver: &TypeId) -> bool {
+        let TypeId::Host(host_id) = receiver else {
+            return false;
+        };
+        trait_type.arguments.is_empty()
+            && self
+                .nominal_type(host_id)
+                .and_then(|id| self.type_declaration(id))
+                .is_some_and(|host| {
+                    host.trait_implementations
+                        .iter()
+                        .any(|implementation| implementation.trait_id == trait_type.declaration)
+                })
+    }
+
+    pub fn trait_method_binding(
+        &self,
+        trait_method: &kagari_common::identity::DefinitionId,
+        trait_type: &NominalType,
+        receiver: &TypeId,
+    ) -> Option<HostFunctionId> {
+        let TypeId::Host(host_id) = receiver else {
+            return None;
+        };
+        if !trait_type.arguments.is_empty() {
+            return None;
+        }
+        let host = self.type_declaration(self.nominal_type(host_id)?)?;
+        let implementation = host
+            .trait_implementations
+            .iter()
+            .find(|implementation| implementation.trait_id == trait_type.declaration)?;
+        let binding = implementation
+            .methods
+            .iter()
+            .find(|binding| &binding.trait_method == trait_method)?;
+        let method_name = &host
+            .methods
+            .iter()
+            .find(|method| method.id == binding.host_method)?
+            .name;
+        self.method(host_id, method_name)
+    }
+
     /// Check host method tables only where the target script trait is defined.
     /// This keeps diagnostics owned by one source file and makes signature
     /// changes invalidate the result through the aggregate catalog.
