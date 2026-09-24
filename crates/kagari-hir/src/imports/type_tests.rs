@@ -37,7 +37,7 @@ fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
             .definition_at(
                 root,
                 text.find(spelling).unwrap()
-                    + if spelling == "lib::answer()" {
+                    + if spelling.starts_with("lib::") {
                         "lib::".len()
                     } else {
                         0
@@ -99,7 +99,12 @@ fn imported_annotations_preserve_nominal_identity_and_definition_locations() {
         "Choice)",
         "View)",
     ] {
-        let offset = text.find(needle).unwrap() + usize::from(needle == "[D]");
+        let offset = text.find(needle).unwrap()
+            + match needle {
+                "[D]" => 1,
+                "lib::Data {" | "lib::Data =" => "lib::".len(),
+                _ => 0,
+            };
         let declaration = snapshot.definition_at(root, offset).unwrap();
         assert_eq!(declaration.location.file, types);
         assert!(db.snapshot().contains(declaration.location));
@@ -209,7 +214,7 @@ fn type_facades_resolve_before_signatures_including_module_aliases() {
         file.result().diagnostics()
     );
     let declaration = snapshot
-        .definition_at(root, text.find("m::Data").unwrap())
+        .definition_at(root, text.find("m::Data").unwrap() + "m::".len())
         .unwrap();
     assert_eq!(declaration.location.file, types);
     assert_eq!(declaration.name, "Data");

@@ -362,6 +362,11 @@ fn main() -> kagari_embed::CompileResult<()> {
             .name,
         "T"
     );
+    assert!(applied_file.definition_at(application + 1).is_none());
+    assert_eq!(
+        applied_file.type_at(application + 1),
+        Some(kagari_hir::types::TypeId::Error)
+    );
     println!("invalid type application retains its binder target for navigation");
     let bounded = format!(
         "{text}\r\nstruct Key<T: HashKey> {{ val value: T }}\r\nfn invalid_key(value: Key<f32>) {{}}"

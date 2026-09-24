@@ -71,6 +71,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
   `::` stays targetless. Known enum owners remain navigable beside unknown
   variants and through source facades. Broader R04 audit remains open.
 
+- R04 type-name checkpoint: type lowering records a separate terminal-name
+  range for annotations, bounds, where targets and explicit constructor type
+  arguments. Definition and offline host-type queries use that name range;
+  generic delimiters, array brackets and qualified separators have no type
+  declaration target. The complete annotation span still supports type queries.
+  Tests include nested applications, source facades, host types and CRLF/Unicode.
+  The source_queries example checks both sides of this range distinction.
+
 - R16 acceptance: optional per-root trace records the verified dependency
   closure fingerprint, root identity, explicit time/seed inputs and ordered host
   invocations with bounded argument/result snapshots and outcome categories.

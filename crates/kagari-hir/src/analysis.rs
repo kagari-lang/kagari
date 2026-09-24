@@ -210,11 +210,12 @@ impl FileAnalysis {
             .filter(|(_, span)| span.start <= offset && offset < span.end)
             .min_by_key(|(_, span)| span.end - span.start)
         {
-            let Some(TypeTarget::Host(id)) = facts
-                .typed
-                .type_table
-                .type_ref(facts.lowered.source_map.type_id(index))?
-                .target
+            let type_id = facts.lowered.source_map.type_id(index);
+            let name_span = facts.lowered.source_map.type_name_span(type_id)?;
+            if !(name_span.start <= offset && offset < name_span.end) {
+                return None;
+            }
+            let Some(TypeTarget::Host(id)) = facts.typed.type_table.type_ref(type_id)?.target
             else {
                 return None;
             };
@@ -440,11 +441,12 @@ impl FileAnalysis {
             .filter(|(_, span)| span.start <= offset && offset < span.end)
             .min_by_key(|(_, span)| span.end - span.start)
         {
-            let target = facts
-                .typed
-                .type_table
-                .type_ref(facts.lowered.source_map.type_id(index))?
-                .target?;
+            let type_id = facts.lowered.source_map.type_id(index);
+            let name_span = facts.lowered.source_map.type_name_span(type_id)?;
+            if !(name_span.start <= offset && offset < name_span.end) {
+                return None;
+            }
+            let target = facts.typed.type_table.type_ref(type_id)?.target?;
             return match target {
                 crate::typeck::TypeTarget::Host(_) => None,
                 crate::typeck::TypeTarget::Source(id) => facts

@@ -24,12 +24,16 @@ impl Lowerer {
                     if let Some(base) = path.path() {
                         span.start = syntax_span(&base).start;
                     }
-                    self.alloc_type(
+                    let id = self.alloc_type(
                         span,
                         crate::hir::TypeData {
                             kind: crate::hir::TypeKind::Generic { name, args },
                         },
-                    )
+                    );
+                    if let Some(base) = path.path().and_then(|path| path.segments().last()) {
+                        self.source_map.insert_type_name(id, syntax_span(&base));
+                    }
+                    id
                 }),
             },
             ast::Expr::Literal(literal) => ExprKind::Literal(self.lower_literal(literal)),
@@ -115,12 +119,19 @@ impl Lowerer {
                     if let Some(path) = struct_expr.path() {
                         span.start = syntax_span(&path).start;
                     }
-                    self.alloc_type(
+                    let id = self.alloc_type(
                         span,
                         crate::hir::TypeData {
                             kind: crate::hir::TypeKind::Generic { name, args },
                         },
-                    )
+                    );
+                    if let Some(base) = struct_expr
+                        .path()
+                        .and_then(|path| path.path()?.segments().last())
+                    {
+                        self.source_map.insert_type_name(id, syntax_span(&base));
+                    }
+                    id
                 }),
                 path: struct_expr
                     .path()

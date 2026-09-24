@@ -153,7 +153,16 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
         "value))",
     ] {
         assert_eq!(
-            file.host_type_at(text.find(spelling).unwrap()).unwrap().id,
+            file.host_type_at(
+                text.find(spelling).unwrap()
+                    + match spelling {
+                        "facade::Object" => "facade::".len(),
+                        "api::Item" => "api::".len(),
+                        _ => 0,
+                    },
+            )
+            .unwrap()
+            .id,
             id,
             "{spelling}"
         );
@@ -166,7 +175,11 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
         .snapshot(sources.snapshot(), profile, &Default::default())
         .unwrap();
     assert!(!new.file(root).unwrap().result().diagnostics().is_empty());
-    let offset = text.find("facade::Object").unwrap();
+    let offset = text.find("facade::Object").unwrap() + "facade::".len();
+    let qualifier = text.find("facade::Object").unwrap();
+    assert!(file.host_type_at(qualifier).is_none());
+    assert!(file.host_type_at(qualifier + "facade".len()).is_none());
+    assert!(file.host_type_at(offset + "Object".len()).is_none());
     assert!(file.host_type_at(offset).unwrap().documentation.is_empty());
     assert_eq!(
         new.file(root)

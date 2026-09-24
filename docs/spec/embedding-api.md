@@ -191,6 +191,12 @@ known label remains navigable when another initializer field or value is
 invalid. Unknown labels have no declaration target, and code generation still
 rejects the invalid initializer.
 
+Type references retain their full span for `type_at`, while declaration and
+offline host-type queries select only the terminal CST name. For `lib::Box<T>`,
+`Box` has the checked type target; `lib`, `::`, `<` and `>` do not inherit it.
+Nested type arguments keep their own targets. This also applies to trait bounds,
+where targets and explicit constructor type arguments.
+
 `lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated

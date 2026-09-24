@@ -462,23 +462,30 @@ impl Lowerer {
     fn lower_where_clause(&mut self, where_clause: &ast::WhereClause) -> Vec<TraitBound> {
         where_clause
             .predicates()
-            .map(|predicate| TraitBound {
-                target: predicate.name_text().unwrap_or_default(),
-                target_ref: self.alloc_type(
-                    predicate
-                        .name()
-                        .map(|name| syntax_span(&name))
+            .map(|predicate| {
+                let name = predicate.name();
+                let target_ref = self.alloc_type(
+                    name.as_ref()
+                        .map(syntax_span)
                         .unwrap_or_else(|| syntax_span(&predicate)),
                     crate::hir::TypeData {
                         kind: crate::hir::TypeKind::Named(
                             predicate.name_text().unwrap_or_default(),
                         ),
                     },
-                ),
-                traits: predicate
-                    .bounds()
-                    .map(|bounds| self.lower_trait_refs(bounds.bounds()))
-                    .unwrap_or_default(),
+                );
+                if let Some(name) = name {
+                    self.source_map
+                        .insert_type_name(target_ref, syntax_span(&name));
+                }
+                TraitBound {
+                    target: predicate.name_text().unwrap_or_default(),
+                    target_ref,
+                    traits: predicate
+                        .bounds()
+                        .map(|bounds| self.lower_trait_refs(bounds.bounds()))
+                        .unwrap_or_default(),
+                }
             })
             .collect::<Vec<_>>()
     }
@@ -499,12 +506,14 @@ impl Lowerer {
         } else {
             crate::hir::TypeKind::Generic { name, args }
         };
-        TraitRef {
-            ty: self.alloc_type(
-                crate::lower::context::token_span(trait_ref),
-                crate::hir::TypeData { kind },
-            ),
+        let ty = self.alloc_type(
+            crate::lower::context::token_span(trait_ref),
+            crate::hir::TypeData { kind },
+        );
+        if let Some(name) = trait_ref.path().and_then(|path| path.segments().last()) {
+            self.source_map.insert_type_name(ty, syntax_span(&name));
         }
+        TraitRef { ty }
     }
 
     fn lower_const(&mut self, const_def: &ast::ConstDef) -> ConstItem {

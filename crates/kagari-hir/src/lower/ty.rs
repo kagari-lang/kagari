@@ -38,6 +38,14 @@ impl Lowerer {
             TypeKind::Named("<missing>".to_string())
         };
 
-        self.alloc_type(syntax_span(ty), TypeData { kind })
+        let id = self.alloc_type(syntax_span(ty), TypeData { kind });
+        if let Some(name) = ty
+            .path()
+            .and_then(|path| path.segments().last())
+            .or_else(|| ty.name())
+        {
+            self.source_map.insert_type_name(id, syntax_span(&name));
+        }
+        id
     }
 }

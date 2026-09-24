@@ -55,6 +55,29 @@ fn explicit_empty_applications_are_not_erased_to_bare_types() {
 }
 
 #[test]
+fn annotation_navigation_uses_type_names_not_application_punctuation() {
+    let text = "// 中文 😀\r\nstruct Point {} struct Holder<T> { val value: T } fn inspect(value: Holder<Point>) -> [Point] { [Point {}] }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("type-punctuation.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(id).unwrap();
+    assert!(file.result().diagnostics().is_empty());
+
+    let application = text.find("Holder<Point>").unwrap();
+    assert_eq!(file.definition_at(application).unwrap().name, "Holder");
+    assert!(file.definition_at(application + "Holder".len()).is_none());
+    let argument = application + "Holder<".len();
+    assert_eq!(file.definition_at(argument).unwrap().name, "Point");
+    assert!(file.definition_at(argument + "Point".len()).is_none());
+    let array = text.find("[Point]").unwrap();
+    assert!(file.definition_at(array).is_none());
+    assert_eq!(file.definition_at(array + 1).unwrap().name, "Point");
+    assert!(file.definition_at(array + "[Point".len()).is_none());
+}
+
+#[test]
 fn explicit_bindings_shadow_all_standard_type_constructors() {
     for (name, args) in [
         ("Map", "i32, String"),

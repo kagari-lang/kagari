@@ -162,7 +162,7 @@ fn imported_trait_headers_keep_nominal_navigation_even_before_execution_support(
         .unwrap();
     let header = signatures.file(root).unwrap();
     let first = text.find("impl L").unwrap() + 5;
-    let second = text.find("impl r::View").unwrap() + 5;
+    let second = text.find("impl r::View").unwrap() + "impl r::".len();
     assert!(matches!(header.type_at(first), Some(TypeId::Trait(_))));
     assert_ne!(header.type_at(first), header.type_at(second));
     let snapshot = analyze(&mut db, &sources);

@@ -39,6 +39,7 @@ pub struct SourceMap {
     pattern_spans: Vec<Span>,
     pattern_owners: Vec<crate::hir::HirOwner>,
     type_spans: Vec<Span>,
+    type_name_spans: std::collections::HashMap<TypeRefId, Span>,
     type_owners: Vec<crate::hir::HirOwner>,
 }
 
@@ -107,6 +108,14 @@ impl SourceMap {
     }
     pub(crate) fn type_spans(&self) -> &[Span] {
         &self.type_spans
+    }
+
+    pub(crate) fn insert_type_name(&mut self, id: TypeRefId, span: Span) {
+        self.type_name_spans.insert(id, span);
+    }
+
+    pub fn type_name_span(&self, id: TypeRefId) -> Option<Span> {
+        self.type_name_spans.get(&id).copied()
     }
     pub(crate) fn insert_field(&mut self, id: crate::hir::FieldId, span: Span) {
         self.field_spans.insert(id, span);
