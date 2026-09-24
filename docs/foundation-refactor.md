@@ -534,6 +534,15 @@ R02 acceptance evidence:
   round-trips its artifact. Imported trait constraints/impls and runtime interface
   values remain open.
 
+- R07 instantiated interface-slot checkpoint: the bytecode verifier now
+  substitutes both impl and method type arguments into each declared method
+  signature and checks the executable function's parameter and return layouts.
+  A forged concrete function identity with the right arity but wrong argument
+  representation is rejected before loading. Trait implementation signature
+  checks compare method-local generic binders by position, so equivalent binders
+  with different names match and different binder counts are rejected. Generic
+  method invocation and runtime interface dispatch remain separate work.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

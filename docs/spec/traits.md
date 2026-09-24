@@ -437,6 +437,8 @@ arguments; the type kind also participates in identity. Substitution retains the
 declaration and recursively replaces arguments by their parameter owner/position.
 Local impl headers and bounds resolve applied trait types with checked argument
 arity. Executable interface values remain separate work.
+Trait methods compare local generic binders by position after substituting
+trait arguments and `Self`; binder spelling does not affect impl matching.
 Local and imported interface annotations use these same contracts for argument
 checking, Self substitution, and definition queries. Invalid parameter types retain
 Error facts without discarding later parameters or unrelated declarations.

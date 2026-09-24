@@ -439,16 +439,33 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             if identity.arguments.len() != abi.generic_params.len() + method.generic_params.len() {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
-            if abi.generic_params.is_empty()
-                && method.generic_params.is_empty()
-                && (!identity.arguments.is_empty()
-                    || function.metadata.params
-                        != method
-                            .params
-                            .iter()
-                            .map(|parameter| parameter.ty.representation())
-                            .collect::<Vec<_>>()
-                    || function.metadata.return_type != method.return_type.representation())
+            let method_owner = &identity.declaration;
+            let (impl_arguments, method_arguments) =
+                identity.arguments.split_at(abi.generic_params.len());
+            let expected_params = method
+                .params
+                .iter()
+                .map(|parameter| {
+                    instantiate_method_type(
+                        &parameter.ty,
+                        &abi.declaration,
+                        impl_arguments,
+                        method_owner,
+                        method_arguments,
+                    )
+                    .map(|ty| ty.representation())
+                })
+                .collect::<Option<Vec<_>>>();
+            let expected_return = instantiate_method_type(
+                &method.return_type,
+                &abi.declaration,
+                impl_arguments,
+                method_owner,
+                method_arguments,
+            )
+            .map(|ty| ty.representation());
+            if expected_params.as_ref() != Some(&function.metadata.params)
+                || expected_return != Some(function.metadata.return_type)
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -476,6 +493,55 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
         }
     }
     Ok(())
+}
+
+fn instantiate_method_type(
+    ty: &crate::module::abi::AbiType,
+    impl_owner: &kagari_common::identity::DefinitionId,
+    impl_arguments: &[crate::module::abi::AbiType],
+    method_owner: &kagari_common::identity::DefinitionId,
+    method_arguments: &[crate::module::abi::AbiType],
+) -> Option<crate::module::abi::AbiType> {
+    use crate::module::abi::{AbiType, NominalAbiType};
+    let child = |ty: &AbiType| {
+        instantiate_method_type(
+            ty,
+            impl_owner,
+            impl_arguments,
+            method_owner,
+            method_arguments,
+        )
+    };
+    let nominal = |ty: &NominalAbiType| {
+        Some(NominalAbiType {
+            declaration: ty.declaration.clone(),
+            arguments: ty.arguments.iter().map(&child).collect::<Option<_>>()?,
+        })
+    };
+    Some(match ty {
+        AbiType::Parameter { owner, position } if owner == impl_owner => {
+            impl_arguments.get(*position)?.clone()
+        }
+        AbiType::Parameter { owner, position } if owner == method_owner => {
+            method_arguments.get(*position)?.clone()
+        }
+        AbiType::Parameter { .. } | AbiType::SelfType(_) => return None,
+        AbiType::Builtin(_) | AbiType::Host(_) => ty.clone(),
+        AbiType::Tuple(types) => AbiType::Tuple(types.iter().map(child).collect::<Option<_>>()?),
+        AbiType::Array(element) => AbiType::Array(Box::new(child(element)?)),
+        AbiType::Set(element) => AbiType::Set(Box::new(child(element)?)),
+        AbiType::Map { key, value } => AbiType::Map {
+            key: Box::new(child(key)?),
+            value: Box::new(child(value)?),
+        },
+        AbiType::StandardEnum { kind, args } => AbiType::StandardEnum {
+            kind: *kind,
+            args: args.iter().map(child).collect::<Option<_>>()?,
+        },
+        AbiType::Struct(ty) => AbiType::Struct(nominal(ty)?),
+        AbiType::Enum(ty) => AbiType::Enum(nominal(ty)?),
+        AbiType::Trait(ty) => AbiType::Trait(nominal(ty)?),
+    })
 }
 
 fn verify_function(

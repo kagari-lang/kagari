@@ -1044,7 +1044,12 @@ fn validate_impl_methods(
             trait_def,
             trait_method,
             impl_method,
-            receiver,
+            (
+                receiver.0,
+                receiver.1,
+                receiver.2,
+                impl_block.generic_params.len(),
+            ),
             lowered.source_map.impl_span(impl_block.id),
             diagnostics,
         );
@@ -1072,7 +1077,12 @@ fn compare_impl_method_signature(
     trait_def: &crate::hir::TraitDef,
     trait_method: &crate::hir::TraitMethod,
     impl_method: &crate::hir::ImplMethod,
-    receiver: (&TypeId, &kagari_common::identity::DefinitionId, &[TypeId]),
+    receiver: (
+        &TypeId,
+        &kagari_common::identity::DefinitionId,
+        &[TypeId],
+        usize,
+    ),
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
@@ -1093,12 +1103,39 @@ fn compare_impl_method_signature(
         );
         return;
     }
+    let trait_method_params = trait_function
+        .generic_params
+        .iter()
+        .skip(trait_def.generic_params.len())
+        .collect::<Vec<_>>();
+    let impl_method_params = impl_function
+        .generic_params
+        .iter()
+        .skip(receiver.3)
+        .collect::<Vec<_>>();
+    if trait_method_params.len() != impl_method_params.len() {
+        diagnostics.push(
+            Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                trait_name: trait_def.name.clone(),
+                method_name: trait_method.name.clone(),
+                reason: "generic parameter count differs".to_string(),
+            })
+            .with_span(span),
+        );
+        return;
+    }
     let trait_substitution = trait_function
         .generic_params
         .iter()
         .take(trait_def.generic_params.len())
         .cloned()
         .zip(receiver.2.iter().cloned())
+        .chain(
+            trait_method_params
+                .into_iter()
+                .zip(impl_method_params)
+                .map(|(expected, actual)| (expected.clone(), TypeId::Generic(actual.clone()))),
+        )
         .collect();
     for (trait_param, impl_param) in trait_function.params.iter().zip(&impl_function.params) {
         let expected = trait_param

@@ -1600,6 +1600,30 @@ impl Display for Player {
 }
 
 #[test]
+fn trait_method_generic_binders_match_by_position() {
+    let valid = common::lower_ok(
+        "trait Convert { fn take<T>(self, value: T) -> T; } struct Holder {} impl Convert for Holder { fn take<U>(self, value: U) -> U { value } }",
+    );
+    let names = resolve_names(&valid).into_checked().unwrap();
+    check_module(&valid, &names, None)
+        .into_checked()
+        .expect("equivalent method binders should match");
+
+    let invalid = common::lower_ok(
+        "trait Convert { fn take<T>(self, value: T) -> T; } struct Holder {} impl Convert for Holder { fn take<U, V>(self, value: U) -> U { value } }",
+    );
+    let names = resolve_names(&invalid).into_checked().unwrap();
+    let diagnostics = check_module(&invalid, &names, None)
+        .into_checked()
+        .expect_err("different method binder arity should fail");
+    assert!(diagnostics.iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        DiagnosticKind::TraitMethodMismatch { reason, .. }
+            if reason == "generic parameter count differs"
+    )));
+}
+
+#[test]
 fn wide_const_dependencies_keep_values_and_error_owners_by_declaration_slot() {
     let mut text = String::new();
     for index in 0..2_000 {

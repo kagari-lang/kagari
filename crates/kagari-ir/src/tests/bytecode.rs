@@ -174,6 +174,30 @@ fn generic_interface_implementation_specializes_reachable_method() {
 }
 
 #[test]
+fn generic_interface_slot_requires_instantiated_method_layout() {
+    let module = common::bytecode_ok(
+        "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 7 }) }",
+    );
+    assert_eq!(module.interface_tables[0].methods.len(), 1);
+    verify_module(&module).unwrap();
+    let mut wrong_instance = module;
+    let method = wrong_instance.interface_tables[0].methods[0]
+        .function
+        .index();
+    wrong_instance.functions[method]
+        .identity
+        .as_mut()
+        .unwrap()
+        .arguments[0] = crate::module::abi::AbiType::Builtin(kagari_hir::types::BuiltinType::Bool);
+    wrong_instance.function_table[method].identity =
+        wrong_instance.functions[method].identity.clone();
+    assert!(matches!(
+        verify_module(&wrong_instance),
+        Err(BytecodeVerificationError::InvalidInterfaceTable)
+    ));
+}
+
+#[test]
 fn concrete_interface_methods_have_verified_executable_slots() {
     let module = common::bytecode_ok(
         "pub struct Pair { val number: i32 } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } fn main() -> i32 { 1 }",

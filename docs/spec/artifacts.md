@@ -288,6 +288,10 @@ Artifact tables include:
 
 Hot execution paths use table ids, not repeated strings.
 Strings remain available for diagnostics, debug metadata, and tooling.
+Interface method slots are checked against their concrete function identities:
+the impl and method type arguments must instantiate the declared signature to
+the executable parameter and return layouts. A slot with a mismatched instance
+is rejected before execution.
 
 ## Verification Metadata
 
