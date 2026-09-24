@@ -36,6 +36,114 @@ fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
 }
 
 #[test]
+fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit() {
+    use kagari_hir::types::{BuiltinType, TypeId};
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "api",
+        include_str!("../../../examples/imported-traits/api.kgr"),
+    );
+    insert(
+        &mut db,
+        "model",
+        include_str!("../../../examples/imported-traits/generic-model.kgr"),
+    );
+    let root = insert(
+        &mut db,
+        "root",
+        include_str!("../../../examples/imported-traits/generic-consumer.kgr"),
+    );
+    let checked = checked(&db, root);
+    let ir = lower_program_to_ir(&checked, &Default::default()).unwrap();
+    let model = ir
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["model"])
+        .unwrap();
+    let methods = model
+        .functions
+        .iter()
+        .filter(|function| {
+            function
+                .instance
+                .declaration
+                .path
+                .last()
+                .is_some_and(|segment| segment.name == "get")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(methods.len(), 2);
+    assert!(methods.iter().any(|function| {
+        function.instance.arguments == [TypeId::Builtin(BuiltinType::Bool)]
+            && ir.function(&function.instance).is_some()
+    }));
+    assert!(methods.iter().any(|function| {
+        function.instance.arguments == [TypeId::Builtin(BuiltinType::I32)]
+            && ir.function(&function.instance).is_some()
+    }));
+    let mut forged = ir.clone().into_unverified();
+    let contract = forged
+        .iter_mut()
+        .flat_map(|module| &mut module.functions)
+        .flat_map(|function| &mut function.blocks)
+        .flat_map(|block| &mut block.instructions)
+        .find_map(|instruction| match instruction {
+            Instruction::Call {
+                callee: CallTarget::SourceFunction(contract),
+                ..
+            } if !contract.arguments.is_empty() => Some(contract),
+            _ => None,
+        })
+        .unwrap();
+    contract.arguments[0] = TypeId::Builtin(BuiltinType::F32);
+    assert!(matches!(
+        verify_program(ir.root().clone(), forged, &Default::default())
+            .unwrap_err()
+            .kind,
+        ProgramErrorKind::UnresolvedFunction(_)
+    ));
+    let instance_count = ir
+        .modules()
+        .iter()
+        .map(|module| {
+            module
+                .functions
+                .iter()
+                .filter(|function| !function.instance.arguments.is_empty())
+                .count()
+                + module
+                    .structures
+                    .iter()
+                    .filter(|layout| !layout.arguments.is_empty())
+                    .count()
+                + module
+                    .enumerations
+                    .iter()
+                    .filter(|layout| !layout.arguments.is_empty())
+                    .count()
+        })
+        .sum::<usize>();
+    let limit = instance_count - 1;
+    let error = lower_program_to_ir(
+        &checked,
+        &IrLoweringOptions {
+            max_generic_instances: limit,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error.kind,
+        ProgramErrorKind::Lowering(kagari_ir::IrLoweringError::Diagnostic(diagnostic))
+            if matches!(diagnostic.kind, DiagnosticKind::CompileLimitExceeded {
+                resource: "generic instances",
+                limit: actual,
+            } if actual == limit)
+    ));
+}
+
+#[test]
 fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
     use kagari_ir::{
         bytecode::{ArtifactFingerprint, KbcArtifact, lower_program_to_bytecode},
@@ -223,7 +331,12 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
     assert_eq!(calls.len(), 2);
     for call in calls {
         assert_eq!(call.declaration.module.path, ["shared"]);
-        let binding = program.function(&call.declaration).unwrap();
+        let binding = program
+            .function(&kagari_ir::module::function::FunctionInstance {
+                declaration: call.declaration.clone(),
+                arguments: call.arguments.clone(),
+            })
+            .unwrap();
         let target = &program.modules()[binding.module].functions[binding.function.index()];
         assert_eq!(target.name, "answer");
         assert_eq!(target.instance.declaration, call.declaration);

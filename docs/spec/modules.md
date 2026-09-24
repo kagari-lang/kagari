@@ -162,8 +162,9 @@ module may implement an imported trait and call that implementation through an
 applied bound; the imported declaration and public method contract retain their
 defining module identity. Concrete implementations defined in dependencies are
 visible to bound calls and link to their defining module's method slot. Generic
-dependency implementations and dynamic interface values remain under the R07/R08
-audit.
+dependency methods are instantiated on demand across the program's dependency
+closure; link keys include concrete type arguments. Dynamic interface values
+remain under the R07/R08 audit.
 Overlapping concrete or generic implementations in the reachable closure are
 signature errors even when unused; unrelated roots do not see the conflict.
 Valid source closures compile

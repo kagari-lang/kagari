@@ -325,7 +325,7 @@ pub(super) fn parameter_bounds(
         .collect()
 }
 
-pub(super) fn type_satisfies_standard_constraint(
+pub(crate) fn type_satisfies_standard_constraint(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
     bounds: &super::GenericBounds,

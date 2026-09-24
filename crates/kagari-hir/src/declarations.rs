@@ -140,7 +140,7 @@ impl Declarations {
             _ => None,
         }
     }
-    pub(crate) fn definition_target(&self, id: &DefinitionId) -> Option<ResolvedName> {
+    pub fn definition_target(&self, id: &DefinitionId) -> Option<ResolvedName> {
         match self
             .identities
             .get(&DeclarationId::Definition(id.clone()))?

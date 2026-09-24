@@ -602,7 +602,10 @@ fn lower_instruction(
                     let target = context
                         .program
                         .expect("linked source program")
-                        .function(&contract.declaration)
+                        .function(&crate::module::function::FunctionInstance {
+                            declaration: contract.declaration.clone(),
+                            arguments: contract.arguments.clone(),
+                        })
                         .expect("verified source binding");
                     CallTarget::ModuleFunction {
                         module: super::ModuleRef::new(target.module),

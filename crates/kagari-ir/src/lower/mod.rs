@@ -39,6 +39,14 @@ pub fn lower_to_ir(
     module: &kagari_hir::CheckedAnalysis,
     options: &IrLoweringOptions,
 ) -> Result<VerifiedIrModule, IrLoweringError> {
+    lower_to_ir_with_requests(module, options, &[])
+}
+
+pub(crate) fn lower_to_ir_with_requests(
+    module: &kagari_hir::CheckedAnalysis,
+    options: &IrLoweringOptions,
+    requests: &[crate::module::function::FunctionInstance],
+) -> Result<VerifiedIrModule, IrLoweringError> {
     let mut planner = instances::InstancePlanner::new(module, options);
     planner.check()?;
     let mut module_init = None;
@@ -66,6 +74,24 @@ pub fn lower_to_ir(
                 module_init = Some(id);
             }
         }
+    }
+    for request in requests {
+        planner.check()?;
+        if request.declaration.module != *module.lowered.source.module_identity() {
+            return Err(IrLoweringError::MissingBinding("requested instance owner"));
+        }
+        let Some(kagari_hir::resolver::ResolvedName::Function(function)) =
+            module.declarations.definition_target(&request.declaration)
+        else {
+            return Err(IrLoweringError::MissingBinding(
+                "requested function instance",
+            ));
+        };
+        planner.enqueue(
+            function,
+            request.arguments.clone(),
+            module.lowered.source_map.function_span(function),
+        )?;
     }
     let mut functions = Vec::new();
     while let Some(instance) = planner.instances.get(functions.len()).cloned() {

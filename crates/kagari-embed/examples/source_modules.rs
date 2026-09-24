@@ -72,7 +72,7 @@ fn main() {
     let ir = kagari_ir::program::lower_program_to_ir(&checked, &Default::default()).unwrap();
     for module in ir.modules() {
         for function in &module.functions {
-            let binding = ir.function(&function.instance.declaration).unwrap();
+            let binding = ir.function(&function.instance).unwrap();
             println!(
                 "{}::{} -> module {}, function {}",
                 module.identity,

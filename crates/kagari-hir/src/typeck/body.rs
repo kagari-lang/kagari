@@ -2185,10 +2185,7 @@ impl<'a> BodyChecker<'a> {
                                     ))
                                 })
                             }
-                            _ => match self
-                                .aggregates
-                                .concrete_implementation_count(&trait_type, actual)
-                            {
+                            _ => match self.aggregates.implementation_count(&trait_type, actual) {
                                 0 => self.type_table.implements(&trait_type, actual),
                                 1 => true,
                                 _ => false,

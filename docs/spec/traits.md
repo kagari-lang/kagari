@@ -468,8 +468,10 @@ declaration identity and signature to the defining module. Multiple matching
 concrete implementations reject the whole reachable closure during signature
 checking, including when unused. Generic templates use the same conservative
 overlap rule across modules as within one module; distinct concrete trait
-applications stay independent. Executing generic dependency implementations
-and runtime interface dispatch remain tracked in the
+applications stay independent. Reachable methods in generic dependency
+implementations are specialized for the receiver's concrete type arguments and
+linked to the defining module by instance identity. Runtime interface dispatch
+remains tracked in the
 [foundation roadmap](../foundation-refactor.md).
 
 ### Remaining execution work

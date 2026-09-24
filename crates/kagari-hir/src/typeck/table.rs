@@ -654,7 +654,7 @@ impl TypeTable {
     }
 }
 
-fn match_implementation(
+pub(crate) fn match_implementation(
     implemented_trait: &NominalType,
     requested_trait: &NominalType,
     pattern: &TypeId,

@@ -600,6 +600,20 @@ R02 acceptance evidence:
   repair and retained old-snapshot diagnostics. Executing methods from generic
   implementations defined in dependencies remains open.
 
+- R07 cross-module specialization checkpoint: bound checking now matches
+  dependency-defined generic implementations after substituting receiver and
+  applied-trait arguments, including their declared bounds. Program lowering
+  collects concrete method-instance requests from cross-module calls, repeats
+  dependency lowering until transitive requests settle, and shares the existing
+  generic-instance and instruction budgets across the closure. Link bindings use
+  declaration identity plus concrete type arguments; verification checks the
+  selected instance and call representation before bytecode emission. The
+  [generic imported-trait example](../examples/imported-traits/generic-consumer.kgr)
+  produces two method instances and runs from source and encoded artifacts through
+  the interpreter and existing JIT fallback. A transitive dependency fixture
+  requires more than one planning pass. Runtime interface values and dispatch
+  remain open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover

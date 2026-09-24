@@ -587,10 +587,10 @@ impl FunctionLowerer<'_, '_> {
                     None,
                 )
             } else {
-                let implementation = self
+                let (implementation, impl_arguments) = self
                     .analyzed
                     .aggregates
-                    .concrete_implementation_method(&method, &interface, &ty)
+                    .implementation_method(&method, &interface, &ty)
                     .ok_or(IrLoweringError::UnsupportedExpr(
                         "interface dispatch requires linked implementation tables",
                     ))?;
@@ -639,6 +639,7 @@ impl FunctionLowerer<'_, '_> {
                     Vec::new(),
                     Some(crate::module::instruction::SourceFunctionContract {
                         declaration: implementation.clone(),
+                        arguments: impl_arguments,
                         params,
                         return_type,
                     }),
@@ -714,6 +715,7 @@ impl FunctionLowerer<'_, '_> {
                         CallTarget::SourceFunction(Box::new(
                             crate::module::instruction::SourceFunctionContract {
                                 declaration: imported.declaration.clone(),
+                                arguments: Vec::new(),
                                 params,
                                 return_type,
                             },

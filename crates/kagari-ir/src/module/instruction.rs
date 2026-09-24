@@ -488,6 +488,7 @@ pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFunctionContract {
     pub declaration: kagari_common::identity::DefinitionId,
+    pub arguments: Vec<kagari_hir::types::TypeId>,
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
 }

@@ -388,6 +388,143 @@ fn dependency_generic_implementation_overlap_respects_trait_arguments() {
 }
 
 #[test]
+fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "api",
+        include_str!("../../../examples/imported-traits/api.kgr"),
+    );
+    insert(
+        &engine,
+        "model",
+        include_str!("../../../examples/imported-traits/generic-model.kgr"),
+    );
+    let root = insert(
+        &engine,
+        "root",
+        include_str!("../../../examples/imported-traits/generic-consumer.kgr"),
+    );
+    let mut context = ExecutionContext::default();
+    context.language_profile.allow_jit = true;
+    context.capabilities.jit = true;
+    let artifact = compile(
+        &engine,
+        root,
+        CompileOptions {
+            language_profile: context.language_profile,
+        },
+    );
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        context.jit_policy = if jit {
+            kagari_embed::JitPolicy::Enabled
+        } else {
+            kagari_embed::JitPolicy::Disabled
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let report = if jit {
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+        } else {
+            runtime.execute(&loaded, "main", &[], &context)
+        }
+        .unwrap();
+        assert_eq!(report.return_value, Value::I32(18));
+    }
+}
+
+#[test]
+fn dependency_generic_implementation_checks_specialized_bounds() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "api",
+        include_str!("../../../examples/imported-traits/api.kgr"),
+    );
+    insert(
+        &engine,
+        "model",
+        "use pkg::api::Echo; pub struct Holder<T> { val value: T } impl<T: HashKey> Echo<i32> for Holder<T> { fn get(self) -> i32 { 9 } } pub fn good() -> Holder<i32> { Holder { value: 1 } } pub fn bad() -> Holder<f32> { Holder { value: 1.5 } }",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::api::Echo; use pkg::model::{good, bad}; fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(good()) }",
+    );
+    assert!(
+        engine
+            .compile_snapshot(
+                engine.source_snapshot(),
+                root,
+                CompileOptions::default(),
+                &CancellationToken::default(),
+            )
+            .is_ok()
+    );
+    engine
+        .set_source(
+            "mem://root",
+            "use pkg::api::Echo; use pkg::model::{good, bad}; fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(bad()) }".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let error = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            root,
+            CompileOptions::default(),
+            &CancellationToken::default(),
+        )
+        .unwrap_err();
+    let EmbeddingError::Diagnostics { diagnostics } = error else {
+        panic!("expected source diagnostics");
+    };
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")
+    );
+}
+
+#[test]
+fn dependency_generic_instances_follow_transitive_method_calls() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "api",
+        include_str!("../../../examples/imported-traits/api.kgr"),
+    );
+    insert(
+        &engine,
+        "inner",
+        "use pkg::api::Echo; pub struct Inner<T> { val value: T } impl<T> Echo<i32> for Inner<T> { fn get(self) -> i32 { 4 } } pub fn make() -> Inner<i32> { Inner { value: 1 } }",
+    );
+    insert(
+        &engine,
+        "outer",
+        "use pkg::api::Echo; use pkg::inner::{Inner, make}; pub struct Outer<T> { val inner: Inner<T> } fn read_inner<U: Echo<i32>>(value: U) -> i32 { value.get() } impl<T> Echo<i32> for Outer<T> { fn get(self) -> i32 { read_inner(self.inner) } } pub fn make_outer() -> Outer<i32> { Outer { inner: make() } }",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::api::Echo; use pkg::outer::make_outer; fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(make_outer()) }",
+    );
+    let artifact = compile(&engine, root, CompileOptions::default());
+    let mut runtime = engine.runtime(Default::default());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let report = runtime
+        .execute(&loaded, "main", &[], &ExecutionContext::default())
+        .unwrap();
+    assert_eq!(report.return_value, Value::I32(4));
+}
+
+#[test]
 fn facade_call_signatures_supply_context_to_nominal_constructors() {
     let engine = KagariEngine::default();
     insert(

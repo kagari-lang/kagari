@@ -1,0 +1,10 @@
+use pkg::api::Echo;
+use pkg::model::{make, make_number};
+
+fn read<U: Echo<i32>>(value: U) -> i32 {
+    value.get()
+}
+
+fn main() -> i32 {
+    read(make()) + read(make_number())
+}

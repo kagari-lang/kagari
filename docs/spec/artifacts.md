@@ -295,6 +295,10 @@ is rejected before execution.
 For an implementation of an imported trait, whole-program verification also
 checks the interface table against the trait's public ABI in its dependency
 module and requires that module to be reachable.
+Cross-module calls to specialized generic implementation methods resolve by
+declaration identity and concrete type arguments during program linking. The
+emitted call targets a verified function slot in the defining module; executable
+bytecode carries no unresolved source declaration lookup.
 
 ## Verification Metadata
 

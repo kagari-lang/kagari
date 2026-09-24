@@ -1,4 +1,4 @@
-//! Verified source modules and declaration-to-module/function link bindings.
+//! Verified source modules and concrete instance-to-module/function link bindings.
 use std::collections::{HashMap, HashSet};
 
 use kagari_common::{
@@ -8,10 +8,10 @@ use kagari_common::{
 use kagari_hir::program::CheckedProgram;
 
 use crate::{
-    IrLoweringError, IrLoweringOptions, lower_to_ir,
+    IrLoweringError, IrLoweringOptions,
     module::{
-        CallTarget, Instruction, IrModule, IrVerificationError, VerifiedIrModule, ids::InstanceId,
-        verify_ir,
+        CallTarget, Instruction, IrModule, IrVerificationError, VerifiedIrModule,
+        function::FunctionInstance, ids::InstanceId, verify_ir,
     },
 };
 
@@ -43,7 +43,7 @@ pub struct ProgramError {
 pub struct VerifiedIrProgram {
     root: ModuleIdentity,
     modules: Vec<VerifiedIrModule>,
-    bindings: HashMap<DefinitionId, ProgramFunctionRef>,
+    bindings: HashMap<FunctionInstance, ProgramFunctionRef>,
 }
 
 impl VerifiedIrProgram {
@@ -53,8 +53,8 @@ impl VerifiedIrProgram {
     pub fn modules(&self) -> &[VerifiedIrModule] {
         &self.modules
     }
-    pub fn function(&self, declaration: &DefinitionId) -> Option<ProgramFunctionRef> {
-        self.bindings.get(declaration).copied()
+    pub fn function(&self, instance: &FunctionInstance) -> Option<ProgramFunctionRef> {
+        self.bindings.get(instance).copied()
     }
     pub fn into_unverified(self) -> Vec<IrModule> {
         self.modules
@@ -69,50 +69,98 @@ pub fn lower_program_to_ir(
     options: &IrLoweringOptions,
 ) -> Result<VerifiedIrProgram, ProgramError> {
     let root = program.root().lowered.source.module_identity().clone();
-    let mut modules = Vec::new();
-    let mut remaining = options.clone();
-    for module in program.modules() {
-        let lowered = lower_to_ir(module, &remaining).map_err(|mut error| {
-            if let IrLoweringError::Diagnostic(diagnostic) = &mut error
-                && let kagari_common::DiagnosticKind::CompileLimitExceeded { resource, limit } =
-                    &mut diagnostic.kind
-            {
-                match *resource {
-                    "generated instructions" => *limit = options.max_instructions,
-                    "generic instances" => *limit = options.max_generic_instances,
-                    _ => {}
-                }
-            }
-            ProgramError {
-                module: Box::new(module.lowered.source.module_identity().clone()),
-                kind: ProgramErrorKind::Lowering(error),
-            }
+    let mut requests: HashMap<ModuleIdentity, Vec<FunctionInstance>> = HashMap::new();
+    let mut seen = HashSet::new();
+    loop {
+        options.cancel.check().map_err(|_| ProgramError {
+            module: Box::new(root.clone()),
+            kind: ProgramErrorKind::Cancelled,
         })?;
-        // These budgets apply to the whole source closure, not once per module.
-        remaining.max_generic_instances -= lowered
-            .functions
-            .iter()
-            .filter(|f| !f.instance.arguments.is_empty())
-            .count()
-            + lowered
-                .structures
+        let mut modules = Vec::new();
+        let mut remaining = options.clone();
+        for module in program.modules() {
+            let identity = module.lowered.source.module_identity();
+            let demanded = requests
+                .get(identity)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            let lowered = crate::lower::lower_to_ir_with_requests(module, &remaining, demanded)
+                .map_err(|mut error| {
+                    if let IrLoweringError::Diagnostic(diagnostic) = &mut error
+                        && let kagari_common::DiagnosticKind::CompileLimitExceeded {
+                            resource,
+                            limit,
+                        } = &mut diagnostic.kind
+                    {
+                        match *resource {
+                            "generated instructions" => *limit = options.max_instructions,
+                            "generic instances" => *limit = options.max_generic_instances,
+                            _ => {}
+                        }
+                    }
+                    ProgramError {
+                        module: Box::new(identity.clone()),
+                        kind: ProgramErrorKind::Lowering(error),
+                    }
+                })?;
+            // These budgets apply to the whole source closure, not once per module.
+            remaining.max_generic_instances -= lowered
+                .functions
                 .iter()
-                .filter(|s| !s.arguments.is_empty())
+                .filter(|f| !f.instance.arguments.is_empty())
                 .count()
-            + lowered
-                .enumerations
+                + lowered
+                    .structures
+                    .iter()
+                    .filter(|s| !s.arguments.is_empty())
+                    .count()
+                + lowered
+                    .enumerations
+                    .iter()
+                    .filter(|e| !e.arguments.is_empty())
+                    .count();
+            remaining.max_instructions -= lowered
+                .functions
                 .iter()
-                .filter(|e| !e.arguments.is_empty())
-                .count();
-        remaining.max_instructions -= lowered
-            .functions
+                .flat_map(|f| &f.blocks)
+                .map(|b| b.instructions.len() + usize::from(b.terminator.is_some()))
+                .sum::<usize>();
+            modules.push(lowered.into_unverified());
+        }
+        let mut changed = false;
+        for contract in modules
             .iter()
-            .flat_map(|f| &f.blocks)
-            .map(|b| b.instructions.len() + usize::from(b.terminator.is_some()))
-            .sum::<usize>();
-        modules.push(lowered.into_unverified());
+            .flat_map(|module| &module.functions)
+            .flat_map(|function| &function.blocks)
+            .flat_map(|block| &block.instructions)
+            .filter_map(|instruction| match instruction {
+                Instruction::Call {
+                    callee: CallTarget::SourceFunction(contract),
+                    ..
+                } if !contract.arguments.is_empty() => Some(contract),
+                _ => None,
+            })
+        {
+            options.cancel.check().map_err(|_| ProgramError {
+                module: Box::new(root.clone()),
+                kind: ProgramErrorKind::Cancelled,
+            })?;
+            let instance = FunctionInstance {
+                declaration: contract.declaration.clone(),
+                arguments: contract.arguments.clone(),
+            };
+            if seen.insert(instance.clone()) {
+                requests
+                    .entry(instance.declaration.module.clone())
+                    .or_default()
+                    .push(instance);
+                changed = true;
+            }
+        }
+        if !changed {
+            return verify_program(root, modules, &options.cancel);
+        }
     }
-    verify_program(root, modules, &options.cancel)
 }
 
 /// Revalidates every module and every cross-module binding after any IR edit.
@@ -180,23 +228,21 @@ pub fn verify_program(
             }
         }
         for function in &module.functions {
-            if function.instance.arguments.is_empty() {
-                let declaration = function.instance.declaration.clone();
-                if bindings
-                    .insert(
-                        declaration.clone(),
-                        ProgramFunctionRef {
-                            module: index,
-                            function: function.id,
-                        },
-                    )
-                    .is_some()
-                {
-                    return Err(error(
-                        &identity,
-                        ProgramErrorKind::FunctionContract(declaration),
-                    ));
-                }
+            let instance = function.instance.clone();
+            if bindings
+                .insert(
+                    instance.clone(),
+                    ProgramFunctionRef {
+                        module: index,
+                        function: function.id,
+                    },
+                )
+                .is_some()
+            {
+                return Err(error(
+                    &identity,
+                    ProgramErrorKind::FunctionContract(instance.declaration),
+                ));
             }
         }
         modules.push(module);
@@ -254,7 +300,11 @@ pub fn verify_program(
             else {
                 continue;
             };
-            let target = bindings.get(&contract.declaration).ok_or_else(|| {
+            let key = FunctionInstance {
+                declaration: contract.declaration.clone(),
+                arguments: contract.arguments.clone(),
+            };
+            let target = bindings.get(&key).ok_or_else(|| {
                 error(
                     &module.identity,
                     ProgramErrorKind::UnresolvedFunction(contract.declaration.clone()),

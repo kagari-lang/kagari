@@ -1,5 +1,7 @@
 use super::*;
+use crate::types::TypeSubstitution;
 use crate::types::{GenericParameterType, NominalType};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplementationSignature {
@@ -80,38 +82,89 @@ impl AggregateCatalog {
         Ok(())
     }
 
-    pub fn concrete_implementation_method(
+    pub fn implementation_method(
         &self,
         method: &DefinitionId,
         trait_type: &NominalType,
         receiver: &TypeId,
-    ) -> Option<&DefinitionId> {
-        let mut matches = self
-            .implementations
-            .values()
-            .filter(|implementation| {
-                implementation.generic_params.is_empty()
-                    && implementation.trait_type == *trait_type
-                    && implementation.for_type == *receiver
-            })
-            .filter_map(|implementation| implementation.methods.get(method));
+    ) -> Option<(&DefinitionId, Vec<TypeId>)> {
+        let mut matches = self.implementations.values().filter_map(|implementation| {
+            let matched = self.implementation_matches(
+                implementation,
+                trait_type,
+                receiver,
+                &mut HashSet::new(),
+            )?;
+            let arguments = implementation
+                .generic_params
+                .iter()
+                .map(|parameter| matched.get(parameter).cloned())
+                .collect::<Option<Vec<_>>>()?;
+            Some((implementation.methods.get(method)?, arguments))
+        });
         let result = matches.next()?;
         matches.next().is_none().then_some(result)
     }
 
-    pub fn concrete_implementation_count(
-        &self,
-        trait_type: &NominalType,
-        receiver: &TypeId,
-    ) -> usize {
+    pub fn implementation_count(&self, trait_type: &NominalType, receiver: &TypeId) -> usize {
         self.implementations
             .values()
             .filter(|implementation| {
-                implementation.generic_params.is_empty()
-                    && implementation.trait_type == *trait_type
-                    && implementation.for_type == *receiver
+                self.implementation_matches(
+                    implementation,
+                    trait_type,
+                    receiver,
+                    &mut HashSet::new(),
+                )
+                .is_some()
             })
             .take(2)
             .count()
+    }
+
+    fn implementation_matches(
+        &self,
+        implementation: &ImplementationSignature,
+        trait_type: &NominalType,
+        receiver: &TypeId,
+        visiting: &mut HashSet<(NominalType, TypeId)>,
+    ) -> Option<TypeSubstitution> {
+        let matched = crate::typeck::match_implementation(
+            &implementation.trait_type,
+            trait_type,
+            &implementation.for_type,
+            receiver,
+            &implementation.generic_params,
+        )?;
+        let key = (trait_type.clone(), receiver.clone());
+        if !visiting.insert(key.clone()) {
+            return None;
+        }
+        let holds = implementation
+            .bounds
+            .iter()
+            .all(|(parameter, constraints)| {
+                let Some(actual) = matched.get(parameter) else {
+                    return false;
+                };
+                constraints.iter().all(|constraint| match constraint {
+                    crate::typeck::ConstraintTarget::Standard(standard) => {
+                        crate::typeck::type_satisfies_standard_constraint(
+                            actual,
+                            *standard,
+                            &Default::default(),
+                        )
+                    }
+                    crate::typeck::ConstraintTarget::Trait(required) => {
+                        let required = required.instantiate(&matched);
+                        self.implementations.values().any(|candidate| {
+                            self.implementation_matches(candidate, &required, actual, visiting)
+                                .is_some()
+                        })
+                    }
+                })
+            });
+        visiting.remove(&key);
+        holds.then_some(matched)
     }
 }

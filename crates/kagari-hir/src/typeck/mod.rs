@@ -28,6 +28,8 @@ pub type GenericBounds = HashMap<crate::types::GenericParameterType, Vec<Constra
 
 pub(crate) use check::possibly_overlapping_impls;
 pub(crate) use check::{check_bodies_controlled, check_signatures};
+pub(crate) use constraints::type_satisfies_standard_constraint;
+pub(crate) use table::match_implementation;
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
     ResolvedHostPlacePath, ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,

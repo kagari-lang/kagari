@@ -66,9 +66,7 @@ pub(super) fn validate(
                                                 ))
                                             })
                                         }
-                                        _ => match catalog
-                                            .concrete_implementation_count(&applied, actual)
-                                        {
+                                        _ => match catalog.implementation_count(&applied, actual) {
                                             0 => table.implements(&applied, actual),
                                             1 => true,
                                             _ => false,
