@@ -180,6 +180,100 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
 }
 
 #[test]
+fn dependency_defined_trait_impl_dispatches_through_bound_call() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "api",
+        include_str!("../../../examples/imported-traits/api.kgr"),
+    );
+    insert(
+        &engine,
+        "model",
+        include_str!("../../../examples/imported-traits/model.kgr"),
+    );
+    let root = insert(
+        &engine,
+        "root",
+        include_str!("../../../examples/imported-traits/consumer.kgr"),
+    );
+    let mut context = ExecutionContext::default();
+    context.language_profile.allow_jit = true;
+    context.capabilities.jit = true;
+    let artifact = compile(
+        &engine,
+        root,
+        CompileOptions {
+            language_profile: context.language_profile,
+        },
+    );
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        context.jit_policy = if jit {
+            kagari_embed::JitPolicy::Enabled
+        } else {
+            kagari_embed::JitPolicy::Disabled
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let report = if jit {
+            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+        } else {
+            runtime.execute(&loaded, "main", &[], &context)
+        }
+        .unwrap();
+        assert_eq!(report.return_value, Value::I32(9));
+    }
+}
+
+#[test]
+fn ambiguous_dependency_trait_implementations_reject_bound_call() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "api",
+        include_str!("../../../examples/imported-traits/api.kgr"),
+    );
+    insert(
+        &engine,
+        "model",
+        include_str!("../../../examples/imported-traits/model.kgr"),
+    );
+    insert(
+        &engine,
+        "duplicate",
+        "use pkg::api::Echo; use pkg::model::Holder; impl Echo<i32> for Holder { fn get(self) -> i32 { 10 } }",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::api::Echo; use pkg::model::make; use pkg::duplicate; fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(make()) }",
+    );
+    let error = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            root,
+            CompileOptions::default(),
+            &CancellationToken::default(),
+        )
+        .unwrap_err();
+    let EmbeddingError::Diagnostics { diagnostics } = error else {
+        panic!("expected source diagnostics");
+    };
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"
+            && diagnostic
+                .span
+                .is_some_and(|location| location.file == root)
+    }));
+}
+
+#[test]
 fn facade_call_signatures_supply_context_to_nominal_constructors() {
     let engine = KagariEngine::default();
     insert(

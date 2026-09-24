@@ -69,6 +69,7 @@ pub struct ResolvedEnumConstructor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TraitImplementation {
+    declaration: DefinitionId,
     parameters: Vec<GenericParameterType>,
     bounds: super::GenericBounds,
     methods: HashMap<DefinitionId, FunctionId>,
@@ -216,6 +217,7 @@ impl TypeTable {
     }
     pub(crate) fn insert_implementation(
         &mut self,
+        declaration: DefinitionId,
         trait_type: NominalType,
         ty: TypeId,
         parameters: Vec<GenericParameterType>,
@@ -225,10 +227,36 @@ impl TypeTable {
         self.implementations
             .entry((trait_type, ty))
             .or_insert(TraitImplementation {
+                declaration,
                 parameters,
                 bounds,
                 methods,
             });
+    }
+    pub(crate) fn implementation_entries(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &DefinitionId,
+            &NominalType,
+            &TypeId,
+            &[GenericParameterType],
+            &super::GenericBounds,
+            &HashMap<DefinitionId, FunctionId>,
+        ),
+    > {
+        self.implementations
+            .iter()
+            .map(|((trait_type, for_type), implementation)| {
+                (
+                    &implementation.declaration,
+                    trait_type,
+                    for_type,
+                    implementation.parameters.as_slice(),
+                    &implementation.bounds,
+                    &implementation.methods,
+                )
+            })
     }
     pub fn implements(&self, trait_type: &NominalType, ty: &TypeId) -> bool {
         self.implements_with_guard(trait_type, ty, &mut HashSet::new())

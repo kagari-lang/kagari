@@ -66,7 +66,13 @@ pub(super) fn validate(
                                                 ))
                                             })
                                         }
-                                        _ => table.implements(&applied, actual),
+                                        _ => match catalog
+                                            .concrete_implementation_count(&applied, actual)
+                                        {
+                                            0 => table.implements(&applied, actual),
+                                            1 => true,
+                                            _ => false,
+                                        },
                                     };
                                     if !satisfied {
                                         diagnostics.push(

@@ -549,41 +549,104 @@ impl FunctionLowerer<'_, '_> {
             .call_resolution(expr)
             .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
         let span = self.analyzed.lowered.source_map.expr_span(expr);
-        let (target, impl_arguments) =
-            if let SemanticCallTarget::TraitMethod { method, interface } = call.target {
-                let receiver = call
-                    .receiver
-                    .ok_or(IrLoweringError::MissingBinding("trait receiver"))?;
-                let ty = self
+        let (target, impl_arguments, imported_impl) = if let SemanticCallTarget::TraitMethod {
+            method,
+            interface,
+        } = call.target
+        {
+            let receiver = call
+                .receiver
+                .ok_or(IrLoweringError::MissingBinding("trait receiver"))?;
+            let ty = self
+                .analyzed
+                .typed
+                .type_table
+                .expr_type(receiver)
+                .ok_or(IrLoweringError::MissingExprType(receiver))?;
+            let mut types = self
+                .planner
+                .arguments(&[ty], &self.instance.substitution, span)?;
+            let ty = types.pop().expect("receiver type");
+            let interface = kagari_hir::types::NominalType {
+                declaration: interface.declaration,
+                arguments: self.planner.arguments(
+                    &interface.arguments,
+                    &self.instance.substitution,
+                    span,
+                )?,
+            };
+            if let Some((implementation, impl_arguments)) = self
+                .analyzed
+                .typed
+                .type_table
+                .implementation_method(&method, &interface, &ty)
+            {
+                (
+                    SemanticCallTarget::Function(implementation),
+                    impl_arguments,
+                    None,
+                )
+            } else {
+                let implementation = self
                     .analyzed
-                    .typed
-                    .type_table
-                    .expr_type(receiver)
-                    .ok_or(IrLoweringError::MissingExprType(receiver))?;
-                let mut types = self
-                    .planner
-                    .arguments(&[ty], &self.instance.substitution, span)?;
-                let ty = types.pop().expect("receiver type");
-                let interface = kagari_hir::types::NominalType {
-                    declaration: interface.declaration,
-                    arguments: self.planner.arguments(
-                        &interface.arguments,
-                        &self.instance.substitution,
-                        span,
-                    )?,
-                };
-                let (implementation, impl_arguments) = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .implementation_method(&method, &interface, &ty)
+                    .aggregates
+                    .concrete_implementation_method(&method, &interface, &ty)
                     .ok_or(IrLoweringError::UnsupportedExpr(
                         "interface dispatch requires linked implementation tables",
                     ))?;
-                (SemanticCallTarget::Function(implementation), impl_arguments)
-            } else {
-                (call.target, Vec::new())
-            };
+                let trait_contract = self
+                    .analyzed
+                    .aggregates
+                    .trait_(&interface.declaration)
+                    .ok_or(IrLoweringError::MissingBinding("trait contract"))?;
+                let method_contract = self
+                    .analyzed
+                    .aggregates
+                    .trait_method(&method)
+                    .ok_or(IrLoweringError::MissingBinding("trait method contract"))?;
+                if method_contract.generic_params.len() != trait_contract.generic_params.len() {
+                    return Err(IrLoweringError::UnsupportedExpr(
+                        "generic imported implementation methods require program specialization",
+                    ));
+                }
+                let substitution = trait_contract
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(interface.arguments.iter().cloned())
+                    .collect();
+                let params = method_contract
+                    .params
+                    .iter()
+                    .map(|param| {
+                        let ty = param
+                            .ty
+                            .with_self(&method_contract.owner, &ty)
+                            .instantiate(&substitution);
+                        self.planner.value_type(&ty, &Default::default(), span)
+                    })
+                    .collect::<Result<_, _>>()?;
+                let return_type = self.planner.value_type(
+                    &method_contract
+                        .return_type
+                        .with_self(&method_contract.owner, &ty)
+                        .instantiate(&substitution),
+                    &Default::default(),
+                    span,
+                )?;
+                (
+                    SemanticCallTarget::TraitMethod { method, interface },
+                    Vec::new(),
+                    Some(crate::module::instruction::SourceFunctionContract {
+                        declaration: implementation.clone(),
+                        params,
+                        return_type,
+                    }),
+                )
+            }
+        } else {
+            (call.target, Vec::new(), None)
+        };
         let (callee, args) = match target {
             SemanticCallTarget::TerminatingCallee => {
                 let callee = call.receiver.ok_or(IrLoweringError::MissingBinding(
@@ -602,11 +665,6 @@ impl FunctionLowerer<'_, '_> {
                     ControlFlow::Continue(call) => call,
                     ControlFlow::Break(value) => return Ok(value),
                 }
-            }
-            SemanticCallTarget::TraitMethod { .. } => {
-                return Err(IrLoweringError::UnsupportedExpr(
-                    "interface dispatch requires linked implementation tables",
-                ));
             }
             target => {
                 let mut lowered = ValueBuffer::new();
@@ -672,9 +730,13 @@ impl FunctionLowerer<'_, '_> {
                             .ok_or(IrLoweringError::MissingBinding("host declaration"))?
                             .clone(),
                     )),
+                    SemanticCallTarget::TraitMethod { .. } => {
+                        CallTarget::SourceFunction(Box::new(imported_impl.ok_or(
+                            IrLoweringError::MissingBinding("imported implementation contract"),
+                        )?))
+                    }
                     SemanticCallTarget::TerminatingCallee
-                    | SemanticCallTarget::RuntimeHelper(_)
-                    | SemanticCallTarget::TraitMethod { .. } => {
+                    | SemanticCallTarget::RuntimeHelper(_) => {
                         unreachable!()
                     }
                 };

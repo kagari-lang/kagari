@@ -239,7 +239,7 @@ impl TypeId {
             _ => true,
         }
     }
-    pub(crate) fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
+    pub fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
         self.substitute_once(|ty| match ty {
             Self::SelfType(id) if id == owner => Some(replacement),
             _ => None,

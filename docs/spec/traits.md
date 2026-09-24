@@ -462,8 +462,12 @@ declarations within a trait or impl produce `KG_RESOLVE_DUPLICATE_METHOD`.
 Ambiguous calls have no selected method target and cannot enter code generation.
 
 These analysis capabilities do not imply executable dynamic interface values.
-Implementations defined in another imported module and runtime interface dispatch remain tracked in
-the [foundation roadmap](../foundation-refactor.md).
+Concrete implementations defined in a dependency are visible to bound-call
+resolution through the checked implementation catalog. Their methods link by
+declaration identity and signature to the defining module. Multiple matching
+concrete implementations reject the call. Generic dependency implementations,
+whole-closure coherence and runtime interface dispatch remain tracked in the
+[foundation roadmap](../foundation-refactor.md).
 
 ### Remaining execution work
 

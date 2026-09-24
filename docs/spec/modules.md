@@ -160,8 +160,10 @@ Current implementation boundary: source imports support graph, definition and
 function signature queries, imported type annotations and call checking. A
 module may implement an imported trait and call that implementation through an
 applied bound; the imported declaration and public method contract retain their
-defining module identity. Implementations defined in dependencies and dynamic
-interface values remain under the R07/R08 audit.
+defining module identity. Concrete implementations defined in dependencies are
+visible to bound calls and link to their defining module's method slot. Generic
+dependency implementations and dynamic interface values remain under the R07/R08
+audit.
 Valid source closures compile
 to BytecodeProgram, including dependency initializers and module/function call slots.
 Initialization follows the verified dependency-first order, visits shared dependencies

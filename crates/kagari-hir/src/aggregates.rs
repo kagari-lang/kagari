@@ -1,4 +1,5 @@
 //! Checked nominal contracts shared by local and imported member access.
+mod implementations;
 mod traits;
 use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
@@ -9,6 +10,7 @@ use crate::{
     typeck::ModuleSignatures,
     types::TypeId,
 };
+pub use implementations::ImplementationSignature;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{DefinitionId, ModuleIdentity},
@@ -61,6 +63,7 @@ pub struct EnumSignature {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AggregateCatalog {
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
+    implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
     methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
     structures: BTreeMap<DefinitionId, Arc<StructSignature>>,
     fields: BTreeMap<DefinitionId, (DefinitionId, usize)>,
@@ -199,6 +202,7 @@ impl AggregateCatalog {
             );
         }
         self.add_traits(lowered, declarations, signatures, cancel)?;
+        self.add_implementations(declarations, signatures, cancel)?;
         Ok(())
     }
 
@@ -227,6 +231,16 @@ impl AggregateCatalog {
                 module: module.clone(),
                 path: Vec::new(),
             };
+            for (id, implementation) in self
+                .implementations
+                .range(start.clone()..)
+                .take_while(|(id, _)| id.module == module)
+            {
+                cancel.check()?;
+                result
+                    .implementations
+                    .insert(id.clone(), implementation.clone());
+            }
             for (id, structure) in self
                 .structures
                 .range(start.clone()..)
@@ -259,6 +273,7 @@ impl AggregateCatalog {
 
     pub(crate) fn same_contracts(&self, other: &Self) -> bool {
         self.same_trait_contracts(other)
+            && self.implementations == other.implementations
             && self.enumerations.len() == other.enumerations.len()
             && self.enumerations.iter().all(|(id, a)| {
                 other.enumeration(id).is_some_and(|b| {

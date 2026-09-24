@@ -2185,17 +2185,28 @@ impl<'a> BodyChecker<'a> {
                                     ))
                                 })
                             }
-                            _ => self.type_table.implements(&trait_type, actual),
+                            _ => match self
+                                .aggregates
+                                .concrete_implementation_count(&trait_type, actual)
+                            {
+                                0 => self.type_table.implements(&trait_type, actual),
+                                1 => true,
+                                _ => false,
+                            },
                         };
                         if !satisfied && !actual.is_unresolved() {
                             let trait_name = self
-                                .declarations
-                                .get(&crate::declarations::DeclarationId::Definition(
-                                    trait_type.declaration,
-                                ))
-                                .expect("resolved trait")
-                                .name
-                                .clone();
+                                .aggregates
+                                .trait_(&trait_type.declaration)
+                                .map(|contract| contract.declaration.name.clone())
+                                .or_else(|| {
+                                    trait_type
+                                        .declaration
+                                        .path
+                                        .last()
+                                        .map(|segment| segment.name.clone())
+                                })
+                                .unwrap_or_default();
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
                                     type_name: actual.display_name(),

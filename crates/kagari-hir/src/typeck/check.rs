@@ -804,7 +804,17 @@ fn validate_trait_surface(
             .filter_map(|parameter| declarations.generic_type(parameter.id))
             .collect();
         let bounds = super::constraints::implementation_bounds(impl_block, declarations, table);
-        table.insert_implementation(id, for_ty, parameters, bounds, methods);
+        table.insert_implementation(
+            declarations
+                .impl_identity(impl_block.id)
+                .expect("checked impl declaration identity")
+                .clone(),
+            id,
+            for_ty,
+            parameters,
+            bounds,
+            methods,
+        );
     }
 }
 

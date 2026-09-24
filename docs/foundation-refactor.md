@@ -572,6 +572,18 @@ R02 acceptance evidence:
   encoded artifacts through the interpreter and existing JIT fallback. Importing
   an implementation from another module and runtime interface values remain open.
 
+- R07 dependency-defined implementation checkpoint: the aggregate catalog now
+  carries checked implementation identities, receiver and trait applications,
+  bounds and trait-method-to-function identities across a module's dependency
+  closure. A concrete bound call can select an implementation declared in a
+  dependency and link its method by declaration and checked signature to that
+  dependency's function slot. Two visible concrete matches reject the bound
+  instead of choosing by traversal order. The
+  [three-module example](../examples/imported-traits/consumer.kgr) runs from
+  source and encoded artifacts through the interpreter and existing JIT fallback.
+  Generic dependency implementations, cross-module overlap coherence outside
+  bound calls, and runtime interface values remain open.
+
 R03 acceptance evidence:
 
 - [Source database tests](../crates/kagari-common/src/source_database.rs) cover
