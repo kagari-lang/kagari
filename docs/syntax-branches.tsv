@@ -42,7 +42,7 @@ stmt	7	witnessed	examples/syntax/control-flow.kgr	-	loop_stmt
 stmt	8	witnessed	examples/syntax/control-flow.kgr	-	for_stmt
 stmt	9	witnessed	examples/syntax/control-flow.kgr	-	break_stmt
 stmt	10	witnessed	examples/syntax/control-flow.kgr	-	continue_stmt
-stmt	11	missing	gap:block_statement	Parser rejects this EBNF branch	block
+stmt	11	witnessed	examples/syntax/blocks.kgr	-	block
 binding_kind	1	witnessed	examples/syntax/expressions.kgr	-	"val"
 binding_kind	2	witnessed	examples/syntax/control-flow.kgr	-	"var"
 assign_op	1	witnessed	examples/standard-library.kgr	-	"="
@@ -69,13 +69,13 @@ primary_expr	7	witnessed	examples/syntax/data-model.kgr	-	struct_expr
 primary_expr	8	witnessed	examples/syntax/closures.kgr	-	closure_expr
 primary_expr	9	witnessed	examples/syntax/control-flow.kgr	-	loop_expr
 primary_expr	10	witnessed	examples/syntax/match.kgr	-	match_expr
-primary_expr	11	missing	gap:block_expression	Parser rejects this EBNF branch	block
+primary_expr	11	witnessed	examples/syntax/blocks.kgr	-	block
 field_init	1	witnessed	examples/syntax/data-model.kgr	-	IDENT
 field_init	2	witnessed	examples/syntax/data-model.kgr	-	IDENT ":" expr
 closure_body	1	witnessed	examples/syntax/closures.kgr	-	expr
 closure_body	2	witnessed	examples/syntax/closures.kgr	-	block
 match_body	1	witnessed	examples/syntax/match.kgr	-	expr
-match_body	2	missing	gap:match_block_body	Parser rejects this EBNF branch	block
+match_body	2	witnessed	examples/syntax/blocks.kgr	-	block
 range_pattern_tail	1	missing	gap:range_pattern_exclusive	Parser rejects this EBNF branch	".." range_bound
 range_pattern_tail	2	missing	gap:range_pattern	Parser rejects this EBNF branch	"..=" range_bound
 range_bound	1	missing	gap:range_pattern	Parser rejects this EBNF branch	literal

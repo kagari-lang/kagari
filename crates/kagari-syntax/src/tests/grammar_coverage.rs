@@ -59,18 +59,6 @@ const GAPS: &[GapCase] = &[
         id: "range_pattern_path",
         source: "fn main() { match 1 { 0..MAX => 42, _ => 0 } }",
     },
-    GapCase {
-        id: "block_expression",
-        source: "fn main() -> i32 { val value = { 42 }; value }",
-    },
-    GapCase {
-        id: "block_statement",
-        source: "fn main() { { 42 }; }",
-    },
-    GapCase {
-        id: "match_block_body",
-        source: "fn main() -> i32 { match 1 { 1 => { 42 }, _ => 0 } }",
-    },
 ];
 
 fn grammar_rules() -> BTreeSet<String> {

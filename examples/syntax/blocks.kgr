@@ -1,0 +1,10 @@
+// Blocks can be values, independent statements, and match arm bodies.
+fn main() -> i32 {
+    var result = { val base = 40; base + 1 };
+    { result += 1; }
+    if result == 42 { result = result; }
+    match result {
+        42 => { val answer = result; answer },
+        _ => { 0 },
+    }
+}

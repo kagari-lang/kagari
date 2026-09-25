@@ -27,6 +27,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::Bang
                     | TokenKind::Pipe
                     | TokenKind::PipePipe
+                    | TokenKind::LBrace
             )
         )
     }
@@ -203,6 +204,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::LoopKw) => self.parse_loop_expr(),
             Some(TokenKind::LParen) => self.parse_paren_or_tuple_expr(),
             Some(TokenKind::LBracket) => self.parse_array_expr(),
+            Some(TokenKind::LBrace) => self.parse_block(),
             Some(TokenKind::Pipe | TokenKind::PipePipe) => self.parse_closure_expr(),
             _ => self.error_here(DiagnosticKind::ExpectedExpression),
         }

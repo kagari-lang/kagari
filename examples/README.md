@@ -13,6 +13,7 @@ cargo test -p kagari-embed --test syntax_examples
 | Executable feature | Small example or existing showcase | Expected result |
 | --- | --- | --- |
 | `val`, `var`, `while`, `loop`, `if`, `continue`, `break` and loop values | [control-flow.kgr](syntax/control-flow.kgr) | `42` |
+| Block expressions, independent block statements, and block `match` arms | [blocks.kgr](syntax/blocks.kgr) | `42` |
 | `for` over Array, Map, Set and String | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
 | Struct fields, shorthand initialization, inherent methods, enum payloads, tuples and arrays | [data-model.kgr](syntax/data-model.kgr) | `42` |
 | Arithmetic (including `%`), comparison, unary and short-circuit logical operators | [expressions.kgr](syntax/expressions.kgr) | `42` |

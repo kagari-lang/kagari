@@ -58,7 +58,7 @@ method_decl	covered	examples/syntax/data-model.kgr	-
 method_param_list	covered	examples/syntax/data-model.kgr	-
 receiver_param	covered	examples/syntax/data-model.kgr	-
 block	covered	examples/syntax/expressions.kgr	-
-stmt	partial	examples/syntax/expressions.kgr	Standalone block statements are not recognized
+stmt	covered	examples/syntax/blocks.kgr	-
 binding_stmt	covered	examples/syntax/expressions.kgr	-
 binding_kind	covered	examples/syntax/expressions.kgr	-
 type_annotation	covered	examples/standard-library.kgr	-
@@ -92,7 +92,7 @@ call_suffix	covered	examples/syntax/expressions.kgr	-
 arg_list	covered	examples/syntax/expressions.kgr	-
 field_suffix	covered	examples/syntax/expressions.kgr	-
 index_suffix	covered	examples/syntax/data-model.kgr	-
-primary_expr	partial	examples/syntax/expressions.kgr	Standalone block expression branch is not recognized
+primary_expr	covered	examples/syntax/blocks.kgr	-
 parenthesized_expr	covered	examples/syntax/expressions.kgr	-
 tuple_expr	covered	examples/syntax/data-model.kgr	-
 expr_list	covered	examples/syntax/data-model.kgr	-
@@ -109,7 +109,7 @@ match_expr	covered	examples/syntax/match.kgr	-
 match_arm_list	covered	examples/syntax/match.kgr	-
 match_arm	covered	examples/syntax/match.kgr	-
 match_guard	missing	gap:match_guard	Match guards are absent
-match_body	partial	examples/syntax/match.kgr	Block body after match arrow is not recognized
+match_body	covered	examples/syntax/blocks.kgr	-
 pattern	partial	examples/syntax/match.kgr	Or and range pattern branches are not recognized
 or_pattern	partial	examples/syntax/match.kgr	Or branch is not recognized
 range_pattern	partial	examples/syntax/match.kgr	Range tail is not recognized

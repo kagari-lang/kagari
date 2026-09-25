@@ -172,6 +172,7 @@ impl<'a> Parser<'a> {
 
     fn parse_expr_stmt_or_tail(&mut self) -> bool {
         let checkpoint = self.checkpoint();
+        let bare_block_statement = self.at_any(&[TokenKind::LBrace, TokenKind::IfKw]);
         self.parse_expr();
         self.bump_trivia();
 
@@ -186,6 +187,12 @@ impl<'a> Parser<'a> {
 
         if self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             return true;
+        }
+
+        if bare_block_statement {
+            self.start_node_at(checkpoint, SyntaxKind::ExprStmt);
+            self.finish_node();
+            return false;
         }
 
         self.error_here(DiagnosticKind::ExpectedStatementTerminator);
