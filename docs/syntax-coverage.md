@@ -30,13 +30,10 @@ The audit maintains three inventories:
 
 All 157 EBNF rules and 105 top-level alternatives now have parse-clean
 witnesses. This is parser coverage, not an assertion that every form has linked
-runtime behavior. In particular,
-[`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr) is parser-only:
-inline module contents are not lowered into executable modules, and wildcard
-imports are not expanded by import lowering. Semantic analysis reports
-`KG_SYNTAX_UNSUPPORTED` for either form, so code generation cannot silently
-ignore their contents. Executable examples are checked
-separately by `cargo test -p kagari-embed --test syntax_examples`.
+runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)
+is parser-only because it combines unrelated grammar forms. Inline modules and
+wildcard imports also have executable examples and artifact tests in
+`cargo test -p kagari-embed --test syntax_examples` and `--test source_modules`.
 
 The tests also extract quoted source terminals from the EBNF and compare them
 with the lexer. The current unrecognized terminal baseline is empty.

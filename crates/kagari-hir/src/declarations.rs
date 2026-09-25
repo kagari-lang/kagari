@@ -574,7 +574,7 @@ impl Builder<'_> {
                 id,
                 name: name.into(),
                 location: FileSpan {
-                    file: self.source.id(),
+                    file: self.source.origin_id(),
                     revision: self.source.revision(),
                     range,
                 },

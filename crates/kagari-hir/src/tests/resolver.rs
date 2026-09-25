@@ -139,9 +139,14 @@ impl Display for Player {
 fn main() -> i32 { 1 }
 "#,
     );
-    let resolved = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
+    let result = resolve_names(&lowered);
+    assert!(
+        result
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::UnknownName { .. }))
+    );
+    let resolved = result.facts();
 
     assert!(
         resolved

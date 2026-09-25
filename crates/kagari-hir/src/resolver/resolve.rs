@@ -379,6 +379,12 @@ impl<'a> BodyResolver<'a> {
                         .imports
                         .resolve_member(index, member, &self.resolved.hosts)
                 }
+                ResolvedName::Module(id) => {
+                    let index = *self.resolved.imports.module_aliases.get(&id)?;
+                    self.resolved
+                        .imports
+                        .resolve_member(index, member, &self.resolved.hosts)
+                }
                 ResolvedName::HostModule(module) => {
                     self.resolved.hosts.resolve_name_in(module, member)
                 }

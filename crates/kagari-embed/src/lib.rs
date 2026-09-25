@@ -689,7 +689,13 @@ pub struct EmbeddingDiagnostic {
 
 impl EmbeddingDiagnostic {
     fn from_diagnostic(diagnostic: Diagnostic, source: &SourceFile) -> Self {
-        let span = diagnostic.span.and_then(|span| source.span(span));
+        let span = diagnostic
+            .span
+            .and_then(|span| source.span(span))
+            .map(|mut span| {
+                span.file = source.origin_id();
+                span
+            });
         Self {
             severity: diagnostic.severity,
             code: diagnostic.kind.code().to_owned(),

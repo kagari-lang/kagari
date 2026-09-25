@@ -32,6 +32,182 @@ fn insert(engine: &KagariEngine, name: &str, text: &str) -> FileId {
 }
 
 #[test]
+fn public_source_glob_reexports_members_through_artifacts() {
+    let engine = KagariEngine::default();
+    insert(&engine, "model", "pub fn value() -> i32 { 42 }");
+    insert(&engine, "facade", "pub use pkg::model::*;");
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::facade::*; fn main() -> i32 { value() }",
+    );
+    let artifact = compile(&engine, root, Default::default());
+    for artifact in [
+        artifact.clone(),
+        BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
+    ] {
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        assert_eq!(
+            runtime
+                .execute(&loaded, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+    }
+}
+
+#[test]
+fn wildcard_import_can_expose_a_public_inline_child_module() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "library",
+        "pub mod child { pub fn value() -> i32 { 42 } }",
+    );
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::library::*; fn main() -> i32 { child::value() }",
+    );
+    let artifact = compile(&engine, root, Default::default());
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
+fn wildcard_import_follows_a_public_module_alias() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "library",
+        "pub mod child { pub fn value() -> i32 { 42 } }",
+    );
+    insert(&engine, "facade", "pub use pkg::library::child as api;");
+    insert(&engine, "relay", "pub use pkg::facade::api as exported;");
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::relay::exported::*; fn main() -> i32 { value() }",
+    );
+    let artifact = compile(&engine, root, Default::default());
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
+fn wildcard_import_follows_a_public_standard_module_alias() {
+    let engine = KagariEngine::default();
+    insert(&engine, "facade", "pub use std::math as math;");
+    let root = insert(
+        &engine,
+        "root",
+        "use pkg::facade::math::*; fn main() -> i32 { min(42, 99) }",
+    );
+    let artifact = compile(&engine, root, Default::default());
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
+fn declared_external_child_module_resolves_qualified_calls() {
+    let engine = KagariEngine::default();
+    engine
+        .bind_module(
+            "mem://child",
+            ModuleIdentity {
+                package: PackageId("pkg".into()),
+                path: vec!["root".into(), "child".into()],
+            },
+        )
+        .unwrap();
+    engine
+        .set_source(
+            "mem://child",
+            "pub fn value() -> i32 { 42 }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let root = insert(
+        &engine,
+        "root",
+        "mod child; fn main() -> i32 { child::value() }",
+    );
+    let artifact = compile(&engine, root, Default::default());
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
+fn duplicate_inline_and_external_module_identity_is_rejected() {
+    let engine = KagariEngine::default();
+    engine
+        .bind_module(
+            "mem://child",
+            ModuleIdentity {
+                package: PackageId("pkg".into()),
+                path: vec!["root".into(), "child".into()],
+            },
+        )
+        .unwrap();
+    engine
+        .set_source(
+            "mem://child",
+            "pub fn value() -> i32 { 1 }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let root = insert(
+        &engine,
+        "root",
+        "mod child { pub fn value() -> i32 { 2 } } fn main() -> i32 { child::value() }",
+    );
+    let error = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            root,
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("KG_RESOLVE_DUPLICATE_DECLARATION"));
+}
+
+#[test]
 fn reachable_cycle_diagnostics_keep_the_dependency_file_and_revision() {
     let engine = KagariEngine::default();
     let root = insert(&engine, "root", "use pkg::a; fn main() -> i32 { 7 }");

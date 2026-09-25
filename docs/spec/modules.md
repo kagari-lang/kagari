@@ -16,7 +16,12 @@ Runtime behavior is defined in [runtime.md](runtime.md).
 
 ## Module Model
 
-Each source file is compiled as a module.
+Each registered source file is compiled as a module. An inline `mod child { ... }`
+body creates a child module with the parent identity plus `child`. Its declarations
+have their own scope, signatures, initialization and module version. The child
+keeps byte positions in the containing physical file for diagnostics and tools.
+An external `mod child;` refers to a separately registered child identity.
+Declaring both forms for the same identity is an error.
 
 ### Source import analysis
 
@@ -33,6 +38,14 @@ Only public items enter an imported namespace. Ambiguity between a module and an
 item, or between source, standard and host namespaces, is an error. Resolution
 does not choose a fallback namespace. Definition queries can follow source facade
 re-exports even when a function body contains errors.
+
+`use path::*` expands the public members of a source, standard or declared host
+module. Grouped trees can contain globs, and `pub use path::*` exports the
+expanded names to importers. Local declarations and explicit imports take
+precedence over globs; conflicting names from separate globs are an error.
+The target must be a module. `self`, `super` and `crate` at the start of an
+import path resolve relative to the containing module. Child modules obey
+ordinary visibility and import-cycle checks, including initialization edges.
 
 The snapshot exposes its import graph and a cancellable dependency-first order.
 Cycle diagnostics identify imports within the cyclic component; an importer of

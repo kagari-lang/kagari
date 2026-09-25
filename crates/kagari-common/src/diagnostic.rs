@@ -90,6 +90,9 @@ pub enum DiagnosticKind {
     UnsupportedSyntax {
         feature: &'static str,
     },
+    InvalidGlobTarget {
+        path: String,
+    },
     InvalidHostPath {
         reason: String,
     },
@@ -373,6 +376,7 @@ impl DiagnosticKind {
             Self::UnknownAttribute { .. } => "KG_ATTRIBUTE_UNKNOWN",
             Self::UnsupportedAttribute { .. } => "KG_ATTRIBUTE_UNSUPPORTED",
             Self::UnsupportedSyntax { .. } => "KG_SYNTAX_UNSUPPORTED",
+            Self::InvalidGlobTarget { .. } => "KG_RESOLVE_INVALID_GLOB_TARGET",
             Self::InvalidHostPath { .. } => "KG_HOST_PATH_INVALID",
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
@@ -527,6 +531,9 @@ impl Display for DiagnosticKind {
             }
             Self::UnsupportedSyntax { feature } => {
                 write!(f, "cannot execute {feature} yet")
+            }
+            Self::InvalidGlobTarget { path } => {
+                write!(f, "wildcard import target `{path}` is not a module")
             }
             Self::InvalidHostPath { reason } => write!(f, "invalid host field path: {reason}"),
             Self::DuplicateImport { name } => {

@@ -23,6 +23,156 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
 }
 
 #[test]
+fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
+    let mut db = SourceDatabase::default();
+    let text =
+        "// 中文😀\r\nmod child { pub fn value() -> i32 { 42 } pub fn call() -> i32 { value() } }";
+    let root = insert(&mut db, "root", text);
+    let mut analysis = AnalysisDatabase::default();
+    let first = analysis
+        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let child = identity("root::child");
+    let child_id = first.module_graph().node(&child).unwrap().file;
+    let reference = text.rfind("value()").unwrap();
+    let target = first.definition_at(root, reference).unwrap();
+    assert_eq!(target.location.file, root);
+    assert_eq!(target.location.range.start, text.find("value()").unwrap());
+    db.set("mem://root", text.replace("42", "41"), SourceLayer::Overlay)
+        .unwrap();
+    let second = analysis
+        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    assert_eq!(second.module_graph().node(&child).unwrap().file, child_id);
+    assert_eq!(
+        first.file(child_id).unwrap().source().text().find("42"),
+        text.find("42")
+    );
+    assert_eq!(
+        second.file(child_id).unwrap().source().text().find("41"),
+        text.find("42")
+    );
+}
+
+#[test]
+fn wildcard_imports_detect_conflicts_and_reject_nonmodule_targets() {
+    let mut db = SourceDatabase::default();
+    insert(&mut db, "left", "pub fn same() -> i32 { 1 }");
+    insert(&mut db, "right", "pub fn same() -> i32 { 2 }");
+    let conflict = insert(
+        &mut db,
+        "conflict",
+        "use pkg::left::*; use pkg::right::*; fn main() -> i32 { same() }",
+    );
+    let invalid = insert(
+        &mut db,
+        "invalid",
+        "use pkg::left::same::*; fn main() -> i32 { 42 }",
+    );
+    let snapshot = analyze(&db);
+    assert!(
+        snapshot
+            .file(conflict)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::DuplicateImport { .. }))
+    );
+    assert!(
+        snapshot
+            .file(invalid)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::InvalidGlobTarget { .. }))
+    );
+}
+
+#[test]
+fn private_inline_children_are_not_importable_from_other_modules() {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "root",
+        "mod child { pub fn value() -> i32 { 42 } }",
+    );
+    let outsider = insert(
+        &mut db,
+        "outsider",
+        "use pkg::root::child; fn main() -> i32 { child::value() }",
+    );
+    let snapshot = analyze(&db);
+    assert!(
+        snapshot
+            .file(outsider)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::ImportNotPublic { .. }))
+    );
+}
+
+#[test]
+fn wildcard_import_expands_offline_host_module_declarations() {
+    use kagari_common::host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
+    };
+    let mut db = SourceDatabase::default();
+    let root = insert(
+        &mut db,
+        "root",
+        "use demo::*; fn main() -> i32 { echo(42) }",
+    );
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_host_declarations(
+        HostDeclarations::new(HostInterface {
+            paths: vec![],
+            types: vec![],
+            functions: vec![HostFunctionDeclaration::new(
+                "demo.echo",
+                vec![HostParameter {
+                    name: "value".into(),
+                    ty: HostValueType::I32,
+                    passing: HostPassingStyle::Owned,
+                }],
+                HostValueType::I32,
+            )],
+        })
+        .unwrap(),
+    );
+    let snapshot = analysis
+        .snapshot(
+            db.snapshot(),
+            crate::LanguageFeatureProfile {
+                allow_host_calls: true,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .unwrap();
+    let imports = &snapshot
+        .module_graph()
+        .node(&identity("root"))
+        .unwrap()
+        .imports;
+    assert!(imports.entries.iter().any(|entry| entry.alias == "echo"
+        && matches!(entry.target, Some(ImportTarget::HostFunction(_)))));
+    assert!(
+        snapshot
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty(),
+        "{:?}",
+        snapshot.file(root).unwrap().result().diagnostics()
+    );
+}
+
+#[test]
 fn diamond_has_deterministic_dependency_first_order() {
     let mut db = SourceDatabase::default();
     insert(

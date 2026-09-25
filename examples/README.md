@@ -27,6 +27,7 @@ cargo test -p kagari-embed --test syntax_examples
 | Generic function `where` bound and trait call | [where-bounds.kgr](syntax/where-bounds.kgr) | `42` |
 | Lexical closures, mutable captures, nested closures, function types and higher-order calls | [closures.kgr](syntax/closures.kgr) | `42` |
 | Aliased module import | [import-alias.kgr](syntax/import-alias.kgr) | `42` |
+| Inline module body and wildcard import | [inline-modules.kgr](syntax/inline-modules.kgr) | `42` |
 | Concrete interface value and dynamic method dispatch | [interface-dispatch.kgr](interface-dispatch.kgr) | `42` |
 | Generic trait method | [generic-trait-methods.kgr](generic-trait-methods.kgr) | `42` |
 | Functions, `const`, generics, structs, enums, arrays, tuples, fields, indexes, assignment and core standard modules | [standard-library.kgr](standard-library.kgr) | `(3, true, 2, true, 2, true, 12)` |
@@ -39,9 +40,8 @@ host declarations installed by the `offline_nominal` integration test. They are
 not standalone CLI programs.
 
 The examples cover executable forms; parser-only recovery cases remain in the
-syntax crate tests.
-The [grammar-witnesses.kgr](syntax/grammar-witnesses.kgr) file exercises
-parse-only branches such as inline module bodies and wildcard imports; it is
-checked by the syntax audit and is not a standalone executable program.
+syntax crate tests. The [grammar-witnesses.kgr](syntax/grammar-witnesses.kgr)
+file combines grammar branches for the syntax audit and is not a standalone
+executable program.
 The [syntax coverage audit](../docs/syntax-coverage.md) compares these witnesses
 with EBNF rules and records forms that are still missing or unverified.

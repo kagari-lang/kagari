@@ -299,9 +299,14 @@ Notes:
 - `mod name;` declares a module through external loading rules defined elsewhere.
 - `mod name { ... }` declares an inline module body.
 - `use` supports aliasing, globs, and grouped import trees.
-- Inline module bodies and wildcard import trees currently parse for tooling but
-  produce `KG_SYNTAX_UNSUPPORTED` before code generation. Grouped imports of
-  explicit names are lowered normally.
+- An inline body creates a child module under the declaring module identity.
+  Its public declarations can be reached through qualified paths; child source
+  ranges retain their position in the physical file.
+- A wildcard import expands the target module's public members, including
+  members exposed by `pub use`. Local declarations and explicit imports take
+  precedence. Conflicting wildcard members are diagnosed. A wildcard target
+  must be a module. Relative import roots `self`, `super`, and `crate` resolve
+  against the containing module.
 
 ### Structs and Enums
 

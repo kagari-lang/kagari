@@ -609,6 +609,7 @@ pub struct AnalysisDatabase {
     files: HashMap<FileId, Arc<FileAnalysis>>,
     latest_revision: Revision,
     hosts: Arc<crate::host::HostDeclarations>,
+    inline_ids: std::cell::RefCell<HashMap<(FileId, String), FileId>>,
 }
 
 impl Default for AnalysisDatabase {
@@ -624,6 +625,7 @@ impl Default for AnalysisDatabase {
             files: HashMap::new(),
             latest_revision: Revision::default(),
             hosts: crate::host::HostDeclarations::empty(),
+            inline_ids: std::cell::RefCell::new(HashMap::new()),
         }
     }
 }
@@ -780,6 +782,25 @@ pub struct AnalysisSnapshot {
 }
 
 impl AnalysisSnapshot {
+    /// Select the innermost inline module at an editor position in a physical file.
+    pub fn analysis_at(&self, file: FileId, offset: usize) -> Option<&Arc<FileAnalysis>> {
+        let physical = self.file(file)?;
+        self.files
+            .values()
+            .filter(|candidate| {
+                let source = candidate.source();
+                source.origin_id() == file
+                    && source
+                        .inline_range()
+                        .is_some_and(|range| range.start <= offset && offset < range.end)
+            })
+            .min_by_key(|candidate| {
+                let range = candidate.source().inline_range().expect("inline candidate");
+                range.end - range.start
+            })
+            .or(Some(physical))
+    }
+
     /// The declaration query consumed by this complete analysis.
     pub fn declaration_snapshot(&self) -> &DeclarationSnapshot {
         self.signatures.declaration_snapshot()
@@ -795,7 +816,7 @@ impl AnalysisSnapshot {
         offset: usize,
     ) -> Option<crate::imports::SourceImport> {
         use crate::imports::ImportTarget;
-        let facts = self.file(file)?.result.facts();
+        let facts = self.analysis_at(file, offset)?.result.facts();
         let expression = facts
             .lowered
             .module
@@ -836,7 +857,7 @@ impl AnalysisSnapshot {
         file: FileId,
         offset: usize,
     ) -> Option<&crate::declarations::Declaration> {
-        if let Some(declaration) = self.file(file)?.definition_at(offset) {
+        if let Some(declaration) = self.analysis_at(file, offset)?.definition_at(offset) {
             return Some(declaration);
         }
         use crate::{hir::ExportItem, resolver::ResolvedName};

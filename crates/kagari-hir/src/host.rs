@@ -417,6 +417,36 @@ impl HostDeclarations {
                 index,
             })
     }
+    pub(crate) fn members_of_module(
+        &self,
+        module: HostModuleId,
+    ) -> Vec<(String, crate::resolver::ResolvedName)> {
+        if module.revision != self.revision {
+            return Vec::new();
+        }
+        let Some(path) = self.modules.get(module.index) else {
+            return Vec::new();
+        };
+        let prefix = format!("{path}::");
+        let mut members = std::collections::BTreeMap::new();
+        for name in self
+            .paths
+            .keys()
+            .chain(self.type_paths.keys())
+            .chain(self.modules.iter())
+        {
+            if let Some(member) = name.strip_prefix(&prefix)
+                && !member.contains("::")
+                && let Some(resolved) = self.resolve_name(name).or_else(|| {
+                    self.module(name)
+                        .map(crate::resolver::ResolvedName::HostModule)
+                })
+            {
+                members.insert(member.to_owned(), resolved);
+            }
+        }
+        members.into_iter().collect()
+    }
     pub fn function(&self, id: HostFunctionId) -> Option<&HostFunctionDeclaration> {
         (id.revision == self.revision)
             .then(|| self.interface.functions.get(id.index))

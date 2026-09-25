@@ -94,6 +94,16 @@ impl ModuleImports {
         match suffix {
             None => Some(resolved),
             Some(member) => match resolved {
+                ResolvedName::SourceItem { .. } => {
+                    let ImportTarget::Source(next) = self.binding(key)? else {
+                        return None;
+                    };
+                    if next.item.is_some() {
+                        return None;
+                    }
+                    let namespace = *self.namespace_entries.get(&next.module)?;
+                    self.resolve_member(namespace, member, hosts)
+                }
                 ResolvedName::HostModule(module) => hosts.resolve_name_in(module, member),
                 ResolvedName::StandardModule(module) => surface::standard_function(module, member)
                     .map(|f| ResolvedName::StandardFunction(f.intrinsic)),

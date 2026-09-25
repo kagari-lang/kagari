@@ -4,6 +4,8 @@ use crate::{
     DeclaredAnalysis, DiagnosticBuffer,
     declarations::{Declaration, DeclarationId, Declarations},
 };
+use kagari_common::Span;
+use kagari_syntax::ast::AstNode;
 
 #[cfg(test)]
 mod tests;
@@ -102,7 +104,9 @@ impl AnalysisDatabase {
         cancel.check()?;
         let previous = self.declaration_cache.as_ref();
         let mut lowered_files = std::collections::BTreeMap::new();
-        for file in source.files() {
+        let mut pending = std::collections::VecDeque::from_iter(source.files().cloned());
+        let mut generated = std::collections::HashSet::new();
+        while let Some(file) = pending.pop_front() {
             cancel.check()?;
             let old = previous
                 .and_then(|snapshot| snapshot.file(file.id()))
@@ -111,7 +115,7 @@ impl AnalysisDatabase {
                 Some(old) => (old.parsed.clone(), old.declared.lowered.clone()),
                 None => {
                     let parsed =
-                        kagari_syntax::parser::parse_with_limits(file, self.parse_limits, cancel)?;
+                        kagari_syntax::parser::parse_with_limits(&file, self.parse_limits, cancel)?;
                     let lowered = crate::lower::lower_module_controlled(
                         file.clone(),
                         &parsed.syntax(),
@@ -120,6 +124,39 @@ impl AnalysisDatabase {
                     (parsed, Arc::new(lowered))
                 }
             };
+            for item in parsed.syntax().items() {
+                let kagari_syntax::ast::Item::ModuleDef(module) = item else {
+                    continue;
+                };
+                let (Some(name), Some(block)) = (module.name_text(), module.block()) else {
+                    continue;
+                };
+                if !generated.insert((file.id(), name.clone())) {
+                    continue;
+                }
+                let range = block.syntax().text_range();
+                let start = usize::from(range.start()) + 1;
+                let end = usize::from(range.end()).saturating_sub(1);
+                let mut bytes = file.text().as_bytes().to_vec();
+                for (index, byte) in bytes.iter_mut().enumerate() {
+                    if !(start..end).contains(&index) && !matches!(*byte, b'\r' | b'\n') {
+                        *byte = b' ';
+                    }
+                }
+                let text = String::from_utf8(bytes).expect("inline module spans preserve UTF-8");
+                let id = *self
+                    .inline_ids
+                    .borrow_mut()
+                    .entry((file.id(), name.clone()))
+                    .or_insert_with(|| SourceFile::new(file.name(), "").id());
+                pending.push_back(Arc::new(SourceFile::inline_module(
+                    &file,
+                    &name,
+                    text,
+                    id,
+                    Span::new(start, end),
+                )));
+            }
             lowered_files.insert(file.id(), (parsed, lowered));
         }
         let graph = Arc::new(crate::imports::ModuleGraph::build(

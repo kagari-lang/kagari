@@ -1,0 +1,9 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/inline-modules.kgr
+// Result: main returns 42.
+mod model {
+    pub fn value() -> i32 { 42 }
+}
+
+use self::model::*;
+
+fn main() -> i32 { value() }

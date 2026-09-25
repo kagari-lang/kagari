@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 19] = [
+    let cases: [(&str, &str, Value); 20] = [
+        (
+            "examples/syntax/inline-modules.kgr",
+            include_str!("../../../examples/syntax/inline-modules.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/tuple-types.kgr",
             include_str!("../../../examples/syntax/tuple-types.kgr"),
@@ -178,33 +183,82 @@ fn attributes_without_compiler_behavior_are_rejected_before_execution() {
 }
 
 #[test]
-fn parser_only_module_forms_are_rejected_before_execution() {
+fn grouped_standard_globs_execute() {
     let engine = KagariEngine::default();
-    for (source, feature) in [
-        (
-            "mod nested { pub fn value() -> i32 { 42 } } fn main() -> i32 { 42 }",
-            "inline module bodies",
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "standard-glob.kgr",
+                "use std::{math::*}; fn main() -> i32 { min(42, 99) }",
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
+fn nested_inline_modules_resolve_qualified_members() {
+    let engine = KagariEngine::default();
+    let source = "mod outer { pub mod other { pub fn value() -> i32 { 42 } } pub mod inner { use super::other::value; pub fn call() -> i32 { value() } } } fn main() -> i32 { outer::inner::call() }";
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("nested-inline.kgr", source),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
+fn inline_module_errors_point_into_the_original_source() {
+    let engine = KagariEngine::default();
+    let id = engine
+        .set_source(
+            "mem://inline-error",
+            "mod child { pub fn value() -> i32 { missing } } fn main() -> i32 { child::value() }"
+                .into(),
+            kagari_common::source_database::SourceLayer::Base,
+        )
+        .unwrap();
+    let error = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            id,
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap_err();
+    let kagari_embed::EmbeddingError::Diagnostics { diagnostics } = error else {
+        panic!("expected diagnostics");
+    };
+    assert!(
+        diagnostics.iter().any(
+            |diagnostic| diagnostic.span.is_some_and(|span| span.file == id
+                && span.range.start >= "mod child { pub fn value() -> i32 { ".len())
         ),
-        (
-            "use std::math::*; fn main() -> i32 { 42 }",
-            "wildcard imports",
-        ),
-        (
-            "use std::{math::*}; fn main() -> i32 { 42 }",
-            "wildcard imports",
-        ),
-    ] {
-        let error = engine
-            .compile_to_artifact(
-                SourceFile::new("parser-only.kgr", source),
-                Default::default(),
-                Default::default(),
-            )
-            .unwrap_err();
-        let message = format!("{error:?}");
-        assert!(message.contains("KG_SYNTAX_UNSUPPORTED"), "{message}");
-        assert!(message.contains(feature), "{message}");
-    }
+        "{diagnostics:?}"
+    );
 }
 
 #[test]

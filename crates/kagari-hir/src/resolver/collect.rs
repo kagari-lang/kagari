@@ -124,6 +124,9 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
+        if import.glob_root || import.implicit_module.is_some() || import.internal_namespace {
+            continue;
+        }
         let target = imports.resolved_name(ResolvedName::SourceImport(index));
         names.insert(import.alias.clone(), target);
     }
