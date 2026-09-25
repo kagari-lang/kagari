@@ -10,5 +10,9 @@ fn main() -> i32 {
         0..=LIMIT => 42,
         _ => 0,
     };
-    if from_or == 42 && from_range == 42 { 42 } else { 0 }
+    val exhaustive = match 1 {
+        _ | 2 => 42,
+        3 => "unreachable",
+    };
+    if from_or == 42 && from_range == 42 && exhaustive == 42 { 42 } else { 0 }
 }

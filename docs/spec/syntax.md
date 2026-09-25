@@ -212,16 +212,7 @@ enum_item       ::= visibility? enum_decl ;
 
 visibility      ::= "pub" ;
 
-attribute       ::= reflect_attribute
-                  | security_attribute
-                  | "@" path attribute_args? ;
-
-reflect_attribute
-                ::= "@reflect" attribute_args? ;
-
-security_attribute
-                ::= "@requires" attribute_args?
-                  | "@profile" attribute_args? ;
+attribute       ::= "@" path attribute_args? ;
 
 attribute_args  ::= "(" attribute_arg_list? ")" ;
 

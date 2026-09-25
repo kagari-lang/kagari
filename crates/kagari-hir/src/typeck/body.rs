@@ -317,7 +317,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 let mut body_env = env.clone();
                 self.check_pattern(*pattern, &element_ty, &mut body_env);
-                if !self.pattern_is_irrefutable(*pattern) {
+                if !self.lowered.module.pattern_is_irrefutable(*pattern) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
                             expected: "irrefutable for binding".into(),
@@ -1067,12 +1067,7 @@ impl<'a> BodyChecker<'a> {
                     if !reachable {
                         continue;
                     }
-                    reachable = !self
-                        .lowered
-                        .module
-                        .pattern(arm.pattern)
-                        .kind
-                        .is_irrefutable()
+                    reachable = !self.lowered.module.pattern_is_irrefutable(arm.pattern)
                         || arm.guard.is_some();
                     let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
@@ -1559,24 +1554,6 @@ impl<'a> BodyChecker<'a> {
                     self.check_pattern(field, &ty.instantiate(&substitution), env);
                 }
             }
-        }
-    }
-
-    fn pattern_is_irrefutable(&self, pattern: crate::hir::PatternId) -> bool {
-        match &self.lowered.module.pattern(pattern).kind {
-            PatternKind::Wildcard | PatternKind::Name { .. } => true,
-            PatternKind::Tuple(elements) => elements
-                .iter()
-                .all(|element| self.pattern_is_irrefutable(*element)),
-            PatternKind::Struct { fields, .. } => fields
-                .iter()
-                .all(|field| self.pattern_is_irrefutable(field.pattern)),
-            PatternKind::Or(alternatives) => alternatives
-                .iter()
-                .any(|alternative| self.pattern_is_irrefutable(*alternative)),
-            PatternKind::Range { .. }
-            | PatternKind::Literal(_)
-            | PatternKind::EnumVariant { .. } => false,
         }
     }
 

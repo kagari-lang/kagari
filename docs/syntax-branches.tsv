@@ -1,6 +1,6 @@
 rule	branch	status	evidence	note	production
 item_decl	1	witnessed	examples/syntax/import-alias.kgr	-	use_decl
-item_decl	2	unverified	-	No branch-specific witness recorded	module_decl
+item_decl	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	module_decl
 item_decl	3	witnessed	examples/syntax/expressions.kgr	-	function_item
 item_decl	4	witnessed	examples/standard-library.kgr	-	const_item
 item_decl	5	witnessed	examples/syntax/data-model.kgr	-	struct_item
@@ -13,9 +13,9 @@ attribute_value	1	witnessed	examples/syntax/attributes.kgr	-	literal
 attribute_value	2	witnessed	examples/syntax/attributes.kgr	-	path
 attribute_value	3	witnessed	examples/syntax/attributes.kgr	-	"[" attribute_arg_list? "]"
 use_tree	1	witnessed	examples/syntax/import-alias.kgr	-	path use_alias?
-use_tree	2	unverified	-	No branch-specific witness recorded	path "::" "*"
+use_tree	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	path "::" "*"
 use_tree	3	witnessed	examples/imported-traits/generic-consumer.kgr	-	path "::" use_tree_group
-use_tree	4	unverified	-	No branch-specific witness recorded	use_tree_group
+use_tree	4	witnessed	examples/syntax/grammar-witnesses.kgr	-	use_tree_group
 field_binding	1	witnessed	examples/syntax/data-model.kgr	-	"val"
 field_binding	2	witnessed	examples/syntax/data-model.kgr	-	"var"
 variant	1	witnessed	examples/syntax/data-model.kgr	-	IDENT
@@ -25,13 +25,13 @@ type	2	witnessed	examples/syntax/closures.kgr	-	array_type
 type	3	witnessed	examples/standard-library.kgr	-	tuple_type
 type	4	witnessed	examples/syntax/closures.kgr	-	function_type
 path_segment	1	witnessed	examples/syntax/expressions.kgr	-	IDENT
-path_segment	2	unverified	-	No branch-specific witness recorded	"crate"
-path_segment	3	unverified	-	No branch-specific witness recorded	"self"
-path_segment	4	unverified	-	No branch-specific witness recorded	"super"
+path_segment	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	"crate"
+path_segment	3	witnessed	examples/syntax/grammar-witnesses.kgr	-	"self"
+path_segment	4	witnessed	examples/syntax/grammar-witnesses.kgr	-	"super"
 impl_block	1	witnessed	examples/syntax/data-model.kgr	-	inherent_impl
 impl_block	2	witnessed	examples/syntax/where-bounds.kgr	-	trait_impl
 method_param_list	1	witnessed	examples/syntax/data-model.kgr	-	receiver_param ("," param_list)? (",")?
-method_param_list	2	unverified	-	No branch-specific witness recorded	param_list
+method_param_list	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	param_list
 stmt	1	witnessed	examples/syntax/data-model.kgr	-	binding_stmt
 stmt	2	witnessed	examples/syntax/data-model.kgr	-	assign_stmt
 stmt	3	witnessed	examples/syntax/expressions.kgr	-	expr_stmt
@@ -47,9 +47,9 @@ binding_kind	1	witnessed	examples/syntax/expressions.kgr	-	"val"
 binding_kind	2	witnessed	examples/syntax/control-flow.kgr	-	"var"
 assign_op	1	witnessed	examples/standard-library.kgr	-	"="
 assign_op	2	witnessed	examples/syntax/data-model.kgr	-	"+="
-assign_op	3	unverified	-	No branch-specific witness recorded	"-="
-assign_op	4	unverified	-	No branch-specific witness recorded	"*="
-assign_op	5	unverified	-	No branch-specific witness recorded	"/="
+assign_op	3	witnessed	examples/syntax/data-model.kgr	-	"-="
+assign_op	4	witnessed	examples/syntax/data-model.kgr	-	"*="
+assign_op	5	witnessed	examples/syntax/data-model.kgr	-	"/="
 condition	1	witnessed	examples/syntax/binding-conditions.kgr	-	binding_condition
 condition	2	witnessed	examples/syntax/expressions.kgr	-	expr
 range_op	1	witnessed	examples/syntax/ranges.kgr	-	".."
@@ -90,8 +90,8 @@ primary_pattern	7	witnessed	examples/syntax/match.kgr	-	parenthesized_pattern
 field_pattern	1	witnessed	examples/syntax/match.kgr	-	IDENT
 field_pattern	2	witnessed	examples/syntax/match.kgr	-	IDENT ":" pattern
 place_expr	1	witnessed	examples/syntax/data-model.kgr	-	path place_suffix*
-place_expr	2	unverified	-	No branch-specific witness recorded	postfix_expr place_suffix+
-place_expr	3	unverified	-	No branch-specific witness recorded	parenthesized_place_expr
+place_expr	2	witnessed	examples/syntax/data-model.kgr	-	postfix_expr place_suffix+
+place_expr	3	witnessed	examples/syntax/data-model.kgr	-	parenthesized_place_expr
 place_suffix	1	witnessed	examples/syntax/data-model.kgr	-	"." IDENT
 place_suffix	2	witnessed	examples/syntax/data-model.kgr	-	"[" expr "]"
 literal	1	witnessed	examples/syntax/expressions.kgr	-	INTEGER

@@ -16,7 +16,7 @@ cargo test -p kagari-embed --test syntax_examples
 | Block expressions, independent block statements, and block `match` arms | [blocks.kgr](syntax/blocks.kgr) | `42` |
 | Half-open and inclusive integer ranges | [ranges.kgr](syntax/ranges.kgr) | `42` |
 | `for` over Array, Map, Set and String | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
-| Struct fields, shorthand initialization, inherent methods, enum payloads, tuples and arrays | [data-model.kgr](syntax/data-model.kgr) | `42` |
+| Struct fields, shorthand initialization, inherent methods, enum payloads, tuples, arrays and assignment targets | [data-model.kgr](syntax/data-model.kgr) | `42` |
 | Arithmetic (including `%`), comparison, unary and short-circuit logical operators | [expressions.kgr](syntax/expressions.kgr) | `42` |
 | Numeric bases and separators, exponents, escaped strings, and nested block comments | [literals-and-comments.kgr](syntax/literals-and-comments.kgr) | `42` |
 | Literal, wildcard, binding, nested tuple, struct and enum `match` patterns | [match.kgr](syntax/match.kgr) | `42` |
@@ -40,5 +40,8 @@ not standalone CLI programs.
 
 The examples cover executable forms; parser-only recovery cases remain in the
 syntax crate tests.
+The [grammar-witnesses.kgr](syntax/grammar-witnesses.kgr) file exercises
+parse-only branches such as inline module bodies and wildcard imports; it is
+checked by the syntax audit and is not a standalone executable program.
 The [syntax coverage audit](../docs/syntax-coverage.md) compares these witnesses
 with EBNF rules and records forms that are still missing or unverified.

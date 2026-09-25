@@ -28,5 +28,14 @@ fn main() -> i32 {
     val values = [pair[0], pair[1]];
     val answer = Answer::Value(values[0] + values[1]);
     std::debug::assert(answer == Answer::Value(42), "enum payload equality");
+    var arithmetic = 2;
+    arithmetic -= 1;
+    arithmetic *= 2;
+    arithmetic /= 2;
+    std::debug::assert_eq(arithmetic, 1, "compound assignments");
+    (point.y) = 22;
+    val fetch = || point;
+    fetch().y = 42;
+    std::debug::assert_eq(point.y, 42, "postfix assignment target");
     values[0] + values[1]
 }

@@ -389,9 +389,7 @@ impl FunctionLowerer<'_, '_> {
                 .analyzed
                 .lowered
                 .module
-                .pattern(arm.pattern)
-                .kind
-                .is_irrefutable();
+                .pattern_is_irrefutable(arm.pattern);
             let arm_block = self.new_block();
             let next_decision = self.new_block();
 

@@ -13,8 +13,8 @@ attribute_args	covered	examples/syntax/attributes.kgr	-
 attribute_arg_list	covered	examples/syntax/attributes.kgr	-
 attribute_arg	covered	examples/syntax/attributes.kgr	-
 attribute_value	covered	examples/syntax/attributes.kgr	-
-module_decl	unverified	-	No production-specific witness recorded
-module_block	unverified	-	No production-specific witness recorded
+module_decl	covered	examples/syntax/grammar-witnesses.kgr	-
+module_block	covered	examples/syntax/grammar-witnesses.kgr	-
 use_decl	covered	examples/syntax/import-alias.kgr	-
 use_tree	covered	examples/syntax/import-alias.kgr	-
 use_tree_group	covered	examples/imported-traits/generic-consumer.kgr	-
@@ -35,7 +35,7 @@ enum_decl	covered	examples/syntax/data-model.kgr	-
 variant_list	covered	examples/syntax/data-model.kgr	-
 variant	covered	examples/syntax/data-model.kgr	-
 trait_decl	covered	examples/syntax/where-bounds.kgr	-
-supertrait_clause	unverified	-	No production-specific witness recorded
+supertrait_clause	covered	examples/syntax/where-bounds.kgr	-
 trait_member	covered	examples/syntax/attributes.kgr	-
 trait_method	covered	examples/syntax/where-bounds.kgr	-
 method_sig	covered	examples/syntax/where-bounds.kgr	-
@@ -124,7 +124,7 @@ struct_pattern	covered	examples/syntax/match.kgr	-
 field_pattern_list	covered	examples/syntax/match.kgr	-
 field_pattern	covered	examples/syntax/match.kgr	-
 place_expr	covered	examples/syntax/data-model.kgr	-
-parenthesized_place_expr	unverified	-	No production-specific witness recorded
+parenthesized_place_expr	covered	examples/syntax/data-model.kgr	-
 place_suffix	covered	examples/syntax/data-model.kgr	-
 literal	covered	examples/syntax/expressions.kgr	-
 WHITESPACE	covered	examples/syntax/expressions.kgr	-
