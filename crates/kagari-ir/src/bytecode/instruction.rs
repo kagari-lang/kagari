@@ -244,6 +244,7 @@ pub enum BytecodeInstruction {
     MakeInterface {
         dst: Register,
         value: Register,
+        module: super::ModuleRef,
         implementation: InterfaceTableRef,
     },
     MakeStruct {

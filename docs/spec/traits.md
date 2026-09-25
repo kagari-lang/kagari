@@ -483,8 +483,8 @@ as do host-backed interface values.
 
 Verified bytecode can now allocate the same interface object with
 `MakeInterface`, using an implementation table slot resolved from the typed IR
-declaration identity. The source compiler does not yet emit that instruction
-for an implicit concrete-to-interface conversion.
+declaration identity and a pinned module slot. The source compiler does not yet
+emit that instruction for an implicit concrete-to-interface conversion.
 
 An embedding path that already has a linked implementation can create and
 retain such a value explicitly:

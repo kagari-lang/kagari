@@ -89,6 +89,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   representations fail before execution. Source coercion and in-frame dynamic
   dispatch still need the semantic facts and call target wiring.
 
+- R08 dependency-table linking checkpoint: `MakeInterface` now carries both a
+  dependency-program module slot and an implementation-table slot. KBC format
+  36/runtime ABI v36 reject the former encoding. Program verification checks
+  the referenced table in its defining module and proves that module is in the
+  caller's dependency closure; the VM constructs the object from that pinned
+  member. A detached dependency reference is rejected before execution.
+
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.

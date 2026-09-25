@@ -780,11 +780,22 @@ fn verify_instruction(
         BytecodeInstruction::MakeInterface {
             dst,
             value,
+            module: target,
             implementation,
         } => {
             use crate::module::PublicAbiItem;
             expect_register_ty(function, *dst, ValueType::HeapObject, "interface dst")?;
-            let table = module
+            let target_module = if let Some(program) = program {
+                program
+                    .modules
+                    .get(target.index())
+                    .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?
+            } else if target.index() == 0 {
+                module
+            } else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            let table = target_module
                 .public_items
                 .iter()
                 .filter_map(|item| match item {

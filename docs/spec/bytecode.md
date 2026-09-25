@@ -107,9 +107,11 @@ zero. Extra parent segments and recovery-only duplicate identities are rejected 
 both IR and bytecode layout verification. HIR retains duplicate identities for
 diagnostic recovery, but they cannot reach execution.
 
-Interface allocation uses an explicit `MakeInterface dst, value,
+Interface allocation uses an explicit `MakeInterface dst, value, module,
 implementation` instruction. Typed IR names the implementation declaration;
-bytecode carries a `InterfaceTableRef` into the current module's verified table.
+bytecode carries a dependency-program module slot and an `InterfaceTableRef`
+into that member's verified table. Program verification requires the target
+member to be reachable from the caller's dependency graph.
 Verification requires a concrete non-generic table, a heap destination and the
 receiver representation declared by the table. The runtime checks the full
 receiver ABI, allocates a generation-checked interface object and retains its
@@ -540,7 +542,7 @@ New calls use the latest successfully published epoch.
 
 ## GC and Safepoint Metadata
 
-KBC format 35 retains the verified, function-wide conservative root layout
+KBC format 36 retains the verified, function-wide conservative root layout
 introduced in format 34.
 Every local and register with `HeapObject` representation appears exactly once,
 in ascending slot order. Scalar, string and host-handle slots do not appear.

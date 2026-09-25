@@ -103,10 +103,16 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::MakeInterface {
                 dst,
                 value,
+                module,
                 implementation,
             } => {
                 let receiver = self.current_frame()?.read_register(value)?;
-                let loaded = self.current_loaded()?;
+                let loaded = self
+                    .loaded
+                    .member(module)
+                    .ok_or(VmError::UnsupportedInstruction(
+                        "invalid interface module slot",
+                    ))?;
                 let interface = self
                     .runtime
                     .make_interface(&loaded, implementation.index(), receiver)

@@ -1855,6 +1855,7 @@ fn interface_instruction_module() -> BytecodeModule {
                 BytecodeInstruction::MakeInterface {
                     dst: Register::new(1),
                     value: Register::new(0),
+                    module: kagari_ir::bytecode::ModuleRef::new(0),
                     implementation: InterfaceTableRef::new(0),
                 },
                 BytecodeInstruction::Return(Some(Register::new(1))),
@@ -1904,12 +1905,14 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
         dst: Register::new(1),
         value: Register::new(0),
+        module: ModuleRef::new(0),
         implementation: InterfaceTableRef::new(1),
     };
     assert!(verify_module(&invalid).is_err());
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
         dst: Register::new(1),
         value: Register::new(1),
+        module: ModuleRef::new(0),
         implementation: InterfaceTableRef::new(0),
     };
     assert!(verify_module(&invalid).is_err());
@@ -1934,4 +1937,69 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     let value = vm.execute(&loaded, "main").unwrap().return_value;
     assert!(matches!(value, Value::Interface(_)));
     assert!(vm.runtime().gc().validate_value(&value));
+}
+
+#[test]
+fn interface_instruction_uses_a_reachable_dependency_table() {
+    use kagari_common::identity::ModuleIdentity;
+    use kagari_ir::bytecode::{
+        ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, InterfaceTableRef,
+        KbcArtifact, ModuleRef, verify_program,
+    };
+
+    let dependency = interface_instruction_module();
+    let mut consumer = verified_module(
+        None,
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(11),
+                },
+                BytecodeInstruction::MakeInterface {
+                    dst: Register::new(1),
+                    value: Register::new(0),
+                    module: ModuleRef::new(0),
+                    implementation: InterfaceTableRef::new(0),
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
+            ],
+            ValueType::HeapObject,
+            vec![ValueType::I32, ValueType::HeapObject],
+        )],
+    );
+    consumer.identity = ModuleIdentity::single_file("interface-consumer.kgr");
+    consumer.dependencies = vec![ModuleRef::new(0)];
+    let program = BytecodeProgram {
+        root: ModuleRef::new(1),
+        modules: vec![dependency, consumer],
+    };
+    verify_program(&program).unwrap();
+    let mut detached = program.clone();
+    detached.modules[1].dependencies.clear();
+    assert!(verify_program(&detached).is_err());
+
+    let artifact = KbcArtifact::from_program(program, ArtifactBuildOptions::default()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    decoded
+        .validate_for_loader(&ArtifactCompatibility::default())
+        .unwrap();
+
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_program("interface-consumer", decoded.program)
+        .unwrap();
+    let dependency_key = loaded.member(ModuleRef::new(0)).unwrap().key();
+    let mut vm = Vm::new(runtime);
+    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    assert!(matches!(value, Value::Interface(_)));
+    assert_eq!(
+        vm.runtime()
+            .modules()
+            .retention_counts(dependency_key)
+            .runtime_values,
+        1
+    );
 }

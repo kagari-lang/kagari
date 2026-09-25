@@ -214,10 +214,16 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             .iter()
             .flat_map(|function| &function.instructions)
         {
-            if let BytecodeInstruction::Call {
-                callee: CallTarget::ModuleFunction { module: target, .. },
-                ..
-            } = instruction
+            let target = match instruction {
+                BytecodeInstruction::Call {
+                    callee: CallTarget::ModuleFunction { module: target, .. },
+                    ..
+                }
+                | BytecodeInstruction::MakeInterface { module: target, .. } => Some(target),
+                _ => None,
+            };
+            if let Some(target) = target
+                && *target != ModuleRef::new(index)
                 && !reachable.contains(target)
             {
                 return Err(invalid());

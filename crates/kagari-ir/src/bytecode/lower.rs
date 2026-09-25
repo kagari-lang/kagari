@@ -65,6 +65,7 @@ fn lower_linked_module(
         program,
         structures: &ir.structures,
         enumerations: &ir.enumerations,
+        identity: Some(&ir.identity),
         public_items: &ir.abi.public_items,
         host_interface: kagari_common::host_interface::HostInterface {
             paths: vec![],
@@ -165,12 +166,49 @@ struct BytecodeLoweringContext<'a> {
     program: Option<&'a crate::program::VerifiedIrProgram>,
     structures: &'a [crate::module::StructLayout],
     enumerations: &'a [crate::module::EnumLayout],
+    identity: Option<&'a kagari_common::identity::ModuleIdentity>,
     public_items: &'a [crate::module::PublicAbiItem],
     host_interface: kagari_common::host_interface::HostInterface,
     paths: Vec<PathRecord>,
 }
 
 impl BytecodeLoweringContext<'_> {
+    fn interface_ref(
+        &self,
+        implementation: &kagari_common::identity::DefinitionId,
+    ) -> (super::ModuleRef, InterfaceTableRef) {
+        let (module, items) = if let Some(program) = self.program {
+            program
+                .modules()
+                .iter()
+                .enumerate()
+                .find(|(_, module)| module.identity == implementation.module)
+                .map(|(index, module)| {
+                    (
+                        super::ModuleRef::new(index),
+                        module.abi.public_items.as_slice(),
+                    )
+                })
+                .expect("verified interface implementation module")
+        } else {
+            assert_eq!(
+                self.identity.expect("lowering module identity"),
+                &implementation.module,
+                "standalone IR cannot reference a dependency table"
+            );
+            (super::ModuleRef::new(0), self.public_items)
+        };
+        let table = items
+            .iter()
+            .filter_map(|item| match item {
+                crate::module::PublicAbiItem::InterfaceTable(table) => Some(table),
+                _ => None,
+            })
+            .position(|table| table.declaration == *implementation)
+            .expect("verified interface implementation table");
+        (module, InterfaceTableRef::new(table))
+    }
+
     fn host_import(
         &mut self,
         declaration: &kagari_common::host_interface::HostFunctionDeclaration,
@@ -658,21 +696,15 @@ fn lower_instruction(
             dst,
             value,
             implementation,
-        } => BytecodeInstruction::MakeInterface {
-            dst: lower_value(*dst),
-            value: lower_value(*value),
-            implementation: InterfaceTableRef::new(
-                context
-                    .public_items
-                    .iter()
-                    .filter_map(|item| match item {
-                        crate::module::PublicAbiItem::InterfaceTable(table) => Some(table),
-                        _ => None,
-                    })
-                    .position(|table| &table.declaration == implementation)
-                    .expect("verified interface table"),
-            ),
-        },
+        } => {
+            let (module, implementation) = context.interface_ref(implementation);
+            BytecodeInstruction::MakeInterface {
+                dst: lower_value(*dst),
+                value: lower_value(*value),
+                module,
+                implementation,
+            }
+        }
         Instruction::MakeEnum {
             dst,
             enumeration,
