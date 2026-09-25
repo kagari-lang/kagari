@@ -138,6 +138,7 @@ fn binary(
         BinaryOp::Sub => Some(IntegerBinaryOp::Sub),
         BinaryOp::Mul => Some(IntegerBinaryOp::Mul),
         BinaryOp::Div => Some(IntegerBinaryOp::Div),
+        BinaryOp::Rem => Some(IntegerBinaryOp::Rem),
         _ => None,
     };
     if let Some(op) = arithmetic_op {
@@ -150,6 +151,7 @@ fn binary(
                 IntegerBinaryOp::Sub => lhs - rhs,
                 IntegerBinaryOp::Mul => lhs * rhs,
                 IntegerBinaryOp::Div => lhs / rhs,
+                IntegerBinaryOp::Rem => lhs % rhs,
             })),
             _ => return None,
         });

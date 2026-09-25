@@ -779,6 +779,10 @@ fn lower_instruction(
             },
             args: args.iter().map(|arg| lower_value(*arg)).collect(),
         },
+        Instruction::BeginIteration { collection } => BytecodeInstruction::BeginIteration {
+            collection: lower_value(*collection),
+        },
+        Instruction::EndIteration => BytecodeInstruction::EndIteration,
         Instruction::MakeTuple { dst, elements } => BytecodeInstruction::MakeTuple {
             dst: lower_value(*dst),
             elements: elements
@@ -825,6 +829,48 @@ fn lower_instruction(
             ),
             variant: *variant as u32,
             fields: fields.iter().map(|value| lower_value(*value)).collect(),
+        },
+        Instruction::TestEnumVariant {
+            dst,
+            value,
+            enumeration,
+            variant,
+        } => BytecodeInstruction::TestEnumVariant {
+            dst: lower_value(*dst),
+            value: lower_value(*value),
+            enumeration: super::EnumId::new(
+                context
+                    .enumerations
+                    .iter()
+                    .position(|layout| {
+                        layout.declaration == enumeration.declaration
+                            && layout.arguments == enumeration.arguments
+                    })
+                    .expect("verified enum layout"),
+            ),
+            variant: *variant as u32,
+        },
+        Instruction::ReadEnumPayload {
+            dst,
+            value,
+            enumeration,
+            variant,
+            index,
+        } => BytecodeInstruction::ReadEnumPayload {
+            dst: lower_value(*dst),
+            value: lower_value(*value),
+            enumeration: super::EnumId::new(
+                context
+                    .enumerations
+                    .iter()
+                    .position(|layout| {
+                        layout.declaration == enumeration.declaration
+                            && layout.arguments == enumeration.arguments
+                    })
+                    .expect("verified enum layout"),
+            ),
+            variant: *variant as u32,
+            index: *index as u32,
         },
         Instruction::MakeStruct {
             dst,
@@ -948,6 +994,7 @@ fn lower_constant(constant: &Constant) -> ConstantOperand {
         Constant::Unit => ConstantOperand::Unit,
         Constant::Bool(value) => ConstantOperand::Bool(*value),
         Constant::I32(value) => ConstantOperand::I32(*value),
+        Constant::I64(value) => ConstantOperand::I64(*value),
         Constant::F32(value) => ConstantOperand::F32(*value),
         Constant::Str(value) => ConstantOperand::Str(value.clone()),
     }
@@ -959,6 +1006,7 @@ fn lower_binary_op(op: IrBinaryOp) -> BinaryOp {
         IrBinaryOp::Sub => BinaryOp::Sub,
         IrBinaryOp::Mul => BinaryOp::Mul,
         IrBinaryOp::Div => BinaryOp::Div,
+        IrBinaryOp::Rem => BinaryOp::Rem,
         IrBinaryOp::Eq => BinaryOp::Eq,
         IrBinaryOp::NotEq => BinaryOp::NotEq,
         IrBinaryOp::Lt => BinaryOp::Lt,

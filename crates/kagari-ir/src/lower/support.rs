@@ -278,6 +278,7 @@ impl FunctionLowerer<'_, '_> {
             hir::BinaryOp::Sub => BinaryOp::Sub,
             hir::BinaryOp::Mul => BinaryOp::Mul,
             hir::BinaryOp::Div => BinaryOp::Div,
+            hir::BinaryOp::Rem => BinaryOp::Rem,
             hir::BinaryOp::Eq => BinaryOp::Eq,
             hir::BinaryOp::NotEq => BinaryOp::NotEq,
             hir::BinaryOp::Lt => BinaryOp::Lt,

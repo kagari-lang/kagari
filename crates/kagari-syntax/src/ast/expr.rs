@@ -24,9 +24,11 @@ ast_node!(StructExpr, StructExpr);
 ast_node!(FieldInitList, FieldInitList);
 ast_node!(FieldInit, FieldInit);
 ast_node!(MatchExpr, MatchExpr);
+ast_node!(LoopExpr, LoopExpr);
 ast_node!(MatchArmList, MatchArmList);
 ast_node!(MatchArm, MatchArm);
 ast_node!(Pattern, Pattern);
+ast_node!(PatternField, PatternField);
 ast_node!(TupleExpr, TupleExpr);
 ast_node!(ArrayExpr, ArrayExpr);
 
@@ -44,6 +46,7 @@ pub enum Expr {
     IfExpr(IfExpr),
     StructExpr(StructExpr),
     MatchExpr(MatchExpr),
+    LoopExpr(LoopExpr),
     TupleExpr(TupleExpr),
     ArrayExpr(ArrayExpr),
 }
@@ -64,6 +67,7 @@ impl AstNode for Expr {
                 | SyntaxKind::IfExpr
                 | SyntaxKind::StructExpr
                 | SyntaxKind::MatchExpr
+                | SyntaxKind::LoopExpr
                 | SyntaxKind::TupleExpr
                 | SyntaxKind::ArrayExpr
         )
@@ -83,6 +87,7 @@ impl AstNode for Expr {
             SyntaxKind::IfExpr => IfExpr::cast(syntax).map(Self::IfExpr),
             SyntaxKind::StructExpr => StructExpr::cast(syntax).map(Self::StructExpr),
             SyntaxKind::MatchExpr => MatchExpr::cast(syntax).map(Self::MatchExpr),
+            SyntaxKind::LoopExpr => LoopExpr::cast(syntax).map(Self::LoopExpr),
             SyntaxKind::TupleExpr => TupleExpr::cast(syntax).map(Self::TupleExpr),
             SyntaxKind::ArrayExpr => ArrayExpr::cast(syntax).map(Self::ArrayExpr),
             _ => None,
@@ -103,6 +108,7 @@ impl AstNode for Expr {
             Self::IfExpr(node) => node.syntax(),
             Self::StructExpr(node) => node.syntax(),
             Self::MatchExpr(node) => node.syntax(),
+            Self::LoopExpr(node) => node.syntax(),
             Self::TupleExpr(node) => node.syntax(),
             Self::ArrayExpr(node) => node.syntax(),
         }
@@ -202,6 +208,7 @@ impl BinaryExpr {
                             | SyntaxKind::Minus
                             | SyntaxKind::Star
                             | SyntaxKind::Slash
+                            | SyntaxKind::Percent
                             | SyntaxKind::EqEq
                             | SyntaxKind::NotEq
                             | SyntaxKind::Lt
@@ -330,6 +337,12 @@ impl MatchExpr {
     }
 }
 
+impl LoopExpr {
+    pub fn body(&self) -> Option<BlockExpr> {
+        support::child(self.syntax())
+    }
+}
+
 impl MatchArmList {
     pub fn arms(&self) -> impl Iterator<Item = MatchArm> {
         self.syntax().children().filter_map(MatchArm::cast)
@@ -347,6 +360,10 @@ impl MatchArm {
 }
 
 impl Pattern {
+    pub fn elements(&self) -> impl Iterator<Item = Pattern> {
+        self.syntax().children().filter_map(Pattern::cast)
+    }
+
     pub fn is_wildcard(&self) -> bool {
         self.path().and_then(|path| path.name_text()).as_deref() == Some("_")
     }
@@ -357,6 +374,32 @@ impl Pattern {
 
     pub fn literal(&self) -> Option<Literal> {
         self.syntax().children().filter_map(Literal::cast).next()
+    }
+
+    pub fn is_struct(&self) -> bool {
+        support::token(self.syntax(), SyntaxKind::LBrace).is_some()
+    }
+
+    pub fn is_tuple_struct(&self) -> bool {
+        self.path().is_some() && support::token(self.syntax(), SyntaxKind::LParen).is_some()
+    }
+
+    pub fn is_tuple(&self) -> bool {
+        self.path().is_none() && support::token(self.syntax(), SyntaxKind::LParen).is_some()
+    }
+
+    pub fn fields(&self) -> impl Iterator<Item = PatternField> {
+        self.syntax().children().filter_map(PatternField::cast)
+    }
+}
+
+impl PatternField {
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    pub fn pattern(&self) -> Option<Pattern> {
+        support::child(self.syntax())
     }
 }
 

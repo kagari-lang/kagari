@@ -5,6 +5,7 @@ use std::fmt;
 pub enum ArithmeticError {
     Overflow,
     DivisionByZero,
+    RemainderByZero,
 }
 
 impl ArithmeticError {
@@ -12,6 +13,7 @@ impl ArithmeticError {
         match self {
             Self::Overflow => "integer overflow",
             Self::DivisionByZero => "integer division by zero",
+            Self::RemainderByZero => "integer remainder by zero",
         }
     }
 }
@@ -28,6 +30,7 @@ pub enum IntegerBinaryOp {
     Sub,
     Mul,
     Div,
+    Rem,
 }
 
 macro_rules! integer_ops {
@@ -42,6 +45,12 @@ macro_rules! integer_ops {
                         return Err(ArithmeticError::DivisionByZero);
                     }
                     lhs.checked_div(rhs)
+                }
+                IntegerBinaryOp::Rem => {
+                    if rhs == 0 {
+                        return Err(ArithmeticError::RemainderByZero);
+                    }
+                    lhs.checked_rem(rhs)
                 }
             }
             .ok_or(ArithmeticError::Overflow)

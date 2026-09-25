@@ -1,4 +1,4 @@
-use crate::gc::{GcHeap, RootSet};
+use crate::gc::{CollectionIteration, GcHeap, RootSet};
 use crate::value::Value;
 use kagari_ir::bytecode::{
     BytecodeFunction, BytecodeInstruction, FunctionRef, LocalSlot, Register,
@@ -248,6 +248,7 @@ pub struct ExecutionFrame {
     register_count: usize,
     return_dst: Option<Register>,
     interface_method: Option<RootedInterfaceMethod>,
+    iterations: Vec<CollectionIteration>,
 }
 
 impl std::fmt::Debug for ExecutionFrame {
@@ -300,7 +301,25 @@ impl ExecutionFrame {
             register_count,
             return_dst,
             interface_method,
+            iterations: Vec::new(),
         })
+    }
+
+    pub fn begin_iteration(&mut self, collection: Register) -> Result<(), RuntimeError> {
+        let value = self.read_register(collection)?;
+        self.iterations
+            .push(self.heap.begin_collection_iteration(&value)?);
+        Ok(())
+    }
+
+    pub fn end_iteration(&mut self) -> Result<(), RuntimeError> {
+        let _guard = self.iterations.pop().ok_or_else(|| {
+            RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "iteration guard underflow",
+            )
+        })?;
+        Ok(())
     }
 
     pub fn next_instruction(&mut self) -> Option<BytecodeInstruction> {

@@ -18,6 +18,7 @@ use crate::module::{
 pub(crate) struct LoopScope {
     pub(crate) break_block: BlockId,
     pub(crate) continue_block: BlockId,
+    pub(crate) break_value: Option<IrValue>,
 }
 
 pub(crate) struct FunctionLowerer<'a, 'p> {

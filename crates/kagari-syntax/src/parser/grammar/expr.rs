@@ -20,6 +20,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::FalseKw
                     | TokenKind::IfKw
                     | TokenKind::MatchKw
+                    | TokenKind::LoopKw
                     | TokenKind::LParen
                     | TokenKind::LBracket
                     | TokenKind::Minus
@@ -127,7 +128,7 @@ impl<'a> Parser<'a> {
 
         loop {
             self.bump_trivia();
-            if !self.at_any(&[TokenKind::Star, TokenKind::Slash]) {
+            if !self.at_any(&[TokenKind::Star, TokenKind::Slash, TokenKind::Percent]) {
                 break;
             }
             self.bump();
@@ -197,6 +198,7 @@ impl<'a> Parser<'a> {
             ) => self.parse_literal(),
             Some(TokenKind::IfKw) => self.parse_if_expr(),
             Some(TokenKind::MatchKw) => self.parse_match_expr(),
+            Some(TokenKind::LoopKw) => self.parse_loop_expr(),
             Some(TokenKind::LParen) => self.parse_paren_or_tuple_expr(),
             Some(TokenKind::LBracket) => self.parse_array_expr(),
             _ => self.error_here(DiagnosticKind::ExpectedExpression),
@@ -406,7 +408,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_match_pattern(&mut self) {
+    pub(crate) fn parse_match_pattern(&mut self) {
         self.with_nesting(Self::parse_match_pattern_nested);
     }
 
@@ -415,7 +417,15 @@ impl<'a> Parser<'a> {
         match self.current_kind() {
             Some(
                 TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
-            ) => self.parse_path_expr(),
+            ) => {
+                self.parse_path_expr();
+                self.bump_trivia();
+                if self.at(TokenKind::LParen) {
+                    self.parse_tuple_pattern();
+                } else if self.at(TokenKind::LBrace) {
+                    self.parse_struct_pattern();
+                }
+            }
             Some(
                 TokenKind::Number
                 | TokenKind::Float
@@ -447,6 +457,38 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
     }
 
+    fn parse_loop_expr(&mut self) {
+        self.start_node(SyntaxKind::LoopExpr);
+        self.expect(TokenKind::LoopKw, DiagnosticKind::ExpectedLoopKeyword);
+        self.bump_trivia();
+        self.parse_block();
+        self.finish_node();
+    }
+
+    fn parse_struct_pattern(&mut self) {
+        self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedBlockEnd);
+        self.bump_trivia();
+        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
+            self.start_node(SyntaxKind::PatternField);
+            self.parse_field_name();
+            self.bump_trivia();
+            if self.at(TokenKind::Colon) {
+                self.bump();
+                self.bump_trivia();
+                self.parse_match_pattern();
+            }
+            self.finish_node();
+            self.bump_trivia();
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                self.bump_trivia();
+            } else {
+                break;
+            }
+        }
+        self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
+    }
+
     fn parse_struct_literal_body(&mut self) {
         self.expect(
             TokenKind::LBrace,
@@ -458,8 +500,11 @@ impl<'a> Parser<'a> {
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             self.start_node(SyntaxKind::FieldInit);
             self.parse_field_name();
-            self.expect(TokenKind::Colon, DiagnosticKind::ExpectedFieldTypeSeparator);
-            self.parse_expr();
+            self.bump_trivia();
+            if self.at(TokenKind::Colon) {
+                self.bump();
+                self.parse_expr();
+            }
             self.finish_node();
 
             self.bump_trivia();

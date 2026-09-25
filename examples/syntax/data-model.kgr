@@ -1,0 +1,32 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/data-model.kgr
+// Result: main returns 42.
+struct Point {
+    val x: i32,
+    var y: i32,
+}
+
+impl Point {
+    fn sum(self) -> i32 {
+        self.x + self.y
+    }
+}
+
+enum Answer {
+    Missing,
+    Value(i32),
+}
+
+fn make_point(x: i32, y: i32) -> Point {
+    Point { x, y }
+}
+
+fn main() -> i32 {
+    val point = make_point(20, 21);
+    point.y += 1;
+    std::debug::assert(point.sum() == 42, "inherent method");
+    val pair = (point.x, point.y);
+    val values = [pair[0], pair[1]];
+    val answer = Answer::Value(values[0] + values[1]);
+    std::debug::assert(answer == Answer::Value(42), "enum payload equality");
+    values[0] + values[1]
+}

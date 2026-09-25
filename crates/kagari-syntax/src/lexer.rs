@@ -149,6 +149,10 @@ pub fn lex_with_cancellation(
                     tokens.push(token(TokenKind::Slash, index, index + 1));
                 }
             }
+            '%' => {
+                chars.next();
+                tokens.push(token(TokenKind::Percent, index, index + 1));
+            }
             '!' => {
                 chars.next();
                 if let Some((end, '=')) = chars.peek().copied() {
@@ -246,6 +250,7 @@ pub fn lex_with_cancellation(
                     "as" => TokenKind::AsKw,
                     "crate" => TokenKind::CrateKw,
                     "for" => TokenKind::ForKw,
+                    "in" => TokenKind::InKw,
                     "fn" => TokenKind::FnKw,
                     "impl" => TokenKind::ImplKw,
                     "mod" => TokenKind::ModKw,

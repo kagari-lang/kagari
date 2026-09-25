@@ -5,6 +5,60 @@ use crate::error::VmError;
 use crate::executor::Executor;
 
 impl Executor<'_> {
+    pub(crate) fn test_enum_variant(
+        &self,
+        value: Register,
+        enumeration: kagari_ir::bytecode::EnumId,
+        variant: u32,
+    ) -> Result<Value, VmError> {
+        let Value::Enum(handle) = self.current_frame()?.read_register(value)? else {
+            return Err(VmError::TypeMismatch("enum pattern expects enum value"));
+        };
+        let snapshot = self
+            .runtime
+            .gc()
+            .enum_snapshot(handle)
+            .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
+        let expected = self
+            .current_loaded()?
+            .enum_variant(enumeration, variant)
+            .ok_or(VmError::TypeMismatch("invalid enum pattern layout"))?;
+        Ok(Value::Bool(matches!(
+            snapshot.tag,
+            kagari_runtime::value::EnumTag::Declared(actual) if actual == expected
+        )))
+    }
+
+    pub(crate) fn read_enum_payload(
+        &self,
+        value: Register,
+        enumeration: kagari_ir::bytecode::EnumId,
+        variant: u32,
+        index: u32,
+    ) -> Result<Value, VmError> {
+        let Value::Enum(handle) = self.current_frame()?.read_register(value)? else {
+            return Err(VmError::TypeMismatch("enum pattern expects enum value"));
+        };
+        let snapshot = self
+            .runtime
+            .gc()
+            .enum_snapshot(handle)
+            .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
+        let expected = self
+            .current_loaded()?
+            .enum_variant(enumeration, variant)
+            .ok_or(VmError::TypeMismatch("invalid enum pattern layout"))?;
+        if !matches!(snapshot.tag, kagari_runtime::value::EnumTag::Declared(actual) if actual == expected)
+        {
+            return Err(VmError::TypeMismatch("enum pattern variant mismatch"));
+        }
+        snapshot
+            .fields
+            .get(index as usize)
+            .cloned()
+            .ok_or(VmError::TypeMismatch("invalid enum payload index"))
+    }
+
     pub(crate) fn make_enum(
         &self,
         enumeration: kagari_ir::bytecode::EnumId,

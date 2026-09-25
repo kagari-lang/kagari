@@ -38,6 +38,12 @@ Runtime model rules are defined separately in [runtime.md](runtime.md).
 Execution model rules are defined separately in [execution.md](execution.md).
 Module execution rules are defined separately in [modules.md](modules.md).
 
+The executable subset currently includes field shorthand, remainder, inherent
+method calls, tuple/struct/enum destructuring, `for` over built-in iterable
+collections and strings, and `loop` expressions with `break` values.
+Collection iteration blocks structural modification through aliases until
+the loop exits. Closure expressions still require executable semantics.
+
 ## Grammar Notation
 
 This specification uses an EBNF-style notation with the following conventions:

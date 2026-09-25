@@ -69,6 +69,10 @@ pub enum Instruction {
         callee: CallTarget,
         args: ValueBuffer,
     },
+    BeginIteration {
+        collection: IrValue,
+    },
+    EndIteration,
     MakeTuple {
         dst: IrValue,
         elements: ValueBuffer,
@@ -92,6 +96,19 @@ pub enum Instruction {
         enumeration: super::abi::NominalAbiType,
         variant: usize,
         fields: ValueBuffer,
+    },
+    TestEnumVariant {
+        dst: IrValue,
+        value: IrValue,
+        enumeration: super::abi::NominalAbiType,
+        variant: usize,
+    },
+    ReadEnumPayload {
+        dst: IrValue,
+        value: IrValue,
+        enumeration: super::abi::NominalAbiType,
+        variant: usize,
+        index: usize,
     },
     ReadAggregateField {
         dst: IrValue,
@@ -323,7 +340,11 @@ impl Instruction {
                     may_trap: heap_comparison
                         || (matches!(
                             op,
-                            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
+                            BinaryOp::Add
+                                | BinaryOp::Sub
+                                | BinaryOp::Mul
+                                | BinaryOp::Div
+                                | BinaryOp::Rem
                         ) && matches!(lhs.ty, ValueType::I32 | ValueType::I64)),
                     ..EffectSet::default()
                 }
@@ -333,14 +354,16 @@ impl Instruction {
             Self::LoadModule { .. } => EffectSet::module_read(),
             Self::StoreModule { .. } => EffectSet::module_write(),
             Self::Call { callee, .. } => callee.effects(),
+            Self::BeginIteration { .. } | Self::EndIteration => EffectSet::runtime_call(),
             Self::MakeTuple { .. }
             | Self::MakeArray { .. }
             | Self::MakeInterface { .. }
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
-            Self::ReadAggregateField { .. } | Self::ReadAggregateIndex { .. } => {
-                EffectSet::aggregate_read()
-            }
+            Self::ReadAggregateField { .. }
+            | Self::ReadAggregateIndex { .. }
+            | Self::TestEnumVariant { .. }
+            | Self::ReadEnumPayload { .. } => EffectSet::aggregate_read(),
             Self::WriteAggregateField { .. } | Self::WriteAggregateIndex { .. } => {
                 EffectSet::aggregate_write()
             }
@@ -462,6 +485,7 @@ pub enum Constant {
     Unit,
     Bool(bool),
     I32(i32),
+    I64(i64),
     F32(f32),
     Str(String),
 }
@@ -478,6 +502,7 @@ pub enum BinaryOp {
     Sub,
     Mul,
     Div,
+    Rem,
     Eq,
     NotEq,
     Lt,

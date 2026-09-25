@@ -280,6 +280,7 @@ fn main() -> (usize, usize, i32) {
     values.push(3);
     (values.len(), "ok".len_chars(), std::math::max(4, 7))
 }
+
 "#,
     );
     let (runtime, loaded) =
@@ -299,6 +300,27 @@ fn main() -> (usize, usize, i32) {
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none());
     assert_eq!(jit.diagnostics.len(), 1);
+}
+
+#[test]
+fn remainder_uses_interpreter_fallback_with_identical_result() {
+    let module = common::compile_test_bytecode("fn main() -> i32 { 42 % 5 }");
+    let (runtime, loaded) = common::load_bytecode_module("jit_remainder", module.clone());
+    let mut vm = Vm::new(runtime);
+    let interpreted = vm.execute(&loaded, "main").unwrap().return_value;
+    let (runtime, loaded) =
+        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_remainder", module);
+    let mut vm = Vm::new(runtime);
+    let mut backend = CraneliftBackend::for_host().unwrap();
+    let report = vm
+        .execute_with_backend(&loaded, "main", &mut backend)
+        .unwrap();
+    assert_eq!(report.return_value, interpreted);
+    assert_eq!(report.return_value, Value::I32(2));
+    assert_eq!(
+        report.jit.unwrap().status,
+        JitExecutionStatus::InterpreterFallback
+    );
 }
 
 #[test]

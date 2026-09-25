@@ -103,6 +103,14 @@ pub enum DiagnosticKind {
     InvalidIndexTarget {
         type_name: String,
     },
+    InvalidForIterable {
+        type_name: String,
+    },
+    BreakValueOutsideLoopExpression,
+    BreakValueTypeMismatch {
+        expected: String,
+        found: String,
+    },
     DuplicateDeclaration {
         name: String,
     },
@@ -357,6 +365,9 @@ impl DiagnosticKind {
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
             Self::InvalidTraitReference { .. } => "KG_TYPE_INVALID_TRAIT_REFERENCE",
             Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
+            Self::InvalidForIterable { .. } => "KG_TYPE_INVALID_FOR_ITERABLE",
+            Self::BreakValueOutsideLoopExpression => "KG_TYPE_BREAK_VALUE_OUTSIDE_LOOP_EXPRESSION",
+            Self::BreakValueTypeMismatch { .. } => "KG_TYPE_BREAK_VALUE_MISMATCH",
             Self::DuplicateDeclaration { .. } => "KG_RESOLVE_DUPLICATE_DECLARATION",
             Self::DuplicateField { .. } => "KG_RESOLVE_DUPLICATE_FIELD",
             Self::DuplicateVariant { .. } => "KG_RESOLVE_DUPLICATE_VARIANT",
@@ -510,6 +521,18 @@ impl Display for DiagnosticKind {
             }
             Self::InvalidIndexTarget { type_name } => {
                 write!(f, "invalid index for type `{type_name}`")
+            }
+            Self::InvalidForIterable { type_name } => {
+                write!(f, "type `{type_name}` cannot be iterated by for")
+            }
+            Self::BreakValueOutsideLoopExpression => {
+                write!(f, "break value requires a loop expression")
+            }
+            Self::BreakValueTypeMismatch { expected, found } => {
+                write!(
+                    f,
+                    "break value type mismatch: expected `{expected}`, found `{found}`"
+                )
             }
             Self::DuplicateDeclaration { name } => write!(f, "ambiguous declaration `{name}`"),
             Self::DuplicateField { struct_name, name } => {

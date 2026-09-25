@@ -1,0 +1,12 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/expressions.kgr
+// Result: main returns 42.
+fn main() -> i32 {
+    val value = (8 + 4) * 4 / 2 % 10;
+    val valid = !(value < 4) && value >= 4 || false;
+    std::debug::assert_eq(value, 4, "operator precedence");
+    if valid && (true || 1 / 0 == 0) {
+        42
+    } else {
+        0
+    }
+}

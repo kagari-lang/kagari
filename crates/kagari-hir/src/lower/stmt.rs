@@ -101,7 +101,37 @@ impl Lowerer {
                     ),
                 },
             },
-            ast::Stmt::BreakStmt(_) => StmtKind::Break,
+            ast::Stmt::ForStmt(stmt) => StmtKind::For {
+                pattern: stmt
+                    .pattern()
+                    .map(|pattern| self.lower_pattern(&pattern))
+                    .unwrap_or_else(|| {
+                        self.alloc_pattern(
+                            syntax_span(stmt),
+                            crate::hir::PatternData {
+                                kind: crate::hir::PatternKind::Wildcard,
+                            },
+                        )
+                    }),
+                iterable: stmt
+                    .iterable()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr()),
+                body: match stmt.body() {
+                    Some(body) => self.lower_block(&body),
+                    None => self.alloc_block(
+                        syntax_span(stmt),
+                        BlockData {
+                            statements: smallvec![],
+                            tail_expr: None,
+                        },
+                    ),
+                },
+            },
+            ast::Stmt::BreakStmt(stmt) => match stmt.expr() {
+                Some(expr) => StmtKind::BreakValue(self.lower_expr(&expr)),
+                None => StmtKind::Break,
+            },
             ast::Stmt::ContinueStmt(_) => StmtKind::Continue,
             ast::Stmt::ExprStmt(stmt) => StmtKind::Expr(
                 stmt.expr()

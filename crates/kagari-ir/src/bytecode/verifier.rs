@@ -784,6 +784,15 @@ fn verify_instruction(
         BytecodeInstruction::Call { dst, callee, args } => {
             verify_call(module, function, *dst, callee, args, program)?;
         }
+        BytecodeInstruction::BeginIteration { collection } => {
+            expect_register_ty(
+                function,
+                *collection,
+                ValueType::HeapObject,
+                "iteration collection",
+            )?;
+        }
+        BytecodeInstruction::EndIteration => {}
         BytecodeInstruction::MakeTuple { dst, elements }
         | BytecodeInstruction::MakeArray { dst, elements } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "aggregate dst")?;
@@ -857,6 +866,57 @@ fn verify_instruction(
             for (register, ty) in fields.iter().zip(&layout.payload) {
                 expect_register_ty(function, *register, ty.representation(), "enum payload")?;
             }
+        }
+        BytecodeInstruction::TestEnumVariant {
+            dst,
+            value,
+            enumeration,
+            variant,
+        } => {
+            expect_register_ty(function, *dst, ValueType::Bool, "enum pattern result")?;
+            expect_register_ty(
+                function,
+                *value,
+                ValueType::HeapObject,
+                "enum pattern value",
+            )?;
+            module
+                .enumerations
+                .get(enumeration.index())
+                .and_then(|layout| layout.variants.get(*variant as usize))
+                .ok_or(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "enum pattern variant",
+                })?;
+        }
+        BytecodeInstruction::ReadEnumPayload {
+            dst,
+            value,
+            enumeration,
+            variant,
+            index,
+        } => {
+            expect_register_ty(
+                function,
+                *value,
+                ValueType::HeapObject,
+                "enum pattern value",
+            )?;
+            let ty = module
+                .enumerations
+                .get(enumeration.index())
+                .and_then(|layout| layout.variants.get(*variant as usize))
+                .and_then(|variant| variant.payload.get(*index as usize))
+                .ok_or(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "enum pattern payload",
+                })?;
+            expect_register_ty(
+                function,
+                *dst,
+                ty.representation(),
+                "enum pattern payload dst",
+            )?;
         }
         BytecodeInstruction::MakeStruct {
             dst,
@@ -1348,6 +1408,7 @@ fn constant_type(constant: &ConstantOperand) -> ValueType {
         ConstantOperand::Unit => ValueType::Unit,
         ConstantOperand::Bool(_) => ValueType::Bool,
         ConstantOperand::I32(_) => ValueType::I32,
+        ConstantOperand::I64(_) => ValueType::I64,
         ConstantOperand::F32(_) => ValueType::F32,
         ConstantOperand::Str(_) => ValueType::Str,
     }
@@ -1360,6 +1421,7 @@ fn ir_binary_op(op: BinaryOp) -> crate::module::BinaryOp {
         BinaryOp::Sub => Ir::Sub,
         BinaryOp::Mul => Ir::Mul,
         BinaryOp::Div => Ir::Div,
+        BinaryOp::Rem => Ir::Rem,
         BinaryOp::Eq => Ir::Eq,
         BinaryOp::NotEq => Ir::NotEq,
         BinaryOp::Lt => Ir::Lt,

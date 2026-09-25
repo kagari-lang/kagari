@@ -35,6 +35,18 @@ impl<Id: Copy> HostPathNode<Id> {
     }
 }
 
+#[derive(Clone)]
+enum LoopResult {
+    Statement,
+    Expression(Box<LoopValue>),
+}
+
+#[derive(Clone)]
+struct LoopValue {
+    expected: Option<TypeId>,
+    found: Option<TypeId>,
+}
+
 pub(crate) struct BodyChecker<'a> {
     aggregates: &'a crate::aggregates::AggregateCatalog,
     imported_functions: &'a crate::imports::ImportedFunctions,
@@ -49,6 +61,8 @@ pub(crate) struct BodyChecker<'a> {
     function_name: &'a str,
     expected_return: TypeId,
     loop_depth: usize,
+    loop_results: Vec<LoopResult>,
+    inference_depth: usize,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -75,6 +89,8 @@ impl<'a> BodyChecker<'a> {
             function_name,
             expected_return,
             loop_depth: 0,
+            loop_results: Vec::new(),
+            inference_depth: 0,
         }
     }
 
@@ -250,12 +266,50 @@ impl<'a> BodyChecker<'a> {
                     return;
                 }
                 self.loop_depth += 1;
+                self.loop_results.push(LoopResult::Statement);
                 let _ = self.infer_block_types(*body, env);
+                self.loop_results.pop();
                 self.loop_depth -= 1;
             }
             StmtKind::Loop { body } => {
                 self.loop_depth += 1;
+                self.loop_results.push(LoopResult::Statement);
                 let _ = self.infer_block_types(*body, env);
+                self.loop_results.pop();
+                self.loop_depth -= 1;
+            }
+            StmtKind::For {
+                pattern,
+                iterable,
+                body,
+            } => {
+                let iterable_ty = self.infer_expr_type(*iterable, env);
+                let Some(element_ty) = iterable_item_type(&Some(iterable_ty.clone())) else {
+                    if !iterable_ty.is_unresolved() {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidForIterable {
+                                type_name: display_type_id(&iterable_ty),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(*iterable)),
+                        );
+                    }
+                    return;
+                };
+                let mut body_env = env.clone();
+                self.check_pattern(*pattern, &element_ty, &mut body_env);
+                if !self.pattern_is_irrefutable(*pattern) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: "irrefutable for binding".into(),
+                            found: "refutable pattern".into(),
+                        })
+                        .with_span(self.lowered.source_map.pattern_span(*pattern)),
+                    );
+                }
+                self.loop_depth += 1;
+                self.loop_results.push(LoopResult::Statement);
+                let _ = self.infer_block_types(*body, &mut body_env);
+                self.loop_results.pop();
                 self.loop_depth -= 1;
             }
             StmtKind::Break => {
@@ -263,6 +317,33 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::BreakOutsideLoop)
                             .with_span(self.lowered.source_map.stmt_span(stmt_id)),
+                    );
+                } else {
+                    self.record_loop_break_type(
+                        TypeId::Builtin(BuiltinType::Unit),
+                        false,
+                        self.lowered.source_map.stmt_span(stmt_id),
+                    );
+                }
+            }
+            StmtKind::BreakValue(value) => {
+                let context = match self.loop_results.last() {
+                    Some(LoopResult::Expression(value)) => {
+                        value.expected.as_ref().or(value.found.as_ref()).cloned()
+                    }
+                    _ => None,
+                };
+                let ty = self.infer_expr_type_expected(*value, env, context.as_ref());
+                if self.loop_depth == 0 {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::BreakOutsideLoop)
+                            .with_span(self.lowered.source_map.stmt_span(stmt_id)),
+                    );
+                } else {
+                    self.record_loop_break_type(
+                        ty,
+                        true,
+                        self.lowered.source_map.stmt_span(stmt_id),
                     );
                 }
             }
@@ -277,6 +358,40 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Expr(expr) => {
                 let _ = self.infer_expr_type(*expr, env);
             }
+        }
+    }
+
+    fn record_loop_break_type(&mut self, ty: TypeId, has_value: bool, span: kagari_common::Span) {
+        match self.loop_results.last().cloned() {
+            Some(LoopResult::Statement) => {
+                if has_value {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::BreakValueOutsideLoopExpression)
+                            .with_span(span),
+                    );
+                }
+            }
+            Some(LoopResult::Expression(value)) => {
+                if let Some(expected) = value.expected.as_ref().or(value.found.as_ref())
+                    && ty.conflicts_with(expected)
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::BreakValueTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: display_type_id(&ty),
+                        })
+                        .with_span(span),
+                    );
+                }
+                if let Some(LoopResult::Expression(value)) = self.loop_results.last_mut() {
+                    if let Some(previous) = &mut value.found {
+                        previous.recover_from(&ty);
+                    } else {
+                        value.found = Some(ty);
+                    }
+                }
+            }
+            None => {}
         }
     }
 
@@ -476,6 +591,29 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> TypeId {
+        const MAX_INFERENCE_DEPTH: usize = 64;
+        if self.inference_depth >= MAX_INFERENCE_DEPTH {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                    resource: "expression inference depth",
+                    limit: MAX_INFERENCE_DEPTH,
+                })
+                .with_span(self.lowered.source_map.expr_span(expr_id)),
+            );
+            return TypeId::Unknown;
+        }
+        self.inference_depth += 1;
+        let result = self.infer_expr_type_expected_inner(expr_id, env, expected);
+        self.inference_depth -= 1;
+        result
+    }
+
+    fn infer_expr_type_expected_inner(
+        &mut self,
+        expr_id: ExprId,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
         if self.cancel.check().is_err() {
             return TypeId::Unknown;
         }
@@ -643,6 +781,10 @@ impl<'a> BodyChecker<'a> {
                     self.infer_runtime_helper_call_type(expr_id, *callee, args, env)
                 {
                     helper_ty
+                } else if let Some(method_ty) =
+                    self.infer_inherent_method_call_type(expr_id, *callee, args, env, expected)
+                {
+                    method_ty
                 } else if let Some(method_ty) =
                     self.infer_trait_method_call_type(expr_id, *callee, args, env, expected)
                 {
@@ -877,6 +1019,20 @@ impl<'a> BodyChecker<'a> {
                         .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
                 })))
             }
+            ExprKind::Loop { body } => {
+                self.loop_depth += 1;
+                self.loop_results
+                    .push(LoopResult::Expression(Box::new(LoopValue {
+                        expected: expected.cloned(),
+                        found: None,
+                    })));
+                let _ = self.infer_block_types(*body, env);
+                self.loop_depth -= 1;
+                match self.loop_results.pop() {
+                    Some(LoopResult::Expression(value)) => value.found.unwrap_or(TypeId::Unknown),
+                    _ => TypeId::Unknown,
+                }
+            }
             ExprKind::Block(block) => self.infer_block_types_expected(*block, env, expected),
         };
 
@@ -981,20 +1137,35 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let mut arm_env = env.clone();
-        if let PatternKind::Literal(literal) = &self.lowered.module.pattern(arm.pattern).kind {
-            let span = self.lowered.source_map.pattern_span(arm.pattern);
-            match super::ScalarValue::parse(literal) {
+        self.check_pattern(arm.pattern, scrutinee_ty, &mut arm_env);
+        self.infer_expr_with_coercion(arm.expr, &mut arm_env, expected)
+    }
+
+    fn check_pattern(
+        &mut self,
+        pattern: crate::hir::PatternId,
+        expected: &TypeId,
+        env: &mut BodyTypeEnv,
+    ) {
+        let span = self.lowered.source_map.pattern_span(pattern);
+        match &self.lowered.module.pattern(pattern).kind {
+            PatternKind::Wildcard => {}
+            PatternKind::Name { local, .. } => {
+                env.locals.insert(*local, expected.clone());
+                self.type_table.insert_local(*local, expected.clone());
+            }
+            PatternKind::Literal(literal) => match super::ScalarValue::parse(literal) {
                 Ok(value) => {
-                    if value.ty().conflicts_with(scrutinee_ty) {
+                    if value.ty().conflicts_with(expected) {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                                expected: display_type_id(scrutinee_ty),
+                                expected: display_type_id(expected),
                                 found: display_type_id(&value.ty()),
                             })
                             .with_span(span),
                         );
                     }
-                    self.type_table.insert_pattern_scalar(arm.pattern, value);
+                    self.type_table.insert_pattern_scalar(pattern, value);
                 }
                 Err(reason) => self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidLiteral {
@@ -1002,13 +1173,171 @@ impl<'a> BodyChecker<'a> {
                     })
                     .with_span(span),
                 ),
+            },
+            PatternKind::Tuple(elements) => {
+                let TypeId::Tuple(types) = expected else {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: "tuple pattern".into(),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                };
+                if elements.len() != types.len() {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: format!("tuple of {} elements", elements.len()),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                }
+                let elements = elements.clone();
+                let types = types.clone();
+                for (element, ty) in elements.into_iter().zip(types.iter()) {
+                    self.check_pattern(element, ty, env);
+                }
+            }
+            PatternKind::Struct { path, fields } => {
+                let path = path.clone();
+                let fields = fields.clone();
+                let TypeId::Struct(owner) = expected else {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: format!("struct pattern `{path}`"),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                };
+                if self.resolve_struct_id(&path).as_ref() != Some(&owner.declaration) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: format!("struct pattern `{path}`"),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                }
+                let mut identities = Vec::new();
+                let mut seen = HashSet::new();
+                for field in fields {
+                    if !seen.insert(field.name.clone()) {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                                expected: "distinct struct fields".into(),
+                                found: format!("duplicate field `{}`", field.name),
+                            })
+                            .with_span(self.lowered.source_map.pattern_span(field.pattern)),
+                        );
+                        continue;
+                    }
+                    let Some(signature) = self.resolve_field(expected, &field.name) else {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                                expected: display_type_id(expected),
+                                found: format!("unknown field `{}`", field.name),
+                            })
+                            .with_span(self.lowered.source_map.pattern_span(field.pattern)),
+                        );
+                        continue;
+                    };
+                    identities.push(signature.id);
+                    self.check_pattern(field.pattern, &signature.ty, env);
+                }
+                self.type_table.insert_pattern_fields(pattern, identities);
+            }
+            PatternKind::EnumVariant { path, fields } => {
+                let path = path.clone();
+                let fields = fields.clone();
+                let TypeId::Enum(owner) = expected else {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: format!("enum variant `{path}`"),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                };
+                let Some((owner_path, variant_name)) = path.rsplit_once("::") else {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: format!("enum variant `{path}`"),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                };
+                if self.resolve_enum_id(owner_path).as_ref() != Some(&owner.declaration) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: format!("enum variant `{path}`"),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                }
+                let Some(enumeration) = self.aggregates.enumeration(&owner.declaration) else {
+                    return;
+                };
+                let Some(variant) = enumeration
+                    .variants
+                    .iter()
+                    .find(|variant| variant.name == variant_name)
+                    .cloned()
+                else {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: format!("unknown enum variant `{path}`"),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                };
+                if variant.payload.len() != fields.len() {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: format!("{} payload fields", variant.payload.len()),
+                            found: format!("{} payload fields", fields.len()),
+                        })
+                        .with_span(span),
+                    );
+                    return;
+                }
+                let substitution = enumeration
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(owner.arguments.iter().cloned())
+                    .collect();
+                self.type_table.insert_pattern_variant(pattern, variant.id);
+                for (field, ty) in fields.into_iter().zip(variant.payload) {
+                    self.check_pattern(field, &ty.instantiate(&substitution), env);
+                }
             }
         }
-        if let PatternKind::Name { local, .. } = self.lowered.module.pattern(arm.pattern).kind {
-            arm_env.locals.insert(local, scrutinee_ty.clone());
-            self.type_table.insert_local(local, scrutinee_ty.clone());
+    }
+
+    fn pattern_is_irrefutable(&self, pattern: crate::hir::PatternId) -> bool {
+        match &self.lowered.module.pattern(pattern).kind {
+            PatternKind::Wildcard | PatternKind::Name { .. } => true,
+            PatternKind::Tuple(elements) => elements
+                .iter()
+                .all(|element| self.pattern_is_irrefutable(*element)),
+            PatternKind::Struct { fields, .. } => fields
+                .iter()
+                .all(|field| self.pattern_is_irrefutable(field.pattern)),
+            PatternKind::Literal(_) | PatternKind::EnumVariant { .. } => false,
         }
-        self.infer_expr_with_coercion(arm.expr, &mut arm_env, expected)
     }
 
     fn infer_standard_call_type(
@@ -1814,6 +2143,117 @@ impl<'a> BodyChecker<'a> {
             );
         }
         TypeId::Error
+    }
+
+    fn infer_inherent_method_call_type(
+        &mut self,
+        call_expr: ExprId,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> Option<TypeId> {
+        let ExprKind::Field { receiver, name } = &self.lowered.module.expr(callee).kind else {
+            return None;
+        };
+        let receiver = *receiver;
+        let name = name.clone();
+        let receiver_ty = self.infer_expr_type(receiver, env);
+        if receiver_ty.is_unresolved() {
+            return None;
+        }
+        let candidates = self
+            .lowered
+            .module
+            .impls
+            .iter()
+            .filter(|implementation| implementation.trait_ref.is_none())
+            .filter_map(|implementation| {
+                let method = implementation
+                    .methods
+                    .iter()
+                    .find(|method| method.name == name)?;
+                let target = implementation
+                    .for_type
+                    .and_then(|target| self.type_table.type_ref(target))?
+                    .ty
+                    .clone();
+                let function = self.function_index.by_id.get(&method.function)?.clone();
+                let mut substitution = crate::types::TypeSubstitution::new();
+                let generics = function.generic_params.as_slice();
+                if super::inference::infer(
+                    &target,
+                    &receiver_ty,
+                    generics,
+                    &mut substitution,
+                    self.cancel,
+                )
+                .is_err()
+                {
+                    return None;
+                }
+                Some((function, substitution))
+            })
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return None;
+        }
+        if candidates.len() != 1 {
+            self.infer_call_args(args, env);
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::AmbiguousMethod { name })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+            );
+            return Some(TypeId::Error);
+        }
+        let (function, mut substitution) = candidates.into_iter().next().expect("one method");
+        if let Some(expected) = expected
+            && super::inference::infer(
+                &function.return_type,
+                expected,
+                &function.generic_params,
+                &mut substitution,
+                self.cancel,
+            )
+            .is_err()
+        {
+            return Some(TypeId::Unknown);
+        }
+        self.type_table
+            .insert_call(call_expr, CallTarget::Function(function.id), Some(receiver));
+        let arg_tys = self.infer_generic_args(
+            args,
+            function
+                .params
+                .iter()
+                .skip(1)
+                .map(|parameter| parameter.ty.clone()),
+            &function.generic_params,
+            &mut substitution,
+            env,
+        );
+        let suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
+        let type_arguments = self.finish_inferred_arguments(
+            &mut substitution,
+            &function.generic_params,
+            &function.name,
+            callee,
+            suppress_missing,
+        );
+        self.type_table
+            .insert_type_arguments(call_expr, type_arguments);
+        self.check_generic_call_bounds(
+            &function.generic_params,
+            &function.bounds,
+            &substitution,
+            env,
+            callee,
+        );
+        let mut all_args = Vec::with_capacity(arg_tys.len() + 1);
+        all_args.push((receiver, receiver_ty));
+        all_args.extend(arg_tys);
+        self.check_function_arguments(&function, &substitution, callee, &all_args);
+        Some(function.return_type.instantiate(&substitution))
     }
 
     fn infer_trait_method_call_type(
@@ -2699,6 +3139,22 @@ impl<'a> BodyChecker<'a> {
         Some(id.declaration.clone())
     }
 
+    fn resolve_enum_id(&self, path: &str) -> Option<kagari_common::identity::DefinitionId> {
+        if let Some(binding) = self.declarations.names.lookup(path) {
+            match binding.target()? {
+                target @ ResolvedName::Enum(_) => {
+                    return self.declarations.definition(target).cloned();
+                }
+                ResolvedName::SourceImport(_) => {}
+                _ => return None,
+            }
+        }
+        let TypeId::Enum(id) = &self.declarations.imported_types().get(path)?.ty else {
+            return None;
+        };
+        Some(id.declaration.clone())
+    }
+
     fn infer_binary_type(
         &mut self,
         op: BinaryOp,
@@ -2713,7 +3169,7 @@ impl<'a> BodyChecker<'a> {
         let lhs_ty = lhs_ty.unwrap_or(TypeId::Unknown);
         let rhs_ty = rhs_ty.unwrap_or(TypeId::Unknown);
         match op {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 if !self.matching_numeric_operands(&lhs_ty, &rhs_ty, env) {
                     self.emit_binary_operand_type_mismatch(
                         op,
@@ -2819,6 +3275,7 @@ impl<'a> BodyChecker<'a> {
             BinaryOp::Sub => "-",
             BinaryOp::Mul => "*",
             BinaryOp::Div => "/",
+            BinaryOp::Rem => "%",
             BinaryOp::Eq => "==",
             BinaryOp::NotEq => "!=",
             BinaryOp::Lt => "<",

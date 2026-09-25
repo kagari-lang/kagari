@@ -1566,7 +1566,7 @@ fn validate_const_initializers(
     fn supports_const_binary(op: &BinaryOp, lhs: Option<&TypeId>, rhs: Option<&TypeId>) -> bool {
         match (op, lhs, rhs) {
             (
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div,
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
                 Some(lhs),
                 Some(rhs),
             ) => surface::supports_arithmetic(lhs, rhs),

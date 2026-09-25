@@ -1,0 +1,25 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/where-bounds.kgr
+// Result: main returns 42.
+trait Read {
+    fn read(self) -> i32;
+}
+
+struct Number {
+    val value: i32,
+}
+
+impl Read for Number {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+fn value_of<T>(item: T) -> i32 where T: Read {
+    item.read()
+}
+
+fn main() -> i32 {
+    val result = value_of(Number { value: 42 });
+    std::debug::assert_eq(result, 42, "where bound dispatch");
+    result
+}

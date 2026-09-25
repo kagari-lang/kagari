@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        expr::{BlockExpr, Expr},
+        expr::{BlockExpr, Expr, Pattern},
         macros::ast_node,
         misc::{Name, Writeability},
         support,
@@ -16,6 +16,7 @@ ast_node!(ReturnStmt, ReturnStmt);
 ast_node!(AssignStmt, AssignStmt);
 ast_node!(WhileStmt, WhileStmt);
 ast_node!(LoopStmt, LoopStmt);
+ast_node!(ForStmt, ForStmt);
 ast_node!(BreakStmt, BreakStmt);
 ast_node!(ContinueStmt, ContinueStmt);
 ast_node!(ExprStmt, ExprStmt);
@@ -27,6 +28,7 @@ pub enum Stmt {
     AssignStmt(AssignStmt),
     WhileStmt(WhileStmt),
     LoopStmt(LoopStmt),
+    ForStmt(ForStmt),
     BreakStmt(BreakStmt),
     ContinueStmt(ContinueStmt),
     ExprStmt(ExprStmt),
@@ -41,6 +43,7 @@ impl AstNode for Stmt {
                 | SyntaxKind::AssignStmt
                 | SyntaxKind::WhileStmt
                 | SyntaxKind::LoopStmt
+                | SyntaxKind::ForStmt
                 | SyntaxKind::BreakStmt
                 | SyntaxKind::ContinueStmt
                 | SyntaxKind::ExprStmt
@@ -54,6 +57,7 @@ impl AstNode for Stmt {
             SyntaxKind::AssignStmt => AssignStmt::cast(syntax).map(Self::AssignStmt),
             SyntaxKind::WhileStmt => WhileStmt::cast(syntax).map(Self::WhileStmt),
             SyntaxKind::LoopStmt => LoopStmt::cast(syntax).map(Self::LoopStmt),
+            SyntaxKind::ForStmt => ForStmt::cast(syntax).map(Self::ForStmt),
             SyntaxKind::BreakStmt => BreakStmt::cast(syntax).map(Self::BreakStmt),
             SyntaxKind::ContinueStmt => ContinueStmt::cast(syntax).map(Self::ContinueStmt),
             SyntaxKind::ExprStmt => ExprStmt::cast(syntax).map(Self::ExprStmt),
@@ -68,6 +72,7 @@ impl AstNode for Stmt {
             Self::AssignStmt(node) => node.syntax(),
             Self::WhileStmt(node) => node.syntax(),
             Self::LoopStmt(node) => node.syntax(),
+            Self::ForStmt(node) => node.syntax(),
             Self::BreakStmt(node) => node.syntax(),
             Self::ContinueStmt(node) => node.syntax(),
             Self::ExprStmt(node) => node.syntax(),
@@ -156,6 +161,26 @@ impl WhileStmt {
 impl LoopStmt {
     pub fn body(&self) -> Option<BlockExpr> {
         self.syntax().children().filter_map(BlockExpr::cast).next()
+    }
+}
+
+impl BreakStmt {
+    pub fn expr(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+}
+
+impl ForStmt {
+    pub fn pattern(&self) -> Option<Pattern> {
+        support::child(self.syntax())
+    }
+
+    pub fn iterable(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+
+    pub fn body(&self) -> Option<BlockExpr> {
+        support::child(self.syntax())
     }
 }
 

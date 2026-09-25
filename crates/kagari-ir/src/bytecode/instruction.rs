@@ -142,6 +142,7 @@ pub enum ConstantOperand {
     Unit,
     Bool(bool),
     I32(i32),
+    I64(i64),
     F32(f32),
     Str(String),
 }
@@ -185,6 +186,7 @@ pub enum BinaryOp {
     Sub,
     Mul,
     Div,
+    Rem,
     Eq,
     NotEq,
     Lt,
@@ -236,6 +238,10 @@ pub enum BytecodeInstruction {
         #[serde(deserialize_with = "crate::decode_limits::operands")]
         args: Vec<Register>,
     },
+    BeginIteration {
+        collection: Register,
+    },
+    EndIteration,
     MakeTuple {
         dst: Register,
         #[serde(deserialize_with = "crate::decode_limits::operands")]
@@ -264,6 +270,19 @@ pub enum BytecodeInstruction {
         variant: u32,
         #[serde(deserialize_with = "crate::decode_limits::operands")]
         fields: Vec<Register>,
+    },
+    TestEnumVariant {
+        dst: Register,
+        value: Register,
+        enumeration: EnumId,
+        variant: u32,
+    },
+    ReadEnumPayload {
+        dst: Register,
+        value: Register,
+        enumeration: EnumId,
+        variant: u32,
+        index: u32,
     },
     ReadAggregateField {
         dst: Register,

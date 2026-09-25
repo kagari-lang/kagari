@@ -147,7 +147,23 @@ impl Lowerer {
                                 value: field
                                     .value()
                                     .map(|expr| self.lower_expr(&expr))
-                                    .unwrap_or_else(|| self.missing_expr()),
+                                    .unwrap_or_else(|| {
+                                        let Some(name) = field.name() else {
+                                            return self.missing_expr();
+                                        };
+                                        let span = token_span(&name);
+                                        let id = self.alloc_expr(
+                                            span,
+                                            ExprData {
+                                                kind: ExprKind::Name {
+                                                    name: field.name_text().unwrap_or_default(),
+                                                    explicit_type: None,
+                                                },
+                                            },
+                                        );
+                                        self.source_map.insert_expr_reference(id, span);
+                                        id
+                                    }),
                             })
                             .collect::<SmallVec<[_; 4]>>()
                     })
@@ -175,6 +191,20 @@ impl Lowerer {
                             .collect::<SmallVec<[_; 4]>>()
                     })
                     .unwrap_or_default(),
+            },
+            ast::Expr::LoopExpr(loop_expr) => ExprKind::Loop {
+                body: loop_expr
+                    .body()
+                    .map(|body| self.lower_block(&body))
+                    .unwrap_or_else(|| {
+                        self.alloc_block(
+                            syntax_span(loop_expr),
+                            BlockData {
+                                statements: smallvec![],
+                                tail_expr: None,
+                            },
+                        )
+                    }),
             },
             ast::Expr::TupleExpr(tuple) => ExprKind::Tuple(
                 tuple

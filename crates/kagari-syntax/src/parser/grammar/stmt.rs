@@ -24,6 +24,7 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::ReturnKw) => self.parse_return_stmt(),
                 Some(TokenKind::WhileKw) => self.parse_while_stmt(),
                 Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
+                Some(TokenKind::ForKw) => self.parse_for_stmt(),
                 Some(TokenKind::BreakKw) => self.parse_break_stmt(),
                 Some(TokenKind::ContinueKw) => self.parse_continue_stmt(),
                 Some(_) if self.expr_starts() => {
@@ -133,10 +134,27 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    fn parse_for_stmt(&mut self) {
+        self.start_node(SyntaxKind::ForStmt);
+        self.expect(TokenKind::ForKw, DiagnosticKind::UnexpectedToken);
+        self.bump_trivia();
+        self.parse_match_pattern();
+        self.bump_trivia();
+        self.expect(TokenKind::InKw, DiagnosticKind::UnexpectedToken);
+        self.parse_condition_expr();
+        self.bump_trivia();
+        self.parse_block();
+        self.finish_node();
+    }
+
     fn parse_break_stmt(&mut self) {
         self.start_node(SyntaxKind::BreakStmt);
         self.expect(TokenKind::BreakKw, DiagnosticKind::ExpectedBreakKeyword);
         self.bump_trivia();
+        if !self.at(TokenKind::Semi) {
+            self.parse_expr();
+            self.bump_trivia();
+        }
         self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
         self.finish_node();
     }

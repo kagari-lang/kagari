@@ -28,7 +28,7 @@ pub use item::{
     StructBuffer, TraitBound, TraitBoundBuffer, TraitBuffer, TraitDef, TraitMethod,
     TraitMethodBuffer, TraitRef, TraitRefBuffer, Variant, VariantBuffer, Visibility,
 };
-pub use pattern::{PatternData, PatternKind};
+pub use pattern::{PatternData, PatternField, PatternKind};
 pub use place::{PlaceData, PlaceKind};
 pub use stmt::{BlockData, StmtBuffer, StmtData, StmtKind};
 pub use ty::{TypeBuffer, TypeData, TypeKind};

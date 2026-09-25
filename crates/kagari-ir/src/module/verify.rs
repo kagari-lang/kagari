@@ -446,6 +446,8 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
             smallvec::smallvec![*src]
         }
         Unary { operand, .. } => smallvec::smallvec![*operand],
+        BeginIteration { collection } => smallvec::smallvec![*collection],
+        EndIteration => smallvec::smallvec![],
         Binary { lhs, rhs, .. } => smallvec::smallvec![*lhs, *rhs],
         Call { callee, args, .. } => {
             let mut values = args.clone();
@@ -461,6 +463,9 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
         } => elements.clone(),
         MakeStruct { fields, .. } => fields.iter().map(|f| f.value).collect(),
         MakeInterface { value, .. } => smallvec::smallvec![*value],
+        TestEnumVariant { value, .. } | ReadEnumPayload { value, .. } => {
+            smallvec::smallvec![*value]
+        }
         ReadAggregateField { base, .. } => smallvec::smallvec![*base],
         WriteAggregateField { base, value, .. } => smallvec::smallvec![*base, *value],
         ReadAggregateIndex { base, index, .. } => smallvec::smallvec![*base, *index],
@@ -515,6 +520,8 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | MakeStruct { dst, .. }
         | MakeEnum { dst, .. }
         | MakeInterface { dst, .. }
+        | TestEnumVariant { dst, .. }
+        | ReadEnumPayload { dst, .. }
         | ReadAggregateField { dst, .. }
         | ReadAggregateIndex { dst, .. }
         | ReadPath { dst, .. }
@@ -525,5 +532,6 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | WriteAggregateField { .. }
         | WriteAggregateIndex { .. }
         | SetPath { .. } => None,
+        BeginIteration { .. } | EndIteration => None,
     }
 }

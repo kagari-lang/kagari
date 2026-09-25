@@ -1,0 +1,39 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/control-flow.kgr
+// Result: main returns 42.
+fn main() -> i32 {
+    var index = 0;
+    var total = 0;
+    while index < 5 {
+        index += 1;
+        if index == 3 {
+            continue;
+        };
+        total += index;
+    }
+
+    loop {
+        if total == 42 {
+            break;
+        };
+        total += 10;
+    }
+
+    var for_total = 0;
+    for value in [20, 22] {
+        for_total += value;
+    }
+    std::debug::assert_eq(for_total, 42, "for array");
+    val break_items = [1];
+    for item in break_items {
+        break;
+    }
+    break_items.push(2);
+    std::debug::assert_eq(break_items.len(), [0, 0].len(), "for break releases iteration guard");
+    val loop_value = loop {
+        break 42;
+    };
+    std::debug::assert_eq(loop_value, 42, "break value");
+
+    std::debug::assert_eq(total, 42, "while, continue, loop, break");
+    total
+}

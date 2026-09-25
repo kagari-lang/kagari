@@ -94,6 +94,8 @@ pub struct TypeTable {
     calls: HashMap<ExprId, ResolvedCall>,
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
+    pattern_fields: HashMap<PatternId, Vec<DefinitionId>>,
+    pattern_variants: HashMap<PatternId, DefinitionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -561,6 +563,14 @@ impl TypeTable {
                 self.pattern_scalars
                     .insert(new_map.pattern_id(b), value.clone());
             }
+            if let Some(fields) = old.pattern_fields.get(&old_map.pattern_id(a)) {
+                self.pattern_fields
+                    .insert(new_map.pattern_id(b), fields.clone());
+            }
+            if let Some(variant) = old.pattern_variants.get(&old_map.pattern_id(a)) {
+                self.pattern_variants
+                    .insert(new_map.pattern_id(b), variant.clone());
+            }
         }
         for (a, b) in exprs {
             if let Some(field) = old.expr_fields.get(&old_map.expr_id(a)) {
@@ -618,6 +628,22 @@ impl TypeTable {
     }
     pub fn pattern_scalar_value(&self, id: PatternId) -> Option<&ScalarValue> {
         self.pattern_scalars.get(&id)
+    }
+
+    pub fn insert_pattern_fields(&mut self, id: PatternId, fields: Vec<DefinitionId>) {
+        self.pattern_fields.insert(id, fields);
+    }
+
+    pub fn pattern_fields(&self, id: PatternId) -> Option<&[DefinitionId]> {
+        self.pattern_fields.get(&id).map(Vec::as_slice)
+    }
+
+    pub fn insert_pattern_variant(&mut self, id: PatternId, variant: DefinitionId) {
+        self.pattern_variants.insert(id, variant);
+    }
+
+    pub fn pattern_variant(&self, id: PatternId) -> Option<&DefinitionId> {
+        self.pattern_variants.get(&id)
     }
 
     pub(crate) fn insert_local(&mut self, id: LocalId, ty: TypeId) {

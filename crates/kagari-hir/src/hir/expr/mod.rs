@@ -51,6 +51,9 @@ pub enum ExprKind {
         scrutinee: ExprId,
         arms: MatchArmBuffer,
     },
+    Loop {
+        body: BlockId,
+    },
     StructInit {
         path: String,
         explicit_type: Option<super::TypeRefId>,

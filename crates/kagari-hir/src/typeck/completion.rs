@@ -83,6 +83,7 @@ enum Task<'a> {
         alternatives: bool,
     },
     Return,
+    Break,
     Loop,
     ShortCircuit,
 }
@@ -159,6 +160,12 @@ impl<'a> Completion<'a> {
                     });
                 }
                 Task::Return => value.normal = false,
+                Task::Break => {
+                    value = Exits {
+                        normal: false,
+                        breaks: value.breaks || value.normal,
+                    }
+                }
                 Task::Loop => {
                     value = Exits {
                         normal: value.breaks,
@@ -227,6 +234,11 @@ impl<'a> Completion<'a> {
                                 };
                                 continue;
                             }
+                            StmtKind::BreakValue(expr) => {
+                                work.push(Task::Break);
+                                work.push(Task::Visit(Node::Expr(*expr)));
+                                continue;
+                            }
                             StmtKind::Continue => {
                                 value = Exits::default();
                                 continue;
@@ -238,6 +250,10 @@ impl<'a> Completion<'a> {
                             StmtKind::Loop { body } => {
                                 work.push(Task::Loop);
                                 work.push(Task::Visit(Node::Block(*body)));
+                                continue;
+                            }
+                            StmtKind::For { iterable, .. } => {
+                                work.push(Task::Visit(Node::Expr(*iterable)));
                                 continue;
                             }
                         },
@@ -311,6 +327,11 @@ impl<'a> Completion<'a> {
                             }
                             ExprKind::Block(block) => {
                                 work.push(Task::Visit(Node::Block(*block)));
+                                continue;
+                            }
+                            ExprKind::Loop { body } => {
+                                work.push(Task::Loop);
+                                work.push(Task::Visit(Node::Block(*body)));
                                 continue;
                             }
                         },

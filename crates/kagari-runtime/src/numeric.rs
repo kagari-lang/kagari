@@ -30,6 +30,7 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
         BinaryOp::Sub => IntegerBinaryOp::Sub,
         BinaryOp::Mul => IntegerBinaryOp::Mul,
         BinaryOp::Div => IntegerBinaryOp::Div,
+        BinaryOp::Rem => IntegerBinaryOp::Rem,
         _ => {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -49,12 +50,14 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
             IntegerBinaryOp::Sub => lhs - rhs,
             IntegerBinaryOp::Mul => lhs * rhs,
             IntegerBinaryOp::Div => lhs / rhs,
+            IntegerBinaryOp::Rem => lhs % rhs,
         }),
         (Value::F64(lhs), Value::F64(rhs)) => Value::F64(match op {
             IntegerBinaryOp::Add => lhs + rhs,
             IntegerBinaryOp::Sub => lhs - rhs,
             IntegerBinaryOp::Mul => lhs * rhs,
             IntegerBinaryOp::Div => lhs / rhs,
+            IntegerBinaryOp::Rem => lhs % rhs,
         }),
         _ => {
             return Err(RuntimeError::new(

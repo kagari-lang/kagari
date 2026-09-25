@@ -143,8 +143,20 @@ impl<'a> BodyResolver<'a> {
                 self.resolve_block(*body);
             }
             StmtKind::Loop { body } => self.resolve_block(*body),
+            StmtKind::For {
+                pattern,
+                iterable,
+                body,
+            } => {
+                self.resolve_expr(*iterable);
+                self.push_child_scope(self.source_map.stmt_span(stmt_id));
+                self.bind_pattern(*pattern, self.source_map.stmt_span(stmt_id).start);
+                self.resolve_block(*body);
+                self.pop_scope();
+            }
             StmtKind::Expr(expr) => self.resolve_expr(*expr),
             StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::BreakValue(expr) => self.resolve_expr(*expr),
         }
     }
 
@@ -205,13 +217,7 @@ impl<'a> BodyResolver<'a> {
                     self.assert_current_owner(arm.pattern.owner());
                     let span = self.source_map.expr_span(arm.expr);
                     self.push_child_scope(span);
-                    if let PatternKind::Name { name, local } =
-                        &self.module.pattern(arm.pattern).kind
-                        && !name.is_empty()
-                        && name != "<missing>"
-                    {
-                        self.bind_name(name, ResolvedName::Local(*local), span.start);
-                    }
+                    self.bind_pattern(arm.pattern, span.start);
                     self.resolve_expr(arm.expr);
                     self.pop_scope();
                 }
@@ -227,6 +233,36 @@ impl<'a> BodyResolver<'a> {
                 }
             }
             ExprKind::Block(block) => self.resolve_block(*block),
+            ExprKind::Loop { body } => self.resolve_block(*body),
+        }
+    }
+
+    fn bind_pattern(&mut self, pattern: crate::hir::PatternId, start: usize) {
+        match &self.module.pattern(pattern).kind {
+            PatternKind::Name { name, local } if !name.is_empty() && name != "<missing>" => {
+                let name = name.clone();
+                let local = *local;
+                self.bind_name(&name, ResolvedName::Local(local), start);
+            }
+            PatternKind::Tuple(elements) => {
+                let elements = elements.clone();
+                for element in elements {
+                    self.bind_pattern(element, start);
+                }
+            }
+            PatternKind::Struct { fields, .. } => {
+                let fields = fields.clone();
+                for field in fields {
+                    self.bind_pattern(field.pattern, start);
+                }
+            }
+            PatternKind::EnumVariant { fields, .. } => {
+                let fields = fields.clone();
+                for field in fields {
+                    self.bind_pattern(field, start);
+                }
+            }
+            _ => {}
         }
     }
 

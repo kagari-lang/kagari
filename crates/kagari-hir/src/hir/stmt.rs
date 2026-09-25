@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::hir::{BlockId, ExprId, LocalId, PlaceId, StmtId, TypeRefId, Writeability};
+use crate::hir::{BlockId, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId, Writeability};
 
 #[derive(Debug, Clone)]
 pub struct BlockData {
@@ -37,7 +37,13 @@ pub enum StmtKind {
     Loop {
         body: BlockId,
     },
+    For {
+        pattern: PatternId,
+        iterable: ExprId,
+        body: BlockId,
+    },
     Break,
+    BreakValue(ExprId),
     Continue,
     Expr(ExprId),
 }

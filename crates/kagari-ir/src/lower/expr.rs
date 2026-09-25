@@ -164,6 +164,7 @@ impl FunctionLowerer<'_, '_> {
             hir::ExprKind::Field { receiver, .. } => self.lower_field(expr_id, receiver),
             hir::ExprKind::Index { receiver, index } => self.lower_index(expr_id, receiver, index),
             hir::ExprKind::Match { scrutinee, arms } => self.lower_match(expr_id, scrutinee, arms),
+            hir::ExprKind::Loop { body } => self.lower_loop_expr(expr_id, body),
             hir::ExprKind::StructInit { fields, .. } => self.lower_struct_init(expr_id, fields),
             hir::ExprKind::Tuple(elements) => self.lower_tuple(expr_id, elements),
             hir::ExprKind::Array(elements) => self.lower_array(expr_id, elements),
@@ -299,6 +300,12 @@ impl FunctionLowerer<'_, '_> {
         let exit_block = self.new_block();
         let fail_block = self.new_block();
         let mut decision_block = self.current_block;
+        let scrutinee_ty = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_type(scrutinee)
+            .ok_or(IrLoweringError::MissingExprType(scrutinee))?;
 
         for arm in arms {
             let outer_scope = self.current_scope;
@@ -313,61 +320,21 @@ impl FunctionLowerer<'_, '_> {
             let next_decision = self.new_block();
 
             self.switch_to_block(decision_block);
-            match &self.analyzed.lowered.module.pattern(arm.pattern).kind {
-                hir::PatternKind::Wildcard => {
-                    self.set_terminator(Terminator::Jump(arm_block));
-                }
-                hir::PatternKind::Literal(_) => {
-                    let value = self
-                        .analyzed
-                        .typed
-                        .type_table
-                        .pattern_scalar_value(arm.pattern)
-                        .cloned()
-                        .ok_or(IrLoweringError::MissingBinding("checked pattern literal"))?;
-                    let ty = ValueType::from_type_id(&value.ty());
-                    let literal_temp = self.lower_constant(value.into(), ty);
-                    let cond = self.alloc_temp(ValueType::Bool);
-                    self.emit(Instruction::Binary {
-                        dst: cond,
-                        op: BinaryOp::Eq,
-                        lhs: scrutinee_temp,
-                        rhs: literal_temp,
-                    });
-                    self.set_terminator(Terminator::Branch {
-                        cond,
-                        then_block: arm_block,
-                        else_block: next_decision,
-                    });
-                }
-                hir::PatternKind::Name { local, name } => {
-                    let local_ty = self
-                        .analyzed
-                        .typed
-                        .type_table
-                        .local_type(*local)
-                        .as_ref()
-                        .map(|ty| self.value_type(ty))
-                        .transpose()?
-                        .ok_or(IrLoweringError::MissingLocalType(*local))?;
-                    let ir_local = self.alloc_local(
-                        name.clone(),
-                        local_ty,
-                        self.analyzed.lowered.source_map.local_span(*local),
-                    );
-                    self.locals.insert(*local, ir_local);
-                    self.set_terminator(Terminator::Jump(arm_block));
-
-                    self.switch_to_block(arm_block);
-                    self.emit(Instruction::StoreLocal {
-                        local: ir_local,
-                        src: scrutinee_temp,
-                    });
-                    self.introduce_debug_local(ir_local);
-                }
+            let mut bindings = Vec::new();
+            self.lower_pattern_decision(
+                arm.pattern,
+                scrutinee_temp,
+                &scrutinee_ty,
+                next_decision,
+                &mut bindings,
+            )?;
+            self.set_terminator(Terminator::Jump(arm_block));
+            self.switch_to_block(arm_block);
+            for (local, value) in bindings {
+                self.emit(Instruction::StoreLocal { local, src: value });
+                self.introduce_debug_local(local);
             }
 
-            self.switch_to_block(arm_block);
             let arm_value = self.lower_expr(arm.expr)?;
             if !self.current_block_terminated() {
                 self.emit(Instruction::Move {
@@ -393,6 +360,229 @@ impl FunctionLowerer<'_, '_> {
 
         self.switch_to_join(exit_block);
         Ok(result)
+    }
+
+    fn lower_loop_expr(
+        &mut self,
+        expr: hir::ExprId,
+        body: hir::BlockId,
+    ) -> Result<IrValue, IrLoweringError> {
+        let result = self.alloc_temp(self.expr_type(expr)?);
+        let body_block = self.new_block();
+        let exit_block = self.new_block();
+        self.ensure_jump(body_block);
+        self.loops.push(super::state::LoopScope {
+            break_block: exit_block,
+            continue_block: body_block,
+            break_value: Some(result),
+        });
+        self.switch_to_block(body_block);
+        let _ = self.lower_block(body)?;
+        self.ensure_jump(body_block);
+        self.loops.pop();
+        self.switch_to_join(exit_block);
+        Ok(result)
+    }
+
+    pub(crate) fn lower_pattern_decision(
+        &mut self,
+        pattern: hir::PatternId,
+        value: IrValue,
+        expected: &kagari_hir::types::TypeId,
+        fail: crate::module::ids::BlockId,
+        bindings: &mut Vec<(crate::module::ids::LocalId, IrValue)>,
+    ) -> Result<(), IrLoweringError> {
+        match &self.analyzed.lowered.module.pattern(pattern).kind {
+            hir::PatternKind::Wildcard => {}
+            hir::PatternKind::Name { local, name } => {
+                let local = *local;
+                let name = name.clone();
+                let local_ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .local_type(local)
+                    .as_ref()
+                    .map(|ty| self.value_type(ty))
+                    .transpose()?
+                    .ok_or(IrLoweringError::MissingLocalType(local))?;
+                let ir_local = self.alloc_local(
+                    name,
+                    local_ty,
+                    self.analyzed.lowered.source_map.local_span(local),
+                );
+                self.locals.insert(local, ir_local);
+                bindings.push((ir_local, value));
+            }
+            hir::PatternKind::Literal(_) => {
+                let scalar = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .pattern_scalar_value(pattern)
+                    .cloned()
+                    .ok_or(IrLoweringError::MissingBinding("checked pattern literal"))?;
+                let ty = ValueType::from_type_id(&scalar.ty());
+                let literal = self.lower_constant(scalar.into(), ty);
+                let cond = self.alloc_temp(ValueType::Bool);
+                self.emit(Instruction::Binary {
+                    dst: cond,
+                    op: BinaryOp::Eq,
+                    lhs: value,
+                    rhs: literal,
+                });
+                let next = self.new_block();
+                self.set_terminator(Terminator::Branch {
+                    cond,
+                    then_block: next,
+                    else_block: fail,
+                });
+                self.switch_to_block(next);
+            }
+            hir::PatternKind::Tuple(elements) => {
+                let kagari_hir::types::TypeId::Tuple(types) = expected else {
+                    return Err(IrLoweringError::MissingBinding("checked tuple pattern"));
+                };
+                let elements = elements.clone();
+                let types = types.clone();
+                if elements.len() != types.len() {
+                    return Err(IrLoweringError::MissingBinding(
+                        "checked tuple pattern arity",
+                    ));
+                }
+                for (index, (element, ty)) in elements.into_iter().zip(types.iter()).enumerate() {
+                    let index = i32::try_from(index)
+                        .map_err(|_| IrLoweringError::MissingBinding("tuple pattern index"))?;
+                    let index = self.lower_constant(Constant::I32(index), ValueType::I32);
+                    let field = self.alloc_temp(self.value_type(ty)?);
+                    self.emit(Instruction::ReadAggregateIndex {
+                        dst: field,
+                        base: value,
+                        index,
+                    });
+                    self.lower_pattern_decision(element, field, ty, fail, bindings)?;
+                }
+            }
+            hir::PatternKind::Struct { fields, .. } => {
+                let fields = fields.clone();
+                let resolved = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .pattern_fields(pattern)
+                    .ok_or(IrLoweringError::MissingBinding("checked struct pattern"))?
+                    .to_vec();
+                if fields.len() != resolved.len() {
+                    return Err(IrLoweringError::MissingBinding(
+                        "checked struct pattern fields",
+                    ));
+                }
+                for (field, declaration) in fields.into_iter().zip(resolved.iter()) {
+                    let field_ref = self.aggregate_field_ref(declaration, expected)?;
+                    let signature = self.analyzed.aggregates.field(declaration).ok_or(
+                        IrLoweringError::MissingBinding("struct pattern field signature"),
+                    )?;
+                    let kagari_hir::types::TypeId::Struct(owner) = expected else {
+                        return Err(IrLoweringError::MissingBinding(
+                            "checked struct pattern type",
+                        ));
+                    };
+                    let structure = self
+                        .analyzed
+                        .aggregates
+                        .structure(&owner.declaration)
+                        .ok_or(IrLoweringError::MissingBinding("struct pattern layout"))?;
+                    let substitution = structure
+                        .generic_params
+                        .iter()
+                        .cloned()
+                        .zip(owner.arguments.iter().cloned())
+                        .collect();
+                    let ty = signature.ty.instantiate(&substitution);
+                    let member = self.alloc_temp(self.value_type(&ty)?);
+                    self.emit(Instruction::ReadAggregateField {
+                        dst: member,
+                        base: value,
+                        field: field_ref,
+                    });
+                    self.lower_pattern_decision(field.pattern, member, &ty, fail, bindings)?;
+                }
+            }
+            hir::PatternKind::EnumVariant { fields, .. } => {
+                let fields = fields.clone();
+                let kagari_hir::types::TypeId::Enum(owner) = expected else {
+                    return Err(IrLoweringError::MissingBinding("checked enum pattern type"));
+                };
+                let variant = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .pattern_variant(pattern)
+                    .ok_or(IrLoweringError::MissingBinding("checked enum variant"))?;
+                let signature = self
+                    .analyzed
+                    .aggregates
+                    .variant(variant)
+                    .ok_or(IrLoweringError::MissingBinding("enum variant signature"))?;
+                let enumeration = self
+                    .analyzed
+                    .aggregates
+                    .enumeration(&owner.declaration)
+                    .ok_or(IrLoweringError::MissingBinding("enum pattern layout"))?;
+                let substitution = enumeration
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(owner.arguments.iter().cloned())
+                    .collect();
+                let payload = signature
+                    .payload
+                    .iter()
+                    .map(|ty| ty.instantiate(&substitution))
+                    .collect::<Vec<_>>();
+                let slot = signature.slot;
+                if fields.len() != payload.len() {
+                    return Err(IrLoweringError::MissingBinding(
+                        "checked enum pattern arity",
+                    ));
+                }
+                let concrete = kagari_hir::types::NominalType {
+                    declaration: owner.declaration.clone(),
+                    arguments: self.planner.arguments(
+                        &owner.arguments,
+                        &self.instance.substitution,
+                        self.analyzed.lowered.source_map.pattern_span(pattern),
+                    )?,
+                };
+                let enumeration = crate::module::abi::NominalAbiType::from_checked_type(&concrete);
+                let cond = self.alloc_temp(ValueType::Bool);
+                self.emit(Instruction::TestEnumVariant {
+                    dst: cond,
+                    value,
+                    enumeration: enumeration.clone(),
+                    variant: slot,
+                });
+                let next = self.new_block();
+                self.set_terminator(Terminator::Branch {
+                    cond,
+                    then_block: next,
+                    else_block: fail,
+                });
+                self.switch_to_block(next);
+                for (index, (field, ty)) in fields.into_iter().zip(payload.iter()).enumerate() {
+                    let member = self.alloc_temp(self.value_type(ty)?);
+                    self.emit(Instruction::ReadEnumPayload {
+                        dst: member,
+                        value,
+                        enumeration: enumeration.clone(),
+                        variant: slot,
+                        index,
+                    });
+                    self.lower_pattern_decision(field, member, ty, fail, bindings)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn lower_tuple(

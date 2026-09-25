@@ -234,6 +234,7 @@ primary_expr        ::= literal
                       | array_expr
                       | struct_expr
                       | closure_expr
+                      | loop_expr
                       | match_expr
                       | block ;
 
@@ -262,6 +263,8 @@ closure_param       ::= IDENT (":" type)? ;
 
 closure_body        ::= expr
                       | block ;
+
+loop_expr           ::= "loop" block ;
 
 match_expr          ::= "match" expr "{" match_arm_list? "}" ;
 

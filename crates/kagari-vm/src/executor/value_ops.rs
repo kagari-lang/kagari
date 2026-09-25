@@ -10,6 +10,7 @@ impl Executor<'_> {
             ConstantOperand::Unit => Value::Unit,
             ConstantOperand::Bool(value) => Value::Bool(value),
             ConstantOperand::I32(value) => Value::I32(value),
+            ConstantOperand::I64(value) => Value::I64(value),
             ConstantOperand::F32(value) => Value::F32(value),
             ConstantOperand::Str(value) => Value::Str(value),
         }
@@ -26,7 +27,7 @@ impl Executor<'_> {
         rhs: Value,
     ) -> Result<Value, VmError> {
         match op {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 kagari_runtime::numeric::binary(op, lhs, rhs).map_err(VmError::RuntimeError)
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
@@ -37,28 +38,36 @@ impl Executor<'_> {
             }
             BinaryOp::Lt => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs < rhs)),
+                (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs < rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs < rhs)),
+                (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs < rhs)),
                 _ => Err(VmError::TypeMismatch(
                     "lt expects matching numeric operands",
                 )),
             },
             BinaryOp::Gt => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs > rhs)),
+                (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs > rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs > rhs)),
+                (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs > rhs)),
                 _ => Err(VmError::TypeMismatch(
                     "gt expects matching numeric operands",
                 )),
             },
             BinaryOp::Le => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs <= rhs)),
+                (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs <= rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs <= rhs)),
+                (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs <= rhs)),
                 _ => Err(VmError::TypeMismatch(
                     "le expects matching numeric operands",
                 )),
             },
             BinaryOp::Ge => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs >= rhs)),
+                (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs >= rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs >= rhs)),
+                (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs >= rhs)),
                 _ => Err(VmError::TypeMismatch(
                     "ge expects matching numeric operands",
                 )),

@@ -41,11 +41,16 @@ pub(super) fn verify(
                 Constant::Unit => ValueType::Unit,
                 Constant::Bool(_) => ValueType::Bool,
                 Constant::I32(_) => ValueType::I32,
+                Constant::I64(_) => ValueType::I64,
                 Constant::F32(_) => ValueType::F32,
                 Constant::Str(_) => ValueType::Str,
             };
             context.expect(dst.ty, ty, "constant destination")?;
         }
+        BeginIteration { collection } => {
+            context.expect(collection.ty, ValueType::HeapObject, "iteration collection")?;
+        }
+        EndIteration => {}
         LoadLocal { dst, local } => {
             context.expect(dst.ty, context.local(function, *local)?, "local load")?
         }
@@ -231,6 +236,44 @@ pub(super) fn verify(
                 context.check_cancel()?;
                 context.expect(value.ty, ty.representation(), "enum payload")?;
             }
+        }
+        TestEnumVariant {
+            dst,
+            value,
+            enumeration,
+            variant,
+        } => {
+            context.expect(value.ty, ValueType::HeapObject, "enum pattern value")?;
+            context.expect(dst.ty, ValueType::Bool, "enum pattern result")?;
+            module
+                .enumerations
+                .iter()
+                .find(|layout| {
+                    layout.declaration == enumeration.declaration
+                        && layout.arguments == enumeration.arguments
+                })
+                .and_then(|layout| layout.variants.get(*variant))
+                .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
+        }
+        ReadEnumPayload {
+            dst,
+            value,
+            enumeration,
+            variant,
+            index,
+        } => {
+            context.expect(value.ty, ValueType::HeapObject, "enum pattern value")?;
+            let payload = module
+                .enumerations
+                .iter()
+                .find(|layout| {
+                    layout.declaration == enumeration.declaration
+                        && layout.arguments == enumeration.arguments
+                })
+                .and_then(|layout| layout.variants.get(*variant))
+                .and_then(|variant| variant.payload.get(*index))
+                .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
+            context.expect(dst.ty, payload.representation(), "enum pattern payload")?;
         }
         MakeStruct {
             dst,

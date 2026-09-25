@@ -10,6 +10,31 @@ impl<'a> Executor<'a> {
         instruction: BytecodeInstruction,
     ) -> Result<(), VmError> {
         match instruction {
+            BytecodeInstruction::BeginIteration { collection } => {
+                self.current_frame_mut()?.begin_iteration(collection)?;
+            }
+            BytecodeInstruction::EndIteration => {
+                self.current_frame_mut()?.end_iteration()?;
+            }
+            BytecodeInstruction::TestEnumVariant {
+                dst,
+                value,
+                enumeration,
+                variant,
+            } => {
+                let result = self.test_enum_variant(value, enumeration, variant)?;
+                self.current_frame_mut()?.write_register(dst, result)?;
+            }
+            BytecodeInstruction::ReadEnumPayload {
+                dst,
+                value,
+                enumeration,
+                variant,
+                index,
+            } => {
+                let result = self.read_enum_payload(value, enumeration, variant, index)?;
+                self.current_frame_mut()?.write_register(dst, result)?;
+            }
             BytecodeInstruction::LoadConst { dst, constant } => {
                 let value = Self::constant_to_value(constant);
                 self.current_frame_mut()?.write_register(dst, value)?;

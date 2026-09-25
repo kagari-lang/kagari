@@ -131,7 +131,11 @@ pub(crate) fn binary_result(
 ) -> Result<ValueType, ContractError> {
     expect_type(rhs, lhs, "binary rhs")?;
     match op {
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div if numeric(lhs) => Ok(lhs),
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
+            if numeric(lhs) =>
+        {
+            Ok(lhs)
+        }
         BinaryOp::Eq | BinaryOp::NotEq if lhs != ValueType::HostHandle => Ok(ValueType::Bool),
         BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge if numeric(lhs) => {
             Ok(ValueType::Bool)

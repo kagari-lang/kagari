@@ -822,6 +822,8 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             values.extend(args.iter().copied());
             values
         }
+        Instruction::BeginIteration { collection } => vec![*collection],
+        Instruction::EndIteration => Vec::new(),
         Instruction::MakeTuple { dst, elements }
         | Instruction::MakeArray { dst, elements }
         | Instruction::MakeEnum {
@@ -834,6 +836,8 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             values
         }
         Instruction::MakeInterface { dst, value, .. } => vec![*dst, *value],
+        Instruction::TestEnumVariant { dst, value, .. }
+        | Instruction::ReadEnumPayload { dst, value, .. } => vec![*dst, *value],
         Instruction::MakeStruct { dst, fields, .. } => {
             let mut values = vec![*dst];
             values.extend(fields.iter().map(|field| field.value));
