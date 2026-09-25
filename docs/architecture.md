@@ -181,7 +181,7 @@ The IR and bytecode layer owns:
 - register/local operand flow
 - aggregate construction and access
 - direct script calls and host/runtime helper calls
-- module initialization lowering
+- explicit module/function linking
 - typed path descriptors
 - effect metadata
 - safepoint and root metadata
@@ -255,7 +255,7 @@ The interpreter must:
 - enforce traps and runtime errors consistently
 - call runtime helpers at allocation, host, reflection, security, and path boundaries
 - maintain correct stack/root metadata for GC
-- respect module initialization and hot reload epochs
+- respect pinned module versions across hot reload
 - reject unsupported or unverified bytecode instead of guessing behavior
 
 ## Debugger and Tooling

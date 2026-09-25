@@ -130,8 +130,8 @@ signature and heap validation.
 
 `kagari_vm::reenter(context, loaded, function, args)` drives the existing explicit
 frame executor synchronously. The loaded handle and FunctionRef select a linked
-version, which must belong to the current root program and already be initialized.
-Reentry does not initialize modules or switch to the latest epoch. Argument and
+version, which must belong to the current root program.
+Reentry does not switch to the latest epoch. Argument and
 result representations are checked against the linked signature, and arguments
 must contain valid references owned by this runtime. The return is a RootedValue;
 keeping it alive retains the object across subsequent GC and host operations.
@@ -273,7 +273,7 @@ remain roots or valid borrow tokens; this does not make path views opaque object
 Public host function, type and module re-exports retain their offline declaration
 identities through source facades. The import graph resolves the final binding once; name resolution,
 signature catalogs and navigation consume it. The original source dependency is
-retained for dependency-first initialization even when all calls target hosts.
+retained for linking even when all calls target hosts.
 For example, `pub use demo::echo as call; pub use demo as service;` permits clients
 to import `call` or `service` from the facade, or call `facade::call(...)` and
 `facade::service::echo(...)` through a source module alias. These calls retain

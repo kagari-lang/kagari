@@ -89,7 +89,6 @@ fn lower_linked_module(
         host_interface: context.host_interface,
         identity: ir.identity.clone(),
         source_name: ir.source_name.clone(),
-        module_init: ir.module_init.map(|id| FunctionRef::new(id.index())),
         module_slots: ir
             .module_slots
             .iter()

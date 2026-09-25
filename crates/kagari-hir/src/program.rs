@@ -40,7 +40,7 @@ impl CheckedProgram {
     pub fn root(&self) -> &CheckedAnalysis {
         &self.modules[self.by_file[&self.root]]
     }
-    /// Deterministic dependency-first order. Diamonds contain each module once.
+    /// Deterministic order. Diamonds and cycles contain each module once.
     pub fn modules(&self) -> &[CheckedAnalysis] {
         &self.modules
     }
@@ -76,7 +76,7 @@ impl AnalysisSnapshot {
             .ok_or(ProgramCheckError::MissingFile(root))?;
         let order = self
             .module_graph()
-            .initialization_order(root_source.source().module_identity(), cancel)
+            .reachable_order(root_source.source().module_identity(), cancel)
             .map_err(|error| match error {
                 ModuleOrderError::Cancelled => ProgramCheckError::Cancelled,
                 error => ProgramCheckError::Graph(error),

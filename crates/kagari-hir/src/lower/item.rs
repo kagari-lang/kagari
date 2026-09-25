@@ -89,40 +89,6 @@ impl Lowerer {
                 }
             }
         }
-
-        if module.statements().next().is_some() || module.tail_expr().is_some() {
-            let id = self.source_map.push_function(syntax_span(module));
-            let previous_owner = self
-                .source_map
-                .set_owner(HirOwner::Body(BodyOwner::Function(id)));
-            let top_level_statements = module
-                .statements()
-                .map(|stmt| self.lower_stmt(&stmt))
-                .collect::<Vec<_>>();
-            let tail_expr = module.tail_expr().map(|expr| self.lower_expr(&expr));
-
-            let body = self.alloc_block(
-                syntax_span(module),
-                BlockData {
-                    statements: top_level_statements.into(),
-                    tail_expr,
-                },
-            );
-
-            self.module.module_init = Some(id);
-            self.module.functions.push(Function {
-                id,
-                kind: FunctionKind::ModuleInit,
-                visibility: Visibility::Private,
-                name: "__module_init__".to_owned(),
-                generic_params: Vec::new(),
-                bounds: Vec::new(),
-                params: Vec::new(),
-                return_type: None,
-                body,
-            });
-            self.source_map.set_owner(previous_owner);
-        }
     }
 
     fn lower_module_decl(&mut self, module_def: &ast::ModuleDef) -> ModuleDecl {

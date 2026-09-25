@@ -55,17 +55,17 @@ Checked analysis can contain valid source imports. The snapshot-owned CheckedPro
 checks every reachable module, and `lower_program_to_ir` produces a VerifiedIrProgram
 with preserved module boundaries and declaration-to-module/function bindings.
 IR verification checks every imported signature against its bound target and rejects
-missing dependencies, cycles, unrelated modules, unresolved calls, signature
+missing dependencies, unrelated modules, unresolved calls, signature
 mismatches and conflicting layouts for the same nominal struct declaration.
 Editing any module invalidates the program's verification and link bindings.
 
 `lower_program_to_bytecode` consumes VerifiedIrProgram and emits BytecodeProgram:
-one root ModuleRef and a dependency-first vector of BytecodeModule members. Each
+one root ModuleRef and a stable vector of BytecodeModule members. Each
 member stores its dependency ModuleRefs. Module identities are unique; all members
 must be reachable from the root. Calls to dependencies use
 `ModuleFunction { module: ModuleRef, function: FunctionRef }`, scoped to that program.
 Verification checks dependency reachability, target signatures, shared nominal layouts
-and consistent host contracts. Dependency initializers run even for unused imports.
+and consistent host contracts. Unused imports remain linked but execute no code.
 The unit-only `lower_to_bytecode` rejects source dependencies with UnlinkedSourceModules;
 it cannot discard dependencies to form a standalone artifact.
 
@@ -232,7 +232,6 @@ The current in-memory Rust shape is:
 
 ```text
 BytecodeModule {
-  module_init: Option<FunctionRef>,
   module_slots: [BytecodeModuleSlot],
   functions: [BytecodeFunction]
 }

@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-
 use kagari_ir::bytecode::{BytecodeModule, FunctionRef};
 use kagari_runtime::{
     BackendDiagnostic, BackendFunctionInput, BackendId, BackendInvocationError, CodegenBackend,
-    ExecutionArtifactId, LoadedModule, ModuleInitializationState, ModuleKey,
-    ReloadDependencySnapshot, Runtime, value::Value,
+    ExecutionArtifactId, LoadedModule, ReloadDependencySnapshot, Runtime, value::Value,
 };
 
 use crate::debug::{DebugSession, SharedDebugSession};
@@ -18,13 +15,11 @@ use std::{
 #[derive(Debug)]
 pub enum ReloadError {
     Validation(kagari_runtime::ReloadValidationError),
-    Initialization(VmError),
 }
 
 #[derive(Debug)]
 pub struct Vm {
     runtime: Runtime,
-    module_failures: HashMap<ModuleKey, VmError>,
     debug_session: Option<Rc<SharedDebugSession>>,
 }
 
@@ -57,7 +52,6 @@ impl Vm {
     pub fn new(runtime: Runtime) -> Self {
         Self {
             runtime,
-            module_failures: HashMap::new(),
             debug_session: None,
         }
     }
@@ -72,7 +66,9 @@ impl Vm {
             .runtime
             .stage_reload_program(active, name, program)
             .map_err(ReloadError::Validation)?;
-        self.initialize_and_publish(candidate)
+        self.runtime
+            .publish_staged_reload(candidate)
+            .map_err(ReloadError::Validation)
     }
 
     pub fn reload_artifact(
@@ -86,29 +82,6 @@ impl Vm {
             .runtime
             .stage_reload_artifact(active, name, artifact, compatibility)
             .map_err(ReloadError::Validation)?;
-        self.initialize_and_publish(candidate)
-    }
-
-    fn initialize_and_publish(
-        &mut self,
-        candidate: kagari_runtime::StagedReload,
-    ) -> Result<LoadedModule, ReloadError> {
-        let session = self
-            .runtime
-            .begin_candidate_initialization(&candidate)
-            .map_err(|error| ReloadError::Initialization(VmError::RuntimeError(error)))?;
-        let result = self.execute_module(candidate.module());
-        drop(session);
-        let result = result.and_then(|value| match candidate.initialization_error() {
-            Some(error) => Err(VmError::RuntimeError(error)),
-            None => Ok(value),
-        });
-        if let Err(error) = result {
-            for member in candidate.module().members() {
-                self.module_failures.remove(&member.key());
-            }
-            return Err(ReloadError::Initialization(error));
-        }
         self.runtime
             .publish_staged_reload(candidate)
             .map_err(ReloadError::Validation)
@@ -179,7 +152,6 @@ impl Vm {
             .map_err(VmError::RuntimeError)?;
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)?;
-        self.execute_module(module)?;
         let mut executor = Executor::new(&self.runtime, module, entry, &[])?;
         let return_value = executor.run()?;
 
@@ -195,7 +167,7 @@ impl Vm {
 
     /// Invokes a linked script implementation through a runtime-owned
     /// interface value. The receiver and arguments remain rooted while module
-    /// initialization and the method body execute.
+    /// the method body executes.
     pub fn invoke_interface_method(
         &mut self,
         interface: &Value,
@@ -219,7 +191,6 @@ impl Vm {
         self.runtime
             .validate_loaded_module(&loaded)
             .map_err(VmError::RuntimeError)?;
-        self.execute_module(&loaded)?;
         Executor::new_interface(&self.runtime, resolved, &args)?.run()
     }
 
@@ -235,7 +206,6 @@ impl Vm {
             .map_err(VmError::RuntimeError)?;
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)?;
-        self.execute_module(module)?;
 
         match self.try_execute_jit_entry(module, entry, backend)? {
             JitEntryResult::Native { value, report } => Ok(ExecutionReport {
@@ -258,113 +228,6 @@ impl Vm {
                 })
             }
         }
-    }
-
-    pub fn execute_module(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
-        let _session = self.begin_execution(module)?;
-        self.runtime
-            .validate_loaded_module(module)
-            .map_err(VmError::RuntimeError)?;
-        if let Some(instance) = self.runtime.module_instance_snapshot(module) {
-            match instance.state {
-                ModuleInitializationState::Initializing => {
-                    return Err(VmError::ModuleInitializing(module.key()));
-                }
-                ModuleInitializationState::Failed => {
-                    return Err(self
-                        .module_failures
-                        .get(&module.key())
-                        .cloned()
-                        .unwrap_or(VmError::UnsupportedInstruction("module_init_failed")));
-                }
-                ModuleInitializationState::Initialized
-                | ModuleInitializationState::Uninitialized => {}
-            }
-        }
-        let mut reachable = std::collections::HashSet::new();
-        let mut pending = vec![module.slot()];
-        while let Some(slot) = pending.pop() {
-            if reachable.insert(slot) {
-                pending.extend_from_slice(
-                    &module
-                        .member_data(slot)
-                        .expect("verified module slot")
-                        .bytecode
-                        .dependencies,
-                );
-            }
-        }
-        for member in module
-            .members()
-            .filter(|member| reachable.contains(&member.slot()))
-        {
-            if let Err(error) = self.initialize_one(&member) {
-                self.runtime
-                    .fail_module_initialization(module)
-                    .map_err(VmError::RuntimeError)?;
-                self.module_failures.insert(module.key(), error.clone());
-                return Err(error);
-            }
-        }
-        Ok(self
-            .runtime
-            .module_instance_snapshot(module)
-            .expect("initialized module")
-            .init_result
-            .unwrap_or(Value::Unit))
-    }
-
-    fn initialize_one(&mut self, module: &LoadedModule) -> Result<Value, VmError> {
-        self.runtime
-            .validate_loaded_module(module)
-            .map_err(VmError::RuntimeError)?;
-        let key = module.key();
-        if let Some(instance) = self.runtime.module_instance_snapshot(module) {
-            match instance.state {
-                ModuleInitializationState::Initialized => {
-                    return Ok(instance.init_result.unwrap_or(Value::Unit));
-                }
-                ModuleInitializationState::Initializing => {
-                    return Err(VmError::ModuleInitializing(key));
-                }
-                ModuleInitializationState::Failed => {
-                    return Err(self
-                        .module_failures
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or(VmError::UnsupportedInstruction("module_init_failed")));
-                }
-                ModuleInitializationState::Uninitialized => {}
-            }
-        }
-
-        let initialization = self
-            .runtime
-            .begin_module_initialization(module)
-            .map_err(VmError::RuntimeError)?;
-
-        let result = match module.bytecode.module_init {
-            Some(module_init) => {
-                let mut executor = Executor::new(&self.runtime, module, module_init, &[]);
-                match executor {
-                    Ok(ref mut executor) => executor.run(),
-                    Err(error) => Err(error),
-                }
-            }
-            None => Ok(Value::Unit),
-        };
-
-        let result = match result {
-            Ok(value) => initialization.finish(value).map_err(VmError::RuntimeError),
-            Err(error) => {
-                drop(initialization);
-                Err(error)
-            }
-        };
-        if let Err(error) = &result {
-            self.module_failures.insert(key, error.clone());
-        }
-        result
     }
 
     fn try_execute_jit_entry<B: CodegenBackend>(

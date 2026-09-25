@@ -2649,19 +2649,6 @@ fn main() -> i32 {
 }
 
 #[test]
-fn preserves_module_init_function_metadata_in_bytecode() {
-    let bytecode = common::bytecode_ok(
-        r#"
-val boot = 1;
-
-fn main() -> i32 { 1 }
-"#,
-    );
-
-    assert!(bytecode.module_init.is_some());
-}
-
-#[test]
 fn does_not_allocate_module_slots_for_const_items() {
     let bytecode = common::bytecode_ok(
         r#"

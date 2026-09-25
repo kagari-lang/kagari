@@ -190,7 +190,6 @@ fn host_path_artifact(
                 },
                 identity: kagari_common::identity::ModuleIdentity::single_file(source_name),
                 source_name: source_name.to_owned(),
-                module_init: None,
                 module_slots: vec![],
                 constants,
                 types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],

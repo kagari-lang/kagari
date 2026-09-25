@@ -20,7 +20,6 @@ pub struct Function {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionKind {
     User,
-    ModuleInit,
     TraitMethod,
     ImplMethod,
 }

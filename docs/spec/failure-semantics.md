@@ -41,10 +41,8 @@ borrow leases. Rejected argument preparation releases prior leases before return
 expired/foreign tokens and borrow conflicts never invoke the target callback.
 Quarantine and termination forbid new borrowing while still permitting guard Drop.
 
-Initialization cleanup retains its authority after execution is quarantined.
-An unfinished initialization transitions to Failed and releases its version
-retention through its lifecycle guard; it does not request a new execution or
-ordinary module-write permission while handling the original failure.
+Candidate execution and ordinary calls release their version retention, frames,
+temporary roots, and host resources on failure, including after quarantine.
 
 ## Modification guarantees
 
@@ -60,7 +58,7 @@ either counter. Replacing a map entry or adding an existing set key consumes no
 growth units; duplicate constructor keys count only once. Removal and GC reduce
 live occupancy, but do not refund allocation usage within the root call. Runtime
 allocation counters remain cumulative across roots; each root's limits apply to
-its own usage, shared by initialization, entry execution and nested scopes.
+its own usage, shared by the entry execution and nested scopes.
 
 Standard removals returning an Option prepare that result before removing the
 entry. Result allocation failure leaves the entry present. Peak heap occupancy

@@ -446,19 +446,7 @@ fn run_loaded_artifact(
         .load_program(artifact, load_options)
         .map_err(print_embedding_error)?;
 
-    let has_main = loaded
-        .bytecode
-        .functions
-        .iter()
-        .any(|function| function.name == "main");
-    if has_main {
-        execute_entry(&mut runtime, &loaded, &context, jit).map(|_| ())
-    } else {
-        runtime
-            .execute_module(&loaded, &context)
-            .map(|_| ())
-            .map_err(print_embedding_error)
-    }
+    execute_entry(&mut runtime, &loaded, &context, jit).map(|_| ())
 }
 
 fn execute_entry(

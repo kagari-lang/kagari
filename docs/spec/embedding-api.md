@@ -37,10 +37,10 @@ checked facts for its entire reachable dependency closure before code generation
 the former single-root `analyzed()` accessor is removed. Dependency-body errors
 retain dependency-owned locations, even for unused imports. Both snapshot entry
 points accept a cancellation token. Program IR verifies declaration-to-module/
-function bindings without executing any initializer. Artifact emission includes the
-complete program and dependency initializers. Loading preflights every member's
-bytecode and host bindings before publication or resource accounting. Execution-context
-policy checks cover every member before any initializer runs.
+function bindings without executing script code. Artifact emission includes the
+complete program. Loading preflights every member's bytecode and host bindings
+before publication or resource accounting. Execution-context policy checks cover
+every member before an entry function runs.
 `compile_source` supplies base text through this same database, so an active
 overlay still takes precedence. Language profiles are analysis inputs: changing
 permissions cannot reuse a result accepted under another profile.
@@ -149,7 +149,7 @@ Private generic functions are templates. Calls infer their parameters structural
 from argument types and check declared bounds. Missing arguments produce
 `KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT`; public generic functions are rejected with
 `KG_TYPE_PUBLIC_GENERIC_FUNCTION`. Expose concrete wrappers as public entry points.
-IR compilation starts from module initialization and the currently callable
+IR compilation starts from the currently callable
 non-generic functions, enqueues called instances, and deduplicates by declaration
 identity plus concrete arguments. IR InstanceId is separate from HIR FunctionId.
 Signatures, locals, temporaries and direct calls use the selected instance.
@@ -261,8 +261,7 @@ also carry `HirOwner`, distinguishing a function/constant `BodyOwner` from share
 declaration type references. Lowering assigns that owner, including for missing
 and synthetic nodes; it is not inferred from source spans. Node/source-map access
 checks the stored owner, and name resolution rejects cross-body edges and bindings.
-The module initializer is an ordinary function owner even though its source span
-can cover other declarations. An impl receiver can reference a declaration-owned
+An impl receiver can reference a declaration-owned
 type while its parameter and expressions belong to the method's function body.
 Cache reuse explicitly rebases local IDs; arena IDs are not declaration identities
 and do not enter executable artifacts. Analysis-scoped binding handles still carry
@@ -382,14 +381,14 @@ reload_program(previous, artifact, reload_options) -> ReloadResult<LoadedModule>
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
 
 The current Rust facade uses `KagariEngine` for compile and artifact emission and `KagariRuntime` for load, execute, reload, host registration, and optional backend execution.
-`KagariRuntime::reload_program` stages and initializes the candidate before publishing,
+`KagariRuntime::reload_program` stages and validates the candidate before publishing,
 following [module-activation.md](module-activation.md). Validation errors retain their
-reload codes; initializer failures retain their normal execution error classification.
+reload codes.
 At the runtime layer, `stage_reload_program` / `stage_reload_artifact` return an owned
-`StagedReload`. A driver enters `begin_candidate_initialization`, initializes the
-candidate's modules, exits that session, then calls `publish_staged_reload`.
-Publication rejects uninitialized or failed members. Dropping the candidate discards
-its instances and module quota. VM reload performs these steps automatically.
+`StagedReload`. A driver may enter `begin_candidate_initialization` to explicitly
+evaluate candidate functions, then calls `publish_staged_reload` after that session.
+Dropping the candidate discards its instances and module quota. Ordinary VM reload
+does not execute candidate functions.
 Candidate sessions inherit permissions and cancellation, apply host-effect restrictions,
 and restore a suspended ordinary root when they end. Drivers must finish every nested
 candidate execution scope before dropping the candidate session.
@@ -401,7 +400,7 @@ module handles, and publication requires candidate execution to have ended.
 
 Each call applies that call's ExecutionContext resources, capabilities and host
 policy to an owned execution session, without replacing runtime defaults. Module
-initialization, the entry and interpreter/JIT fallback share this session. Its
+the entry and interpreter/JIT fallback share this session. Its
 fixed time and random seed are passed to host callbacks; nested execution shares
 the root's random stream. Host callbacks must supply any other external results.
 The `CancellationToken` is cooperative and shared by context clones; once cancelled,
@@ -422,8 +421,8 @@ the pinned dependency program, permissions, cancellation and remaining budget.
 Dropping the final scope releases the session; dropping an outer handle early does
 not reset a still-active nested scope. ExecutionSession::counters reports root-call
 usage and peaks; Runtime resource counters remain cumulative. Synchronous script
-reentry is available through HostCallContext and kagari_vm::reenter, using an
-initialized LoadedModule and FunctionRef from the pinned root program. Its returned
+reentry is available through HostCallContext and kagari_vm::reenter, using a
+LoadedModule and FunctionRef from the pinned root program. Its returned
 RootedValue remains alive across collection; ordinary raw Value copies do not.
 See [host-interop.md](host-interop.md) for scope and error rules. The `host_reentry`
 example demonstrates this boundary: `cargo run -p kagari-embed --example host_reentry`.

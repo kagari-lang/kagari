@@ -4,7 +4,7 @@ Run `cargo test -p kagari-vm language_contract` for the shared observable suite.
 Fixtures live in `crates/kagari-vm/src/tests/language_contract.rs` and contain:
 
 - root source, optional named dependency sources, and an expected value, diagnostic
-  code, import-cycle rejection, or runtime failure category;
+  code or runtime failure category;
 - the ordered host calls and their argument values;
 - committed host mutation records and expected host state;
 - optional deterministic host rejection/cancellation and repeated entry invocation;
@@ -75,34 +75,23 @@ All fixtures compile through one SourceDatabase, immutable analysis snapshot and
 checked-program boundary. `.modules(&[("dependency", "pub fn answer() -> i32 { 42 }")])`
 adds `contract::dependency`; root source is `contract::root`. The complete program
 is serialized on artifact routes rather than extracting just its root module.
-The initialization fixtures observe a diamond's dependency-first host-call order,
-one-time initialization across repeated entries, cached dependency failure that
-prevents root initialization, and cycle rejection before code generation. The
-same host-call and mutation records are shared with ordinary execution fixtures.
+Module fixtures cover a diamond dependency closure and a cyclic import graph with
+nonrecursive calls. Imports alone produce no host calls or mutations; effects
+occur only in explicitly invoked functions.
 
 This suite establishes a common format and execution matrix. It does not replace
 focused subsystem checks for publication isolation, stale candidates or retained
 old-version dependency closures. The shared publication fixture now complements these focused checks with source-based
 publication, stale-candidate rejection and pinned old dependency calls.
 
-A fixture may supply `rejected_reload`, another source/dependency fixture describing
-an ABI-compatible candidate and its expected initialization error. Both programs use
-the same compile/serialize path. After the failed reload, the harness checks the
-active version key, restored module count, and another call to the old entry; host
-calls and mutation records include the entire attempt. Cases cover a forbidden
-root host effect, an initializer index trap, and a forbidden dependency effect with
-a code-free root. Candidate initialization currently uses the VM initializer even
-on JIT routes; old-entry execution still follows the selected backend.
-
 `published_reload` supplies a compatible source/dependency fixture with the expected
-new result. The harness prepares and initializes a second candidate against the
+new result. The harness prepares a second candidate against the
 same baseline, publishes the chosen version, calls the old root while its session
 remains pinned, then calls the new entry. Publishing the now-stale candidate must
 return `ModuleNotActive`, release its module resources, and leave the new entry
 unchanged. The fixture changes a dependency result from 42 to 99, so observing 42
 inside the old session proves that cross-module dispatch retained its old closure.
-Candidate initialization uses the interpreter; both entry versions use the selected
-interpreter/JIT route. Initialization effects appear only once in the shared log.
+Both entry versions use the selected interpreter/JIT route.
 
 R02 acceptance evidence (run the shared command above):
 
@@ -112,8 +101,8 @@ R02 acceptance evidence (run the shared command above):
 | Host calls and modification records | `RecordingHost`, ordered arguments, commits and final log; rejection has no commit |
 | Value/expression contract | Scalar/tuple/enum values, mutable identity and aliases, shallow copies, evaluation order, overflow and compound assignment |
 | Failure contract | Rooted post-trap array contents, rejected writes, cancellation/budget termination and cleanup |
-| Initialization contract | Dependency-first diamond, once-only initialization, cached failure and import-cycle rejection |
-| Activation contract | Failed candidate has no external effects, successful publication, stale candidate rejection, pinned old dependency closure |
+| Module contract | Diamond and cyclic imports link without executing code at load time |
+| Activation contract | Successful publication, stale candidate rejection, pinned old dependency closure |
 | Backend/load equivalence | Fresh source/artifact × interpreter/JIT runtimes; selected scalar fixtures require native invocation |
 
 This accepts the R02 test entry and its initial contract cases. It does not mark the

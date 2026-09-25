@@ -214,7 +214,7 @@ fn facade_signature_changes_invalidate_unchanged_transitive_callers() {
 }
 
 #[test]
-fn cyclic_modules_keep_signatures_for_tooling_but_cannot_generate_code() {
+fn cyclic_modules_keep_signatures_and_can_generate_code() {
     let mut db = SourceDatabase::default();
     let text = "use pkg::b; pub fn a() -> i32 { b::b() }";
     let a = insert(&mut db, "a", text);
@@ -225,11 +225,6 @@ fn cyclic_modules_keep_signatures_for_tooling_but_cannot_generate_code() {
         file.type_at(text.find("b::b()").unwrap()),
         Some(TypeId::Builtin(BuiltinType::I32))
     );
-    assert!(
-        file.result()
-            .diagnostics()
-            .iter()
-            .all(|d| matches!(d.kind, DiagnosticKind::CyclicImport { .. }))
-    );
-    assert!(file.result().clone().into_codegen().is_err());
+    assert!(file.result().diagnostics().is_empty());
+    assert!(file.result().clone().into_codegen().is_ok());
 }

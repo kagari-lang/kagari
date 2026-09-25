@@ -5,7 +5,6 @@ use crate::{
         misc::{
             FieldList, GenericParamList, Name, ParamList, Path, TraitRef, VariantList, WhereClause,
         },
-        stmt::Stmt,
         support,
         traits::AstNode,
         ty::TypeRef,
@@ -296,14 +295,6 @@ impl MethodDef {
 impl SourceFile {
     pub fn items(&self) -> impl Iterator<Item = Item> {
         support::children(self.syntax())
-    }
-
-    pub fn statements(&self) -> impl Iterator<Item = Stmt> {
-        support::children(self.syntax())
-    }
-
-    pub fn tail_expr(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).last()
     }
 }
 

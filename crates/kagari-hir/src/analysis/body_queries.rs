@@ -28,10 +28,6 @@ impl FunctionAnalysis {
             scope.owner == crate::hir::BodyOwner::Function(self.function)
                 && scope.span.start <= offset
                 && offset <= scope.span.end
-                && !scope
-                    .excluded_ranges
-                    .iter()
-                    .any(|span| span.start <= offset && offset < span.end)
         })
     }
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {

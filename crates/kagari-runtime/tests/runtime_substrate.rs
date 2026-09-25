@@ -4,8 +4,8 @@ use kagari_ir::bytecode::BytecodeModule;
 use kagari_ir::module::abi::AbiType;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId,
-    MethodOrigin, ModuleInitializationState, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind,
-    TraitInfo, TypeId, TypeKind, TypeRegistration, Visibility,
+    MethodOrigin, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind, TraitInfo, TypeId,
+    TypeKind, TypeRegistration, Visibility,
     host::{
         DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
         HostPathSegmentRegistration, HostSchemaEpoch, HostTypeOwnership,
@@ -140,7 +140,7 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
 }
 
 #[test]
-fn module_epochs_and_initialization_state_live_in_runtime_store() {
+fn module_epochs_have_independent_runtime_instances() {
     let mut runtime = Runtime::default();
     let first = runtime
         .load_program(
@@ -167,23 +167,9 @@ fn module_epochs_and_initialization_state_live_in_runtime_store() {
     assert_eq!(second.epoch.0, 2);
 
     let first_instance = runtime.module_instance_snapshot(&first).unwrap();
-    assert_eq!(
-        first_instance.state,
-        ModuleInitializationState::Uninitialized
-    );
-    assert_eq!(first_instance.init_result, None);
-
-    {
-        let mut instance = runtime.module_instance_mut(&second).unwrap();
-        instance.begin_initialization();
-        instance.finish_initialization(Value::I32(42));
-    }
     let second_instance = runtime.module_instance_snapshot(&second).unwrap();
-    assert_eq!(
-        second_instance.state,
-        ModuleInitializationState::Initialized
-    );
-    assert_eq!(second_instance.init_result, Some(Value::I32(42)));
+    assert_ne!(first_instance.epoch, second_instance.epoch);
+    assert_eq!(first_instance.module_slots, second_instance.module_slots);
 }
 
 #[test]

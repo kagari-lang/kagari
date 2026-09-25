@@ -14,7 +14,7 @@ impl ModuleRef {
 }
 
 /// One immutable executable dependency closure. Module and function slots are
-/// scoped to this program; modules retain their own initialization and metadata.
+/// scoped to this program; module references may form cycles.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BytecodeProgram {
     pub root: ModuleRef,
@@ -27,6 +27,14 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
     if program.modules.len() > u32::MAX as usize || program.root.index() >= program.modules.len() {
         return Err(invalid());
     }
+    for module in &program.modules {
+        let mut dependencies = HashSet::new();
+        if module.dependencies.iter().any(|dependency| {
+            dependency.index() >= program.modules.len() || !dependencies.insert(*dependency)
+        }) {
+            return Err(invalid());
+        }
+    }
     let mut identities = HashSet::new();
     let mut layouts = HashMap::new();
     let mut enum_layouts = HashMap::new();
@@ -35,13 +43,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
     let mut host_types = HashMap::new();
     let mut host_type_symbols = HashMap::new();
     for (index, module) in program.modules.iter().enumerate() {
-        let mut dependencies = HashSet::new();
-        if !identities.insert(&module.identity)
-            || module
-                .dependencies
-                .iter()
-                .any(|dependency| dependency.index() >= index || !dependencies.insert(*dependency))
-        {
+        if !identities.insert(&module.identity) {
             return Err(invalid());
         }
         for layout in &module.structures {
@@ -157,7 +159,9 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             .iter()
             .map(|dependency| &program.modules[dependency.index()])
             .collect::<Vec<_>>();
-        closure.push(module);
+        if !reachable.contains(&ModuleRef::new(index)) {
+            closure.push(module);
+        }
         if !super::trait_bounds::host_bounds_match(module, &closure) {
             return Err(BytecodeVerificationError::InvalidHostInterface(
                 "host trait bound has no unique implementation".into(),

@@ -189,15 +189,6 @@ pub fn verify_ir(
             return Err(context.error(IrVerificationErrorKind::InvalidModuleSlot));
         }
     }
-    if let Some(init) = module.module_init {
-        let function = module
-            .functions
-            .get(init.index())
-            .ok_or_else(|| context.error(IrVerificationErrorKind::InvalidInitializer))?;
-        if !function.params.is_empty() {
-            return Err(context.error(IrVerificationErrorKind::InvalidInitializer));
-        }
-    }
     for function in &module.functions {
         verify_function(
             &module,

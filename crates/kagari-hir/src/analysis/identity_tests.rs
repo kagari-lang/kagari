@@ -64,7 +64,8 @@ fn named_declarations_point_to_identifier_tokens() {
 
 #[test]
 fn declaration_site_navigation_excludes_synthetic_module_span() {
-    let text = "// 中文 😀\r\nval top = 1; fn run<T>(value: T) -> T { val local = value; local }";
+    let text =
+        "// 中文 😀\r\nconst top: i32 = 1; fn run<T>(value: T) -> T { val local = value; local }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("declaration-sites.kgr", text.into(), SourceLayer::Base)
@@ -72,7 +73,7 @@ fn declaration_site_navigation_excludes_synthetic_module_span() {
     let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
     let file = snapshot.file(id).unwrap();
     for (name, source, name_offset) in [
-        ("top", "val top", 4),
+        ("top", "const top", 6),
         ("run", "fn run", 3),
         ("T", "run<T>", 4),
         ("value", "(value: T)", 1),
@@ -262,8 +263,9 @@ fn r04_recovery_keeps_semantic_targets_but_rejects_codegen() {
 }
 
 #[test]
-fn function_scopes_do_not_inherit_module_initialization_bindings() {
-    let text = "val outside = 1; struct P { val field: i32 } fn good(value: i32) -> i32 { value }";
+fn function_scopes_do_not_inherit_module_declarations_as_local_bindings() {
+    let text =
+        "const outside: i32 = 1; struct P { val field: i32 } fn good(value: i32) -> i32 { value }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("init-scope.kgr", text.into(), SourceLayer::Base)

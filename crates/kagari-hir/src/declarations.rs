@@ -115,8 +115,8 @@ impl Declarations {
             .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
     }
 
-    /// Declaration-site lookup uses only identifier-sized ranges. Synthetic
-    /// module initialization and incomplete names cannot claim surrounding code.
+    /// Declaration-site lookup uses only identifier-sized ranges. Incomplete
+    /// names cannot claim surrounding code.
     pub fn site_at(&self, offset: usize) -> Option<&Declaration> {
         self.targets
             .iter()
@@ -248,7 +248,6 @@ impl Declarations {
             }
             let kind = match item.kind {
                 FunctionKind::User => DefinitionKind::Function,
-                FunctionKind::ModuleInit => DefinitionKind::ModuleInit,
                 FunctionKind::TraitMethod | FunctionKind::ImplMethod => continue,
             };
             let owner = builder.definition(

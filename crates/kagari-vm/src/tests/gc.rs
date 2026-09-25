@@ -276,14 +276,6 @@ fn trap_and_budget_exhaustion_release_frame_roots_and_call_depth() {
 #[test]
 fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     let mut module = compile_test_bytecode("fn init() -> [i32] { [7] } fn main() -> i32 { 42 }");
-    module.module_init = Some(
-        module
-            .functions
-            .iter()
-            .find(|function| function.name == "init")
-            .unwrap()
-            .id,
-    );
     module
         .module_slots
         .push(kagari_ir::bytecode::BytecodeModuleSlot {
@@ -298,15 +290,15 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     };
     let old = runtime.load_program("gc.kgr", program.clone()).unwrap();
     let mut vm = Vm::new(runtime);
-    vm.execute(&old, "main").unwrap();
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
+    let array = vm.runtime().alloc_array(vec![Value::I32(7)]).unwrap();
     {
         let mut instance = vm.runtime().module_instance_mut(&old).unwrap();
-        instance.module_slots[0] = instance.init_result.take().unwrap();
+        instance.module_slots[0] = Value::Array(array);
     }
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
     let new = vm.reload_program(&old, "gc.kgr", program).unwrap();
-    vm.execute(&new, "main").unwrap();
+    let other = vm.runtime().alloc_array(vec![Value::I32(9)]).unwrap();
+    vm.runtime().module_instance_mut(&new).unwrap().module_slots[0] = Value::Array(other);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
     assert_eq!(vm.runtime().modules().collect_unreachable_epochs().len(), 1);
     assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 1);

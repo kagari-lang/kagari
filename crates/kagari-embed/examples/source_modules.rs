@@ -35,7 +35,7 @@ fn main() {
         .unwrap();
     for module in snapshot
         .module_graph()
-        .initialization_order(&identity("root"), &CancellationToken::default())
+        .reachable_order(&identity("root"), &CancellationToken::default())
         .unwrap()
     {
         println!("{module}");

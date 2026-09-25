@@ -72,7 +72,7 @@ impl<'a> Executor<'a> {
                     .runtime
                     .module_instance_mut(&loaded)
                     .map_err(VmError::RuntimeError)?;
-                if !mutable && !instance.is_initializing() {
+                if !mutable {
                     return Err(VmError::ImmutableModuleSlot(slot));
                 }
                 *instance

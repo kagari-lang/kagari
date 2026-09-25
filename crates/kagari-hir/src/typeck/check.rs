@@ -343,8 +343,8 @@ pub(crate) fn check_bodies_controlled(
     } else {
         Default::default()
     };
-    let mut functions = signatures.facts.functions.clone();
-    let mut function_index = FunctionTypeIndex {
+    let functions = signatures.facts.functions.clone();
+    let function_index = FunctionTypeIndex {
         by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
     };
     let mut top_level_index = TopLevelTypeIndex::default();
@@ -511,18 +511,6 @@ pub(crate) fn check_bodies_controlled(
                     &mut env,
                     Some(&typed_function.return_type),
                 );
-                if matches!(function.kind, FunctionKind::ModuleInit) {
-                    if let Some(indexed) = function_index.by_id.get_mut(&function.id) {
-                        indexed.return_type = body_ty.clone();
-                    }
-                    for typed in &mut functions {
-                        if typed.id == function.id {
-                            typed.return_type = body_ty.clone();
-                            break;
-                        }
-                    }
-                    continue;
-                }
                 let Ok(completes) =
                     super::completion::block_can_complete(&lowered.module, function.body, cancel)
                 else {

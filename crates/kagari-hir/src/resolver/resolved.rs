@@ -22,9 +22,6 @@ pub struct LexicalScope {
     pub span: Span,
     pub parent: Option<usize>,
     pub bindings: Vec<ScopeBinding>,
-    /// Declarations interleaved with a synthetic module initializer are outside
-    /// that body's lexical scope, despite its whole-file bounding span.
-    pub excluded_ranges: Vec<Span>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -139,13 +136,6 @@ impl ResolvedNames {
             .map(|(id, _)| id);
         let mut visible = HashMap::new();
         while let Some(id) = scope {
-            if self.scopes[id]
-                .excluded_ranges
-                .iter()
-                .any(|range| range.start <= offset && offset < range.end)
-            {
-                return Vec::new();
-            }
             for binding in self.scopes[id].bindings.iter().rev() {
                 if binding.visible_from <= offset {
                     visible.entry(binding.name.as_str()).or_insert(binding);

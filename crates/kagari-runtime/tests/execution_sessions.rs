@@ -230,7 +230,7 @@ fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
 }
 
 #[test]
-fn zero_wall_budget_rejects_before_initialization_or_counter_charges() {
+fn zero_wall_budget_rejects_before_counter_charges() {
     let mut runtime = Runtime::default();
     let module = load(&mut runtime, "main");
     let mut options = runtime.execution_options();
@@ -246,10 +246,6 @@ fn zero_wall_budget_rejects_before_initialization_or_counter_charges() {
             .retention_counts(module.key())
             .active_calls,
         0
-    );
-    assert_eq!(
-        runtime.module_instance_snapshot(&module).unwrap().state,
-        kagari_runtime::ModuleInitializationState::Uninitialized
     );
 }
 
@@ -530,8 +526,6 @@ fn candidate_module_state_access_is_limited_to_its_program() {
             },
         )
         .unwrap();
-    // An already owned initialization guard must still record failure when dropped.
-    let cleanup = runtime.begin_module_initialization(&other).unwrap();
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
     for external in [&old, &other] {
         assert!(runtime.module_instance_snapshot(external).is_none());
@@ -545,32 +539,15 @@ fn candidate_module_state_access_is_limited_to_its_program() {
                 .instance_snapshot(external.key())
                 .is_none()
         );
-        assert_eq!(
-            runtime
-                .fail_module_initialization(external)
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::CapabilityDenied
-        );
     }
-    assert!(runtime.begin_module_initialization(&old).is_err());
     assert!(
         runtime
             .module_instance_snapshot(candidate.module())
             .is_some()
     );
     assert!(runtime.module_instance_mut(candidate.module()).is_ok());
-    drop(cleanup);
     assert!(!runtime.is_quarantined());
     drop(session);
-    assert_eq!(
-        runtime.module_instance_snapshot(&old).unwrap().state,
-        kagari_runtime::ModuleInitializationState::Uninitialized
-    );
-    assert_eq!(
-        runtime.module_instance_snapshot(&other).unwrap().state,
-        kagari_runtime::ModuleInitializationState::Failed
-    );
     assert_eq!(
         runtime.modules().retention_counts(other.key()).active_calls,
         0
@@ -599,7 +576,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
         runtime
             .module_instance_mut(candidate.module())
             .unwrap()
-            .init_result = Some(Value::Array(local));
+            .module_slots = vec![Value::Array(local)];
         drop(session);
         if inject_external {
             // A low-level driver can still mutate candidate state between phases.
@@ -622,8 +599,8 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
                 runtime
                     .module_instance_snapshot(&current)
                     .unwrap()
-                    .init_result,
-                Some(Value::Array(local))
+                    .module_slots,
+                vec![Value::Array(local)]
             );
             runtime.collect_garbage().unwrap();
             assert_eq!(

@@ -182,19 +182,25 @@ pub fn verify_program(
     let mut bindings = HashMap::new();
     let mut layouts = HashMap::new();
     let mut enum_layouts = HashMap::new();
+    for (index, module) in raw.iter().enumerate() {
+        cancel
+            .check()
+            .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
+        if indices.insert(module.identity.clone(), index).is_some() {
+            return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
+        }
+    }
     for (index, module) in raw.into_iter().enumerate() {
         cancel
             .check()
             .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
-        if indices.contains_key(&module.identity)
-            || module
-                .dependencies
-                .iter()
-                .any(|dependency| !indices.contains_key(dependency))
+        if module
+            .dependencies
+            .iter()
+            .any(|dependency| !indices.contains_key(dependency))
         {
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
-        indices.insert(module.identity.clone(), index);
         let identity = module.identity.clone();
         let module = verify_ir(module, cancel)
             .map_err(|cause| error(&identity, ProgramErrorKind::Verification(cause)))?;

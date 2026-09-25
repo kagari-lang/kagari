@@ -70,8 +70,15 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
     assert_eq!(
         artifact.verification.loader.dependency_fingerprints,
         vec![DependencyFingerprint {
-            module_id: dependency_identity,
-            fingerprint: ArtifactFingerprint::of_serialized(&artifact.program.modules[0])
+            module_id: dependency_identity.clone(),
+            fingerprint: ArtifactFingerprint::of_serialized(
+                artifact
+                    .program
+                    .modules
+                    .iter()
+                    .find(|module| module.identity == dependency_identity)
+                    .unwrap()
+            )
         }]
     );
     assert_eq!(

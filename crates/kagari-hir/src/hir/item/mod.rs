@@ -24,7 +24,6 @@ use crate::hir::{
 pub struct Module {
     pub items: ItemBuffer,
     pub exports: ExportBuffer,
-    pub module_init: Option<FunctionId>,
     pub functions: FunctionBuffer,
     pub methods: MethodBuffer,
     pub consts: ConstBuffer,

@@ -58,8 +58,8 @@ pub use metadata::{
     TypeRegistry, VariantInfo, VariantMetadataId, Visibility,
 };
 pub use module::{
-    LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId,
-    ModuleInitializationState, ModuleInstance, ModuleKey, ModuleStore, VerifiedProgram,
+    LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId, ModuleInstance,
+    ModuleKey, ModuleStore, VerifiedProgram,
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
@@ -118,54 +118,6 @@ pub struct RuntimeConfig {
     pub host_exposure: HostExposurePolicy,
     pub debug_visibility: DebugVisibilityPolicy,
     pub resources: ResourcePolicy,
-}
-
-/// Owns initialization state and version retention without holding a store borrow.
-/// Dropping an unfinished initialization records failure, even after quarantine.
-#[must_use]
-pub struct ModuleInitializationGuard<'a> {
-    runtime: &'a Runtime,
-    module: LoadedModule,
-    finished: bool,
-}
-
-impl ModuleInitializationGuard<'_> {
-    pub fn finish(mut self, value: Value) -> Result<Value, RuntimeError> {
-        self.runtime.validate_instance_access(&self.module)?;
-        self.runtime
-            .validate_heap_payloads(std::slice::from_ref(&value))?;
-        let result = value.clone();
-        let mut instance = self
-            .runtime
-            .modules
-            .instance_mut(self.module.key())
-            .ok_or_else(|| {
-                self.runtime
-                    .resources
-                    .quarantine("initializing module instance disappeared")
-            })?;
-        if instance.state != ModuleInitializationState::Initializing {
-            return Err(self
-                .runtime
-                .resources
-                .quarantine("module initialization state changed before completion"));
-        }
-        instance.finish_initialization(result);
-        self.finished = true;
-        Ok(value)
-    }
-}
-
-impl Drop for ModuleInitializationGuard<'_> {
-    fn drop(&mut self) {
-        if !self.finished {
-            // Failure cleanup is permitted after execution has been disabled.
-            let _ = self.runtime.fail_initialization_during_unwind(&self.module);
-        }
-        self.runtime
-            .modules
-            .release_epoch(self.module.key(), ModuleEpochRetention::ActiveCall);
-    }
 }
 
 #[derive(Debug)]
@@ -1503,70 +1455,6 @@ impl Runtime {
         self.modules.instance_snapshot(module.key())
     }
 
-    fn validate_instance_access(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
-        if !self.modules.allows_instance_access(module.key()) {
-            return Err(RuntimeError::capability_denied(
-                "external module state during candidate initialization",
-            ));
-        }
-        Ok(())
-    }
-
-    pub fn begin_module_initialization(
-        &self,
-        module: &LoadedModule,
-    ) -> Result<ModuleInitializationGuard<'_>, RuntimeError> {
-        self.validate_loaded_module(module)?;
-        self.validate_instance_access(module)?;
-        {
-            let mut instance = self.modules.instance_mut(module.key()).ok_or_else(|| {
-                self.resources
-                    .quarantine("loaded module instance disappeared")
-            })?;
-            if instance.state != ModuleInitializationState::Uninitialized {
-                return Err(RuntimeError::module_validation(
-                    "module initialization can only begin once",
-                ));
-            }
-            instance.begin_initialization();
-        }
-        self.modules
-            .retain_epoch(module.key(), ModuleEpochRetention::ActiveCall);
-        Ok(ModuleInitializationGuard {
-            runtime: self,
-            module: module.clone(),
-            finished: false,
-        })
-    }
-
-    /// Records failed initialization during unwinding, without reopening execution.
-    pub fn fail_module_initialization(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
-        self.validate_instance_access(module)?;
-        self.fail_initialization_during_unwind(module)
-    }
-
-    fn fail_initialization_during_unwind(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
-        if !module.belongs_to(self.host.owner()) {
-            return Err(RuntimeError::module_validation(
-                "module belongs to another runtime",
-            ));
-        }
-        let mut instance = self
-            .modules
-            .instance_mut_for_cleanup(module.key())
-            .ok_or_else(|| {
-                self.resources
-                    .quarantine("failed module instance disappeared during cleanup")
-            })?;
-        if instance.state == ModuleInitializationState::Initialized {
-            return Err(RuntimeError::module_validation(
-                "completed initialization cannot be failed by cleanup",
-            ));
-        }
-        instance.fail_initialization();
-        Ok(())
-    }
-
     pub fn module_instance_mut(
         &self,
         module: &LoadedModule,
@@ -1577,12 +1465,10 @@ impl Runtime {
                 "candidate cannot access external module state",
             ));
         }
-        self.modules
-            .instance_mut_for_cleanup(module.key())
-            .ok_or_else(|| {
-                self.resources
-                    .quarantine("loaded module instance disappeared")
-            })
+        self.modules.instance_mut(module.key()).ok_or_else(|| {
+            self.resources
+                .quarantine("loaded module instance disappeared")
+        })
     }
 
     pub fn root_value(&self, value: value::Value) -> Option<RootedValue> {
@@ -1884,24 +1770,6 @@ impl Runtime {
             .modules
             .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
             .map_err(ReloadValidationError::Runtime)?;
-        for member in program.module().members() {
-            // An empty initializer still depends on its dependency closure. Do not
-            // complete it before a dependency that may execute or fail in isolation.
-            if member.bytecode.module_init.is_none()
-                && member.bytecode.dependencies.iter().all(|slot| {
-                    member
-                        .member(*slot)
-                        .and_then(|dependency| self.module_instance_snapshot(&dependency))
-                        .is_some_and(|instance| {
-                            instance.state == ModuleInitializationState::Initialized
-                        })
-                })
-            {
-                self.begin_module_initialization(&member)
-                    .and_then(|guard| guard.finish(Value::Unit))
-                    .map_err(ReloadValidationError::Runtime)?;
-            }
-        }
         Ok(StagedReload {
             initialization_error: Default::default(),
             baseline,
@@ -1951,22 +1819,10 @@ impl Runtime {
                     "candidate module instance disappeared at publication",
                 )));
             };
-            if instance.state != ModuleInitializationState::Initialized {
-                return Err(ReloadValidationError::Runtime(
-                    RuntimeError::module_validation(
-                        "reload candidate has not completed initialization",
-                    ),
-                ));
-            }
-            if !instance
-                .module_slots
-                .iter()
-                .chain(instance.init_result.iter())
-                .all(|value| {
-                    self.gc
-                        .validate_candidate_value_for(program.module().key(), value)
-                })
-            {
+            if !instance.module_slots.iter().all(|value| {
+                self.gc
+                    .validate_candidate_value_for(program.module().key(), value)
+            }) {
                 return Err(ReloadValidationError::Runtime(
                     RuntimeError::capability_denied(
                         "external object in candidate module state at publication",
@@ -2066,8 +1922,8 @@ mod tests {
             )
             .unwrap();
         let foreign = Runtime::default().alloc_array(Vec::new()).unwrap();
-        runtime.module_instance_mut(&loaded).unwrap().init_result =
-            Some(value::Value::Array(foreign));
+        runtime.module_instance_mut(&loaded).unwrap().module_slots =
+            vec![value::Value::Array(foreign)];
 
         let error = runtime.collect_garbage().unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
@@ -2537,10 +2393,6 @@ mod tests {
         };
         let failed = stage(&mut runtime);
         let failed_key = failed.program.module().key();
-        runtime
-            .module_instance_mut(failed.program.module())
-            .unwrap()
-            .fail_initialization();
         assert_eq!(
             runtime.modules.latest("reloadable").unwrap().key(),
             baseline.key()
@@ -2555,12 +2407,6 @@ mod tests {
         let candidate = stage(&mut runtime);
         let stale = stage(&mut runtime);
         let stale_key = stale.program.module().key();
-        for member in candidate.program.module().members() {
-            runtime
-                .module_instance_mut(&member)
-                .unwrap()
-                .finish_initialization(Value::I32(42));
-        }
         assert_eq!(
             runtime.modules.latest("reloadable").unwrap().key(),
             baseline.key()
@@ -2579,13 +2425,7 @@ mod tests {
             runtime.resources.counters().loaded_modules,
             runtime.modules.loaded_count()
         );
-        assert_eq!(
-            runtime
-                .module_instance_snapshot(&current)
-                .unwrap()
-                .init_result,
-            Some(Value::I32(42))
-        );
+        assert!(runtime.module_instance_snapshot(&current).is_some());
         runtime.validate_loaded_module(&baseline).unwrap();
     }
 

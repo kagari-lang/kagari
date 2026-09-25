@@ -173,7 +173,7 @@ fn wildcard_import_expands_offline_host_module_declarations() {
 }
 
 #[test]
-fn diamond_has_deterministic_dependency_first_order() {
+fn diamond_has_deterministic_reachable_order() {
     let mut db = SourceDatabase::default();
     insert(
         &mut db,
@@ -188,14 +188,16 @@ fn diamond_has_deterministic_dependency_first_order() {
     let graph = snapshot.module_graph();
     assert_eq!(
         graph
-            .initialization_order(&identity("root"), &Default::default())
+            .reachable_order(&identity("root"), &Default::default())
             .unwrap(),
-        ["shared", "left", "right", "root"].map(identity)
+        ["left", "right", "root", "shared"].map(identity)
     );
-    assert!(matches!(
-        graph.initialization_order(&identity("unrelated"), &Default::default()),
-        Err(ModuleOrderError::Cycle(_))
-    ));
+    assert_eq!(
+        graph
+            .reachable_order(&identity("unrelated"), &Default::default())
+            .unwrap(),
+        vec![identity("unrelated")]
+    );
     let root = graph.node(&identity("root")).unwrap();
     assert!(
         snapshot
@@ -213,7 +215,7 @@ fn diamond_has_deterministic_dependency_first_order() {
 }
 
 #[test]
-fn cycles_are_reported_on_cycle_edges_without_mislabeling_dependents() {
+fn cycles_are_reachable_without_invalidating_dependents() {
     let mut db = SourceDatabase::default();
     let a = insert(&mut db, "a", "use pkg::b; fn good() -> i32 { 42 }");
     insert(&mut db, "b", "use pkg::a;");
@@ -221,26 +223,21 @@ fn cycles_are_reported_on_cycle_edges_without_mislabeling_dependents() {
     let snapshot = analyze(&db);
     let graph = snapshot.module_graph();
     assert_eq!(
-        graph.initialization_order(&identity("caller"), &Default::default()),
-        Err(ModuleOrderError::Cycle(vec![identity("a"), identity("b")]))
+        graph
+            .reachable_order(&identity("caller"), &Default::default())
+            .unwrap(),
+        ["a", "b", "caller"].map(identity)
     );
     assert!(
-        !snapshot
+        snapshot
             .file(caller)
             .unwrap()
             .result()
             .diagnostics()
-            .iter()
-            .any(|d| matches!(d.kind, DiagnosticKind::CyclicImport { .. }))
+            .is_empty()
     );
     let diagnostics = snapshot.file(a).unwrap().result().diagnostics();
-    assert_eq!(
-        diagnostics
-            .iter()
-            .filter(|d| matches!(d.kind, DiagnosticKind::CyclicImport { .. }))
-            .count(),
-        1
-    );
+    assert!(diagnostics.is_empty());
     assert_eq!(
         snapshot
             .file(a)
@@ -365,7 +362,7 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
     assert!(matches!(
         private
             .module_graph()
-            .initialization_order(&identity("root"), &Default::default()),
+            .reachable_order(&identity("root"), &Default::default()),
         Err(ModuleOrderError::InvalidImports(_))
     ));
     db.close_overlay("mem://library").unwrap();
@@ -504,7 +501,7 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
     let graph = snapshot.module_graph();
     assert_eq!(
         graph
-            .initialization_order(&identity("m0"), &Default::default())
+            .reachable_order(&identity("m0"), &Default::default())
             .unwrap()
             .len(),
         1024
@@ -512,7 +509,7 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert_eq!(
-        graph.initialization_order(&identity("m0"), &cancel),
+        graph.reachable_order(&identity("m0"), &cancel),
         Err(ModuleOrderError::Cancelled)
     );
 }

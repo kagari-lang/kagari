@@ -95,7 +95,6 @@ pub enum DefinitionKind {
     Trait,
     Impl,
     Method,
-    ModuleInit,
     Variant,
 }
 

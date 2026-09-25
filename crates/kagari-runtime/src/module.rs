@@ -73,14 +73,6 @@ impl ModuleEpochRetentionCounts {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModuleInitializationState {
-    Uninitialized,
-    Initializing,
-    Initialized,
-    Failed,
-}
-
 /// A verified, linked module with immutable shared executable data.
 ///
 /// ```compile_fail
@@ -304,8 +296,6 @@ pub struct ModuleInstance {
     pub id: ModuleId,
     pub name: String,
     pub epoch: ModuleEpoch,
-    pub state: ModuleInitializationState,
-    pub init_result: Option<Value>,
     pub module_slots: Vec<Value>,
 }
 
@@ -315,28 +305,8 @@ impl ModuleInstance {
             id: module.id,
             name: module.name.clone(),
             epoch: module.epoch,
-            state: ModuleInitializationState::Uninitialized,
-            init_result: None,
             module_slots: vec![Value::Unit; module.bytecode.module_slots.len()],
         }
-    }
-
-    pub fn is_initializing(&self) -> bool {
-        matches!(self.state, ModuleInitializationState::Initializing)
-    }
-
-    pub fn begin_initialization(&mut self) {
-        self.state = ModuleInitializationState::Initializing;
-    }
-
-    pub fn finish_initialization(&mut self, result: Value) {
-        self.state = ModuleInitializationState::Initialized;
-        self.init_result = Some(result);
-    }
-
-    pub fn fail_initialization(&mut self) {
-        self.state = ModuleInitializationState::Failed;
-        self.init_result = None;
     }
 }
 
@@ -453,13 +423,7 @@ impl ModuleStore {
             .borrow()
             .instances
             .values()
-            .flat_map(|instance| {
-                instance
-                    .module_slots
-                    .iter()
-                    .chain(instance.init_result.iter())
-                    .cloned()
-            })
+            .flat_map(|instance| instance.module_slots.iter().cloned())
             .collect()
     }
     pub(crate) fn stage_program(
@@ -707,7 +671,14 @@ mod tests {
     fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         let code = VerifiedProgram::new(BytecodeProgram {
             root: ModuleRef::new(0),
-            modules: vec![BytecodeModule::default()],
+            modules: vec![BytecodeModule {
+                module_slots: vec![kagari_ir::bytecode::BytecodeModuleSlot {
+                    name: "state".into(),
+                    ty: kagari_ir::module::ValueType::I32,
+                    mutable: true,
+                }],
+                ..Default::default()
+            }],
         })
         .unwrap();
         let mut first_runtime = Runtime::new(RuntimeConfig::default());
@@ -728,22 +699,22 @@ mod tests {
             .modules()
             .instance_mut(first.key())
             .unwrap()
-            .finish_initialization(Value::I32(7));
+            .module_slots[0] = Value::I32(7);
         assert_eq!(
             first_runtime
                 .modules()
                 .instance_snapshot(first.key())
                 .unwrap()
-                .init_result,
-            Some(Value::I32(7))
+                .module_slots,
+            vec![Value::I32(7)]
         );
         assert_eq!(
             second_runtime
                 .modules()
                 .instance_snapshot(second.key())
                 .unwrap()
-                .init_result,
-            None
+                .module_slots,
+            vec![Value::Unit]
         );
     }
 
@@ -751,8 +722,18 @@ mod tests {
     fn staged_programs_keep_instances_alive_without_activating_them() {
         let store = ModuleStore::default();
         let stage = |epoch| {
-            let dependency = BytecodeModule::default();
-            let mut root = BytecodeModule::default();
+            let dependency = BytecodeModule {
+                module_slots: vec![kagari_ir::bytecode::BytecodeModuleSlot {
+                    name: "state".into(),
+                    ty: kagari_ir::module::ValueType::I32,
+                    mutable: true,
+                }],
+                ..Default::default()
+            };
+            let mut root = BytecodeModule {
+                module_slots: dependency.module_slots.clone(),
+                ..Default::default()
+            };
             root.identity.path.push("root".into());
             root.dependencies.push(ModuleRef::new(0));
             store
@@ -777,17 +758,21 @@ mod tests {
             .map(|m| m.key())
             .collect::<Vec<_>>();
         for member in candidate.module.members() {
-            store
-                .instance_mut(member.key())
-                .unwrap()
-                .finish_initialization(Value::I32(73));
+            store.instance_mut(member.key()).unwrap().module_slots[0] = Value::I32(73);
             assert!(store.is_reachable(member.key()));
         }
         assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
         assert_eq!(store.loaded_count(), 6);
         assert_eq!(store.resources.counters().loaded_modules, 6);
         assert!(store.collect_unreachable_epochs().is_empty());
-        assert_eq!(store.gc_roots(), vec![Value::I32(73); 2]);
+        assert_eq!(
+            store
+                .gc_roots()
+                .into_iter()
+                .filter(|value| *value == Value::I32(73))
+                .count(),
+            2
+        );
 
         drop(abandoned);
         for key in abandoned_keys {
@@ -803,13 +788,19 @@ mod tests {
         assert_eq!(store.latest("game.player").unwrap().key(), published.key());
         for member in published.members() {
             let instance = store.instance_snapshot(member.key()).unwrap();
-            assert_eq!(instance.state, ModuleInitializationState::Initialized);
-            assert_eq!(instance.init_result, Some(Value::I32(73)));
+            assert_eq!(instance.module_slots, vec![Value::I32(73)]);
         }
         assert_eq!(store.collect_unreachable_epochs().len(), 2);
         assert_eq!(store.loaded_count(), 2);
         assert_eq!(store.resources.counters().loaded_modules, 2);
-        assert_eq!(store.gc_roots(), vec![Value::I32(73); 2]);
+        assert_eq!(
+            store
+                .gc_roots()
+                .into_iter()
+                .filter(|value| *value == Value::I32(73))
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -898,82 +889,6 @@ mod tests {
         assert_eq!(other.id.index(), 1);
         assert_eq!(store.loaded_count(), 3);
         assert_eq!(store.latest("game.player").unwrap().epoch, ModuleEpoch(2));
-    }
-
-    #[test]
-    fn creates_module_instances_with_explicit_initialization_state() {
-        let store = ModuleStore::default();
-        let module = store
-            .stage_program(
-                "game.init",
-                ModuleEpoch(1),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                crate::host::HostRegistryId::default(),
-                vec![LinkedHostBindings::default()],
-            )
-            .unwrap()
-            .publish();
-
-        let instance = store.instance_snapshot(module.key()).unwrap();
-        assert_eq!(instance.id, module.id);
-        assert_eq!(instance.name, "game.init");
-        assert_eq!(instance.epoch, ModuleEpoch(1));
-        assert_eq!(instance.state, ModuleInitializationState::Uninitialized);
-        assert_eq!(instance.init_result, None);
-    }
-
-    #[test]
-    fn records_initialization_result_and_failure_state() {
-        let store = ModuleStore::default();
-        let module = store
-            .stage_program(
-                "game.init",
-                ModuleEpoch(1),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                crate::host::HostRegistryId::default(),
-                vec![LinkedHostBindings::default()],
-            )
-            .unwrap()
-            .publish();
-
-        {
-            let mut instance = store.instance_mut(module.key()).unwrap();
-            instance.begin_initialization();
-            assert!(instance.is_initializing());
-            instance.finish_initialization(Value::I32(7));
-        }
-        assert_eq!(
-            store.instance_snapshot(module.key()).unwrap().init_result,
-            Some(Value::I32(7))
-        );
-
-        let next = store
-            .stage_program(
-                "game.init",
-                ModuleEpoch(2),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                crate::host::HostRegistryId::default(),
-                vec![LinkedHostBindings::default()],
-            )
-            .unwrap()
-            .publish();
-        {
-            let mut instance = store.instance_mut(next.key()).unwrap();
-            instance.begin_initialization();
-            instance.fail_initialization();
-        }
-        let failed = store.instance_snapshot(next.key()).unwrap();
-        assert_eq!(failed.state, ModuleInitializationState::Failed);
-        assert_eq!(failed.init_result, None);
     }
 
     #[test]

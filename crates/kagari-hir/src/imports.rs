@@ -98,7 +98,6 @@ pub struct ModuleNode {
     pub revision: Revision,
     pub imports: Arc<ModuleImports>,
     dependencies: Vec<ModuleIdentity>,
-    cycle: Option<Arc<[ModuleIdentity]>>,
 }
 
 impl ModuleNode {
@@ -173,7 +172,6 @@ impl ModuleGraph {
                     revision: module.source.revision(),
                     imports: Arc::new(imports),
                     dependencies,
-                    cycle: None,
                 },
             );
         }
@@ -187,7 +185,6 @@ impl ModuleGraph {
             );
         }
         let mut graph = Self { nodes };
-        graph.mark_cycles(cancel)?;
         graph.bind_exports(cancel)?;
         Ok(graph)
     }
@@ -255,8 +252,8 @@ impl ModuleGraph {
         }
     }
 
-    /// Dependency-first order of the root's reachable graph; unrelated cycles do not block it.
-    pub fn initialization_order(
+    /// Stable order of the root's reachable source modules. Name references may be cyclic.
+    pub fn reachable_order(
         &self,
         root: &ModuleIdentity,
         cancel: &CancellationToken,
@@ -272,137 +269,12 @@ impl ModuleGraph {
                 continue;
             }
             let node = &self.nodes[&module];
-            if let Some(cycle) = &node.cycle {
-                return Err(ModuleOrderError::Cycle(cycle.to_vec()));
-            }
             if !node.imports.diagnostics.is_empty() {
                 return Err(ModuleOrderError::InvalidImports(module));
             }
             pending.extend(node.dependencies.iter().cloned());
         }
-        let mut remaining = BTreeMap::new();
-        let mut dependents = BTreeMap::<_, Vec<_>>::new();
-        let mut ready = BTreeSet::new();
-        for module in &reachable {
-            cancel.check().map_err(|_| ModuleOrderError::Cancelled)?;
-            let dependencies = &self.nodes[module].dependencies;
-            remaining.insert(module.clone(), dependencies.len());
-            if dependencies.is_empty() {
-                ready.insert(module.clone());
-            }
-            for dependency in dependencies {
-                dependents
-                    .entry(dependency.clone())
-                    .or_default()
-                    .push(module.clone());
-            }
-        }
-        let mut order = Vec::with_capacity(reachable.len());
-        while let Some(module) = ready.pop_first() {
-            cancel.check().map_err(|_| ModuleOrderError::Cancelled)?;
-            for dependent in dependents.get(&module).into_iter().flatten() {
-                let count = remaining.get_mut(dependent).expect("reachable dependent");
-                *count -= 1;
-                if *count == 0 {
-                    ready.insert(dependent.clone());
-                }
-            }
-            order.push(module);
-        }
-        Ok(order)
-    }
-
-    fn mark_cycles(&mut self, cancel: &CancellationToken) -> Result<(), Cancelled> {
-        // Iterative Kosaraju: source depth must not consume the Rust call stack.
-        let ids = self.nodes.keys().cloned().collect::<Vec<_>>();
-        let indices = ids
-            .iter()
-            .enumerate()
-            .map(|(i, id)| (id.clone(), i))
-            .collect::<HashMap<_, _>>();
-        let edges = ids
-            .iter()
-            .map(|id| {
-                self.nodes[id]
-                    .dependencies
-                    .iter()
-                    .map(|id| indices[id])
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        let mut reverse = vec![Vec::new(); ids.len()];
-        for (from, dependencies) in edges.iter().enumerate() {
-            for to in dependencies {
-                reverse[*to].push(from);
-            }
-        }
-        let mut visited = vec![false; ids.len()];
-        let mut finish = Vec::new();
-        for root in 0..ids.len() {
-            cancel.check()?;
-            if visited[root] {
-                continue;
-            }
-            visited[root] = true;
-            let mut stack = vec![(root, 0)];
-            while let Some((node, next)) = stack.last_mut() {
-                cancel.check()?;
-                if let Some(child) = edges[*node].get(*next) {
-                    *next += 1;
-                    if !visited[*child] {
-                        visited[*child] = true;
-                        stack.push((*child, 0));
-                    }
-                } else {
-                    finish.push(*node);
-                    stack.pop();
-                }
-            }
-        }
-        visited.fill(false);
-        for root in finish.into_iter().rev() {
-            if visited[root] {
-                continue;
-            }
-            let mut component = Vec::new();
-            let mut stack = vec![root];
-            visited[root] = true;
-            while let Some(node) = stack.pop() {
-                cancel.check()?;
-                component.push(node);
-                for parent in &reverse[node] {
-                    if !visited[*parent] {
-                        visited[*parent] = true;
-                        stack.push(*parent);
-                    }
-                }
-            }
-            if component.len() == 1 && !edges[root].contains(&root) {
-                continue;
-            }
-            component.sort_unstable();
-            let cycle: Arc<[ModuleIdentity]> = component.iter().map(|i| ids[*i].clone()).collect();
-            let cycle_names: Arc<[String]> = cycle.iter().map(ToString::to_string).collect();
-            let members = cycle.iter().collect::<HashSet<_>>();
-            for index in &component {
-                let node = self.nodes.get_mut(&ids[*index]).unwrap();
-                node.cycle = Some(cycle.clone());
-                let imports = Arc::make_mut(&mut node.imports);
-                for import in &imports.entries {
-                    if let Some(ImportTarget::Source(target)) = &import.target
-                        && members.contains(&target.module)
-                    {
-                        imports.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::CyclicImport {
-                                modules: cycle_names.clone(),
-                            })
-                            .with_span(import.span),
-                        );
-                    }
-                }
-            }
-        }
-        Ok(())
+        Ok(reachable.into_iter().collect())
     }
 }
 
@@ -410,7 +282,6 @@ impl ModuleGraph {
 pub enum ModuleOrderError {
     Missing(ModuleIdentity),
     InvalidImports(ModuleIdentity),
-    Cycle(Vec<ModuleIdentity>),
     Cancelled,
 }
 

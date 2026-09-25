@@ -1,12 +1,11 @@
 use kagari_ir::bytecode::FunctionRef;
 use kagari_runtime::{
-    LoadedModule, ModuleInitializationState, RuntimeError, gc::RootedValue, host::HostCallContext,
-    value::Value,
+    LoadedModule, RuntimeError, gc::RootedValue, host::HostCallContext, value::Value,
 };
 
 use crate::{VmError, executor::Executor};
 
-/// Synchronously call an initialized function in the root call's pinned program.
+/// Synchronously call a function in the root call's pinned program.
 /// Host callbacks keep returned heap objects alive through this owned root.
 pub fn reenter(
     context: &HostCallContext<'_>,
@@ -22,12 +21,6 @@ pub fn reenter(
     let _scope = runtime
         .begin_execution(loaded, runtime.execution_options())
         .map_err(VmError::RuntimeError)?;
-    if !runtime
-        .module_instance_snapshot(loaded)
-        .is_some_and(|instance| instance.state == ModuleInitializationState::Initialized)
-    {
-        return Err(invalid("script reentry requires an initialized module"));
-    }
     let target = loaded
         .bytecode
         .functions

@@ -3,8 +3,8 @@ use crate::hir::{BodyOwner, HirOwner, StmtKind};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
-fn lowering_records_owners_for_interleaved_initializer_functions_and_constants() {
-    let text = "var top = 1; const N: i32 = 2; fn first(x: i32) -> i32 { var local = x; local += N; match local { 2 => 3, other => other } } top += N; fn second() -> i32 { 4 } top";
+fn lowering_records_owners_for_interleaved_functions_and_constants() {
+    let text = "const N: i32 = 2; fn first(x: i32) -> i32 { var local = x; local += N; match local { 2 => 3, other => other } } fn second() -> i32 { 4 }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("owners.kgr", text.into(), SourceLayer::Base)
@@ -20,7 +20,6 @@ fn lowering_records_owners_for_interleaved_initializer_functions_and_constants()
     );
     let facts = file.result().facts();
     let module = &facts.lowered.module;
-    let initializer = module.module_init.unwrap();
     for function in &module.functions {
         let expected = HirOwner::Body(BodyOwner::Function(function.id));
         assert_eq!(function.body.owner(), expected);
@@ -53,13 +52,6 @@ fn lowering_records_owners_for_interleaved_initializer_functions_and_constants()
     assert_eq!(constant.ty.unwrap().owner(), constant.initializer.owner());
     for (expr, _) in module.body.expressions() {
         assert_ne!(expr.owner(), HirOwner::Declaration);
-        let span = facts.lowered.source_map.expr_span(expr);
-        if span.start == text.rfind("top").unwrap() {
-            assert_eq!(
-                expr.owner(),
-                HirOwner::Body(BodyOwner::Function(initializer))
-            );
-        }
     }
     for scope in facts.names.scopes() {
         for binding in &scope.bindings {

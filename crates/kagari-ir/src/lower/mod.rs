@@ -49,7 +49,6 @@ pub(crate) fn lower_to_ir_with_requests(
 ) -> Result<VerifiedIrModule, IrLoweringError> {
     let mut planner = instances::InstancePlanner::new(module, options);
     planner.check()?;
-    let mut module_init = None;
     let interface_methods = module
         .lowered
         .module
@@ -61,18 +60,14 @@ pub(crate) fn lower_to_ir_with_requests(
         .flat_map(|implementation| implementation.methods.iter().map(|method| method.function))
         .collect::<std::collections::HashSet<_>>();
     for function in &module.lowered.module.functions {
-        if (matches!(function.kind, FunctionKind::User | FunctionKind::ModuleInit)
-            || interface_methods.contains(&function.id))
+        if (matches!(function.kind, FunctionKind::User) || interface_methods.contains(&function.id))
             && function.generic_params.is_empty()
         {
-            let id = planner.enqueue(
+            planner.enqueue(
                 function.id,
                 Vec::new(),
                 module.lowered.source_map.function_span(function.id),
             )?;
-            if Some(function.id) == module.lowered.module.module_init {
-                module_init = Some(id);
-            }
         }
     }
     for request in requests {
@@ -151,7 +146,6 @@ pub(crate) fn lower_to_ir_with_requests(
             enumerations,
             identity: module.lowered.source.module_identity().clone(),
             source_name: module.lowered.source.name().to_owned(),
-            module_init,
             module_slots: Vec::new(),
             abi,
             functions,

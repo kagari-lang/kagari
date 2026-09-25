@@ -1,7 +1,6 @@
 use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleInitializationState,
-    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext,
-    value::StructValueField, value::Value,
+    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
+    RuntimeErrorKind, SecurityContext, value::StructValueField, value::Value,
 };
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
@@ -59,9 +58,9 @@ fn main() -> i32 {
 }
 
 #[test]
-fn missing_entry_is_rejected_before_module_initialization() {
+fn missing_entry_is_rejected_before_execution() {
     use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
-    let bytecode = compile_test_bytecode("val doomed = [1][3]; fn main() -> i32 { 42 }");
+    let bytecode = compile_test_bytecode("fn main() -> i32 { 42 }");
     for encoded in [false, true] {
         let program = BytecodeProgram {
             root: ModuleRef::new(0),
@@ -92,23 +91,14 @@ fn missing_entry_is_rejected_before_module_initialization() {
             );
             assert_eq!(vm.runtime().resources().counters().instruction_steps, 0);
             assert_eq!(vm.runtime().gc().active_roots(), 0);
-            assert_eq!(
-                vm.runtime()
-                    .module_instance_snapshot(&loaded)
-                    .unwrap()
-                    .state,
-                ModuleInitializationState::Uninitialized
-            );
         }
     }
 }
 
 #[test]
-fn ambiguous_entry_is_rejected_before_initialization_on_all_load_routes() {
+fn ambiguous_entry_is_rejected_on_all_load_routes() {
     use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
-    let mut bytecode = compile_test_bytecode(
-        "val doomed = [1][3]; fn first() -> i32 { 1 } fn second() -> i32 { 2 }",
-    );
+    let mut bytecode = compile_test_bytecode("fn first() -> i32 { 1 } fn second() -> i32 { 2 }");
     let second = bytecode
         .functions
         .iter()
@@ -148,13 +138,6 @@ fn ambiguous_entry_is_rejected_before_initialization_on_all_load_routes() {
             );
             assert_eq!(vm.runtime().resources().counters().instruction_steps, 0);
             assert_eq!(vm.runtime().gc().active_roots(), 0);
-            assert_eq!(
-                vm.runtime()
-                    .module_instance_snapshot(&loaded)
-                    .unwrap()
-                    .state,
-                ModuleInitializationState::Uninitialized
-            );
         }
     }
 }

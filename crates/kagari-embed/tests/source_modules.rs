@@ -208,30 +208,20 @@ fn duplicate_inline_and_external_module_identity_is_rejected() {
 }
 
 #[test]
-fn reachable_cycle_diagnostics_keep_the_dependency_file_and_revision() {
+fn reachable_cycles_compile_without_initialization() {
     let engine = KagariEngine::default();
     let root = insert(&engine, "root", "use pkg::a; fn main() -> i32 { 7 }");
-    let a = insert(&engine, "a", "use pkg::b;");
-    let b = insert(&engine, "b", "use pkg::a;");
-    let sources = engine.source_snapshot();
-    let error = engine
+    insert(&engine, "a", "use pkg::b;");
+    insert(&engine, "b", "use pkg::a;");
+    let artifact = engine
         .compile_snapshot(
-            sources.clone(),
+            engine.source_snapshot(),
             root,
             CompileOptions::default(),
             &CancellationToken::default(),
         )
-        .unwrap_err();
-    let EmbeddingError::Diagnostics { diagnostics } = error else {
-        panic!("expected source diagnostics");
-    };
-    assert_eq!(diagnostics.len(), 2);
-    for diagnostic in diagnostics {
-        assert_eq!(diagnostic.code, "KG_RESOLVE_CYCLIC_IMPORT");
-        let location = diagnostic.span.unwrap();
-        assert!([a, b].contains(&location.file));
-        assert!(sources.contains(location));
-    }
+        .unwrap();
+    assert_eq!(artifact.program().modules().len(), 3);
     let independent = insert(&engine, "independent", "fn main() -> i32 { 42 }");
     assert!(
         engine
@@ -275,14 +265,6 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
                 .return_value,
             Value::I32(42)
         );
-        assert!(loaded.members().all(|member| {
-            runtime
-                .runtime()
-                .module_instance_snapshot(&member)
-                .unwrap()
-                .state
-                == kagari_runtime::ModuleInitializationState::Initialized
-        }));
     }
 }
 
@@ -878,9 +860,7 @@ fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
     }
 }
 
-fn host_fixture(
-    failing: bool,
-) -> (
+fn host_fixture() -> (
     KagariEngine,
     BytecodeArtifact,
     ExecutionContext,
@@ -909,26 +889,22 @@ fn host_fixture(
     insert(
         &engine,
         "shared",
-        if failing {
-            "val started = trace::record(1); val broken = 1 / 0; pub fn value() -> i32 { 42 }"
-        } else {
-            "val started = trace::record(1); pub fn value() -> i32 { 42 }"
-        },
+        "pub fn value() -> i32 { trace::record(1); 21 }",
     );
     insert(
         &engine,
         "left",
-        "use pkg::shared; val started = trace::record(2);",
+        "use pkg::shared::value; pub fn left() -> i32 { trace::record(2); value() }",
     );
     insert(
         &engine,
         "right",
-        "use pkg::shared; val started = trace::record(3);",
+        "use pkg::shared; pub fn right() -> i32 { trace::record(3); 21 }",
     );
     let root = insert(
         &engine,
         "root",
-        "use pkg::left; use pkg::right; val started = trace::record(4); fn main() -> i32 { 42 }",
+        "use pkg::left::left; use pkg::right::right; fn main() -> i32 { trace::record(4); left() + right() }",
     );
     let context = ExecutionContext {
         language_profile: kagari_runtime::LanguageProfile {
@@ -956,63 +932,8 @@ fn host_fixture(
 }
 
 #[test]
-fn diamond_initialization_is_dependency_first_once_per_runtime_and_failure_is_cached() {
-    use std::sync::{Arc, Mutex};
-    for failing in [false, true] {
-        let (engine, artifact, context, declaration) = host_fixture(failing);
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        for _ in 0..2 {
-            let mut runtime = engine.runtime(context.clone());
-            let recorded = calls.clone();
-            runtime
-                .register_host_function(kagari_runtime::host::HostFunction::new(
-                    declaration.clone(),
-                    move |_, args| {
-                        recorded.lock().unwrap().push(args[0].clone());
-                        Ok(args[0].clone())
-                    },
-                ))
-                .unwrap();
-            let loaded = runtime
-                .load_program(artifact.clone(), Default::default())
-                .unwrap();
-            for _ in 0..2 {
-                let result = runtime.execute(&loaded, "main", &[], &context);
-                if failing {
-                    assert!(result.is_err());
-                } else {
-                    assert_eq!(result.unwrap().return_value, Value::I32(42));
-                }
-            }
-            let expected_state = if failing {
-                kagari_runtime::ModuleInitializationState::Failed
-            } else {
-                kagari_runtime::ModuleInitializationState::Initialized
-            };
-            assert_eq!(
-                runtime
-                    .runtime()
-                    .module_instance_snapshot(&loaded)
-                    .unwrap()
-                    .state,
-                expected_state
-            );
-        }
-        let expected = if failing {
-            vec![1, 1]
-        } else {
-            vec![1, 2, 3, 4, 1, 2, 3, 4]
-        };
-        assert_eq!(
-            *calls.lock().unwrap(),
-            expected.into_iter().map(Value::I32).collect::<Vec<_>>()
-        );
-    }
-}
-
-#[test]
 fn execution_report_records_code_inputs_and_ordered_host_results() {
-    let (engine, artifact, mut context, declaration) = host_fixture(false);
+    let (engine, artifact, mut context, declaration) = host_fixture();
     context.tracing_enabled = true;
     context.inputs.unix_time_millis = 31_415;
     context.inputs.random_seed = 27;
@@ -1038,7 +959,8 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
             .iter()
             .map(|call| (call.arguments.clone(), call.outcome.clone()))
             .collect::<Vec<_>>();
-        let expected = (1..=4)
+        let expected = [4, 2, 1, 3]
+            .into_iter()
             .map(|value| {
                 let value = kagari_runtime::TraceValue::I32(value);
                 (vec![value.clone()], Some(Ok(value)))
@@ -1051,9 +973,9 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
 }
 
 #[test]
-fn dependency_bindings_and_execution_policy_are_checked_before_initialization() {
+fn dependency_bindings_and_execution_policy_are_checked_before_execution() {
     use std::sync::{Arc, Mutex};
-    let (engine, _, context, declaration) = host_fixture(false);
+    let (engine, _, context, declaration) = host_fixture();
     let root = insert(
         &engine,
         "root",
@@ -1098,14 +1020,6 @@ fn dependency_bindings_and_execution_policy_are_checked_before_initialization() 
             .is_err()
     );
     assert!(calls.lock().unwrap().is_empty());
-    assert!(loaded.members().all(|member| {
-        runtime
-            .runtime()
-            .module_instance_snapshot(&member)
-            .unwrap()
-            .state
-            == kagari_runtime::ModuleInitializationState::Uninitialized
-    }));
 }
 
 #[test]
@@ -1249,9 +1163,6 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
     bad.root = ModuleRef::new(100);
     malformed.push(bad);
     let mut bad = program.clone();
-    bad.modules[0].dependencies.push(program.root);
-    malformed.push(bad);
-    let mut bad = program.clone();
     bad.modules[program.root.index()].dependencies.clear();
     malformed.push(bad);
     let mut bad = program.clone();
@@ -1264,9 +1175,6 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
     malformed.push(bad);
     let mut bad = program.clone();
     bad.modules.push(BytecodeModule::default());
-    malformed.push(bad);
-    let mut bad = program.clone();
-    bad.modules[0].module_init = Some(FunctionRef::new(0));
     malformed.push(bad);
     let flag = program.modules[0]
         .functions
@@ -1317,126 +1225,4 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
             .0,
         1
     );
-}
-
-#[test]
-fn failed_reload_dependency_discards_the_entire_candidate_program() {
-    let engine = KagariEngine::default();
-    insert(
-        &engine,
-        "shared",
-        "val staged = [1, 2]; pub fn value() -> i32 { 7 }",
-    );
-    insert(&engine, "left", "use pkg::shared; val ready = 0;");
-    insert(&engine, "right", "use pkg::shared;");
-    let root = insert(
-        &engine,
-        "root",
-        "use pkg::left; use pkg::right; use pkg::shared::value; fn main() -> i32 { value() }",
-    );
-    let original = compile(&engine, root, Default::default());
-    insert(
-        &engine,
-        "shared",
-        "val staged = [1, 2]; pub fn value() -> i32 { 9 }",
-    );
-    insert(&engine, "left", "use pkg::shared; val ready = 1 / 0;");
-    let failing = compile(&engine, root, Default::default());
-    insert(&engine, "left", "use pkg::shared; val ready = 0;");
-    let replacement = compile(&engine, root, Default::default());
-    for encoded in [false, true] {
-        let route = |artifact: &BytecodeArtifact| {
-            if encoded {
-                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
-            } else {
-                artifact.clone()
-            }
-        };
-        let context = ExecutionContext::default();
-        let mut runtime = engine.runtime(context.clone());
-        let old = runtime
-            .load_program(route(&original), Default::default())
-            .unwrap();
-        assert_eq!(
-            runtime
-                .execute(&old, "main", &[], &context)
-                .unwrap()
-                .return_value,
-            Value::I32(7)
-        );
-        runtime.runtime().collect_garbage().unwrap();
-        let retained = runtime
-            .runtime()
-            .begin_execution(&old, runtime.runtime().execution_options())
-            .unwrap();
-        let before = runtime.runtime().modules().loaded_count();
-        for _ in 0..2 {
-            assert!(matches!(
-                runtime.reload_program(&old, route(&failing), Default::default()),
-                Err(EmbeddingError::Runtime { .. })
-            ));
-            assert_eq!(
-                runtime.runtime().modules().latest(&old.name).unwrap().key(),
-                old.key()
-            );
-            assert_eq!(runtime.runtime().execution_root().unwrap().key(), old.key());
-            assert_eq!(runtime.runtime().modules().loaded_count(), before);
-            assert_eq!(
-                runtime.runtime().resources().counters().loaded_modules,
-                before
-            );
-            assert_eq!(
-                runtime.runtime().resources().counters().current_call_depth,
-                0
-            );
-            assert!(
-                runtime
-                    .runtime()
-                    .collect_garbage()
-                    .unwrap()
-                    .reclaimed_objects
-                    >= 1
-            );
-            assert_eq!(
-                runtime
-                    .execute(&old, "main", &[], &context)
-                    .unwrap()
-                    .return_value,
-                Value::I32(7)
-            );
-        }
-        let new = runtime
-            .reload_program(&old, route(&replacement), Default::default())
-            .unwrap();
-        assert!(new.members().all(|member| {
-            runtime
-                .runtime()
-                .module_instance_snapshot(&member)
-                .unwrap()
-                .state
-                == kagari_runtime::ModuleInitializationState::Initialized
-        }));
-        assert_eq!(
-            runtime
-                .execute(&old, "main", &[], &context)
-                .unwrap()
-                .return_value,
-            Value::I32(7)
-        );
-        drop(retained);
-        assert_eq!(
-            runtime
-                .execute(&new, "main", &[], &context)
-                .unwrap()
-                .return_value,
-            Value::I32(9)
-        );
-        assert_eq!(
-            runtime
-                .execute(&old, "main", &[], &context)
-                .unwrap()
-                .return_value,
-            Value::I32(7)
-        );
-    }
 }

@@ -1,6 +1,6 @@
 use kagari_ir::bytecode::{BytecodeVerificationError, CallTarget, FunctionRef, ModuleSlot};
 use kagari_runtime::{
-    BackendDiagnostic, BackendInvocationError, ModuleKey, RuntimeError, builtin::BuiltinError,
+    BackendDiagnostic, BackendInvocationError, RuntimeError, builtin::BuiltinError,
     host::HostError, reflection::ReflectionError,
 };
 
@@ -12,7 +12,6 @@ pub enum VmError {
     InvalidFunctionRef(FunctionRef),
     InvalidModuleSlot(ModuleSlot),
     ImmutableModuleSlot(ModuleSlot),
-    ModuleInitializing(ModuleKey),
     InvalidIndex(usize),
     InvalidBranchCondition,
     HostError(HostError),

@@ -32,20 +32,6 @@ impl<'a> Parser<'a> {
             Some(TokenKind::EnumKw) => self.parse_enum(),
             Some(TokenKind::TraitKw) => self.parse_trait(),
             Some(TokenKind::ImplKw) => self.parse_impl(),
-            Some(TokenKind::ValKw | TokenKind::VarKw) => self.parse_binding_stmt(),
-            Some(TokenKind::WhileKw) => self.parse_while_stmt(),
-            Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
-            Some(TokenKind::ReturnKw | TokenKind::BreakKw | TokenKind::ContinueKw) => {
-                self.error_here(DiagnosticKind::TopLevelControlFlowNotAllowed);
-                self.start_node(SyntaxKind::Error);
-                self.bump();
-                self.bump_trivia();
-                if self.at(TokenKind::Semi) {
-                    self.bump();
-                }
-                self.finish_node();
-            }
-            Some(_) if self.expr_starts() => return self.parse_top_level_expr_stmt_or_tail(),
             Some(TokenKind::Unknown) => {
                 self.error_here(DiagnosticKind::UnexpectedToken);
                 self.bump_as_error();
@@ -929,27 +915,5 @@ impl<'a> Parser<'a> {
         );
         self.parse_type_ref();
         self.finish_node();
-    }
-
-    fn parse_top_level_expr_stmt_or_tail(&mut self) -> bool {
-        let checkpoint = self.checkpoint();
-        self.parse_expr();
-        self.bump_trivia();
-
-        if self.finish_assignment(checkpoint) {
-            return false;
-        }
-
-        if self.at(TokenKind::Semi) {
-            self.finish_expr_stmt(checkpoint);
-            return false;
-        }
-
-        if self.at(TokenKind::Eof) {
-            return true;
-        }
-
-        self.error_here(DiagnosticKind::ExpectedStatementTerminator);
-        false
     }
 }

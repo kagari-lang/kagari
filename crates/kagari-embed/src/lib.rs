@@ -239,7 +239,6 @@ impl KagariEngine {
                 ProgramCheckError::Graph(error) => {
                     let failed = match error {
                         ModuleOrderError::Cancelled => return EmbeddingError::Cancelled,
-                        ModuleOrderError::Cycle(modules) => modules,
                         ModuleOrderError::InvalidImports(module) => vec![module],
                         ModuleOrderError::Missing(module) => {
                             return EmbeddingError::Source {
@@ -387,7 +386,6 @@ impl KagariRuntime {
                 kagari_vm::ReloadError::Validation(error) => {
                     EmbeddingError::reload_validation(error)
                 }
-                kagari_vm::ReloadError::Initialization(error) => EmbeddingError::vm(error),
             })
     }
 
@@ -446,22 +444,6 @@ impl KagariRuntime {
         self.vm
             .execute_with_backend(module, entry, backend)
             .map_err(EmbeddingError::vm)
-    }
-
-    pub fn execute_module(
-        &mut self,
-        module: &LoadedModule,
-        context: &ExecutionContext,
-    ) -> RunResult<Value> {
-        for member in module.members() {
-            context.validate_for_execute("__module_init__", &member.bytecode)?;
-        }
-        let _session = self
-            .vm
-            .runtime()
-            .begin_execution(module, context.runtime_options())
-            .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
-        self.vm.execute_module(module).map_err(EmbeddingError::vm)
     }
 }
 
@@ -907,7 +889,6 @@ impl EmbeddingError {
             VmError::MissingFunction(_)
             | VmError::MissingField(_)
             | VmError::ImmutableModuleSlot(_)
-            | VmError::ModuleInitializing(_)
             | VmError::InvalidIndex(_)
             | VmError::InvalidBranchCondition
             | VmError::BuiltinError(_)

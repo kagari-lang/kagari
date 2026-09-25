@@ -10,16 +10,15 @@ use kagari_ir::module::ValueType;
 use kagari_runtime::host::{HostFunction, HostFunctionDeclaration};
 use kagari_runtime::value::{StructValueField, Value};
 use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention,
-    ModuleInitializationState, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext,
+    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention, ResourcePolicy,
+    Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext,
 };
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
 use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
 
 #[test]
-fn foreign_loaded_module_is_rejected_before_initialization() {
+fn foreign_loaded_module_is_rejected_before_execution() {
     let bytecode = compile_test_bytecode("fn main() -> i32 { 7 }");
     let mut first = Runtime::default();
     let mut second = Runtime::default();
@@ -45,10 +44,6 @@ fn foreign_loaded_module_is_rejected_before_initialization() {
     let mut vm = Vm::new(second);
     assert!(
         matches!(vm.execute(&foreign, "main"), Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::ModuleValidation)
-    );
-    assert_eq!(
-        vm.runtime().module_instance_snapshot(&local).unwrap().state,
-        ModuleInitializationState::Uninitialized
     );
     assert_eq!(
         vm.execute(&local, "main").unwrap().return_value,
@@ -81,10 +76,7 @@ fn test_function(
     }
 }
 
-fn verified_module(
-    module_init: Option<FunctionRef>,
-    functions: Vec<BytecodeFunction>,
-) -> BytecodeModule {
+fn verified_module(functions: Vec<BytecodeFunction>) -> BytecodeModule {
     let constants = functions
         .iter()
         .flat_map(|function| &function.instructions)
@@ -122,7 +114,6 @@ fn verified_module(
         })
         .collect();
     BytecodeModule {
-        module_init,
         constants,
         types,
         function_table,
@@ -131,67 +122,61 @@ fn verified_module(
     }
 }
 
-fn module_with_private_init_slot(value: i32) -> BytecodeModule {
-    let mut module = verified_module(
-        Some(FunctionRef::new(0)),
-        vec![
-            test_function(
-                0,
-                "__module_init__",
-                vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
-                        constant: ConstantOperand::I32(value),
-                    },
-                    BytecodeInstruction::StoreModule {
-                        slot: ModuleSlot::new(0),
-                        src: Register::new(0),
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(0))),
-                ],
-                ValueType::I32,
-                vec![ValueType::I32],
-            ),
-            test_function(
-                1,
-                "main",
-                vec![
-                    BytecodeInstruction::LoadModule {
-                        dst: Register::new(0),
-                        slot: ModuleSlot::new(0),
-                    },
-                    BytecodeInstruction::Return(Some(Register::new(0))),
-                ],
-                ValueType::I32,
-                vec![ValueType::I32],
-            ),
-        ],
-    );
-    module.module_slots = vec![BytecodeModuleSlot {
-        name: "private".to_owned(),
-        ty: ValueType::I32,
-        mutable: false,
-    }];
-    module
-}
-
-fn reloadable_value_module(value: i32) -> BytecodeModule {
-    verified_module(
-        None,
-        vec![test_function(
+fn module_with_mutable_slot(value: i32) -> BytecodeModule {
+    let mut module = verified_module(vec![
+        test_function(
             0,
-            "main",
+            "init",
             vec![
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(0),
                     constant: ConstantOperand::I32(value),
                 },
+                BytecodeInstruction::StoreModule {
+                    slot: ModuleSlot::new(0),
+                    src: Register::new(0),
+                },
                 BytecodeInstruction::Return(Some(Register::new(0))),
             ],
             ValueType::I32,
             vec![ValueType::I32],
-        )],
-    )
+        ),
+        test_function(
+            1,
+            "main",
+            vec![
+                BytecodeInstruction::LoadModule {
+                    dst: Register::new(0),
+                    slot: ModuleSlot::new(0),
+                },
+                BytecodeInstruction::Return(Some(Register::new(0))),
+            ],
+            ValueType::I32,
+            vec![ValueType::I32],
+        ),
+    ]);
+    module.module_slots = vec![BytecodeModuleSlot {
+        name: "private".to_owned(),
+        ty: ValueType::I32,
+        mutable: true,
+    }];
+    module
+}
+
+fn reloadable_value_module(value: i32) -> BytecodeModule {
+    verified_module(vec![test_function(
+        0,
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantOperand::I32(value),
+            },
+            BytecodeInstruction::Return(Some(Register::new(0))),
+        ],
+        ValueType::I32,
+        vec![ValueType::I32],
+    )])
 }
 
 fn host_call_runtime() -> Runtime {
@@ -327,22 +312,19 @@ fn reports_runtime_allocation_unit_limit() {
 
 #[test]
 fn rejects_unverified_bytecode_before_publication() {
-    let mut bytecode = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
-                    constant: ConstantOperand::I32(1),
-                },
-                BytecodeInstruction::Return(Some(Register::new(0))),
-            ],
-            ValueType::I32,
-            vec![ValueType::I32],
-        )],
-    );
+    let mut bytecode = verified_module(vec![test_function(
+        0,
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantOperand::I32(1),
+            },
+            BytecodeInstruction::Return(Some(Register::new(0))),
+        ],
+        ValueType::I32,
+        vec![ValueType::I32],
+    )]);
     bytecode.function_table.clear();
     let mut runtime = Runtime::new(RuntimeConfig {
         resources: ResourcePolicy {
@@ -368,44 +350,38 @@ fn rejects_unverified_bytecode_before_publication() {
 
 #[test]
 fn rejects_unsupported_bytecode_before_publication() {
-    let register_call = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
-                    constant: ConstantOperand::I32(1),
-                },
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::Register(Register::new(0)),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
-            vec![ValueType::I32],
-        )],
-    );
-    let dynamic_call = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
-            vec![],
-        )],
-    );
+    let register_call = verified_module(vec![test_function(
+        0,
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantOperand::I32(1),
+            },
+            BytecodeInstruction::Call {
+                dst: None,
+                callee: CallTarget::Register(Register::new(0)),
+                args: vec![],
+            },
+            BytecodeInstruction::Return(None),
+        ],
+        ValueType::Unit,
+        vec![ValueType::I32],
+    )]);
+    let dynamic_call = verified_module(vec![test_function(
+        0,
+        "main",
+        vec![
+            BytecodeInstruction::Call {
+                dst: None,
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
+                args: vec![],
+            },
+            BytecodeInstruction::Return(None),
+        ],
+        ValueType::Unit,
+        vec![],
+    )]);
     let mut runtime = Runtime::default();
     for (name, bytecode) in [
         ("register_call.kbc", register_call),
@@ -428,23 +404,20 @@ fn rejects_unsupported_bytecode_before_publication() {
 
 #[test]
 fn unsupported_dynamic_invocation_is_rejected_even_with_capability() {
-    let dynamic_call = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
-            vec![],
-        )],
-    );
+    let dynamic_call = verified_module(vec![test_function(
+        0,
+        "main",
+        vec![
+            BytecodeInstruction::Call {
+                dst: None,
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
+                args: vec![],
+            },
+            BytecodeInstruction::Return(None),
+        ],
+        ValueType::Unit,
+        vec![],
+    )]);
     let mut runtime = Runtime::new(RuntimeConfig {
         security: kagari_runtime::SecurityContext {
             profile: kagari_runtime::LanguageProfile {
@@ -565,16 +538,13 @@ fn unreachable_instruction_is_a_script_trap() {
             "trap.kbc",
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![verified_module(
-                    None,
-                    vec![test_function(
-                        0,
-                        "main",
-                        vec![BytecodeInstruction::Unreachable],
-                        ValueType::Unit,
-                        vec![],
-                    )],
-                )],
+                modules: vec![verified_module(vec![test_function(
+                    0,
+                    "main",
+                    vec![BytecodeInstruction::Unreachable],
+                    ValueType::Unit,
+                    vec![],
+                )])],
             },
         )
         .expect("module should load");
@@ -826,7 +796,7 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
             "debug_trap.kbc",
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![verified_module(None, vec![main])],
+                modules: vec![verified_module(vec![main])],
             },
         )
         .expect("trap module should load");
@@ -1074,57 +1044,6 @@ fn main() -> Point {
 }
 
 #[test]
-fn executes_top_level_tail_expression_as_module_result() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-val value = 1;
-
-value + 2
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let result = vm
-        .execute_module(&loaded)
-        .expect("module init should execute");
-
-    assert_eq!(result, Value::I32(3));
-}
-
-#[test]
-fn rejects_reentrant_module_result_access_while_initializing() {
-    let mut runtime = host_call_runtime();
-    let loaded = runtime
-        .load_program(
-            "initializing.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![module_with_private_init_slot(1)],
-            },
-        )
-        .expect("module should load");
-    {
-        let mut instance = runtime
-            .module_instance_mut(&loaded)
-            .expect("module instance should exist");
-        instance.begin_initialization();
-    }
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute_module(&loaded)
-        .expect_err("in-progress module result should not be synthesized");
-
-    assert!(matches!(error, VmError::ModuleInitializing(key) if key == loaded.key()));
-    assert_eq!(
-        vm.runtime()
-            .module_instance_snapshot(&loaded)
-            .expect("module instance should exist")
-            .state,
-        ModuleInitializationState::Initializing
-    );
-}
-
-#[test]
 fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
     let mut runtime = Runtime::default();
     let loaded = runtime
@@ -1132,11 +1051,12 @@ fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
             "module-slot-invariant",
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![module_with_private_init_slot(7)],
+                modules: vec![module_with_mutable_slot(7)],
             },
         )
         .unwrap();
     let mut vm = Vm::new(runtime);
+    vm.execute(&loaded, "init").unwrap();
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(7)
@@ -1185,25 +1105,22 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
-                    verified_module(
-                        None,
-                        vec![test_function(
-                            0,
-                            "main",
-                            vec![
-                                BytecodeInstruction::Call {
-                                    dst: Some(Register::new(0)),
-                                    callee: CallTarget::HostFunction(
-                                        kagari_ir::bytecode::HostImportId::new(0),
-                                    ),
-                                    args: vec![],
-                                },
-                                BytecodeInstruction::Return(Some(Register::new(0))),
-                            ],
-                            ValueType::I32,
-                            vec![ValueType::I32],
-                        )],
-                    ),
+                    verified_module(vec![test_function(
+                        0,
+                        "main",
+                        vec![
+                            BytecodeInstruction::Call {
+                                dst: Some(Register::new(0)),
+                                callee: CallTarget::HostFunction(
+                                    kagari_ir::bytecode::HostImportId::new(0),
+                                ),
+                                args: vec![],
+                            },
+                            BytecodeInstruction::Return(Some(Register::new(0))),
+                        ],
+                        ValueType::I32,
+                        vec![ValueType::I32],
+                    )]),
                     vec![metadata.clone()],
                 )],
             },
@@ -1270,25 +1187,22 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
-                    verified_module(
-                        None,
-                        vec![test_function(
-                            0,
-                            "main",
-                            vec![
-                                BytecodeInstruction::Call {
-                                    dst: Some(Register::new(0)),
-                                    callee: CallTarget::HostFunction(
-                                        kagari_ir::bytecode::HostImportId::new(0),
-                                    ),
-                                    args: vec![],
-                                },
-                                BytecodeInstruction::Return(Some(Register::new(0))),
-                            ],
-                            ValueType::I32,
-                            vec![ValueType::I32],
-                        )],
-                    ),
+                    verified_module(vec![test_function(
+                        0,
+                        "main",
+                        vec![
+                            BytecodeInstruction::Call {
+                                dst: Some(Register::new(0)),
+                                callee: CallTarget::HostFunction(
+                                    kagari_ir::bytecode::HostImportId::new(0),
+                                ),
+                                args: vec![],
+                            },
+                            BytecodeInstruction::Return(Some(Register::new(0))),
+                        ],
+                        ValueType::I32,
+                        vec![ValueType::I32],
+                    )]),
                     vec![metadata.clone()],
                 )],
             },
@@ -1355,25 +1269,22 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
-                    verified_module(
-                        None,
-                        vec![test_function(
-                            0,
-                            "main",
-                            vec![
-                                BytecodeInstruction::Call {
-                                    dst: Some(Register::new(0)),
-                                    callee: CallTarget::HostFunction(
-                                        kagari_ir::bytecode::HostImportId::new(0),
-                                    ),
-                                    args: vec![],
-                                },
-                                BytecodeInstruction::Return(Some(Register::new(0))),
-                            ],
-                            ValueType::I32,
-                            vec![ValueType::I32],
-                        )],
-                    ),
+                    verified_module(vec![test_function(
+                        0,
+                        "main",
+                        vec![
+                            BytecodeInstruction::Call {
+                                dst: Some(Register::new(0)),
+                                callee: CallTarget::HostFunction(
+                                    kagari_ir::bytecode::HostImportId::new(0),
+                                ),
+                                args: vec![],
+                            },
+                            BytecodeInstruction::Return(Some(Register::new(0))),
+                        ],
+                        ValueType::I32,
+                        vec![ValueType::I32],
+                    )]),
                     vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                         "host.limited",
                         vec![],
@@ -1397,230 +1308,6 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
     ));
     assert_eq!(*calls.lock().expect("host call counter should lock"), 0);
     assert_eq!(vm.runtime().resources().counters().host_calls, 0);
-}
-
-#[test]
-fn executes_module_init_before_entry_only_once_per_module_epoch() {
-    let init_count = Arc::new(Mutex::new(0usize));
-    let counter = Arc::clone(&init_count);
-
-    let mut runtime = host_call_runtime();
-    runtime
-        .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
-                "host.bump_init",
-                vec![],
-                kagari_common::host_interface::HostValueType::Unit,
-            ),
-            move |_, _| {
-                let mut count = counter.lock().expect("counter lock should succeed");
-                *count += 1;
-                Ok(Value::Unit)
-            },
-        ))
-        .expect("host function should register");
-
-    let loaded = runtime
-        .load_program(
-            "module_init_once.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![crate::tests::common::with_host_imports(
-                    verified_module(
-                        Some(FunctionRef::new(0)),
-                        vec![
-                            test_function(
-                                0,
-                                "__module_init__",
-                                vec![
-                                    BytecodeInstruction::Call {
-                                        dst: None,
-                                        callee: CallTarget::HostFunction(
-                                            kagari_ir::bytecode::HostImportId::new(0),
-                                        ),
-                                        args: vec![],
-                                    },
-                                    BytecodeInstruction::Return(None),
-                                ],
-                                ValueType::Unit,
-                                vec![],
-                            ),
-                            test_function(
-                                1,
-                                "main",
-                                vec![
-                                    BytecodeInstruction::LoadConst {
-                                        dst: Register::new(0),
-                                        constant: ConstantOperand::I32(7),
-                                    },
-                                    BytecodeInstruction::Return(Some(Register::new(0))),
-                                ],
-                                ValueType::I32,
-                                vec![ValueType::I32],
-                            ),
-                        ],
-                    ),
-                    vec![kagari_common::host_interface::HostFunctionDeclaration::new(
-                        "host.bump_init",
-                        vec![],
-                        kagari_common::host_interface::HostValueType::Unit,
-                    )],
-                )],
-            },
-        )
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let first = vm
-        .execute(&loaded, "main")
-        .expect("first execution should work");
-    let second = vm
-        .execute(&loaded, "main")
-        .expect("second execution should work");
-
-    assert_eq!(first.return_value, Value::I32(7));
-    assert_eq!(second.return_value, Value::I32(7));
-    assert_eq!(*init_count.lock().expect("counter lock should succeed"), 1);
-}
-
-#[test]
-fn reruns_module_init_for_new_module_epoch() {
-    let init_count = Arc::new(Mutex::new(0usize));
-    let counter = Arc::clone(&init_count);
-
-    let mut runtime = host_call_runtime();
-    runtime
-        .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
-                "host.bump_init",
-                vec![],
-                kagari_common::host_interface::HostValueType::Unit,
-            ),
-            move |_, _| {
-                let mut count = counter.lock().expect("counter lock should succeed");
-                *count += 1;
-                Ok(Value::Unit)
-            },
-        ))
-        .expect("host function should register");
-
-    let bytecode = crate::tests::common::with_host_imports(
-        verified_module(
-            Some(FunctionRef::new(0)),
-            vec![test_function(
-                0,
-                "__module_init__",
-                vec![
-                    BytecodeInstruction::Call {
-                        dst: None,
-                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
-                        args: vec![],
-                    },
-                    BytecodeInstruction::Return(None),
-                ],
-                ValueType::Unit,
-                vec![],
-            )],
-        ),
-        vec![kagari_common::host_interface::HostFunctionDeclaration::new(
-            "host.bump_init",
-            vec![],
-            kagari_common::host_interface::HostValueType::Unit,
-        )],
-    );
-    let first_loaded = runtime
-        .load_program(
-            "reloadable.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![bytecode.clone()],
-            },
-        )
-        .expect("first module epoch should load");
-    let second_loaded = runtime
-        .load_program(
-            "reloadable.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
-        .expect("second module epoch should load");
-
-    let mut vm = Vm::new(runtime);
-    vm.execute_module(&first_loaded)
-        .expect("first module epoch should initialize");
-    vm.execute_module(&second_loaded)
-        .expect("second module epoch should initialize");
-
-    assert_eq!(*init_count.lock().expect("counter lock should succeed"), 2);
-}
-
-#[test]
-fn module_epochs_keep_independent_init_results_and_private_slots() {
-    let mut runtime = host_call_runtime();
-    let first_loaded = runtime
-        .load_program(
-            "epoch_visible.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![module_with_private_init_slot(1)],
-            },
-        )
-        .expect("first module epoch should load");
-    let second_loaded = runtime
-        .load_program(
-            "epoch_visible.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![module_with_private_init_slot(2)],
-            },
-        )
-        .expect("second module epoch should load");
-
-    let mut vm = Vm::new(runtime);
-    assert_eq!(
-        vm.execute_module(&first_loaded)
-            .expect("first epoch should initialize"),
-        Value::I32(1)
-    );
-    assert_eq!(
-        vm.execute_module(&second_loaded)
-            .expect("second epoch should initialize"),
-        Value::I32(2)
-    );
-
-    let first_report = vm
-        .execute(&first_loaded, "main")
-        .expect("old epoch should remain executable");
-    let latest = vm
-        .runtime()
-        .modules()
-        .latest("epoch_visible.kgr")
-        .expect("latest module epoch should be visible");
-    let latest_report = vm
-        .execute(&latest, "main")
-        .expect("latest epoch should execute");
-
-    assert_eq!(first_report.epoch, first_loaded.epoch.0);
-    assert_eq!(first_report.return_value, Value::I32(1));
-    assert_eq!(latest.epoch, second_loaded.epoch);
-    assert_eq!(latest_report.epoch, second_loaded.epoch.0);
-    assert_eq!(latest_report.return_value, Value::I32(2));
-    assert_eq!(
-        vm.runtime()
-            .module_instance_snapshot(&first_loaded)
-            .expect("first epoch instance should exist")
-            .init_result,
-        Some(Value::I32(1))
-    );
-    assert_eq!(
-        vm.runtime()
-            .module_instance_snapshot(&second_loaded)
-            .expect("second epoch instance should exist")
-            .init_result,
-        Some(Value::I32(2))
-    );
 }
 
 #[test]
@@ -1687,83 +1374,6 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         vm.runtime().modules().collect_unreachable_epochs(),
         vec![first_loaded.key()]
     );
-}
-
-#[test]
-fn caches_failed_module_init_without_retrying() {
-    let init_count = Arc::new(Mutex::new(0usize));
-    let counter = Arc::clone(&init_count);
-
-    let mut runtime = host_call_runtime();
-    runtime
-        .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
-                "host.fail_init",
-                vec![],
-                kagari_common::host_interface::HostValueType::Unit,
-            ),
-            move |_, _| {
-                let mut count = counter.lock().expect("counter lock should succeed");
-                *count += 1;
-                Err(kagari_runtime::host::HostError::new("boom"))
-            },
-        ))
-        .expect("host function should register");
-
-    let loaded = runtime
-        .load_program(
-            "module_init_failed.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![crate::tests::common::with_host_imports(
-                    verified_module(
-                        Some(FunctionRef::new(0)),
-                        vec![test_function(
-                            0,
-                            "__module_init__",
-                            vec![
-                                BytecodeInstruction::Call {
-                                    dst: None,
-                                    callee: CallTarget::HostFunction(
-                                        kagari_ir::bytecode::HostImportId::new(0),
-                                    ),
-                                    args: vec![],
-                                },
-                                BytecodeInstruction::Return(None),
-                            ],
-                            ValueType::Unit,
-                            vec![],
-                        )],
-                    ),
-                    vec![kagari_common::host_interface::HostFunctionDeclaration::new(
-                        "host.fail_init",
-                        vec![],
-                        kagari_common::host_interface::HostValueType::Unit,
-                    )],
-                )],
-            },
-        )
-        .expect("failed-init module should load");
-
-    let mut vm = Vm::new(runtime);
-    let first = vm
-        .execute_module(&loaded)
-        .expect_err("module init should fail");
-    let second = vm
-        .execute_module(&loaded)
-        .expect_err("failed module should stay failed");
-
-    assert!(matches!(
-        first,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::HostCallFailure && err.message().contains("boom")
-    ));
-    assert!(matches!(
-        second,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::HostCallFailure && err.message().contains("boom")
-    ));
-    assert_eq!(*init_count.lock().expect("counter lock should succeed"), 1);
 }
 
 #[test]
@@ -2204,28 +1814,25 @@ fn interface_instruction_module() -> BytecodeModule {
     };
     let trait_id = declaration(DefinitionKind::Trait, "Tag");
     let impl_id = declaration(DefinitionKind::Impl, "");
-    let mut module = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
-                    constant: ConstantOperand::I32(7),
-                },
-                BytecodeInstruction::MakeInterface {
-                    dst: Register::new(1),
-                    value: Register::new(0),
-                    module: kagari_ir::bytecode::ModuleRef::new(0),
-                    implementation: InterfaceTableRef::new(0),
-                },
-                BytecodeInstruction::Return(Some(Register::new(1))),
-            ],
-            ValueType::HeapObject,
-            vec![ValueType::I32, ValueType::HeapObject],
-        )],
-    );
+    let mut module = verified_module(vec![test_function(
+        0,
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantOperand::I32(7),
+            },
+            BytecodeInstruction::MakeInterface {
+                dst: Register::new(1),
+                value: Register::new(0),
+                module: kagari_ir::bytecode::ModuleRef::new(0),
+                implementation: InterfaceTableRef::new(0),
+            },
+            BytecodeInstruction::Return(Some(Register::new(1))),
+        ],
+        ValueType::HeapObject,
+        vec![ValueType::I32, ValueType::HeapObject],
+    )]);
     module.identity = identity;
     module.public_items = vec![
         PublicAbiItem::Trait(TraitAbi {
@@ -2310,28 +1917,25 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     };
 
     let dependency = interface_instruction_module();
-    let mut consumer = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
-                    constant: ConstantOperand::I32(11),
-                },
-                BytecodeInstruction::MakeInterface {
-                    dst: Register::new(1),
-                    value: Register::new(0),
-                    module: ModuleRef::new(0),
-                    implementation: InterfaceTableRef::new(0),
-                },
-                BytecodeInstruction::Return(Some(Register::new(1))),
-            ],
-            ValueType::HeapObject,
-            vec![ValueType::I32, ValueType::HeapObject],
-        )],
-    );
+    let mut consumer = verified_module(vec![test_function(
+        0,
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantOperand::I32(11),
+            },
+            BytecodeInstruction::MakeInterface {
+                dst: Register::new(1),
+                value: Register::new(0),
+                module: ModuleRef::new(0),
+                implementation: InterfaceTableRef::new(0),
+            },
+            BytecodeInstruction::Return(Some(Register::new(1))),
+        ],
+        ValueType::HeapObject,
+        vec![ValueType::I32, ValueType::HeapObject],
+    )]);
     consumer.identity = ModuleIdentity::single_file("interface-consumer.kgr");
     consumer.dependencies = vec![ModuleRef::new(0)];
     let program = BytecodeProgram {

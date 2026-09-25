@@ -3,6 +3,11 @@
 This is the active foundation track linked from implementation-roadmap.md.
 It is a breaking replacement: no old API facade, dual semantic path, artifact
 upgrade, or legacy interpreter. Runtime ABI/schema/authority checks remain required.
+The module model was subsequently revised: imports link declarations without
+initializing instances, and explicit function calls are the only execution entry.
+The detailed progress log below records earlier implementations; where it mentions
+implicit initialization or cycle rejection, [modules](spec/modules.md) and
+[module activation](spec/module-activation.md) supersede it.
 
 ## Checkpoints
 
@@ -24,7 +29,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
 - [x] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
 - [x] R13: Failure-atomic standard mutation and dirty-record commit.
-- [x] R14: Acyclic initialization and isolated prepare/initialize/publish.
+- [x] R14: Explicit entry execution and isolated prepare/validate/publish.
 - [x] R15: Compile-time capability and resource limits.
 - [x] R16: Injectable deterministic context and host trace fixtures.
 - [x] R17: Interpreter/JIT/debugger contract equivalence.

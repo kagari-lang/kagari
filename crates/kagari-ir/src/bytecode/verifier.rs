@@ -34,7 +34,6 @@ pub enum BytecodeVerificationError {
         function: FunctionRef,
         reason: &'static str,
     },
-    InvalidModuleInit(FunctionRef),
     FunctionTableLengthMismatch {
         functions: usize,
         table: usize,
@@ -125,7 +124,6 @@ impl BytecodeVerificationError {
             Self::InvalidHostInterface(_) => "KG_BYTECODE_INVALID_HOST_INTERFACE",
             Self::InvalidHostImport { .. } => "KG_BYTECODE_INVALID_HOST_IMPORT",
             Self::InvalidOperation { .. } => "KG_BYTECODE_INVALID_OPERATION",
-            Self::InvalidModuleInit(_) => "KG_BYTECODE_INVALID_MODULE_INIT",
             Self::FunctionTableLengthMismatch { .. } => {
                 "KG_BYTECODE_FUNCTION_TABLE_LENGTH_MISMATCH"
             }
@@ -171,12 +169,6 @@ impl Display for BytecodeVerificationError {
             }
             Self::InvalidOperation { function, reason } => {
                 write!(f, "invalid operation in {function:?}: {reason}")
-            }
-            Self::InvalidModuleInit(function) => {
-                write!(
-                    f,
-                    "invalid module initializer function reference {function:?}"
-                )
             }
             Self::FunctionTableLengthMismatch { functions, table } => write!(
                 f,
@@ -359,12 +351,6 @@ pub(super) fn verify_module_with_program(
             table: module.function_table.len(),
         });
     }
-    if let Some(init) = module.module_init
-        && (!function_ref_exists(module, init)
-            || !module.functions[init.index()].metadata.params.is_empty())
-    {
-        return Err(BytecodeVerificationError::InvalidModuleInit(init));
-    }
     let mut identities = HashSet::new();
     for (index, function) in module.functions.iter().enumerate() {
         let expected_ref = FunctionRef::new(index);
@@ -391,12 +377,7 @@ pub(super) fn verify_module_with_program(
             && (identity.declaration.module != module.identity
                 || !identity.declaration.within_path_limit()
                 || !identity.declaration.path.last().is_some_and(|part| {
-                    matches!(
-                        part.kind,
-                        DefinitionKind::Function
-                            | DefinitionKind::Method
-                            | DefinitionKind::ModuleInit
-                    )
+                    matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
                 })
                 || identity.arguments.iter().any(|ty| {
                     !ty.within_wire_limits()
@@ -762,6 +743,12 @@ fn verify_instruction(
         BytecodeInstruction::StoreModule { slot, src } => {
             let slot_ty = module_slot_ty(module, function, *slot)?;
             expect_register_ty(function, *src, slot_ty, "store module src")?;
+            if !module.module_slots[slot.index()].mutable {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "store to immutable module slot",
+                });
+            }
         }
         BytecodeInstruction::Move { dst, src } => {
             let src_ty = register_ty(function, *src)?;

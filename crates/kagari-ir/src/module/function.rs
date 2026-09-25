@@ -15,7 +15,6 @@ pub struct IrModule {
     pub enumerations: Vec<super::EnumLayout>,
     pub identity: kagari_common::identity::ModuleIdentity,
     pub source_name: String,
-    pub module_init: Option<InstanceId>,
     pub module_slots: ModuleSlotBuffer,
     pub abi: ModuleAbi,
     pub functions: FunctionBuffer,

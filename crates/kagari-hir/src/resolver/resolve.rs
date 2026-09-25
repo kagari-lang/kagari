@@ -69,16 +69,6 @@ impl<'a> BodyResolver<'a> {
             self.source_map.function_span(function),
             BodyOwner::Function(function),
         );
-        if self.module.module_init == Some(function) {
-            let scope = self.scopes.last().expect("initializer scope").id;
-            self.resolved.scopes[scope].excluded_ranges = self
-                .module
-                .items
-                .iter()
-                .take_while(|_| self.cancel.check().is_ok())
-                .map(|item| self.source_map.item_span(*item))
-                .collect();
-        }
         for (name, id) in params {
             self.bind_name(name, ResolvedName::Param(id), span.start);
         }
@@ -431,7 +421,6 @@ impl<'a> BodyResolver<'a> {
             span,
             parent: self.scopes.last().map(|scope| scope.id),
             bindings: Vec::new(),
-            excluded_ranges: Vec::new(),
         });
         self.scopes.push(ActiveScope {
             id,

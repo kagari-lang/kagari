@@ -24,7 +24,7 @@ fn declaration() -> HostFunctionDeclaration {
 }
 
 #[test]
-fn offline_host_facades_preserve_initialization_linking_and_backend_call_traces() {
+fn offline_host_facades_preserve_linking_and_backend_call_traces() {
     use kagari_common::{
         identity::{ModuleIdentity, PackageId},
         source_database::SourceLayer,
@@ -47,13 +47,10 @@ fn offline_host_facades_preserve_initialization_linking_and_backend_call_traces(
         .unwrap();
     let mut root = None;
     for (name, source) in [
-        (
-            "facade",
-            "pub use demo::echo as call; pub use demo as api; val ready = demo::echo(10);",
-        ),
+        ("facade", "pub use demo::echo as call; pub use demo as api;"),
         (
             "relay",
-            "pub use pkg::facade::call; pub use pkg::facade::api; val ready = call(20);",
+            "pub use pkg::facade::call; pub use pkg::facade::api;",
         ),
         (
             "root",
@@ -104,7 +101,14 @@ fn offline_host_facades_preserve_initialization_linking_and_backend_call_traces(
         ["facade", "relay", "root"]
     );
     for module in &artifact.program.modules {
-        assert_eq!(module.host_interface.functions, vec![definition.clone()]);
+        assert_eq!(
+            module.host_interface.functions,
+            if module.identity.path == ["root"] {
+                vec![definition.clone()]
+            } else {
+                vec![]
+            }
+        );
     }
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -179,7 +183,7 @@ fn offline_host_facades_preserve_initialization_linking_and_backend_call_traces(
             .unwrap();
             assert_eq!(report.return_value, Value::I32(5));
         }
-        assert_eq!(*calls.lock().unwrap(), [10, 20, 1, 2, 3, 4, 1, 2, 3, 4]);
+        assert_eq!(*calls.lock().unwrap(), [1, 2, 3, 4, 1, 2, 3, 4]);
     }
 }
 

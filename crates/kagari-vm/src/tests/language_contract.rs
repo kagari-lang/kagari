@@ -65,14 +65,12 @@ impl Route {
 enum Expected {
     Value(Value),
     Diagnostic(&'static str),
-    ImportCycle,
     IndexTrap,
     HostFailure,
     ScriptTrap(&'static str),
     BuiltinTrap(String),
     ResourceLimit,
     Cancelled,
-    CapabilityDenied,
 }
 
 #[derive(Debug, PartialEq)]
@@ -101,7 +99,6 @@ struct Case<'a> {
     name: &'static str,
     source: &'a str,
     modules: &'a [(&'a str, &'a str)],
-    rejected_reload: Option<&'a Case<'a>>,
     published_reload: Option<&'a Case<'a>>,
     expected: Expected,
     calls: &'static [&'static str],
@@ -122,7 +119,6 @@ impl<'a> Case<'a> {
             name,
             source,
             modules: &[],
-            rejected_reload: None,
             published_reload: None,
             expected,
             calls: &[],
@@ -232,19 +228,6 @@ fn compile(case: &Case<'_>, route: Route) -> Option<kagari_ir::bytecode::Bytecod
         );
         return None;
     }
-    if matches!(case.expected, Expected::ImportCycle) {
-        assert!(
-            matches!(
-                checked,
-                Err(kagari_hir::program::ProgramCheckError::Graph(
-                    kagari_hir::imports::ModuleOrderError::Cycle(_)
-                ))
-            ),
-            "{} ({route:?}): {checked:?}",
-            case.name
-        );
-        return None;
-    }
     let checked = checked.unwrap_or_else(|error| panic!("{} ({route:?}): {error:?}", case.name));
     let compiled =
         lower_program_to_bytecode(&lower_program_to_ir(&checked, &Default::default()).unwrap())
@@ -291,8 +274,6 @@ fn assert_outcome(
             if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded => {}
         (Expected::Cancelled, Err(VmError::RuntimeError(error)))
             if error.kind() == kagari_runtime::RuntimeErrorKind::Cancelled => {}
-        (Expected::CapabilityDenied, Err(VmError::RuntimeError(error)))
-            if error.kind() == kagari_runtime::RuntimeErrorKind::CapabilityDenied => {}
         (expected, actual) => panic!(
             "{} ({route:?}, attempt {attempt}): expected {expected:?}, got {actual:?}",
             case.name
@@ -438,25 +419,6 @@ fn run(case: &Case<'_>, route: Route) {
             case.name
         );
     }
-    if let Some(candidate) = case.rejected_reload {
-        let before = vm.runtime().resources().counters().loaded_modules;
-        let program = compile(candidate, route).expect("reload candidate must compile");
-        let error = vm.reload_program(&loaded, case.name, program).unwrap_err();
-        let crate::ReloadError::Initialization(error) = error else {
-            panic!(
-                "{} candidate {} ({route:?}): {error:?}",
-                case.name, candidate.name
-            );
-        };
-        assert_outcome(candidate, route, 0, Err(error));
-        assert_eq!(
-            vm.runtime().modules().latest(case.name).unwrap().key(),
-            loaded.key()
-        );
-        assert_eq!(vm.runtime().resources().counters().loaded_modules, before);
-        let outcome = execute_route(&mut vm, &loaded, route, &mut backend);
-        assert_outcome(case, route, case.repeat, outcome);
-    }
     if let Some(candidate) = case.published_reload {
         let program = compile(candidate, route).expect("published candidate must compile");
         let outer = vm
@@ -467,11 +429,6 @@ fn run(case: &Case<'_>, route: Route) {
             .runtime_mut()
             .stage_reload_program(&loaded, case.name, program.clone())
             .unwrap();
-        {
-            let isolated = vm.runtime().begin_candidate_initialization(&stale).unwrap();
-            vm.execute_module(stale.module()).unwrap();
-            drop(isolated);
-        }
         let current = vm.reload_program(&loaded, case.name, program).unwrap();
         assert_eq!(
             vm.runtime().modules().latest(case.name).unwrap().key(),
@@ -730,13 +687,6 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     )
     .effects(&["first", "rejected"], &["first"]);
     reject.reject_call = Some(2);
-    let mut cached_init_failure = Case::new(
-        "cached_init_failure",
-        "print(\"init\"); val a = [1]; a[9]; fn main() {}",
-        Expected::IndexTrap,
-    )
-    .effects(&["init"], &["init"]);
-    cached_init_failure.repeat = 2;
     for case in [
         Case::new("heap-overflow-preserves-earlier-write", "use observe as test; fn main() { val a = test::array(); a[1] = 42; a[0] += 1; }", Expected::ScriptTrap("integer overflow")).array(&[2147483647, 0], &[2147483647, 42]),
         Case::new("heap-removed-target-not-recreated", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a.clear(); print(\"removed\"); 2 } else { 0 }; }", Expected::IndexTrap).array(&[1], &[]).effects(&["removed"], &["removed"]),
@@ -799,67 +749,25 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         }
     }
     let mut diamond = Case::new(
-        "dependency-first-diamond-initializes-once",
-        "use contract::left::left; use contract::right::right; print(\"root\"); fn main() -> i32 { left() + right() }",
+        "diamond-calls-shared-dependency",
+        "use contract::left::left; use contract::right::right; fn main() -> i32 { left() + right() }",
         Expected::Value(Value::I32(42)),
     ).modules(&[
-        ("leaf", "print(\"leaf\"); pub fn leaf() -> i32 { 21 }"),
-        ("left", "use contract::leaf::leaf; print(\"left\"); pub fn left() -> i32 { leaf() }"),
-        ("right", "use contract::leaf::leaf; print(\"right\"); pub fn right() -> i32 { leaf() }"),
-    ]).effects(&["leaf", "left", "right", "root"], &["leaf", "left", "right", "root"]);
+        ("leaf", "pub fn leaf() -> i32 { 21 }"),
+        ("left", "use contract::leaf::leaf; pub fn left() -> i32 { leaf() }"),
+        ("right", "use contract::leaf::leaf; pub fn right() -> i32 { leaf() }"),
+    ]);
     diamond.repeat = 2;
-    let mut failed_dependency = Case::new(
-        "dependency-initialization-failure-is-cached",
-        "use contract::dependency::answer; print(\"unreachable-root\"); fn main() -> i32 { answer() }",
-        Expected::IndexTrap,
-    ).modules(&[("dependency", "print(\"dependency\"); val a = [1]; a[9]; pub fn answer() -> i32 { 42 }")]).effects(&["dependency"], &["dependency"]);
-    failed_dependency.repeat = 2;
     let cycle = Case::new(
-        "cyclic-imports-prevent-execution",
+        "cyclic-imports-allow-nonrecursive-calls",
         "use contract::dependency::answer; pub fn main() -> i32 { answer() }",
-        Expected::ImportCycle,
+        Expected::Value(Value::I32(42)),
     )
     .modules(&[(
         "dependency",
-        "use contract::root::main; pub fn answer() -> i32 { main() }",
+        "use contract::root::main; pub fn answer() -> i32 { 42 }",
     )]);
-    for case in [diamond, failed_dependency, cycle] {
-        for route in Route::ALL {
-            run(&case, route);
-        }
-    }
-    for candidate in [
-        Case::new(
-            "candidate-external-effect",
-            "print(\"forbidden\"); fn main() -> i32 { 9 }",
-            Expected::CapabilityDenied,
-        ),
-        Case::new(
-            "candidate-init-trap",
-            "val a = [1]; a[9]; fn main() -> i32 { 9 }",
-            Expected::IndexTrap,
-        ),
-        Case::new(
-            "candidate-dependency-effect",
-            "use contract::dependency::answer; fn main() -> i32 { answer() }",
-            Expected::CapabilityDenied,
-        )
-        .modules(&[(
-            "dependency",
-            "print(\"forbidden-dependency\"); pub fn answer() -> i32 { 9 }",
-        )]),
-    ] {
-        let mut case = Case::new(
-            "failed-candidate-preserves-active-entry",
-            "print(\"original-init\"); fn main() -> i32 { 42 }",
-            Expected::Value(Value::I32(42)),
-        )
-        .effects(&["original-init"], &["original-init"]);
-        if !candidate.modules.is_empty() {
-            case.source = "use contract::dependency::answer; print(\"original-init\"); fn main() -> i32 { answer() }";
-            case.modules = &[("dependency", "pub fn answer() -> i32 { 42 }")];
-        }
-        case.rejected_reload = Some(&candidate);
+    for case in [diamond, cycle] {
         for route in Route::ALL {
             run(&case, route);
         }
@@ -869,17 +777,13 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         "use contract::dependency::answer; fn main() -> i32 { answer() }",
         Expected::Value(Value::I32(99)),
     )
-    .modules(&[(
-        "dependency",
-        "val isolated = [9]; pub fn answer() -> i32 { 99 }",
-    )]);
+    .modules(&[("dependency", "pub fn answer() -> i32 { 99 }")]);
     let mut versioned = Case::new(
         "publication-pins-old-dependencies-and-rejects-stale-candidate",
-        "use contract::dependency::answer; print(\"old-init\"); fn main() -> i32 { answer() }",
+        "use contract::dependency::answer; fn main() -> i32 { answer() }",
         Expected::Value(Value::I32(42)),
     )
-    .modules(&[("dependency", "pub fn answer() -> i32 { 42 }")])
-    .effects(&["old-init"], &["old-init"]);
+    .modules(&[("dependency", "pub fn answer() -> i32 { 42 }")]);
     versioned.published_reload = Some(&candidate);
     for route in Route::ALL {
         run(&versioned, route);
@@ -1026,7 +930,6 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { a == b }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         Case::new("tuple_interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { (1, a) == (1, b) }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         reject,
-        cached_init_failure,
     ];
     for case in &cases {
         for route in Route::ALL {

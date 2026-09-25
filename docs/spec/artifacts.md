@@ -41,12 +41,11 @@ KbcArtifact {
 }
 ```
 
-Format version 25 uses `bincode` with fixed-width integers, little-endian byte order,
-and declaration-order fields. It changes runtime path binding identity: index and
-virtual segment fingerprints come from resolved contract fields instead of a
-caller-supplied member fingerprint. Versions 1 through 24 are rejected; no
+Format version 41 uses `bincode` with fixed-width integers, little-endian byte order,
+and declaration-order fields. Runtime path binding identity uses index and
+virtual segment fingerprints from resolved contract fields. Versions 1 through 40 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
-dependency-first BytecodeProgram, its
+stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
 
@@ -334,7 +333,7 @@ compares these summaries against the actual program. They cannot replace verific
 Root-map completeness and per-table/depth decoding quotas remain pending.
 
 Dependency fingerprints carry ModuleIdentity and are derived from the canonical
-bytes of every non-root module in dependency-first order. ArtifactBuildOptions has
+bytes of every non-root module in program order. ArtifactBuildOptions has
 no dependency-fingerprint input. ArtifactCompatibility may pin an exact dependency
 set with Some; None omits that external pin but still requires metadata/payload
 agreement. The required-host fingerprint covers each program member's declarations,

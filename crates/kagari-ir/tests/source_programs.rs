@@ -265,7 +265,12 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     );
     let checked = checked(&db, root);
     let ir = lower_program_to_ir(&checked, &Default::default()).unwrap();
-    let layouts = &ir.modules().last().unwrap().structures;
+    let layouts = &ir
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["root"])
+        .unwrap()
+        .structures;
     assert_eq!(layouts.len(), 2);
     assert_eq!(layouts[0].declaration, layouts[1].declaration);
     assert_ne!(layouts[0].arguments, layouts[1].arguments);
@@ -273,8 +278,13 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     let mut program = kagari_ir::bytecode::lower_program_to_bytecode(&ir).unwrap();
     kagari_ir::bytecode::verify_program(&program).unwrap();
     // The owner need not execute an instance for its public template to be checked.
-    assert!(program.modules[0].enumerations.is_empty());
-    let kagari_ir::module::PublicAbiItem::Type(template) = program.modules[0]
+    let owner = program
+        .modules
+        .iter_mut()
+        .find(|module| module.identity.path == ["types"])
+        .unwrap();
+    assert!(owner.enumerations.is_empty());
+    let kagari_ir::module::PublicAbiItem::Type(template) = owner
         .public_items
         .iter_mut()
         .find(|item| item.name() == "Packet")
@@ -307,10 +317,14 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
             .iter()
             .map(|module| module.lowered.source.module_identity().path[0].as_str())
             .collect::<Vec<_>>(),
-        ["shared", "left", "right", "root"]
+        ["left", "right", "root", "shared"]
     );
     let program = lower_program_to_ir(&checked, &Default::default()).unwrap();
-    let root = program.modules().last().unwrap();
+    let root = program
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["root"])
+        .unwrap();
     let calls = root
         .functions
         .iter()
@@ -342,7 +356,11 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
         assert_eq!(target.instance.declaration, call.declaration);
     }
     assert!(
-        program.modules()[0]
+        program
+            .modules()
+            .iter()
+            .find(|module| module.identity.path == ["shared"])
+            .unwrap()
             .functions
             .iter()
             .any(|f| !f.instance.arguments.is_empty())
@@ -351,7 +369,7 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
         lower_to_bytecode(root),
         Err(BytecodeLoweringError::UnlinkedSourceModules)
     ));
-    // Unused imports still carry initialization dependencies and cannot be erased.
+    // Imported bindings still require whole-program linking.
     assert!(matches!(
         lower_to_bytecode(&program.modules()[1]),
         Err(BytecodeLoweringError::UnlinkedSourceModules)
@@ -359,12 +377,18 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
 }
 
 #[test]
-fn missing_dependencies_cycles_and_mismatched_link_signatures_are_rejected() {
+fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
     let program = lower_program_to_ir(&fixture(), &Default::default()).unwrap();
     let root = program.root().clone();
     let raw = program.into_unverified();
     let mut schema = raw.clone();
-    schema[0].structures[0].fields[0].mutable = false;
+    schema
+        .iter_mut()
+        .find(|module| module.identity.path == ["shared"])
+        .unwrap()
+        .structures[0]
+        .fields[0]
+        .mutable = false;
     assert!(matches!(
         verify_program(root.clone(), schema, &Default::default())
             .unwrap_err()
@@ -376,7 +400,8 @@ fn missing_dependencies_cycles_and_mismatched_link_signatures_are_rejected() {
     ));
     let mut unresolved = raw.clone();
     for instruction in unresolved
-        .last_mut()
+        .iter_mut()
+        .find(|module| module.identity.path == ["root"])
         .unwrap()
         .functions
         .iter_mut()
@@ -406,15 +431,18 @@ fn missing_dependencies_cycles_and_mismatched_link_signatures_are_rejected() {
         ProgramErrorKind::InvalidGraph
     ));
     let mut cycle = raw.clone();
-    cycle[0].dependencies.push(root.clone());
-    assert!(matches!(
-        verify_program(root.clone(), cycle, &Default::default())
-            .unwrap_err()
-            .kind,
-        ProgramErrorKind::InvalidGraph
-    ));
+    cycle
+        .iter_mut()
+        .find(|module| module.identity.path == ["shared"])
+        .unwrap()
+        .dependencies
+        .push(root.clone());
+    assert!(verify_program(root.clone(), cycle, &Default::default()).is_ok());
     let mut wrong = raw.clone();
-    let other = wrong[0]
+    let other = wrong
+        .iter()
+        .find(|module| module.identity.path == ["shared"])
+        .unwrap()
         .functions
         .iter()
         .find(|f| f.name == "flag")
@@ -423,7 +451,8 @@ fn missing_dependencies_cycles_and_mismatched_link_signatures_are_rejected() {
         .declaration
         .clone();
     for instruction in wrong
-        .last_mut()
+        .iter_mut()
+        .find(|module| module.identity.path == ["root"])
         .unwrap()
         .functions
         .iter_mut()

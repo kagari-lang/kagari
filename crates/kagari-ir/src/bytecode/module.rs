@@ -14,7 +14,6 @@ pub struct BytecodeModule {
     pub host_interface: kagari_common::host_interface::HostInterface,
     pub identity: kagari_common::identity::ModuleIdentity,
     pub source_name: String,
-    pub module_init: Option<FunctionRef>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub module_slots: BytecodeModuleSlotBuffer,
     #[serde(deserialize_with = "crate::decode_limits::table")]

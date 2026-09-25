@@ -10,9 +10,6 @@ pub enum Severity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticKind {
-    CyclicImport {
-        modules: std::sync::Arc<[String]>,
-    },
     AmbiguousImport {
         path: String,
     },
@@ -21,7 +18,6 @@ pub enum DiagnosticKind {
     },
     UnexpectedToken,
     ExpectedTopLevelItem,
-    TopLevelControlFlowNotAllowed,
     ExpectedModuleKeyword,
     ExpectedModuleName,
     ExpectedModuleBodyStart,
@@ -306,12 +302,10 @@ impl Diagnostic {
 impl DiagnosticKind {
     pub fn code(&self) -> &'static str {
         match self {
-            Self::CyclicImport { .. } => "KG_RESOLVE_CYCLIC_IMPORT",
             Self::AmbiguousImport { .. } => "KG_RESOLVE_AMBIGUOUS_IMPORT",
             Self::ImportNotPublic { .. } => "KG_RESOLVE_IMPORT_NOT_PUBLIC",
             Self::UnexpectedToken => "KG_PARSE_UNEXPECTED_TOKEN",
             Self::ExpectedTopLevelItem => "KG_PARSE_EXPECTED_TOP_LEVEL_ITEM",
-            Self::TopLevelControlFlowNotAllowed => "KG_PARSE_TOP_LEVEL_CONTROL_FLOW",
             Self::ExpectedModuleKeyword => "KG_PARSE_EXPECTED_MODULE_KEYWORD",
             Self::ExpectedModuleName => "KG_PARSE_EXPECTED_MODULE_NAME",
             Self::ExpectedModuleBodyStart => "KG_PARSE_EXPECTED_MODULE_BODY_START",
@@ -436,9 +430,6 @@ impl DiagnosticKind {
 impl Display for DiagnosticKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CyclicImport { modules } => {
-                write!(f, "cyclic imports among {}", modules.join(", "))
-            }
             Self::AmbiguousImport { path } => write!(f, "ambiguous import `{path}`"),
             Self::ImportNotPublic { path } => {
                 write!(f, "import `{path}` does not name a public item")
@@ -448,12 +439,6 @@ impl Display for DiagnosticKind {
                 f,
                 "expected top-level item (`use`, `mod`, `fn`, `const`, `struct`, `enum`, `trait`, or `impl`)"
             ),
-            Self::TopLevelControlFlowNotAllowed => {
-                write!(
-                    f,
-                    "top-level `return`, `break`, and `continue` are not allowed"
-                )
-            }
             Self::ExpectedModuleKeyword => write!(f, "expected `mod`"),
             Self::ExpectedModuleName => write!(f, "expected module name"),
             Self::ExpectedModuleBodyStart => write!(f, "expected `{{` to start module body"),
