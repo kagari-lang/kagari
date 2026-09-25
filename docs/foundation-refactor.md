@@ -18,7 +18,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R05: Immutable queries, cancellation, parse/body reuse and invalidation.
 - [x] R06: Offline host declarations and checked runtime bindings.
 - [x] R07: Nominal concrete identity, layouts, bounded reachable monomorphization.
-- [ ] R08: Verified IR and linked-only runtime operands.
+- [x] R08: Verified IR and linked-only runtime operands.
 - [x] R09: Canonical bounded artifact format and explicit fingerprint algorithm.
 - [ ] R10: Shared immutable generations and runtime-local state.
 - [ ] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
@@ -125,6 +125,19 @@ workload, repetitions and measurements; no unmeasured performance claims.
   Source, artifact, interpreter and JIT fallback routes agree for local,
   imported and applied interfaces; forged slots fail verification, and calls
   through old interface values keep their old method and descendant code.
+
+- R08 acceptance: IR generation consumes checked semantic facts and records
+  control flow, effects, source positions and conservative heap roots. Its
+  verifier rejects invalid operations before bytecode lowering; program linking
+  resolves source declarations and interface owners to version-local slots.
+  Runtime loading verifies the complete linked product before entry. Ordinary
+  field and method execution uses verified slots; explicit reflection remains
+  a named operation with checked permissions. The
+  [interface dispatch example](../examples/interface-dispatch.kgr) exercises an
+  applied interface and receiver coercion through the source CLI. Forged local
+  or dependency method slots and owner modules fail verification. This closes
+  R08; generic implementation-table instantiation and host-backed interface
+  values are separate extensions.
 
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
@@ -1861,8 +1874,10 @@ Implemented foundation slices:
   are shared with bytecode validation; intrinsic arity uses HIR declarations.
   Entry block order is preserved, and IDs are bounded before narrowing. Verification
   supports cancellation and bounds its dataflow matrix to 64 MiB. Nominal field
-  layouts and scalar host signatures are checked; dynamic interface tables, precise per-point roots and the final
-  linked-only runtime boundary remain outstanding.
+  layouts and scalar host signatures are checked. Later R08 checkpoints above
+  add linked interface tables and calls. Per-point roots remain a later
+  optimization; verified conservative roots meet this checkpoint's ownership
+  contract.
 - R15: IR generation has configurable instance, type-node, type-depth and generated
   instruction limits plus cancellation. Expansion counts nodes while copying,
   including replacement trees. Embedding returns revision-owned structured

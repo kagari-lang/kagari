@@ -123,6 +123,7 @@ Host-sensitive capabilities such as file systems, networking, timers, process co
 Hosts expose those capabilities explicitly through the host registry and security policy.
 
 See [examples/standard-library.kgr](examples/standard-library.kgr) for a small program using arrays, maps, sets, strings, math, and debug assertions.
+See [examples/interface-dispatch.kgr](examples/interface-dispatch.kgr) for a concrete trait value whose method dispatches through a verified interface slot.
 
 ## Engineering Priorities
 

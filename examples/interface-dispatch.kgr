@@ -1,0 +1,21 @@
+trait Measure<T> {
+    fn measure(self, extra: T) -> i32;
+}
+
+struct Gauge {
+    val base: i32,
+}
+
+impl Measure<i32> for Gauge {
+    fn measure(self, extra: i32) -> i32 {
+        self.base + extra
+    }
+}
+
+fn read(value: Measure<i32>) -> i32 {
+    value.measure(5)
+}
+
+fn main() -> i32 {
+    read(Gauge { base: 37 })
+}
