@@ -106,7 +106,8 @@ functions now infer argument types and compile reachable concrete instances,
 including calls through existing concrete trait implementations. Instances are
 deduplicated by declaration and arguments, with configurable growth limits.
 Public functions require concrete signatures. Generic impl methods specialize
-at reachable concrete receivers; dynamic interface dispatch remains R08 work.
+at reachable concrete receivers. Dynamic interface values use concrete
+non-generic implementation tables; generic table instantiation remains work.
 Static trait-method calls infer method-local generic arguments from their
 arguments and expected result, check those arguments against the method's
 bounds, and specialize reachable local or dependency-defined implementations.
@@ -291,6 +292,7 @@ The language describes this as interface compatibility rather than Rust object s
 Interface-callable methods must:
 
 - not return `Self`
+- not take `Self` in parameters other than the receiver
 - not require method-level generic instantiation at the call site
 - not mention unconstrained generic method parameters
 - have parameter and return types representable in the runtime value model
@@ -472,16 +474,16 @@ Repeating the same bound does not create another candidate. Duplicate method
 declarations within a trait or impl produce `KG_RESOLVE_DUPLICATE_METHOD`.
 Ambiguous calls have no selected method target and cannot enter code generation.
 
-These analysis capabilities do not imply executable dynamic interface calls.
-The runtime now represents script-backed interface values as generation-checked
+The runtime represents script-backed interface values as generation-checked
 GC objects. Construction requires a verified implementation table and resolved
 method slots; the object retains its concrete payload and the linked dependency
 version until collection. Forged, stale or foreign handles are rejected. The
 method bindings follow trait declaration order regardless of implementation
 source order, and ordinal lookup checks the exact applied interface identity.
-current construction entry accepts concrete non-generic script tables; generic
-table instantiation and in-frame dispatch remain pending,
-as do host-backed interface values.
+Source calls on interface values use a verified trait method slot and enter the
+receiver's pinned implementation version through the explicit frame stack.
+The current construction entry accepts concrete non-generic script tables;
+generic table instantiation and host-backed interface values remain pending.
 
 Verified bytecode can now allocate the same interface object with
 `MakeInterface`, using an implementation table slot resolved from the typed IR
@@ -513,20 +515,12 @@ checking, including when unused. Generic templates use the same conservative
 overlap rule across modules as within one module; distinct concrete trait
 applications stay independent. Reachable methods in generic dependency
 implementations are specialized for the receiver's concrete type arguments and
-linked to the defining module by instance identity. Runtime interface dispatch
-remains tracked in the
+linked to the defining module by instance identity. Remaining generic and
+host-backed interface execution work is tracked in the
 [foundation roadmap](../foundation-refactor.md).
 
 ### Remaining execution work
 
-The implementation can be staged in this order:
-
-1. trait declarations
-2. trait impls for concrete script types
-3. generic bounds and static resolution
-4. inherent impl and trait impl disambiguation
-5. runtime interface value representation
-6. interface dispatch through vtables
-7. `is<T>` and `downcast<T>`
-
-This order keeps static trait checking independent from runtime interface machinery until interface value representation is implemented.
+Concrete non-generic script implementations can be boxed and called through
+verified interface method slots. Generic implementation-table instantiation,
+host-backed interface values and runtime downcasting remain separate work.

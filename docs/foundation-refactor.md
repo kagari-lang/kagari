@@ -65,10 +65,10 @@ workload, repetitions and measurements; no unmeasured performance claims.
   executable dependency version. Construction checks the verified table and
   concrete receiver; tracing keeps the payload alive, and collecting the last
   interface releases version retention. This entry currently accepts concrete
-  non-generic script tables. Generic table instantiation, source coercion,
-  host-backed interface values and source-level dynamic calls remain to be
-  connected. The VM embedding entry can invoke a linked interface method
-  against the receiver's pinned version after validating and rooting arguments.
+  non-generic script tables. Generic table instantiation and host-backed
+  interface values remain to be connected. The VM embedding entry can invoke
+  a linked interface method against the receiver's pinned version after
+  validating and rooting arguments.
 
 - R08 interface-call ABI checkpoint: boxed methods retain their verified
   parameter and result types. Embedding calls check the full script nominal
@@ -86,8 +86,7 @@ workload, repetitions and measurements; no unmeasured performance claims.
   a receiver with the table's physical representation. Runtime construction
   checks the full concrete receiver ABI and retains the linked program. An
   artifact round trip executes the instruction; invalid slots and receiver
-  representations fail before execution. In-frame dynamic dispatch still
-  needs call target wiring.
+  representations fail before execution.
 
 - R08 dependency-table linking checkpoint: `MakeInterface` now carries both a
   dependency-program module slot and an implementation-table slot. KBC format
@@ -100,23 +99,32 @@ workload, repetitions and measurements; no unmeasured performance claims.
   declaration when an expression is used where an interface is expected. IR
   emits `MakeInterface` from that fact, including for dependency tables, and
   whole-program verification rechecks the referenced table and dependency
-  reachability. Source execution tests cover empty and method-bearing tables;
-  source-level dynamic method calls still require a dedicated call instruction.
+  reachability. Source execution tests cover empty and method-bearing tables.
 
 - R08 method-slot checkpoint: interface objects store method bindings in trait
   declaration order even when an implementation declares methods in another
   order. The runtime resolves a verified ordinal only after checking the
   object's applied interface identity; missing slots and mismatched interfaces
-  trap. The embedding identity lookup remains available, while the forthcoming
-  script call instruction can use the ordinal without searching method names.
+  trap. The embedding identity lookup remains available; script calls use the
+  ordinal without searching method names.
 
 - R10 pinned-frame checkpoint: every interpreter frame owns a loaded member of
   its executable program. Ordinary descendant calls resolve module slots from
   the current frame; a rooted interface method can enter a frame from its
   retained older program with argument validation and return ABI checking.
   A reload regression test proves its descendant uses that older program and
-  a failed argument check leaves the frame stack intact. Source-level interface
-  call lowering and the remaining cross-version lifecycle audit are still open.
+  a failed argument check leaves the frame stack intact. The remaining
+  cross-version lifecycle audit is still open.
+
+- R08 source-interface-call checkpoint: source methods on concrete non-generic
+  interface values lower to a dedicated call target with trait owner module slot,
+  applied type and method ordinal. IR, whole-program and bytecode verification
+  recheck the method signature and dependency reachability before execution.
+  The interpreter unwraps the verified receiver and pushes its retained version
+  on the same frame stack. KBC format 37/runtime ABI v37 reject prior products.
+  Source, artifact, interpreter and JIT fallback routes agree for local,
+  imported and applied interfaces; forged slots fail verification, and calls
+  through old interface values keep their old method and descendant code.
 
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics

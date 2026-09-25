@@ -1057,6 +1057,41 @@ fn verify_call(
             }
             verify_call_dst(function, dst, record.return_type)?;
         }
+        CallTarget::InterfaceMethod {
+            module: owner_slot,
+            interface,
+            method_slot,
+        } => {
+            let owner = if let Some(program) = program {
+                program.modules.get(owner_slot.index())
+            } else if owner_slot.index() == 0 {
+                Some(module)
+            } else {
+                None
+            }
+            .ok_or(BytecodeVerificationError::InvalidProgramGraph)?;
+            let (params, return_type) = crate::module::abi::interface_method_types(
+                &owner.identity,
+                &owner.public_items,
+                &owner.trait_contracts,
+                interface,
+                *method_slot as usize,
+            )
+            .ok_or(BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "invalid linked interface method",
+            })?;
+            if args.len() != params.len() {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "interface method arity mismatch",
+                });
+            }
+            for (arg, expected) in args.iter().zip(params) {
+                expect_register_ty(function, *arg, expected, "interface method argument")?;
+            }
+            verify_call_dst(function, dst, return_type)?;
+        }
         CallTarget::HostFunction(import) => {
             let declaration = module.host_interface.functions.get(import.index()).ok_or(
                 BytecodeVerificationError::InvalidHostImport {

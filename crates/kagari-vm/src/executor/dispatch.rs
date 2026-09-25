@@ -263,6 +263,25 @@ impl<'a> Executor<'a> {
                 let module = self.current_frame()?.module();
                 self.push_frame(module, id, &arg_values, dst)
             }
+            CallTarget::InterfaceMethod {
+                interface,
+                method_slot,
+                ..
+            } => {
+                let boxed = arg_values
+                    .first()
+                    .ok_or(VmError::TypeMismatch("interface method receiver"))?;
+                let resolved = self
+                    .runtime
+                    .resolve_interface_method_slot(boxed, &interface, method_slot as usize)
+                    .map_err(VmError::RuntimeError)?;
+                let arguments = std::iter::once(resolved.receiver().clone())
+                    .chain(arg_values.into_iter().skip(1))
+                    .collect::<Vec<_>>();
+                self.stack
+                    .push_interface_method(self.runtime, resolved, &arguments, dst)
+                    .map_err(VmError::RuntimeError)
+            }
             CallTarget::HostFunction(import) => {
                 let binding = self
                     .current_loaded()?

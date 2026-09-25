@@ -564,7 +564,7 @@ impl FunctionLowerer<'_, '_> {
             .call_resolution(expr)
             .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
         let span = self.analyzed.lowered.source_map.expr_span(expr);
-        let (target, impl_arguments, imported_impl) =
+        let (target, impl_arguments, linked_trait_target) =
             if let SemanticCallTarget::TraitMethod { method, interface } = call.target {
                 let receiver = call
                     .receiver
@@ -587,7 +587,44 @@ impl FunctionLowerer<'_, '_> {
                         span,
                     )?,
                 };
-                if let Some(host_method) = self
+                if ty == kagari_hir::types::TypeId::Trait(interface.clone()) {
+                    let trait_contract = self
+                        .analyzed
+                        .aggregates
+                        .trait_(&interface.declaration)
+                        .ok_or(IrLoweringError::MissingBinding("trait contract"))?;
+                    let method_contract = self
+                        .analyzed
+                        .aggregates
+                        .trait_method(&method)
+                        .ok_or(IrLoweringError::MissingBinding("trait method contract"))?;
+                    if method_contract.generic_params.len() != trait_contract.generic_params.len()
+                        || !call.type_arguments.is_empty()
+                    {
+                        return Err(IrLoweringError::UnsupportedExpr(
+                            "interface method requires static specialization",
+                        ));
+                    }
+                    (
+                        SemanticCallTarget::TraitMethod {
+                            method,
+                            interface: interface.clone(),
+                        },
+                        Vec::new(),
+                        Some(CallTarget::InterfaceMethod(Box::new(
+                            crate::module::instruction::InterfaceCallContract {
+                                interface: crate::module::abi::NominalAbiType::from_checked_type(
+                                    &interface,
+                                ),
+                                method_slot: u32::try_from(method_contract.slot).map_err(|_| {
+                                    IrLoweringError::UnsupportedExpr(
+                                        "interface method slot overflow",
+                                    )
+                                })?,
+                            },
+                        ))),
+                    )
+                } else if let Some(host_method) = self
                     .analyzed
                     .names
                     .hosts
@@ -673,12 +710,17 @@ impl FunctionLowerer<'_, '_> {
                     (
                         SemanticCallTarget::TraitMethod { method, interface },
                         Vec::new(),
-                        Some(crate::module::instruction::SourceFunctionContract {
-                            declaration: implementation.clone(),
-                            arguments: impl_arguments.into_iter().chain(method_arguments).collect(),
-                            params,
-                            return_type,
-                        }),
+                        Some(CallTarget::SourceFunction(Box::new(
+                            crate::module::instruction::SourceFunctionContract {
+                                declaration: implementation.clone(),
+                                arguments: impl_arguments
+                                    .into_iter()
+                                    .chain(method_arguments)
+                                    .collect(),
+                                params,
+                                return_type,
+                            },
+                        ))),
                     )
                 }
             } else {
@@ -768,11 +810,9 @@ impl FunctionLowerer<'_, '_> {
                             .ok_or(IrLoweringError::MissingBinding("host declaration"))?
                             .clone(),
                     )),
-                    SemanticCallTarget::TraitMethod { .. } => {
-                        CallTarget::SourceFunction(Box::new(imported_impl.ok_or(
-                            IrLoweringError::MissingBinding("imported implementation contract"),
-                        )?))
-                    }
+                    SemanticCallTarget::TraitMethod { .. } => linked_trait_target.ok_or(
+                        IrLoweringError::MissingBinding("imported implementation contract"),
+                    )?,
                     SemanticCallTarget::TerminatingCallee
                     | SemanticCallTarget::RuntimeHelper(_) => {
                         unreachable!()

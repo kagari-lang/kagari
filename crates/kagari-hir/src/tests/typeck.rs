@@ -1537,6 +1537,22 @@ fn use_mapper(value: Mapper) {
 }
 
 #[test]
+fn rejects_interface_method_with_another_self_parameter() {
+    let lowered = common::lower_ok(
+        "trait Pair { fn same(self, other: Self) -> bool; } fn use_pair(value: Pair) {}",
+    );
+    let names = resolve_names(&lowered).into_checked().unwrap();
+    let diagnostics = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect_err("a second Self argument cannot be called through an interface value");
+    assert!(diagnostics.iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        DiagnosticKind::InvalidInterfaceType { reason, .. }
+            if reason == "method `same` is not interface-compatible"
+    )));
+}
+
+#[test]
 fn rejects_invalid_trait_impls() {
     let missing_method = common::lower_ok(
         r#"

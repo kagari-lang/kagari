@@ -294,6 +294,42 @@ pub fn verify_program(
             cancel
                 .check()
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
+            if let Instruction::Call {
+                dst,
+                callee: CallTarget::InterfaceMethod(contract),
+                args,
+            } = instruction
+            {
+                let valid = indices
+                    .get(&contract.interface.declaration.module)
+                    .filter(|target| **target == index || dependencies.contains(target))
+                    .and_then(|target| {
+                        let owner = &modules[*target];
+                        crate::module::abi::interface_method_types(
+                            &owner.identity,
+                            &owner.abi.public_items,
+                            &owner.abi.trait_contracts,
+                            &contract.interface,
+                            contract.method_slot as usize,
+                        )
+                    })
+                    .is_some_and(|(params, return_type)| {
+                        args.len() == params.len()
+                            && args.iter().zip(params).all(|(arg, param)| arg.ty == param)
+                            && crate::module::contracts::verify_call_dst(
+                                dst.map(|value| value.ty),
+                                return_type,
+                            )
+                            .is_ok()
+                    });
+                if !valid {
+                    return Err(error(
+                        &module.identity,
+                        ProgramErrorKind::InterfaceContract(contract.interface.declaration.clone()),
+                    ));
+                }
+                continue;
+            }
             if let Instruction::MakeInterface {
                 dst,
                 value,

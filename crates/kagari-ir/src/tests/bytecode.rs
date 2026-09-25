@@ -869,10 +869,13 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, source) in [
-        ("dependency", "pub trait Tag {} impl Tag for i32 {}"),
+        (
+            "dependency",
+            "pub trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } }",
+        ),
         (
             "root",
-            "use pkg::dependency::Tag; fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { accept(7) }",
+            "use pkg::dependency::Tag; fn accept(value: Tag) -> i32 { value.tag() } fn main() -> i32 { accept(7) }",
         ),
     ] {
         let uri = format!("mem://{name}");
@@ -922,12 +925,120 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
             ..
         })
     ));
+    let mut forged_call = ir.clone().into_unverified();
+    let method_slot = forged_call
+        .iter_mut()
+        .find(|module| module.identity.path == ["root"])
+        .unwrap()
+        .functions
+        .iter_mut()
+        .flat_map(|function| &mut function.blocks)
+        .flat_map(|block| &mut block.instructions)
+        .find_map(|instruction| match instruction {
+            crate::module::Instruction::Call {
+                callee: crate::module::CallTarget::InterfaceMethod(contract),
+                ..
+            } => Some(&mut contract.method_slot),
+            _ => None,
+        })
+        .unwrap();
+    *method_slot = 99;
+    assert!(matches!(
+        crate::program::verify_program(ir.root().clone(), forged_call, &Default::default()),
+        Err(crate::program::ProgramError {
+            kind: crate::program::ProgramErrorKind::InterfaceContract(_),
+            ..
+        })
+    ));
     let bytecode = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
     let root_module = &bytecode.modules[bytecode.root.index()];
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
         |instruction| matches!(instruction, crate::bytecode::BytecodeInstruction::MakeInterface { module, .. } if module.index() != bytecode.root.index())
     ));
+    assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
+        |instruction| matches!(instruction, crate::bytecode::BytecodeInstruction::Call { callee: crate::bytecode::CallTarget::InterfaceMethod { module, .. }, .. } if module.index() != bytecode.root.index())
+    ));
     crate::bytecode::verify_program(&bytecode).unwrap();
+    let mut invalid = bytecode.clone();
+    let call = invalid.modules[bytecode.root.index()]
+        .functions
+        .iter_mut()
+        .flat_map(|function| &mut function.instructions)
+        .find_map(|instruction| match instruction {
+            crate::bytecode::BytecodeInstruction::Call {
+                callee: crate::bytecode::CallTarget::InterfaceMethod { method_slot, .. },
+                ..
+            } => Some(method_slot),
+            _ => None,
+        })
+        .unwrap();
+    *call = 99;
+    assert!(crate::bytecode::verify_program(&invalid).is_err());
+    let mut wrong_owner = bytecode.clone();
+    let owner_slot = wrong_owner.modules[bytecode.root.index()]
+        .functions
+        .iter_mut()
+        .flat_map(|function| &mut function.instructions)
+        .find_map(|instruction| match instruction {
+            crate::bytecode::BytecodeInstruction::Call {
+                callee: crate::bytecode::CallTarget::InterfaceMethod { module, .. },
+                ..
+            } => Some(module),
+            _ => None,
+        })
+        .unwrap();
+    *owner_slot = bytecode.root;
+    assert!(crate::bytecode::verify_program(&wrong_owner).is_err());
+}
+
+#[test]
+fn forged_interface_method_slots_are_rejected_before_execution() {
+    let original = common::bytecode_ok(
+        "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self } } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }",
+    );
+    crate::bytecode::verify_module(&original).unwrap();
+    for corruption in ["slot", "owner", "argument"] {
+        let mut forged = original.clone();
+        let function = forged
+            .functions
+            .iter_mut()
+            .find(|function| function.name == "read")
+            .unwrap();
+        let instruction = function
+            .instructions
+            .iter_mut()
+            .find(|instruction| {
+                matches!(
+                    instruction,
+                    crate::bytecode::BytecodeInstruction::Call {
+                        callee: crate::bytecode::CallTarget::InterfaceMethod { .. },
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let crate::bytecode::BytecodeInstruction::Call { callee, args, .. } = instruction else {
+            unreachable!()
+        };
+        let crate::bytecode::CallTarget::InterfaceMethod {
+            interface,
+            method_slot,
+            ..
+        } = callee
+        else {
+            unreachable!()
+        };
+        match corruption {
+            "slot" => *method_slot = 99,
+            "owner" => interface.declaration.path.last_mut().unwrap().name = "Other".into(),
+            "argument" => args[0] = crate::bytecode::Register::new(999),
+            _ => unreachable!(),
+        }
+        assert!(
+            crate::bytecode::verify_module(&forged).is_err(),
+            "accepted {corruption}"
+        );
+    }
 }
 
 #[test]

@@ -44,6 +44,10 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
                     callee: IrCallTarget::SourceFunction(_),
                     ..
                 } => true,
+                Instruction::Call {
+                    callee: IrCallTarget::InterfaceMethod(contract),
+                    ..
+                } => contract.interface.declaration.module != ir.identity,
                 Instruction::MakeInterface { implementation, .. } => {
                     implementation.module != ir.identity
                 }
@@ -174,6 +178,20 @@ struct BytecodeLoweringContext<'a> {
 }
 
 impl BytecodeLoweringContext<'_> {
+    fn owner_ref(&self, owner: &kagari_common::identity::ModuleIdentity) -> super::ModuleRef {
+        if let Some(program) = self.program {
+            let index = program
+                .modules()
+                .iter()
+                .position(|module| &module.identity == owner)
+                .expect("verified interface owner module");
+            super::ModuleRef::new(index)
+        } else {
+            assert_eq!(self.identity.expect("lowering module identity"), owner);
+            super::ModuleRef::new(0)
+        }
+    }
+
     fn interface_ref(
         &self,
         implementation: &kagari_common::identity::DefinitionId,
@@ -666,6 +684,11 @@ fn lower_instruction(
                     }
                 }
                 IrCallTarget::Function(id) => CallTarget::Function(FunctionRef::new(id.index())),
+                IrCallTarget::InterfaceMethod(contract) => CallTarget::InterfaceMethod {
+                    module: context.owner_ref(&contract.interface.declaration.module),
+                    interface: contract.interface.clone(),
+                    method_slot: contract.method_slot,
+                },
                 IrCallTarget::HostFunction(declaration) => {
                     CallTarget::HostFunction(context.host_import(declaration))
                 }

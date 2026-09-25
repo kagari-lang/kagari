@@ -219,6 +219,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                     callee: CallTarget::ModuleFunction { module: target, .. },
                     ..
                 }
+                | BytecodeInstruction::Call {
+                    callee: CallTarget::InterfaceMethod { module: target, .. },
+                    ..
+                }
                 | BytecodeInstruction::MakeInterface { module: target, .. } => Some(target),
                 _ => None,
             };

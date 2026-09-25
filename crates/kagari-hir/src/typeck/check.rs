@@ -937,20 +937,28 @@ fn trait_method_interface_compatible(
     interface_method_compatible(
         hir_function.generic_params.len(),
         trait_generic_count,
-        function.params.iter().any(|param| param.name == "self"),
+        function
+            .params
+            .first()
+            .is_some_and(|param| param.name == "self"),
         &function.return_type,
+        function.params.iter().skip(1).map(|param| &param.ty),
     )
 }
 
-pub(super) fn interface_method_compatible(
+pub(super) fn interface_method_compatible<'a>(
     generic_count: usize,
     trait_generic_count: usize,
     has_receiver: bool,
     return_type: &TypeId,
+    other_parameters: impl IntoIterator<Item = &'a TypeId>,
 ) -> bool {
     generic_count == trait_generic_count
         && has_receiver
-        && !matches!(return_type, TypeId::SelfType(_))
+        && !return_type.contains_self_type()
+        && other_parameters
+            .into_iter()
+            .all(|parameter| !parameter.contains_self_type())
 }
 
 fn validate_interface_type(

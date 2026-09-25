@@ -1854,6 +1854,18 @@ fn source_call_boxes_an_interface_with_methods() {
 }
 
 #[test]
+fn source_interface_method_call_dispatches_through_the_linked_slot() {
+    let (runtime, loaded) = load_test_module(
+        "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn accept(value: Tag) -> i32 { value.tag() } fn main() -> i32 { accept(7) }",
+    );
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(8)
+    );
+}
+
+#[test]
 fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
     let (runtime, loaded) = load_test_module(
         "trait Tag {} impl Tag for i32 {} fn make() -> Tag { 7 } fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { val value: Tag = make(); accept(value) }",
@@ -1958,6 +1970,43 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     stack.pop().unwrap();
     assert_eq!(stack.current().unwrap().loaded().key(), new.key());
     stack.pop().unwrap();
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+}
+
+#[test]
+fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
+    let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { helper() + self } } fn helper() -> i32 { 1 } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }";
+    let old_code = compile_test_bytecode(source);
+    let new_code = compile_test_bytecode(
+        &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
+    );
+    let program = |module| kagari_ir::bytecode::BytecodeProgram {
+        root: kagari_ir::bytecode::ModuleRef::new(0),
+        modules: vec![module],
+    };
+    let mut runtime = Runtime::default();
+    let old = runtime
+        .load_program("interface-dispatch-reload", program(old_code))
+        .unwrap();
+    let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
+    let _old_root = runtime.root_value(old_value.clone()).unwrap();
+    let candidate = runtime
+        .stage_reload_program(&old, "interface-dispatch-reload", program(new_code))
+        .unwrap();
+    let new = runtime.publish_staged_reload(candidate).unwrap();
+    let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
+    let read = new
+        .bytecode
+        .functions
+        .iter()
+        .find(|f| f.name == "read")
+        .unwrap()
+        .id;
+    let mut old_call = crate::executor::Executor::new(&runtime, &new, read, &[old_value]).unwrap();
+    assert_eq!(old_call.run().unwrap(), Value::I32(8));
+    drop(old_call);
+    let mut new_call = crate::executor::Executor::new(&runtime, &new, read, &[new_value]).unwrap();
+    assert_eq!(new_call.run().unwrap(), Value::I32(9));
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
 

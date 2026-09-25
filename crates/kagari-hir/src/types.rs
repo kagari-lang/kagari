@@ -119,6 +119,29 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    pub fn contains_self_type(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::SelfType(_) => return true,
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items)
+                }
+                Self::Array(item) | Self::Set(item) => pending.push(item),
+                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments)
+                }
+                Self::Unknown
+                | Self::Error
+                | Self::Builtin(_)
+                | Self::Host(_)
+                | Self::Generic(_) => {}
+            }
+        }
+        false
+    }
+
     /// Substitute one binder layer; replacements can contain the caller's parameters.
     pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
         self.substitute_once(|ty| match ty {

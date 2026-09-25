@@ -117,8 +117,15 @@ receiver representation declared by the table. The runtime checks the full
 receiver ABI, allocates a generation-checked interface object and retains its
 linked execution version. For example, a verified `i32` receiver can be boxed
 through its `Tag for i32` table; a bool receiver or out-of-range table slot is
-rejected before execution. Source-level interface conversion and in-frame
-dynamic dispatch are separate pending wiring.
+rejected before execution. Source-level conversion emits this instruction when
+the checked semantic result names a unique concrete implementation.
+
+Interface calls use a dedicated `CallTarget::InterfaceMethod` containing the
+trait owner's module slot, applied interface identity and declared method
+ordinal. IR and bytecode verification check the trait signature, physical
+argument/result types and dependency reachability. The runtime checks the
+object's exact interface identity and full nominal method ABI, then enters the
+implementation's retained version on the same explicit frame stack.
 
 Public struct templates are checked against each executable instance after generic
 substitution: field count/order, names, permissions and concrete types must agree.
@@ -143,7 +150,7 @@ spans. During source compilation, encoding or verification-state limits become
 `KG_COMPILE_LIMIT_EXCEEDED` diagnostics.
 
 This boundary validates declared layouts but does not yet prove the exact nominal
-type of a heap-valued operand, dynamic interface dispatch or complete GC root
+type of every heap-valued operand or complete GC root
 maps. Runtime host calls validate nominal object types against their linked
 declarations; ordinary script call operands still carry representation contracts.
 Struct fields carry complete nested types. Allocation and replacement validate
@@ -429,7 +436,7 @@ Calls distinguish:
 - host function calls
 - runtime helper calls
 - standard intrinsic calls with verified argument and result representations
-- interface dispatch helper calls
+- verified interface method calls
 
 The `CallTarget` model records this distinction.
 
@@ -542,7 +549,7 @@ New calls use the latest successfully published epoch.
 
 ## GC and Safepoint Metadata
 
-KBC format 36 retains the verified, function-wide conservative root layout
+KBC format 37 retains the verified, function-wide conservative root layout
 introduced in format 34.
 Every local and register with `HeapObject` representation appears exactly once,
 in ascending slot order. Scalar, string and host-handle slots do not appear.

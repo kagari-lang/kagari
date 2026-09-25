@@ -372,6 +372,64 @@ pub struct InterfaceTableAbi {
     pub methods: Vec<FunctionAbi>,
 }
 
+/// The physical call contract of a method on a concrete applied interface.
+/// The first argument is the boxed receiver; the runtime unwraps it only after
+/// checking the interface identity and selected method slot.
+pub(crate) fn interface_method_types(
+    owner: &kagari_common::identity::ModuleIdentity,
+    public_items: &[PublicAbiItem],
+    trait_contracts: &[TraitContract],
+    interface: &NominalAbiType,
+    slot: usize,
+) -> Option<(Vec<super::ValueType>, super::ValueType)> {
+    use kagari_common::identity::DefinitionKind;
+    let path = &interface.declaration.path;
+    if interface.declaration.module != *owner
+        || path.len() != 1
+        || path[0].kind != DefinitionKind::Trait
+        || path[0].occurrence != 0
+        || !interface.arguments.iter().all(AbiType::is_concrete)
+    {
+        return None;
+    }
+    let trait_abi = trait_contracts
+        .iter()
+        .find(|contract| contract.declaration == interface.declaration)
+        .map(|contract| &contract.abi)
+        .or_else(|| {
+            public_items.iter().find_map(|item| match item {
+                PublicAbiItem::Trait(trait_abi) if trait_abi.name == path[0].name => {
+                    Some(trait_abi)
+                }
+                _ => None,
+            })
+        })?;
+    if interface.arguments.len() != trait_abi.generic_params.len() {
+        return None;
+    }
+    let method = trait_abi.methods.get(slot)?;
+    if !method.generic_params.is_empty()
+        || method.params.first()?.ty != AbiType::SelfType(interface.declaration.clone())
+    {
+        return None;
+    }
+    let instantiated = |ty: &AbiType| {
+        ty.instantiate(&interface.declaration, &interface.arguments)
+            .filter(AbiType::is_concrete)
+            .map(|ty| ty.representation())
+    };
+    let mut params = vec![super::ValueType::HeapObject];
+    params.extend(
+        method
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| instantiated(&param.ty))
+            .collect::<Option<Vec<_>>>()?,
+    );
+    Some((params, instantiated(&method.return_type)?))
+}
+
 /// Executable contract for a private trait absent from the public ABI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraitContract {

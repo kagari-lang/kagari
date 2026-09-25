@@ -153,6 +153,11 @@ pub enum CallTarget {
         function: FunctionRef,
     },
     Function(FunctionRef),
+    InterfaceMethod {
+        module: super::ModuleRef,
+        interface: crate::module::abi::NominalAbiType,
+        method_slot: u32,
+    },
     HostFunction(HostImportId),
     Register(Register),
     StandardIntrinsic(StandardIntrinsic),

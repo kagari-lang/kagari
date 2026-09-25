@@ -157,10 +157,17 @@ pub enum Terminator {
 pub enum CallTarget {
     SourceFunction(Box<SourceFunctionContract>),
     Function(crate::module::ids::InstanceId),
+    InterfaceMethod(Box<InterfaceCallContract>),
     HostFunction(Box<kagari_common::host_interface::HostFunctionDeclaration>),
     Value(IrValue),
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceCallContract {
+    pub interface: super::abi::NominalAbiType,
+    pub method_slot: u32,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -357,6 +364,7 @@ impl CallTarget {
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::Function(_) | Self::SourceFunction(_) | Self::Value(_) => EffectSet::call(),
+            Self::InterfaceMethod(_) => EffectSet::runtime_call(),
             Self::HostFunction(declaration) => EffectSet {
                 allocates: declaration.effects.may_allocate,
                 ..EffectSet::runtime_call()

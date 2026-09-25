@@ -108,6 +108,35 @@ pub(super) fn verify(
                 contracts::verify_call_dst(dst.map(|v| v.ty), callee.return_type)
                     .map_err(contract)?;
             }
+            CallTarget::InterfaceMethod(interface_call) => {
+                if interface_call.interface.declaration.module == module.identity {
+                    let (params, return_type) = super::super::abi::interface_method_types(
+                        &module.identity,
+                        &module.abi.public_items,
+                        &module.abi.trait_contracts,
+                        &interface_call.interface,
+                        interface_call.method_slot as usize,
+                    )
+                    .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
+                    if args.len() != params.len() {
+                        return Err(context.error(Error::CallArity {
+                            expected: params.len(),
+                            found: args.len(),
+                        }));
+                    }
+                    for (arg, param) in args.iter().zip(params) {
+                        context.expect(arg.ty, param, "interface call argument")?;
+                    }
+                    contracts::verify_call_dst(dst.map(|v| v.ty), return_type).map_err(contract)?;
+                } else {
+                    // Whole-program verification checks the imported declaration
+                    // and complete method signature before bytecode lowering.
+                    let receiver = args
+                        .first()
+                        .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
+                    context.expect(receiver.ty, ValueType::HeapObject, "interface receiver")?;
+                }
+            }
             CallTarget::StandardIntrinsic(intrinsic) => contracts::verify_intrinsic(
                 dst.map(|v| v.ty),
                 *intrinsic,

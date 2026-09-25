@@ -309,8 +309,12 @@ fn validate_imported_interface_type(
                         if !super::check::interface_method_compatible(
                             method.generic_params.len(),
                             contract.generic_params.len(),
-                            method.params.iter().any(|param| param.name == "self"),
+                            method
+                                .params
+                                .first()
+                                .is_some_and(|param| param.name == "self"),
                             &method.return_type,
+                            method.params.iter().skip(1).map(|param| &param.ty),
                         ) {
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
