@@ -6,6 +6,9 @@ use crate::lower::context::{Lowerer, syntax_span, token_span};
 
 impl Lowerer {
     pub(crate) fn lower_type(&mut self, ty: &ast::TypeRef) -> TypeRefId {
+        if let Some(inner) = ty.grouped_type() {
+            return self.lower_type(&inner);
+        }
         let kind = if let Some(name) = ty.name_text() {
             let args = ty
                 .generic_args()

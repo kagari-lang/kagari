@@ -223,7 +223,11 @@ pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
                 .map(|element| display_type(module, *element))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("({inner})")
+            if elements.len() == 1 {
+                format!("({inner},)")
+            } else {
+                format!("({inner})")
+            }
         }
         hir::TypeKind::Array(element) => format!("[{}]", display_type(module, *element)),
         hir::TypeKind::Function { params, result } => format!(

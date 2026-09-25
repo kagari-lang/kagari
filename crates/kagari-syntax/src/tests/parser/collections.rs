@@ -64,3 +64,28 @@ fn parses_array_and_tuple_types() {
     assert_eq!(elements[0].name_text().as_deref(), Some("i32"));
     assert_eq!(elements[1].name_text().as_deref(), Some("string"));
 }
+
+#[test]
+fn distinguishes_grouped_and_singleton_tuple_types() {
+    let module = common::parse_ok("fn main(grouped: (i32), singleton: (i32,)) -> () { }");
+    let function = common::first_function(&module);
+    let params = function.param_list().unwrap().params().collect::<Vec<_>>();
+    let grouped = params[0].ty().unwrap();
+    assert!(grouped.tuple_type().is_none());
+    assert_eq!(
+        grouped.grouped_type().unwrap().name_text().as_deref(),
+        Some("i32")
+    );
+    let singleton = params[1].ty().unwrap().tuple_type().unwrap();
+    assert_eq!(singleton.element_types().count(), 1);
+    assert_eq!(
+        function
+            .return_type()
+            .unwrap()
+            .tuple_type()
+            .unwrap()
+            .element_types()
+            .count(),
+        0
+    );
+}

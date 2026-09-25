@@ -33,6 +33,10 @@ impl TypeRef {
         support::child(self.syntax())
     }
 
+    pub fn grouped_type(&self) -> Option<TypeRef> {
+        support::child(self.syntax())
+    }
+
     pub fn array_type(&self) -> Option<ArrayType> {
         support::child(self.syntax())
     }

@@ -22,7 +22,7 @@ impl<'a> Parser<'a> {
                     self.parse_generic_arg_list();
                 }
             }
-            Some(TokenKind::LParen) => self.parse_tuple_type(),
+            Some(TokenKind::LParen) => self.parse_paren_or_tuple_type(),
             Some(TokenKind::LBracket) => self.parse_array_type(),
             Some(TokenKind::FnKw) => self.parse_function_type(),
             _ => self.error_here(DiagnosticKind::ExpectedType),
@@ -44,24 +44,35 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_tuple_type(&mut self) {
-        self.start_node(SyntaxKind::TupleType);
+    fn parse_paren_or_tuple_type(&mut self) {
+        let checkpoint = self.checkpoint();
         self.expect(TokenKind::LParen, DiagnosticKind::ExpectedClosingParen);
         self.bump_trivia();
-
-        while !self.at_any(&[TokenKind::RParen, TokenKind::Eof]) {
-            self.parse_type_ref();
-            self.bump_trivia();
-            if self.at(TokenKind::Comma) {
-                self.bump();
-                self.bump_trivia();
-            } else {
-                break;
-            }
+        if self.at(TokenKind::RParen) {
+            self.bump();
+            self.start_node_at(checkpoint, SyntaxKind::TupleType);
+            self.finish_node();
+            return;
         }
 
-        self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
-        self.finish_node();
+        self.parse_type_ref();
+        self.bump_trivia();
+        if self.at(TokenKind::Comma) {
+            while self.at(TokenKind::Comma) {
+                self.bump();
+                self.bump_trivia();
+                if self.at(TokenKind::RParen) {
+                    break;
+                }
+                self.parse_type_ref();
+                self.bump_trivia();
+            }
+            self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+            self.start_node_at(checkpoint, SyntaxKind::TupleType);
+            self.finish_node();
+        } else {
+            self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+        }
     }
 
     fn parse_array_type(&mut self) {

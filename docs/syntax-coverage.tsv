@@ -44,6 +44,7 @@ type	covered	examples/syntax/data-model.kgr	-
 function_type	covered	examples/syntax/closures.kgr	-
 array_type	covered	examples/syntax/closures.kgr	-
 tuple_type	covered	examples/standard-library.kgr	-
+parenthesized_type	covered	examples/syntax/tuple-types.kgr	-
 generic_args	covered	examples/standard-library.kgr	-
 path	covered	examples/syntax/expressions.kgr	-
 path_segment	covered	examples/syntax/expressions.kgr	-

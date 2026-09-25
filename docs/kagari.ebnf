@@ -111,13 +111,17 @@ type_list           ::= type ("," type)* (",")? ;
 type                ::= path generic_args?
                       | array_type
                       | tuple_type
-                      | function_type ;
+                      | function_type
+                      | parenthesized_type ;
 
 function_type       ::= "fn" "(" type_list? ")" "->" type ;
 
 array_type          ::= "[" type "]" ;
 
-tuple_type          ::= "(" type_list? ")" ;
+tuple_type          ::= "(" ")"
+                      | "(" type "," (type ("," type)* (",")?)? ")" ;
+
+parenthesized_type  ::= "(" type ")" ;
 
 generic_args        ::= "<" type ("," type)* (",")? ">" ;
 

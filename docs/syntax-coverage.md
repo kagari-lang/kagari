@@ -28,7 +28,7 @@ The audit maintains three inventories:
   the current audit does not claim that both sides of each optional or every
   repetition count have test witnesses.
 
-All 156 EBNF rules and 100 top-level alternatives now have parse-clean
+All 157 EBNF rules and 103 top-level alternatives now have parse-clean
 witnesses. This is parser coverage, not an assertion that every form has linked
 runtime behavior. In particular,
 [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr) is parser-only:

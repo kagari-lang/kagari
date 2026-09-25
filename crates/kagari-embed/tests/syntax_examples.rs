@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 18] = [
+    let cases: [(&str, &str, Value); 19] = [
+        (
+            "examples/syntax/tuple-types.kgr",
+            include_str!("../../../examples/syntax/tuple-types.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/attributes.kgr",
             include_str!("../../../examples/syntax/attributes.kgr"),

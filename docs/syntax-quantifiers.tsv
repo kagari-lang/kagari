@@ -52,7 +52,9 @@ type_list	1	*	("," type)
 type_list	2	?	(",")
 type	1	?	generic_args
 function_type	1	?	type_list
-tuple_type	1	?	type_list
+tuple_type	1	*	("," type)
+tuple_type	2	?	(",")
+tuple_type	3	?	(type ("," type)* (",")?)
 generic_args	1	*	("," type)
 generic_args	2	?	(",")
 path	1	*	("::" path_segment)

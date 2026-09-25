@@ -463,13 +463,17 @@ This also applies within composite members: a field or enum payload declared
 type            ::= path generic_args?
                   | array_type
                   | tuple_type
-                  | function_type ;
+                  | function_type
+                  | parenthesized_type ;
 
 function_type   ::= "fn" "(" type_list? ")" "->" type ;
 
 array_type      ::= "[" type "]" ;
 
-tuple_type      ::= "(" type_list? ")" ;
+tuple_type      ::= "(" ")"
+                  | "(" type "," (type ("," type)* (",")?)? ")" ;
+
+parenthesized_type ::= "(" type ")" ;
 
 generic_args    ::= "<" type ("," type)* (",")? ">" ;
 
@@ -494,6 +498,7 @@ Trait names may be used directly as interface types.
 Kagari does not expose Rust-style `dyn` trait-object, boxed trait-object, or borrow-dependent trait-object syntax.
 
 The empty tuple type `()` is Kagari's unit type.
+As in Rust, `(T)` groups a type and `(T,)` is a one-element tuple type.
 It represents the absence of a meaningful value and is the default result type for functions or module initialization paths that do not produce a value.
 Source code does not need to spell a trailing `()` expression; a block with no tail expression produces `()`.
 
