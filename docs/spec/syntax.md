@@ -481,7 +481,7 @@ generic_args    ::= "<" type ("," type)* (",")? ">" ;
 
 where_clause    ::= "where" where_predicate ("," where_predicate)* (",")? ;
 
-where_predicate ::= path_segment ":" type_bound_list ;
+where_predicate ::= IDENT ":" type_bound_list ;
 
 trait_ref       ::= path generic_args? ;
 
@@ -568,7 +568,9 @@ expr_stmt       ::= expr ";" ;
 
 return_stmt     ::= "return" expr? ";" ;
 
-if_stmt         ::= "if" condition block ("else" (if_stmt | block))? ;
+if_stmt         ::= if_expr ;
+
+if_expr         ::= "if" condition block ("else" (if_expr | block))? ;
 
 while_stmt      ::= "while" condition block ;
 
@@ -715,13 +717,17 @@ index_suffix    ::= "[" expr "]" ;
 primary_expr    ::= literal
                   | path
                   | explicit_enum_path
+                  | if_expr
                   | parenthesized_expr
                   | tuple_expr
                   | array_expr
                   | struct_expr
                   | closure_expr
+                  | loop_expr
                   | match_expr
                   | block ;
+
+loop_expr       ::= "loop" block ;
 
 parenthesized_expr
                 ::= "(" expr ")" ;
@@ -909,6 +915,8 @@ The following areas are outside this syntax specification:
 
 This document is the language-facing syntax specification.
 The parser implementation does not have to mirror these rules one-for-one.
+The [syntax coverage audit](../syntax-coverage.md) records which EBNF forms
+have parser witnesses, known implementation gaps, or no focused test yet.
 
 When parser implementation begins:
 

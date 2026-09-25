@@ -1,5 +1,6 @@
 (* Kagari source grammar *)
-(* This file is a compact single-file EBNF view of the source syntax. *)
+(* This file is the intended single-file source grammar. Implementation and
+   evidence gaps are tracked in docs/syntax-coverage.tsv. *)
 (* Kagari is a Kotlin-style business scripting language with Rust-inspired syntax. *)
 (* Trait names are interface types directly. There is no script-level dyn trait-object syntax. *)
 (* `pub` is the only explicit visibility marker; unmarked items are private. *)
@@ -52,7 +53,16 @@ module_decl         ::= visibility? "mod" IDENT module_block ;
 
 module_block        ::= "{" item* "}" ;
 
-use_decl            ::= visibility? "use" path use_alias? ";" ;
+use_decl            ::= visibility? "use" use_tree ";" ;
+
+use_tree            ::= path use_alias?
+                      | path "::" "*"
+                      | path "::" use_tree_group
+                      | use_tree_group ;
+
+use_tree_group      ::= "{" use_tree_list? "}" ;
+
+use_tree_list       ::= use_tree ("," use_tree)* (",")? ;
 
 use_alias           ::= "as" IDENT ;
 
@@ -114,8 +124,9 @@ generic_args        ::= "<" type ("," type)* (",")? ">" ;
 path                ::= path_segment ("::" path_segment)* ;
 
 path_segment        ::= IDENT
+                      | "crate"
                       | "self"
-                      | "Self" ;
+                      | "super" ;
 
 where_clause        ::= "where" where_predicate ("," where_predicate)* (",")? ;
 
@@ -126,16 +137,14 @@ trait_ref           ::= path generic_args? ;
 impl_block          ::= inherent_impl
                       | trait_impl ;
 
-(* User-written impls are deliberately simple. More complex generic or
-   conditional impls are outside this grammar and require a separate language
-   extension. *)
-inherent_impl       ::= "impl" type "{" impl_item* "}" ;
+(* User-written impls may declare type parameters and where predicates. *)
+inherent_impl       ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
 
-trait_impl          ::= "impl" trait_ref "for" type "{" impl_item* "}" ;
+trait_impl          ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" impl_item* "}" ;
 
 impl_item           ::= attribute* method_decl ;
 
-method_decl         ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+method_decl         ::= visibility? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
 
 method_param_list   ::= receiver_param ("," param_list)? (",")?
                       | param_list ;
@@ -177,7 +186,9 @@ expr_stmt           ::= expr ";" ;
 
 return_stmt         ::= "return" expr? ";" ;
 
-if_stmt             ::= "if" condition block ("else" (if_stmt | block))? ;
+if_stmt             ::= if_expr ;
+
+if_expr             ::= "if" condition block ("else" (if_expr | block))? ;
 
 while_stmt          ::= "while" condition block ;
 
@@ -232,6 +243,7 @@ index_suffix        ::= "[" expr "]" ;
 
 primary_expr        ::= literal
                       | path
+                      | if_expr
                       | parenthesized_expr
                       | tuple_expr
                       | array_expr
@@ -316,6 +328,7 @@ field_pattern       ::= IDENT
                       | IDENT ":" pattern ;
 
 place_expr          ::= path place_suffix*
+                      | postfix_expr place_suffix+
                       | parenthesized_place_expr ;
 
 parenthesized_place_expr

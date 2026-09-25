@@ -1,0 +1,157 @@
+rule	status	evidence	note
+module	covered	examples/syntax/expressions.kgr	-
+item	partial	examples/syntax/expressions.kgr	Attribute prefix is not recognized
+item_decl	covered	examples/syntax/expressions.kgr	-
+visibility	covered	examples/imported-traits/generic-model.kgr	-
+function_item	covered	examples/syntax/expressions.kgr	-
+const_item	covered	examples/standard-library.kgr	-
+struct_item	covered	examples/syntax/data-model.kgr	-
+enum_item	covered	examples/syntax/data-model.kgr	-
+trait_item	covered	examples/syntax/where-bounds.kgr	-
+attribute	missing	gap:attribute	Attribute introducer and syntax are absent
+attribute_args	missing	gap:attribute	Attribute arguments are absent
+attribute_arg_list	missing	gap:attribute	Attribute arguments are absent
+attribute_arg	missing	gap:attribute	Attribute arguments are absent
+attribute_value	missing	gap:attribute	Attribute arguments are absent
+module_decl	unverified	-	No production-specific witness recorded
+module_block	unverified	-	No production-specific witness recorded
+use_decl	covered	examples/syntax/import-alias.kgr	-
+use_tree	covered	examples/syntax/import-alias.kgr	-
+use_tree_group	covered	examples/imported-traits/generic-consumer.kgr	-
+use_tree_list	covered	examples/imported-traits/generic-consumer.kgr	-
+use_alias	covered	examples/syntax/import-alias.kgr	-
+function_decl	covered	examples/syntax/expressions.kgr	-
+generic_param_clause	covered	examples/syntax/where-bounds.kgr	-
+generic_param	covered	examples/syntax/where-bounds.kgr	-
+type_bound_list	covered	examples/syntax/where-bounds.kgr	-
+param_list	covered	examples/syntax/expressions.kgr	-
+param	covered	examples/syntax/expressions.kgr	-
+return_type	covered	examples/syntax/expressions.kgr	-
+struct_decl	covered	examples/syntax/data-model.kgr	-
+field_list	covered	examples/syntax/data-model.kgr	-
+field	partial	examples/syntax/data-model.kgr	Field attributes are not recognized
+field_binding	covered	examples/syntax/data-model.kgr	-
+enum_decl	covered	examples/syntax/data-model.kgr	-
+variant_list	covered	examples/syntax/data-model.kgr	-
+variant	covered	examples/syntax/data-model.kgr	-
+trait_decl	covered	examples/syntax/where-bounds.kgr	-
+supertrait_clause	unverified	-	No production-specific witness recorded
+trait_member	partial	examples/syntax/where-bounds.kgr	Trait member attributes are not recognized
+trait_method	covered	examples/syntax/where-bounds.kgr	-
+method_sig	covered	examples/syntax/where-bounds.kgr	-
+type_list	covered	examples/syntax/data-model.kgr	-
+type	covered	examples/syntax/data-model.kgr	-
+function_type	covered	examples/syntax/closures.kgr	-
+array_type	covered	examples/syntax/closures.kgr	-
+tuple_type	covered	examples/standard-library.kgr	-
+generic_args	covered	examples/standard-library.kgr	-
+path	covered	examples/syntax/expressions.kgr	-
+path_segment	covered	examples/syntax/expressions.kgr	-
+where_clause	covered	examples/syntax/where-bounds.kgr	-
+where_predicate	covered	examples/syntax/where-bounds.kgr	-
+trait_ref	covered	examples/syntax/where-bounds.kgr	-
+impl_block	covered	examples/syntax/data-model.kgr	-
+inherent_impl	covered	examples/syntax/data-model.kgr	-
+trait_impl	covered	examples/syntax/where-bounds.kgr	-
+impl_item	partial	examples/syntax/data-model.kgr	Impl item attributes are not recognized
+method_decl	covered	examples/syntax/data-model.kgr	-
+method_param_list	covered	examples/syntax/data-model.kgr	-
+receiver_param	covered	examples/syntax/data-model.kgr	-
+block	covered	examples/syntax/expressions.kgr	-
+stmt	partial	examples/syntax/expressions.kgr	Standalone block statements are not recognized
+binding_stmt	covered	examples/syntax/expressions.kgr	-
+binding_kind	covered	examples/syntax/expressions.kgr	-
+type_annotation	covered	examples/standard-library.kgr	-
+init_expr	covered	examples/syntax/expressions.kgr	-
+assign_stmt	covered	examples/syntax/data-model.kgr	-
+assign_op	covered	examples/syntax/data-model.kgr	-
+expr_stmt	covered	examples/syntax/expressions.kgr	-
+return_stmt	covered	examples/standard-library.kgr	-
+if_stmt	covered	examples/syntax/expressions.kgr	-
+if_expr	covered	examples/syntax/expressions.kgr	-
+while_stmt	covered	examples/syntax/control-flow.kgr	-
+loop_stmt	covered	examples/syntax/control-flow.kgr	-
+for_stmt	covered	examples/syntax/control-flow.kgr	-
+break_stmt	covered	examples/syntax/control-flow.kgr	-
+continue_stmt	covered	examples/syntax/control-flow.kgr	-
+condition	partial	examples/syntax/expressions.kgr	Binding conditions are not recognized
+binding_condition	missing	gap:binding_condition	Binding condition is absent
+expr	partial	examples/syntax/expressions.kgr	Range expression branch is not recognized
+range_expr	partial	examples/syntax/expressions.kgr	Only the non-range branch is recognized
+range_op	missing	gap:range	Range operators are absent
+logic_or_expr	covered	examples/syntax/expressions.kgr	-
+logic_and_expr	covered	examples/syntax/expressions.kgr	-
+equality_expr	covered	examples/syntax/expressions.kgr	-
+compare_expr	covered	examples/syntax/expressions.kgr	-
+additive_expr	covered	examples/syntax/expressions.kgr	-
+multiplicative_expr	covered	examples/syntax/expressions.kgr	-
+unary_expr	covered	examples/syntax/expressions.kgr	-
+postfix_expr	covered	examples/syntax/expressions.kgr	-
+postfix_op	covered	examples/syntax/expressions.kgr	-
+call_suffix	covered	examples/syntax/expressions.kgr	-
+arg_list	covered	examples/syntax/expressions.kgr	-
+field_suffix	covered	examples/syntax/expressions.kgr	-
+index_suffix	covered	examples/syntax/data-model.kgr	-
+primary_expr	partial	examples/syntax/expressions.kgr	Standalone block expression branch is not recognized
+parenthesized_expr	covered	examples/syntax/expressions.kgr	-
+tuple_expr	covered	examples/syntax/data-model.kgr	-
+expr_list	covered	examples/syntax/data-model.kgr	-
+array_expr	covered	examples/syntax/data-model.kgr	-
+struct_expr	covered	examples/syntax/data-model.kgr	-
+field_init_list	covered	examples/syntax/data-model.kgr	-
+field_init	covered	examples/syntax/data-model.kgr	-
+closure_expr	covered	examples/syntax/closures.kgr	-
+closure_param_list	covered	examples/syntax/closures.kgr	-
+closure_param	covered	examples/syntax/closures.kgr	-
+closure_body	covered	examples/syntax/closures.kgr	-
+loop_expr	covered	examples/syntax/control-flow.kgr	-
+match_expr	covered	examples/syntax/match.kgr	-
+match_arm_list	covered	examples/syntax/match.kgr	-
+match_arm	covered	examples/syntax/match.kgr	-
+match_guard	missing	gap:match_guard	Match guards are absent
+match_body	partial	examples/syntax/match.kgr	Block body after match arrow is not recognized
+pattern	partial	examples/syntax/match.kgr	Or and range pattern branches are not recognized
+or_pattern	partial	examples/syntax/match.kgr	Or branch is not recognized
+range_pattern	partial	examples/syntax/match.kgr	Range tail is not recognized
+range_pattern_tail	missing	gap:range_pattern	Range pattern tail is absent
+range_bound	missing	gap:range_pattern	Range pattern bound is absent
+primary_pattern	partial	examples/syntax/match.kgr	Parenthesized grouping is not distinguished from tuple pattern
+parenthesized_pattern	unverified	-	No production-specific witness recorded
+tuple_pattern	covered	examples/syntax/match.kgr	-
+pattern_list	covered	examples/syntax/match.kgr	-
+tuple_struct_pattern	covered	examples/syntax/match.kgr	-
+struct_pattern	covered	examples/syntax/match.kgr	-
+field_pattern_list	covered	examples/syntax/match.kgr	-
+field_pattern	covered	examples/syntax/match.kgr	-
+place_expr	covered	examples/syntax/data-model.kgr	-
+parenthesized_place_expr	unverified	-	No production-specific witness recorded
+place_suffix	covered	examples/syntax/data-model.kgr	-
+literal	covered	examples/syntax/expressions.kgr	-
+WHITESPACE	covered	examples/syntax/expressions.kgr	-
+LINE_COMMENT	covered	examples/syntax/expressions.kgr	-
+BLOCK_COMMENT	missing	gap:block_comment	Block comments are absent
+IDENT	covered	examples/syntax/expressions.kgr	-
+IDENT_START	covered	examples/syntax/expressions.kgr	-
+IDENT_CONTINUE	covered	examples/syntax/expressions.kgr	-
+INTEGER	partial	examples/syntax/expressions.kgr	Base-prefixed and underscore forms are not recognized
+DEC_INTEGER	partial	examples/syntax/expressions.kgr	Underscore form is not recognized
+BIN_INTEGER	missing	gap:binary_integer	Binary integer literals are absent
+OCT_INTEGER	missing	gap:octal_integer	Octal integer literals are absent
+HEX_INTEGER	missing	gap:hex_integer	Hexadecimal integer literals are absent
+FLOAT	partial	examples/standard-library.kgr	Exponent and underscore forms are not recognized
+EXPONENT	missing	gap:exponent	Exponent notation is absent
+STRING	partial	examples/standard-library.kgr	Escaped quote and Unicode escape forms are not recognized
+STRING_CHAR	partial	examples/standard-library.kgr	Escape sequences are not recognized
+ESCAPE_SEQUENCE	missing	gap:escaped_string	String escape handling is absent
+UNICODE_ESCAPE	missing	gap:escaped_string	Unicode escape handling is absent
+OPERATOR_TOKEN	partial	examples/syntax/expressions.kgr	Range operators are not recognized
+DELIMITER_TOKEN	partial	examples/syntax/expressions.kgr	Attribute introducer is not recognized
+ASCII_LETTER	covered	examples/syntax/expressions.kgr	-
+DIGIT	covered	examples/syntax/expressions.kgr	-
+BIN_DIGIT	unverified	-	No production-specific witness recorded
+OCT_DIGIT	unverified	-	No production-specific witness recorded
+HEX_DIGIT	unverified	-	No production-specific witness recorded
+LINE_TEXT	covered	examples/syntax/expressions.kgr	-
+BLOCK_COMMENT_TEXT	missing	gap:block_comment	Block comments are absent
+STRING_TEXT_CHAR	covered	examples/standard-library.kgr	-
+LINE_END	covered	examples/syntax/expressions.kgr	-

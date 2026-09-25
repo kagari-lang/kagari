@@ -1,0 +1,101 @@
+rule	branch	status	evidence	note	production
+item_decl	1	witnessed	examples/syntax/import-alias.kgr	-	use_decl
+item_decl	2	unverified	-	No branch-specific witness recorded	module_decl
+item_decl	3	witnessed	examples/syntax/expressions.kgr	-	function_item
+item_decl	4	witnessed	examples/standard-library.kgr	-	const_item
+item_decl	5	witnessed	examples/syntax/data-model.kgr	-	struct_item
+item_decl	6	witnessed	examples/syntax/data-model.kgr	-	enum_item
+item_decl	7	witnessed	examples/syntax/where-bounds.kgr	-	trait_item
+item_decl	8	witnessed	examples/syntax/where-bounds.kgr	-	impl_block
+attribute_arg	1	missing	gap:attribute	Parser rejects this EBNF branch	IDENT "=" attribute_value
+attribute_arg	2	missing	gap:attribute	Parser rejects this EBNF branch	attribute_value
+attribute_value	1	missing	gap:attribute	Parser rejects this EBNF branch	literal
+attribute_value	2	missing	gap:attribute	Parser rejects this EBNF branch	path
+attribute_value	3	missing	gap:attribute	Parser rejects this EBNF branch	"[" attribute_arg_list? "]"
+use_tree	1	witnessed	examples/syntax/import-alias.kgr	-	path use_alias?
+use_tree	2	unverified	-	No branch-specific witness recorded	path "::" "*"
+use_tree	3	witnessed	examples/imported-traits/generic-consumer.kgr	-	path "::" use_tree_group
+use_tree	4	unverified	-	No branch-specific witness recorded	use_tree_group
+field_binding	1	witnessed	examples/syntax/data-model.kgr	-	"val"
+field_binding	2	witnessed	examples/syntax/data-model.kgr	-	"var"
+variant	1	witnessed	examples/syntax/data-model.kgr	-	IDENT
+variant	2	witnessed	examples/syntax/data-model.kgr	-	IDENT "(" type_list? ")"
+type	1	witnessed	examples/syntax/data-model.kgr	-	path generic_args?
+type	2	witnessed	examples/syntax/closures.kgr	-	array_type
+type	3	witnessed	examples/standard-library.kgr	-	tuple_type
+type	4	witnessed	examples/syntax/closures.kgr	-	function_type
+path_segment	1	witnessed	examples/syntax/expressions.kgr	-	IDENT
+path_segment	2	unverified	-	No branch-specific witness recorded	"crate"
+path_segment	3	unverified	-	No branch-specific witness recorded	"self"
+path_segment	4	unverified	-	No branch-specific witness recorded	"super"
+impl_block	1	witnessed	examples/syntax/data-model.kgr	-	inherent_impl
+impl_block	2	witnessed	examples/syntax/where-bounds.kgr	-	trait_impl
+method_param_list	1	witnessed	examples/syntax/data-model.kgr	-	receiver_param ("," param_list)? (",")?
+method_param_list	2	unverified	-	No branch-specific witness recorded	param_list
+stmt	1	witnessed	examples/syntax/data-model.kgr	-	binding_stmt
+stmt	2	witnessed	examples/syntax/data-model.kgr	-	assign_stmt
+stmt	3	witnessed	examples/syntax/expressions.kgr	-	expr_stmt
+stmt	4	witnessed	examples/standard-library.kgr	-	return_stmt
+stmt	5	witnessed	examples/syntax/expressions.kgr	-	if_stmt
+stmt	6	witnessed	examples/syntax/control-flow.kgr	-	while_stmt
+stmt	7	witnessed	examples/syntax/control-flow.kgr	-	loop_stmt
+stmt	8	witnessed	examples/syntax/control-flow.kgr	-	for_stmt
+stmt	9	witnessed	examples/syntax/control-flow.kgr	-	break_stmt
+stmt	10	witnessed	examples/syntax/control-flow.kgr	-	continue_stmt
+stmt	11	missing	gap:block_statement	Parser rejects this EBNF branch	block
+binding_kind	1	witnessed	examples/syntax/expressions.kgr	-	"val"
+binding_kind	2	witnessed	examples/syntax/control-flow.kgr	-	"var"
+assign_op	1	witnessed	examples/standard-library.kgr	-	"="
+assign_op	2	witnessed	examples/syntax/data-model.kgr	-	"+="
+assign_op	3	unverified	-	No branch-specific witness recorded	"-="
+assign_op	4	unverified	-	No branch-specific witness recorded	"*="
+assign_op	5	unverified	-	No branch-specific witness recorded	"/="
+condition	1	missing	gap:binding_condition	Parser rejects this EBNF branch	binding_condition
+condition	2	witnessed	examples/syntax/expressions.kgr	-	expr
+range_op	1	missing	gap:range	Parser rejects this EBNF branch	".."
+range_op	2	missing	gap:range	Parser rejects this EBNF branch	"..="
+unary_expr	1	witnessed	examples/syntax/expressions.kgr	-	("!" | "-") unary_expr
+unary_expr	2	witnessed	examples/syntax/expressions.kgr	-	postfix_expr
+postfix_op	1	witnessed	examples/syntax/expressions.kgr	-	call_suffix
+postfix_op	2	witnessed	examples/syntax/expressions.kgr	-	field_suffix
+postfix_op	3	witnessed	examples/syntax/data-model.kgr	-	index_suffix
+primary_expr	1	witnessed	examples/syntax/expressions.kgr	-	literal
+primary_expr	2	witnessed	examples/syntax/expressions.kgr	-	path
+primary_expr	3	witnessed	examples/syntax/expressions.kgr	-	if_expr
+primary_expr	4	witnessed	examples/syntax/expressions.kgr	-	parenthesized_expr
+primary_expr	5	witnessed	examples/syntax/data-model.kgr	-	tuple_expr
+primary_expr	6	witnessed	examples/syntax/data-model.kgr	-	array_expr
+primary_expr	7	witnessed	examples/syntax/data-model.kgr	-	struct_expr
+primary_expr	8	witnessed	examples/syntax/closures.kgr	-	closure_expr
+primary_expr	9	witnessed	examples/syntax/control-flow.kgr	-	loop_expr
+primary_expr	10	witnessed	examples/syntax/match.kgr	-	match_expr
+primary_expr	11	missing	gap:block_expression	Parser rejects this EBNF branch	block
+field_init	1	witnessed	examples/syntax/data-model.kgr	-	IDENT
+field_init	2	witnessed	examples/syntax/data-model.kgr	-	IDENT ":" expr
+closure_body	1	witnessed	examples/syntax/closures.kgr	-	expr
+closure_body	2	witnessed	examples/syntax/closures.kgr	-	block
+match_body	1	witnessed	examples/syntax/match.kgr	-	expr
+match_body	2	missing	gap:match_block_body	Parser rejects this EBNF branch	block
+range_pattern_tail	1	missing	gap:range_pattern_exclusive	Parser rejects this EBNF branch	".." range_bound
+range_pattern_tail	2	missing	gap:range_pattern	Parser rejects this EBNF branch	"..=" range_bound
+range_bound	1	missing	gap:range_pattern	Parser rejects this EBNF branch	literal
+range_bound	2	missing	gap:range_pattern_path	Parser rejects this EBNF branch	path
+primary_pattern	1	witnessed	examples/syntax/match.kgr	-	"_"
+primary_pattern	2	witnessed	examples/syntax/match.kgr	-	literal
+primary_pattern	3	witnessed	examples/syntax/match.kgr	-	path
+primary_pattern	4	witnessed	examples/syntax/match.kgr	-	tuple_struct_pattern
+primary_pattern	5	witnessed	examples/syntax/match.kgr	-	struct_pattern
+primary_pattern	6	witnessed	examples/syntax/match.kgr	-	tuple_pattern
+primary_pattern	7	unverified	-	No branch-specific witness recorded	parenthesized_pattern
+field_pattern	1	witnessed	examples/syntax/match.kgr	-	IDENT
+field_pattern	2	witnessed	examples/syntax/match.kgr	-	IDENT ":" pattern
+place_expr	1	witnessed	examples/syntax/data-model.kgr	-	path place_suffix*
+place_expr	2	unverified	-	No branch-specific witness recorded	postfix_expr place_suffix+
+place_expr	3	unverified	-	No branch-specific witness recorded	parenthesized_place_expr
+place_suffix	1	witnessed	examples/syntax/data-model.kgr	-	"." IDENT
+place_suffix	2	witnessed	examples/syntax/data-model.kgr	-	"[" expr "]"
+literal	1	witnessed	examples/syntax/expressions.kgr	-	INTEGER
+literal	2	witnessed	examples/standard-library.kgr	-	FLOAT
+literal	3	witnessed	examples/syntax/expressions.kgr	-	STRING
+literal	4	witnessed	examples/syntax/expressions.kgr	-	"true"
+literal	5	witnessed	examples/syntax/expressions.kgr	-	"false"

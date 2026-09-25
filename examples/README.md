@@ -33,3 +33,5 @@ not standalone CLI programs.
 
 The examples cover executable forms; parser-only recovery cases remain in the
 syntax crate tests.
+The [syntax coverage audit](../docs/syntax-coverage.md) compares these witnesses
+with EBNF rules and records forms that are still missing or unverified.

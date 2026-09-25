@@ -1,0 +1,120 @@
+rule	index	operator	operand
+module	1	*	item
+item	1	*	attribute
+function_item	1	?	visibility
+const_item	1	?	visibility
+const_item	2	?	type_annotation
+struct_item	1	?	visibility
+enum_item	1	?	visibility
+trait_item	1	?	visibility
+attribute	1	?	attribute_args
+attribute_args	1	?	attribute_arg_list
+attribute_arg_list	1	*	("," attribute_arg)
+attribute_arg_list	2	?	(",")
+attribute_value	1	?	attribute_arg_list
+module_decl	1	?	visibility
+module_block	1	*	item
+use_decl	1	?	visibility
+use_tree	1	?	use_alias
+use_tree_group	1	?	use_tree_list
+use_tree_list	1	*	("," use_tree)
+use_tree_list	2	?	(",")
+function_decl	1	?	generic_param_clause
+function_decl	2	?	param_list
+function_decl	3	?	return_type
+function_decl	4	?	where_clause
+generic_param_clause	1	*	("," generic_param)
+generic_param_clause	2	?	(",")
+generic_param	1	?	(":" type_bound_list)
+type_bound_list	1	*	("+" trait_ref)
+param_list	1	*	("," param)
+param_list	2	?	(",")
+struct_decl	1	?	generic_param_clause
+struct_decl	2	?	field_list
+field_list	1	*	("," field)
+field_list	2	?	(",")
+field	1	*	attribute
+field	2	?	visibility
+enum_decl	1	?	generic_param_clause
+enum_decl	2	?	variant_list
+variant_list	1	*	("," variant)
+variant_list	2	?	(",")
+variant	1	?	type_list
+trait_decl	1	?	generic_param_clause
+trait_decl	2	?	supertrait_clause
+trait_decl	3	*	trait_member
+trait_member	1	*	attribute
+method_sig	1	?	generic_param_clause
+method_sig	2	?	method_param_list
+method_sig	3	?	return_type
+method_sig	4	?	where_clause
+type_list	1	*	("," type)
+type_list	2	?	(",")
+type	1	?	generic_args
+function_type	1	?	type_list
+tuple_type	1	?	type_list
+generic_args	1	*	("," type)
+generic_args	2	?	(",")
+path	1	*	("::" path_segment)
+where_clause	1	*	("," where_predicate)
+where_clause	2	?	(",")
+trait_ref	1	?	generic_args
+inherent_impl	1	?	generic_param_clause
+inherent_impl	2	?	where_clause
+inherent_impl	3	*	impl_item
+trait_impl	1	?	generic_param_clause
+trait_impl	2	?	where_clause
+trait_impl	3	*	impl_item
+impl_item	1	*	attribute
+method_decl	1	?	visibility
+method_decl	2	?	generic_param_clause
+method_decl	3	?	method_param_list
+method_decl	4	?	return_type
+method_decl	5	?	where_clause
+method_param_list	1	?	("," param_list)
+method_param_list	2	?	(",")
+block	1	*	stmt
+block	2	?	expr
+binding_stmt	1	?	type_annotation
+binding_stmt	2	?	init_expr
+return_stmt	1	?	expr
+if_expr	1	?	("else" (if_expr | block))
+break_stmt	1	?	expr
+range_expr	1	?	(range_op logic_or_expr)
+logic_or_expr	1	*	("||" logic_and_expr)
+logic_and_expr	1	*	("&&" equality_expr)
+equality_expr	1	*	(("==" | "!=") compare_expr)
+compare_expr	1	*	(("<" | "<=" | ">" | ">=") additive_expr)
+additive_expr	1	*	(("+" | "-") multiplicative_expr)
+multiplicative_expr	1	*	(("*" | "/" | "%") unary_expr)
+postfix_expr	1	*	postfix_op
+call_suffix	1	?	arg_list
+arg_list	1	*	("," expr)
+arg_list	2	?	(",")
+tuple_expr	1	?	expr_list
+expr_list	1	*	("," expr)
+expr_list	2	?	(",")
+array_expr	1	?	expr_list
+struct_expr	1	?	generic_args
+struct_expr	2	?	field_init_list
+field_init_list	1	*	("," field_init)
+field_init_list	2	?	(",")
+closure_expr	1	?	closure_param_list
+closure_param_list	1	*	("," closure_param)
+closure_param_list	2	?	(",")
+closure_param	1	?	(":" type)
+match_expr	1	?	match_arm_list
+match_arm_list	1	*	("," match_arm)
+match_arm_list	2	?	(",")
+match_arm	1	?	match_guard
+or_pattern	1	*	("|" range_pattern)
+range_pattern	1	?	range_pattern_tail
+tuple_pattern	1	?	pattern_list
+pattern_list	1	*	("," pattern)
+pattern_list	2	?	(",")
+tuple_struct_pattern	1	?	pattern_list
+struct_pattern	1	?	field_pattern_list
+field_pattern_list	1	*	("," field_pattern)
+field_pattern_list	2	?	(",")
+place_expr	1	*	place_suffix
+place_expr	2	+	place_suffix
