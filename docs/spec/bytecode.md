@@ -492,6 +492,9 @@ The bytecode verifier checks:
 - private trait contracts have local canonical identities and do not duplicate
   public trait ABI records; host trait tables match the defining public or
   private method contract before publication
+- local interface implementation tables match the defining public or private
+  trait method roster and substituted signatures before their method slots can
+  be used as executable bound evidence
 
 Verification rejects malformed bytecode before execution.
 Runtime checks are still required for host object liveness, dynamic index validity, capability state, and host-side invariants.

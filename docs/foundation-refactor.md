@@ -353,6 +353,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   changed consistently. Applied trait bounds that require another trait
   implementation remain open.
 
+- R08 private implementation-table checkpoint: executable interface tables for
+  locally defined private traits are now compared with the private trait
+  contract before method slots can serve as bound evidence. The verifier rejects
+  changed result types, missing method rosters and absent trait declarations;
+  public tables continue to use their public ABI record. Applied trait-bound
+  proof across the dependency closure remains open.
+
 - R04/R06 call-navigation checkpoint: offline `host_function_at` and
   `source_function_at` queries restrict dotted callees to their member names.
   A receiver call retains its separate checked target; dot positions no longer

@@ -165,6 +165,36 @@ pub(crate) fn validate_trait_contracts(
     {
         return Err(LayoutValidationError::Invalid);
     }
+    for item in items {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        let PublicAbiItem::InterfaceTable(table) = item else {
+            continue;
+        };
+        let AbiType::Trait(instance) = &table.trait_type else {
+            return Err(LayoutValidationError::Invalid);
+        };
+        if instance.declaration.module != *module
+            || items.iter().any(|item| {
+                matches!(item, PublicAbiItem::Trait(public) if instance.declaration.path.last().is_some_and(|part| part.name == public.name))
+            })
+        {
+            continue;
+        }
+        let Some(contract) = contracts
+            .iter()
+            .find(|contract| contract.declaration == instance.declaration)
+        else {
+            return Err(LayoutValidationError::Invalid);
+        };
+        if !interface_contract_matches(table, &contract.abi, cancel) {
+            cancel
+                .check()
+                .map_err(|_| LayoutValidationError::Cancelled)?;
+            return Err(LayoutValidationError::Invalid);
+        }
+    }
     Ok(())
 }
 

@@ -699,6 +699,48 @@ fn host_trait_standard_bounds_are_rechecked_after_decode() {
 }
 
 #[test]
+fn private_interface_tables_must_match_their_trait_contract() {
+    use crate::module::abi::{AbiType, BuiltinType};
+
+    let original = common::bytecode_ok(
+        "trait Readable { fn get(self) -> i32; } struct Counter { val value: i32 } impl Readable for Counter { fn get(self) -> i32 { self.value } } fn main() {}",
+    );
+    let index = original
+        .public_items
+        .iter()
+        .position(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
+        .unwrap();
+    assert_eq!(original.trait_contracts.len(), 1);
+    verify_module(&original).unwrap();
+    for corruption in ["result", "roster", "missing trait"] {
+        let mut forged = original.clone();
+        match corruption {
+            "result" => {
+                let PublicAbiItem::InterfaceTable(table) = &mut forged.public_items[index] else {
+                    unreachable!()
+                };
+                table.methods[0].return_type = AbiType::Builtin(BuiltinType::Bool);
+            }
+            "roster" => {
+                let PublicAbiItem::InterfaceTable(table) = &mut forged.public_items[index] else {
+                    unreachable!()
+                };
+                table.methods.clear();
+            }
+            "missing trait" => forged.trait_contracts.clear(),
+            _ => unreachable!(),
+        }
+        assert!(
+            matches!(
+                verify_module(&forged),
+                Err(BytecodeVerificationError::InvalidPublicAbi)
+            ),
+            "{corruption}"
+        );
+    }
+}
+
+#[test]
 fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok(
         "fn main() -> bool { val a = [7]; std::iter::get(a, a.len()).is_none() }",
