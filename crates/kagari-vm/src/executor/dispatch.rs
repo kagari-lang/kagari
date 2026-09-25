@@ -107,12 +107,9 @@ impl<'a> Executor<'a> {
                 implementation,
             } => {
                 let receiver = self.current_frame()?.read_register(value)?;
-                let loaded = self
-                    .loaded
-                    .member(module)
-                    .ok_or(VmError::UnsupportedInstruction(
-                        "invalid interface module slot",
-                    ))?;
+                let loaded = self.current_loaded()?.member(module).ok_or(
+                    VmError::UnsupportedInstruction("invalid interface module slot"),
+                )?;
                 let interface = self
                     .runtime
                     .make_interface(&loaded, implementation.index(), receiver)
@@ -251,22 +248,20 @@ impl<'a> Executor<'a> {
 
         match callee {
             CallTarget::ModuleFunction { module, function } => {
-                let target = self
-                    .loaded
+                self.current_loaded()?
                     .member_data(module)
                     .and_then(|member| member.bytecode.functions.get(function.index()))
                     .ok_or(VmError::InvalidFunctionRef(function))?;
-                self.push_frame(module, target, &arg_values, dst)
+                self.push_frame(module, function, &arg_values, dst)
             }
             CallTarget::Function(id) => {
-                let function = self
-                    .current_module()?
+                self.current_loaded()?
                     .bytecode
                     .functions
                     .get(id.index())
                     .ok_or(VmError::InvalidFunctionRef(id))?;
                 let module = self.current_frame()?.module();
-                self.push_frame(module, function, &arg_values, dst)
+                self.push_frame(module, id, &arg_values, dst)
             }
             CallTarget::HostFunction(import) => {
                 let binding = self

@@ -3,14 +3,13 @@ mod dispatch;
 mod value_ops;
 
 use kagari_ir::bytecode::{BytecodeInstruction, FunctionRef, ModuleRef};
-use kagari_runtime::{LoadedModule, Runtime, value::Value};
+use kagari_runtime::{LoadedModule, RootedInterfaceMethod, Runtime, value::Value};
 
 use crate::error::VmError;
 use kagari_runtime::{ExecutionFrame, ExecutionStack};
 
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
-    loaded: &'a LoadedModule,
     stack: ExecutionStack,
 }
 
@@ -22,18 +21,28 @@ impl<'a> Executor<'a> {
         args: &[Value],
     ) -> Result<Self, VmError> {
         let module = &loaded.bytecode;
-        let function = module
+        module
             .functions
             .get(entry.index())
             .ok_or(VmError::InvalidFunctionRef(entry))?;
 
         let mut executor = Self {
             runtime,
-            loaded,
             stack: runtime.enter_execution_stack(loaded)?,
         };
-        executor.push_frame(loaded.slot(), function, args, None)?;
+        executor.push_frame(loaded.slot(), entry, args, None)?;
         Ok(executor)
+    }
+
+    pub(crate) fn new_interface(
+        runtime: &'a Runtime,
+        method: RootedInterfaceMethod,
+        args: &[Value],
+    ) -> Result<Self, VmError> {
+        let loaded = method.implementation().clone();
+        let stack = runtime.enter_execution_stack(&loaded)?;
+        stack.push_interface_method(runtime, method, args, None)?;
+        Ok(Self { runtime, stack })
     }
 
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
@@ -62,6 +71,15 @@ impl<'a> Executor<'a> {
                         Some(register) => self.current_frame()?.read_register(register)?,
                         None => Value::Unit,
                     };
+                    if let Some(method) = self.current_frame()?.interface_method()
+                        && let Err(error) = self
+                            .runtime
+                            .validate_interface_method_result(method, &value)
+                    {
+                        self.runtime
+                            .observe_execution(kagari_runtime::ExecutionEvent::Trap)?;
+                        return Err(VmError::RuntimeError(error));
+                    }
                     let return_dst = self.current_frame()?.return_dst();
                     self.pop_frame()?;
                     if !self.stack.is_empty()? {
@@ -84,17 +102,8 @@ impl<'a> Executor<'a> {
         }
     }
 
-    pub(crate) fn current_module(
-        &self,
-    ) -> Result<&'a kagari_runtime::module::LinkedModule, VmError> {
-        self.loaded
-            .member_data(self.current_frame()?.module())
-            .ok_or(VmError::UnsupportedInstruction("invalid module slot"))
-    }
     pub(crate) fn current_loaded(&self) -> Result<LoadedModule, VmError> {
-        self.loaded
-            .member(self.current_frame()?.module())
-            .ok_or(VmError::UnsupportedInstruction("invalid module slot"))
+        Ok(self.current_frame()?.loaded().clone())
     }
     pub(crate) fn current_frame(&self) -> Result<std::cell::Ref<'_, ExecutionFrame>, VmError> {
         Ok(self.stack.current()?)
@@ -109,11 +118,11 @@ impl<'a> Executor<'a> {
     pub(crate) fn push_frame(
         &mut self,
         module: ModuleRef,
-        function: &'a kagari_ir::bytecode::BytecodeFunction,
+        function: FunctionRef,
         args: &[Value],
         return_dst: Option<kagari_ir::bytecode::Register>,
     ) -> Result<(), VmError> {
-        Ok(self.stack.push(module, function.id, args, return_dst)?)
+        Ok(self.stack.push(module, function, args, return_dst)?)
     }
 
     fn pop_frame(&mut self) -> Result<(), VmError> {

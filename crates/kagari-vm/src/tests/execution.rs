@@ -1840,6 +1840,83 @@ fn interface_method_keeps_its_implementation_across_reload() {
 }
 
 #[test]
+fn interface_frame_descendants_follow_the_receivers_pinned_program() {
+    let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { helper() + self } } fn helper() -> i32 { 1 } fn main() -> i32 { 0 }";
+    let old_code = compile_test_bytecode(source);
+    let new_code = compile_test_bytecode(
+        &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
+    );
+    let program = |module| kagari_ir::bytecode::BytecodeProgram {
+        root: kagari_ir::bytecode::ModuleRef::new(0),
+        modules: vec![module],
+    };
+    let mut runtime = Runtime::default();
+    let old = runtime
+        .load_program("interface-frames", program(old_code))
+        .unwrap();
+    let method = old.bytecode.interface_tables[0].methods[0].method.clone();
+    let boxed = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
+    let _root = runtime.root_value(boxed.clone()).unwrap();
+    let candidate = runtime
+        .stage_reload_program(&old, "interface-frames", program(new_code))
+        .unwrap();
+    let new = runtime.publish_staged_reload(candidate).unwrap();
+    let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
+    let entry = new
+        .bytecode
+        .functions
+        .iter()
+        .find(|f| f.name == "main")
+        .unwrap()
+        .id;
+    let helper = old
+        .bytecode
+        .functions
+        .iter()
+        .find(|f| f.name == "helper")
+        .unwrap()
+        .id;
+    let stack = runtime.enter_execution_stack(&new).unwrap();
+    stack.push(new.slot(), entry, &[], None).unwrap();
+    let wrong = runtime.resolve_interface_method(&boxed, &method).unwrap();
+    assert!(
+        stack
+            .push_interface_method(&runtime, wrong, &[Value::Bool(true)], None)
+            .is_err()
+    );
+    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
+    stack
+        .push_interface_method(&runtime, resolved, &[Value::I32(7)], None)
+        .unwrap();
+    assert_eq!(stack.current().unwrap().loaded().key(), old.key());
+    stack.push(old.slot(), helper, &[], None).unwrap();
+    assert_eq!(stack.current().unwrap().loaded().key(), old.key());
+    stack.pop().unwrap();
+    stack.pop().unwrap();
+    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
+    stack.pop().unwrap();
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+}
+
+#[test]
+fn trapped_interface_frame_releases_its_roots_and_call_budget() {
+    let (runtime, loaded) = load_test_module(
+        "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self / 0 } } fn main() -> i32 { 42 }",
+    );
+    let method = loaded.bytecode.interface_tables[0].methods[0]
+        .method
+        .clone();
+    let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
+    let mut vm = Vm::new(runtime);
+    assert!(vm.invoke_interface_method(&boxed, &method, &[]).is_err());
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
 fn interface_method_rejects_wrong_nominal_argument_before_execution() {
     let (runtime, loaded) = load_test_module(
         "struct A { val n: i32 } struct B { val n: i32 } trait Tag { fn read(self, x: A) -> i32; } impl Tag for i32 { fn read(self, x: A) -> i32 { x.n } } fn run<T: Tag>(x: T, a: A) -> i32 { x.read(a) } fn main() -> i32 { run(7, A { n: 1 }) } fn make_a() -> A { A { n: 5 } } fn make_b() -> B { B { n: 9 } }",

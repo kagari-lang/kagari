@@ -173,9 +173,11 @@ Initialization follows the verified dependency-first order, visits shared depend
 once, and caches failure per runtime and execution version. No completed side effect
 is rolled back. Loaded members share one immutable program version; cross-module calls
 resolve within it even after a newer root version is published. Active retention on any
-member keeps all instances in that version. Candidate isolation and initialization
-before publication are implemented for staged reloads; the remaining activation
-audit is tracked under R14.
+member keeps all instances in that version. Interpreter frames carry their own
+loaded version; a call from an interface method's older version resolves
+descendant module slots in that older version. Candidate isolation and
+initialization before publication are implemented for staged reloads; the
+remaining activation audit is tracked under R14.
 The current reload validator requires the same logical member set and checks public
 ABI and typed-path fingerprints for each member. It rejects stale root handles and
 changed member contracts before publication; automatic state migration is absent.

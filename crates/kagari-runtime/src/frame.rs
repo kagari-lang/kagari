@@ -5,7 +5,7 @@ use kagari_ir::bytecode::{
 };
 use std::rc::Rc;
 
-use crate::{LoadedModule, ResourceState, RuntimeError};
+use crate::{LoadedModule, ResourceState, RootedInterfaceMethod, Runtime, RuntimeError};
 
 /// An execution scope over the root session's shared frame stack.
 /// Dropping it unwinds only the frames entered by this scope.
@@ -113,6 +113,45 @@ impl ExecutionStack {
         return_dst: Option<Register>,
     ) -> Result<(), RuntimeError> {
         self.validate_top()?;
+        let loaded = {
+            let frames = self.frames()?;
+            let caller = (frames.len() > self.base)
+                .then(|| frames.last().map(ExecutionFrame::loaded))
+                .flatten();
+            caller
+                .unwrap_or(self.session.root())
+                .member(module)
+                .ok_or_else(|| self.session.resources.quarantine("invalid frame module"))?
+        };
+        self.push_resolved(loaded, function, args, return_dst, None)
+    }
+
+    /// Enters a method selected from a rooted interface value, preserving its
+    /// own linked program even when the caller belongs to a newer version.
+    pub fn push_interface_method(
+        &self,
+        runtime: &Runtime,
+        method: RootedInterfaceMethod,
+        args: &[Value],
+        return_dst: Option<Register>,
+    ) -> Result<(), RuntimeError> {
+        self.validate_top()?;
+        runtime.validate_loaded_module(method.implementation())?;
+        runtime.validate_interface_method_arguments(&method, args)?;
+        let loaded = method.implementation().clone();
+        let function = method.function();
+        self.push_resolved(loaded, function, args, return_dst, Some(method))
+    }
+
+    fn push_resolved(
+        &self,
+        loaded: LoadedModule,
+        function: FunctionRef,
+        args: &[Value],
+        return_dst: Option<Register>,
+        interface_method: Option<RootedInterfaceMethod>,
+    ) -> Result<(), RuntimeError> {
+        self.validate_top()?;
         if !args
             .iter()
             .all(|value| self.heap.validate_candidate_value(value))
@@ -121,11 +160,6 @@ impl ExecutionStack {
                 "external object in candidate call arguments",
             ));
         }
-        let loaded = self
-            .session
-            .root()
-            .member(module)
-            .ok_or_else(|| self.session.resources.quarantine("invalid frame module"))?;
         let mut frames = self.session.state.frames.try_borrow_mut().map_err(|_| {
             self.session
                 .resources
@@ -142,6 +176,7 @@ impl ExecutionStack {
             function,
             args,
             return_dst,
+            interface_method,
         ) {
             Ok(frame) => {
                 frames.push(frame);
@@ -212,6 +247,7 @@ pub struct ExecutionFrame {
     slots: RootSet,
     register_count: usize,
     return_dst: Option<Register>,
+    interface_method: Option<RootedInterfaceMethod>,
 }
 
 impl std::fmt::Debug for ExecutionFrame {
@@ -232,6 +268,7 @@ impl ExecutionFrame {
         function: FunctionRef,
         args: &[Value],
         return_dst: Option<Register>,
+        interface_method: Option<RootedInterfaceMethod>,
     ) -> Result<Self, RuntimeError> {
         let metadata = loaded
             .bytecode
@@ -262,6 +299,7 @@ impl ExecutionFrame {
                 .ok_or_else(|| RuntimeError::module_validation("invalid heap argument"))?,
             register_count,
             return_dst,
+            interface_method,
         })
     }
 
@@ -282,6 +320,10 @@ impl ExecutionFrame {
     }
     pub fn loaded(&self) -> &LoadedModule {
         &self.loaded
+    }
+
+    pub fn interface_method(&self) -> Option<&RootedInterfaceMethod> {
+        self.interface_method.as_ref()
     }
 
     pub fn instruction_offset(&self) -> usize {

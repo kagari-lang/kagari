@@ -103,6 +103,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
   reachability. Source execution tests cover empty and method-bearing tables;
   source-level dynamic method calls still require a dedicated call instruction.
 
+- R10 pinned-frame checkpoint: every interpreter frame owns a loaded member of
+  its executable program. Ordinary descendant calls resolve module slots from
+  the current frame; a rooted interface method can enter a frame from its
+  retained older program with argument validation and return ABI checking.
+  A reload regression test proves its descendant uses that older program and
+  a failed argument check leaves the frame stack intact. Source-level interface
+  call lowering and the remaining cross-version lifecycle audit are still open.
+
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.
