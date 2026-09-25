@@ -270,8 +270,9 @@ impl EnumVariantRef {
 impl PartialEq for EnumVariantRef {
     fn eq(&self, other: &Self) -> bool {
         self.module.registry_owner == other.module.registry_owner
-            && self.layout() == other.layout()
-            && self.variant == other.variant
+            && self.layout().declaration == other.layout().declaration
+            && self.layout().arguments == other.layout().arguments
+            && self.variant().declaration == other.variant().declaration
     }
 }
 

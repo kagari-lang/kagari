@@ -1714,6 +1714,14 @@ mod tests {
                 .is_none()
         );
         assert_eq!(heap.active_roots(), 1);
+
+        let bare_copy = root.value();
+        let retained = root.clone();
+        drop(root);
+        assert_eq!(heap.collect(&[]).unwrap().live_objects, 1);
+        drop(retained);
+        assert_eq!(heap.collect(&[]).unwrap().reclaimed_objects, 1);
+        assert!(!heap.validate_value(&bare_copy));
     }
 
     #[test]

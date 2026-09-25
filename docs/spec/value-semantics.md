@@ -19,6 +19,9 @@ Equality compares scalars and strings by value, tuples by corresponding members,
 and enums by nominal type, variant, and corresponding members. Mutable objects
 compare by identity. Interface values and host handles/path views do not support
 general equality. A tuple/enum supports equality only if its members do.
+Enum comparison uses declaration identity, applied type arguments and variant
+identity; adding or reordering private variants in a later execution version does
+not change equality of an existing variant with the same members.
 Floating-point equality follows IEEE comparisons (`NaN != NaN`, `-0 == +0`).
 Only bool, integer, and String keys are admitted to maps and sets in v1.
 

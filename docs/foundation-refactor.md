@@ -21,7 +21,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R08: Verified IR and linked-only runtime operands.
 - [x] R09: Canonical bounded artifact format and explicit fingerprint algorithm.
 - [x] R10: Shared immutable generations and runtime-local state.
-- [ ] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
+- [x] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
 - [x] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
 - [ ] R13: Failure-atomic standard mutation and dirty-record commit.
 - [ ] R14: Acyclic initialization and isolated prepare/initialize/publish.
@@ -934,9 +934,9 @@ R12 acceptance evidence:
 - The host_reentry embedding example exercises rooted results, temporary scopes
   and complete-stack observation. No async API or cross-thread execution was added.
 
-This completes R12, not R10/R11/R13/R17: interface/capture ownership,
-the wider engine-invariant audit, lexical debug visibility and remaining backend
-contracts retain their own acceptance requirements.
+This completes R12. The wider engine-invariant audit, lexical debug visibility
+and remaining backend contracts retain their R13/R17 acceptance requirements;
+R10/R11 ownership is covered by the acceptance evidence above and below.
 
 R01 specifies target behavior. Remaining runtime behavior must not be described
 as conforming until its corresponding checkpoint and regression tests pass.
@@ -1970,8 +1970,16 @@ Implemented foundation slices:
   trap/budget exits release frame roots. Runtime callbacks are local to one thread
   and can retain explicit rooted values. The rooted_values example records pause
   data for a 10,000-object chain, recorded in [performance-baseline.md](performance-baseline.md).
-  Enum nominal identity and complete interface/capture ownership remain open;
-  this does not mark R11 complete. Host reentry is covered by the R12 evidence above.
+  Declared enum equality now compares declaration, applied arguments and variant
+  identity instead of complete layout equality. A private-variant addition and
+  reorder across execution versions preserves equal existing variants; a
+  different nominal enum stays unequal. Rooted-handle clones retain one root
+  until the last clone drops, while a copied bare `Value` becomes stale after
+  collection. Interface values retain their executable versions as covered by
+  R08/R10; this version has no script closure/capture value. Together with the
+  source/artifact/JIT conformance cases for aliasing, shallow copies, enum
+  members and iterator mutation guards, these checks complete R11. Host reentry
+  is covered by the R12 evidence above.
 - R12/R17: execution frames now carry their owning program member, and module-state
   access uses short borrows. Debug frames and breakpoints distinguish member IDs
   even when local function IDs coincide. BackendFunctionInput can only select a

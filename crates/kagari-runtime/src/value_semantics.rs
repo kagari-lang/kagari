@@ -76,6 +76,115 @@ mod tests {
     use super::*;
 
     #[test]
+    fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
+        use kagari_common::identity::{
+            DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
+        };
+        use kagari_ir::{
+            bytecode::{BytecodeModule, BytecodeProgram, ModuleRef},
+            module::{
+                EnumLayout, EnumVariantLayout,
+                abi::{AbiType, BuiltinType},
+            },
+        };
+
+        let identity = ModuleIdentity::single_file("enum-equality.kgr");
+        let declaration = DefinitionId {
+            module: identity.clone(),
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Enum,
+                name: "Event".into(),
+                occurrence: 0,
+            }],
+        };
+        let mut other_declaration = declaration.clone();
+        other_declaration.path[0].name = "OtherEvent".into();
+        let variant = |name: &str, payload| EnumVariantLayout {
+            declaration: DefinitionId {
+                module: identity.clone(),
+                path: declaration
+                    .path
+                    .iter()
+                    .cloned()
+                    .chain([DefinitionPathSegment {
+                        kind: DefinitionKind::Variant,
+                        name: name.into(),
+                        occurrence: 0,
+                    }])
+                    .collect(),
+            },
+            payload,
+        };
+        let program = |extra_variant: bool| BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                identity: identity.clone(),
+                enumerations: vec![
+                    EnumLayout {
+                        declaration: declaration.clone(),
+                        arguments: Vec::new(),
+                        variants: if extra_variant {
+                            vec![
+                                variant("Added", Vec::new()),
+                                variant("Data", vec![AbiType::Builtin(BuiltinType::I32)]),
+                            ]
+                        } else {
+                            vec![variant("Data", vec![AbiType::Builtin(BuiltinType::I32)])]
+                        },
+                    },
+                    EnumLayout {
+                        declaration: other_declaration.clone(),
+                        arguments: Vec::new(),
+                        variants: vec![EnumVariantLayout {
+                            declaration: DefinitionId {
+                                module: identity.clone(),
+                                path: other_declaration
+                                    .path
+                                    .iter()
+                                    .cloned()
+                                    .chain([DefinitionPathSegment {
+                                        kind: DefinitionKind::Variant,
+                                        name: "Data".into(),
+                                        occurrence: 0,
+                                    }])
+                                    .collect(),
+                            },
+                            payload: vec![AbiType::Builtin(BuiltinType::I32)],
+                        }],
+                    },
+                ],
+                ..Default::default()
+            }],
+        };
+        let mut runtime = crate::Runtime::default();
+        let old = runtime
+            .load_program("enum-equality", program(false))
+            .unwrap();
+        let old_tag = crate::value::EnumTag::Declared(
+            old.enum_variant(kagari_ir::bytecode::EnumId::new(0), 0)
+                .unwrap(),
+        );
+        let old_value = Value::Enum(runtime.alloc_enum(old_tag, vec![Value::I32(7)]).unwrap());
+        let candidate = runtime
+            .stage_reload_program(&old, "enum-equality", program(true))
+            .unwrap();
+        let new = runtime.publish_staged_reload(candidate).unwrap();
+        let new_tag = crate::value::EnumTag::Declared(
+            new.enum_variant(kagari_ir::bytecode::EnumId::new(0), 1)
+                .unwrap(),
+        );
+        let new_value = Value::Enum(runtime.alloc_enum(new_tag, vec![Value::I32(7)]).unwrap());
+
+        assert!(script_equal(runtime.gc(), &old_value, &new_value).unwrap());
+        let other_tag = crate::value::EnumTag::Declared(
+            new.enum_variant(kagari_ir::bytecode::EnumId::new(1), 0)
+                .unwrap(),
+        );
+        let other_value = Value::Enum(runtime.alloc_enum(other_tag, vec![Value::I32(7)]).unwrap());
+        assert!(!script_equal(runtime.gc(), &old_value, &other_value).unwrap());
+    }
+
+    #[test]
     fn enum_members_use_script_semantics_including_identity_and_nan() {
         let mut runtime = crate::Runtime::default();
         let interface = crate::layout_fixtures::interface_value(&mut runtime);
