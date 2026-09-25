@@ -448,6 +448,40 @@ fn host_imports_are_interned_and_checked_before_execution() {
 }
 
 #[test]
+fn unsupported_dynamic_calls_fail_before_artifact_execution() {
+    let module = common::bytecode_ok("fn main() {}");
+    let valid = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    for callee in [
+        CallTarget::Register(Register::new(0)),
+        CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
+    ] {
+        let mut forged = valid.clone();
+        forged.program.modules[0].functions[0].instructions.insert(
+            0,
+            BytecodeInstruction::Call {
+                dst: None,
+                callee,
+                args: vec![],
+            },
+        );
+        let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+        assert!(matches!(
+            decoded.validate_for_loader(&ArtifactCompatibility::default()),
+            Err(ArtifactValidationError::Bytecode(
+                BytecodeVerificationError::InvalidOperation { .. }
+            ))
+        ));
+    }
+}
+
+#[test]
 fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok(
         "fn main() -> bool { val a = [7]; std::iter::get(a, a.len()).is_none() }",

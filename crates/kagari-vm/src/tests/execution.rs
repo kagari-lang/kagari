@@ -366,7 +366,7 @@ fn rejects_unverified_bytecode_before_publication() {
 }
 
 #[test]
-fn rejects_unsupported_bytecode_before_execution() {
+fn rejects_unsupported_bytecode_before_publication() {
     let register_call = verified_module(
         None,
         vec![test_function(
@@ -405,51 +405,28 @@ fn rejects_unsupported_bytecode_before_execution() {
             vec![],
         )],
     );
-    let mut runtime = Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
-                allow_reflection: true,
-                ..kagari_runtime::LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                dynamic_invocation: true,
-                ..CapabilitySet::default()
-            },
-        },
-        ..RuntimeConfig::default()
-    });
-    let register_loaded = runtime
-        .load_program(
-            "register_call.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![register_call],
-            },
-        )
-        .expect("runtime can store bytecode before VM support validation");
-    let dynamic_loaded = runtime
-        .load_program(
-            "dynamic_call.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
-                modules: vec![dynamic_call],
-            },
-        )
-        .expect("runtime can store bytecode before VM support validation");
-    let mut vm = Vm::new(runtime);
-
-    assert!(matches!(
-        vm.execute(&register_loaded, "main").unwrap_err(),
-        VmError::UnsupportedCallTarget(CallTarget::Register(_))
-    ));
-    assert!(matches!(
-        vm.execute(&dynamic_loaded, "main").unwrap_err(),
-        VmError::UnsupportedInstruction("runtime_helper_dynamic_call")
-    ));
+    let mut runtime = Runtime::default();
+    for (name, bytecode) in [
+        ("register_call.kbc", register_call),
+        ("dynamic_call.kbc", dynamic_call),
+    ] {
+        let error = runtime
+            .load_program(
+                name,
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![bytecode],
+                },
+            )
+            .expect_err("unsupported calls must fail bytecode verification");
+        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+        assert!(error.message().contains("invalid operation"));
+        assert_eq!(runtime.modules().loaded_count(), 0);
+    }
 }
 
 #[test]
-fn dynamic_invocation_requires_separate_runtime_capability() {
+fn unsupported_dynamic_invocation_is_rejected_even_with_capability() {
     let dynamic_call = verified_module(
         None,
         vec![test_function(
@@ -467,25 +444,30 @@ fn dynamic_invocation_requires_separate_runtime_capability() {
             vec![],
         )],
     );
-    let mut runtime = Runtime::default();
-    let loaded = runtime
+    let mut runtime = Runtime::new(RuntimeConfig {
+        security: kagari_runtime::SecurityContext {
+            profile: kagari_runtime::LanguageProfile {
+                allow_reflection: true,
+                ..kagari_runtime::LanguageProfile::default()
+            },
+            capabilities: CapabilitySet {
+                dynamic_invocation: true,
+                ..CapabilitySet::default()
+            },
+        },
+        ..RuntimeConfig::default()
+    });
+    let error = runtime
         .load_program(
-            "dynamic_call_denied.kbc",
+            "dynamic_call_capable.kbc",
             kagari_ir::bytecode::BytecodeProgram {
                 root: kagari_ir::bytecode::ModuleRef::new(0),
                 modules: vec![dynamic_call],
             },
         )
-        .expect("runtime can store bytecode before VM support validation");
-    let mut vm = Vm::new(runtime);
-    let error = vm.execute(&loaded, "main").unwrap_err();
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("dynamic_invocation")
-    ));
+        .expect_err("capability cannot authorize an unimplemented call form");
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert_eq!(runtime.modules().loaded_count(), 0);
 }
 
 #[test]

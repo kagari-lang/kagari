@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use kagari_ir::bytecode::{BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef};
+use kagari_ir::bytecode::{BytecodeModule, FunctionRef};
 use kagari_runtime::{
     BackendDiagnostic, BackendFunctionInput, BackendId, BackendInvocationError, CodegenBackend,
     ExecutionArtifactId, LoadedModule, ModuleInitializationState, ModuleKey,
@@ -177,7 +177,6 @@ impl Vm {
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
-        validate_executable_bytecode(&module.bytecode)?;
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)?;
         self.execute_module(module)?;
@@ -204,7 +203,6 @@ impl Vm {
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
-        validate_executable_bytecode(&module.bytecode)?;
         let entry_name = entry.to_owned();
         let entry = find_function_ref(&module.bytecode, &entry_name)?;
         self.execute_module(module)?;
@@ -290,7 +288,6 @@ impl Vm {
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
-        validate_executable_bytecode(&module.bytecode)?;
         let key = module.key();
         if let Some(instance) = self.runtime.module_instance_snapshot(module) {
             match instance.state {
@@ -475,25 +472,4 @@ fn find_function_ref(module: &BytecodeModule, name: &str) -> Result<FunctionRef,
         return Err(VmError::AmbiguousFunction(name.to_owned()));
     }
     Ok(first.id)
-}
-
-fn validate_executable_bytecode(module: &BytecodeModule) -> Result<(), VmError> {
-    for function in &module.functions {
-        for instruction in &function.instructions {
-            let BytecodeInstruction::Call { callee, .. } = instruction else {
-                continue;
-            };
-            match callee {
-                CallTarget::Register(_) => {
-                    return Err(VmError::UnsupportedCallTarget(callee.clone()));
-                }
-                CallTarget::HostFunction(_)
-                | CallTarget::Function(_)
-                | CallTarget::ModuleFunction { .. }
-                | CallTarget::StandardIntrinsic(_)
-                | CallTarget::RuntimeHelper(_) => {}
-            }
-        }
-    }
-    Ok(())
 }

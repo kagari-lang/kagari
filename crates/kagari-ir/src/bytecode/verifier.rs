@@ -980,14 +980,20 @@ fn verify_call(
             crate::module::contracts::verify_host_call(dst, declaration, &args)
                 .map_err(|error| contract_error(function, error))?;
         }
-        CallTarget::Register(register) => {
-            let _ = register_ty(function, *register)?;
-            for arg in args {
-                let _ = register_ty(function, *arg)?;
-            }
+        CallTarget::Register(_) => {
+            return Err(BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "dynamic register calls have no executable contract",
+            });
         }
         CallTarget::StandardIntrinsic(intrinsic) => {
             verify_standard_intrinsic_call(function, dst, *intrinsic, args)?;
+        }
+        CallTarget::RuntimeHelper(super::RuntimeHelper::DynamicCall) => {
+            return Err(BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "dynamic invocation has no executable contract",
+            });
         }
         CallTarget::RuntimeHelper(_) => {
             for arg in args {

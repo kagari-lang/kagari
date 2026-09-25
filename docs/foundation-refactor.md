@@ -310,6 +310,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   instructions. Source and encoded artifact tests cover both backend routes;
   scoped_execution demonstrates the embedding behavior.
 
+- R08 unsupported-call verification checkpoint: bytecode verification now rejects
+  register callees and the unimplemented dynamic invocation helper before a
+  module is published. IR already rejected both forms; the VM's separate
+  register-call scan is removed. Direct bytecode loading and encoded-artifact
+  tests cover both forms, including a runtime with the dynamic-invocation
+  capability enabled, and assert that failure leaves the module registry empty.
+  Future dynamic calls require an explicit verified call contract rather than a
+  late VM error.
+
 - R04/R06 call-navigation checkpoint: offline `host_function_at` and
   `source_function_at` queries restrict dotted callees to their member names.
   A receiver call retains its separate checked target; dot positions no longer
