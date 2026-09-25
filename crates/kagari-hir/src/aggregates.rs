@@ -10,7 +10,7 @@ use crate::{
     typeck::ModuleSignatures,
     types::TypeId,
 };
-pub use implementations::ImplementationSignature;
+pub use implementations::{ImplementationSearchError, ImplementationSignature};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{DefinitionId, ModuleIdentity},

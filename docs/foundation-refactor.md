@@ -39,6 +39,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R08 bounded trait-proof checkpoint: source analysis and executable validation
+  can use the same implementation matcher. The shared query preserves generic
+  substitution and recursive trait bounds while exposing cancellation and
+  explicit candidate/depth limits for untrusted artifact checks. Reaching a
+  limit is a verification failure, not evidence that a constraint is absent.
+
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.
