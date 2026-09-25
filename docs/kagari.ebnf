@@ -318,7 +318,8 @@ primary_pattern     ::= "_"
 
 parenthesized_pattern ::= "(" pattern ")" ;
 
-tuple_pattern       ::= "(" pattern_list? ")" ;
+tuple_pattern       ::= "(" ")"
+                      | "(" pattern "," (pattern ("," pattern)* (",")?)? ")" ;
 
 pattern_list        ::= pattern ("," pattern)* (",")? ;
 
@@ -353,7 +354,7 @@ WHITESPACE          ::= (" " | "\t" | "\n" | "\r")+ ;
 
 LINE_COMMENT        ::= "//" LINE_TEXT? LINE_END ;
 
-BLOCK_COMMENT       ::= "/*" BLOCK_COMMENT_TEXT? "*/" ;
+BLOCK_COMMENT       ::= "/*" (BLOCK_COMMENT | BLOCK_COMMENT_CHAR)* "*/" ;
 
 IDENT               ::= IDENT_START IDENT_CONTINUE* ;
 
@@ -442,7 +443,7 @@ HEX_DIGIT           ::= DIGIT | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | 
 
 LINE_TEXT           ::= ? any scalar value except line terminators ? ;
 
-BLOCK_COMMENT_TEXT  ::= ? any scalar sequence accepted by block comments ? ;
+BLOCK_COMMENT_CHAR  ::= ? any scalar not starting "/*" or "*/" ? ;
 
 STRING_TEXT_CHAR    ::= ? any scalar value except `"` `\` and line terminators ? ;
 

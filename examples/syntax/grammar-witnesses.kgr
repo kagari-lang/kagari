@@ -18,3 +18,7 @@ fn paths() {
     self::item;
     super::item;
 }
+
+fn empty_tuple_pattern(value: ()) -> i32 {
+    match value { () => 42 }
+}

@@ -178,6 +178,36 @@ fn attributes_without_compiler_behavior_are_rejected_before_execution() {
 }
 
 #[test]
+fn parser_only_module_forms_are_rejected_before_execution() {
+    let engine = KagariEngine::default();
+    for (source, feature) in [
+        (
+            "mod nested { pub fn value() -> i32 { 42 } } fn main() -> i32 { 42 }",
+            "inline module bodies",
+        ),
+        (
+            "use std::math::*; fn main() -> i32 { 42 }",
+            "wildcard imports",
+        ),
+        (
+            "use std::{math::*}; fn main() -> i32 { 42 }",
+            "wildcard imports",
+        ),
+    ] {
+        let error = engine
+            .compile_to_artifact(
+                SourceFile::new("parser-only.kgr", source),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap_err();
+        let message = format!("{error:?}");
+        assert!(message.contains("KG_SYNTAX_UNSUPPORTED"), "{message}");
+        assert!(message.contains(feature), "{message}");
+    }
+}
+
+#[test]
 fn for_loop_rejects_structural_change_and_cleans_up_after_trap() {
     let source = r#"
 fn main() -> i32 {

@@ -153,6 +153,6 @@ BIN_DIGIT	covered	examples/syntax/literals-and-comments.kgr	-
 OCT_DIGIT	covered	examples/syntax/literals-and-comments.kgr	-
 HEX_DIGIT	covered	examples/syntax/literals-and-comments.kgr	-
 LINE_TEXT	covered	examples/syntax/expressions.kgr	-
-BLOCK_COMMENT_TEXT	covered	examples/syntax/literals-and-comments.kgr	-
+BLOCK_COMMENT_CHAR	covered	examples/syntax/literals-and-comments.kgr	-
 STRING_TEXT_CHAR	covered	examples/standard-library.kgr	-
 LINE_END	covered	examples/syntax/expressions.kgr	-

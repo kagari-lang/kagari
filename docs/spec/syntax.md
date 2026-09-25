@@ -9,6 +9,12 @@ The syntax follows these design constraints:
 - No direct reproduction of Rust's lifetime or borrow system
 - a compact grammar that can be extended without changing established source forms
 
+Rust is the default reference for punctuation and grouping where Kagari has the
+same source construct. Deliberate differences include `val`/`var` bindings,
+`@` attributes, dynamically sized `[T]` arrays, and the absence of Rust borrow
+and lifetime syntax. Rust spelling alone does not add an unsupported Kagari type
+or runtime behavior.
+
 Rules outside the stated scope are defined by the companion specifications for the relevant language subsystem.
 
 ## Scope
@@ -293,6 +299,9 @@ Notes:
 - `mod name;` declares a module through external loading rules defined elsewhere.
 - `mod name { ... }` declares an inline module body.
 - `use` supports aliasing, globs, and grouped import trees.
+- Inline module bodies and wildcard import trees currently parse for tooling but
+  produce `KG_SYNTAX_UNSUPPORTED` before code generation. Grouped imports of
+  explicit names are lowered normally.
 
 ### Structs and Enums
 
@@ -839,7 +848,8 @@ primary_pattern ::= "_" | literal | path | tuple_struct_pattern
 
 parenthesized_pattern ::= "(" pattern ")" ;
 
-tuple_pattern   ::= "(" pattern_list? ")" ;
+tuple_pattern   ::= "(" ")"
+                  | "(" pattern "," (pattern ("," pattern)* (",")?)? ")" ;
 
 pattern_list    ::= pattern ("," pattern)* (",")? ;
 

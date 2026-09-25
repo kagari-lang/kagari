@@ -369,6 +369,20 @@ fn resolve_imports(
     let mut ambiguous = HashSet::new();
     for import in &module.module.imports {
         cancel.check()?;
+        if import.glob {
+            result.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                    feature: "wildcard imports",
+                })
+                .with_span(import.span),
+            );
+            result.entries.push(ResolvedImport {
+                alias: import.alias.clone(),
+                span: import.span,
+                target: None,
+            });
+            continue;
+        }
         let target =
             if local_items.contains(import.alias.as_str()) || !aliases.insert(&import.alias) {
                 ambiguous.insert(import.alias.as_str());

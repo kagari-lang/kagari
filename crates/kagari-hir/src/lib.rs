@@ -385,6 +385,18 @@ pub(crate) fn analyze_parsed(
     if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, policy.profile) {
         analyzed.diagnostics.extend(*diagnostics);
     }
+    for module in &analyzed.facts.lowered.module.modules {
+        if module.inline {
+            analyzed.diagnostics.push(
+                kagari_common::Diagnostic::error(
+                    kagari_common::DiagnosticKind::UnsupportedSyntax {
+                        feature: "inline module bodies",
+                    },
+                )
+                .with_span(analyzed.facts.lowered.source_map.module_span(module.id)),
+            );
+        }
+    }
     for attribute in &analyzed.facts.lowered.attributes {
         let kind = match attribute.name.as_str() {
             "meta" => continue,

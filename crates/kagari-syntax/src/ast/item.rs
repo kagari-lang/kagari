@@ -179,6 +179,10 @@ impl UseDecl {
 }
 
 impl UseTree {
+    pub fn is_glob(&self) -> bool {
+        support::token(self.syntax(), SyntaxKind::Star).is_some()
+    }
+
     pub fn path(&self) -> Option<Path> {
         support::child(self.syntax())
     }

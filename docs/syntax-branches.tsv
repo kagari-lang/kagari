@@ -27,6 +27,8 @@ type	4	witnessed	examples/syntax/closures.kgr	-	function_type
 type	5	witnessed	examples/syntax/tuple-types.kgr	-	parenthesized_type
 tuple_type	1	witnessed	examples/syntax/tuple-types.kgr	-	"(" ")"
 tuple_type	2	witnessed	examples/syntax/tuple-types.kgr	-	"(" type "," (type ("," type)* (",")?)? ")"
+tuple_pattern	1	witnessed	examples/syntax/grammar-witnesses.kgr	-	"(" ")"
+tuple_pattern	2	witnessed	examples/syntax/match.kgr	-	"(" pattern "," (pattern ("," pattern)* (",")?)? ")"
 path_segment	1	witnessed	examples/syntax/expressions.kgr	-	IDENT
 path_segment	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	"crate"
 path_segment	3	witnessed	examples/syntax/grammar-witnesses.kgr	-	"self"

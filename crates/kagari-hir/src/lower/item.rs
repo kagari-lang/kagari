@@ -175,6 +175,7 @@ impl Lowerer {
                 &path,
                 syntax_span(tree),
                 tree.alias().and_then(|alias| alias.text()),
+                tree.is_glob(),
             );
             return;
         }
@@ -190,10 +191,11 @@ impl Lowerer {
         path: &str,
         span: kagari_common::Span,
         alias: Option<String>,
+        glob: bool,
     ) {
         let alias =
             alias.unwrap_or_else(|| path.rsplit("::").next().unwrap_or_default().to_owned());
-        if visibility == Visibility::Public {
+        if visibility == Visibility::Public && !glob {
             self.module.exports.push(Export {
                 name: alias.clone(),
                 item: ExportItem::Import(self.module.imports.len()),
@@ -204,6 +206,7 @@ impl Lowerer {
             alias,
             path: path.to_owned(),
             span,
+            glob,
         });
     }
     fn lower_trait(&mut self, trait_def: &ast::TraitDef) -> TraitDef {

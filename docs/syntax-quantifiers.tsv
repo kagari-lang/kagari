@@ -111,7 +111,9 @@ match_arm_list	2	?	(",")
 match_arm	1	?	match_guard
 or_pattern	1	*	("|" range_pattern)
 range_pattern	1	?	range_pattern_tail
-tuple_pattern	1	?	pattern_list
+tuple_pattern	1	*	("," pattern)
+tuple_pattern	2	?	(",")
+tuple_pattern	3	?	(pattern ("," pattern)* (",")?)
 pattern_list	1	*	("," pattern)
 pattern_list	2	?	(",")
 tuple_struct_pattern	1	?	pattern_list

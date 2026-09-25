@@ -16,6 +16,7 @@ pub struct Import {
     pub alias: String,
     pub path: String,
     pub span: kagari_common::Span,
+    pub glob: bool,
 }
 
 pub type ModuleDeclBuffer = Vec<ModuleDecl>;

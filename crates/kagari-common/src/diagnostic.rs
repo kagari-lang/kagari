@@ -87,6 +87,9 @@ pub enum DiagnosticKind {
     UnsupportedAttribute {
         name: String,
     },
+    UnsupportedSyntax {
+        feature: &'static str,
+    },
     InvalidHostPath {
         reason: String,
     },
@@ -369,6 +372,7 @@ impl DiagnosticKind {
             Self::UnknownName { .. } => "KG_RESOLVE_UNKNOWN_NAME",
             Self::UnknownAttribute { .. } => "KG_ATTRIBUTE_UNKNOWN",
             Self::UnsupportedAttribute { .. } => "KG_ATTRIBUTE_UNSUPPORTED",
+            Self::UnsupportedSyntax { .. } => "KG_SYNTAX_UNSUPPORTED",
             Self::InvalidHostPath { .. } => "KG_HOST_PATH_INVALID",
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
@@ -520,6 +524,9 @@ impl Display for DiagnosticKind {
             Self::UnknownAttribute { name } => write!(f, "unknown attribute `@{name}`"),
             Self::UnsupportedAttribute { name } => {
                 write!(f, "attribute `@{name}` has no compiler behavior yet")
+            }
+            Self::UnsupportedSyntax { feature } => {
+                write!(f, "cannot execute {feature} yet")
             }
             Self::InvalidHostPath { reason } => write!(f, "invalid host field path: {reason}"),
             Self::DuplicateImport { name } => {

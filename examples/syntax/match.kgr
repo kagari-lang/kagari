@@ -40,5 +40,9 @@ fn main() -> i32 {
         (answer) => answer,
     };
     std::debug::assert_eq(from_group, 42, "parenthesized pattern");
+    val from_singleton = match (42,) {
+        (value,) => value,
+    };
+    std::debug::assert_eq(from_singleton, 42, "singleton tuple pattern");
     selected + bound
 }
