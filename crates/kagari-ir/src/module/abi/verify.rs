@@ -57,25 +57,7 @@ pub(crate) fn validate(
                     )
             }
             PublicAbiItem::Trait(ty) => {
-                let owner = owner(module, &[], DefinitionKind::Trait, &ty.name);
-                let mut methods = HashSet::new();
-                trait_names.insert(&ty.name)
-                    && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(
-                        |params| {
-                            bounds_valid(&ty.bounds, &params, cancel)
-                                && ty.methods.iter().all(|method| {
-                                    methods.insert(&method.name)
-                                        && function_valid(
-                                            method,
-                                            module,
-                                            &owner.path,
-                                            &params,
-                                            Some(&owner),
-                                            cancel,
-                                        )
-                                })
-                        },
-                    )
+                trait_names.insert(&ty.name) && trait_valid(ty, module, cancel)
             }
             PublicAbiItem::InterfaceTable(table) => {
                 let owner = &table.declaration;
@@ -151,6 +133,59 @@ pub(crate) fn validate(
         }
     }
     Ok(())
+}
+
+pub(crate) fn validate_trait_contracts(
+    contracts: &[TraitContract],
+    items: &[PublicAbiItem],
+    module: &ModuleIdentity,
+    cancel: &CancellationToken,
+) -> Result<(), LayoutValidationError> {
+    let mut names = HashSet::new();
+    for contract in contracts {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        let id = &contract.declaration;
+        if id.module != *module
+            || id.path.len() != 1
+            || id.path[0].kind != DefinitionKind::Trait
+            || id.path[0].occurrence != 0
+            || id.path[0].name != contract.abi.name
+            || !id.within_path_limit()
+            || !names.insert(&contract.abi.name)
+            || !trait_valid(&contract.abi, module, cancel)
+        {
+            return Err(LayoutValidationError::Invalid);
+        }
+    }
+    if items
+        .iter()
+        .any(|item| matches!(item, PublicAbiItem::Trait(public) if names.contains(&public.name)))
+    {
+        return Err(LayoutValidationError::Invalid);
+    }
+    Ok(())
+}
+
+fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToken) -> bool {
+    let owner = owner(module, &[], DefinitionKind::Trait, &ty.name);
+    let mut methods = HashSet::new();
+    !ty.name.is_empty()
+        && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
+            bounds_valid(&ty.bounds, &params, cancel)
+                && ty.methods.iter().all(|method| {
+                    methods.insert(&method.name)
+                        && function_valid(
+                            method,
+                            module,
+                            &owner.path,
+                            &params,
+                            Some(&owner),
+                            cancel,
+                        )
+                })
+        })
 }
 
 pub(crate) fn interface_contract_matches(

@@ -284,6 +284,13 @@ pub(super) fn verify_module_with_program(
         &Default::default(),
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    crate::module::abi::verify::validate_trait_contracts(
+        &module.trait_contracts,
+        &module.public_items,
+        &module.identity,
+        &Default::default(),
+    )
+    .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     crate::module::layout::validate_layouts(&module.structures, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
     if !crate::module::layout::struct_abi_matches(
@@ -320,10 +327,11 @@ pub(super) fn verify_module_with_program(
         &Default::default(),
     )
     .map_err(|error| BytecodeVerificationError::InvalidHostInterface(format!("{error:?}")))?;
-    if !crate::module::host::public_trait_bindings_match(
+    if !crate::module::host::trait_bindings_match(
         &module.host_interface,
         &module.identity,
         &module.public_items,
+        &module.trait_contracts,
         &Default::default(),
     )
     .expect("bytecode verification uses an uncancelled token")

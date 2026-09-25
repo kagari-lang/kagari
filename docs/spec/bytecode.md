@@ -489,6 +489,9 @@ The bytecode verifier checks:
 - path result values are used with compatible types
 - write operations target writable paths
 - public function signatures are concrete and ABI-supported
+- private trait contracts have local canonical identities and do not duplicate
+  public trait ABI records; host trait tables match the defining public or
+  private method contract before publication
 
 Verification rejects malformed bytecode before execution.
 Runtime checks are still required for host object liveness, dynamic index validity, capability state, and host-side invariants.

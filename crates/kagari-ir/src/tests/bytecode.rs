@@ -481,8 +481,7 @@ fn unsupported_dynamic_calls_fail_before_artifact_execution() {
     }
 }
 
-#[test]
-fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
+fn host_trait_test_module(source: &str) -> BytecodeModule {
     use kagari_common::{
         host_interface::{
             HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
@@ -491,8 +490,7 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
         identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     };
 
-    let mut module =
-        common::bytecode_ok("pub trait Readable<T> { fn get(self) -> T; } fn main() {}");
+    let mut module = common::bytecode_ok(source);
     let trait_id = DefinitionId {
         module: module.identity.clone(),
         path: vec![DefinitionPathSegment {
@@ -524,6 +522,16 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
         .functions
         .push(host.method_contract(&method.id).unwrap());
     module.host_interface.types.push(host);
+    module
+}
+
+#[test]
+fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
+    use kagari_common::host_interface::HostValueType;
+
+    let module =
+        host_trait_test_module("pub trait Readable<T> { fn get(self) -> T; } fn main() {}");
+    assert!(module.trait_contracts.is_empty());
     verify_module(&module).unwrap();
 
     let valid = KbcArtifact::from_program(
@@ -584,6 +592,80 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
             modules: vec![owner, importer],
         }),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
+    ));
+}
+
+#[test]
+fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
+    use crate::module::abi::{AbiType, BuiltinType};
+
+    let module = host_trait_test_module("trait Readable<T> { fn get(self) -> T; } fn main() {}");
+    assert!(
+        !module
+            .public_items
+            .iter()
+            .any(|item| matches!(item, PublicAbiItem::Trait(_)))
+    );
+    assert_eq!(module.trait_contracts.len(), 1);
+    verify_module(&module).unwrap();
+    let valid = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    let decoded = KbcArtifact::from_bytes(&valid.to_bytes().unwrap()).unwrap();
+    decoded
+        .validate_for_loader(&ArtifactCompatibility::default())
+        .unwrap();
+    for corruption in ["missing", "signature"] {
+        let mut forged = valid.clone();
+        let module = &mut forged.program.modules[0];
+        match corruption {
+            "missing" => module.trait_contracts.clear(),
+            "signature" => {
+                module.trait_contracts[0].abi.methods[0].return_type =
+                    AbiType::Builtin(BuiltinType::Bool)
+            }
+            _ => unreachable!(),
+        }
+        let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+        assert!(
+            matches!(
+                decoded.validate_for_loader(&ArtifactCompatibility::default()),
+                Err(ArtifactValidationError::Bytecode(
+                    BytecodeVerificationError::InvalidHostInterface(_)
+                ))
+            ),
+            "{corruption}"
+        );
+    }
+    let mut duplicate = valid.program.modules[0].clone();
+    duplicate
+        .trait_contracts
+        .push(duplicate.trait_contracts[0].clone());
+    assert!(matches!(
+        verify_module(&duplicate),
+        Err(BytecodeVerificationError::InvalidPublicAbi)
+    ));
+    let mut public_collision = valid.program.modules[0].clone();
+    public_collision.public_items.push(PublicAbiItem::Trait(
+        public_collision.trait_contracts[0].abi.clone(),
+    ));
+    assert!(matches!(
+        verify_module(&public_collision),
+        Err(BytecodeVerificationError::InvalidPublicAbi)
+    ));
+    let mut foreign_identity = valid.program.modules[0].clone();
+    foreign_identity.trait_contracts[0].declaration.module = ModuleIdentity {
+        package: PackageId("foreign".into()),
+        path: vec!["api".into()],
+    };
+    assert!(matches!(
+        verify_module(&foreign_identity),
+        Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
 }
 
@@ -1111,7 +1193,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
 
 #[test]
 fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
-    for version in 5..32 {
+    for version in 5..33 {
         let previous = format!("kagari-runtime-abi-v{version}");
         let artifact = KbcArtifact::from_program(
             crate::bytecode::BytecodeProgram {

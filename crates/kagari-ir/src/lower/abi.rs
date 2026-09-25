@@ -18,12 +18,13 @@ fn const_abi_value(value: &kagari_hir::typeck::ScalarValue) -> String {
 use crate::module::abi::{AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi};
 use crate::module::{
     ConstAbi, FieldAbi, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem,
-    TraitAbi, TypeAbi, TypeAbiKind, VariantAbi,
+    TraitAbi, TraitContract, TypeAbi, TypeAbiKind, VariantAbi,
 };
 
 pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
     let hir_module = &module.lowered.module;
     let mut public_items = Vec::new();
+    let mut trait_contracts = Vec::new();
 
     for item in &hir_module.items {
         match *item {
@@ -128,12 +129,14 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 }));
             }
             Item::Trait(id) => {
-                let Some(trait_item) = hir_module.traits.iter().find(|trait_item| {
-                    trait_item.id == id && trait_item.visibility == Visibility::Public
-                }) else {
+                let Some(trait_item) = hir_module
+                    .traits
+                    .iter()
+                    .find(|trait_item| trait_item.id == id)
+                else {
                     continue;
                 };
-                public_items.push(PublicAbiItem::Trait(TraitAbi {
+                let abi = TraitAbi {
                     name: trait_item.name.clone(),
                     generic_params: generic_param_abi(module, &trait_item.generic_params),
                     bounds: parameter_bounds(module, &trait_item.generic_params),
@@ -150,7 +153,23 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                                 })
                         })
                         .collect(),
-                }));
+                };
+                if trait_item.visibility == Visibility::Public {
+                    public_items.push(PublicAbiItem::Trait(abi));
+                } else {
+                    trait_contracts.push(TraitContract {
+                        declaration: match &module
+                            .declarations
+                            .target(kagari_hir::resolver::ResolvedName::Trait(id))
+                            .expect("checked trait declaration identity")
+                            .id
+                        {
+                            kagari_hir::declarations::DeclarationId::Definition(id) => id.clone(),
+                            _ => unreachable!("nominal trait declaration"),
+                        },
+                        abi,
+                    });
+                }
             }
             Item::Module(_) | Item::Impl(_) => {}
         }
@@ -235,7 +254,10 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
         }));
     }
 
-    ModuleAbi { public_items }
+    ModuleAbi {
+        public_items,
+        trait_contracts,
+    }
 }
 
 fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<FunctionAbi> {

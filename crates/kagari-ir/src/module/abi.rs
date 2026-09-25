@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct ModuleAbi {
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub public_items: PublicAbiItemBuffer,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub trait_contracts: Vec<TraitContract>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,6 +312,13 @@ pub struct InterfaceTableAbi {
     pub for_type: AbiType,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub methods: Vec<FunctionAbi>,
+}
+
+/// Executable contract for a private trait absent from the public ABI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraitContract {
+    pub declaration: kagari_common::identity::DefinitionId,
+    pub abi: TraitAbi,
 }
 
 /// Concrete executable identity; diagnostic function names are not binding keys.

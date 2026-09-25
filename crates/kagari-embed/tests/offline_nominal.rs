@@ -341,6 +341,15 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         )
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let executable = &artifact.program.modules[artifact.program.root.index()];
+    assert_eq!(executable.trait_contracts.len(), 1);
+    assert_eq!(executable.trait_contracts[0].abi.name, "Readable");
+    assert!(
+        !executable
+            .public_items
+            .iter()
+            .any(|item| matches!(item, kagari_ir::module::PublicAbiItem::Trait(_)))
+    );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()

@@ -100,6 +100,7 @@ fn lower_linked_module(
         paths: context.paths,
         function_table: Vec::new(),
         public_items: ir.abi.public_items.clone(),
+        trait_contracts: ir.abi.trait_contracts.clone(),
         functions,
     };
     module.constants = collect_constant_pool(&module.functions);

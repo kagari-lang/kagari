@@ -333,8 +333,18 @@ workload, repetitions and measurements; no unmeasured performance claims.
   argument count, complete method roster, receiver, nested parameter and result
   types, and rejects mismatches before publication. Encoded-artifact tampering
   tests cover changed arguments, results and method mappings; a cross-module
-  fixture checks the dependency owner. Private trait contracts and applied
-  trait-parameter bounds still need an executable contract catalog.
+  fixture checks the dependency owner. Private trait contracts are covered by
+  the next checkpoint; applied trait-parameter bounds remain outstanding.
+
+- R08 private trait-contract checkpoint: KBC format 33/runtime ABI v33 carry
+  bounded executable contracts for private traits only; public traits continue
+  to use their single public ABI record. IR and bytecode reject duplicate,
+  foreign or malformed private contracts, public/private name collisions and
+  missing or mismatched host trait mappings before publication. The private
+  `Readable` example runs through source, encoded artifact, interpreter and
+  existing JIT fallback; tampered private signatures and omitted contracts fail
+  artifact validation. Applied trait-parameter bounds remain a separate
+  verification task.
 
 - R04/R06 call-navigation checkpoint: offline `host_function_at` and
   `source_function_at` queries restrict dotted callees to their member names.

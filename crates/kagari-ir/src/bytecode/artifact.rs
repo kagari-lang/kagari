@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 32;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 33;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +50,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v32";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v33";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -433,6 +433,10 @@ impl ArtifactTables {
                 count(|m| m.public_items.len()),
             ),
             (
+                ArtifactSectionId::TraitContracts,
+                count(|m| m.trait_contracts.len()),
+            ),
+            (
                 ArtifactSectionId::ModuleSlots,
                 count(|m| m.module_slots.len()),
             ),
@@ -612,6 +616,22 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
             return false;
         }
     }
+    for contract in &module.trait_contracts {
+        let item = &contract.abi;
+        if !add(item.generic_params.len())
+            || !add(item.bounds.len())
+            || !add_abi_bounds(&item.bounds, &mut add)
+            || !add(item.methods.len())
+            || !item.methods.iter().all(|method| {
+                add(method.generic_params.len())
+                    && add(method.bounds.len())
+                    && add_abi_bounds(&method.bounds, &mut add)
+                    && add(method.params.len())
+            })
+        {
+            return false;
+        }
+    }
     true
 }
 
@@ -674,6 +694,14 @@ fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 .variants
                 .iter()
                 .all(|variant| variant.payload.iter().all(&valid))
+    }) && module.trait_contracts.iter().all(|contract| {
+        contract.declaration.within_path_limit()
+            && generic_identity_limit(&contract.abi.generic_params, &contract.abi.bounds)
+            && contract.abi.methods.iter().all(|method| {
+                function_abi_identity_limit(method)
+                    && method.params.iter().all(|param| valid(&param.ty))
+                    && valid(&method.return_type)
+            })
     }) && module.public_items.iter().all(|item| match item {
         PublicAbiItem::Function(item) => {
             function_abi_identity_limit(item)
@@ -799,6 +827,7 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
                 module.paths.len(),
                 module.function_table.len(),
                 module.public_items.len(),
+                module.trait_contracts.len(),
             ]
             .into_iter()
             .fold(0usize, usize::saturating_add),
@@ -958,6 +987,7 @@ pub enum ArtifactSectionId {
     Types,
     Functions,
     PublicItems,
+    TraitContracts,
     ModuleSlots,
     StructLayouts,
     EnumLayouts,

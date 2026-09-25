@@ -6,12 +6,13 @@ use kagari_common::{
 };
 use std::collections::BTreeSet;
 
-/// Check host method tables against public script traits at the executable
-/// boundary. Private traits need a separate encoded contract catalog.
-pub(crate) fn public_trait_bindings_match(
+/// Check host method tables against the defining module's executable trait
+/// contracts, including declarations absent from its public ABI.
+pub(crate) fn trait_bindings_match(
     interface: &kagari_common::host_interface::HostInterface,
     module: &kagari_common::identity::ModuleIdentity,
     items: &[PublicAbiItem],
+    contracts: &[super::TraitContract],
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     use kagari_common::identity::DefinitionKind;
@@ -26,15 +27,18 @@ pub(crate) fn public_trait_bindings_match(
             let Some(name) = id.path.last().map(|part| &part.name) else {
                 return Ok(false);
             };
-            let Some(PublicAbiItem::Trait(trait_abi)) = items.iter().find(
-                |item| matches!(item, PublicAbiItem::Trait(trait_abi) if &trait_abi.name == name),
-            ) else {
-                // A private trait has no public ABI record.
-                continue;
+            let public = items.iter().find_map(|item| match item {
+                PublicAbiItem::Trait(trait_abi) if &trait_abi.name == name => Some(trait_abi),
+                _ => None,
+            });
+            let private = contracts.iter().find(|contract| &contract.abi.name == name);
+            let Some(trait_abi) = public.or_else(|| private.map(|contract| &contract.abi)) else {
+                return Ok(false);
             };
             if id.path.len() != 1
                 || id.path[0].kind != DefinitionKind::Trait
                 || id.path[0].occurrence != 0
+                || private.is_some_and(|contract| contract.declaration != *id)
                 || !host_trait_matches(implementation, host, trait_abi, cancel)?
             {
                 return Ok(false);

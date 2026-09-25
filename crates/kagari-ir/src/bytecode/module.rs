@@ -2,7 +2,7 @@ use crate::{
     bytecode::instruction::{
         BytecodeInstruction, ConstantOperand, FunctionRef, JumpTarget, LocalSlot, PathId,
     },
-    module::{ConcreteFunctionIdentity, EffectSet, PublicAbiItem, ValueType},
+    module::{ConcreteFunctionIdentity, EffectSet, PublicAbiItem, TraitContract, ValueType},
 };
 use kagari_common::Span;
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,8 @@ pub struct BytecodeModule {
     pub function_table: FunctionTable,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub public_items: PublicItemTable,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub trait_contracts: Vec<TraitContract>,
     #[serde(deserialize_with = "crate::decode_limits::functions")]
     pub functions: BytecodeFunctionBuffer,
 }

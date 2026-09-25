@@ -55,13 +55,26 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
             _ => Error::InvalidPublicAbi,
         })
     })?;
-    if !crate::module::host::public_trait_bindings_match(
+    crate::module::abi::verify::validate_trait_contracts(
+        &module.abi.trait_contracts,
+        &module.abi.public_items,
+        &module.identity,
+        context.cancel,
+    )
+    .map_err(|error| {
+        context.error(match error {
+            LayoutValidationError::Cancelled => Error::Cancelled,
+            _ => Error::InvalidPublicAbi,
+        })
+    })?;
+    if !crate::module::host::trait_bindings_match(
         &kagari_common::host_interface::HostInterface {
             types: module.host_types.clone(),
             ..Default::default()
         },
         &module.identity,
         &module.abi.public_items,
+        &module.abi.trait_contracts,
         context.cancel,
     )
     .map_err(|_| context.error(Error::Cancelled))?
