@@ -514,18 +514,34 @@ fn collect_debug_metadata(
     }
 
     let end = instructions.len();
+    let mut first_stores = HashMap::new();
+    for (offset, instruction) in instructions.iter().enumerate() {
+        if let BytecodeInstruction::StoreLocal { local, .. } = instruction {
+            first_stores.entry(*local).or_insert(offset + 1);
+        }
+    }
     let local_live_ranges = function
         .debug
         .locals
         .iter()
-        .map(|local| LocalLiveRange {
-            local: lower_local(local.local),
-            name: local.name.clone(),
-            span: local.span,
-            start: 0,
-            end,
-            ty: local.ty,
-            is_parameter: local.is_parameter,
+        .map(|local| {
+            let slot = lower_local(local.local);
+            // A debugger pauses before executing the instruction at its offset.
+            // A binding becomes readable only after its initializing store.
+            let start = if local.is_parameter {
+                0
+            } else {
+                first_stores.get(&slot).copied().unwrap_or(end)
+            };
+            LocalLiveRange {
+                local: slot,
+                name: local.name.clone(),
+                span: local.span,
+                start,
+                end,
+                ty: local.ty,
+                is_parameter: local.is_parameter,
+            }
         })
         .collect();
     let captured_bindings = function

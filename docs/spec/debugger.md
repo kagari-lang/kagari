@@ -353,6 +353,10 @@ Bytecode and artifacts must preserve enough metadata for:
 
 Debug metadata may be stripped only when the module is not intended to be debugged.
 If debug metadata is stripped, breakpoints and variable inspection are unavailable for that artifact.
+Local live ranges use instruction offsets with an inclusive start and exclusive
+end. A source local starts after its initializing store; parameters start at
+function entry. Lexical-scope end points and branch-aware disjoint ranges remain
+part of the R17 debugger contract work.
 
 ## Debug Adapter Boundary
 

@@ -416,7 +416,7 @@ impl DebugSession {
             .debug
             .local_live_ranges
             .iter()
-            .filter(|range| range.start <= instruction_offset && instruction_offset <= range.end)
+            .filter(|range| range.start <= instruction_offset && instruction_offset < range.end)
             .map(|range| {
                 let value = frame.read_local(range.local)?;
                 runtime

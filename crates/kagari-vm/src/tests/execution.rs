@@ -647,6 +647,14 @@ fn main() -> i32 {
         )
         .expect("debug module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
+    let before_store = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset(
+            "debug.kgr",
+            source
+                .find("val value")
+                .expect("source should contain binding"),
+        ))
+        .expect("initialization breakpoint should be allowed");
     let breakpoint_id = session
         .add_breakpoint(SourceBreakpoint::at_source_offset(
             "debug.kgr",
@@ -667,6 +675,19 @@ fn main() -> i32 {
     let debug = vm
         .debug_session()
         .expect("debug session should be attached");
+    let initial_pause = debug
+        .pauses()
+        .iter()
+        .find(|pause| pause.reason == DebugPauseReason::Breakpoint(before_store))
+        .expect("binding initializer should pause");
+    assert!(
+        initial_pause
+            .top_frame()
+            .unwrap()
+            .bindings
+            .iter()
+            .all(|binding| binding.name != "value")
+    );
     assert!(
         debug
             .resolved_breakpoints()

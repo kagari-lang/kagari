@@ -1375,6 +1375,26 @@ fn main(value: i32) -> i32 {
             .iter()
             .any(|range| range.name == "next" && !range.is_parameter)
     );
+    let parameter = debug
+        .local_live_ranges
+        .iter()
+        .find(|range| range.name == "value")
+        .unwrap();
+    let next = debug
+        .local_live_ranges
+        .iter()
+        .find(|range| range.name == "next")
+        .unwrap();
+    let initializing_store = function
+        .instructions
+        .iter()
+        .position(|instruction| {
+            matches!(instruction, BytecodeInstruction::StoreLocal { local, .. } if *local == next.local)
+        })
+        .unwrap();
+    assert_eq!(parameter.start, 0);
+    assert_eq!(next.start, initializing_store + 1);
+    assert_eq!(next.end, function.instructions.len());
 
     let artifact_debug = DebugMetadata::from_module(&bytecode);
     assert!(!artifact_debug.stripped);

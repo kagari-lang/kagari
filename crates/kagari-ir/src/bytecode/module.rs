@@ -203,7 +203,9 @@ pub struct LocalLiveRange {
     pub local: LocalSlot,
     pub name: String,
     pub span: Span,
+    /// First instruction offset where the initialized binding is visible.
     pub start: usize,
+    /// Exclusive end offset.
     pub end: usize,
     pub ty: ValueType,
     pub is_parameter: bool,
