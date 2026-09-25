@@ -179,3 +179,40 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
     assert_eq!(foreign_result, TypeId::SelfType(foreign));
     consume(replacement, 10_000, &owner);
 }
+
+#[test]
+fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
+    let mut resolved = TypeId::Builtin(BuiltinType::I32);
+    let mut unresolved = TypeId::Error;
+    let mut comparable = TypeId::Builtin(BuiltinType::I32);
+    let mut incomparable = TypeId::Host(definition("host.kgr", DefinitionKind::Struct));
+    for _ in 0..10_000 {
+        resolved = TypeId::Array(Box::new(resolved));
+        unresolved = TypeId::Array(Box::new(unresolved));
+        comparable = TypeId::Tuple(vec![comparable]);
+        incomparable = TypeId::Tuple(vec![incomparable]);
+    }
+    assert!(resolved.is_concrete());
+    assert!(!resolved.is_unresolved());
+    assert!(!unresolved.is_concrete());
+    assert!(unresolved.is_unresolved());
+    assert!(comparable.supports_equality());
+    assert!(!incomparable.supports_equality());
+
+    for mut ty in [resolved, unresolved] {
+        for _ in 0..10_000 {
+            let TypeId::Array(inner) = ty else {
+                panic!("missing array layer")
+            };
+            ty = *inner;
+        }
+    }
+    for mut ty in [comparable, incomparable] {
+        for _ in 0..10_000 {
+            let TypeId::Tuple(mut items) = ty else {
+                panic!("missing tuple layer")
+            };
+            ty = items.pop().unwrap();
+        }
+    }
+}

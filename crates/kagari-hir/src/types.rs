@@ -246,21 +246,23 @@ impl TypeId {
 
     /// A caller-owned binder is known context even before monomorphization.
     pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType]) -> bool {
-        match self {
-            Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                ty.arguments.iter().all(|ty| ty.is_resolved_in(parameters))
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments);
+                }
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items);
+                }
+                Self::Array(item) | Self::Set(item) => pending.push(item),
+                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Generic(parameter) if parameters.contains(parameter) => {}
+                Self::Generic(_) | Self::Unknown | Self::Error | Self::SelfType(_) => return false,
+                Self::Builtin(_) | Self::Host(_) => {}
             }
-            Self::Generic(parameter) => parameters.contains(parameter),
-            Self::Unknown | Self::Error | Self::SelfType(_) => false,
-            Self::Tuple(elements) | Self::StandardEnum { args: elements, .. } => {
-                elements.iter().all(|ty| ty.is_resolved_in(parameters))
-            }
-            Self::Array(element) | Self::Set(element) => element.is_resolved_in(parameters),
-            Self::Map { key, value } => {
-                key.is_resolved_in(parameters) && value.is_resolved_in(parameters)
-            }
-            _ => true,
         }
+        true
     }
     pub fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
         self.substitute_once(|ty| match ty {
@@ -286,40 +288,48 @@ impl TypeId {
         )
     }
     pub fn supports_equality(&self) -> bool {
-        match self {
-            Self::Unknown
-            | Self::Error
-            | Self::Trait(_)
-            | Self::Host(_)
-            | Self::Generic(_)
-            | Self::SelfType(_) => false,
-            Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
-                members.iter().all(Self::supports_equality)
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
+                    pending.extend(members);
+                }
+                Self::Unknown
+                | Self::Error
+                | Self::Trait(_)
+                | Self::Host(_)
+                | Self::Generic(_)
+                | Self::SelfType(_) => return false,
+                // The elements of mutable containers do not participate in identity equality.
+                Self::Builtin(_)
+                | Self::Struct(_)
+                | Self::Enum(_)
+                | Self::Array(_)
+                | Self::Map { .. }
+                | Self::Set(_) => {}
             }
-            // The elements of mutable containers do not participate in identity equality.
-            Self::Builtin(_)
-            | Self::Struct(_)
-            | Self::Enum(_)
-            | Self::Array(_)
-            | Self::Map { .. }
-            | Self::Set(_) => true,
         }
+        true
     }
 
     /// Recovery types suppress dependent diagnostics but never authorize codegen.
     pub fn is_unresolved(&self) -> bool {
-        match self {
-            Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                ty.arguments.iter().any(Self::is_unresolved)
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments);
+                }
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items);
+                }
+                Self::Array(item) | Self::Set(item) => pending.push(item),
+                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Unknown | Self::Error => return true,
+                Self::Builtin(_) | Self::Host(_) | Self::Generic(_) | Self::SelfType(_) => {}
             }
-            Self::Unknown | Self::Error => true,
-            Self::Tuple(elements) | Self::StandardEnum { args: elements, .. } => {
-                elements.iter().any(Self::is_unresolved)
-            }
-            Self::Array(element) | Self::Set(element) => element.is_unresolved(),
-            Self::Map { key, value } => key.is_unresolved() || value.is_unresolved(),
-            _ => false,
         }
+        false
     }
 
     /// Seal failed inference without discarding independently known members.

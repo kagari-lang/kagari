@@ -1873,6 +1873,9 @@ Implemented foundation slices:
   own binder, and foreign trait owners remain untouched. Existing impl-check
   and static trait-call regressions exercise the shared operation.
   Other recursive type operations and configurable depth limits remain R15 work.
+  Semantic type resolution, unresolved-hole and equality eligibility predicates
+  now use explicit work stacks. A 10,000-layer constructed-type regression covers
+  both successful and rejecting leaves without relying on parser depth limits.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite
