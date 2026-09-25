@@ -777,6 +777,9 @@ literal         ::= INTEGER
 
 ### Expression Notes
 
+- A `match` guard is evaluated after its pattern binds names. It must be `bool`;
+  a false guard continues to the next arm, even for an otherwise irrefutable
+  pattern. Guards are evaluated only for matching patterns.
 - `range_expr` models the common `a..b` and `a..=b` forms.
 - Both bounds are evaluated once, left to right, and must be `i32`. A range
   produces a fresh `[i32]` array in ascending order; `..` excludes its end and

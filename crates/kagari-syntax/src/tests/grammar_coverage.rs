@@ -36,10 +36,6 @@ const GAPS: &[GapCase] = &[
         source: "fn main() { if val x = 1 { x }; }",
     },
     GapCase {
-        id: "match_guard",
-        source: "fn main() { match 1 { x if x > 0 => x, _ => 0 } }",
-    },
-    GapCase {
         id: "or_pattern",
         source: "fn main() { match 1 { 1 | 2 => 42, _ => 0 } }",
     },

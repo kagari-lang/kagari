@@ -409,7 +409,15 @@ impl MatchArm {
     }
 
     pub fn expr(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
+        self.syntax().children().filter_map(Expr::cast).last()
+    }
+
+    pub fn guard(&self) -> Option<Expr> {
+        if support::token(self.syntax(), SyntaxKind::IfKw).is_some() {
+            self.syntax().children().filter_map(Expr::cast).next()
+        } else {
+            None
+        }
     }
 }
 

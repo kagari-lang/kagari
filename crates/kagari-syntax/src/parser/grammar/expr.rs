@@ -444,6 +444,11 @@ impl<'a> Parser<'a> {
             self.start_node(SyntaxKind::MatchArm);
             self.parse_match_pattern();
             self.bump_trivia();
+            if self.at(TokenKind::IfKw) {
+                self.bump();
+                self.parse_expr();
+                self.bump_trivia();
+            }
             self.expect(TokenKind::FatArrow, DiagnosticKind::ExpectedMatchArmArrow);
             self.parse_expr();
             self.finish_node();

@@ -1036,7 +1036,8 @@ impl<'a> BodyChecker<'a> {
                         .module
                         .pattern(arm.pattern)
                         .kind
-                        .is_irrefutable();
+                        .is_irrefutable()
+                        || arm.guard.is_some();
                     let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
                         arm.expr,
@@ -1261,6 +1262,13 @@ impl<'a> BodyChecker<'a> {
     ) -> TypeId {
         let mut arm_env = env.clone();
         self.check_pattern(arm.pattern, scrutinee_ty, &mut arm_env);
+        if let Some(guard) = arm.guard
+            && self
+                .check_condition_type(guard, "match guard", &mut arm_env)
+                .is_err()
+        {
+            return TypeId::Unknown;
+        }
         self.infer_expr_with_coercion(arm.expr, &mut arm_env, expected)
     }
 

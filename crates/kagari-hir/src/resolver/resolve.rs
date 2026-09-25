@@ -230,6 +230,9 @@ impl<'a> BodyResolver<'a> {
                     let span = self.source_map.expr_span(arm.expr);
                     self.push_child_scope(span);
                     self.bind_pattern(arm.pattern, span.start);
+                    if let Some(guard) = arm.guard {
+                        self.resolve_expr(guard);
+                    }
                     self.resolve_expr(arm.expr);
                     self.pop_scope();
                 }

@@ -30,7 +30,7 @@ The audit maintains three inventories:
 
 The tests also extract quoted source terminals from the EBNF and compare them
 with the lexer. The current unrecognized terminal baseline is `@`.
-Negative source cases keep remaining gaps, including attributes and match guards,
+Negative source cases keep remaining gaps, including attributes and pattern alternatives,
 visible until implemented. If a gap becomes accepted,
 its negative case fails so the inventory and positive example must be updated
 together.

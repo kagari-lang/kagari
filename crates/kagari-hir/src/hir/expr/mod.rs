@@ -76,6 +76,7 @@ pub enum ExprKind {
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: PatternId,
+    pub guard: Option<ExprId>,
     pub expr: ExprId,
 }
 

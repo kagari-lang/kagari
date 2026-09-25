@@ -62,6 +62,7 @@ enum Node {
     Stmt(crate::hir::StmtId),
     Branches(BlockId, Option<ExprId>),
     ShortCircuit(ExprId),
+    Guarded(ExprId, ExprId),
     Normal,
 }
 
@@ -188,6 +189,9 @@ impl<'a> Completion<'a> {
                             work.push(Task::ShortCircuit);
                             work.push(Task::Visit(Node::Expr(expr)));
                             continue;
+                        }
+                        Node::Guarded(guard, expr) => {
+                            Box::new([Node::Expr(guard), Node::ShortCircuit(expr)].into_iter())
                         }
                         Node::Branches(then, otherwise) => {
                             work.push(Task::Walk {
@@ -355,8 +359,12 @@ impl<'a> Completion<'a> {
                             if *stopped {
                                 return None;
                             }
-                            *stopped = self.module.pattern(arm.pattern).kind.is_irrefutable();
-                            Some(Node::Expr(arm.expr))
+                            *stopped = arm.guard.is_none()
+                                && self.module.pattern(arm.pattern).kind.is_irrefutable();
+                            Some(match arm.guard {
+                                Some(guard) => Node::Guarded(guard, arm.expr),
+                                None => Node::Expr(arm.expr),
+                            })
                         });
                         work.push(Task::Walk {
                             nodes: Box::new(nodes),

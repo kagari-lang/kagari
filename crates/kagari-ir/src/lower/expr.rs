@@ -386,7 +386,23 @@ impl FunctionLowerer<'_, '_> {
                 self.emit(Instruction::StoreLocal { local, src: value });
                 self.introduce_debug_local(local);
             }
-
+            if let Some(guard) = arm.guard {
+                let predicate = self.lower_expr(guard)?;
+                if !self.current_block_terminated() {
+                    let body_block = self.new_block();
+                    self.set_terminator(Terminator::Branch {
+                        cond: predicate,
+                        then_block: body_block,
+                        else_block: next_decision,
+                    });
+                    self.switch_to_block(body_block);
+                }
+            }
+            if self.current_block_terminated() {
+                self.current_scope = outer_scope;
+                decision_block = next_decision;
+                continue;
+            }
             let arm_value = self.lower_expr(arm.expr)?;
             if !self.current_block_terminated() {
                 self.emit(Instruction::Move {
@@ -399,7 +415,7 @@ impl FunctionLowerer<'_, '_> {
             self.current_scope = outer_scope;
 
             decision_block = next_decision;
-            if irrefutable {
+            if irrefutable && arm.guard.is_none() {
                 break;
             }
         }

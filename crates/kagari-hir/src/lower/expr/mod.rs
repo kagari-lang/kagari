@@ -196,6 +196,7 @@ impl Lowerer {
                                     .pattern()
                                     .map(|pattern| self.lower_pattern(&pattern))
                                     .unwrap_or_else(|| self.synthetic_name_pattern("<missing>")),
+                                guard: arm.guard().map(|expr| self.lower_expr(&expr)),
                                 expr: arm
                                     .expr()
                                     .map(|expr| self.lower_expr(&expr))

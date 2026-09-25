@@ -108,7 +108,7 @@ loop_expr	covered	examples/syntax/control-flow.kgr	-
 match_expr	covered	examples/syntax/match.kgr	-
 match_arm_list	covered	examples/syntax/match.kgr	-
 match_arm	covered	examples/syntax/match.kgr	-
-match_guard	missing	gap:match_guard	Match guards are absent
+match_guard	covered	examples/syntax/match-guards.kgr	-
 match_body	covered	examples/syntax/blocks.kgr	-
 pattern	partial	examples/syntax/match.kgr	Or and range pattern branches are not recognized
 or_pattern	partial	examples/syntax/match.kgr	Or branch is not recognized
