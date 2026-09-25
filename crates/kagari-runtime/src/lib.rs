@@ -546,8 +546,46 @@ impl Runtime {
         if !table.trait_type.is_concrete() {
             return Err(invalid());
         }
-        let mut methods = Vec::with_capacity(table.methods.len());
-        for method in &table.methods {
+        let trait_name = interface_type
+            .declaration
+            .path
+            .last()
+            .map(|segment| segment.name.as_str())
+            .ok_or_else(invalid)?;
+        let trait_contract = implementation
+            .members()
+            .find(|member| member.bytecode.identity == interface_type.declaration.module)
+            .and_then(|member| {
+                member
+                    .bytecode
+                    .trait_contracts
+                    .iter()
+                    .find(|contract| contract.declaration == interface_type.declaration)
+                    .map(|contract| contract.abi.clone())
+                    .or_else(|| {
+                        member
+                            .bytecode
+                            .public_items
+                            .iter()
+                            .find_map(|item| match item {
+                                PublicAbiItem::Trait(trait_abi) if trait_abi.name == trait_name => {
+                                    Some(trait_abi.clone())
+                                }
+                                _ => None,
+                            })
+                    })
+            })
+            .ok_or_else(invalid)?;
+        if trait_contract.methods.len() != table.methods.len() {
+            return Err(invalid());
+        }
+        let mut methods = Vec::with_capacity(trait_contract.methods.len());
+        for declared in &trait_contract.methods {
+            let method = table
+                .methods
+                .iter()
+                .find(|method| method.name == declared.name)
+                .ok_or_else(invalid)?;
             if !method.generic_params.is_empty() {
                 return Err(invalid());
             }
@@ -607,6 +645,35 @@ impl Runtime {
         value: &value::Value,
         method: &kagari_common::identity::DefinitionId,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        self.resolve_interface_method_inner(value, None, |snapshot| {
+            snapshot
+                .methods
+                .iter()
+                .find(|binding| &binding.method == method)
+        })
+    }
+
+    /// Resolves a trait declaration's verified method ordinal without a
+    /// name or declaration search during script dispatch.
+    pub fn resolve_interface_method_slot(
+        &self,
+        value: &value::Value,
+        interface: &kagari_ir::module::abi::NominalAbiType,
+        slot: usize,
+    ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        self.resolve_interface_method_inner(value, Some(interface), |snapshot| {
+            snapshot.methods.get(slot)
+        })
+    }
+
+    fn resolve_interface_method_inner(
+        &self,
+        value: &value::Value,
+        expected_interface: Option<&kagari_ir::module::abi::NominalAbiType>,
+        select: impl for<'a> FnOnce(
+            &'a gc::InterfaceValueSnapshot,
+        ) -> Option<&'a gc::InterfaceMethodBinding>,
+    ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let value::Value::Interface(id) = value else {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -619,13 +686,15 @@ impl Runtime {
         let snapshot = self.gc.interface_snapshot(*id).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
         })?;
-        let binding = snapshot
-            .methods
-            .iter()
-            .find(|binding| &binding.method == method)
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "interface method unavailable")
-            })?;
+        if expected_interface.is_some_and(|expected| *expected != snapshot.interface_type) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "interface type does not match the call target",
+            ));
+        }
+        let binding = select(&snapshot).cloned().ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "interface method unavailable")
+        })?;
         Ok(RootedInterfaceMethod {
             _root: root,
             receiver: snapshot.data,
@@ -633,8 +702,8 @@ impl Runtime {
             interface_type: snapshot.interface_type,
             implementation: snapshot.implementation,
             function: binding.function,
-            parameter_types: binding.parameter_types.clone(),
-            return_type: binding.return_type.clone(),
+            parameter_types: binding.parameter_types,
+            return_type: binding.return_type,
         })
     }
 

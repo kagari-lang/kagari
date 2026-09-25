@@ -103,6 +103,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   reachability. Source execution tests cover empty and method-bearing tables;
   source-level dynamic method calls still require a dedicated call instruction.
 
+- R08 method-slot checkpoint: interface objects store method bindings in trait
+  declaration order even when an implementation declares methods in another
+  order. The runtime resolves a verified ordinal only after checking the
+  object's applied interface identity; missing slots and mismatched interfaces
+  trap. The embedding identity lookup remains available, while the forthcoming
+  script call instruction can use the ordinal without searching method names.
+
 - R10 pinned-frame checkpoint: every interpreter frame owns a loaded member of
   its executable program. Ordinary descendant calls resolve module slots from
   the current frame; a rooted interface method can enter a frame from its

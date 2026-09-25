@@ -477,6 +477,8 @@ The runtime now represents script-backed interface values as generation-checked
 GC objects. Construction requires a verified implementation table and resolved
 method slots; the object retains its concrete payload and the linked dependency
 version until collection. Forged, stale or foreign handles are rejected. The
+method bindings follow trait declaration order regardless of implementation
+source order, and ordinal lookup checks the exact applied interface identity.
 current construction entry accepts concrete non-generic script tables; generic
 table instantiation and in-frame dispatch remain pending,
 as do host-backed interface values.

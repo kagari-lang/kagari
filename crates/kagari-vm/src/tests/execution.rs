@@ -1759,6 +1759,69 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
 }
 
 #[test]
+fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
+    use kagari_ir::module::{PublicAbiItem, abi::AbiType};
+    let (runtime, loaded) = load_test_module(
+        "trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
+    );
+    let table = loaded
+        .bytecode
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) => Some(table),
+            _ => None,
+        })
+        .unwrap();
+    let AbiType::Trait(interface) = &table.trait_type else {
+        panic!("expected trait interface")
+    };
+    let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
+    let first = runtime
+        .resolve_interface_method_slot(&boxed, interface, 0)
+        .unwrap();
+    let second = runtime
+        .resolve_interface_method_slot(&boxed, interface, 1)
+        .unwrap();
+    let method = |name| {
+        loaded.bytecode.interface_tables[0]
+            .methods
+            .iter()
+            .find(|slot| slot.method.path.last().unwrap().name == name)
+            .unwrap()
+            .method
+            .clone()
+    };
+    assert_eq!(
+        first.function(),
+        runtime
+            .resolve_interface_method(&boxed, &method("first"))
+            .unwrap()
+            .function()
+    );
+    assert_eq!(
+        second.function(),
+        runtime
+            .resolve_interface_method(&boxed, &method("second"))
+            .unwrap()
+            .function()
+    );
+    assert_ne!(first.function(), second.function());
+    assert!(
+        runtime
+            .resolve_interface_method_slot(&boxed, interface, 2)
+            .is_err()
+    );
+    let mut wrong = interface.clone();
+    wrong.declaration.path.last_mut().unwrap().name = "Other".into();
+    assert!(
+        runtime
+            .resolve_interface_method_slot(&boxed, &wrong, 0)
+            .is_err()
+    );
+}
+
+#[test]
 fn source_call_boxes_a_concrete_argument_for_an_interface_parameter() {
     let (runtime, loaded) = load_test_module(
         "trait Tag {} impl Tag for i32 {} fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { accept(7) }",
