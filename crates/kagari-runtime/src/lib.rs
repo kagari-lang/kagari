@@ -1852,18 +1852,18 @@ impl Runtime {
             });
         }
         for member in program.module().members() {
-            let instance = self.modules.instance_snapshot(member.key());
-            if instance
-                .as_ref()
-                .is_none_or(|instance| instance.state != ModuleInitializationState::Initialized)
-            {
+            let Some(instance) = self.modules.instance_snapshot(member.key()) else {
+                return Err(ReloadValidationError::Runtime(self.resources.quarantine(
+                    "candidate module instance disappeared at publication",
+                )));
+            };
+            if instance.state != ModuleInitializationState::Initialized {
                 return Err(ReloadValidationError::Runtime(
                     RuntimeError::module_validation(
                         "reload candidate has not completed initialization",
                     ),
                 ));
             }
-            let instance = instance.expect("checked initialized instance");
             if !instance
                 .module_slots
                 .iter()

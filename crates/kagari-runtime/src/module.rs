@@ -577,7 +577,7 @@ impl ModuleStore {
         if !self.allows_instance_access(key) {
             return None;
         }
-        self.inner.borrow().instances.get(&key).cloned()
+        self.inner.try_borrow().ok()?.instances.get(&key).cloned()
     }
 
     pub(crate) fn instance_mut(&self, key: ModuleKey) -> Option<RefMut<'_, ModuleInstance>> {
@@ -974,6 +974,28 @@ mod tests {
         let failed = store.instance_snapshot(next.key()).unwrap();
         assert_eq!(failed.state, ModuleInitializationState::Failed);
         assert_eq!(failed.init_result, None);
+    }
+
+    #[test]
+    fn snapshot_during_mutable_instance_borrow_does_not_panic() {
+        let store = ModuleStore::default();
+        let module = store
+            .stage_program(
+                "game.snapshot",
+                ModuleEpoch(1),
+                kagari_ir::bytecode::BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                crate::host::HostRegistryId::default(),
+                vec![LinkedHostBindings::default()],
+            )
+            .unwrap()
+            .publish();
+        let held = store.instance_mut(module.key()).unwrap();
+        assert!(store.instance_snapshot(module.key()).is_none());
+        drop(held);
+        assert!(store.instance_snapshot(module.key()).is_some());
     }
 
     #[test]

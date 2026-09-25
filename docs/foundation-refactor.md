@@ -24,7 +24,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
 - [x] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
 - [x] R13: Failure-atomic standard mutation and dirty-record commit.
-- [ ] R14: Acyclic initialization and isolated prepare/initialize/publish.
+- [x] R14: Acyclic initialization and isolated prepare/initialize/publish.
 - [ ] R15: Compile-time capability and resource limits.
 - [x] R16: Injectable deterministic context and host trace fixtures.
 - [ ] R17: Interpreter/JIT/debugger contract equivalence.
@@ -1514,7 +1514,7 @@ Implemented foundation slices:
   Pure host calls remain subject to permissions and budgets. Immutable configuration
   reads have an explicit offline effect contract with owned value-only signatures;
   mutable containers and opaque handles are rejected. KHI v6, format 22 and runtime
-  ABI v23 reject old encodings. A full isolation/ownership audit remains pending.
+  ABI v23 reject old encodings.
   Module admission and release belong to the module store, including staged and
   unreachable versions. Cleanup releases quota even after quarantine. Epoch
   reservation is separate from activation; discarded identities are never reused
@@ -1545,8 +1545,7 @@ Implemented foundation slices:
   failure-cleanup path. Publication independently checks every candidate module slot
   and initialization result against the candidate allocation owner after the session
   ends. Late external references inside candidate containers reject publication and
-  release candidate quota without changing the active entry. Other ingress paths
-  and complete checkpoint acceptance remain under audit. Embedding tests now exercise
+  release candidate quota without changing the active entry. Embedding tests exercise
   a diamond program whose shared dependency allocates before a later dependency
   traps: all candidate members and quota are released, unreachable candidate objects
   are collected, and repeated fresh attempts leave the old root usable. A subsequent

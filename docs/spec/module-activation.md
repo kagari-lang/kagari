@@ -69,6 +69,10 @@ Reload consists of distinct operations:
    candidate ownership of reachable module values, then atomically replace the
    entry generation for the selected runtime/publication unit.
 
+If an otherwise loaded candidate member has no readable instance at publication,
+the runtime reports an engine invariant failure and quarantines execution. It
+never activates a partially checked candidate.
+
 Service candidate initialization permits pure computation, candidate-owned
 allocation and mutation, and explicit immutable configuration. It rejects real
 host-state modification, outgoing events, timers, and calls with unknown effects.
