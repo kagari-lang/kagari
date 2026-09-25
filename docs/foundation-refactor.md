@@ -27,7 +27,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R14: Acyclic initialization and isolated prepare/initialize/publish.
 - [x] R15: Compile-time capability and resource limits.
 - [x] R16: Injectable deterministic context and host trace fixtures.
-- [ ] R17: Interpreter/JIT/debugger contract equivalence.
+- [x] R17: Interpreter/JIT/debugger contract equivalence.
 - [ ] R18: Obsolete-path audit, full validation, reproducible resource baselines.
 
 ## Validation
@@ -2017,7 +2017,8 @@ Implemented foundation slices:
   release both before dropping their session handle. Borrow ownership is checked
   across runtimes and the unchecked host-frame entry is removed. Path callbacks
   receive the same checked call context for synchronous reentry before commit.
-  Stable debug frame identities remain R17 work.
+  Debug frame IDs identify pause snapshots; persistent IDE frame handles remain
+  part of the later full debugger integration.
   R17 program-point checkpoint: lowered local ranges now start after the first
   initializing StoreLocal; parameters remain visible at entry. Debug inspection
   uses exclusive range ends, so a pause before initialization cannot expose a
@@ -2029,6 +2030,14 @@ Implemented foundation slices:
   source span of an enclosing expression covers later instructions. Source and
   VM pause tests cover visibility within and after the block. KBC format 38 and
   runtime ABI v38 reject older debug metadata.
+  Native scalar JIT tests compare results and checked overflow with the
+  interpreter, including intermediate traps. Source/encoded language-contract
+  fixtures compare effects, trap order and budgets across native-eligible cases
+  and existing fallback routes. Native cancellation checks precede instruction
+  charging; interpreter and native scalar paths share the GC safepoint. Debug
+  sessions use interpreter fallback when native metadata is insufficient. The
+  existing JIT accepts only its supported zero-argument scalar instruction set;
+  other verified instructions retain interpreter execution.
   Tests cover direct/encoded
   programs, dependency-first initialization/failure caching, stale reloads, old
   dependency calls, malformed program rejection and interpreter/JIT fallback parity.
