@@ -995,13 +995,29 @@ fn verify_call(
                 reason: "dynamic invocation has no executable contract",
             });
         }
-        CallTarget::RuntimeHelper(_) => {
-            for arg in args {
-                let _ = register_ty(function, *arg)?;
-            }
-            if let Some(dst) = dst {
-                let _ = register_ty(function, dst)?;
-            }
+        CallTarget::RuntimeHelper(helper) => {
+            let kind = match helper {
+                super::RuntimeHelper::ReflectTypeOf => {
+                    crate::module::contracts::RuntimeHelperKind::TypeOf
+                }
+                super::RuntimeHelper::ReflectGetField(_) => {
+                    crate::module::contracts::RuntimeHelperKind::GetField
+                }
+                super::RuntimeHelper::ReflectSetField(_) => {
+                    crate::module::contracts::RuntimeHelperKind::SetField
+                }
+                super::RuntimeHelper::ReflectSetIndex => {
+                    crate::module::contracts::RuntimeHelperKind::SetIndex
+                }
+                super::RuntimeHelper::DynamicCall => unreachable!(),
+            };
+            let args = args
+                .iter()
+                .map(|arg| register_ty(function, *arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
+            crate::module::contracts::verify_runtime_helper_call(dst, kind, &args)
+                .map_err(|error| contract_error(function, error))?;
         }
     }
     Ok(())

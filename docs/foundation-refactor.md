@@ -319,6 +319,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
   Future dynamic calls require an explicit verified call contract rather than a
   late VM error.
 
+- R08 reflection-helper contract checkpoint: IR and bytecode now share one
+  helper-call contract. Both verify argument count, `type_of` result layout,
+  field/index receiver representation, integer index representation, writable
+  payload eligibility and write-result layout before bytecode publication.
+  Bytecode tampering tests reject malformed helper calls while existing source,
+  artifact and VM reflection fixtures retain valid behavior. Dynamic member
+  existence and capability decisions remain runtime checks.
+
 - R04/R06 call-navigation checkpoint: offline `host_function_at` and
   `source_function_at` queries restrict dotted callees to their member names.
   A receiver call retains its separate checked target; dot positions no longer

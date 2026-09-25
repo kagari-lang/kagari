@@ -124,24 +124,19 @@ pub(super) fn verify(
                 return Err(context.error(Error::UnsupportedCall));
             }
             CallTarget::RuntimeHelper(helper) => {
-                let arity = match helper {
-                    RuntimeHelper::ReflectTypeOf | RuntimeHelper::ReflectGetField(_) => Some(1),
-                    RuntimeHelper::ReflectSetField(_) => Some(2),
-                    RuntimeHelper::ReflectSetIndex => Some(3),
+                let kind = match helper {
+                    RuntimeHelper::ReflectTypeOf => contracts::RuntimeHelperKind::TypeOf,
+                    RuntimeHelper::ReflectGetField(_) => contracts::RuntimeHelperKind::GetField,
+                    RuntimeHelper::ReflectSetField(_) => contracts::RuntimeHelperKind::SetField,
+                    RuntimeHelper::ReflectSetIndex => contracts::RuntimeHelperKind::SetIndex,
                     RuntimeHelper::DynamicCall => unreachable!(),
                 };
-                if let Some(expected) = arity {
-                    if args.len() != expected {
-                        return Err(context.error(Error::CallArity {
-                            expected,
-                            found: args.len(),
-                        }));
-                    }
-                    if matches!(helper, RuntimeHelper::ReflectTypeOf) {
-                        contracts::verify_call_dst(dst.map(|v| v.ty), ValueType::Str)
-                            .map_err(contract)?;
-                    }
-                }
+                contracts::verify_runtime_helper_call(
+                    dst.map(|value| value.ty),
+                    kind,
+                    &args.iter().map(|value| value.ty).collect::<Vec<_>>(),
+                )
+                .map_err(contract)?;
             }
         },
         MakeTuple { dst, .. } | MakeArray { dst, .. } => {

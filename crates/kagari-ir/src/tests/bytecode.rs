@@ -1686,6 +1686,78 @@ fn lowers_type_of_builtin_to_runtime_helper_call() {
 }
 
 #[test]
+fn reflection_helper_operands_are_checked_before_loading() {
+    let valid = common::bytecode_ok("fn main() -> String { type_of(7) }");
+    let mut wrong_arity = valid.clone();
+    let call = wrong_arity.functions[0]
+        .instructions
+        .iter_mut()
+        .find(|instruction| matches!(instruction, BytecodeInstruction::Call { .. }))
+        .unwrap();
+    let BytecodeInstruction::Call { args, .. } = call else {
+        unreachable!()
+    };
+    args.clear();
+    assert!(matches!(
+        verify_module(&wrong_arity),
+        Err(BytecodeVerificationError::InvalidOperation { .. })
+    ));
+
+    let mut wrong_result = valid.clone();
+    let call = wrong_result.functions[0]
+        .instructions
+        .iter_mut()
+        .find(|instruction| matches!(instruction, BytecodeInstruction::Call { .. }))
+        .unwrap();
+    let BytecodeInstruction::Call { dst, args, .. } = call else {
+        unreachable!()
+    };
+    *dst = Some(args[0]);
+    assert!(matches!(
+        verify_module(&wrong_result),
+        Err(BytecodeVerificationError::TypeMismatch { .. })
+    ));
+
+    let mut wrong_field_base = valid;
+    let call = wrong_field_base.functions[0]
+        .instructions
+        .iter_mut()
+        .find(|instruction| matches!(instruction, BytecodeInstruction::Call { .. }))
+        .unwrap();
+    let BytecodeInstruction::Call { callee, .. } = call else {
+        unreachable!()
+    };
+    *callee = CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField("x".into()));
+    assert!(matches!(
+        verify_module(&wrong_field_base),
+        Err(BytecodeVerificationError::TypeMismatch { .. })
+    ));
+
+    let mut wrong_index = common::bytecode_ok("fn main() -> [i32] { set_index([1], 0, 2) }");
+    let call = wrong_index.functions[0]
+        .instructions
+        .iter_mut()
+        .find(|instruction| {
+            matches!(
+                instruction,
+                BytecodeInstruction::Call {
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let BytecodeInstruction::Call { args, .. } = call else {
+        unreachable!()
+    };
+    args[1] = args[0];
+    assert!(matches!(
+        verify_module(&wrong_index),
+        Err(BytecodeVerificationError::InvalidOperation { .. })
+    ));
+}
+
+#[test]
 fn lowers_reflection_field_builtins_to_runtime_helper_calls() {
     let bytecode = common::bytecode_ok(
         r#"

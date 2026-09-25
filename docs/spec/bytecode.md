@@ -479,6 +479,10 @@ The bytecode verifier checks:
 - jump targets point to valid instruction boundaries
 - functions return values compatible with their declared return type
 - instruction operands match the expected type layout when type metadata is retained
+- runtime reflection helpers have the same verified arity and representation
+  contract in IR and bytecode: field/index receivers are heap values, indexes
+  are integers, reflective writes cannot store host handles, and result
+  registers match the helper's static result where known
 - local and field writes respect `val` / `var` writeability
 - `PathId` operands exist in the path table
 - path dynamic argument counts match the descriptor

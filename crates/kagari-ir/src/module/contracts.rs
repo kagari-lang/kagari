@@ -16,6 +16,63 @@ pub enum ContractError {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeHelperKind {
+    TypeOf,
+    GetField,
+    SetField,
+    SetIndex,
+}
+
+pub(crate) fn verify_runtime_helper_call(
+    dst: Option<ValueType>,
+    helper: RuntimeHelperKind,
+    args: &[ValueType],
+) -> Result<(), ContractError> {
+    use RuntimeHelperKind::*;
+    let arity = match helper {
+        TypeOf | GetField => 1,
+        SetField => 2,
+        SetIndex => 3,
+    };
+    if args.len() != arity {
+        return Err(ContractError::InvalidOperation {
+            reason: "runtime helper arity mismatch",
+        });
+    }
+    match helper {
+        TypeOf => verify_call_dst(dst, ValueType::Str),
+        GetField => {
+            expect_type(args[0], ValueType::HeapObject, "reflection field base")?;
+            if dst.is_none() {
+                return Err(ContractError::InvalidOperation {
+                    reason: "reflection field read needs a destination",
+                });
+            }
+            Ok(())
+        }
+        SetField | SetIndex => {
+            expect_type(args[0], ValueType::HeapObject, "reflection write base")?;
+            let value = if helper == SetIndex {
+                if !matches!(args[1], ValueType::I32 | ValueType::I64) {
+                    return Err(ContractError::InvalidOperation {
+                        reason: "reflection index must be an integer",
+                    });
+                }
+                args[2]
+            } else {
+                args[1]
+            };
+            if value == ValueType::HostHandle {
+                return Err(ContractError::InvalidOperation {
+                    reason: "host handles cannot be stored by reflection",
+                });
+            }
+            verify_call_dst(dst, ValueType::HeapObject)
+        }
+    }
+}
+
 pub(crate) fn verify_host_call(
     dst: Option<ValueType>,
     declaration: &kagari_common::host_interface::HostFunctionDeclaration,
