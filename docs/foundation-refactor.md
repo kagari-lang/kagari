@@ -25,7 +25,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
 - [x] R13: Failure-atomic standard mutation and dirty-record commit.
 - [x] R14: Acyclic initialization and isolated prepare/initialize/publish.
-- [ ] R15: Compile-time capability and resource limits.
+- [x] R15: Compile-time capability and resource limits.
 - [x] R16: Injectable deterministic context and host trace fixtures.
 - [ ] R17: Interpreter/JIT/debugger contract equivalence.
 - [ ] R18: Obsolete-path audit, full validation, reproducible resource baselines.
@@ -302,8 +302,8 @@ workload, repetitions and measurements; no unmeasured performance claims.
   configurable number of semantic diagnostics per file (default 1,000), followed
   by one structured limit diagnostic if exceeded. Changing the limit invalidates
   cached full results without mutating older snapshots; checked compilation still
-  rejects limited results. This bounds output, while earlier diagnostic generation
-  and downstream recursive traversal limits remain in the R15 audit.
+  rejects limited results. This bounds returned diagnostic output; parser, const,
+  monomorphization and generated-code work have separate operation/depth budgets.
 
 - R09 direct-load parity checkpoint: shared verified code construction and direct
   reload preflight now apply artifact count, identity, nested-record and encoded
@@ -911,8 +911,8 @@ R05 acceptance evidence:
 Full analysis batches bodies through the same resolver/type checker used by the
 single-function query. Module constants remain shared semantic prerequisites and
 are checked when querying a body. This is bounded query caching, not a complete
-incremental dependency framework. R15 resource limits and R18 performance
-measurements retain separate acceptance.
+incremental dependency framework. R18 performance measurements retain separate
+acceptance.
 
 R12 acceptance evidence:
 
@@ -1286,8 +1286,8 @@ Implemented foundation slices:
   instead of recursive expression/block/place traversal. Lazy sequences preserve
   early termination and match-arm reachability. Tests cover 20,000 nested
   expression/block layers, 20,000 place layers, no subsequent operand request
-  after termination and cancellation during operand acquisition. Other frontend
-  depth limits and recursive traversals remain R15 work.
+  after termination and cancellation during operand acquisition. Parser and type
+  expansion depth limits are recorded under R15 below.
   Completion traversal now memoizes finished node exits per query, keyed by full
   owned HIR IDs. A 48-level shared-subtree fixture avoids exponential expansion,
   and a shared block test verifies cached breaks are consumed only by loops.
@@ -1421,7 +1421,7 @@ Implemented foundation slices:
   Scope/type/member-receiver queries work on erroneous files. Shared cancellation
   now reaches lexer character iteration, parser traversal, HIR expression/block
   lowering, name resolution and body checking. Cancelled snapshots do not publish.
-  Query ownership is now explicit; compile-time limits remain in R15.
+  Query ownership is now explicit; the compile-time limits are recorded under R15.
   Language profiles participate in cache reuse; old queries cannot publish over
   a newer revision. Engine snapshot compilation exposes cancellation explicitly.
   Reused bodies remap scalar expression and pattern facts; emitted artifacts are
@@ -1872,7 +1872,9 @@ Implemented foundation slices:
   a recursive copy of every type case. Deep Self replacements preserve their
   own binder, and foreign trait owners remain untouched. Existing impl-check
   and static trait-call regressions exercise the shared operation.
-  Other recursive type operations and configurable depth limits remain R15 work.
+  Source-derived type depth is bounded by parser limits; generated concrete types
+  are bounded by IR expansion limits. Internal semantic walks that also accept
+  constructed types use explicit stacks where deep nesting is meaningful.
   Semantic type resolution, unresolved-hole and equality eligibility predicates
   now use explicit work stacks. A 10,000-layer constructed-type regression covers
   both successful and rejecting leaves without relying on parser depth limits.
@@ -1935,8 +1937,10 @@ Implemented foundation slices:
   Source/artifact/JIT fallback tests cover declaration order, while cycle and
   initializer errors remain rejected. This removes that scan cost; it is not
   a wall-clock quota or a measured end-to-end performance claim.
-  Downstream recursive traversal limits, bounded diagnostic generation beyond
-  the final result buffer, and broader resource audits remain outstanding.
+  The semantic diagnostic cap bounds the final result buffer, not every temporary
+  diagnostic producer. Broader memory and throughput limits remain an R18 audit
+  topic; this checkpoint claims the configured language limits and cancellation
+  behavior, not a whole-process memory or wall-clock quota.
   Source/artifact/JIT
   fallback fixtures cover generic values, recursion, numeric overflow, effects,
   constraints and distinct concrete types sharing a runtime representation.
@@ -2081,7 +2085,7 @@ Implemented foundation slices:
   the session; the R12 audit is recorded above.
   Const evaluation shares checked arithmetic and
   honors short circuit, with cancellation checks. Narrower integer layouts and the other backend/
-  debugger contracts remain open; compile-time quotas are still pending R15.
+  debugger contracts remain open; compile-time quotas are recorded under R15.
   Assignment lowering now retains a location before RHS execution and resolves
   its projections afterwards. Tuple updates prepare temporary values before one
   enclosing object/slot commit; shared-object ancestors are not rewritten.
