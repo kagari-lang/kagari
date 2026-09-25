@@ -20,7 +20,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R07: Nominal concrete identity, layouts, bounded reachable monomorphization.
 - [x] R08: Verified IR and linked-only runtime operands.
 - [x] R09: Canonical bounded artifact format and explicit fingerprint algorithm.
-- [ ] R10: Shared immutable generations and runtime-local state.
+- [x] R10: Shared immutable generations and runtime-local state.
 - [ ] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
 - [x] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
 - [ ] R13: Failure-atomic standard mutation and dirty-record commit.
@@ -113,8 +113,16 @@ workload, repetitions and measurements; no unmeasured performance claims.
   the current frame; a rooted interface method can enter a frame from its
   retained older program with argument validation and return ABI checking.
   A reload regression test proves its descendant uses that older program and
-  a failed argument check leaves the frame stack intact. The remaining
-  cross-version lifecycle audit is still open.
+  a failed argument check leaves the frame stack intact.
+
+- R10 acceptance: immutable verified code and layouts can be shared across
+  runtimes, while each runtime links its own host slots, module instances,
+  permissions, heap and execution cache. Frames, linked interface values and
+  compiled artifacts retain their owning version; cross-module descendants use
+  the calling frame's program. Tests cover cross-runtime rejection, old and new
+  interface dispatch after reload, retained old-version reachability and
+  reclamation after the last rooted value is collected. Kagari has no script
+  closure value or captured script environment in this version.
 
 - R08 source-interface-call checkpoint: source methods on concrete non-generic
   interface values lower to a dedicated call target with trait owner module slot,
@@ -306,8 +314,8 @@ workload, repetitions and measurements; no unmeasured performance claims.
   and owns immutable, reference-counted module code. Multiple runtimes can link
   that code without copying functions or layouts; each creates its own host slots,
   module instances, epoch, permissions, heap and execution cache. Loaded handles
-  reject cross-runtime use even when module keys coincide. Full capture/interface
-  ownership and version reclamation remain in the R10 audit.
+  reject cross-runtime use even when module keys coincide. Interface and frame
+  ownership and version reclamation are covered by the R10 acceptance above.
 
 - R10 cache lifecycle checkpoint: reload removes invalidated interpreter/JIT
   records from the runtime-local registry instead of retaining tombstones and

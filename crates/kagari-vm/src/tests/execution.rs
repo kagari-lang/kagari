@@ -1989,7 +1989,7 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
         .load_program("interface-dispatch-reload", program(old_code))
         .unwrap();
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let _old_root = runtime.root_value(old_value.clone()).unwrap();
+    let old_root = runtime.root_value(old_value.clone()).unwrap();
     let candidate = runtime
         .stage_reload_program(&old, "interface-dispatch-reload", program(new_code))
         .unwrap();
@@ -2008,6 +2008,14 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
     let mut new_call = crate::executor::Executor::new(&runtime, &new, read, &[new_value]).unwrap();
     assert_eq!(new_call.run().unwrap(), Value::I32(9));
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert!(runtime.modules().collect_unreachable_epochs().is_empty());
+    drop(new_call);
+    drop(old_root);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.modules().collect_unreachable_epochs(),
+        vec![old.key()]
+    );
 }
 
 #[test]
