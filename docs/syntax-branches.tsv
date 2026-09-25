@@ -7,11 +7,11 @@ item_decl	5	witnessed	examples/syntax/data-model.kgr	-	struct_item
 item_decl	6	witnessed	examples/syntax/data-model.kgr	-	enum_item
 item_decl	7	witnessed	examples/syntax/where-bounds.kgr	-	trait_item
 item_decl	8	witnessed	examples/syntax/where-bounds.kgr	-	impl_block
-attribute_arg	1	missing	gap:attribute	Parser rejects this EBNF branch	IDENT "=" attribute_value
-attribute_arg	2	missing	gap:attribute	Parser rejects this EBNF branch	attribute_value
-attribute_value	1	missing	gap:attribute	Parser rejects this EBNF branch	literal
-attribute_value	2	missing	gap:attribute	Parser rejects this EBNF branch	path
-attribute_value	3	missing	gap:attribute	Parser rejects this EBNF branch	"[" attribute_arg_list? "]"
+attribute_arg	1	witnessed	examples/syntax/attributes.kgr	-	IDENT "=" attribute_value
+attribute_arg	2	witnessed	examples/syntax/attributes.kgr	-	attribute_value
+attribute_value	1	witnessed	examples/syntax/attributes.kgr	-	literal
+attribute_value	2	witnessed	examples/syntax/attributes.kgr	-	path
+attribute_value	3	witnessed	examples/syntax/attributes.kgr	-	"[" attribute_arg_list? "]"
 use_tree	1	witnessed	examples/syntax/import-alias.kgr	-	path use_alias?
 use_tree	2	unverified	-	No branch-specific witness recorded	path "::" "*"
 use_tree	3	witnessed	examples/imported-traits/generic-consumer.kgr	-	path "::" use_tree_group

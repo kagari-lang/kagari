@@ -12,8 +12,9 @@ pub use expr::{
     PatternBound,
 };
 pub use item::{
-    ConstDef, EnumDef, FnDef, ImplBlock, Item, MethodDef, ModuleBlock, ModuleDef, SourceFile,
-    StructDef, TraitDef, UseDecl, UseTree, UseTreeList,
+    Attribute, AttributeArg, AttributeArgs, AttributeValue, ConstDef, EnumDef, FnDef, ImplBlock,
+    Item, MethodDef, ModuleBlock, ModuleDef, SourceFile, StructDef, TraitDef, UseDecl, UseTree,
+    UseTreeList,
 };
 pub use misc::{
     Field, FieldList, GenericArgList, GenericParam, GenericParamList, Name, Param, ParamList, Path,

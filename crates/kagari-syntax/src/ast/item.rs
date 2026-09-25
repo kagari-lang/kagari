@@ -15,6 +15,11 @@ use crate::{
 };
 
 ast_node!(SourceFile, SourceFile);
+ast_node!(Attribute, Attribute);
+ast_node!(AttributeArgs, AttributeArgs);
+ast_node!(AttributeArgList, AttributeArgList);
+ast_node!(AttributeArg, AttributeArg);
+ast_node!(AttributeValue, AttributeValue);
 ast_node!(ModuleDef, ModuleDef);
 ast_node!(ModuleBlock, ModuleBlock);
 ast_node!(UseDecl, UseDecl);
@@ -80,6 +85,62 @@ impl AstNode for Item {
             Self::StructDef(node) => node.syntax(),
             Self::EnumDef(node) => node.syntax(),
         }
+    }
+}
+
+impl Item {
+    pub fn attributes(&self) -> impl Iterator<Item = Attribute> {
+        self.syntax().children().filter_map(Attribute::cast)
+    }
+}
+
+impl Attribute {
+    pub fn path(&self) -> Option<Path> {
+        support::child(self.syntax())
+    }
+
+    pub fn name_text(&self) -> Option<String> {
+        self.path().and_then(|path| path.text())
+    }
+
+    pub fn args(&self) -> Option<AttributeArgs> {
+        support::child(self.syntax())
+    }
+}
+
+impl AttributeArgs {
+    pub fn arguments(&self) -> impl Iterator<Item = AttributeArg> {
+        self.syntax()
+            .children()
+            .filter_map(AttributeArgList::cast)
+            .flat_map(|list| list.syntax().children().filter_map(AttributeArg::cast))
+    }
+}
+
+impl AttributeArg {
+    pub fn name_text(&self) -> Option<String> {
+        support::child::<Name>(self.syntax()).and_then(|name| name.text())
+    }
+
+    pub fn value(&self) -> Option<AttributeValue> {
+        support::child(self.syntax())
+    }
+}
+
+impl AttributeValue {
+    pub fn literal(&self) -> Option<super::Literal> {
+        support::child(self.syntax())
+    }
+
+    pub fn path(&self) -> Option<Path> {
+        support::child(self.syntax())
+    }
+
+    pub fn elements(&self) -> impl Iterator<Item = AttributeArg> {
+        self.syntax()
+            .children()
+            .filter_map(AttributeArgList::cast)
+            .flat_map(|list| list.syntax().children().filter_map(AttributeArg::cast))
     }
 }
 

@@ -76,6 +76,10 @@ pub fn lex_with_cancellation(
                 chars.next();
                 tokens.push(token(TokenKind::Semi, index, index + 1));
             }
+            '@' => {
+                chars.next();
+                tokens.push(token(TokenKind::At, index, index + 1));
+            }
             '.' => {
                 chars.next();
                 if let Some((dot, '.')) = chars.peek().copied() {

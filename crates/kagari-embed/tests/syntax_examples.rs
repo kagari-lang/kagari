@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 17] = [
+    let cases: [(&str, &str, Value); 18] = [
+        (
+            "examples/syntax/attributes.kgr",
+            include_str!("../../../examples/syntax/attributes.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/binding-conditions.kgr",
             include_str!("../../../examples/syntax/binding-conditions.kgr"),
@@ -143,6 +148,28 @@ fn pattern_alternatives_require_the_same_bindings() {
         )
         .unwrap_err();
     assert!(format!("{error:?}").contains("the same bindings in every alternative"));
+}
+
+#[test]
+fn attributes_without_compiler_behavior_are_rejected_before_execution() {
+    let engine = KagariEngine::default();
+    for (attribute, expected) in [
+        ("@requires(role = \"admin\")", "KG_ATTRIBUTE_UNSUPPORTED"),
+        ("@unregistered", "KG_ATTRIBUTE_UNKNOWN"),
+    ] {
+        let source = format!("{attribute} fn main() -> i32 {{ 42 }}");
+        let error = engine
+            .compile_to_artifact(
+                SourceFile::new("attribute-rejection.kgr", source),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap_err();
+        assert!(
+            format!("{error:?}").contains(expected),
+            "{attribute}: {error:?}"
+        );
+    }
 }
 
 #[test]

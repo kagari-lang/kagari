@@ -22,6 +22,7 @@ impl<'a> Parser<'a> {
 
     fn parse_top_level(&mut self) -> bool {
         match self.current_kind() {
+            Some(TokenKind::At) => self.parse_attributed_item(),
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
@@ -77,6 +78,7 @@ impl<'a> Parser<'a> {
 
     fn parse_module_item(&mut self) {
         match self.current_kind() {
+            Some(TokenKind::At) => self.parse_attributed_item(),
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
@@ -98,12 +100,155 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_attributed_item(&mut self) {
+        match self.attributed_item_kind() {
+            Some(TokenKind::ModKw) => self.parse_module(),
+            Some(TokenKind::UseKw) => self.parse_use(),
+            Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::ConstKw) => self.parse_const(),
+            Some(TokenKind::StructKw) => self.parse_struct(),
+            Some(TokenKind::EnumKw) => self.parse_enum(),
+            Some(TokenKind::TraitKw) => self.parse_trait(),
+            Some(TokenKind::ImplKw) => self.parse_impl(),
+            _ => {
+                self.error_here(DiagnosticKind::ExpectedTopLevelItem);
+                self.bump_as_error();
+            }
+        }
+    }
+
+    fn attributed_item_kind(&self) -> Option<TokenKind> {
+        let mut cursor = self.cursor();
+        let mut kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+        while kind == TokenKind::At {
+            kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            if !matches!(
+                kind,
+                TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw
+            ) {
+                return None;
+            }
+            kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            while kind == TokenKind::ColonColon {
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+                if !matches!(
+                    kind,
+                    TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw
+                ) {
+                    return None;
+                }
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            }
+            if kind == TokenKind::LParen {
+                let mut depth = 1usize;
+                while depth > 0 {
+                    kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+                    match kind {
+                        TokenKind::LParen => depth += 1,
+                        TokenKind::RParen => depth -= 1,
+                        TokenKind::Eof => return None,
+                        _ => {}
+                    }
+                }
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            }
+        }
+        if kind == TokenKind::PubKw {
+            self.nth_nontrivia_kind_from(&mut cursor)
+        } else {
+            Some(kind)
+        }
+    }
+
+    fn parse_attributes(&mut self) {
+        self.bump_trivia();
+        while self.at(TokenKind::At) {
+            self.parse_attribute();
+            self.bump_trivia();
+        }
+    }
+
+    fn parse_attribute(&mut self) {
+        self.start_node(SyntaxKind::Attribute);
+        self.bump();
+        self.bump_trivia();
+        self.parse_path();
+        self.bump_trivia();
+        if self.at(TokenKind::LParen) {
+            self.start_node(SyntaxKind::AttributeArgs);
+            self.bump();
+            self.bump_trivia();
+            if !self.at(TokenKind::RParen) {
+                self.parse_attribute_arg_list(TokenKind::RParen);
+            }
+            self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+            self.finish_node();
+        }
+        self.finish_node();
+    }
+
+    fn parse_attribute_arg_list(&mut self, end: TokenKind) {
+        self.start_node(SyntaxKind::AttributeArgList);
+        while !self.at_any(&[end.clone(), TokenKind::Eof]) {
+            self.start_node(SyntaxKind::AttributeArg);
+            self.bump_trivia();
+            if self.at(TokenKind::Ident) && self.nth_nontrivia_kind(1) == Some(TokenKind::Eq) {
+                self.parse_name();
+                self.expect(TokenKind::Eq, DiagnosticKind::UnexpectedToken);
+            }
+            self.parse_attribute_value();
+            self.finish_node();
+            self.bump_trivia();
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                self.bump_trivia();
+            } else {
+                break;
+            }
+        }
+        self.finish_node();
+    }
+
+    fn parse_attribute_value(&mut self) {
+        self.with_nesting(|parser| {
+            parser.start_node(SyntaxKind::AttributeValue);
+            parser.bump_trivia();
+            match parser.current_kind() {
+                Some(
+                    TokenKind::Number
+                    | TokenKind::Float
+                    | TokenKind::String
+                    | TokenKind::TrueKw
+                    | TokenKind::FalseKw,
+                ) => {
+                    parser.start_node(SyntaxKind::Literal);
+                    parser.bump();
+                    parser.finish_node();
+                }
+                Some(TokenKind::LBracket) => {
+                    parser.bump();
+                    parser.bump_trivia();
+                    if !parser.at(TokenKind::RBracket) {
+                        parser.parse_attribute_arg_list(TokenKind::RBracket);
+                    }
+                    parser.expect(TokenKind::RBracket, DiagnosticKind::ExpectedClosingBracket);
+                }
+                Some(
+                    TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
+                ) => parser.parse_path(),
+                _ => parser.error_here(DiagnosticKind::ExpectedExpression),
+            }
+            parser.finish_node();
+        });
+    }
+
     fn parse_module(&mut self) {
         self.with_nesting(Self::parse_module_nested);
     }
 
     fn parse_module_nested(&mut self) {
         self.start_node(SyntaxKind::ModuleDef);
+        self.parse_attributes();
         self.bump_trivia();
         if self.at(TokenKind::PubKw) {
             self.bump();
@@ -139,6 +284,7 @@ impl<'a> Parser<'a> {
 
     fn parse_use(&mut self) {
         self.start_node(SyntaxKind::UseDecl);
+        self.parse_attributes();
         self.bump_trivia();
         if self.at(TokenKind::PubKw) {
             self.bump();
@@ -210,6 +356,7 @@ impl<'a> Parser<'a> {
 
     fn parse_function(&mut self) {
         self.start_node(SyntaxKind::FnDef);
+        self.parse_attributes();
         self.bump_trivia();
         if self.at(TokenKind::PubKw) {
             self.bump();
@@ -247,6 +394,7 @@ impl<'a> Parser<'a> {
 
     fn parse_const(&mut self) {
         self.start_node(SyntaxKind::ConstDef);
+        self.parse_attributes();
         self.bump_trivia();
         if self.at(TokenKind::PubKw) {
             self.bump();
@@ -267,6 +415,7 @@ impl<'a> Parser<'a> {
 
     fn parse_struct(&mut self) {
         self.start_node(SyntaxKind::StructDef);
+        self.parse_attributes();
         self.bump_trivia();
         if self.at(TokenKind::PubKw) {
             self.bump();
@@ -285,6 +434,7 @@ impl<'a> Parser<'a> {
 
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             self.start_node(SyntaxKind::Field);
+            self.parse_attributes();
             self.bump_trivia();
             if self.at(TokenKind::PubKw) {
                 self.bump();
@@ -317,6 +467,7 @@ impl<'a> Parser<'a> {
 
     fn parse_enum(&mut self) {
         self.start_node(SyntaxKind::EnumDef);
+        self.parse_attributes();
         self.bump_trivia();
         if self.at(TokenKind::PubKw) {
             self.bump();
@@ -360,6 +511,7 @@ impl<'a> Parser<'a> {
 
     fn parse_trait(&mut self) {
         self.start_node(SyntaxKind::TraitDef);
+        self.parse_attributes();
         self.bump_trivia();
         if self.at(TokenKind::PubKw) {
             self.bump();
@@ -390,6 +542,7 @@ impl<'a> Parser<'a> {
 
     fn parse_impl(&mut self) {
         self.start_node(SyntaxKind::ImplBlock);
+        self.parse_attributes();
         self.bump_trivia();
         self.expect(TokenKind::ImplKw, DiagnosticKind::ExpectedImplKeyword);
         self.bump_trivia();
@@ -678,6 +831,7 @@ impl<'a> Parser<'a> {
 
     fn parse_method(&mut self, allow_visibility: bool) {
         self.start_node(SyntaxKind::MethodDef);
+        self.parse_attributes();
         self.bump_trivia();
         if allow_visibility && self.at(TokenKind::PubKw) {
             self.bump();

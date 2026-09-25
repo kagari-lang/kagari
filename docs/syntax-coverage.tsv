@@ -1,6 +1,6 @@
 rule	status	evidence	note
 module	covered	examples/syntax/expressions.kgr	-
-item	partial	examples/syntax/expressions.kgr	Attribute prefix is not recognized
+item	covered	examples/syntax/attributes.kgr	-
 item_decl	covered	examples/syntax/expressions.kgr	-
 visibility	covered	examples/imported-traits/generic-model.kgr	-
 function_item	covered	examples/syntax/expressions.kgr	-
@@ -8,11 +8,11 @@ const_item	covered	examples/standard-library.kgr	-
 struct_item	covered	examples/syntax/data-model.kgr	-
 enum_item	covered	examples/syntax/data-model.kgr	-
 trait_item	covered	examples/syntax/where-bounds.kgr	-
-attribute	missing	gap:attribute	Attribute introducer and syntax are absent
-attribute_args	missing	gap:attribute	Attribute arguments are absent
-attribute_arg_list	missing	gap:attribute	Attribute arguments are absent
-attribute_arg	missing	gap:attribute	Attribute arguments are absent
-attribute_value	missing	gap:attribute	Attribute arguments are absent
+attribute	covered	examples/syntax/attributes.kgr	-
+attribute_args	covered	examples/syntax/attributes.kgr	-
+attribute_arg_list	covered	examples/syntax/attributes.kgr	-
+attribute_arg	covered	examples/syntax/attributes.kgr	-
+attribute_value	covered	examples/syntax/attributes.kgr	-
 module_decl	unverified	-	No production-specific witness recorded
 module_block	unverified	-	No production-specific witness recorded
 use_decl	covered	examples/syntax/import-alias.kgr	-
@@ -29,14 +29,14 @@ param	covered	examples/syntax/expressions.kgr	-
 return_type	covered	examples/syntax/expressions.kgr	-
 struct_decl	covered	examples/syntax/data-model.kgr	-
 field_list	covered	examples/syntax/data-model.kgr	-
-field	partial	examples/syntax/data-model.kgr	Field attributes are not recognized
+field	covered	examples/syntax/attributes.kgr	-
 field_binding	covered	examples/syntax/data-model.kgr	-
 enum_decl	covered	examples/syntax/data-model.kgr	-
 variant_list	covered	examples/syntax/data-model.kgr	-
 variant	covered	examples/syntax/data-model.kgr	-
 trait_decl	covered	examples/syntax/where-bounds.kgr	-
 supertrait_clause	unverified	-	No production-specific witness recorded
-trait_member	partial	examples/syntax/where-bounds.kgr	Trait member attributes are not recognized
+trait_member	covered	examples/syntax/attributes.kgr	-
 trait_method	covered	examples/syntax/where-bounds.kgr	-
 method_sig	covered	examples/syntax/where-bounds.kgr	-
 type_list	covered	examples/syntax/data-model.kgr	-
@@ -53,7 +53,7 @@ trait_ref	covered	examples/syntax/where-bounds.kgr	-
 impl_block	covered	examples/syntax/data-model.kgr	-
 inherent_impl	covered	examples/syntax/data-model.kgr	-
 trait_impl	covered	examples/syntax/where-bounds.kgr	-
-impl_item	partial	examples/syntax/data-model.kgr	Impl item attributes are not recognized
+impl_item	covered	examples/syntax/attributes.kgr	-
 method_decl	covered	examples/syntax/data-model.kgr	-
 method_param_list	covered	examples/syntax/data-model.kgr	-
 receiver_param	covered	examples/syntax/data-model.kgr	-
@@ -145,7 +145,7 @@ STRING_CHAR	covered	examples/syntax/literals-and-comments.kgr	-
 ESCAPE_SEQUENCE	covered	examples/syntax/literals-and-comments.kgr	-
 UNICODE_ESCAPE	covered	examples/syntax/literals-and-comments.kgr	-
 OPERATOR_TOKEN	covered	examples/syntax/ranges.kgr	-
-DELIMITER_TOKEN	partial	examples/syntax/expressions.kgr	Attribute introducer is not recognized
+DELIMITER_TOKEN	covered	examples/syntax/attributes.kgr	-
 ASCII_LETTER	covered	examples/syntax/expressions.kgr	-
 DIGIT	covered	examples/syntax/expressions.kgr	-
 BIN_DIGIT	covered	examples/syntax/literals-and-comments.kgr	-

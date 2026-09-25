@@ -385,6 +385,23 @@ pub(crate) fn analyze_parsed(
     if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, policy.profile) {
         analyzed.diagnostics.extend(*diagnostics);
     }
+    for attribute in &analyzed.facts.lowered.attributes {
+        let kind = match attribute.name.as_str() {
+            "meta" => continue,
+            "reflect" | "requires" | "profile" => {
+                kagari_common::DiagnosticKind::UnsupportedAttribute {
+                    name: attribute.name.clone(),
+                }
+            }
+            name if name.starts_with("tool::") => continue,
+            _ => kagari_common::DiagnosticKind::UnknownAttribute {
+                name: attribute.name.clone(),
+            },
+        };
+        analyzed
+            .diagnostics
+            .push(kagari_common::Diagnostic::error(kind).with_span(attribute.span));
+    }
     if analyzed.diagnostics.len() > policy.max_semantic_diagnostics {
         analyzed
             .diagnostics

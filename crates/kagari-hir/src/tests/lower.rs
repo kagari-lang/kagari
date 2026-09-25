@@ -7,6 +7,34 @@ use crate::{
 };
 
 #[test]
+fn attributes_preserve_structured_metadata_and_target_ranges() {
+    let source = "@meta(name = \"answer\", tags = [1, true, sample::tag]) fn main() -> i32 { 42 }";
+    let lowered = common::lower_ok(source);
+    let [attribute] = lowered.attributes.as_slice() else {
+        panic!("one attribute fact expected");
+    };
+    assert_eq!(attribute.name, "meta");
+    assert_eq!(
+        &source[attribute.span.start..attribute.span.end],
+        "@meta(name = \"answer\", tags = [1, true, sample::tag])"
+    );
+    assert_eq!(
+        &source[attribute.target_span.start..attribute.target_span.end],
+        source
+    );
+    let args = attribute.arguments.as_ref().unwrap();
+    assert_eq!(args[0].name.as_deref(), Some("name"));
+    assert_eq!(
+        args[0].value,
+        crate::lower::AttributeValue::Literal("\"answer\"".into())
+    );
+    assert_eq!(args[1].name.as_deref(), Some("tags"));
+    assert!(
+        matches!(&args[1].value, crate::lower::AttributeValue::List(values) if values.len() == 3)
+    );
+}
+
+#[test]
 fn lowers_items_into_hir_module() {
     let lowered = common::lower_ok(
         r#"

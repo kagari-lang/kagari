@@ -241,6 +241,10 @@ Notes:
 - `const` is the syntax for compile-time immutable values.
 - attributes provide the extensibility point for features such as reflection and security annotations
 - examples of intended uses include `@reflect`, `@requires(...)`, and `@profile(...)`
+- `@meta(...)` and names under `@tool::...` are preserved as structured,
+  source-positioned analysis metadata. They do not change runtime behavior.
+  `@reflect`, `@requires`, and `@profile` are reserved and diagnosed until their
+  behavior is implemented; other unqualified names are diagnosed as unknown.
 - `pub` is the only explicit visibility marker in the source syntax
 - unmarked declarations are private in their containing scope
 - public top-level items form the module's public interface

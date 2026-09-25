@@ -81,6 +81,12 @@ pub enum DiagnosticKind {
     UnknownName {
         name: String,
     },
+    UnknownAttribute {
+        name: String,
+    },
+    UnsupportedAttribute {
+        name: String,
+    },
     InvalidHostPath {
         reason: String,
     },
@@ -361,6 +367,8 @@ impl DiagnosticKind {
             Self::ExpectedExpression => "KG_PARSE_EXPECTED_EXPRESSION",
             Self::MissingFunctionName => "KG_RESOLVE_MISSING_FUNCTION_NAME",
             Self::UnknownName { .. } => "KG_RESOLVE_UNKNOWN_NAME",
+            Self::UnknownAttribute { .. } => "KG_ATTRIBUTE_UNKNOWN",
+            Self::UnsupportedAttribute { .. } => "KG_ATTRIBUTE_UNSUPPORTED",
             Self::InvalidHostPath { .. } => "KG_HOST_PATH_INVALID",
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
@@ -509,6 +517,10 @@ impl Display for DiagnosticKind {
             Self::ExpectedExpression => write!(f, "expected expression"),
             Self::MissingFunctionName => write!(f, "missing function name"),
             Self::UnknownName { name } => write!(f, "unknown name `{name}`"),
+            Self::UnknownAttribute { name } => write!(f, "unknown attribute `@{name}`"),
+            Self::UnsupportedAttribute { name } => {
+                write!(f, "attribute `@{name}` has no compiler behavior yet")
+            }
             Self::InvalidHostPath { reason } => write!(f, "invalid host field path: {reason}"),
             Self::DuplicateImport { name } => {
                 write!(f, "import `{name}` conflicts with another declaration")

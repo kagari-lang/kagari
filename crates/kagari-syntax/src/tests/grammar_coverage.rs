@@ -26,10 +26,7 @@ struct GapCase {
     source: &'static str,
 }
 
-const GAPS: &[GapCase] = &[GapCase {
-    id: "attribute",
-    source: "@tag fn main() {}",
-}];
+const GAPS: &[GapCase] = &[];
 
 fn grammar_rules() -> BTreeSet<String> {
     let mut rules = BTreeSet::new();
@@ -236,7 +233,7 @@ fn unrecognized_ebnf_terminals_are_an_explicit_baseline() {
             missing.insert(terminal);
         }
     }
-    let baseline = ["@"].into_iter().map(str::to_owned).collect();
+    let baseline = BTreeSet::new();
     assert_eq!(
         missing, baseline,
         "EBNF terminal/lexer drift; update the lexer or reviewed baseline"
