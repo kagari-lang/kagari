@@ -1503,10 +1503,8 @@ impl Runtime {
         let mut roots = self.modules.gc_roots();
         roots.extend(self.host.gc_roots());
         let result = self.gc.collect(&roots).ok_or_else(|| {
-            RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap reference in collection roots",
-            )
+            self.resources
+                .quarantine("invalid heap reference in collection roots")
         })?;
         Ok(result)
     }
@@ -1935,6 +1933,31 @@ mod tests {
     };
 
     use kagari_ir::module::abi::{AbiType, BuiltinType};
+
+    #[test]
+    fn corrupted_collection_root_quarantines_the_runtime() {
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_program(
+                "gc-invariant",
+                BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+            )
+            .unwrap();
+        let foreign = Runtime::default().alloc_array(Vec::new()).unwrap();
+        runtime.module_instance_mut(&loaded).unwrap().init_result =
+            Some(value::Value::Array(foreign));
+
+        let error = runtime.collect_garbage().unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+        assert!(runtime.is_quarantined());
+        assert_eq!(
+            runtime.collect_garbage().unwrap_err().kind(),
+            RuntimeErrorKind::EngineFault
+        );
+    }
 
     fn module_with_public_function(return_type: BuiltinType) -> BytecodeModule {
         BytecodeModule {

@@ -22,6 +22,9 @@ on failure, preserving suspended callers that may handle an ordinary nested trap
 Frame roots and call counters are released after cancellation and quarantine too.
 Invalid frame slots, mutation through a suspended scope and out-of-order scope
 destruction are engine invariant failures and quarantine the runtime.
+An invalid reference in registered or module-state GC roots is likewise an
+engine invariant failure: collection quarantines the runtime instead of
+reporting a recoverable script trap.
 Host resource scopes apply the same unconditional cleanup to temporary roots and
 borrow leases. Rejected argument preparation releases prior leases before returning;
 expired/foreign tokens and borrow conflicts never invoke the target callback.

@@ -2035,6 +2035,10 @@ Implemented foundation slices:
   and existing JIT fallback cover commit faults and subsequent execution rejection.
   Full engine-invariant coverage outside path commits and unified frame/host-borrow
   cleanup remain open; this does not complete R13.
+  R13 GC-root invariant checkpoint: collection now quarantines a runtime whose
+  registered or module-state roots contain an invalid heap reference. A corrupt
+  foreign handle in module state previously surfaced as a recoverable script
+  trap; the regression test checks EngineFault and rejection of later collection.
   Initialization now owns a lifecycle guard and version retention with no long
   module-state borrow. Success validates the stored result; every unfinished exit
   records failure and releases retention. Failure cleanup is allowed after runtime
