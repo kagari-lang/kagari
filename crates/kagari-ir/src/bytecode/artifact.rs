@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 33;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 34;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +50,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v1";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v33";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v34";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -863,6 +863,8 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
                 metadata.params.len(),
                 metadata.locals.len(),
                 metadata.registers.len(),
+                metadata.roots.locals.len(),
+                metadata.roots.registers.len(),
                 metadata.control_flow_targets.len(),
                 debug.source_spans.len(),
                 debug.line_table.len(),
@@ -960,7 +962,13 @@ fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static str> {
             .iter()
             .any(|item| item.targets.len() > MAX_ARTIFACT_TABLE_RECORDS)
         || verification.function_layouts.iter().any(|item| {
-            !within_table_limit([item.params.len(), item.locals.len(), item.registers.len()])
+            !within_table_limit([
+                item.params.len(),
+                item.locals.len(),
+                item.registers.len(),
+                item.roots.locals.len(),
+                item.roots.registers.len(),
+            ])
         })
     {
         return Some("artifact metadata record limit exceeded");
@@ -1074,6 +1082,7 @@ impl VerificationMetadata {
                     return_type: function.metadata.return_type,
                     locals: function.metadata.locals.clone(),
                     registers: function.metadata.registers.clone(),
+                    roots: function.metadata.roots.clone(),
                 })
                 .collect(),
             function_effects: module
@@ -1120,6 +1129,7 @@ pub struct FunctionLayoutMetadata {
     pub locals: Vec<ValueType>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub registers: Vec<ValueType>,
+    pub roots: super::RootSlotLayout,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

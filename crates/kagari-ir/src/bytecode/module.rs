@@ -1,6 +1,6 @@
 use crate::{
     bytecode::instruction::{
-        BytecodeInstruction, ConstantOperand, FunctionRef, JumpTarget, LocalSlot, PathId,
+        BytecodeInstruction, ConstantOperand, FunctionRef, JumpTarget, LocalSlot, PathId, Register,
     },
     module::{ConcreteFunctionIdentity, EffectSet, PublicAbiItem, TraitContract, ValueType},
 };
@@ -78,6 +78,7 @@ pub struct FunctionMetadata {
     pub locals: TypeLayoutBuffer,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub registers: TypeLayoutBuffer,
+    pub roots: RootSlotLayout,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetBuffer,
     pub effects: EffectSet,
@@ -93,6 +94,34 @@ pub struct FunctionRecord {
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
     pub effects: EffectSet,
+}
+
+/// Conservative frame roots, indexed by verified local and register slots.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootSlotLayout {
+    #[serde(deserialize_with = "crate::decode_limits::table")]
+    pub locals: Vec<LocalSlot>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
+    pub registers: Vec<Register>,
+}
+
+impl RootSlotLayout {
+    pub fn from_types(locals: &[ValueType], registers: &[ValueType]) -> Self {
+        Self {
+            locals: locals
+                .iter()
+                .enumerate()
+                .filter(|(_, ty)| **ty == ValueType::HeapObject)
+                .map(|(index, _)| LocalSlot::new(index))
+                .collect(),
+            registers: registers
+                .iter()
+                .enumerate()
+                .filter(|(_, ty)| **ty == ValueType::HeapObject)
+                .map(|(index, _)| Register::new(index))
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -30,6 +30,7 @@ fn loaded(runtime: &mut Runtime) -> LoadedModule {
         register_count: 1,
         metadata: FunctionMetadata {
             registers: vec![ValueType::HeapObject],
+            roots: kagari_ir::bytecode::RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
             ..Default::default()
         },
         instructions: vec![BytecodeInstruction::Return(None)],

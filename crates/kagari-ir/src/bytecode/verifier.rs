@@ -45,6 +45,9 @@ pub enum BytecodeVerificationError {
     InvalidFunctionIdentity {
         function: FunctionRef,
     },
+    InvalidRootLayout {
+        function: FunctionRef,
+    },
     MetadataCountMismatch {
         function: FunctionRef,
         layout: &'static str,
@@ -128,6 +131,7 @@ impl BytecodeVerificationError {
             }
             Self::FunctionRecordMismatch { .. } => "KG_BYTECODE_FUNCTION_RECORD_MISMATCH",
             Self::InvalidFunctionIdentity { .. } => "KG_BYTECODE_INVALID_FUNCTION_IDENTITY",
+            Self::InvalidRootLayout { .. } => "KG_BYTECODE_INVALID_ROOT_LAYOUT",
             Self::MetadataCountMismatch { .. } => "KG_BYTECODE_METADATA_COUNT_MISMATCH",
             Self::InvalidRegister { .. } => "KG_BYTECODE_INVALID_REGISTER",
             Self::InvalidLocal { .. } => "KG_BYTECODE_INVALID_LOCAL",
@@ -183,6 +187,9 @@ impl Display for BytecodeVerificationError {
             }
             Self::InvalidFunctionIdentity { function } => {
                 write!(f, "invalid function identity for {function:?}")
+            }
+            Self::InvalidRootLayout { function } => {
+                write!(f, "invalid GC root layout for {function:?}")
             }
             Self::MetadataCountMismatch {
                 function,
@@ -577,12 +584,27 @@ fn verify_function(
 ) -> Result<(), BytecodeVerificationError> {
     verify_metadata_counts(function)?;
     verify_metadata_types(module, function)?;
+    verify_root_layout(function)?;
     verify_debug_metadata(function)?;
     for target in &function.metadata.control_flow_targets {
         verify_jump(function, *target)?;
     }
     for instruction in &function.instructions {
         verify_instruction(module, function, instruction, program)?;
+    }
+    Ok(())
+}
+
+fn verify_root_layout(function: &BytecodeFunction) -> Result<(), BytecodeVerificationError> {
+    if function.metadata.roots
+        != super::RootSlotLayout::from_types(
+            &function.metadata.locals,
+            &function.metadata.registers,
+        )
+    {
+        return Err(BytecodeVerificationError::InvalidRootLayout {
+            function: function.id,
+        });
     }
     Ok(())
 }

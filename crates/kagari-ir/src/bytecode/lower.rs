@@ -11,7 +11,7 @@ use crate::bytecode::module::{
     BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, BytecodeModuleSlot,
     CapturedBindingDebugInfo, DebugPointId, FrameLayout, FunctionMetadata, FunctionRecord,
     InstructionSourceSpan, InterfaceMethodSlot, InterfaceTableRecord, LineTableEntry,
-    LocalLiveRange, PathRecord, SafeDebugPoint, SafeDebugPointKind,
+    LocalLiveRange, PathRecord, RootSlotLayout, SafeDebugPoint, SafeDebugPointKind,
 };
 use crate::bytecode::verify_module;
 use crate::module::{
@@ -254,11 +254,22 @@ fn lower_function(
         )?;
     }
 
+    let (root_locals, root_temps) = function.root_slots();
     let metadata = FunctionMetadata {
         params: function.params.iter().map(|param| param.ty).collect(),
         return_type: function.return_type,
         locals: function.locals.iter().map(|local| local.ty).collect(),
         registers: function.temps.iter().map(|temp| temp.ty).collect(),
+        roots: RootSlotLayout {
+            locals: root_locals
+                .into_iter()
+                .map(|local| LocalSlot::new(local.index()))
+                .collect(),
+            registers: root_temps
+                .into_iter()
+                .map(|temp| Register::new(temp.index()))
+                .collect(),
+        },
         control_flow_targets: collect_control_flow_targets(&instructions),
         effects: function.effects,
         debug: collect_debug_metadata(function, &instructions, &instruction_spans),

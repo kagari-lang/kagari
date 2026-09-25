@@ -52,6 +52,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   before execution. Script and host evidence survive artifact encoding, while
   a changed argument without a corresponding implementation is rejected.
 
+- R08 conservative-root checkpoint: typed IR identifies heap-valued locals
+  and temporaries, and KBC format 34/runtime ABI v34 carry their local and
+  register slots. Verification requires the exact function-wide conservative
+  set before execution; encoded artifacts with missing or extra roots are
+  rejected. Interpreter frames still root all slots, while the existing JIT
+  retains its precise-stack-map requirement for supported functions.
+
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.
@@ -1787,7 +1794,7 @@ Implemented foundation slices:
   are shared with bytecode validation; intrinsic arity uses HIR declarations.
   Entry block order is preserved, and IDs are bounded before narrowing. Verification
   supports cancellation and bounds its dataflow matrix to 64 MiB. Nominal field
-  layouts and scalar host signatures are checked; dynamic interface tables, root maps and the final
+  layouts and scalar host signatures are checked; dynamic interface tables, precise per-point roots and the final
   linked-only runtime boundary remain outstanding.
 - R15: IR generation has configurable instance, type-node, type-depth and generated
   instruction limits plus cancellation. Expansion counts nodes while copying,

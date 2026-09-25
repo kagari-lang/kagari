@@ -970,6 +970,11 @@ fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
         })
         .unwrap();
     function.metadata.registers[dst.index()] = ValueType::I32;
+    function
+        .metadata
+        .roots
+        .registers
+        .retain(|register| *register != dst);
     assert!(matches!(
         verify_module(&scalar_result),
         Err(BytecodeVerificationError::TypeMismatch {
@@ -999,6 +1004,48 @@ fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
             }
         )
     ));
+}
+
+#[test]
+fn encoded_root_layout_must_cover_exact_heap_slots() {
+    let module = common::bytecode_ok("fn main() -> i32 { val values = [7]; values[0] }");
+    let function = &module.functions[0];
+    assert!(
+        !function.metadata.roots.locals.is_empty() || !function.metadata.roots.registers.is_empty()
+    );
+    verify_module(&module).unwrap();
+    let artifact = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    for corruption in ["missing", "extra"] {
+        let mut forged = artifact.clone();
+        let roots = &mut forged.program.modules[0].functions[0].metadata.roots;
+        if corruption == "missing" {
+            if !roots.registers.is_empty() {
+                roots.registers.pop();
+            } else {
+                roots.locals.pop();
+            }
+        } else {
+            roots.registers.push(Register::new(0));
+        }
+        assert!(matches!(
+            verify_module(&forged.program.modules[0]),
+            Err(BytecodeVerificationError::InvalidRootLayout { .. })
+        ));
+        let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+        assert!(matches!(
+            decoded.validate_for_loader(&ArtifactCompatibility::default()),
+            Err(ArtifactValidationError::Bytecode(
+                BytecodeVerificationError::InvalidRootLayout { .. }
+            ))
+        ));
+    }
 }
 
 #[test]
@@ -1743,6 +1790,10 @@ fn verifier_rejects_invalid_aggregate_writes() {
             metadata: FunctionMetadata {
                 return_type: ValueType::Unit,
                 registers: vec![ValueType::HeapObject, ValueType::Bool],
+                roots: crate::bytecode::RootSlotLayout {
+                    registers: vec![Register::new(0)],
+                    ..Default::default()
+                },
                 effects: crate::module::EffectSet::aggregate_write(),
                 ..Default::default()
             },

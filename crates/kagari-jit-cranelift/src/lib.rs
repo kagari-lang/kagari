@@ -923,6 +923,7 @@ mod tests {
         registers: Vec<ValueType>,
     ) -> BytecodeFunction {
         let register_count = registers.len() as u16;
+        let roots = kagari_ir::bytecode::RootSlotLayout::from_types(&[], &registers);
         BytecodeFunction {
             id: FunctionRef::new(0),
             name: name.to_owned(),
@@ -930,6 +931,7 @@ mod tests {
             metadata: FunctionMetadata {
                 return_type,
                 registers,
+                roots,
                 ..FunctionMetadata::default()
             },
             instructions,

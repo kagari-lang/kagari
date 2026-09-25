@@ -2,7 +2,7 @@ use kagari_common::Span;
 
 use crate::module::{
     ModuleAbi,
-    ids::{BlockId, InstanceId, LocalId, ModuleSlotId},
+    ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId},
     instruction::{EffectSet, InstructionBuffer, Terminator},
     types::ValueType,
 };
@@ -34,6 +34,28 @@ pub struct IrFunction {
     pub entry: BlockId,
     pub effects: EffectSet,
     pub debug: IrFunctionDebugMetadata,
+}
+
+impl IrFunction {
+    /// Conservative GC roots for the entire function lifetime. Slot liveness
+    /// can narrow these sets later without changing the value representation.
+    pub fn root_slots(&self) -> (Vec<LocalId>, Vec<TempId>) {
+        let locals = self
+            .locals
+            .iter()
+            .enumerate()
+            .filter(|(_, local)| local.ty == ValueType::HeapObject)
+            .map(|(index, _)| LocalId::new(index))
+            .collect();
+        let temps = self
+            .temps
+            .iter()
+            .enumerate()
+            .filter(|(_, temp)| temp.ty == ValueType::HeapObject)
+            .map(|(index, _)| TempId::new(index))
+            .collect();
+        (locals, temps)
+    }
 }
 
 impl IrModule {

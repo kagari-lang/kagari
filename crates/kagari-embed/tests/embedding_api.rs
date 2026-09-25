@@ -147,6 +147,7 @@ fn host_path_artifact(
         .collect();
     let metadata = FunctionMetadata {
         return_type,
+        roots: kagari_ir::bytecode::RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };

@@ -529,9 +529,14 @@ New calls use the latest successfully published epoch.
 
 ## GC and Safepoint Metadata
 
-Bytecode preserves enough value-liveness information for precise GC.
+KBC format 34 carries a verified, function-wide conservative root layout.
+Every local and register with `HeapObject` representation appears exactly once,
+in ascending slot order. Scalar, string and host-handle slots do not appear.
+Omitting a heap slot or adding another slot rejects the artifact before
+execution. The interpreter currently roots its whole frame, which remains safe;
+the layout is an explicit contract for future narrower frame roots.
 
-GC and safepoint metadata includes:
+Additional GC and safepoint metadata planned for later backends includes:
 
 - which registers and locals contain GC-managed values at safepoints
 - which registers and locals contain host handles or path views
@@ -806,7 +811,7 @@ The following artifact and implementation details are not fixed by this document
 - exact `CallTarget` encoding
 - exact `PathId` and dynamic path operand encoding
 - exact effect flag representation
-- exact safepoint and root-map metadata representation
+- exact per-program-point root liveness beyond the function-wide conservative layout
 - final module, type, host function, and path table layouts
 - bytecode verification rules
 - `.kbc` binary artifact encoding
