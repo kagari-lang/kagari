@@ -143,6 +143,15 @@ pub enum GcObjectKind {
     Enum,
     Struct,
     Interface,
+    Closure,
+    Cell,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClosureValueSnapshot {
+    pub implementation: crate::LoadedModule,
+    pub function: kagari_ir::bytecode::FunctionRef,
+    pub captures: Vec<Value>,
 }
 
 #[derive(Debug)]
@@ -159,6 +168,14 @@ enum HeapObject {
         snapshot: Box<InterfaceValueSnapshot>,
         _retention: crate::module::RetainedRuntimeProgram,
     },
+    Closure {
+        snapshot: Box<ClosureValueSnapshot>,
+        _retention: crate::module::RetainedRuntimeProgram,
+    },
+    Cell {
+        ty: kagari_ir::module::ValueType,
+        value: Value,
+    },
 }
 
 impl HeapObject {
@@ -170,6 +187,8 @@ impl HeapObject {
             Self::Enum(value) => value.fields.len(),
             Self::Struct { fields, .. } => fields.len(),
             Self::Interface { snapshot, .. } => 1 + snapshot.methods.len(),
+            Self::Closure { snapshot, .. } => 1 + snapshot.captures.len(),
+            Self::Cell { .. } => 2,
         }
     }
 }
@@ -369,6 +388,13 @@ impl GcHeap {
         while let Some((value, ty)) = pending.pop() {
             match (value, ty) {
                 (value, AbiType::Builtin(_)) if value.has_representation(ty.representation()) => {},
+                (Value::Closure(id), AbiType::Function { params, result }) => {
+                    let Some(snapshot) = self.closure_snapshot(id) else { return false; };
+                    let Some(function) = snapshot.implementation.bytecode.functions.get(snapshot.function.index()) else { return false; };
+                    let suffix = function.metadata.params.get(snapshot.captures.len()..);
+                    if !suffix.is_some_and(|types| types.len() == params.len() && types.iter().zip(params).all(|(left, right)| *left == right.representation()))
+                        || function.metadata.return_type != result.representation() { return false; }
+                },
                 (Value::Tuple(values), AbiType::Tuple(types)) if values.len() == types.len() => {
                     pending.extend(values.into_iter().zip(types));
                 },
@@ -844,6 +870,8 @@ impl GcHeap {
             HeapObject::Enum(_) => Some(GcObjectKind::Enum),
             HeapObject::Struct { .. } => Some(GcObjectKind::Struct),
             HeapObject::Interface { .. } => Some(GcObjectKind::Interface),
+            HeapObject::Closure { .. } => Some(GcObjectKind::Closure),
+            HeapObject::Cell { .. } => Some(GcObjectKind::Cell),
         }
     }
 
@@ -870,6 +898,95 @@ impl GcHeap {
             _retention: retention,
         })
         .map(InterfaceObjectId)
+    }
+
+    pub(crate) fn alloc_closure(
+        &self,
+        snapshot: ClosureValueSnapshot,
+        retention: crate::module::RetainedRuntimeProgram,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if !snapshot
+            .captures
+            .iter()
+            .all(|value| self.valid_payload(value))
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid closure capture",
+            ));
+        }
+        self.alloc_object(HeapObject::Closure {
+            snapshot: Box::new(snapshot),
+            _retention: retention,
+        })
+    }
+
+    pub(crate) fn alloc_cell(
+        &self,
+        ty: kagari_ir::module::ValueType,
+        value: Value,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if !self.valid_payload(&value) || !value.has_representation(ty) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid cell value",
+            ));
+        }
+        self.alloc_object(HeapObject::Cell { ty, value })
+    }
+
+    pub(crate) fn cell_get(
+        &self,
+        id: HeapObjectId,
+        ty: kagari_ir::module::ValueType,
+    ) -> Result<Value, RuntimeError> {
+        let objects = self.objects.borrow();
+        match self.readable_object(&objects, id) {
+            Some(HeapObject::Cell { ty: actual, value }) if *actual == ty => Ok(value.clone()),
+            _ => Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid capture cell",
+            )),
+        }
+    }
+
+    pub(crate) fn cell_set(
+        &self,
+        id: HeapObjectId,
+        ty: kagari_ir::module::ValueType,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if !self.valid_payload(&value) || !value.has_representation(ty) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid cell value",
+            ));
+        }
+        let mut objects = self.objects.borrow_mut();
+        match self.object_mut(&mut objects, id) {
+            Some(HeapObject::Cell {
+                ty: actual,
+                value: current,
+            }) if *actual == ty => {
+                *current = value;
+                Ok(())
+            }
+            _ => Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid capture cell",
+            )),
+        }
+    }
+
+    pub(crate) fn closure_snapshot(&self, id: HeapObjectId) -> Option<ClosureValueSnapshot> {
+        let objects = self.objects.borrow();
+        match self.readable_object(&objects, id)? {
+            HeapObject::Closure { snapshot, .. } => Some((**snapshot).clone()),
+            _ => None,
+        }
     }
 
     pub(crate) fn interface_snapshot(
@@ -1019,6 +1136,8 @@ impl GcHeap {
                 Value::Enum(id) => (*id, Some(GcObjectKind::Enum)),
                 Value::Struct(id) => (*id, Some(GcObjectKind::Struct)),
                 Value::Interface(id) => (id.0, Some(GcObjectKind::Interface)),
+                Value::Closure(id) => (*id, Some(GcObjectKind::Closure)),
+                Value::Cell(id) => (*id, Some(GcObjectKind::Cell)),
                 Value::GcHandle(id) => (*id, None),
                 _ => continue,
             };
@@ -1187,6 +1306,8 @@ impl GcHeap {
                 | Value::Struct(id)
                 | Value::GcHandle(id) => *id,
                 Value::Interface(id) => id.0,
+                Value::Closure(id) => *id,
+                Value::Cell(id) => *id,
                 _ => continue,
             };
             let object = self.object_ref(&objects, id)?;
@@ -1200,6 +1321,10 @@ impl GcHeap {
                 HeapObject::Enum(snapshot) => pending.extend(snapshot.fields.iter().rev()),
                 HeapObject::Struct { fields, .. } => pending.extend(fields.iter().rev()),
                 HeapObject::Interface { snapshot, .. } => pending.push(&snapshot.data),
+                HeapObject::Closure { snapshot, .. } => {
+                    pending.extend(snapshot.captures.iter().rev())
+                }
+                HeapObject::Cell { value, .. } => pending.push(value),
                 HeapObject::Set(_) => {}
             }
         }
@@ -1211,7 +1336,10 @@ impl GcHeap {
         match self.readable_object(&objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),
             HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
-            HeapObject::Struct { .. } | HeapObject::Interface { .. } => None,
+            HeapObject::Struct { .. }
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1224,7 +1352,10 @@ impl GcHeap {
         match self.object_mut(&mut objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),
             HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
-            HeapObject::Struct { .. } | HeapObject::Interface { .. } => None,
+            HeapObject::Struct { .. }
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1240,7 +1371,9 @@ impl GcHeap {
             | HeapObject::Set(_)
             | HeapObject::Enum(_)
             | HeapObject::Struct { .. }
-            | HeapObject::Interface { .. } => None,
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1256,7 +1389,9 @@ impl GcHeap {
             | HeapObject::Set(_)
             | HeapObject::Enum(_)
             | HeapObject::Struct { .. }
-            | HeapObject::Interface { .. } => None,
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1268,7 +1403,9 @@ impl GcHeap {
             | HeapObject::Map(_)
             | HeapObject::Enum(_)
             | HeapObject::Struct { .. }
-            | HeapObject::Interface { .. } => None,
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1284,7 +1421,9 @@ impl GcHeap {
             | HeapObject::Map(_)
             | HeapObject::Enum(_)
             | HeapObject::Struct { .. }
-            | HeapObject::Interface { .. } => None,
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1296,7 +1435,9 @@ impl GcHeap {
             | HeapObject::Map(_)
             | HeapObject::Set(_)
             | HeapObject::Struct { .. }
-            | HeapObject::Interface { .. } => None,
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1312,7 +1453,9 @@ impl GcHeap {
             | HeapObject::Map(_)
             | HeapObject::Set(_)
             | HeapObject::Enum(_)
-            | HeapObject::Interface { .. } => None,
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1328,7 +1471,9 @@ impl GcHeap {
             | HeapObject::Map(_)
             | HeapObject::Set(_)
             | HeapObject::Enum(_)
-            | HeapObject::Interface { .. } => None,
+            | HeapObject::Interface { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. } => None,
         }
     }
 }

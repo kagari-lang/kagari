@@ -25,6 +25,9 @@ ast_node!(FieldInitList, FieldInitList);
 ast_node!(FieldInit, FieldInit);
 ast_node!(MatchExpr, MatchExpr);
 ast_node!(LoopExpr, LoopExpr);
+ast_node!(ClosureExpr, ClosureExpr);
+ast_node!(ClosureParamList, ClosureParamList);
+ast_node!(ClosureParam, ClosureParam);
 ast_node!(MatchArmList, MatchArmList);
 ast_node!(MatchArm, MatchArm);
 ast_node!(Pattern, Pattern);
@@ -47,6 +50,7 @@ pub enum Expr {
     StructExpr(StructExpr),
     MatchExpr(MatchExpr),
     LoopExpr(LoopExpr),
+    ClosureExpr(ClosureExpr),
     TupleExpr(TupleExpr),
     ArrayExpr(ArrayExpr),
 }
@@ -68,6 +72,7 @@ impl AstNode for Expr {
                 | SyntaxKind::StructExpr
                 | SyntaxKind::MatchExpr
                 | SyntaxKind::LoopExpr
+                | SyntaxKind::ClosureExpr
                 | SyntaxKind::TupleExpr
                 | SyntaxKind::ArrayExpr
         )
@@ -88,6 +93,7 @@ impl AstNode for Expr {
             SyntaxKind::StructExpr => StructExpr::cast(syntax).map(Self::StructExpr),
             SyntaxKind::MatchExpr => MatchExpr::cast(syntax).map(Self::MatchExpr),
             SyntaxKind::LoopExpr => LoopExpr::cast(syntax).map(Self::LoopExpr),
+            SyntaxKind::ClosureExpr => ClosureExpr::cast(syntax).map(Self::ClosureExpr),
             SyntaxKind::TupleExpr => TupleExpr::cast(syntax).map(Self::TupleExpr),
             SyntaxKind::ArrayExpr => ArrayExpr::cast(syntax).map(Self::ArrayExpr),
             _ => None,
@@ -109,6 +115,7 @@ impl AstNode for Expr {
             Self::StructExpr(node) => node.syntax(),
             Self::MatchExpr(node) => node.syntax(),
             Self::LoopExpr(node) => node.syntax(),
+            Self::ClosureExpr(node) => node.syntax(),
             Self::TupleExpr(node) => node.syntax(),
             Self::ArrayExpr(node) => node.syntax(),
         }
@@ -339,6 +346,34 @@ impl MatchExpr {
 
 impl LoopExpr {
     pub fn body(&self) -> Option<BlockExpr> {
+        support::child(self.syntax())
+    }
+}
+
+impl ClosureExpr {
+    pub fn params(&self) -> impl Iterator<Item = ClosureParam> {
+        self.syntax()
+            .children()
+            .filter_map(ClosureParamList::cast)
+            .flat_map(|list| {
+                list.syntax()
+                    .children()
+                    .filter_map(ClosureParam::cast)
+                    .collect::<Vec<_>>()
+            })
+    }
+
+    pub fn body(&self) -> Option<Expr> {
+        self.syntax().children().filter_map(Expr::cast).last()
+    }
+}
+
+impl ClosureParam {
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    pub fn ty(&self) -> Option<super::TypeRef> {
         support::child(self.syntax())
     }
 }

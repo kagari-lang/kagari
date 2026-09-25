@@ -93,6 +93,9 @@ pub enum DiagnosticKind {
     InvalidCallTarget {
         type_name: String,
     },
+    InvalidClosureCapture {
+        type_name: String,
+    },
     InvalidValueTarget {
         name: String,
     },
@@ -362,6 +365,7 @@ impl DiagnosticKind {
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
+            Self::InvalidClosureCapture { .. } => "KG_TYPE_INVALID_CLOSURE_CAPTURE",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
             Self::InvalidTraitReference { .. } => "KG_TYPE_INVALID_TRAIT_REFERENCE",
             Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
@@ -489,7 +493,7 @@ impl Display for DiagnosticKind {
             Self::ExpectedMatchBodyStart => write!(f, "expected `{{` to start match body"),
             Self::ExpectedMatchPattern => write!(f, "expected match pattern"),
             Self::ExpectedMatchArmArrow => write!(f, "expected `=>` after match pattern"),
-            Self::ExpectedType => write!(f, "expected type path, array type, or tuple type"),
+            Self::ExpectedType => write!(f, "expected type path, array, tuple, or function type"),
             Self::ExpectedBindingName => write!(f, "expected binding name"),
             Self::ExpectedAssignmentOperator => write!(f, "expected `=` in assignment"),
             Self::ExpectedFieldBinding => write!(f, "expected `val` or `var` before field name"),
@@ -515,6 +519,10 @@ impl Display for DiagnosticKind {
             Self::InvalidCallTarget { type_name } => {
                 write!(f, "value of type `{type_name}` cannot be called")
             }
+            Self::InvalidClosureCapture { type_name } => write!(
+                f,
+                "cannot capture host value of type `{type_name}` in a closure"
+            ),
             Self::InvalidValueTarget { name } => write!(f, "`{name}` is not a value expression"),
             Self::InvalidTraitReference { trait_name, reason } => {
                 write!(f, "invalid trait reference `{trait_name}`: {reason}")

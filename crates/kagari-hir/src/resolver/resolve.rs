@@ -22,6 +22,11 @@ pub(crate) struct BodyResolver<'a> {
     resolved: ResolvedNames,
     source_map: &'a SourceMap,
     scopes: Vec<ActiveScope>,
+    closures: Vec<(
+        ExprId,
+        std::collections::HashSet<ResolvedName>,
+        Vec<ResolvedName>,
+    )>,
 }
 
 impl<'a> BodyResolver<'a> {
@@ -40,6 +45,7 @@ impl<'a> BodyResolver<'a> {
             source_map,
             resolved: ResolvedNames::new(names.clone(), hosts, imports),
             scopes: Vec::new(),
+            closures: Vec::new(),
         }
     }
 
@@ -171,6 +177,7 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Name { name, .. } => {
                 if let Some(resolved) = self.resolve_name(name) {
                     self.resolved.insert_expr(expr_id, resolved);
+                    self.record_capture(resolved);
                 } else if let Some((owner, member)) = name.rsplit_once("::")
                     && let Some(owner) = self.resolve_name(owner)
                 {
@@ -234,6 +241,31 @@ impl<'a> BodyResolver<'a> {
             }
             ExprKind::Block(block) => self.resolve_block(*block),
             ExprKind::Loop { body } => self.resolve_block(*body),
+            ExprKind::Closure { params, body } => {
+                let outer = self
+                    .scopes
+                    .iter()
+                    .flat_map(|scope| {
+                        self.resolved.scopes[scope.id]
+                            .bindings
+                            .iter()
+                            .map(|binding| binding.resolved)
+                    })
+                    .collect();
+                self.closures.push((expr_id, outer, Vec::new()));
+                self.push_child_scope(self.source_map.expr_span(expr_id));
+                for param in params {
+                    self.bind_name(
+                        &param.name,
+                        ResolvedName::Local(param.local),
+                        self.source_map.expr_span(*body).start,
+                    );
+                }
+                self.resolve_expr(*body);
+                self.pop_scope();
+                let (_, _, captures) = self.closures.pop().expect("closure context");
+                self.resolved.insert_closure_captures(expr_id, captures);
+            }
         }
     }
 
@@ -273,6 +305,7 @@ impl<'a> BodyResolver<'a> {
             PlaceKind::Name(name) => {
                 if let Some(resolved) = self.resolve_name(name) {
                     self.resolved.insert_place(place_id, resolved);
+                    self.record_capture(resolved);
                 }
             }
             PlaceKind::Expr(expr) => self.resolve_expr(*expr),
@@ -280,6 +313,17 @@ impl<'a> BodyResolver<'a> {
             PlaceKind::Index { base, index } => {
                 self.resolve_place(*base);
                 self.resolve_expr(*index);
+            }
+        }
+    }
+
+    fn record_capture(&mut self, resolved: ResolvedName) {
+        if !matches!(resolved, ResolvedName::Local(_) | ResolvedName::Param(_)) {
+            return;
+        }
+        for (_, outer, captures) in &mut self.closures {
+            if outer.contains(&resolved) && !captures.contains(&resolved) {
+                captures.push(resolved);
             }
         }
     }

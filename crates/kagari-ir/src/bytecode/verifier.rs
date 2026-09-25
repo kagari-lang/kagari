@@ -561,6 +561,10 @@ fn instantiate_method_type(
         AbiType::Parameter { .. } | AbiType::SelfType(_) => return None,
         AbiType::Builtin(_) | AbiType::Host(_) => ty.clone(),
         AbiType::Tuple(types) => AbiType::Tuple(types.iter().map(child).collect::<Option<_>>()?),
+        AbiType::Function { params, result } => AbiType::Function {
+            params: params.iter().map(child).collect::<Option<_>>()?,
+            result: Box::new(child(result)?),
+        },
         AbiType::Array(element) => AbiType::Array(Box::new(child(element)?)),
         AbiType::Set(element) => AbiType::Set(Box::new(child(element)?)),
         AbiType::Map { key, value } => AbiType::Map {
@@ -799,6 +803,40 @@ fn verify_instruction(
             for element in elements {
                 let _ = register_ty(function, *element)?;
             }
+        }
+        BytecodeInstruction::MakeClosure {
+            dst,
+            function: target,
+            captures,
+        } => {
+            expect_register_ty(function, *dst, ValueType::HeapObject, "closure dst")?;
+            let callee = module.functions.get(target.index()).ok_or(
+                BytecodeVerificationError::InvalidFunctionRef {
+                    function: function.id,
+                    target: *target,
+                },
+            )?;
+            if captures.len() > callee.metadata.params.len() {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "closure capture count exceeds parameter count",
+                });
+            }
+            for (capture, ty) in captures.iter().zip(&callee.metadata.params) {
+                expect_register_ty(function, *capture, *ty, "closure capture")?;
+            }
+        }
+        BytecodeInstruction::MakeCell { dst, value } => {
+            expect_register_ty(function, *dst, ValueType::HeapObject, "cell dst")?;
+            let _ = register_ty(function, *value)?;
+        }
+        BytecodeInstruction::ReadCell { dst, cell } => {
+            expect_register_ty(function, *cell, ValueType::HeapObject, "cell handle")?;
+            let _ = register_ty(function, *dst)?;
+        }
+        BytecodeInstruction::WriteCell { cell, value } => {
+            expect_register_ty(function, *cell, ValueType::HeapObject, "cell handle")?;
+            let _ = register_ty(function, *value)?;
         }
         BytecodeInstruction::MakeInterface {
             dst,
@@ -1186,6 +1224,23 @@ fn verify_call(
                 function: function.id,
                 reason: "dynamic register calls have no executable contract",
             });
+        }
+        CallTarget::ClosureRegister {
+            register,
+            params,
+            return_type,
+        } => {
+            expect_register_ty(function, *register, ValueType::HeapObject, "closure callee")?;
+            if args.len() != params.len() {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "closure argument count mismatch",
+                });
+            }
+            for (arg, ty) in args.iter().zip(params) {
+                expect_register_ty(function, *arg, *ty, "closure argument")?;
+            }
+            verify_call_dst(function, dst, *return_type)?;
         }
         CallTarget::StandardIntrinsic(intrinsic) => {
             verify_standard_intrinsic_call(function, dst, *intrinsic, args)?;

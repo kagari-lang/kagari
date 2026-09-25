@@ -101,6 +101,10 @@ pub(super) fn validate(
             TypeId::Tuple(types) | TypeId::StandardEnum { args: types, .. } => {
                 pending.extend(types)
             }
+            TypeId::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+            }
             TypeId::Array(ty) | TypeId::Set(ty) => pending.push(ty),
             TypeId::Map { key, value } => {
                 pending.push(key);
@@ -336,6 +340,10 @@ fn validate_imported_interface_type(
             }
             TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
                 pending.extend(items)
+            }
+            TypeId::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
             }
             TypeId::Array(item) | TypeId::Set(item) => pending.push(item),
             TypeId::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),

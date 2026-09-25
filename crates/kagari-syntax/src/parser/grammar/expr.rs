@@ -25,6 +25,8 @@ impl<'a> Parser<'a> {
                     | TokenKind::LBracket
                     | TokenKind::Minus
                     | TokenKind::Bang
+                    | TokenKind::Pipe
+                    | TokenKind::PipePipe
             )
         )
     }
@@ -201,8 +203,46 @@ impl<'a> Parser<'a> {
             Some(TokenKind::LoopKw) => self.parse_loop_expr(),
             Some(TokenKind::LParen) => self.parse_paren_or_tuple_expr(),
             Some(TokenKind::LBracket) => self.parse_array_expr(),
+            Some(TokenKind::Pipe | TokenKind::PipePipe) => self.parse_closure_expr(),
             _ => self.error_here(DiagnosticKind::ExpectedExpression),
         }
+    }
+
+    fn parse_closure_expr(&mut self) {
+        self.start_node(SyntaxKind::ClosureExpr);
+        if self.at(TokenKind::PipePipe) {
+            self.bump();
+        } else {
+            self.expect(TokenKind::Pipe, DiagnosticKind::ExpectedExpression);
+            self.start_node(SyntaxKind::ClosureParamList);
+            self.bump_trivia();
+            while !self.at_any(&[TokenKind::Pipe, TokenKind::Eof]) {
+                self.start_node(SyntaxKind::ClosureParam);
+                self.parse_name();
+                self.bump_trivia();
+                if self.at(TokenKind::Colon) {
+                    self.bump();
+                    self.parse_type_ref();
+                }
+                self.finish_node();
+                self.bump_trivia();
+                if self.at(TokenKind::Comma) {
+                    self.bump();
+                    self.bump_trivia();
+                } else {
+                    break;
+                }
+            }
+            self.finish_node();
+            self.expect(TokenKind::Pipe, DiagnosticKind::ExpectedExpression);
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::LBrace) {
+            self.parse_block();
+        } else {
+            self.parse_expr();
+        }
+        self.finish_node();
     }
 
     fn parse_path_or_struct_expr(&mut self) {

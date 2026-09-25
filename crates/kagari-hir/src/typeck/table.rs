@@ -36,6 +36,7 @@ pub enum CallTarget {
     SourceFunction(crate::imports::SourceFunctionId),
     HostFunction(crate::host::HostFunctionId),
     Function(FunctionId),
+    Value,
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(BuiltinFunction),
     TraitMethod {
@@ -758,6 +759,19 @@ pub(crate) fn match_implementation(
                 {
                     return None;
                 }
+                pending.extend(left.iter().zip(right));
+            }
+            (
+                TypeId::Function {
+                    params: left,
+                    result: left_result,
+                },
+                TypeId::Function {
+                    params: right,
+                    result: right_result,
+                },
+            ) if left.len() == right.len() => {
+                pending.push((left_result, right_result));
                 pending.extend(left.iter().zip(right));
             }
             (TypeId::Array(left), TypeId::Array(right))

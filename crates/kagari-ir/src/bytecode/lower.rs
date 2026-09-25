@@ -770,6 +770,15 @@ fn lower_instruction(
                     CallTarget::HostFunction(context.host_import(declaration))
                 }
                 IrCallTarget::Value(value) => CallTarget::Register(lower_value(*value)),
+                IrCallTarget::Closure {
+                    value,
+                    params,
+                    return_type,
+                } => CallTarget::ClosureRegister {
+                    register: lower_value(*value),
+                    params: params.clone(),
+                    return_type: *return_type,
+                },
                 IrCallTarget::StandardIntrinsic(intrinsic) => {
                     CallTarget::StandardIntrinsic(*intrinsic)
                 }
@@ -796,6 +805,27 @@ fn lower_instruction(
                 .iter()
                 .map(|element| lower_value(*element))
                 .collect(),
+        },
+        Instruction::MakeClosure {
+            dst,
+            function,
+            captures,
+        } => BytecodeInstruction::MakeClosure {
+            dst: lower_value(*dst),
+            function: super::FunctionRef::new(function.index()),
+            captures: captures.iter().map(|value| lower_value(*value)).collect(),
+        },
+        Instruction::MakeCell { dst, value } => BytecodeInstruction::MakeCell {
+            dst: lower_value(*dst),
+            value: lower_value(*value),
+        },
+        Instruction::ReadCell { dst, cell } => BytecodeInstruction::ReadCell {
+            dst: lower_value(*dst),
+            cell: lower_value(*cell),
+        },
+        Instruction::WriteCell { cell, value } => BytecodeInstruction::WriteCell {
+            cell: lower_value(*cell),
+            value: lower_value(*value),
         },
         Instruction::MakeInterface {
             dst,

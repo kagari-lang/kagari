@@ -645,6 +645,100 @@ impl Runtime {
             .map(value::Value::Interface)
     }
 
+    pub fn make_closure(
+        &self,
+        implementation: &LoadedModule,
+        function: kagari_ir::bytecode::FunctionRef,
+        captures: Vec<value::Value>,
+    ) -> Result<value::Value, RuntimeError> {
+        self.validate_loaded_module(implementation)?;
+        let metadata = implementation
+            .bytecode
+            .functions
+            .get(function.index())
+            .ok_or_else(|| RuntimeError::module_validation("invalid closure function"))?;
+        if captures.len() > metadata.metadata.params.len()
+            || !captures
+                .iter()
+                .zip(&metadata.metadata.params)
+                .all(|(value, ty)| value.has_representation(*ty))
+        {
+            return Err(RuntimeError::module_validation(
+                "closure capture contract mismatch",
+            ));
+        }
+        self.validate_heap_payloads(&captures)?;
+        let retention = self
+            .modules
+            .retain_runtime_program(implementation)
+            .ok_or_else(|| RuntimeError::module_validation("closure version unavailable"))?;
+        self.gc
+            .alloc_closure(
+                gc::ClosureValueSnapshot {
+                    implementation: implementation.clone(),
+                    function,
+                    captures,
+                },
+                retention,
+            )
+            .map(value::Value::Closure)
+    }
+
+    pub fn make_capture_cell(
+        &self,
+        ty: kagari_ir::module::ValueType,
+        value: value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        self.gc.alloc_cell(ty, value).map(value::Value::Cell)
+    }
+
+    pub fn read_capture_cell(
+        &self,
+        cell: &value::Value,
+        ty: kagari_ir::module::ValueType,
+    ) -> Result<value::Value, RuntimeError> {
+        let value::Value::Cell(id) = cell else {
+            return Err(RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "expected capture cell",
+            ));
+        };
+        self.gc.cell_get(*id, ty)
+    }
+
+    pub fn write_capture_cell(
+        &self,
+        cell: &value::Value,
+        ty: kagari_ir::module::ValueType,
+        value: value::Value,
+    ) -> Result<(), RuntimeError> {
+        let value::Value::Cell(id) = cell else {
+            return Err(RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "expected capture cell",
+            ));
+        };
+        self.gc.cell_set(*id, ty, value)
+    }
+
+    pub fn resolve_closure(
+        &self,
+        value: &value::Value,
+    ) -> Result<gc::ClosureValueSnapshot, RuntimeError> {
+        let value::Value::Closure(id) = value else {
+            return Err(RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "expected closure",
+            ));
+        };
+        self.gc.closure_snapshot(*id).ok_or_else(|| {
+            RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "invalid closure handle",
+            )
+        })
+    }
+
     pub fn resolve_interface_method(
         &self,
         value: &value::Value,

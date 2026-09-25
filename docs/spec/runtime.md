@@ -84,6 +84,12 @@ These include:
 - host roots or host path views, if the embedding permits them as handle values
 - interface values, if represented as storable heap values
 
+Executable closures are GC objects containing a verified function slot and
+ordered captures. Immutable bindings capture their ordinary values; mutable
+bindings captured by a closure use GC cells so outer and inner assignments share
+the same storage. The object retains the execution version that created it.
+Borrowed host handles and path views are not valid closure captures.
+
 This category describes runtime values in general, not `const` item eligibility.
 In the current module model, `const` items are compile-time by-value scalars only and do not materialize frozen GC-backed objects.
 

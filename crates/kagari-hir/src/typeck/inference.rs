@@ -53,6 +53,19 @@ pub(super) fn infer(
                 pending.push((ev, av));
                 pending.push((ek, ak));
             }
+            (
+                TypeId::Function {
+                    params: ep,
+                    result: er,
+                },
+                TypeId::Function {
+                    params: ap,
+                    result: ar,
+                },
+            ) if ep.len() == ap.len() => {
+                pending.push((er, ar));
+                pending.extend(ep.iter().zip(ap).rev());
+            }
             _ => {}
         }
     }

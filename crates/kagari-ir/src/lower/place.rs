@@ -12,6 +12,7 @@ pub(super) struct PreparedPlace {
 
 enum Root {
     Local { local: LocalId, ty: ValueType },
+    Cell { local: LocalId, ty: ValueType },
     Value(IrValue),
 }
 
@@ -42,6 +43,13 @@ impl FunctionLowerer<'_, '_> {
                 Root::Local { local, ty } => {
                     let dst = self.alloc_temp(ty);
                     self.emit(Instruction::LoadLocal { dst, local });
+                    dst
+                }
+                Root::Cell { local, ty } => {
+                    let cell = self.alloc_temp(ValueType::HeapObject);
+                    self.emit(Instruction::LoadLocal { dst: cell, local });
+                    let dst = self.alloc_temp(ty);
+                    self.emit(Instruction::ReadCell { dst, cell });
                     dst
                 }
             };
@@ -83,6 +91,7 @@ impl FunctionLowerer<'_, '_> {
             hir::PlaceKind::Name(_) => {
                 let local = self.lookup_binding(self.place_root_resolution(id)?)?;
                 let ty = self.place_type(id)?;
+                let is_cell = matches!(self.place_root_resolution(id)?, kagari_hir::resolver::ResolvedName::Local(local_id) if self.cell_locals.contains(&local_id));
                 let root = if projected
                     && matches!(
                         self.analyzed.typed.type_table.place_type(id),
@@ -94,8 +103,16 @@ impl FunctionLowerer<'_, '_> {
                         )
                     ) {
                     let dst = self.alloc_temp(ty);
-                    self.emit(Instruction::LoadLocal { dst, local });
+                    if is_cell {
+                        let cell = self.alloc_temp(ValueType::HeapObject);
+                        self.emit(Instruction::LoadLocal { dst: cell, local });
+                        self.emit(Instruction::ReadCell { dst, cell });
+                    } else {
+                        self.emit(Instruction::LoadLocal { dst, local });
+                    }
                     Root::Value(dst)
+                } else if is_cell {
+                    Root::Cell { local, ty }
                 } else {
                     Root::Local { local, ty }
                 };
@@ -202,6 +219,17 @@ impl FunctionLowerer<'_, '_> {
                 self.emit(Instruction::LoadLocal { dst, local });
                 dst
             }
+            Root::Cell { local, ty } => {
+                let cell = self.alloc_temp(ValueType::HeapObject);
+                self.emit(Instruction::LoadLocal { dst: cell, local });
+                if place.projections.is_empty() && op.is_none() {
+                    self.emit(Instruction::WriteCell { cell, value: rhs });
+                    return Ok(());
+                }
+                let dst = self.alloc_temp(ty);
+                self.emit(Instruction::ReadCell { dst, cell });
+                dst
+            }
             Root::Value(value) => value,
         };
         let mut base = root;
@@ -256,6 +284,15 @@ impl FunctionLowerer<'_, '_> {
         match place.root {
             Root::Local { local, .. } => {
                 self.emit(Instruction::StoreLocal { local, src: result });
+                Ok(())
+            }
+            Root::Cell { local, .. } => {
+                let cell = self.alloc_temp(ValueType::HeapObject);
+                self.emit(Instruction::LoadLocal { dst: cell, local });
+                self.emit(Instruction::WriteCell {
+                    cell,
+                    value: result,
+                });
                 Ok(())
             }
             Root::Value(_) => Err(IrLoweringError::UnsupportedStatement(

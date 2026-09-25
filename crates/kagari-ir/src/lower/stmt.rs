@@ -63,6 +63,16 @@ impl FunctionLowerer<'_, '_> {
                     return Ok(());
                 }
                 let dst = self.bind_local(local, name)?;
+                let src = if self.cell_locals.contains(&local) {
+                    let cell = self.alloc_temp(crate::module::ValueType::HeapObject);
+                    self.emit(Instruction::MakeCell {
+                        dst: cell,
+                        value: src,
+                    });
+                    cell
+                } else {
+                    src
+                };
                 self.emit(Instruction::StoreLocal { local: dst, src });
                 self.introduce_debug_local(dst);
                 Ok(())

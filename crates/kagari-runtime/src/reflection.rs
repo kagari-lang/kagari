@@ -63,6 +63,8 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
         }
         Value::GcHandle(_) => "gc_handle",
         Value::Interface(_) => "interface",
+        Value::Closure(_) => "closure",
+        Value::Cell(_) => "cell",
         Value::HostRoot(_) => "host_root",
         Value::HostPathView(_) => "host_path_view",
         Value::Ephemeral(_) => "ephemeral",

@@ -103,12 +103,11 @@ pub(crate) fn lower_to_ir_with_requests(
             .iter()
             .find(|function| function.id == instance.function)
             .ok_or(IrLoweringError::MissingTypedFunction(instance.function))?;
-        functions.push(function::lower_function(
-            module,
-            function,
-            instance,
-            &mut planner,
-        )?);
+        functions.push(if let Some(closure) = instance.closure {
+            function::lower_closure(module, function, closure, instance, &mut planner)?
+        } else {
+            function::lower_function(module, function, instance, &mut planner)?
+        });
     }
 
     let (structures, enumerations) = layouts::collect(module, &mut planner)?;

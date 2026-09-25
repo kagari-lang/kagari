@@ -165,6 +165,10 @@ pub enum AbiType {
     },
     Builtin(kagari_hir::types::BuiltinType),
     Tuple(Vec<AbiType>),
+    Function {
+        params: Vec<AbiType>,
+        result: Box<AbiType>,
+    },
     Array(Box<AbiType>),
     Map {
         key: Box<AbiType>,
@@ -193,6 +197,10 @@ impl AbiType {
             }),
             Self::Builtin(ty) => TypeId::Builtin(*ty),
             Self::Tuple(types) => TypeId::Tuple(types.iter().map(Self::to_checked_type).collect()),
+            Self::Function { params, result } => TypeId::Function {
+                params: params.iter().map(Self::to_checked_type).collect(),
+                result: Box::new(result.to_checked_type()),
+            },
             Self::Array(ty) => TypeId::Array(Box::new(ty.to_checked_type())),
             Self::Map { key, value } => TypeId::Map {
                 key: Box::new(key.to_checked_type()),
@@ -256,6 +264,10 @@ impl AbiType {
             TypeId::Tuple(elements) => {
                 Self::Tuple(elements.iter().map(Self::from_checked_type).collect())
             }
+            TypeId::Function { params, result } => Self::Function {
+                params: params.iter().map(Self::from_checked_type).collect(),
+                result: Box::new(Self::from_checked_type(result)),
+            },
             TypeId::Array(element) => Self::Array(Box::new(Self::from_checked_type(element))),
             TypeId::Map { key, value } => Self::Map {
                 key: Box::new(Self::from_checked_type(key)),
@@ -287,6 +299,10 @@ impl AbiType {
                 Self::Parameter { .. } | Self::SelfType(_) => return false,
                 Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
                     pending.extend(types)
+                }
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
                 }
                 Self::Array(ty) | Self::Set(ty) => pending.push(ty),
                 Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
@@ -327,6 +343,13 @@ impl AbiType {
                     .map(|ty| ty.instantiate(owner, arguments))
                     .collect::<Option<_>>()?,
             ),
+            Self::Function { params, result } => Self::Function {
+                params: params
+                    .iter()
+                    .map(|ty| ty.instantiate(owner, arguments))
+                    .collect::<Option<_>>()?,
+                result: Box::new(result.instantiate(owner, arguments)?),
+            },
             Self::Array(ty) => Self::Array(Box::new(ty.instantiate(owner, arguments)?)),
             Self::Set(ty) => Self::Set(Box::new(ty.instantiate(owner, arguments)?)),
             Self::Map { key, value } => Self::Map {

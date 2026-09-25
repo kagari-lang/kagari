@@ -100,7 +100,10 @@ type_list           ::= type ("," type)* (",")? ;
 
 type                ::= path generic_args?
                       | array_type
-                      | tuple_type ;
+                      | tuple_type
+                      | function_type ;
+
+function_type       ::= "fn" "(" type_list? ")" "->" type ;
 
 array_type          ::= "[" type "]" ;
 
@@ -253,8 +256,8 @@ field_init_list     ::= field_init ("," field_init)* (",")? ;
 field_init          ::= IDENT
                       | IDENT ":" expr ;
 
-(* Closures are part of the source grammar. Hot reload and persistence specs
-   define how long-lived closures may be stored. *)
+(* Closures are runtime values with lexical captures. Persisting closure values
+   across process restarts is outside the current runtime contract. *)
 closure_expr        ::= "|" closure_param_list? "|" closure_body ;
 
 closure_param_list  ::= closure_param ("," closure_param)* (",")? ;

@@ -111,6 +111,47 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
 }
 
 #[test]
+fn imported_closure_keeps_its_defining_module_and_capture_state() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "provider",
+        r#"
+pub fn make() -> fn() -> i32 {
+    var count = 40;
+    || { count = count + 1; count }
+}
+"#,
+    );
+    let root = insert(
+        &engine,
+        "root",
+        r#"
+use pkg::provider::make;
+fn main() -> i32 {
+    val next = make();
+    next();
+    next()
+}
+"#,
+    );
+    let artifact = compile(&engine, root, Default::default());
+    let encoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    for artifact in [artifact, encoded] {
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        assert_eq!(
+            runtime
+                .execute(&loaded, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+    }
+}
+
+#[test]
 fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
     let engine = KagariEngine::default();
     insert(

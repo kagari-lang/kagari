@@ -6,7 +6,7 @@ pub use ops::{BinaryOp, PrefixOp};
 
 use smallvec::SmallVec;
 
-use crate::hir::{BlockId, ExprId, PatternId};
+use crate::hir::{BlockId, ExprId, LocalId, PatternId, TypeRefId};
 
 #[derive(Debug, Clone)]
 pub struct ExprData {
@@ -54,6 +54,10 @@ pub enum ExprKind {
     Loop {
         body: BlockId,
     },
+    Closure {
+        params: Vec<ClosureParam>,
+        body: ExprId,
+    },
     StructInit {
         path: String,
         explicit_type: Option<super::TypeRefId>,
@@ -74,6 +78,13 @@ pub struct MatchArm {
 pub struct FieldInit {
     pub name: String,
     pub value: ExprId,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClosureParam {
+    pub name: String,
+    pub local: LocalId,
+    pub ty: Option<TypeRefId>,
 }
 
 pub type ExprBuffer = SmallVec<[ExprId; 4]>;

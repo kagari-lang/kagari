@@ -157,6 +157,23 @@ pub(super) fn verify(
             CallTarget::Value(_) | CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
                 return Err(context.error(Error::UnsupportedCall));
             }
+            CallTarget::Closure {
+                value,
+                params,
+                return_type,
+            } => {
+                context.expect(value.ty, ValueType::HeapObject, "closure callee")?;
+                if args.len() != params.len() {
+                    return Err(context.error(Error::CallArity {
+                        expected: params.len(),
+                        found: args.len(),
+                    }));
+                }
+                for (arg, ty) in args.iter().zip(params) {
+                    context.expect(arg.ty, *ty, "closure argument")?;
+                }
+                contracts::verify_call_dst(dst.map(|v| v.ty), *return_type).map_err(contract)?;
+            }
             CallTarget::RuntimeHelper(helper) => {
                 let kind = match helper {
                     RuntimeHelper::ReflectTypeOf => contracts::RuntimeHelperKind::TypeOf,
@@ -175,6 +192,32 @@ pub(super) fn verify(
         },
         MakeTuple { dst, .. } | MakeArray { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "aggregate destination")?
+        }
+        MakeClosure {
+            dst,
+            function: target,
+            captures,
+        } => {
+            context.expect(dst.ty, ValueType::HeapObject, "closure destination")?;
+            let callee = module
+                .functions
+                .get(target.index())
+                .ok_or_else(|| context.error(Error::InvalidCall(*target)))?;
+            if captures.len() > callee.params.len() {
+                return Err(context.error(Error::CallArity {
+                    expected: callee.params.len(),
+                    found: captures.len(),
+                }));
+            }
+            for (capture, param) in captures.iter().zip(&callee.params) {
+                context.expect(capture.ty, param.ty, "closure capture")?;
+            }
+        }
+        MakeCell { dst, .. } => {
+            context.expect(dst.ty, ValueType::HeapObject, "cell destination")?
+        }
+        ReadCell { cell, .. } | WriteCell { cell, .. } => {
+            context.expect(cell.ty, ValueType::HeapObject, "cell handle")?
         }
         MakeInterface {
             dst,

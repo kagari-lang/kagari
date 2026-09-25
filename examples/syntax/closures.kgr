@@ -1,0 +1,64 @@
+// A closure can be stored, capture a lexical value, and be called later.
+fn nested_shared() -> i32 {
+    var base = 40;
+    val make_add = |amount: i32| |extra: i32| base + amount + extra;
+    val add = make_add(1);
+    val before = add(0);
+    val increment = || { base = base + 1; };
+    increment();
+    val after = add(0);
+    after + (before - 41)
+}
+
+fn make_counter() -> fn() -> i32 {
+    var value = 40;
+    || { value = value + 1; value }
+}
+
+fn make_add(base: i32) -> fn(i32) -> i32 {
+    |amount: i32| base + amount
+}
+
+fn invoke(function: fn(i32) -> i32, argument: i32) -> i32 {
+    function(argument)
+}
+
+fn apply<T>(function: fn(T) -> T, value: T) -> T {
+    function(value)
+}
+
+fn make_early_return() -> fn() -> i32 {
+    || { return 42; }
+}
+
+fn iteration_captures() -> i32 {
+    val callbacks: [fn() -> i32] = [];
+    for number in [10, 20, 12] {
+        callbacks.push(|| number);
+    }
+    callbacks[0]() + callbacks[1]() + callbacks[2]()
+}
+
+fn shared_object_capture() -> i32 {
+    val values = [40];
+    val read = || values[0];
+    values[0] = 42;
+    read()
+}
+
+fn rebound_object_capture() -> i32 {
+    var values = [40];
+    val read = || values[0];
+    values = [42];
+    read()
+}
+
+fn main() -> i32 {
+    val counter = make_counter();
+    val first = counter();
+    val second = counter();
+    val from_argument = invoke(make_add(40), 2);
+    val inferred_argument = invoke(|number| number + 40, 2);
+    val generic_argument = apply(|number: i32| number + 1, 41);
+    first + second + from_argument - 83 + nested_shared() - 42 + inferred_argument - 42 + make_early_return()() - 42 + iteration_captures() - 42 + generic_argument - 42 + shared_object_capture() - 42 + rebound_object_capture() - 42
+}

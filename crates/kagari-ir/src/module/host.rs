@@ -169,6 +169,19 @@ fn matches_host_type(
             (AbiType::Tuple(a), AbiType::Tuple(b)) if a.len() == b.len() => {
                 pending.extend(a.iter().zip(b));
             }
+            (
+                AbiType::Function {
+                    params: ap,
+                    result: ar,
+                },
+                AbiType::Function {
+                    params: bp,
+                    result: br,
+                },
+            ) if ap.len() == bp.len() => {
+                pending.push((ar, br));
+                pending.extend(ap.iter().zip(bp));
+            }
             (AbiType::Array(a), AbiType::Array(b)) | (AbiType::Set(a), AbiType::Set(b)) => {
                 pending.push((a, b));
             }
@@ -233,6 +246,10 @@ pub(crate) fn references(
             }
             AbiType::Tuple(types) | AbiType::StandardEnum { args: types, .. } => {
                 pending.extend(types)
+            }
+            AbiType::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
             }
             AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
             AbiType::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),

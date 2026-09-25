@@ -60,6 +60,7 @@ impl ValueType {
             TypeId::Builtin(BuiltinType::F64) => Self::F64,
             TypeId::Builtin(BuiltinType::String) => Self::Str,
             TypeId::Tuple(_)
+            | TypeId::Function { .. }
             | TypeId::Array(_)
             | TypeId::Map { .. }
             | TypeId::Set(_)

@@ -91,6 +91,8 @@ impl TraceValue {
             Value::Struct(id) => Self::Opaque(format!("struct:{id:?}")),
             Value::GcHandle(id) => Self::Opaque(format!("gc:{id:?}")),
             Value::Interface(id) => Self::Opaque(format!("interface:{id:?}")),
+            Value::Closure(id) => Self::Opaque(format!("closure:{id:?}")),
+            Value::Cell(id) => Self::Opaque(format!("cell:{id:?}")),
             Value::HostRoot(_) => Self::Opaque("host root".into()),
             Value::HostPathView(_) => Self::Opaque("host path".into()),
             Value::Ephemeral(_) => Self::Opaque("ephemeral".into()),

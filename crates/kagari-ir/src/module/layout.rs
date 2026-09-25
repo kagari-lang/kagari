@@ -210,6 +210,10 @@ pub(crate) fn validate_enum_layouts(
             }
             AbiType::Builtin(_) | AbiType::Host(_) => {}
             AbiType::Tuple(types) => pending.extend(types),
+            AbiType::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+            }
             AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
             AbiType::Map { key, value } => {
                 pending.push(key);

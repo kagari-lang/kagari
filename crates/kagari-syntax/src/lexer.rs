@@ -195,7 +195,7 @@ pub fn lex_with_cancellation(
                     chars.next();
                     tokens.push(token(TokenKind::PipePipe, index, end + 1));
                 } else {
-                    tokens.push(token(TokenKind::Unknown, index, index + 1));
+                    tokens.push(token(TokenKind::Pipe, index, index + 1));
                 }
             }
             '"' => {

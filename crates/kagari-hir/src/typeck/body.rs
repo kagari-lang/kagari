@@ -63,6 +63,7 @@ pub(crate) struct BodyChecker<'a> {
     loop_depth: usize,
     loop_results: Vec<LoopResult>,
     inference_depth: usize,
+    closure_returns: Vec<Vec<TypeId>>,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -91,6 +92,7 @@ impl<'a> BodyChecker<'a> {
             loop_depth: 0,
             loop_results: Vec::new(),
             inference_depth: 0,
+            closure_returns: Vec::new(),
         }
     }
 
@@ -238,6 +240,9 @@ impl<'a> BodyChecker<'a> {
                 let found = expr.map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
                     self.infer_expr_with_coercion(expr, env, Some(&expected))
                 });
+                if let Some(returns) = self.closure_returns.last_mut() {
+                    returns.push(found.clone());
+                }
                 if let Some(expr) = expr {
                     let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
@@ -791,6 +796,105 @@ impl<'a> BodyChecker<'a> {
                     method_ty
                 } else {
                     self.infer_function_call_type(expr_id, *callee, args, env, expected)
+                }
+            }
+            ExprKind::Closure { params, body } => {
+                for capture in self.names.closure_captures(expr_id) {
+                    let captured = match capture {
+                        ResolvedName::Local(id) => env.locals.get(id),
+                        ResolvedName::Param(id) => env.params.get(id),
+                        _ => None,
+                    };
+                    if let Some(ty) = captured
+                        && ty.contains_host_value()
+                    {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidClosureCapture {
+                                type_name: display_type_id(ty),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        );
+                    }
+                }
+                let expected_params = match expected {
+                    Some(TypeId::Function { params, .. }) => Some(params.as_slice()),
+                    _ => None,
+                };
+                let expected_result = match expected {
+                    Some(TypeId::Function { result, .. }) => Some(result.as_ref()),
+                    _ => None,
+                };
+                let mut closure_env = env.clone();
+                let mut param_types = Vec::with_capacity(params.len());
+                for (index, param) in params.iter().enumerate() {
+                    let ty = if let Some(annotation) = param.ty {
+                        resolve_type_in(
+                            &self.lowered.module,
+                            annotation,
+                            TypeContext {
+                                declarations: self.declarations,
+                                generics: &env.generics,
+                                self_type: None,
+                            },
+                            self.type_table,
+                            self.cancel,
+                        )
+                    } else if let Some(ty) = expected_params.and_then(|types| types.get(index)) {
+                        ty.clone()
+                    } else {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::ExpectedType)
+                                .with_span(self.lowered.source_map.local_span(param.local)),
+                        );
+                        TypeId::Unknown
+                    };
+                    self.type_table.insert_local(param.local, ty.clone());
+                    closure_env.locals.insert(param.local, ty.clone());
+                    param_types.push(ty);
+                }
+                let old_return = std::mem::replace(
+                    &mut self.expected_return,
+                    expected_result.cloned().unwrap_or(TypeId::Unknown),
+                );
+                let old_loop_depth = std::mem::replace(&mut self.loop_depth, 0);
+                let old_loop_results = std::mem::take(&mut self.loop_results);
+                let old_name = std::mem::replace(&mut self.function_name, "closure");
+                self.closure_returns.push(Vec::new());
+                let body_result =
+                    self.infer_expr_with_coercion(*body, &mut closure_env, expected_result);
+                let returns = self.closure_returns.pop().expect("closure return context");
+                let completes =
+                    super::completion::expr_can_complete(&self.lowered.module, *body, self.cancel)
+                        .unwrap_or(false);
+                let mut result = if completes {
+                    body_result
+                } else {
+                    expected_result
+                        .cloned()
+                        .or_else(|| returns.first().cloned())
+                        .unwrap_or(TypeId::Unknown)
+                };
+                for returned in returns {
+                    if result.conflicts_with(&returned) {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
+                                function_name: "closure".into(),
+                                expected: display_type_id(&result),
+                                found: display_type_id(&returned),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(*body)),
+                        );
+                    } else {
+                        result.recover_from(&returned);
+                    }
+                }
+                self.function_name = old_name;
+                self.expected_return = old_return;
+                self.loop_depth = old_loop_depth;
+                self.loop_results = old_loop_results;
+                TypeId::Function {
+                    params: param_types,
+                    result: Box::new(result),
                 }
             }
             ExprKind::Field { receiver, name } => {
@@ -2629,6 +2733,22 @@ impl<'a> BodyChecker<'a> {
         }
         let Some(ResolvedName::Function(id)) = self.names.expr_resolution(callee) else {
             let callee_ty = self.infer_expr_type(callee, env);
+            if let TypeId::Function { params, result } = &callee_ty {
+                let arguments = self.infer_typed_args(args, params.iter().cloned(), env);
+                self.type_table
+                    .insert_call(call_expr, CallTarget::Value, Some(callee));
+                self.check_builtin_arity("closure", params.len(), args.len(), callee);
+                for (index, ty) in params.iter().enumerate() {
+                    self.check_arg_type(
+                        "closure",
+                        &format!("arg{index}"),
+                        ty.clone(),
+                        index,
+                        &arguments,
+                    );
+                }
+                return result.as_ref().clone();
+            }
             self.infer_call_args(args, env);
             let Ok(completes) =
                 super::completion::expr_can_complete(&self.lowered.module, callee, self.cancel)

@@ -84,6 +84,141 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
 }
 
 #[test]
+fn closures_keep_captured_objects_and_cells_alive_across_collection() {
+    let module = compile_test_bytecode(
+        r#"
+fn make_reader() -> fn() -> i32 {
+    val values = [42];
+    || values[0]
+}
+fn make_counter() -> fn() -> i32 {
+    var count = 40;
+    || { count = count + 1; count }
+}
+fn main() -> i32 {
+    val reader = make_reader();
+    val counter = make_counter();
+    val garbage = [1, 2, 3];
+    val first = counter();
+    val second = counter();
+    reader() + second - first
+}
+"#,
+    );
+    let mut runtime = runtime(None);
+    let loaded = runtime
+        .load_program(
+            "closure_gc.kgr",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            },
+        )
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").unwrap();
+    assert_eq!(report.return_value, Value::I32(43));
+    assert!(vm.runtime().gc().stats().collections > 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
+    let module = compile_test_bytecode("fn make() -> fn() -> i32 { || 42 }");
+    let foreign_runtime = runtime(None);
+    let mut owner_runtime = runtime(None);
+    let loaded = owner_runtime
+        .load_program(
+            "closure_handles.kgr",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            },
+        )
+        .unwrap();
+    let mut vm = Vm::new(owner_runtime);
+    let value = vm.execute(&loaded, "make").unwrap().return_value;
+    let Value::Closure(_) = value else {
+        panic!("closure result")
+    };
+    assert!(foreign_runtime.resolve_closure(&value).is_err());
+    let rooted = vm.runtime().root_value(value.clone()).unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    assert!(vm.runtime().resolve_closure(&value).is_ok());
+    drop(rooted);
+    vm.runtime().collect_garbage().unwrap();
+    assert!(vm.runtime().resolve_closure(&value).is_err());
+}
+
+#[test]
+fn malformed_closure_function_is_rejected_before_execution() {
+    let mut module = compile_test_bytecode("fn main() -> i32 { val call = || 42; call() }");
+    let instruction = module
+        .functions
+        .iter_mut()
+        .flat_map(|function| &mut function.instructions)
+        .find(|instruction| {
+            matches!(
+                instruction,
+                kagari_ir::bytecode::BytecodeInstruction::MakeClosure { .. }
+            )
+        })
+        .expect("compiled closure");
+    if let kagari_ir::bytecode::BytecodeInstruction::MakeClosure { function, .. } = instruction {
+        *function = kagari_ir::bytecode::FunctionRef::new(999);
+    }
+    let mut runtime = runtime(None);
+    assert!(
+        runtime
+            .load_program(
+                "malformed_closure.kgr",
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                }
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn rooted_closure_retains_its_old_program_after_new_publish() {
+    let old = compile_test_bytecode("fn make() -> fn() -> i32 { || 41 }");
+    let new = compile_test_bytecode("fn make() -> fn() -> i32 { || 42 }");
+    let mut runtime = runtime(None);
+    let loaded = runtime
+        .load_program(
+            "closure_epoch.kgr",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![old],
+            },
+        )
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    let closure = vm.execute(&loaded, "make").unwrap().return_value;
+    let rooted = vm.runtime().root_value(closure.clone()).unwrap();
+    let replacement = vm
+        .runtime_mut()
+        .load_program(
+            "closure_epoch.kgr",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![new],
+            },
+        )
+        .unwrap();
+    drop(loaded);
+    vm.runtime().collect_garbage().unwrap();
+    let snapshot = vm.runtime().resolve_closure(&rooted.value()).unwrap();
+    vm.runtime()
+        .validate_loaded_module(&snapshot.implementation)
+        .unwrap();
+    assert_ne!(snapshot.implementation.key(), replacement.key());
+    drop(rooted);
+}
+
+#[test]
 fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let mut runtime = runtime(None);
     let dead = runtime.alloc_array(vec![Value::I32(7)]).unwrap();

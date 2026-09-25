@@ -18,6 +18,7 @@ cargo test -p kagari-embed --test syntax_examples
 | Arithmetic (including `%`), comparison, unary and short-circuit logical operators | [expressions.kgr](syntax/expressions.kgr) | `42` |
 | Literal, wildcard, binding, nested tuple, struct and enum `match` patterns | [match.kgr](syntax/match.kgr) | `42` |
 | Generic function `where` bound and trait call | [where-bounds.kgr](syntax/where-bounds.kgr) | `42` |
+| Lexical closures, mutable captures, nested closures, function types and higher-order calls | [closures.kgr](syntax/closures.kgr) | `42` |
 | Aliased module import | [import-alias.kgr](syntax/import-alias.kgr) | `42` |
 | Concrete interface value and dynamic method dispatch | [interface-dispatch.kgr](interface-dispatch.kgr) | `42` |
 | Generic trait method | [generic-trait-methods.kgr](generic-trait-methods.kgr) | `42` |
@@ -30,5 +31,5 @@ and artifacts. [host-trait-bound.kgr](host-trait-bound.kgr) likewise requires th
 host declarations installed by the `offline_nominal` integration test. They are
 not standalone CLI programs.
 
-Closure expressions remain a syntax and runtime gap. Parser tests document
-syntax-only forms; the grammar alone does not establish runtime support.
+The examples cover executable forms; parser-only recovery cases remain in the
+syntax crate tests.

@@ -819,10 +819,20 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             if let CallTarget::Value(callee) = callee {
                 values.push(*callee);
             }
+            if let CallTarget::Closure { value, .. } = callee {
+                values.push(*value);
+            }
             values.extend(args.iter().copied());
             values
         }
         Instruction::BeginIteration { collection } => vec![*collection],
+        Instruction::MakeClosure { dst, captures, .. } => std::iter::once(*dst)
+            .chain(captures.iter().copied())
+            .collect(),
+        Instruction::MakeCell { dst, value } | Instruction::ReadCell { dst, cell: value } => {
+            vec![*dst, *value]
+        }
+        Instruction::WriteCell { cell, value } => vec![*cell, *value],
         Instruction::EndIteration => Vec::new(),
         Instruction::MakeTuple { dst, elements }
         | Instruction::MakeArray { dst, elements }

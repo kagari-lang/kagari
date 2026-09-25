@@ -10,6 +10,51 @@ use crate::module::instruction::{
 use crate::module::types::ValueType;
 
 impl FunctionLowerer<'_, '_> {
+    fn lower_closure(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
+        let mut captures = ValueBuffer::new();
+        for resolved in self.analyzed.names.closure_captures(expr_id) {
+            let local = self.lookup_binding(*resolved)?;
+            let ty = match resolved {
+                kagari_hir::resolver::ResolvedName::Local(id) => self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .local_type(*id)
+                    .ok_or(IrLoweringError::MissingLocalType(*id))?,
+                kagari_hir::resolver::ResolvedName::Param(id) => self
+                    .analyzed
+                    .typed
+                    .functions
+                    .iter()
+                    .find(|function| function.id == self.instance.function)
+                    .and_then(|function| function.params.iter().find(|param| param.id == *id))
+                    .map(|param| param.ty.clone())
+                    .ok_or(IrLoweringError::MissingBinding("captured parameter type"))?,
+                _ => return Err(IrLoweringError::MissingBinding("closure capture")),
+            };
+            let physical = if matches!(resolved, kagari_hir::resolver::ResolvedName::Local(id) if self.cell_locals.contains(id))
+            {
+                ValueType::HeapObject
+            } else {
+                self.value_type(&ty)?
+            };
+            let value = self.alloc_temp(physical);
+            self.emit(Instruction::LoadLocal { dst: value, local });
+            captures.push(value);
+        }
+        let span = self.analyzed.lowered.source_map.expr_span(expr_id);
+        let function = self
+            .planner
+            .enqueue_closure(&self.instance, expr_id, span)?;
+        let dst = self.alloc_temp(ValueType::HeapObject);
+        self.emit(Instruction::MakeClosure {
+            dst,
+            function,
+            captures,
+        });
+        Ok(dst)
+    }
+
     fn lower_values(
         &mut self,
         expressions: &[hir::ExprId],
@@ -168,6 +213,7 @@ impl FunctionLowerer<'_, '_> {
             hir::ExprKind::StructInit { fields, .. } => self.lower_struct_init(expr_id, fields),
             hir::ExprKind::Tuple(elements) => self.lower_tuple(expr_id, elements),
             hir::ExprKind::Array(elements) => self.lower_array(expr_id, elements),
+            hir::ExprKind::Closure { .. } => self.lower_closure(expr_id),
         }
     }
 
@@ -939,6 +985,41 @@ impl FunctionLowerer<'_, '_> {
                     ControlFlow::Break(value) => return Ok(value),
                 }
             }
+            SemanticCallTarget::Value => {
+                let receiver = call
+                    .receiver
+                    .ok_or(IrLoweringError::MissingBinding("closure callee"))?;
+                let kagari_hir::types::TypeId::Function { params, result } = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(receiver)
+                    .ok_or(IrLoweringError::MissingExprType(receiver))?
+                else {
+                    return Err(IrLoweringError::MissingBinding("checked closure callee"));
+                };
+                let param_types = params
+                    .iter()
+                    .map(|ty| self.value_type(ty))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let return_type = self.value_type(&result)?;
+                let value = self.lower_expr(receiver)?;
+                if self.current_block_terminated() {
+                    return Ok(value);
+                }
+                let args = match self.lower_values(args)? {
+                    ControlFlow::Continue(values) => values,
+                    ControlFlow::Break(value) => return Ok(value),
+                };
+                (
+                    CallTarget::Closure {
+                        value,
+                        params: param_types,
+                        return_type,
+                    },
+                    args,
+                )
+            }
             target => {
                 let mut lowered = ValueBuffer::new();
                 if let Some(receiver) = call.receiver {
@@ -1008,7 +1089,8 @@ impl FunctionLowerer<'_, '_> {
                         IrLoweringError::MissingBinding("imported implementation contract"),
                     )?,
                     SemanticCallTarget::TerminatingCallee
-                    | SemanticCallTarget::RuntimeHelper(_) => {
+                    | SemanticCallTarget::RuntimeHelper(_)
+                    | SemanticCallTarget::Value => {
                         unreachable!()
                     }
                 };

@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 10] = [
+    let cases: [(&str, &str, Value); 11] = [
+        (
+            "examples/syntax/closures.kgr",
+            include_str!("../../../examples/syntax/closures.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/data-model.kgr",
             include_str!("../../../examples/syntax/data-model.kgr"),
@@ -124,6 +129,40 @@ fn after_trap() -> i32 { 42 }
         .execute(&loaded, "after_trap", &[], &context)
         .unwrap();
     assert_eq!(result.return_value, Value::I32(42));
+}
+
+#[test]
+fn closure_trap_releases_execution_resources() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "closure_trap.kgr",
+                r#"
+fn fail() -> i32 {
+    var count = 40;
+    val fail = || { count = count + 1; 1 / 0 };
+    fail()
+}
+fn after() -> i32 { 42 }
+"#,
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert!(runtime.execute(&loaded, "fail", &[], &context).is_err());
+    assert_eq!(
+        runtime
+            .execute(&loaded, "after", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
 
 #[test]

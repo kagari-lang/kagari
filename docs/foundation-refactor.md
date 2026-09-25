@@ -2134,3 +2134,16 @@ Implemented foundation slices:
 Validation: workspace tests pass after the source/analysis changes. Workspace
 clippy with `-D warnings` passes after correcting baseline lints and marking the
 raw-pointer JIT helper's caller contract unsafe. The complete track remains open.
+
+## Executable syntax and closure checkpoint
+
+The syntax examples now execute from both source and encoded artifacts. They cover
+remainder, field shorthand, inherent methods, tuple/struct/enum destructuring,
+collection `for`, value-producing `loop`, and closures. Closures have function
+types, lexical captures, higher-order calls, nested closures and an early-return
+boundary. `val` captures copy the ordinary value; captured `var` bindings use a
+shared GC cell. Each `for` iteration snapshots its binding for closures created
+in that iteration. Closure objects retain their owning execution version and
+trace captured values through the runtime heap. The current Cranelift backend
+uses its interpreter fallback for closure instructions. Artifact format and
+runtime ABI version 40 reject older encoding before execution.

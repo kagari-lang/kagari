@@ -10,9 +10,16 @@ pub struct TypeData {
 #[derive(Debug, Clone)]
 pub enum TypeKind {
     Named(String),
-    Generic { name: String, args: TypeBuffer },
+    Generic {
+        name: String,
+        args: TypeBuffer,
+    },
     Tuple(TypeBuffer),
     Array(TypeRefId),
+    Function {
+        params: TypeBuffer,
+        result: TypeRefId,
+    },
 }
 
 pub type TypeBuffer = SmallVec<[TypeRefId; 4]>;

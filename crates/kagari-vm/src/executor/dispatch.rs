@@ -125,6 +125,45 @@ impl<'a> Executor<'a> {
                 let value = self.make_array(&elements)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
+            BytecodeInstruction::MakeClosure {
+                dst,
+                function,
+                captures,
+            } => {
+                let values = self.read_path_args(&captures)?;
+                let loaded = self.current_loaded()?;
+                let closure = self
+                    .runtime
+                    .make_closure(&loaded, function, values)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?.write_register(dst, closure)?;
+            }
+            BytecodeInstruction::MakeCell { dst, value } => {
+                let ty = self.current_frame()?.function().metadata.registers[value.index()];
+                let value = self.current_frame()?.read_register(value)?;
+                let cell = self
+                    .runtime
+                    .make_capture_cell(ty, value)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?.write_register(dst, cell)?;
+            }
+            BytecodeInstruction::ReadCell { dst, cell } => {
+                let ty = self.current_frame()?.function().metadata.registers[dst.index()];
+                let cell = self.current_frame()?.read_register(cell)?;
+                let value = self
+                    .runtime
+                    .read_capture_cell(&cell, ty)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?.write_register(dst, value)?;
+            }
+            BytecodeInstruction::WriteCell { cell, value } => {
+                let ty = self.current_frame()?.function().metadata.registers[value.index()];
+                let cell = self.current_frame()?.read_register(cell)?;
+                let value = self.current_frame()?.read_register(value)?;
+                self.runtime
+                    .write_capture_cell(&cell, ty, value)
+                    .map_err(VmError::RuntimeError)?;
+            }
             BytecodeInstruction::MakeInterface {
                 dst,
                 value,
@@ -322,6 +361,32 @@ impl<'a> Executor<'a> {
                 Ok(())
             }
             CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(callee)),
+            CallTarget::ClosureRegister {
+                register,
+                params,
+                return_type,
+            } => {
+                let value = self.current_frame()?.read_register(register)?;
+                let closure = self
+                    .runtime
+                    .resolve_closure(&value)
+                    .map_err(VmError::RuntimeError)?;
+                let metadata = closure
+                    .implementation
+                    .bytecode
+                    .functions
+                    .get(closure.function.index())
+                    .ok_or(VmError::InvalidFunctionRef(closure.function))?;
+                if metadata.metadata.return_type != return_type
+                    || metadata.metadata.params.get(closure.captures.len()..)
+                        != Some(params.as_slice())
+                {
+                    return Err(VmError::TypeMismatch("closure call contract"));
+                }
+                self.stack
+                    .push_closure(self.runtime, closure, &arg_values, dst)
+                    .map_err(VmError::RuntimeError)
+            }
             CallTarget::StandardIntrinsic(intrinsic) => {
                 self.dispatch_standard_intrinsic(intrinsic, dst, arg_values)
             }

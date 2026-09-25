@@ -67,6 +67,11 @@ impl FunctionLowerer<'_, '_> {
             .map(|ty| self.value_type(ty))
             .transpose()?
             .ok_or(IrLoweringError::MissingLocalType(hir_local))?;
+        let ty = if self.cell_locals.contains(&hir_local) {
+            ValueType::HeapObject
+        } else {
+            ty
+        };
         let local = self.alloc_local(
             name,
             ty,
@@ -229,8 +234,21 @@ impl FunctionLowerer<'_, '_> {
         match resolved {
             ResolvedName::Param(_) | ResolvedName::Local(_) => {
                 let local = self.lookup_binding(resolved)?;
-                let dst = self.alloc_temp(self.expr_type(expr_id)?);
-                self.emit(Instruction::LoadLocal { dst, local });
+                let is_cell =
+                    matches!(resolved, ResolvedName::Local(id) if self.cell_locals.contains(&id));
+                let physical = if is_cell {
+                    ValueType::HeapObject
+                } else {
+                    self.expr_type(expr_id)?
+                };
+                let loaded = self.alloc_temp(physical);
+                self.emit(Instruction::LoadLocal { dst: loaded, local });
+                if is_cell {
+                    let dst = self.alloc_temp(self.expr_type(expr_id)?);
+                    self.emit(Instruction::ReadCell { dst, cell: loaded });
+                    return Ok(dst);
+                }
+                let dst = loaded;
                 Ok(dst)
             }
             ResolvedName::Const(id) => {

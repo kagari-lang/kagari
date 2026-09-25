@@ -143,6 +143,46 @@ impl ExecutionStack {
         self.push_resolved(loaded, function, args, return_dst, Some(method))
     }
 
+    pub fn push_closure(
+        &self,
+        runtime: &Runtime,
+        closure: crate::gc::ClosureValueSnapshot,
+        args: &[Value],
+        return_dst: Option<Register>,
+    ) -> Result<(), RuntimeError> {
+        self.validate_top()?;
+        runtime.validate_loaded_module(&closure.implementation)?;
+        let function = closure
+            .implementation
+            .bytecode
+            .functions
+            .get(closure.function.index())
+            .ok_or_else(|| RuntimeError::module_validation("invalid closure function"))?;
+        let all = closure
+            .captures
+            .into_iter()
+            .chain(args.iter().cloned())
+            .collect::<Vec<_>>();
+        if all.len() != function.metadata.params.len()
+            || !all
+                .iter()
+                .zip(&function.metadata.params)
+                .all(|(value, ty)| value.has_representation(*ty))
+        {
+            return Err(RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "closure call contract mismatch",
+            ));
+        }
+        self.push_resolved(
+            closure.implementation,
+            closure.function,
+            &all,
+            return_dst,
+            None,
+        )
+    }
+
     fn push_resolved(
         &self,
         loaded: LoadedModule,

@@ -24,8 +24,23 @@ impl<'a> Parser<'a> {
             }
             Some(TokenKind::LParen) => self.parse_tuple_type(),
             Some(TokenKind::LBracket) => self.parse_array_type(),
+            Some(TokenKind::FnKw) => self.parse_function_type(),
             _ => self.error_here(DiagnosticKind::ExpectedType),
         }
+        self.finish_node();
+    }
+
+    fn parse_function_type(&mut self) {
+        self.start_node(SyntaxKind::FunctionType);
+        self.bump();
+        self.bump_trivia();
+        self.expect(TokenKind::LParen, DiagnosticKind::ExpectedClosingParen);
+        self.parse_type_list();
+        self.bump_trivia();
+        self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+        self.bump_trivia();
+        self.expect(TokenKind::Arrow, DiagnosticKind::ExpectedType);
+        self.parse_type_ref();
         self.finish_node();
     }
 

@@ -189,6 +189,13 @@ pub(super) fn resolve_type_in(
         hir::TypeKind::Array(element) => TypeId::Array(Box::new(resolve_type_in(
             module, *element, context, table, cancel,
         ))),
+        hir::TypeKind::Function { params, result } => TypeId::Function {
+            params: params
+                .iter()
+                .map(|param| resolve_type_in(module, *param, context, table, cancel))
+                .collect(),
+            result: Box::new(resolve_type_in(module, *result, context, table, cancel)),
+        },
     };
     table.insert_type_ref(
         ty,
@@ -219,6 +226,15 @@ pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
             format!("({inner})")
         }
         hir::TypeKind::Array(element) => format!("[{}]", display_type(module, *element)),
+        hir::TypeKind::Function { params, result } => format!(
+            "fn({}) -> {}",
+            params
+                .iter()
+                .map(|param| display_type(module, *param))
+                .collect::<Vec<_>>()
+                .join(", "),
+            display_type(module, *result),
+        ),
     }
 }
 

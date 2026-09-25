@@ -8,6 +8,7 @@ use crate::ast::{
 ast_node!(TypeRef, TypeRef);
 ast_node!(TupleType, TupleType);
 ast_node!(ArrayType, ArrayType);
+ast_node!(FunctionType, FunctionType);
 
 impl TypeRef {
     pub fn name(&self) -> Option<Name> {
@@ -34,6 +35,27 @@ impl TypeRef {
 
     pub fn array_type(&self) -> Option<ArrayType> {
         support::child(self.syntax())
+    }
+
+    pub fn function_type(&self) -> Option<FunctionType> {
+        support::child(self.syntax())
+    }
+}
+
+impl FunctionType {
+    pub fn params(&self) -> impl Iterator<Item = TypeRef> {
+        self.syntax()
+            .children()
+            .filter(|node| node.kind() == crate::kind::SyntaxKind::TypeList)
+            .flat_map(|list| {
+                list.children()
+                    .filter_map(TypeRef::cast)
+                    .collect::<Vec<_>>()
+            })
+    }
+
+    pub fn result(&self) -> Option<TypeRef> {
+        self.syntax().children().filter_map(TypeRef::cast).last()
     }
 }
 

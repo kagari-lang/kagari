@@ -20,6 +20,7 @@ enum Node {
     },
     Builtin(BuiltinType),
     Tuple(u32),
+    Function(u32),
     Array,
     Map,
     Set,
@@ -70,6 +71,14 @@ impl AbiType {
                     }
                     pending.extend(elements.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Tuple(elements.len() as u32)
+                }
+                Self::Function { params, result } => {
+                    if params.len() >= MAX_NODES {
+                        return Err("ABI type node limit exceeded");
+                    }
+                    pending.push((result, depth + 1));
+                    pending.extend(params.iter().rev().map(|ty| (ty, depth + 1)));
+                    Node::Function(params.len() as u32)
                 }
                 Self::Array(element) => {
                     pending.push((element, depth + 1));
@@ -194,6 +203,10 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
         Node::Parameter { owner, position } => AbiType::Parameter { owner, position },
         Node::Builtin(ty) => AbiType::Builtin(ty),
         Node::Tuple(count) => AbiType::Tuple(children(count, nodes)?),
+        Node::Function(count) => AbiType::Function {
+            params: children(count, nodes)?,
+            result: Box::new(build(nodes, depth + 1)?),
+        },
         Node::Array => AbiType::Array(Box::new(build(nodes, depth + 1)?)),
         Node::Map => AbiType::Map {
             key: Box::new(build(nodes, depth + 1)?),
@@ -259,6 +272,10 @@ mod tests {
                     value: Box::new(AbiType::Set(Box::new(AbiType::Builtin(BuiltinType::I64)))),
                 },
             ]),
+            AbiType::Function {
+                params: vec![AbiType::Builtin(BuiltinType::I32)],
+                result: Box::new(AbiType::Builtin(BuiltinType::Bool)),
+            },
             AbiType::Struct(nominal.clone()),
             AbiType::Enum(nominal.clone()),
             AbiType::Trait(nominal),
@@ -279,6 +296,7 @@ mod tests {
         for nodes in [
             vec![],
             vec![Node::Array],
+            vec![Node::Function(1), Node::Builtin(BuiltinType::I32)],
             vec![Node::Tuple(2), Node::Builtin(BuiltinType::I32)],
             vec![
                 Node::Builtin(BuiltinType::I32),

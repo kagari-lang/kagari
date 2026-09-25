@@ -42,7 +42,9 @@ The executable subset currently includes field shorthand, remainder, inherent
 method calls, tuple/struct/enum destructuring, `for` over built-in iterable
 collections and strings, and `loop` expressions with `break` values.
 Collection iteration blocks structural modification through aliases until
-the loop exits. Closure expressions still require executable semantics.
+the loop exits. Closures use lexical capture; `var` captures share a GC-managed
+cell, and `val` captures copy the value under the ordinary value model.
+Function types use `fn(T, ...) -> R`.
 
 ## Grammar Notation
 
@@ -465,7 +467,10 @@ This also applies within composite members: a field or enum payload declared
 ```ebnf
 type            ::= path generic_args?
                   | array_type
-                  | tuple_type ;
+                  | tuple_type
+                  | function_type ;
+
+function_type   ::= "fn" "(" type_list? ")" "->" type ;
 
 array_type      ::= "[" type "]"
                   | "[" type ";" INTEGER "]" ;
@@ -851,6 +856,8 @@ The following rules are part of the language design, but cannot be fully express
 
 - closures use lexical scope
 - closures may implicitly capture outer local bindings
+- a closure parameter may omit its type only when a contextual `fn(...) -> ...`
+  type supplies that parameter type
 - captured `var` bindings that may be assigned by the closure are represented through a shared environment slot
 - captured bindings that are only read may be captured by value or by handle according to the runtime value model
 - object-like values follow the ordinary value model when captured; if the value is a shared object handle, the closure and outer scope observe the same underlying object
@@ -895,7 +902,6 @@ The following areas are outside this syntax specification:
 - visibility and module public-interface semantics
 - associated items beyond methods
 - extended pattern grammar
-- closure capture semantics
 - extended generic constraints and `where` predicates
 - host-exposed type syntax
 

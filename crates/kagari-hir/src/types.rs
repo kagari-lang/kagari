@@ -79,6 +79,10 @@ pub enum TypeId {
     Error,
     Builtin(BuiltinType),
     Tuple(Vec<TypeId>),
+    Function {
+        params: Vec<TypeId>,
+        result: Box<TypeId>,
+    },
     Array(Box<TypeId>),
     Map {
         key: Box<TypeId>,
@@ -98,6 +102,26 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    pub fn contains_host_value(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Host(_) => return true,
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items)
+                }
+                Self::Function { .. } => {}
+                Self::Array(item) | Self::Set(item) => pending.push(item),
+                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments)
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     pub fn contains_self_type(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -108,6 +132,10 @@ impl TypeId {
                 }
                 Self::Array(item) | Self::Set(item) => pending.push(item),
                 Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
                 Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments)
                 }
@@ -168,6 +196,10 @@ impl TypeId {
                     key: Box::new(Self::Unknown),
                     value: Box::new(Self::Unknown),
                 },
+                Self::Function { params, .. } => Self::Function {
+                    params: vec![Self::Unknown; params.len()],
+                    result: Box::new(Self::Unknown),
+                },
                 _ => source.clone(),
             };
             match (source, target) {
@@ -213,6 +245,25 @@ impl TypeId {
                     pending.push((source_value, target_value, substitute));
                     pending.push((source_key, target_key, substitute));
                 }
+                (
+                    Self::Function {
+                        params: source_params,
+                        result: source_result,
+                    },
+                    Self::Function {
+                        params: target_params,
+                        result: target_result,
+                    },
+                ) => {
+                    pending.push((source_result, target_result, substitute));
+                    pending.extend(
+                        source_params
+                            .iter()
+                            .zip(target_params)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
                 _ => {}
             }
         }
@@ -236,6 +287,10 @@ impl TypeId {
                 }
                 Self::Array(item) | Self::Set(item) => pending.push(item),
                 Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
                 Self::Generic(parameter) if parameters.contains(parameter) => {}
                 Self::Generic(_) | Self::Unknown | Self::Error | Self::SelfType(_) => return false,
                 Self::Builtin(_) | Self::Host(_) => {}
@@ -279,6 +334,7 @@ impl TypeId {
                 | Self::Host(_)
                 | Self::Generic(_)
                 | Self::SelfType(_) => return false,
+                Self::Function { .. } => return false,
                 // The elements of mutable containers do not participate in identity equality.
                 Self::Builtin(_)
                 | Self::Struct(_)
@@ -304,6 +360,10 @@ impl TypeId {
                 }
                 Self::Array(item) | Self::Set(item) => pending.push(item),
                 Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
                 Self::Unknown | Self::Error => return true,
                 Self::Builtin(_) | Self::Host(_) | Self::Generic(_) | Self::SelfType(_) => {}
             }
@@ -333,6 +393,10 @@ impl TypeId {
                     pending.push(key);
                     pending.push(value);
                 }
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
                 _ => {}
             }
         }
@@ -357,6 +421,19 @@ impl TypeId {
                 (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
                     pending.push((lv, rv));
                     pending.push((lk, rk));
+                }
+                (
+                    Self::Function {
+                        params: left_params,
+                        result: left_result,
+                    },
+                    Self::Function {
+                        params: right_params,
+                        result: right_result,
+                    },
+                ) if left_params.len() == right_params.len() => {
+                    pending.push((left_result, right_result));
+                    pending.extend(left_params.iter_mut().zip(right_params).rev());
                 }
                 (Self::Struct(left), Self::Struct(right))
                 | (Self::Enum(left), Self::Enum(right))
@@ -400,6 +477,22 @@ impl TypeId {
                 (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
                     pending.push((lv, rv));
                     pending.push((lk, rk));
+                }
+                (
+                    Self::Function {
+                        params: left_params,
+                        result: left_result,
+                    },
+                    Self::Function {
+                        params: right_params,
+                        result: right_result,
+                    },
+                ) => {
+                    if left_params.len() != right_params.len() {
+                        return true;
+                    }
+                    pending.push((left_result, right_result));
+                    pending.extend(left_params.iter().zip(right_params).rev());
                 }
                 (Self::Struct(left), Self::Struct(right))
                 | (Self::Enum(left), Self::Enum(right))
@@ -468,6 +561,11 @@ impl TypeId {
                             .map_or("<builtin>", |spec| spec.name),
                     ),
                     Self::Tuple(items) => sequence(&mut pending, items, "(", ")"),
+                    Self::Function { params, result } => {
+                        pending.push(Part::Type(result));
+                        pending.push(Part::Text(" -> "));
+                        sequence(&mut pending, params, "fn(", ")");
+                    }
                     Self::Array(item) => {
                         pending.push(Part::Text("]"));
                         pending.push(Part::Type(item));
@@ -517,6 +615,7 @@ impl TypeId {
                 crate::builtin::surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
             }
             Self::Tuple(_)
+            | Self::Function { .. }
             | Self::Array(_)
             | Self::Map { .. }
             | Self::Set(_)

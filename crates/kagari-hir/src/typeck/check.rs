@@ -832,6 +832,9 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
             left == right
         }
         (TypeId::Tuple(left), TypeId::Tuple(right)) => left.len() == right.len(),
+        (TypeId::Function { params: left, .. }, TypeId::Function { params: right, .. }) => {
+            left.len() == right.len()
+        }
         (TypeId::Array(_), TypeId::Array(_))
         | (TypeId::Set(_), TypeId::Set(_))
         | (TypeId::Map { .. }, TypeId::Map { .. }) => true,
@@ -874,6 +877,10 @@ pub(super) fn validate_standard_type_constraints(
                 pending.push(element);
             }
             TypeId::Tuple(elements) => pending.extend(elements.iter().rev()),
+            TypeId::Function { params, result } => {
+                pending.push(result);
+                pending.extend(params.iter().rev());
+            }
             TypeId::Array(element) => pending.push(element),
             TypeId::StandardEnum { args, .. }
             | TypeId::Struct(crate::types::NominalType {
@@ -1019,6 +1026,26 @@ fn validate_interface_type(
                     diagnostics,
                 );
             }
+        }
+        TypeId::Function { params, result } => {
+            for parameter in params {
+                validate_interface_type(
+                    lowered,
+                    declarations,
+                    function_index,
+                    parameter,
+                    span,
+                    diagnostics,
+                );
+            }
+            validate_interface_type(
+                lowered,
+                declarations,
+                function_index,
+                result,
+                span,
+                diagnostics,
+            );
         }
         TypeId::Array(element) => {
             validate_interface_type(

@@ -19,4 +19,4 @@ pub use misc::{
 };
 pub use stmt::{AssignStmt, BindingStmt, ExprStmt, ReturnStmt, Stmt};
 pub use traits::AstNode;
-pub use ty::{ArrayType, TupleType, TypeRef};
+pub use ty::{ArrayType, FunctionType, TupleType, TypeRef};

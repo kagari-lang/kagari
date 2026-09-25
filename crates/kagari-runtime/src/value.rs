@@ -140,6 +140,8 @@ pub enum Value {
     Struct(HeapObjectId),
     GcHandle(HeapObjectId),
     Interface(InterfaceObjectId),
+    Closure(HeapObjectId),
+    Cell(HeapObjectId),
     HostRoot(HostRootHandle),
     HostPathView(HostPathViewHandle),
     Ephemeral(EphemeralValue),
@@ -171,7 +173,9 @@ impl Value {
                         | Self::Enum(_)
                         | Self::Struct(_)
                         | Self::GcHandle(_)
-                        | Self::Interface(_),
+                        | Self::Interface(_)
+                        | Self::Closure(_)
+                        | Self::Cell(_),
                     T::HeapObject
                 )
         )
@@ -192,6 +196,8 @@ impl Value {
             | Self::Enum(_)
             | Self::Struct(_)
             | Self::GcHandle(_) => ValueCategory::ScriptOwned,
+            Self::Closure(_) => ValueCategory::ScriptOwned,
+            Self::Cell(_) => ValueCategory::ScriptOwned,
             Self::Interface(_) => ValueCategory::Interface,
             Self::HostRoot(_) => ValueCategory::HostHandle,
             Self::HostPathView(_) => ValueCategory::HostPathView,
@@ -244,6 +250,8 @@ impl Value {
             | Self::Struct(_)
             | Self::GcHandle(_)
             | Self::Interface(_) => true,
+            Self::Closure(_) => true,
+            Self::Cell(_) => true,
             Self::HostRoot(_) | Self::HostPathView(_) | Self::Ephemeral(_) => false,
         }
     }

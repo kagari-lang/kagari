@@ -72,6 +72,7 @@ pub struct ResolvedNames {
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
     qualified_members: HashMap<ExprId, QualifiedMember>,
+    closure_captures: HashMap<ExprId, Vec<ResolvedName>>,
 }
 
 impl ResolvedNames {
@@ -88,6 +89,7 @@ impl ResolvedNames {
             exprs: HashMap::new(),
             places: HashMap::new(),
             qualified_members: HashMap::new(),
+            closure_captures: HashMap::new(),
         }
     }
 
@@ -113,6 +115,14 @@ impl ResolvedNames {
 
     pub fn place_resolution(&self, id: PlaceId) -> Option<ResolvedName> {
         self.places.get(&id).copied()
+    }
+
+    pub fn closure_captures(&self, id: ExprId) -> &[ResolvedName] {
+        self.closure_captures.get(&id).map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn insert_closure_captures(&mut self, id: ExprId, captures: Vec<ResolvedName>) {
+        self.closure_captures.insert(id, captures);
     }
 
     pub fn scopes(&self) -> &[LexicalScope] {

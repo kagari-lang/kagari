@@ -39,6 +39,7 @@ pub(super) struct Instance {
     pub function: hir::FunctionId,
     pub key: FunctionInstance,
     pub substitution: TypeSubstitution,
+    pub closure: Option<hir::ExprId>,
 }
 
 pub(super) struct InstancePlanner<'a> {
@@ -186,6 +187,48 @@ impl<'a> InstancePlanner<'a> {
             function,
             key,
             substitution,
+            closure: None,
+        });
+        Ok(id)
+    }
+
+    pub fn enqueue_closure(
+        &mut self,
+        parent: &Instance,
+        closure: hir::ExprId,
+        span: Span,
+    ) -> Result<InstanceId, IrLoweringError> {
+        self.check()?;
+        let mut declaration = parent.key.declaration.clone();
+        declaration
+            .path
+            .push(kagari_common::identity::DefinitionPathSegment {
+                kind: kagari_common::identity::DefinitionKind::Function,
+                name: format!("closure_{}", closure.index()),
+                occurrence: 0,
+            });
+        let key = FunctionInstance {
+            declaration,
+            arguments: parent.key.arguments.clone(),
+        };
+        if let Some(id) = self.keys.get(&key) {
+            return Ok(*id);
+        }
+        if self.instances.len() >= u32::MAX as usize {
+            return Err(IrLoweringError::diagnostic(limit_diagnostic(
+                "function instances",
+                u32::MAX as usize,
+                span,
+            )));
+        }
+        let id = InstanceId::new(self.instances.len());
+        self.keys.insert(key.clone(), id);
+        self.instances.push(Instance {
+            id,
+            function: parent.function,
+            key,
+            substitution: parent.substitution.clone(),
+            closure: Some(closure),
         });
         Ok(id)
     }
@@ -287,6 +330,10 @@ fn instantiate(
         TypeId::Tuple(elements) => {
             TypeId::Tuple(elements.iter().map(&mut child).collect::<Result<_, _>>()?)
         }
+        TypeId::Function { params, result } => TypeId::Function {
+            params: params.iter().map(&mut child).collect::<Result<_, _>>()?,
+            result: Box::new(child(result)?),
+        },
         TypeId::Array(element) => TypeId::Array(Box::new(child(element)?)),
         TypeId::Set(element) => TypeId::Set(Box::new(child(element)?)),
         TypeId::Map { key, value } => TypeId::Map {

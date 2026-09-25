@@ -161,6 +161,12 @@ pub enum CallTarget {
     },
     HostFunction(HostImportId),
     Register(Register),
+    ClosureRegister {
+        register: Register,
+        #[serde(deserialize_with = "crate::decode_limits::table")]
+        params: Vec<crate::module::ValueType>,
+        return_type: crate::module::ValueType,
+    },
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
 }
@@ -251,6 +257,24 @@ pub enum BytecodeInstruction {
         dst: Register,
         #[serde(deserialize_with = "crate::decode_limits::operands")]
         elements: Vec<Register>,
+    },
+    MakeClosure {
+        dst: Register,
+        function: FunctionRef,
+        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        captures: Vec<Register>,
+    },
+    MakeCell {
+        dst: Register,
+        value: Register,
+    },
+    ReadCell {
+        dst: Register,
+        cell: Register,
+    },
+    WriteCell {
+        cell: Register,
+        value: Register,
     },
     MakeInterface {
         dst: Register,

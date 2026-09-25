@@ -2,7 +2,7 @@ use kagari_hir::builtin::surface::StandardIntrinsic;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-use crate::module::ids::{BlockId, LocalId, ModuleSlotId, TempId};
+use crate::module::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
 use crate::module::types::ValueType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +80,23 @@ pub enum Instruction {
     MakeArray {
         dst: IrValue,
         elements: ValueBuffer,
+    },
+    MakeClosure {
+        dst: IrValue,
+        function: InstanceId,
+        captures: ValueBuffer,
+    },
+    MakeCell {
+        dst: IrValue,
+        value: IrValue,
+    },
+    ReadCell {
+        dst: IrValue,
+        cell: IrValue,
+    },
+    WriteCell {
+        cell: IrValue,
+        value: IrValue,
     },
     MakeInterface {
         dst: IrValue,
@@ -177,6 +194,11 @@ pub enum CallTarget {
     InterfaceMethod(Box<InterfaceCallContract>),
     HostFunction(Box<kagari_common::host_interface::HostFunctionDeclaration>),
     Value(IrValue),
+    Closure {
+        value: IrValue,
+        params: Vec<ValueType>,
+        return_type: ValueType,
+    },
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
 }
@@ -357,16 +379,20 @@ impl Instruction {
             Self::BeginIteration { .. } | Self::EndIteration => EffectSet::runtime_call(),
             Self::MakeTuple { .. }
             | Self::MakeArray { .. }
+            | Self::MakeClosure { .. }
+            | Self::MakeCell { .. }
             | Self::MakeInterface { .. }
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
             Self::ReadAggregateField { .. }
+            | Self::ReadCell { .. }
             | Self::ReadAggregateIndex { .. }
             | Self::TestEnumVariant { .. }
             | Self::ReadEnumPayload { .. } => EffectSet::aggregate_read(),
             Self::WriteAggregateField { .. } | Self::WriteAggregateIndex { .. } => {
                 EffectSet::aggregate_write()
             }
+            Self::WriteCell { .. } => EffectSet::aggregate_write(),
             Self::ReadPath { .. } | Self::MakePathView { .. } => EffectSet::path_read(),
             Self::SetPath { .. } => EffectSet::path_write(),
             Self::ModifyPath { .. } => EffectSet::path_read().union(EffectSet::path_write()),
@@ -386,7 +412,9 @@ impl Terminator {
 impl CallTarget {
     pub fn effects(&self) -> EffectSet {
         match self {
-            Self::Function(_) | Self::SourceFunction(_) | Self::Value(_) => EffectSet::call(),
+            Self::Function(_) | Self::SourceFunction(_) | Self::Value(_) | Self::Closure { .. } => {
+                EffectSet::call()
+            }
             Self::InterfaceMethod(_) => EffectSet::runtime_call(),
             Self::HostFunction(declaration) => EffectSet {
                 allocates: declaration.effects.may_allocate,

@@ -5,7 +5,9 @@ use kagari_syntax::ast;
 use kagari_syntax::kind::SyntaxKind;
 use smallvec::{SmallVec, smallvec};
 
-use crate::hir::{BlockData, ExprData, ExprId, ExprKind, FieldInit, MatchArm, PrefixOp};
+use crate::hir::{
+    BlockData, ClosureParam, ExprData, ExprId, ExprKind, FieldInit, MatchArm, PrefixOp,
+};
 use crate::lower::context::{Lowerer, lower_binary_op, syntax_span, token_span};
 
 impl Lowerer {
@@ -205,6 +207,23 @@ impl Lowerer {
                             },
                         )
                     }),
+            },
+            ast::Expr::ClosureExpr(closure) => ExprKind::Closure {
+                params: closure
+                    .params()
+                    .map(|param| ClosureParam {
+                        name: param
+                            .name()
+                            .and_then(|name| name.text())
+                            .unwrap_or_default(),
+                        local: self.alloc_local_id(syntax_span(&param)),
+                        ty: param.ty().map(|ty| self.lower_type(&ty)),
+                    })
+                    .collect(),
+                body: closure
+                    .body()
+                    .map(|body| self.lower_expr(&body))
+                    .unwrap_or_else(|| self.missing_expr()),
             },
             ast::Expr::TupleExpr(tuple) => ExprKind::Tuple(
                 tuple

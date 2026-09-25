@@ -454,6 +454,9 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
             if let super::instruction::CallTarget::Value(value) = callee {
                 values.push(*value);
             }
+            if let super::instruction::CallTarget::Closure { value, .. } = callee {
+                values.push(*value);
+            }
             values
         }
         MakeTuple { elements, .. }
@@ -461,6 +464,10 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
         | MakeEnum {
             fields: elements, ..
         } => elements.clone(),
+        MakeClosure { captures, .. } => captures.clone(),
+        MakeCell { value, .. } => smallvec::smallvec![*value],
+        ReadCell { cell, .. } => smallvec::smallvec![*cell],
+        WriteCell { cell, value } => smallvec::smallvec![*cell, *value],
         MakeStruct { fields, .. } => fields.iter().map(|f| f.value).collect(),
         MakeInterface { value, .. } => smallvec::smallvec![*value],
         TestEnumVariant { value, .. } | ReadEnumPayload { value, .. } => {
@@ -517,6 +524,9 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | Binary { dst, .. }
         | MakeTuple { dst, .. }
         | MakeArray { dst, .. }
+        | MakeClosure { dst, .. }
+        | MakeCell { dst, .. }
+        | ReadCell { dst, .. }
         | MakeStruct { dst, .. }
         | MakeEnum { dst, .. }
         | MakeInterface { dst, .. }
@@ -532,6 +542,7 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | WriteAggregateField { .. }
         | WriteAggregateIndex { .. }
         | SetPath { .. } => None,
+        WriteCell { .. } => None,
         BeginIteration { .. } | EndIteration => None,
     }
 }

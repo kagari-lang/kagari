@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use kagari_common::Span;
 use kagari_hir::typeck::TypedFunction;
@@ -30,6 +30,7 @@ pub(crate) struct FunctionLowerer<'a, 'p> {
 
     pub(crate) params: HashMap<hir::ParamId, LocalId>,
     pub(crate) locals: HashMap<hir::LocalId, LocalId>,
+    pub(crate) cell_locals: HashSet<hir::LocalId>,
     pub(crate) loops: Vec<LoopScope>,
     pub(crate) effects: EffectSet,
     pub(crate) current_scope: usize,
@@ -81,6 +82,42 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         };
 
         let mut params = HashMap::new();
+        let mutable_locals = analyzed
+            .lowered
+            .module
+            .body
+            .statements()
+            .filter_map(|(id, stmt)| {
+                if id.owner() != hir_function.body.owner() {
+                    return None;
+                }
+                match &stmt.kind {
+                    hir::StmtKind::Binding {
+                        local,
+                        writeability: hir::Writeability::Var,
+                        ..
+                    } => Some(*local),
+                    _ => None,
+                }
+            })
+            .collect::<HashSet<_>>();
+        let cell_locals = analyzed
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter(|(id, expr)| {
+                id.owner() == hir_function.body.owner()
+                    && matches!(expr.kind, hir::ExprKind::Closure { .. })
+            })
+            .flat_map(|(id, _)| analyzed.names.closure_captures(id).iter())
+            .filter_map(|resolved| match resolved {
+                kagari_hir::resolver::ResolvedName::Local(id) if mutable_locals.contains(id) => {
+                    Some(*id)
+                }
+                _ => None,
+            })
+            .collect();
         for param in &typed_function.params {
             let local = LocalId::new(function.locals.len());
             function.locals.push(IrLocal {
@@ -111,6 +148,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
 
             params,
             locals: HashMap::new(),
+            cell_locals,
             loops: Vec::new(),
             effects: EffectSet::default(),
             current_scope: 0,

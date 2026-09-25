@@ -337,6 +337,10 @@ Ordinary aggregate instructions:
 ```text
 MakeTuple dst, elements
 MakeArray dst, elements
+MakeClosure dst, function_ref, captures
+MakeCell dst, initial_value
+ReadCell dst, cell
+WriteCell cell, value
 MakeStruct dst, type_id, field_values
 ReadField dst, base, field_id
 WriteField base, field_id, value
@@ -346,6 +350,14 @@ WriteIndex base, index, value
 
 These instructions apply to script-owned values or runtime-managed aggregates.
 They must not silently become reflection over host-owned Rust state.
+
+`MakeClosure` binds ordered capture values to a verified function slot. Indirect
+closure calls carry a physical parameter and result contract; the runtime checks
+the stored function against that contract before entering its frame. Capture
+cells preserve writes to lexically captured `var` bindings and are traced by the
+same non-moving GC as other script objects. A closure retains its linked program
+version, including the dependency set used by subsequent calls. Invalid slots,
+capture counts and register types are rejected during bytecode verification.
 
 If a field or index chain is resolved as host-backed, it lowers to the typed path instruction family.
 

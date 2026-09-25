@@ -275,7 +275,10 @@ impl<'a> Completion<'a> {
                             }
                         },
                         Node::Expr(id) => match &self.module.expr(id).kind {
-                            ExprKind::Missing | ExprKind::Name { .. } | ExprKind::Literal(_) => {
+                            ExprKind::Missing
+                            | ExprKind::Name { .. }
+                            | ExprKind::Literal(_)
+                            | ExprKind::Closure { .. } => {
                                 value = Exits::NORMAL;
                                 continue;
                             }

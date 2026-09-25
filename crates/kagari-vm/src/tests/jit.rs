@@ -324,6 +324,36 @@ fn remainder_uses_interpreter_fallback_with_identical_result() {
 }
 
 #[test]
+fn closures_use_interpreter_fallback_with_identical_result() {
+    let module = common::compile_test_bytecode(
+        r#"
+fn main() -> i32 {
+    var count = 40;
+    val next = || { count = count + 1; count };
+    next();
+    next()
+}
+"#,
+    );
+    let (runtime, loaded) = common::load_bytecode_module("jit_closure", module.clone());
+    let mut vm = Vm::new(runtime);
+    let interpreted = vm.execute(&loaded, "main").unwrap().return_value;
+    let (runtime, loaded) =
+        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_closure", module);
+    let mut vm = Vm::new(runtime);
+    let mut backend = CraneliftBackend::for_host().unwrap();
+    let report = vm
+        .execute_with_backend(&loaded, "main", &mut backend)
+        .unwrap();
+    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(report.return_value, interpreted);
+    assert_eq!(
+        report.jit.unwrap().status,
+        JitExecutionStatus::InterpreterFallback
+    );
+}
+
+#[test]
 fn ordinary_interpreter_execution_has_no_jit_report() {
     let module = common::test_function_module(
         "main",

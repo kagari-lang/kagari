@@ -34,6 +34,17 @@ impl Lowerer {
                     .map(|element| self.lower_type(&element))
                     .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
             )
+        } else if let Some(function) = ty.function_type() {
+            TypeKind::Function {
+                params: function
+                    .params()
+                    .map(|param| self.lower_type(&param))
+                    .collect(),
+                result: function
+                    .result()
+                    .map(|result| self.lower_type(&result))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+            }
         } else {
             TypeKind::Named("<missing>".to_string())
         };
