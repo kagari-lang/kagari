@@ -5,6 +5,13 @@ use crate::lower::context::{Lowerer, syntax_span, token_span};
 
 impl Lowerer {
     pub(crate) fn lower_pattern(&mut self, pattern: &ast::Pattern) -> PatternId {
+        if pattern.is_grouped() {
+            return pattern
+                .elements()
+                .next()
+                .map(|inner| self.lower_pattern(&inner))
+                .expect("grouped pattern has one element");
+        }
         let span = syntax_span(pattern);
         let kind = if pattern.is_wildcard() {
             PatternKind::Wildcard

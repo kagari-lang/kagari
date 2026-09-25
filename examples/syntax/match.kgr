@@ -36,5 +36,9 @@ fn main() -> i32 {
         Answer::Value(value) => value,
     };
     std::debug::assert_eq(from_enum, 42, "enum pattern");
+    val from_group = match 42 {
+        (answer) => answer,
+    };
+    std::debug::assert_eq(from_group, 42, "parenthesized pattern");
     selected + bound
 }

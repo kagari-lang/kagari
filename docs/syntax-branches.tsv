@@ -86,7 +86,7 @@ primary_pattern	3	witnessed	examples/syntax/match.kgr	-	path
 primary_pattern	4	witnessed	examples/syntax/match.kgr	-	tuple_struct_pattern
 primary_pattern	5	witnessed	examples/syntax/match.kgr	-	struct_pattern
 primary_pattern	6	witnessed	examples/syntax/match.kgr	-	tuple_pattern
-primary_pattern	7	unverified	-	No branch-specific witness recorded	parenthesized_pattern
+primary_pattern	7	witnessed	examples/syntax/match.kgr	-	parenthesized_pattern
 field_pattern	1	witnessed	examples/syntax/match.kgr	-	IDENT
 field_pattern	2	witnessed	examples/syntax/match.kgr	-	IDENT ":" pattern
 place_expr	1	witnessed	examples/syntax/data-model.kgr	-	path place_suffix*

@@ -115,8 +115,8 @@ or_pattern	partial	examples/syntax/match.kgr	Or branch is not recognized
 range_pattern	partial	examples/syntax/match.kgr	Range tail is not recognized
 range_pattern_tail	missing	gap:range_pattern	Range pattern tail is absent
 range_bound	missing	gap:range_pattern	Range pattern bound is absent
-primary_pattern	partial	examples/syntax/match.kgr	Parenthesized grouping is not distinguished from tuple pattern
-parenthesized_pattern	unverified	-	No production-specific witness recorded
+primary_pattern	covered	examples/syntax/match.kgr	-
+parenthesized_pattern	covered	examples/syntax/match.kgr	-
 tuple_pattern	covered	examples/syntax/match.kgr	-
 pattern_list	covered	examples/syntax/match.kgr	-
 tuple_struct_pattern	covered	examples/syntax/match.kgr	-

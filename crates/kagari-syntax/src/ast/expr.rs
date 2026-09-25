@@ -450,6 +450,12 @@ impl Pattern {
         self.path().is_none() && support::token(self.syntax(), SyntaxKind::LParen).is_some()
     }
 
+    pub fn is_grouped(&self) -> bool {
+        self.is_tuple()
+            && support::token(self.syntax(), SyntaxKind::Comma).is_none()
+            && self.elements().count() == 1
+    }
+
     pub fn fields(&self) -> impl Iterator<Item = PatternField> {
         self.syntax().children().filter_map(PatternField::cast)
     }
