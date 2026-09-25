@@ -88,11 +88,19 @@ pub struct TypeTable {
     struct_inits: HashMap<ExprId, ResolvedStructInit>,
     enum_constructors: HashMap<ExprId, ResolvedEnumConstructor>,
     exprs: HashMap<ExprId, TypeId>,
+    interface_coercions: HashMap<ExprId, ResolvedInterfaceCoercion>,
     locals: HashMap<LocalId, TypeId>,
     places: HashMap<PlaceId, TypeId>,
     calls: HashMap<ExprId, ResolvedCall>,
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedInterfaceCoercion {
+    pub implementation: DefinitionId,
+    pub concrete_type: TypeId,
+    pub interface_type: NominalType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,7 +169,8 @@ impl TypeTable {
             }
             keys!(host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
-                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId);
+                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId,
+                interface_coercions: ExprId);
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {
                     assert_eq!(receiver.arena(), from);
@@ -639,6 +648,18 @@ impl TypeTable {
 
     pub fn expr_type(&self, id: ExprId) -> Option<TypeId> {
         self.exprs.get(&id).cloned()
+    }
+
+    pub fn interface_coercion(&self, id: ExprId) -> Option<&ResolvedInterfaceCoercion> {
+        self.interface_coercions.get(&id)
+    }
+
+    pub(crate) fn insert_interface_coercion(
+        &mut self,
+        id: ExprId,
+        coercion: ResolvedInterfaceCoercion,
+    ) {
+        self.interface_coercions.insert(id, coercion);
     }
 
     pub fn local_type(&self, id: LocalId) -> Option<TypeId> {

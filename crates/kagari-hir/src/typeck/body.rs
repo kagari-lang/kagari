@@ -99,7 +99,7 @@ impl<'a> BodyChecker<'a> {
         block
             .tail_expr
             .map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
-                self.infer_expr_type_expected(expr, env, expected)
+                self.infer_expr_with_coercion(expr, env, expected)
             })
     }
 
@@ -146,7 +146,7 @@ impl<'a> BodyChecker<'a> {
                     resolved
                 });
                 let initializer_ty =
-                    self.infer_expr_type_expected(*initializer, env, annotation.as_ref());
+                    self.infer_expr_with_coercion(*initializer, env, annotation.as_ref());
                 let local_ty = annotation.unwrap_or_else(|| initializer_ty.clone());
                 super::applications::validate(
                     &local_ty,
@@ -182,7 +182,7 @@ impl<'a> BodyChecker<'a> {
                 // Write permission does not erase the known target type needed by
                 // contextual inference and tooling after an invalid assignment.
                 let expected_ty = self.type_table.place_type(*target);
-                let value_ty = self.infer_expr_type_expected(*value, env, expected_ty.as_ref());
+                let value_ty = self.infer_expr_with_coercion(*value, env, expected_ty.as_ref());
                 let Ok(completes) =
                     super::completion::expr_can_complete(&self.lowered.module, *value, self.cancel)
                 else {
@@ -220,7 +220,7 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Return { expr } => {
                 let expected = self.expected_return.clone();
                 let found = expr.map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
-                    self.infer_expr_type_expected(expr, env, Some(&expected))
+                    self.infer_expr_with_coercion(expr, env, Some(&expected))
                 });
                 if let Some(expr) = expr {
                     let Ok(completes) = super::completion::expr_can_complete(
@@ -710,7 +710,7 @@ impl<'a> BodyChecker<'a> {
                         };
                         let else_context = expected
                             .or((condition_completes && then_completes).then_some(&then_ty));
-                        let else_ty = self.infer_expr_type_expected(*else_expr, env, else_context);
+                        let else_ty = self.infer_expr_with_coercion(*else_expr, env, else_context);
                         let Ok(else_completes) = super::completion::expr_can_complete(
                             &self.lowered.module,
                             *else_expr,
@@ -825,7 +825,7 @@ impl<'a> BodyChecker<'a> {
                         }
                         _ => None,
                     };
-                    types.push(self.infer_expr_type_expected(*expr, env, member));
+                    types.push(self.infer_expr_with_coercion(*expr, env, member));
                 }
                 TypeId::Tuple(types)
             }
@@ -841,7 +841,7 @@ impl<'a> BodyChecker<'a> {
                         return TypeId::Unknown;
                     }
                     let ty =
-                        self.infer_expr_type_expected(*expr, env, member.or(element_ty.as_ref()));
+                        self.infer_expr_with_coercion(*expr, env, member.or(element_ty.as_ref()));
                     if !reachable {
                         continue;
                     }
@@ -914,6 +914,65 @@ impl<'a> BodyChecker<'a> {
         ty
     }
 
+    fn infer_expr_with_coercion(
+        &mut self,
+        expr_id: ExprId,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
+        let source = self.infer_expr_type_expected(expr_id, env, expected);
+        self.apply_interface_coercion(expr_id, source, expected)
+    }
+
+    fn apply_interface_coercion(
+        &mut self,
+        expr_id: ExprId,
+        source: TypeId,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
+        use crate::aggregates::ImplementationSearchError;
+        let Some(target @ TypeId::Trait(interface)) = expected else {
+            return source;
+        };
+        if source == *target
+            || !source.is_concrete()
+            || !interface.arguments.iter().all(TypeId::is_concrete)
+            || matches!(&source, TypeId::Host(_))
+        {
+            return source;
+        }
+        match self.aggregates.concrete_interface_implementation(
+            interface,
+            &source,
+            4096,
+            64,
+            self.cancel,
+        ) {
+            Ok(Some(implementation)) => {
+                self.type_table.insert_interface_coercion(
+                    expr_id,
+                    super::ResolvedInterfaceCoercion {
+                        implementation,
+                        concrete_type: source,
+                        interface_type: interface.clone(),
+                    },
+                );
+                target.clone()
+            }
+            Ok(None) | Err(ImplementationSearchError::Cancelled) => source,
+            Err(ImplementationSearchError::LimitExceeded) => {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                        resource: "interface implementation search",
+                        limit: 4096,
+                    })
+                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                );
+                source
+            }
+        }
+    }
+
     fn infer_match_arm_type(
         &mut self,
         arm: &MatchArm,
@@ -949,7 +1008,7 @@ impl<'a> BodyChecker<'a> {
             arm_env.locals.insert(local, scrutinee_ty.clone());
             self.type_table.insert_local(local, scrutinee_ty.clone());
         }
-        self.infer_expr_type_expected(arm.expr, &mut arm_env, expected)
+        self.infer_expr_with_coercion(arm.expr, &mut arm_env, expected)
     }
 
     fn infer_standard_call_type(
@@ -1681,7 +1740,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
         env: &mut BodyTypeEnv,
     ) {
-        let found = self.infer_expr_type_expected(value, env, expected);
+        let found = self.infer_expr_with_coercion(value, env, expected);
         let Ok(completes) =
             super::completion::expr_can_complete(&self.lowered.module, value, self.cancel)
         else {
@@ -2846,7 +2905,7 @@ impl<'a> BodyChecker<'a> {
                     .ty
                     .argument_context(&substitution, &struct_def.generic_params)
             });
-            let actual = self.infer_expr_type_expected(field.value, env, expected.as_ref());
+            let actual = self.infer_expr_with_coercion(field.value, env, expected.as_ref());
             let Ok(field_completes) = super::completion::expr_can_complete(
                 &self.lowered.module,
                 field.value,
@@ -3193,7 +3252,7 @@ impl<'a> BodyChecker<'a> {
             let expected = parameter
                 .as_ref()
                 .map(|ty| ty.argument_context(substitution, generics));
-            let ty = self.infer_expr_type_expected(*argument, env, expected.as_ref());
+            let ty = self.infer_expr_with_coercion(*argument, env, expected.as_ref());
             let Ok(completes) =
                 super::completion::expr_can_complete(&self.lowered.module, *argument, self.cancel)
             else {

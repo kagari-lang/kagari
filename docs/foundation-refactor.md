@@ -86,8 +86,8 @@ workload, repetitions and measurements; no unmeasured performance claims.
   a receiver with the table's physical representation. Runtime construction
   checks the full concrete receiver ABI and retains the linked program. An
   artifact round trip executes the instruction; invalid slots and receiver
-  representations fail before execution. Source coercion and in-frame dynamic
-  dispatch still need the semantic facts and call target wiring.
+  representations fail before execution. In-frame dynamic dispatch still
+  needs call target wiring.
 
 - R08 dependency-table linking checkpoint: `MakeInterface` now carries both a
   dependency-program module slot and an implementation-table slot. KBC format
@@ -95,6 +95,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   the referenced table in its defining module and proves that module is in the
   caller's dependency closure; the VM constructs the object from that pinned
   member. A detached dependency reference is rejected before execution.
+
+- R08 source-coercion checkpoint: HIR records the unique concrete implementation
+  declaration when an expression is used where an interface is expected. IR
+  emits `MakeInterface` from that fact, including for dependency tables, and
+  whole-program verification rechecks the referenced table and dependency
+  reachability. Source execution tests cover empty and method-bearing tables;
+  source-level dynamic method calls still require a dedicated call instruction.
 
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics

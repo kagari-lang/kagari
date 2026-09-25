@@ -478,13 +478,16 @@ GC objects. Construction requires a verified implementation table and resolved
 method slots; the object retains its concrete payload and the linked dependency
 version until collection. Forged, stale or foreign handles are rejected. The
 current construction entry accepts concrete non-generic script tables; generic
-table instantiation, source coercion and in-frame dispatch remain pending,
+table instantiation and in-frame dispatch remain pending,
 as do host-backed interface values.
 
 Verified bytecode can now allocate the same interface object with
 `MakeInterface`, using an implementation table slot resolved from the typed IR
-declaration identity and a pinned module slot. The source compiler does not yet
-emit that instruction for an implicit concrete-to-interface conversion.
+declaration identity and a pinned module slot. The source compiler emits this
+instruction when a concrete expression is used where an interface is expected
+and a unique non-generic implementation is available. HIR records the selected
+declaration; IR lowering does not search for it again. Whole-program verification
+resolves imported implementations through the dependency graph.
 
 An embedding path that already has a linked implementation can create and
 retain such a value explicitly:

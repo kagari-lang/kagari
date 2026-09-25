@@ -42,9 +42,24 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_expr(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
         self.planner.check()?;
-        let value = self.lower_expr_value(expr_id)?;
+        let mut value = self.lower_expr_value(expr_id)?;
         if !self.current_block_terminated() {
             self.record_expr_layout(expr_id)?;
+            if let Some(coercion) = self
+                .analyzed
+                .typed
+                .type_table
+                .interface_coercion(expr_id)
+                .cloned()
+            {
+                let dst = self.alloc_temp(ValueType::HeapObject);
+                self.emit(Instruction::MakeInterface {
+                    dst,
+                    value,
+                    implementation: coercion.implementation,
+                });
+                value = dst;
+            }
         }
         Ok(value)
     }

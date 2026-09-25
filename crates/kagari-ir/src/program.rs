@@ -31,6 +31,7 @@ pub enum ProgramErrorKind {
     FunctionContract(DefinitionId),
     StructContract(DefinitionId),
     EnumContract(DefinitionId),
+    InterfaceContract(DefinitionId),
 }
 
 #[derive(Debug)]
@@ -293,6 +294,45 @@ pub fn verify_program(
             cancel
                 .check()
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
+            if let Instruction::MakeInterface {
+                dst,
+                value,
+                implementation,
+            } = instruction
+            {
+                let valid = indices
+                    .get(&implementation.module)
+                    .filter(|target| **target == index || dependencies.contains(target))
+                    .and_then(|target| {
+                        modules[*target].abi.public_items.iter().find_map(|item| {
+                            if let crate::module::PublicAbiItem::InterfaceTable(table) = item
+                                && table.declaration == *implementation
+                            {
+                                Some(table)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .is_some_and(|table| {
+                        dst.ty == crate::module::ValueType::HeapObject
+                            && value.ty == table.for_type.representation()
+                            && table.generic_params.is_empty()
+                            && table.for_type.is_concrete()
+                            && table.trait_type.is_concrete()
+                            && table
+                                .methods
+                                .iter()
+                                .all(|method| method.generic_params.is_empty())
+                    });
+                if !valid {
+                    return Err(error(
+                        &module.identity,
+                        ProgramErrorKind::InterfaceContract(implementation.clone()),
+                    ));
+                }
+                continue;
+            }
             let Instruction::Call {
                 callee: CallTarget::SourceFunction(contract),
                 ..

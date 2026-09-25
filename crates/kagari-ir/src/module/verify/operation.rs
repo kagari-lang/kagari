@@ -155,7 +155,14 @@ pub(super) fn verify(
                 }
                 _ => None,
             });
-            let table = table.ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
+            let Some(table) = table else {
+                if implementation.module != module.identity {
+                    // The complete program verifier proves imported table identity,
+                    // signature and dependency reachability.
+                    return Ok(());
+                }
+                return Err(context.error(Error::InvalidInterfaceTable));
+            };
             if !table.generic_params.is_empty()
                 || !table.for_type.is_concrete()
                 || !table.trait_type.is_concrete()

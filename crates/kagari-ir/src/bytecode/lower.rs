@@ -39,14 +39,15 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
             .iter()
             .flat_map(|f| &f.blocks)
             .flat_map(|b| &b.instructions)
-            .any(|i| {
-                matches!(
-                    i,
-                    Instruction::Call {
-                        callee: IrCallTarget::SourceFunction(_),
-                        ..
-                    }
-                )
+            .any(|i| match i {
+                Instruction::Call {
+                    callee: IrCallTarget::SourceFunction(_),
+                    ..
+                } => true,
+                Instruction::MakeInterface { implementation, .. } => {
+                    implementation.module != ir.identity
+                }
+                _ => false,
             })
     {
         return Err(BytecodeLoweringError::UnlinkedSourceModules);

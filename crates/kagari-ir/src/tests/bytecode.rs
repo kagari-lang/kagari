@@ -860,6 +860,77 @@ fn host_trait_bounds_use_imported_script_implementations() {
 }
 
 #[test]
+fn source_interface_coercion_links_an_imported_implementation_table() {
+    use kagari_common::{
+        identity::{ModuleIdentity, PackageId},
+        source_database::{SourceDatabase, SourceLayer},
+    };
+
+    let mut sources = SourceDatabase::default();
+    let mut root = None;
+    for (name, source) in [
+        ("dependency", "pub trait Tag {} impl Tag for i32 {}"),
+        (
+            "root",
+            "use pkg::dependency::Tag; fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { accept(7) }",
+        ),
+    ] {
+        let uri = format!("mem://{name}");
+        sources
+            .bind_module(
+                &uri,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+        let revision = sources.set(&uri, source.into(), SourceLayer::Base).unwrap();
+        if name == "root" {
+            root = Some(revision);
+        }
+    }
+    let snapshot = kagari_hir::analysis::AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let checked = snapshot
+        .check_program(root.unwrap(), &Default::default())
+        .unwrap();
+    let ir = crate::program::lower_program_to_ir(&checked, &Default::default()).unwrap();
+    let mut forged = ir.clone().into_unverified();
+    let root_ir = forged
+        .iter_mut()
+        .find(|module| module.identity.path == ["root"])
+        .unwrap();
+    let implementation = root_ir
+        .functions
+        .iter_mut()
+        .flat_map(|function| &mut function.blocks)
+        .flat_map(|block| &mut block.instructions)
+        .find_map(|instruction| match instruction {
+            crate::module::Instruction::MakeInterface { implementation, .. } => {
+                Some(implementation)
+            }
+            _ => None,
+        })
+        .unwrap();
+    implementation.path.last_mut().unwrap().name = "forged".into();
+    assert!(matches!(
+        crate::program::verify_program(ir.root().clone(), forged, &Default::default()),
+        Err(crate::program::ProgramError {
+            kind: crate::program::ProgramErrorKind::InterfaceContract(_),
+            ..
+        })
+    ));
+    let bytecode = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
+    let root_module = &bytecode.modules[bytecode.root.index()];
+    assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
+        |instruction| matches!(instruction, crate::bytecode::BytecodeInstruction::MakeInterface { module, .. } if module.index() != bytecode.root.index())
+    ));
+    crate::bytecode::verify_program(&bytecode).unwrap();
+}
+
+#[test]
 fn private_interface_tables_must_match_their_trait_contract() {
     use crate::module::abi::{AbiType, BuiltinType};
 

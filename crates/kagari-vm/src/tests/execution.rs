@@ -1759,6 +1759,50 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
 }
 
 #[test]
+fn source_call_boxes_a_concrete_argument_for_an_interface_parameter() {
+    let (runtime, loaded) = load_test_module(
+        "trait Tag {} impl Tag for i32 {} fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { accept(7) }",
+    );
+    assert!(
+        loaded
+            .bytecode
+            .functions
+            .iter()
+            .flat_map(|function| &function.instructions)
+            .any(|instruction| matches!(instruction, BytecodeInstruction::MakeInterface { .. }))
+    );
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
+fn source_call_boxes_an_interface_with_methods() {
+    let (runtime, loaded) = load_test_module(
+        "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { accept(7) }",
+    );
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
+fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
+    let (runtime, loaded) = load_test_module(
+        "trait Tag {} impl Tag for i32 {} fn make() -> Tag { 7 } fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { val value: Tag = make(); accept(value) }",
+    );
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
 fn interface_method_keeps_its_implementation_across_reload() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }";
     let first = compile_test_bytecode(source);

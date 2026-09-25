@@ -175,6 +175,41 @@ impl AggregateCatalog {
         .unwrap_or(0)
     }
 
+    pub fn concrete_interface_implementation(
+        &self,
+        trait_type: &NominalType,
+        receiver: &TypeId,
+        max_checks: usize,
+        max_depth: usize,
+        cancel: &CancellationToken,
+    ) -> Result<Option<DefinitionId>, ImplementationSearchError> {
+        let mut budget = SearchBudget {
+            checks_left: max_checks,
+            depth: 0,
+            max_depth,
+            cancel,
+        };
+        let mut selected = None;
+        for implementation in self.implementations.values() {
+            if self
+                .implementation_matches(
+                    implementation,
+                    trait_type,
+                    receiver,
+                    &mut HashSet::new(),
+                    &mut budget,
+                )?
+                .is_some()
+            {
+                if selected.is_some() || !implementation.generic_params.is_empty() {
+                    return Ok(None);
+                }
+                selected = Some(implementation.id.clone());
+            }
+        }
+        Ok(selected)
+    }
+
     pub fn implementation_count_bounded(
         &self,
         trait_type: &NominalType,
