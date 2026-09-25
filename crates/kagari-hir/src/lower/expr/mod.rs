@@ -66,6 +66,17 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
+            ast::Expr::RangeExpr(range) => ExprKind::Range {
+                start: range
+                    .start()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr()),
+                end: range
+                    .end()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr()),
+                inclusive: range.inclusive(),
+            },
             ast::Expr::CallExpr(call) => ExprKind::Call {
                 callee: call
                     .callee()

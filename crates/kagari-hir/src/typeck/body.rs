@@ -751,6 +751,24 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            ExprKind::Range { start, end, .. } => {
+                let integer = TypeId::Builtin(BuiltinType::I32);
+                let start_ty = self.infer_expr_type_expected(*start, env, Some(&integer));
+                let end_ty = self.infer_expr_type_expected(*end, env, Some(&integer));
+                for (operand, ty) in [(*start, start_ty), (*end, end_ty)] {
+                    if ty.conflicts_with(&integer) {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
+                                operator: "..",
+                                expected: display_type_id(&integer),
+                                found: display_type_id(&ty),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(operand)),
+                        );
+                    }
+                }
+                TypeId::Array(Box::new(integer))
+            }
             ExprKind::Binary { lhs, op, rhs } => {
                 let lhs_ty = self.infer_expr_type(*lhs, env);
                 let Ok(lhs_completes) =

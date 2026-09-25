@@ -78,7 +78,17 @@ pub fn lex_with_cancellation(
             }
             '.' => {
                 chars.next();
-                tokens.push(token(TokenKind::Dot, index, index + 1));
+                if let Some((dot, '.')) = chars.peek().copied() {
+                    chars.next();
+                    if let Some((equal, '=')) = chars.peek().copied() {
+                        chars.next();
+                        tokens.push(token(TokenKind::DotDotEq, index, equal + 1));
+                    } else {
+                        tokens.push(token(TokenKind::DotDot, index, dot + 1));
+                    }
+                } else {
+                    tokens.push(token(TokenKind::Dot, index, index + 1));
+                }
             }
             '+' => {
                 chars.next();

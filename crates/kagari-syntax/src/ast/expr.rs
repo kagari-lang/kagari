@@ -16,6 +16,7 @@ ast_node!(Literal, Literal);
 ast_node!(ParenExpr, ParenExpr);
 ast_node!(PrefixExpr, PrefixExpr);
 ast_node!(BinaryExpr, BinaryExpr);
+ast_node!(RangeExpr, RangeExpr);
 ast_node!(CallExpr, CallExpr);
 ast_node!(FieldExpr, FieldExpr);
 ast_node!(IndexExpr, IndexExpr);
@@ -43,6 +44,7 @@ pub enum Expr {
     ParenExpr(ParenExpr),
     PrefixExpr(PrefixExpr),
     BinaryExpr(BinaryExpr),
+    RangeExpr(RangeExpr),
     CallExpr(CallExpr),
     FieldExpr(FieldExpr),
     IndexExpr(IndexExpr),
@@ -65,6 +67,7 @@ impl AstNode for Expr {
                 | SyntaxKind::ParenExpr
                 | SyntaxKind::PrefixExpr
                 | SyntaxKind::BinaryExpr
+                | SyntaxKind::RangeExpr
                 | SyntaxKind::CallExpr
                 | SyntaxKind::FieldExpr
                 | SyntaxKind::IndexExpr
@@ -86,6 +89,7 @@ impl AstNode for Expr {
             SyntaxKind::ParenExpr => ParenExpr::cast(syntax).map(Self::ParenExpr),
             SyntaxKind::PrefixExpr => PrefixExpr::cast(syntax).map(Self::PrefixExpr),
             SyntaxKind::BinaryExpr => BinaryExpr::cast(syntax).map(Self::BinaryExpr),
+            SyntaxKind::RangeExpr => RangeExpr::cast(syntax).map(Self::RangeExpr),
             SyntaxKind::CallExpr => CallExpr::cast(syntax).map(Self::CallExpr),
             SyntaxKind::FieldExpr => FieldExpr::cast(syntax).map(Self::FieldExpr),
             SyntaxKind::IndexExpr => IndexExpr::cast(syntax).map(Self::IndexExpr),
@@ -108,6 +112,7 @@ impl AstNode for Expr {
             Self::ParenExpr(node) => node.syntax(),
             Self::PrefixExpr(node) => node.syntax(),
             Self::BinaryExpr(node) => node.syntax(),
+            Self::RangeExpr(node) => node.syntax(),
             Self::CallExpr(node) => node.syntax(),
             Self::FieldExpr(node) => node.syntax(),
             Self::IndexExpr(node) => node.syntax(),
@@ -230,6 +235,20 @@ impl BinaryExpr {
                 }
                 _ => None,
             })
+    }
+}
+
+impl RangeExpr {
+    pub fn start(&self) -> Option<Expr> {
+        self.syntax().children().filter_map(Expr::cast).next()
+    }
+
+    pub fn end(&self) -> Option<Expr> {
+        self.syntax().children().filter_map(Expr::cast).nth(1)
+    }
+
+    pub fn inclusive(&self) -> bool {
+        support::token(self.syntax(), SyntaxKind::DotDotEq).is_some()
     }
 }
 

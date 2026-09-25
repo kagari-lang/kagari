@@ -38,7 +38,19 @@ impl<'a> Parser<'a> {
 
     fn parse_expr_nested(&mut self) {
         self.bump_trivia();
+        self.parse_range_expr();
+    }
+
+    fn parse_range_expr(&mut self) {
+        let checkpoint = self.checkpoint();
         self.parse_logical_or_expr();
+        self.bump_trivia();
+        if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+            self.bump();
+            self.parse_logical_or_expr();
+            self.start_node_at(checkpoint, SyntaxKind::RangeExpr);
+            self.finish_node();
+        }
     }
 
     pub(crate) fn parse_condition_expr(&mut self) {

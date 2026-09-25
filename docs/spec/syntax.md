@@ -778,6 +778,10 @@ literal         ::= INTEGER
 ### Expression Notes
 
 - `range_expr` models the common `a..b` and `a..=b` forms.
+- Both bounds are evaluated once, left to right, and must be `i32`. A range
+  produces a fresh `[i32]` array in ascending order; `..` excludes its end and
+  `..=` includes it. A start above the end produces an empty array. Materializing
+  the range consumes ordinary execution budget and allocation resources.
 - half-open forms such as `..b`, `a..`, and `..` are outside the current grammar.
 - closure syntax is included at the surface level; capture behavior is specified in the non-grammatical constraints section.
 - struct literals permit field shorthand such as `Point { x, y }`.

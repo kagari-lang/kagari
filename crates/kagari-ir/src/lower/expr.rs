@@ -1,3 +1,4 @@
+use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::{builtin::BuiltinFunction, hir};
 use std::ops::ControlFlow;
 
@@ -193,6 +194,11 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(dst)
             }
+            hir::ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => self.lower_range(expr_id, start, end, inclusive),
             hir::ExprKind::Call { args, .. } => self.lower_call(expr_id, &args),
             hir::ExprKind::Block(block) => {
                 if let Some(temp) = self.lower_block(block)? {
@@ -657,6 +663,94 @@ impl FunctionLowerer<'_, '_> {
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeArray { dst, elements });
         Ok(dst)
+    }
+
+    fn lower_range(
+        &mut self,
+        expr_id: hir::ExprId,
+        start: hir::ExprId,
+        end: hir::ExprId,
+        inclusive: bool,
+    ) -> Result<IrValue, IrLoweringError> {
+        let first = self.lower_expr(start)?;
+        if self.current_block_terminated() {
+            return Ok(first);
+        }
+        let last = self.lower_expr(end)?;
+        if self.current_block_terminated() {
+            return Ok(last);
+        }
+        let array = self.alloc_temp(self.expr_type(expr_id)?);
+        self.emit(Instruction::MakeArray {
+            dst: array,
+            elements: ValueBuffer::new(),
+        });
+        let current = self.alloc_temp(ValueType::I32);
+        self.emit(Instruction::Move {
+            dst: current,
+            src: first,
+        });
+        let condition = self.new_block();
+        let append = self.new_block();
+        let step = self.new_block();
+        let exit = self.new_block();
+        self.set_terminator(Terminator::Jump(condition));
+        self.switch_to_block(condition);
+        let keep_going = self.alloc_temp(ValueType::Bool);
+        self.emit(Instruction::Binary {
+            dst: keep_going,
+            op: if inclusive {
+                BinaryOp::Le
+            } else {
+                BinaryOp::Lt
+            },
+            lhs: current,
+            rhs: last,
+        });
+        self.set_terminator(Terminator::Branch {
+            cond: keep_going,
+            then_block: append,
+            else_block: exit,
+        });
+        self.switch_to_block(append);
+        let pushed = self.alloc_temp(ValueType::HeapObject);
+        self.emit(Instruction::Call {
+            dst: Some(pushed),
+            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush),
+            args: smallvec::smallvec![array, current],
+        });
+        if inclusive {
+            let at_end = self.alloc_temp(ValueType::Bool);
+            self.emit(Instruction::Binary {
+                dst: at_end,
+                op: BinaryOp::Eq,
+                lhs: current,
+                rhs: last,
+            });
+            self.set_terminator(Terminator::Branch {
+                cond: at_end,
+                then_block: exit,
+                else_block: step,
+            });
+        } else {
+            self.set_terminator(Terminator::Jump(step));
+        }
+        self.switch_to_block(step);
+        let one = self.lower_constant(Constant::I32(1), ValueType::I32);
+        let next = self.alloc_temp(ValueType::I32);
+        self.emit(Instruction::Binary {
+            dst: next,
+            op: BinaryOp::Add,
+            lhs: current,
+            rhs: one,
+        });
+        self.emit(Instruction::Move {
+            dst: current,
+            src: next,
+        });
+        self.set_terminator(Terminator::Jump(condition));
+        self.switch_to_join(exit);
+        Ok(array)
     }
 
     fn lower_struct_init(

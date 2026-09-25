@@ -1,0 +1,20 @@
+// Integer ranges evaluate both endpoints once and produce iterable i32 arrays.
+fn main() -> i32 {
+    var sum = 0;
+    for value in 0..3 {
+        sum += value;
+    }
+    for value in 0..=2 {
+        sum += value;
+    }
+    var saw_max = false;
+    for value in 2147483647..=2147483647 {
+        saw_max = value == 2147483647;
+    }
+    var calls = 0;
+    val next = || { calls += 1; calls };
+    val values = next()..=next();
+    var subtotal = 0;
+    for value in values { subtotal += value; }
+    if sum == 6 && saw_max && calls == 2 && subtotal == 3 { 42 } else { 0 }
+}

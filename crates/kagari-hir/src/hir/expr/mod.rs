@@ -30,6 +30,11 @@ pub enum ExprKind {
         op: BinaryOp,
         rhs: ExprId,
     },
+    Range {
+        start: ExprId,
+        end: ExprId,
+        inclusive: bool,
+    },
     Call {
         callee: ExprId,
         args: ExprBuffer,

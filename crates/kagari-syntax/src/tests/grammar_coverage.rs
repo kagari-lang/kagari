@@ -32,10 +32,6 @@ const GAPS: &[GapCase] = &[
         source: "@tag fn main() {}",
     },
     GapCase {
-        id: "range",
-        source: "fn main() { val values = 1..3; }",
-    },
-    GapCase {
         id: "binding_condition",
         source: "fn main() { if val x = 1 { x }; }",
     },
@@ -266,7 +262,7 @@ fn unrecognized_ebnf_terminals_are_an_explicit_baseline() {
             missing.insert(terminal);
         }
     }
-    let baseline = ["@", "..", "..="].into_iter().map(str::to_owned).collect();
+    let baseline = ["@"].into_iter().map(str::to_owned).collect();
     assert_eq!(
         missing, baseline,
         "EBNF terminal/lexer drift; update the lexer or reviewed baseline"

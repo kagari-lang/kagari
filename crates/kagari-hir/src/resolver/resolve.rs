@@ -192,7 +192,12 @@ impl<'a> BodyResolver<'a> {
             }
             ExprKind::Literal(_) => {}
             ExprKind::Prefix { expr, .. } => self.resolve_expr(*expr),
-            ExprKind::Binary { lhs, rhs, .. } => {
+            ExprKind::Binary { lhs, rhs, .. }
+            | ExprKind::Range {
+                start: lhs,
+                end: rhs,
+                ..
+            } => {
                 self.resolve_expr(*lhs);
                 self.resolve_expr(*rhs);
             }

@@ -76,9 +76,9 @@ break_stmt	covered	examples/syntax/control-flow.kgr	-
 continue_stmt	covered	examples/syntax/control-flow.kgr	-
 condition	partial	examples/syntax/expressions.kgr	Binding conditions are not recognized
 binding_condition	missing	gap:binding_condition	Binding condition is absent
-expr	partial	examples/syntax/expressions.kgr	Range expression branch is not recognized
-range_expr	partial	examples/syntax/expressions.kgr	Only the non-range branch is recognized
-range_op	missing	gap:range	Range operators are absent
+expr	covered	examples/syntax/ranges.kgr	-
+range_expr	covered	examples/syntax/ranges.kgr	-
+range_op	covered	examples/syntax/ranges.kgr	-
 logic_or_expr	covered	examples/syntax/expressions.kgr	-
 logic_and_expr	covered	examples/syntax/expressions.kgr	-
 equality_expr	covered	examples/syntax/expressions.kgr	-
@@ -144,7 +144,7 @@ STRING	covered	examples/syntax/literals-and-comments.kgr	-
 STRING_CHAR	covered	examples/syntax/literals-and-comments.kgr	-
 ESCAPE_SEQUENCE	covered	examples/syntax/literals-and-comments.kgr	-
 UNICODE_ESCAPE	covered	examples/syntax/literals-and-comments.kgr	-
-OPERATOR_TOKEN	partial	examples/syntax/expressions.kgr	Range operators are not recognized
+OPERATOR_TOKEN	covered	examples/syntax/ranges.kgr	-
 DELIMITER_TOKEN	partial	examples/syntax/expressions.kgr	Attribute introducer is not recognized
 ASCII_LETTER	covered	examples/syntax/expressions.kgr	-
 DIGIT	covered	examples/syntax/expressions.kgr	-

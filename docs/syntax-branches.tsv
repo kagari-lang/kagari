@@ -52,8 +52,8 @@ assign_op	4	unverified	-	No branch-specific witness recorded	"*="
 assign_op	5	unverified	-	No branch-specific witness recorded	"/="
 condition	1	missing	gap:binding_condition	Parser rejects this EBNF branch	binding_condition
 condition	2	witnessed	examples/syntax/expressions.kgr	-	expr
-range_op	1	missing	gap:range	Parser rejects this EBNF branch	".."
-range_op	2	missing	gap:range	Parser rejects this EBNF branch	"..="
+range_op	1	witnessed	examples/syntax/ranges.kgr	-	".."
+range_op	2	witnessed	examples/syntax/ranges.kgr	-	"..="
 unary_expr	1	witnessed	examples/syntax/expressions.kgr	-	("!" | "-") unary_expr
 unary_expr	2	witnessed	examples/syntax/expressions.kgr	-	postfix_expr
 postfix_op	1	witnessed	examples/syntax/expressions.kgr	-	call_suffix
