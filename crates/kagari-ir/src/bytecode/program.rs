@@ -153,6 +153,16 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 pending.extend_from_slice(&program.modules[dependency.index()].dependencies);
             }
         }
+        let mut closure = reachable
+            .iter()
+            .map(|dependency| &program.modules[dependency.index()])
+            .collect::<Vec<_>>();
+        closure.push(module);
+        if !super::trait_bounds::host_bounds_match(module, &closure) {
+            return Err(BytecodeVerificationError::InvalidHostInterface(
+                "host trait bound has no unique implementation".into(),
+            ));
+        }
         for item in &module.public_items {
             let crate::module::PublicAbiItem::InterfaceTable(table) = item else {
                 continue;

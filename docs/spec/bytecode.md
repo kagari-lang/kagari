@@ -495,6 +495,12 @@ The bytecode verifier checks:
 - local interface implementation tables match the defining public or private
   trait method roster and substituted signatures before their method slots can
   be used as executable bound evidence
+- concrete host trait arguments satisfy every applied trait bound through
+  exactly one matching script interface table or host trait table in the
+  executable dependency closure. Matching uses declaration identity, ordered
+  type arguments, generic substitution and recursive implementation bounds.
+  Artifact verification caps the implementation catalog, candidate checks and
+  proof depth; exhausting any limit rejects the product before execution
 - modules in one dependency closure agree on each host type identity, symbol
   and executable declaration before runtime binding
 

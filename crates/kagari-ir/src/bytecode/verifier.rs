@@ -263,7 +263,13 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
     if !module.dependencies.is_empty() {
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
-    verify_module_with_program(module, None)
+    verify_module_with_program(module, None)?;
+    if !super::trait_bounds::host_bounds_match(module, &[module]) {
+        return Err(BytecodeVerificationError::InvalidHostInterface(
+            "host trait bound has no unique implementation".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn verify_module_with_program(

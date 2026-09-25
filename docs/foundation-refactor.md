@@ -45,6 +45,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
   explicit candidate/depth limits for untrusted artifact checks. Reaching a
   limit is a verification failure, not evidence that a constraint is absent.
 
+- R08 host-bound proof checkpoint: standalone modules and dependency-closed
+  programs recheck each concrete host trait argument against script interface
+  tables and declared host trait tables. Applied trait arguments must have one
+  matching implementation; missing or ambiguous evidence rejects the product
+  before execution. Script and host evidence survive artifact encoding, while
+  a changed argument without a corresponding implementation is rejected.
+
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.
@@ -339,8 +346,8 @@ workload, repetitions and measurements; no unmeasured performance claims.
   argument count, complete method roster, receiver, nested parameter and result
   types, and rejects mismatches before publication. Encoded-artifact tampering
   tests cover changed arguments, results and method mappings; a cross-module
-  fixture checks the dependency owner. Private trait contracts are covered by
-  the next checkpoint; applied trait-parameter bounds remain outstanding.
+  fixture checks the dependency owner. Private trait contracts and applied
+  trait-parameter bounds are covered by later R08 checkpoints below.
 
 - R08 private trait-contract checkpoint: KBC format 33/runtime ABI v33 carry
   bounded executable contracts for private traits only; public traits continue
@@ -357,14 +364,14 @@ workload, repetitions and measurements; no unmeasured performance claims.
   host type arguments. A decoded private `Readable<T: HashKey>` artifact rejects
   a forged `Readable<f32>` binding even when its host method signature is
   changed consistently. Applied trait bounds that require another trait
-  implementation remain open.
+  implementation are covered by the host-bound proof checkpoint above.
 
 - R08 private implementation-table checkpoint: executable interface tables for
   locally defined private traits are now compared with the private trait
   contract before method slots can serve as bound evidence. The verifier rejects
   changed result types, missing method rosters and absent trait declarations;
   public tables continue to use their public ABI record. Applied trait-bound
-  proof across the dependency closure remains open.
+  proof across the dependency closure is covered by the host-bound proof checkpoint.
 
 - R08 host-type closure checkpoint: whole-program bytecode verification now
   rejects conflicting declarations for one host type identity or symbol across

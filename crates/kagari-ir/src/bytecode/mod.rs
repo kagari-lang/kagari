@@ -5,6 +5,7 @@ mod instruction;
 mod lower;
 mod module;
 mod program;
+mod trait_bounds;
 mod verifier;
 
 pub use artifact::{

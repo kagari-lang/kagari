@@ -130,6 +130,17 @@ pub struct NominalAbiType {
 }
 
 impl NominalAbiType {
+    pub(crate) fn to_checked_type(&self) -> kagari_hir::types::NominalType {
+        kagari_hir::types::NominalType {
+            declaration: self.declaration.clone(),
+            arguments: self
+                .arguments
+                .iter()
+                .map(AbiType::to_checked_type)
+                .collect(),
+        }
+    }
+
     pub(crate) fn from_checked_type(ty: &kagari_hir::types::NominalType) -> Self {
         Self {
             declaration: ty.declaration.clone(),
@@ -170,6 +181,34 @@ pub enum AbiType {
 }
 
 impl AbiType {
+    pub(crate) fn to_checked_type(&self) -> kagari_hir::types::TypeId {
+        use kagari_hir::types::{GenericParameterType, TypeId};
+        match self {
+            Self::Host(id) => TypeId::Host(id.clone()),
+            Self::SelfType(id) => TypeId::SelfType(id.clone()),
+            Self::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
+                owner: owner.clone(),
+                position: *position,
+                name: String::new(),
+            }),
+            Self::Builtin(ty) => TypeId::Builtin(*ty),
+            Self::Tuple(types) => TypeId::Tuple(types.iter().map(Self::to_checked_type).collect()),
+            Self::Array(ty) => TypeId::Array(Box::new(ty.to_checked_type())),
+            Self::Map { key, value } => TypeId::Map {
+                key: Box::new(key.to_checked_type()),
+                value: Box::new(value.to_checked_type()),
+            },
+            Self::Set(ty) => TypeId::Set(Box::new(ty.to_checked_type())),
+            Self::Struct(ty) => TypeId::Struct(ty.to_checked_type()),
+            Self::Enum(ty) => TypeId::Enum(ty.to_checked_type()),
+            Self::Trait(ty) => TypeId::Trait(ty.to_checked_type()),
+            Self::StandardEnum { kind, args } => TypeId::StandardEnum {
+                kind: *kind,
+                args: args.iter().map(Self::to_checked_type).collect(),
+            },
+        }
+    }
+
     pub(crate) fn from_host_type(ty: &kagari_common::host_interface::HostValueType) -> Self {
         use kagari_common::host_interface::HostValueType as Host;
         match ty {
