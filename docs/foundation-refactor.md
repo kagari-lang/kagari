@@ -1876,6 +1876,8 @@ Implemented foundation slices:
   Semantic type resolution, unresolved-hole and equality eligibility predicates
   now use explicit work stacks. A 10,000-layer constructed-type regression covers
   both successful and rejecting leaves without relying on parser depth limits.
+  Diagnostic type names also use an explicit work stack, so formatting a deeply
+  constructed type does not recurse through every generic/container layer.
 - R08: bytecode generation now requires an immutable VerifiedIrModule. The IR
   verifier checks instance identities, direct-call signatures, operand types,
   control flow, parameter layout, debug alignment, effects and definite

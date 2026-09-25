@@ -71,27 +71,6 @@ impl NominalType {
             arguments: self.arguments.iter().map(&mut map).collect(),
         }
     }
-
-    fn display_name(&self) -> String {
-        let name = &self
-            .declaration
-            .path
-            .last()
-            .expect("type declaration path")
-            .name;
-        if self.arguments.is_empty() {
-            name.clone()
-        } else {
-            format!(
-                "{name}<{}>",
-                self.arguments
-                    .iter()
-                    .map(TypeId::display_name)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -453,38 +432,82 @@ impl TypeId {
     }
 
     pub fn display_name(&self) -> String {
-        match self {
-            Self::Unknown => "<unknown>".to_owned(),
-            Self::Error => "<error>".to_owned(),
-            Self::Host(id) => id.path.last().expect("host type identity").name.clone(),
-            Self::Builtin(ty) => crate::builtin::surface::builtin_type_spec(*ty)
-                .map(|spec| spec.name.to_owned())
-                .unwrap_or("<builtin>".to_owned()),
-            Self::Tuple(elements) => {
-                let inner = elements
-                    .iter()
-                    .map(TypeId::display_name)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("({inner})")
+        enum Part<'a> {
+            Type(&'a TypeId),
+            Text(&'a str),
+        }
+        fn sequence<'a>(
+            pending: &mut Vec<Part<'a>>,
+            args: &'a [TypeId],
+            open: &'a str,
+            close: &'a str,
+        ) {
+            pending.push(Part::Text(close));
+            for (index, ty) in args.iter().enumerate().rev() {
+                pending.push(Part::Type(ty));
+                if index > 0 {
+                    pending.push(Part::Text(", "));
+                }
             }
-            Self::Array(element) => format!("[{}]", element.display_name()),
-            Self::Map { key, value } => {
-                format!("Map<{}, {}>", key.display_name(), value.display_name())
-            }
-            Self::Set(element) => format!("Set<{}>", element.display_name()),
-            Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => ty.display_name(),
-            Self::Generic(parameter) => parameter.name.clone(),
-            Self::SelfType(_) => "Self".to_owned(),
-            Self::StandardEnum { kind, args } => {
-                let inner = args
-                    .iter()
-                    .map(TypeId::display_name)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{}<{inner}>", kind.spec().name)
+            pending.push(Part::Text(open));
+        }
+
+        let mut output = String::new();
+        let mut pending = vec![Part::Type(self)];
+        while let Some(part) = pending.pop() {
+            match part {
+                Part::Text(text) => output.push_str(text),
+                Part::Type(ty) => match ty {
+                    Self::Unknown => output.push_str("<unknown>"),
+                    Self::Error => output.push_str("<error>"),
+                    Self::Host(id) => {
+                        output.push_str(&id.path.last().expect("host type identity").name)
+                    }
+                    Self::Builtin(ty) => output.push_str(
+                        crate::builtin::surface::builtin_type_spec(*ty)
+                            .map_or("<builtin>", |spec| spec.name),
+                    ),
+                    Self::Tuple(items) => sequence(&mut pending, items, "(", ")"),
+                    Self::Array(item) => {
+                        pending.push(Part::Text("]"));
+                        pending.push(Part::Type(item));
+                        pending.push(Part::Text("["));
+                    }
+                    Self::Map { key, value } => {
+                        pending.push(Part::Text(">"));
+                        pending.push(Part::Type(value));
+                        pending.push(Part::Text(", "));
+                        pending.push(Part::Type(key));
+                        pending.push(Part::Text("Map<"));
+                    }
+                    Self::Set(item) => {
+                        pending.push(Part::Text(">"));
+                        pending.push(Part::Type(item));
+                        pending.push(Part::Text("Set<"));
+                    }
+                    Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
+                        if !nominal.arguments.is_empty() {
+                            sequence(&mut pending, &nominal.arguments, "<", ">");
+                        }
+                        pending.push(Part::Text(
+                            &nominal
+                                .declaration
+                                .path
+                                .last()
+                                .expect("type declaration path")
+                                .name,
+                        ));
+                    }
+                    Self::Generic(parameter) => output.push_str(&parameter.name),
+                    Self::SelfType(_) => output.push_str("Self"),
+                    Self::StandardEnum { kind, args } => {
+                        sequence(&mut pending, args, "<", ">");
+                        pending.push(Part::Text(kind.spec().name));
+                    }
+                },
             }
         }
+        output
     }
 
     pub fn is_heap_backed(&self) -> bool {
