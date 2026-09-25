@@ -1036,6 +1036,38 @@ fn rejects_reentrant_module_result_access_while_initializing() {
 }
 
 #[test]
+fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_program(
+            "module-slot-invariant",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![module_with_private_init_slot(7)],
+            },
+        )
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(7)
+    );
+    vm.runtime()
+        .module_instance_mut(&loaded)
+        .unwrap()
+        .module_slots
+        .clear();
+
+    let error = vm.execute(&loaded, "main").unwrap_err();
+    assert!(
+        matches!(error, VmError::RuntimeError(ref error) if error.kind() == kagari_runtime::RuntimeErrorKind::EngineFault)
+    );
+    assert!(vm.runtime().is_quarantined());
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+}
+
+#[test]
 fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);

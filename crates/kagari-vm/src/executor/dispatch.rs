@@ -23,7 +23,7 @@ impl<'a> Executor<'a> {
                 let value = self
                     .runtime
                     .module_instance_mut(&loaded)
-                    .ok_or(VmError::InvalidModuleSlot(slot))?
+                    .map_err(VmError::RuntimeError)?
                     .module_slots
                     .get(slot.index())
                     .cloned()
@@ -46,7 +46,7 @@ impl<'a> Executor<'a> {
                 let mut instance = self
                     .runtime
                     .module_instance_mut(&loaded)
-                    .ok_or(VmError::InvalidModuleSlot(slot))?;
+                    .map_err(VmError::RuntimeError)?;
                 if !mutable && !instance.is_initializing() {
                     return Err(VmError::ImmutableModuleSlot(slot));
                 }
@@ -405,6 +405,6 @@ impl Executor<'_> {
     fn descriptor_id(&self, path: PathId) -> Result<HostPathDescriptorId, VmError> {
         self.current_loaded()?
             .path_binding(path)
-            .ok_or(VmError::Trap("missing linked path"))
+            .ok_or(VmError::UnsupportedInstruction("missing linked path"))
     }
 }

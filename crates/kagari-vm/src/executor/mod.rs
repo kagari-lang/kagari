@@ -96,6 +96,11 @@ impl<'a> Executor<'a> {
                 }
                 instruction => {
                     if let Err(error) = self.dispatch_instruction(instruction) {
+                        if let Some(reason) = error.invariant_reason() {
+                            return Err(VmError::RuntimeError(
+                                self.runtime.quarantine_execution_invariant(reason),
+                            ));
+                        }
                         self.runtime
                             .observe_execution(kagari_runtime::ExecutionEvent::Trap)?;
                         return Err(error);

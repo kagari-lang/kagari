@@ -1476,9 +1476,19 @@ impl Runtime {
     pub fn module_instance_mut(
         &self,
         module: &LoadedModule,
-    ) -> Option<std::cell::RefMut<'_, ModuleInstance>> {
-        self.validate_loaded_module(module).ok()?;
-        self.modules.instance_mut(module.key())
+    ) -> Result<std::cell::RefMut<'_, ModuleInstance>, RuntimeError> {
+        self.validate_loaded_module(module)?;
+        if !self.modules.allows_instance_access(module.key()) {
+            return Err(RuntimeError::capability_denied(
+                "candidate cannot access external module state",
+            ));
+        }
+        self.modules
+            .instance_mut_for_cleanup(module.key())
+            .ok_or_else(|| {
+                self.resources
+                    .quarantine("loaded module instance disappeared")
+            })
     }
 
     pub fn root_value(&self, value: value::Value) -> Option<RootedValue> {
@@ -1635,7 +1645,16 @@ impl Runtime {
 
     pub fn validate_loaded_module(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if !module.belongs_to(self.host.owner()) || self.modules.loaded(module.key()).is_none() {
+        if !module.belongs_to(self.host.owner()) {
+            return Err(RuntimeError::module_validation(
+                "loaded module belongs to another runtime or has been released",
+            ));
+        }
+        let loaded = self.modules.try_loaded(module.key()).map_err(|_| {
+            self.resources
+                .quarantine("module store is borrowed across execution")
+        })?;
+        if loaded.is_none() {
             return Err(RuntimeError::module_validation(
                 "loaded module belongs to another runtime or has been released",
             ));
@@ -1963,6 +1982,25 @@ mod tests {
             runtime.collect_garbage().unwrap_err().kind(),
             RuntimeErrorKind::EngineFault
         );
+    }
+
+    #[test]
+    fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
+        let mut runtime = Runtime::default();
+        let loaded = runtime
+            .load_program(
+                "borrowed-module",
+                BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+            )
+            .unwrap();
+        let held = runtime.module_instance_mut(&loaded).unwrap();
+        let error = runtime.module_instance_mut(&loaded).unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+        assert!(runtime.is_quarantined());
+        drop(held);
     }
 
     fn module_with_public_function(return_type: BuiltinType) -> BytecodeModule {

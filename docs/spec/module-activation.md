@@ -93,6 +93,10 @@ Module instance snapshots and mutable borrows are likewise restricted to the
 candidate's pinned program. Existing initialization guards may still record failure
 when unwound; that internal cleanup does not grant ordinary access to old state. This runtime boundary
 supplements the trusted host's obligation to honor its declared effects.
+Mutable instance access returns a capability error for an external version during
+candidate initialization; a missing instance for an otherwise loaded version is
+an engine invariant failure. A denied candidate access does not quarantine the
+runtime.
 
 Candidate failure leaves the active entry and external business state unchanged.
 Ordinary CLI execution can grant explicit capabilities for effectful top-level

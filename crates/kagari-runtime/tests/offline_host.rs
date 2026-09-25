@@ -138,7 +138,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     assert_eq!(a.key(), b.key());
     assert!(second.validate_loaded_module(&a).is_err());
     assert!(second.module_instance_snapshot(&a).is_none());
-    assert!(second.module_instance_mut(&a).is_none());
+    assert!(second.module_instance_mut(&a).is_err());
     assert!(
         second
             .stage_reload_program(

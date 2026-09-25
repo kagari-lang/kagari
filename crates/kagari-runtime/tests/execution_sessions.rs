@@ -535,14 +535,16 @@ fn candidate_module_state_access_is_limited_to_its_program() {
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
     for external in [&old, &other] {
         assert!(runtime.module_instance_snapshot(external).is_none());
-        assert!(runtime.module_instance_mut(external).is_none());
+        assert_eq!(
+            runtime.module_instance_mut(external).unwrap_err().kind(),
+            RuntimeErrorKind::CapabilityDenied
+        );
         assert!(
             runtime
                 .modules()
                 .instance_snapshot(external.key())
                 .is_none()
         );
-        assert!(runtime.modules().instance_mut(external.key()).is_none());
         assert_eq!(
             runtime
                 .fail_module_initialization(external)
@@ -557,7 +559,7 @@ fn candidate_module_state_access_is_limited_to_its_program() {
             .module_instance_snapshot(candidate.module())
             .is_some()
     );
-    assert!(runtime.module_instance_mut(candidate.module()).is_some());
+    assert!(runtime.module_instance_mut(candidate.module()).is_ok());
     drop(cleanup);
     assert!(!runtime.is_quarantined());
     drop(session);

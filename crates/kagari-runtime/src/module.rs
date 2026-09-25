@@ -553,6 +553,13 @@ impl ModuleStore {
         self.inner.borrow().loaded.get(&key).cloned()
     }
 
+    pub(crate) fn try_loaded(
+        &self,
+        key: ModuleKey,
+    ) -> Result<Option<LoadedModule>, std::cell::BorrowError> {
+        Ok(self.inner.try_borrow()?.loaded.get(&key).cloned())
+    }
+
     pub fn latest(&self, name: &str) -> Option<LoadedModule> {
         let inner = self.inner.borrow();
         let key = inner.latest_by_name.get(name)?;
@@ -573,7 +580,7 @@ impl ModuleStore {
         self.inner.borrow().instances.get(&key).cloned()
     }
 
-    pub fn instance_mut(&self, key: ModuleKey) -> Option<RefMut<'_, ModuleInstance>> {
+    pub(crate) fn instance_mut(&self, key: ModuleKey) -> Option<RefMut<'_, ModuleInstance>> {
         if !self.allows_instance_access(key) {
             return None;
         }
@@ -584,7 +591,7 @@ impl ModuleStore {
         &self,
         key: ModuleKey,
     ) -> Option<RefMut<'_, ModuleInstance>> {
-        RefMut::filter_map(self.inner.borrow_mut(), |inner| {
+        RefMut::filter_map(self.inner.try_borrow_mut().ok()?, |inner| {
             inner.instances.get_mut(&key)
         })
         .ok()

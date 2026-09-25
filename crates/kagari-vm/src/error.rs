@@ -43,3 +43,16 @@ impl From<RuntimeError> for VmError {
         Self::RuntimeError(error)
     }
 }
+
+impl VmError {
+    pub(crate) fn invariant_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::InvalidFunctionRef(_) => Some("verified function reference is missing"),
+            Self::InvalidModuleSlot(_) => Some("verified module slot is missing"),
+            Self::InvalidBranchCondition => Some("verified branch condition is not bool"),
+            Self::UnsupportedCallTarget(_) => Some("verified call target is unsupported"),
+            Self::UnsupportedInstruction(reason) => Some(reason),
+            _ => None,
+        }
+    }
+}

@@ -2044,6 +2044,16 @@ Implemented foundation slices:
   construction and runtime loading reject them before publication. A defensive
   interpreter path quarantines the runtime if verified execution nevertheless
   reaches the end; the old implicit `Unit` return is removed.
+  R13 linked-state invariant checkpoint: execution now quarantines missing
+  verified function/module/path slots, invalid branch conditions and unsupported
+  verified call targets. A corrupt module-slot state regression checks EngineFault,
+  zero remaining call depth and zero frame roots after the failed root call.
+  The mutable module-instance API now returns a classified Result: candidate
+  access to external state is CapabilityDenied, while disappearance of an
+  otherwise loaded instance quarantines the runtime. The lower-level mutable
+  store accessor is no longer public. Candidate-isolation tests distinguish
+  policy denial from the corrupt-slot regression. Retaining a mutable instance
+  borrow across another entry now produces EngineFault without a RefCell panic.
   Initialization now owns a lifecycle guard and version retention with no long
   module-state borrow. Success validates the stored result; every unfinished exit
   records failure and releases retention. Failure cleanup is allowed after runtime

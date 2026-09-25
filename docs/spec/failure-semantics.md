@@ -22,6 +22,14 @@ on failure, preserving suspended callers that may handle an ordinary nested trap
 Frame roots and call counters are released after cancellation and quarantine too.
 Invalid frame slots, mutation through a suspended scope and out-of-order scope
 destruction are engine invariant failures and quarantine the runtime.
+Missing linked function/module/path slots and unsupported verified call targets
+also indicate broken execution state, not recoverable script traps. Quarantine
+still unwinds frames and releases their roots and call-depth accounting.
+Candidate access to module state outside its pinned program is a capability
+denial instead; it leaves the runtime usable and the active entry unchanged.
+Holding a mutable module-instance borrow across another runtime entry violates
+the execution ownership contract; the second entry reports an engine fault and
+quarantines without a Rust borrow panic.
 An invalid reference in registered or module-state GC roots is likewise an
 engine invariant failure: collection quarantines the runtime instead of
 reporting a recoverable script trap.
