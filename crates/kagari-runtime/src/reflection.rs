@@ -172,13 +172,11 @@ fn resolve_field(
 mod tests {
     use super::*;
     use crate::{
-        gc::GcHeapConfig,
         host::{
             DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
             HostPathSegmentRegistration, HostRootHandle, HostSchemaEpoch, HostTypeOwnership,
         },
         metadata::{AbiFingerprint, PathAccess, TypeId},
-        value::InterfaceObjectId,
     };
 
     fn host_root_value(object_id: u64) -> Value {
@@ -253,29 +251,25 @@ mod tests {
 
     #[test]
     fn reports_production_value_category_names() {
-        let gc = GcHeap::new(
-            GcHeapConfig::default(),
-            std::rc::Rc::new(crate::resource::ResourceState::default()),
-        );
+        let mut runtime = crate::Runtime::default();
+        let interface = crate::layout_fixtures::interface_value(&mut runtime);
+        let gc = runtime.gc();
         let map = gc.alloc_map(vec![]).unwrap();
         let set = gc.alloc_set(vec![]).unwrap();
 
-        assert_eq!(type_of(&gc, &Value::Map(map)), Value::Str("map".to_owned()));
-        assert_eq!(type_of(&gc, &Value::Set(set)), Value::Str("set".to_owned()));
+        assert_eq!(type_of(gc, &Value::Map(map)), Value::Str("map".to_owned()));
+        assert_eq!(type_of(gc, &Value::Set(set)), Value::Str("set".to_owned()));
+        assert_eq!(type_of(gc, &interface), Value::Str("interface".to_owned()));
         assert_eq!(
-            type_of(&gc, &Value::Interface(InterfaceObjectId(1))),
-            Value::Str("interface".to_owned())
-        );
-        assert_eq!(
-            type_of(&gc, &host_root_value(2)),
+            type_of(gc, &host_root_value(2)),
             Value::Str("host_root".to_owned())
         );
         assert_eq!(
-            type_of(&gc, &path_view_value(3)),
+            type_of(gc, &path_view_value(3)),
             Value::Str("host_path_view".to_owned())
         );
         assert_eq!(
-            type_of(&gc, &shared_borrow_value(4)),
+            type_of(gc, &shared_borrow_value(4)),
             Value::Str("ephemeral".to_owned())
         );
     }

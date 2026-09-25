@@ -77,10 +77,9 @@ mod tests {
 
     #[test]
     fn enum_members_use_script_semantics_including_identity_and_nan() {
-        let gc = GcHeap::new(
-            Default::default(),
-            std::rc::Rc::new(crate::resource::ResourceState::default()),
-        );
+        let mut runtime = crate::Runtime::default();
+        let interface = crate::layout_fixtures::interface_value(&mut runtime);
+        let gc = runtime.gc();
         let make = |value| {
             Value::Enum(
                 gc.alloc_enum(crate::value::EnumTag::OptionSome, vec![value])
@@ -93,15 +92,14 @@ mod tests {
             a, b,
             "Rust equality is deliberately not the script operation"
         );
-        assert!(script_equal(&gc, &a, &b).unwrap());
+        assert!(script_equal(gc, &a, &b).unwrap());
         let array = Value::Array(gc.alloc_array(vec![Value::I32(3)]).unwrap());
-        assert!(script_equal(&gc, &make(array.clone()), &make(array)).unwrap());
+        assert!(script_equal(gc, &make(array.clone()), &make(array)).unwrap());
         let first = make(Value::Array(gc.alloc_array(vec![Value::I32(3)]).unwrap()));
         let second = make(Value::Array(gc.alloc_array(vec![Value::I32(3)]).unwrap()));
-        assert!(!script_equal(&gc, &first, &second).unwrap());
+        assert!(!script_equal(gc, &first, &second).unwrap());
         let nan = make(Value::F64(f64::NAN));
-        assert!(!script_equal(&gc, &nan, &nan).unwrap());
-        let interface = Value::Interface(crate::value::InterfaceObjectId(0));
-        assert!(script_equal(&gc, &interface, &interface).is_err());
+        assert!(!script_equal(gc, &nan, &nan).unwrap());
+        assert!(script_equal(gc, &interface, &interface).is_err());
     }
 }

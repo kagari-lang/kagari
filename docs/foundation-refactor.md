@@ -59,6 +59,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   rejected. Interpreter frames still root all slots, while the existing JIT
   retains its precise-stack-map requirement for supported functions.
 
+- R08 interface-object ownership checkpoint: the integer placeholder is gone.
+  A runtime interface value is a generation-checked GC object containing its
+  concrete payload, applied trait identity, linked method slots and retained
+  executable dependency version. Construction checks the verified table and
+  concrete receiver; tracing keeps the payload alive, and collecting the last
+  interface releases version retention. This entry currently accepts concrete
+  non-generic script tables. Generic table instantiation, source coercion,
+  host-backed interface values and dynamic method calls remain to be connected.
+
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.

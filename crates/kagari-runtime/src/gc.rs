@@ -9,7 +9,19 @@ use std::{
 use indexmap::{IndexMap, IndexSet};
 
 use crate::error::{RuntimeError, RuntimeErrorKind};
-use crate::value::{EnumValueSnapshot, MapKey, StructValueField, Value};
+use crate::value::{EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value};
+
+#[derive(Debug, Clone)]
+pub(crate) struct InterfaceValueSnapshot {
+    pub(crate) data: Value,
+    pub(crate) concrete_type: kagari_ir::module::abi::AbiType,
+    pub(crate) interface_type: kagari_ir::module::abi::NominalAbiType,
+    pub(crate) implementation: crate::module::LoadedModule,
+    pub(crate) methods: Vec<(
+        kagari_common::identity::DefinitionId,
+        kagari_ir::bytecode::FunctionRef,
+    )>,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct GcHeapConfig {
@@ -125,6 +137,7 @@ pub enum GcObjectKind {
     Set,
     Enum,
     Struct,
+    Interface,
 }
 
 #[derive(Debug)]
@@ -137,6 +150,10 @@ enum HeapObject {
         layout: crate::module::StructLayoutRef,
         fields: Vec<Value>,
     },
+    Interface {
+        snapshot: Box<InterfaceValueSnapshot>,
+        _retention: crate::module::RetainedRuntimeProgram,
+    },
 }
 
 impl HeapObject {
@@ -147,6 +164,7 @@ impl HeapObject {
             Self::Set(values) => values.len(),
             Self::Enum(value) => value.fields.len(),
             Self::Struct { fields, .. } => fields.len(),
+            Self::Interface { snapshot, .. } => 1 + snapshot.methods.len(),
         }
     }
 }
@@ -334,7 +352,7 @@ impl GcHeap {
         self.alloc_object(HeapObject::Enum(EnumValueSnapshot { tag, fields }))
     }
 
-    fn matches_abi(
+    pub(crate) fn matches_abi(
         &self,
         value: &Value,
         ty: &kagari_ir::module::abi::AbiType,
@@ -817,6 +835,43 @@ impl GcHeap {
             HeapObject::Set(_) => Some(GcObjectKind::Set),
             HeapObject::Enum(_) => Some(GcObjectKind::Enum),
             HeapObject::Struct { .. } => Some(GcObjectKind::Struct),
+            HeapObject::Interface { .. } => Some(GcObjectKind::Interface),
+        }
+    }
+
+    pub(crate) fn alloc_interface(
+        &self,
+        snapshot: InterfaceValueSnapshot,
+        retention: crate::module::RetainedRuntimeProgram,
+    ) -> Result<InterfaceObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if !self.valid_payload(&snapshot.data)
+            || !self.matches_abi(
+                &snapshot.data,
+                &snapshot.concrete_type,
+                &snapshot.implementation,
+            )
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid interface receiver",
+            ));
+        }
+        self.alloc_object(HeapObject::Interface {
+            snapshot: Box::new(snapshot),
+            _retention: retention,
+        })
+        .map(InterfaceObjectId)
+    }
+
+    pub(crate) fn interface_snapshot(
+        &self,
+        id: InterfaceObjectId,
+    ) -> Option<InterfaceValueSnapshot> {
+        let objects = self.objects.borrow();
+        match self.readable_object(&objects, id.0)? {
+            HeapObject::Interface { snapshot, .. } => Some((**snapshot).clone()),
+            _ => None,
         }
     }
 
@@ -934,7 +989,6 @@ impl GcHeap {
                 | Value::F32(_)
                 | Value::F64(_)
                 | Value::Str(_)
-                | Value::Interface(_)
                 | Value::HostRoot(_)
                 | Value::Ephemeral(_)
         ) {
@@ -956,6 +1010,7 @@ impl GcHeap {
                 Value::Set(id) => (*id, Some(GcObjectKind::Set)),
                 Value::Enum(id) => (*id, Some(GcObjectKind::Enum)),
                 Value::Struct(id) => (*id, Some(GcObjectKind::Struct)),
+                Value::Interface(id) => (id.0, Some(GcObjectKind::Interface)),
                 Value::GcHandle(id) => (*id, None),
                 _ => continue,
             };
@@ -1123,6 +1178,7 @@ impl GcHeap {
                 | Value::Enum(id)
                 | Value::Struct(id)
                 | Value::GcHandle(id) => *id,
+                Value::Interface(id) => id.0,
                 _ => continue,
             };
             let object = self.object_ref(&objects, id)?;
@@ -1135,6 +1191,7 @@ impl GcHeap {
                 HeapObject::Map(entries) => pending.extend(entries.values().rev()),
                 HeapObject::Enum(snapshot) => pending.extend(snapshot.fields.iter().rev()),
                 HeapObject::Struct { fields, .. } => pending.extend(fields.iter().rev()),
+                HeapObject::Interface { snapshot, .. } => pending.push(&snapshot.data),
                 HeapObject::Set(_) => {}
             }
         }
@@ -1146,7 +1203,7 @@ impl GcHeap {
         match self.readable_object(&objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),
             HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
-            HeapObject::Struct { .. } => None,
+            HeapObject::Struct { .. } | HeapObject::Interface { .. } => None,
         }
     }
 
@@ -1159,7 +1216,7 @@ impl GcHeap {
         match self.object_mut(&mut objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),
             HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
-            HeapObject::Struct { .. } => None,
+            HeapObject::Struct { .. } | HeapObject::Interface { .. } => None,
         }
     }
 
@@ -1174,7 +1231,8 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Set(_)
             | HeapObject::Enum(_)
-            | HeapObject::Struct { .. } => None,
+            | HeapObject::Struct { .. }
+            | HeapObject::Interface { .. } => None,
         }
     }
 
@@ -1189,7 +1247,8 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Set(_)
             | HeapObject::Enum(_)
-            | HeapObject::Struct { .. } => None,
+            | HeapObject::Struct { .. }
+            | HeapObject::Interface { .. } => None,
         }
     }
 
@@ -1200,7 +1259,8 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Enum(_)
-            | HeapObject::Struct { .. } => None,
+            | HeapObject::Struct { .. }
+            | HeapObject::Interface { .. } => None,
         }
     }
 
@@ -1215,7 +1275,8 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Enum(_)
-            | HeapObject::Struct { .. } => None,
+            | HeapObject::Struct { .. }
+            | HeapObject::Interface { .. } => None,
         }
     }
 
@@ -1226,7 +1287,8 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Set(_)
-            | HeapObject::Struct { .. } => None,
+            | HeapObject::Struct { .. }
+            | HeapObject::Interface { .. } => None,
         }
     }
 
@@ -1241,7 +1303,8 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Set(_)
-            | HeapObject::Enum(_) => None,
+            | HeapObject::Enum(_)
+            | HeapObject::Interface { .. } => None,
         }
     }
 
@@ -1256,7 +1319,8 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Set(_)
-            | HeapObject::Enum(_) => None,
+            | HeapObject::Enum(_)
+            | HeapObject::Interface { .. } => None,
         }
     }
 }
@@ -1264,6 +1328,67 @@ impl GcHeap {
 #[cfg(test)]
 mod tests {
     use kagari_ir::module::abi::AbiType;
+
+    #[test]
+    fn interface_roots_trace_data_and_retain_old_dependency_versions() {
+        let mut runtime = crate::Runtime::default();
+        let array = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
+        let interface = crate::layout_fixtures::interface_value_with(
+            &mut runtime,
+            AbiType::Array(Box::new(AbiType::Builtin(
+                kagari_ir::module::abi::BuiltinType::I32,
+            ))),
+            Value::Array(array),
+        );
+        let Value::Interface(id) = interface else {
+            panic!("verified interface allocation");
+        };
+        let old = runtime.modules().latest("interface-fixture").unwrap().key();
+        let loaded = runtime.modules().latest("interface-fixture").unwrap();
+        assert!(
+            runtime
+                .make_interface(&loaded, 0, Value::Bool(true))
+                .is_err()
+        );
+        assert!(
+            crate::Runtime::default()
+                .make_interface(&loaded, 0, Value::I32(7))
+                .is_err()
+        );
+        assert_eq!(runtime.modules().retention_counts(old).runtime_values, 1);
+        let root = runtime.root_value(interface.clone()).unwrap();
+        assert!(runtime.gc().interface_snapshot(id).is_some());
+        assert!(!crate::Runtime::default().gc().validate_value(&interface));
+
+        let _new = crate::layout_fixtures::interface_value(&mut runtime);
+        assert_ne!(
+            runtime.modules().latest("interface-fixture").unwrap().key(),
+            old
+        );
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc().object_kind(array), Some(GcObjectKind::Array));
+        assert_eq!(
+            runtime.gc().object_kind(id.0),
+            Some(GcObjectKind::Interface)
+        );
+        assert!(
+            !runtime
+                .modules()
+                .collect_unreachable_epochs()
+                .contains(&old)
+        );
+
+        drop(root);
+        runtime.collect_garbage().unwrap();
+        assert!(!runtime.gc().validate_value(&interface));
+        assert_eq!(runtime.modules().retention_counts(old).runtime_values, 0);
+        assert!(
+            runtime
+                .modules()
+                .collect_unreachable_epochs()
+                .contains(&old)
+        );
+    }
     fn layout(name: &str, field: &str, ty: AbiType) -> crate::module::StructLayoutRef {
         crate::layout_fixtures::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
     }

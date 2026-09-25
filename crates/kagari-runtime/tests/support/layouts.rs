@@ -5,7 +5,72 @@ use kagari_ir::{
     bytecode::{BytecodeModule, StructId},
     module::{StructFieldLayout, StructLayout, abi::AbiType},
 };
-use kagari_runtime::{Runtime, module::StructLayoutRef};
+use kagari_runtime::{Runtime, module::StructLayoutRef, value::Value};
+
+#[allow(dead_code)] // Shared support module is also compiled by integration tests.
+pub fn interface_value(runtime: &mut Runtime) -> Value {
+    interface_value_with(
+        runtime,
+        AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+        Value::I32(7),
+    )
+}
+
+#[allow(dead_code)] // Shared support module is also compiled by integration tests.
+pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data: Value) -> Value {
+    use kagari_ir::{
+        bytecode::{BytecodeProgram, InterfaceTableRecord, ModuleRef},
+        module::{InterfaceTableAbi, PublicAbiItem, TraitAbi, abi::NominalAbiType},
+    };
+    let identity = ModuleIdentity::single_file("interface-fixture.kgr");
+    let declaration = |kind, name: &str| DefinitionId {
+        module: identity.clone(),
+        path: vec![DefinitionPathSegment {
+            kind,
+            name: name.into(),
+            occurrence: 0,
+        }],
+    };
+    let trait_id = declaration(DefinitionKind::Trait, "Tag");
+    let impl_id = declaration(DefinitionKind::Impl, "");
+    let module = runtime
+        .load_program(
+            "interface-fixture",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity,
+                    public_items: vec![
+                        PublicAbiItem::Trait(TraitAbi {
+                            name: "Tag".into(),
+                            generic_params: vec![],
+                            bounds: vec![],
+                            methods: vec![],
+                        }),
+                        PublicAbiItem::InterfaceTable(InterfaceTableAbi {
+                            declaration: impl_id.clone(),
+                            name: String::new(),
+                            generic_params: vec![],
+                            bounds: vec![],
+                            trait_type: AbiType::Trait(NominalAbiType {
+                                declaration: trait_id,
+                                arguments: vec![],
+                            }),
+                            for_type: concrete_type,
+                            methods: vec![],
+                        }),
+                    ],
+                    interface_tables: vec![InterfaceTableRecord {
+                        declaration: impl_id,
+                        methods: vec![],
+                    }],
+                    ..Default::default()
+                }],
+            },
+        )
+        .unwrap();
+    runtime.make_interface(&module, 0, data).unwrap()
+}
 
 pub fn layout(
     runtime: &mut Runtime,

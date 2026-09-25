@@ -472,7 +472,26 @@ Repeating the same bound does not create another candidate. Duplicate method
 declarations within a trait or impl produce `KG_RESOLVE_DUPLICATE_METHOD`.
 Ambiguous calls have no selected method target and cannot enter code generation.
 
-These analysis capabilities do not imply executable dynamic interface values.
+These analysis capabilities do not imply executable dynamic interface calls.
+The runtime now represents script-backed interface values as generation-checked
+GC objects. Construction requires a verified implementation table and resolved
+method slots; the object retains its concrete payload and the linked dependency
+version until collection. Forged, stale or foreign handles are rejected. The
+current construction entry accepts concrete non-generic script tables; generic
+table instantiation, source coercion and dispatch instructions remain pending,
+as do host-backed interface values.
+
+An embedding path that already has a linked implementation can create and
+retain such a value explicitly:
+
+```rust,ignore
+let value = runtime.make_interface(&loaded_impl, table_index, concrete_value)?;
+let rooted = runtime.root_value(value).expect("valid runtime-owned value");
+```
+
+The root must remain alive while the host retains the value. The table index
+belongs to `loaded_impl`; another runtime cannot use that linked module.
+
 Concrete implementations defined in a dependency are visible to bound-call
 resolution through the checked implementation catalog. Their methods link by
 declaration identity and signature to the defining module. Multiple matching

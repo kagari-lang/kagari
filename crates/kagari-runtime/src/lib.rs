@@ -183,6 +183,35 @@ pub struct Runtime {
     execution_artifacts: ExecutionArtifactRegistry,
 }
 
+/// A resolved dynamic method whose interface receiver stays rooted across
+/// safepoints and synchronous host reentry.
+pub struct RootedInterfaceMethod {
+    _root: RootedValue,
+    receiver: value::Value,
+    concrete_type: kagari_ir::module::abi::AbiType,
+    interface_type: kagari_ir::module::abi::NominalAbiType,
+    implementation: LoadedModule,
+    function: kagari_ir::bytecode::FunctionRef,
+}
+
+impl RootedInterfaceMethod {
+    pub fn receiver(&self) -> &value::Value {
+        &self.receiver
+    }
+    pub fn concrete_type(&self) -> &kagari_ir::module::abi::AbiType {
+        &self.concrete_type
+    }
+    pub fn interface_type(&self) -> &kagari_ir::module::abi::NominalAbiType {
+        &self.interface_type
+    }
+    pub fn implementation(&self) -> &LoadedModule {
+        &self.implementation
+    }
+    pub fn function(&self) -> kagari_ir::bytecode::FunctionRef {
+        self.function
+    }
+}
+
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
         let resources = std::rc::Rc::new(ResourceState::new(config.resources));
@@ -465,6 +494,133 @@ impl Runtime {
             ));
         }
         self.gc.alloc_enum(tag, fields)
+    }
+
+    /// Box a concrete script value behind a verified implementation table.
+    /// The resulting heap object retains the table's entire execution version.
+    pub fn make_interface(
+        &self,
+        implementation: &LoadedModule,
+        table_index: usize,
+        data: value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+        use kagari_ir::module::{PublicAbiItem, abi::AbiType};
+        let invalid = || RuntimeError::module_validation("invalid interface implementation table");
+        if !implementation.belongs_to(self.host.owner()) {
+            return Err(invalid());
+        }
+        let table = implementation
+            .bytecode
+            .public_items
+            .iter()
+            .filter_map(|item| match item {
+                PublicAbiItem::InterfaceTable(table) => Some(table),
+                _ => None,
+            })
+            .nth(table_index)
+            .ok_or_else(invalid)?;
+        let linked = implementation
+            .bytecode
+            .interface_tables
+            .get(table_index)
+            .ok_or_else(invalid)?;
+        if linked.declaration != table.declaration || !table.generic_params.is_empty() {
+            return Err(invalid());
+        }
+        let concrete_type = table.for_type.clone();
+        if !concrete_type.is_concrete() {
+            return Err(invalid());
+        }
+        let AbiType::Trait(interface_type) = &table.trait_type else {
+            return Err(invalid());
+        };
+        if !table.trait_type.is_concrete() {
+            return Err(invalid());
+        }
+        let mut methods = Vec::with_capacity(table.methods.len());
+        for method in &table.methods {
+            if !method.generic_params.is_empty() {
+                return Err(invalid());
+            }
+            let mut path = interface_type.declaration.path.clone();
+            path.push(DefinitionPathSegment {
+                kind: DefinitionKind::Method,
+                name: method.name.clone(),
+                occurrence: 0,
+            });
+            let method_id = DefinitionId {
+                module: interface_type.declaration.module.clone(),
+                path,
+            };
+            let mut candidates = linked.methods.iter().filter(|slot| {
+                slot.method == method_id
+                    && implementation
+                        .bytecode
+                        .functions
+                        .get(slot.function.index())
+                        .and_then(|function| function.identity.as_ref())
+                        .is_some_and(|identity| identity.arguments.is_empty())
+            });
+            let Some(slot) = candidates.next() else {
+                return Err(invalid());
+            };
+            if candidates.next().is_some() {
+                return Err(invalid());
+            }
+            methods.push((method_id, slot.function));
+        }
+        self.validate_heap_payloads(std::slice::from_ref(&data))?;
+        let retention = self
+            .modules
+            .retain_runtime_program(implementation)
+            .ok_or_else(invalid)?;
+        self.gc
+            .alloc_interface(
+                gc::InterfaceValueSnapshot {
+                    data,
+                    concrete_type,
+                    interface_type: interface_type.clone(),
+                    implementation: implementation.clone(),
+                    methods,
+                },
+                retention,
+            )
+            .map(value::Value::Interface)
+    }
+
+    pub fn resolve_interface_method(
+        &self,
+        value: &value::Value,
+        method: &kagari_common::identity::DefinitionId,
+    ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        let value::Value::Interface(id) = value else {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "expected interface value",
+            ));
+        };
+        let root = self.root_value(value.clone()).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
+        })?;
+        let snapshot = self.gc.interface_snapshot(*id).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
+        })?;
+        let function = snapshot
+            .methods
+            .iter()
+            .find_map(|(candidate, function)| (candidate == method).then_some(*function))
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "interface method unavailable")
+            })?;
+        Ok(RootedInterfaceMethod {
+            _root: root,
+            receiver: snapshot.data,
+            concrete_type: snapshot.concrete_type,
+            interface_type: snapshot.interface_type,
+            implementation: snapshot.implementation,
+            function,
+        })
     }
 
     pub fn host(&self) -> &HostRegistry {

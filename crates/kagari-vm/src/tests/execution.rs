@@ -1721,3 +1721,24 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
     }
 }
+
+#[test]
+fn concrete_interface_object_resolves_a_linked_method_slot() {
+    let (runtime, loaded) = load_test_module(
+        "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }",
+    );
+    let table = &loaded.bytecode.interface_tables[0];
+    let method = table.methods[0].method.clone();
+    let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
+    let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
+    assert_eq!(resolved.receiver(), &Value::I32(7));
+    assert_eq!(resolved.implementation().key(), loaded.key());
+    assert_eq!(resolved.function(), table.methods[0].function);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc().validate_value(&boxed));
+    assert!(
+        runtime
+            .resolve_interface_method(&Value::I32(7), &method)
+            .is_err()
+    );
+}

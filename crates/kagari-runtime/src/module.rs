@@ -345,6 +345,23 @@ pub struct ModuleStore {
     inner: std::rc::Rc<RefCell<ModuleStoreInner>>,
 }
 
+/// Keeps every member of one linked dependency closure reachable while a
+/// runtime-owned value can dispatch through its executable tables.
+#[derive(Debug)]
+pub(crate) struct RetainedRuntimeProgram {
+    store: ModuleStore,
+    members: Vec<ModuleKey>,
+}
+
+impl Drop for RetainedRuntimeProgram {
+    fn drop(&mut self) {
+        for key in &self.members {
+            self.store
+                .release_epoch(*key, ModuleEpochRetention::RuntimeValue);
+        }
+    }
+}
+
 impl Default for ModuleStore {
     fn default() -> Self {
         Self::new(std::rc::Rc::new(crate::ResourceState::default()))
@@ -403,6 +420,26 @@ impl Drop for StagedProgram {
 }
 
 impl ModuleStore {
+    pub(crate) fn retain_runtime_program(
+        &self,
+        module: &LoadedModule,
+    ) -> Option<RetainedRuntimeProgram> {
+        let mut members = Vec::new();
+        for member in module.members() {
+            let key = member.key();
+            if !self.retain_epoch(key, ModuleEpochRetention::RuntimeValue) {
+                for retained in &members {
+                    self.release_epoch(*retained, ModuleEpochRetention::RuntimeValue);
+                }
+                return None;
+            }
+            members.push(key);
+        }
+        Some(RetainedRuntimeProgram {
+            store: self.clone(),
+            members,
+        })
+    }
     pub(crate) fn new(resources: std::rc::Rc<crate::ResourceState>) -> Self {
         Self {
             resources,

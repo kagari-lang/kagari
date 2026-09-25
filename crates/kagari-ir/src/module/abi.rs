@@ -280,6 +280,25 @@ impl AbiType {
         }
     }
 
+    pub fn is_concrete(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Parameter { .. } | Self::SelfType(_) => return false,
+                Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
+                    pending.extend(types)
+                }
+                Self::Array(ty) | Self::Set(ty) => pending.push(ty),
+                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments)
+                }
+                Self::Host(_) | Self::Builtin(_) => {}
+            }
+        }
+        true
+    }
+
     pub(crate) fn instantiate(
         &self,
         owner: &kagari_common::identity::DefinitionId,

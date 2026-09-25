@@ -71,7 +71,7 @@ impl EnumTag {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InterfaceObjectId(pub u64);
+pub struct InterfaceObjectId(pub(crate) HeapObjectId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EphemeralValueId(pub u64);
@@ -170,7 +170,8 @@ impl Value {
                         | Self::Set(_)
                         | Self::Enum(_)
                         | Self::Struct(_)
-                        | Self::GcHandle(_),
+                        | Self::GcHandle(_)
+                        | Self::Interface(_),
                     T::HeapObject
                 )
         )
@@ -421,7 +422,8 @@ mod tests {
             )
             .is_default_heap_payload()
         );
-        assert!(Value::Interface(InterfaceObjectId(1)).is_default_heap_payload());
+        let mut runtime = crate::Runtime::default();
+        assert!(crate::layout_fixtures::interface_value(&mut runtime).is_default_heap_payload());
         assert!(!Value::HostRoot(host_root(1)).is_default_heap_payload());
         assert!(!path_view_value(1).is_default_heap_payload());
         assert!(!shared_borrow_value(1).is_default_heap_payload());
