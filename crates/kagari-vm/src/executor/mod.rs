@@ -58,7 +58,10 @@ impl<'a> Executor<'a> {
             };
 
             let Some(instruction) = instruction else {
-                return Ok(Value::Unit);
+                return Err(VmError::RuntimeError(
+                    self.runtime
+                        .quarantine_execution_invariant("verified function fell through"),
+                ));
             };
 
             self.runtime

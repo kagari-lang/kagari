@@ -242,6 +242,11 @@ impl Runtime {
         self.resources.is_quarantined()
     }
 
+    /// Report an invariant failure detected by an execution backend.
+    pub fn quarantine_execution_invariant(&self, reason: &'static str) -> RuntimeError {
+        self.resources.quarantine(reason)
+    }
+
     pub fn execution_root(&self) -> Option<LoadedModule> {
         self.resources
             .active_session()
@@ -1926,8 +1931,9 @@ mod tests {
     use super::*;
     use kagari_ir::{
         bytecode::{
-            ArtifactBuildOptions, ArtifactCompatibility, BytecodeFunction, BytecodeModule,
-            ConstantOperand, DependencyFingerprint, FunctionMetadata, FunctionRef, KbcArtifact,
+            ArtifactBuildOptions, ArtifactCompatibility, BytecodeFunction, BytecodeInstruction,
+            BytecodeModule, ConstantOperand, DependencyFingerprint, FunctionMetadata, FunctionRef,
+            KbcArtifact,
         },
         module::{FunctionAbi, PublicAbiItem, ValueType},
     };
@@ -2000,10 +2006,29 @@ mod tests {
                 id: FunctionRef::new(0),
                 name: "main".to_owned(),
                 metadata,
+                instructions: vec![BytecodeInstruction::Return(None)],
                 ..BytecodeFunction::default()
             }],
             ..BytecodeModule::default()
         }
+    }
+
+    #[test]
+    fn load_rejects_missing_function_terminator_before_publication() {
+        let mut module = module_with_executable_function();
+        module.functions[0].instructions.clear();
+        let mut runtime = Runtime::default();
+        let error = runtime
+            .load_program(
+                "missing-return",
+                BytecodeProgram {
+                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                    modules: vec![module],
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+        assert!(runtime.modules().latest("missing-return").is_none());
     }
 
     fn artifact_with_loader_fingerprints() -> KbcArtifact {

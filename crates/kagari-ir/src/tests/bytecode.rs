@@ -13,6 +13,40 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
+fn rejects_function_fallthrough_before_loading() {
+    for source in ["fn main() {}", "fn main() -> i32 { 42 }"] {
+        let mut module = common::bytecode_ok(source);
+        let function = module
+            .functions
+            .iter_mut()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert!(matches!(
+            function.instructions.last(),
+            Some(BytecodeInstruction::Return(_))
+        ));
+        function.instructions.pop();
+        assert!(matches!(
+            verify_module(&module),
+            Err(BytecodeVerificationError::InvalidOperation {
+                reason: "function falls through without a terminator",
+                ..
+            })
+        ));
+        assert!(
+            KbcArtifact::from_program(
+                crate::bytecode::BytecodeProgram {
+                    root: crate::bytecode::ModuleRef::new(0),
+                    modules: vec![module],
+                },
+                ArtifactBuildOptions::default(),
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn applied_trait_bounds_change_public_abi_fingerprint() {
     let fingerprint = |argument: &str| {
         let module = common::bytecode_ok(&format!(

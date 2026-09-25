@@ -84,6 +84,12 @@ arity comes from the standard declaration table. IR rejects unsupported indirect
 calls. The declared entry block is emitted first, even when its arena index is
 nonzero; branches use offsets computed in that same emission order.
 
+Every bytecode function ends in an explicit `Return`, `Jump`, `Branch`, or
+`Unreachable`. An empty function or a final ordinary operation cannot implicitly
+return `Unit`; the verifier rejects fallthrough before artifact construction or
+runtime loading. If a verified execution ever reaches the end without a terminator,
+the runtime treats that as an engine invariant failure.
+
 IR struct construction names a nominal declaration and provides each field slot
 exactly once. Ordinary field operands contain a declaring struct identity and a
 slot, with no field-name fallback. The module carries checked layouts with field

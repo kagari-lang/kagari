@@ -25,6 +25,9 @@ destruction are engine invariant failures and quarantine the runtime.
 An invalid reference in registered or module-state GC roots is likewise an
 engine invariant failure: collection quarantines the runtime instead of
 reporting a recoverable script trap.
+The loader rejects bytecode functions that can fall through their final
+instruction. Reaching the end of a verified function without a terminator is an
+engine fault and quarantines the runtime rather than synthesizing a `Unit` return.
 Host resource scopes apply the same unconditional cleanup to temporary roots and
 borrow leases. Rejected argument preparation releases prior leases before returning;
 expired/foreign tokens and borrow conflicts never invoke the target callback.

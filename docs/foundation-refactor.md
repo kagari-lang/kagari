@@ -2039,6 +2039,11 @@ Implemented foundation slices:
   registered or module-state roots contain an invalid heap reference. A corrupt
   foreign handle in module state previously surfaced as a recoverable script
   trap; the regression test checks EngineFault and rejection of later collection.
+  R08/R13 fallthrough checkpoint: bytecode verification rejects functions without
+  a final explicit terminator, including empty and non-Unit functions. Artifact
+  construction and runtime loading reject them before publication. A defensive
+  interpreter path quarantines the runtime if verified execution nevertheless
+  reaches the end; the old implicit `Unit` return is removed.
   Initialization now owns a lifecycle guard and version retention with no long
   module-state borrow. Success validates the stored result; every unfinished exit
   records failure and releases retention. Failure cleanup is allowed after runtime

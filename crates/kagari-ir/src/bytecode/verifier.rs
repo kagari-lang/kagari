@@ -582,6 +582,20 @@ fn verify_function(
     function: &BytecodeFunction,
     program: Option<&super::BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
+    if !matches!(
+        function.instructions.last(),
+        Some(
+            BytecodeInstruction::Return(_)
+                | BytecodeInstruction::Jump { .. }
+                | BytecodeInstruction::Branch { .. }
+                | BytecodeInstruction::Unreachable
+        )
+    ) {
+        return Err(BytecodeVerificationError::InvalidOperation {
+            function: function.id,
+            reason: "function falls through without a terminator",
+        });
+    }
     verify_metadata_counts(function)?;
     verify_metadata_types(module, function)?;
     verify_root_layout(function)?;
