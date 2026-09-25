@@ -301,6 +301,7 @@ impl FunctionLowerer<'_, '_> {
         let mut decision_block = self.current_block;
 
         for arm in arms {
+            let outer_scope = self.current_scope;
             let irrefutable = self
                 .analyzed
                 .lowered
@@ -362,6 +363,7 @@ impl FunctionLowerer<'_, '_> {
                         local: ir_local,
                         src: scrutinee_temp,
                     });
+                    self.introduce_debug_local(ir_local);
                 }
             }
 
@@ -374,6 +376,8 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.set_terminator(Terminator::Jump(exit_block));
             }
+
+            self.current_scope = outer_scope;
 
             decision_block = next_decision;
             if irrefutable {

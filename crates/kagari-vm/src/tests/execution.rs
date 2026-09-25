@@ -714,6 +714,74 @@ fn main() -> i32 {
 }
 
 #[test]
+fn debug_session_hides_inner_binding_after_lexical_scope() {
+    let source = r#"
+fn main() -> i32 {
+    if true {
+        val inner = 7;
+        inner + 1;
+    } else {
+        0;
+    };
+    val after = 2;
+    after
+}
+"#;
+    let mut runtime = debug_runtime("lexical.kgr");
+    let loaded = runtime
+        .load_program(
+            "lexical.kgr",
+            kagari_ir::bytecode::BytecodeProgram {
+                root: kagari_ir::bytecode::ModuleRef::new(0),
+                modules: vec![compile_test_bytecode(source)],
+            },
+        )
+        .unwrap();
+    let mut session = DebugSession::new(&runtime).unwrap();
+    let inside = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset(
+            "lexical.kgr",
+            source.find("inner +").unwrap(),
+        ))
+        .unwrap();
+    let after = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset(
+            "lexical.kgr",
+            source.rfind("after").unwrap(),
+        ))
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    vm.attach_debug_session(session).unwrap();
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(2)
+    );
+    let debug = vm.debug_session().unwrap();
+    let pauses = debug.pauses();
+    assert!(pauses.iter().any(|pause| {
+        pause.reason == DebugPauseReason::Breakpoint(inside)
+            && pause
+                .top_frame()
+                .unwrap()
+                .bindings
+                .iter()
+                .any(|binding| binding.name == "inner")
+    }));
+    let after = pauses
+        .iter()
+        .find(|pause| pause.reason == DebugPauseReason::Breakpoint(after))
+        .unwrap();
+    assert!(
+        after
+            .top_frame()
+            .unwrap()
+            .bindings
+            .iter()
+            .all(|binding| binding.name != "inner")
+    );
+}
+
+#[test]
 fn debug_session_supports_step_into_and_trap_pause_events() {
     let mut runtime = debug_runtime("debug_trap.kbc");
     let mut main = test_function(

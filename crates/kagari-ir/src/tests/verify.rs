@@ -413,6 +413,12 @@ fn checks_block_termination_targets_and_debug_alignment() {
     let mut module = raw("fn main() {}");
     module.functions[0].blocks[0].instruction_spans.clear();
     assert_eq!(reject(module), Error::InvalidDebugMetadata);
+    let mut module = raw("fn main() -> i32 { val value = 1; value }");
+    module.functions[0].blocks[0].instruction_scopes.clear();
+    assert_eq!(reject(module), Error::InvalidDebugMetadata);
+    let mut module = raw("fn main() -> i32 { val value = 1; value }");
+    module.functions[0].debug.lexical_scopes[1].parent = Some(99);
+    assert_eq!(reject(module), Error::InvalidDebugMetadata);
 }
 
 #[test]
@@ -447,6 +453,7 @@ fn requires_initialization_on_every_predecessor() {
         .unwrap();
     branch.instructions.remove(index);
     branch.instruction_spans.remove(index);
+    branch.instruction_scopes.remove(index);
     assert!(matches!(reject(module), Error::UninitializedTemp(_)));
 
     let mut module = raw("fn main() -> i32 { val x = 7; x }");
@@ -458,6 +465,7 @@ fn requires_initialization_on_every_predecessor() {
         .unwrap();
     block.instructions.remove(index);
     block.instruction_spans.remove(index);
+    block.instruction_scopes.remove(index);
     assert_eq!(reject(module), Error::UninitializedLocal(LocalId::new(0)));
 }
 
@@ -472,6 +480,7 @@ fn a_loop_backedge_does_not_initialize_the_first_iteration() {
         .unwrap();
     entry.instructions.remove(index);
     entry.instruction_spans.remove(index);
+    entry.instruction_scopes.remove(index);
     assert_eq!(reject(module), Error::UninitializedLocal(LocalId::new(0)));
 }
 
@@ -600,6 +609,9 @@ fn readonly_path_modification_is_rejected_before_effects_or_flow() {
         value,
     });
     block.instruction_spans.push(Default::default());
+    block
+        .instruction_scopes
+        .push(block.terminator_scope.unwrap());
     assert_eq!(reject(module), Error::ReadOnlyPath);
 }
 

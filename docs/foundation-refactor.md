@@ -2017,12 +2017,18 @@ Implemented foundation slices:
   release both before dropping their session handle. Borrow ownership is checked
   across runtimes and the unchecked host-frame entry is removed. Path callbacks
   receive the same checked call context for synchronous reentry before commit.
-  Lexical visibility and stable debug frame identities remain R17 work.
+  Stable debug frame identities remain R17 work.
   R17 program-point checkpoint: lowered local ranges now start after the first
   initializing StoreLocal; parameters remain visible at entry. Debug inspection
   uses exclusive range ends, so a pause before initialization cannot expose a
   fabricated Unit binding. IR metadata and VM pause tests cover both sides of
-  the store. Ranges still need lexical-scope end points and branch-aware ranges.
+  the store. Follow-up scope metadata now records each IR instruction's lexical
+  context. Bytecode lowering emits disjoint local ranges at CFG emission order
+  transitions; IR verification checks scope parents, local owners and per-block
+  program-point alignment. Inner locals disappear at block exit even when the
+  source span of an enclosing expression covers later instructions. Source and
+  VM pause tests cover visibility within and after the block. KBC format 38 and
+  runtime ABI v38 reject older debug metadata.
   Tests cover direct/encoded
   programs, dependency-first initialization/failure caching, stale reloads, old
   dependency calls, malformed program rejection and interpreter/JIT fallback parity.

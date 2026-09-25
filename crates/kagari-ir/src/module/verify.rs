@@ -305,14 +305,47 @@ fn verify_function(
             "parameter local",
         )?;
     }
+    let mut debug_local_ids = std::collections::HashSet::new();
     for local in &function.debug.locals {
         context.check_cancel()?;
+        if !debug_local_ids.insert(local.local) {
+            return Err(context.error(IrVerificationErrorKind::InvalidDebugMetadata));
+        }
         context.expect(
             context.local(function, local.local)?,
             local.ty,
             "debug local",
         )?;
         if local.is_parameter != (local.local.index() < function.params.len()) {
+            return Err(context.error(IrVerificationErrorKind::InvalidDebugMetadata));
+        }
+    }
+    let scopes = &function.debug.lexical_scopes;
+    if scopes.len()
+        != function
+            .debug
+            .locals
+            .len()
+            .checked_sub(function.params.len())
+            .and_then(|count| count.checked_add(1))
+            .unwrap_or(0)
+        || scopes
+            .first()
+            .is_none_or(|root| root.parent.is_some() || root.local.is_some())
+    {
+        return Err(context.error(IrVerificationErrorKind::InvalidDebugMetadata));
+    }
+    let mut scoped_locals = std::collections::HashSet::new();
+    for (index, scope) in scopes.iter().enumerate().skip(1) {
+        context.check_cancel()?;
+        let Some(local) = scope.local else {
+            return Err(context.error(IrVerificationErrorKind::InvalidDebugMetadata));
+        };
+        if scope.parent.is_none_or(|parent| parent >= index)
+            || local.index() < function.params.len()
+            || !scoped_locals.insert(local)
+            || !debug_local_ids.contains(&local)
+        {
             return Err(context.error(IrVerificationErrorKind::InvalidDebugMetadata));
         }
     }
@@ -328,7 +361,15 @@ fn verify_function(
             .saturating_add(block.instructions.len())
             .saturating_add(1);
         context.limit(count, u32::MAX as usize, "instructions")?;
-        if block.instructions.len() != block.instruction_spans.len() {
+        if block.instructions.len() != block.instruction_spans.len()
+            || block.instructions.len() != block.instruction_scopes.len()
+            || block.terminator_scope.is_none()
+            || block
+                .instruction_scopes
+                .iter()
+                .chain(block.terminator_scope.iter())
+                .any(|scope| *scope >= scopes.len())
+        {
             return Err(context.error(IrVerificationErrorKind::InvalidDebugMetadata));
         }
         let terminator = block

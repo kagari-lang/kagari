@@ -9,6 +9,16 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         block_id: hir::BlockId,
     ) -> Result<Option<IrValue>, IrLoweringError> {
+        let previous_scope = self.current_scope;
+        let result = self.lower_block_inner(block_id);
+        self.current_scope = previous_scope;
+        result
+    }
+
+    fn lower_block_inner(
+        &mut self,
+        block_id: hir::BlockId,
+    ) -> Result<Option<IrValue>, IrLoweringError> {
         self.planner.check()?;
         let block = self.analyzed.lowered.module.block(block_id).clone();
         for stmt in &block.statements {
@@ -50,6 +60,7 @@ impl FunctionLowerer<'_, '_> {
                 }
                 let dst = self.bind_local(local, name)?;
                 self.emit(Instruction::StoreLocal { local: dst, src });
+                self.introduce_debug_local(dst);
                 Ok(())
             }
             hir::StmtKind::Assign { target, value, op } => {

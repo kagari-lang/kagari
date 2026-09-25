@@ -1394,12 +1394,57 @@ fn main(value: i32) -> i32 {
         .unwrap();
     assert_eq!(parameter.start, 0);
     assert_eq!(next.start, initializing_store + 1);
-    assert_eq!(next.end, function.instructions.len());
+    assert!(next.end > next.start);
+    assert!(next.end <= function.instructions.len());
 
     let artifact_debug = DebugMetadata::from_module(&bytecode);
     assert!(!artifact_debug.stripped);
     assert_eq!(artifact_debug.functions.len(), bytecode.functions.len());
     assert!(artifact_debug.debug_names.iter().any(|name| name == "main"));
+}
+
+#[test]
+fn debug_local_ranges_close_when_their_lexical_block_ends() {
+    let source = r#"
+fn main() -> i32 {
+    val outer = 5;
+    if true {
+        val inner = 1;
+        print("inside");
+    } else {
+        print("outside");
+    };
+    outer
+}
+"#;
+    let bytecode = common::bytecode_ok(source);
+    let function = bytecode
+        .functions
+        .iter()
+        .find(|f| f.name == "main")
+        .unwrap();
+    let debug = &function.metadata.debug;
+    let tail_source_offset = source.rfind("outer").unwrap();
+    let tail_offset = debug
+        .source_spans
+        .iter()
+        .find(|entry| entry.span.start <= tail_source_offset && tail_source_offset < entry.span.end)
+        .unwrap()
+        .instruction_offset;
+    let inner = debug
+        .local_live_ranges
+        .iter()
+        .filter(|range| range.name == "inner")
+        .collect::<Vec<_>>();
+    assert!(!inner.is_empty());
+    assert!(
+        inner
+            .iter()
+            .all(|range| tail_offset < range.start || tail_offset >= range.end)
+    );
+    assert!(debug.local_live_ranges.iter().any(|range| {
+        range.name == "outer" && range.start <= tail_offset && tail_offset < range.end
+    }));
 }
 
 #[test]

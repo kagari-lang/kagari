@@ -355,8 +355,11 @@ Debug metadata may be stripped only when the module is not intended to be debugg
 If debug metadata is stripped, breakpoints and variable inspection are unavailable for that artifact.
 Local live ranges use instruction offsets with an inclusive start and exclusive
 end. A source local starts after its initializing store; parameters start at
-function entry. Lexical-scope end points and branch-aware disjoint ranges remain
-part of the R17 debugger contract work.
+function entry. IR records lexical scope identity at each instruction and
+terminator. Bytecode lowering emits disjoint ranges when control-flow emission
+leaves and reenters a scope. The verifier checks scope ownership and range bounds;
+the debugger queries these program points rather than inferring visibility from
+source spans.
 
 ## Debug Adapter Boundary
 

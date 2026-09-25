@@ -555,7 +555,7 @@ New calls use the latest successfully published epoch.
 
 ## GC and Safepoint Metadata
 
-KBC format 37 retains the verified, function-wide conservative root layout
+KBC format 38 retains the verified, function-wide conservative root layout
 introduced in format 34.
 Every local and register with `HeapObject` representation appears exactly once,
 in ascending slot order. Scalar, string and host-handle slots do not appear.

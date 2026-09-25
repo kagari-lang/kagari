@@ -939,6 +939,9 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
     function.effects = function.effects.union(instruction.effects());
     block.instructions.push(instruction);
     block.instruction_spans.push(kagari_common::Span::default());
+    block
+        .instruction_scopes
+        .push(block.terminator_scope.unwrap());
 
     let verified = verify_ir(module.clone(), &CancellationToken::default()).unwrap();
     let bytecode = crate::bytecode::lower_to_bytecode(&verified).unwrap();

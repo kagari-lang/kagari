@@ -6,8 +6,8 @@ use kagari_hir::{AnalyzedModule, hir};
 
 use crate::module::{
     function::{
-        BasicBlock, IrFunction, IrFunctionDebugMetadata, IrLocal, IrLocalDebugInfo, IrParameter,
-        IrTemp, ParameterBuffer,
+        BasicBlock, IrFunction, IrFunctionDebugMetadata, IrLexicalScope, IrLocal, IrLocalDebugInfo,
+        IrParameter, IrTemp, ParameterBuffer,
     },
     ids::{BlockId, LocalId, TempId},
     instruction::{EffectSet, Instruction, IrValue, Terminator},
@@ -31,6 +31,7 @@ pub(crate) struct FunctionLowerer<'a, 'p> {
     pub(crate) locals: HashMap<hir::LocalId, LocalId>,
     pub(crate) loops: Vec<LoopScope>,
     pub(crate) effects: EffectSet,
+    pub(crate) current_scope: usize,
     current_debug_span: Option<Span>,
 }
 
@@ -60,8 +61,10 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             blocks: vec![BasicBlock {
                 instructions: Vec::new(),
                 instruction_spans: Vec::new(),
+                instruction_scopes: Vec::new(),
                 terminator: None,
                 terminator_span: None,
+                terminator_scope: None,
             }],
             entry,
             effects: EffectSet::default(),
@@ -69,6 +72,10 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 source_span: analyzed.lowered.source_map.function_span(hir_function.id),
                 locals: Vec::new(),
                 captured_bindings: Vec::new(),
+                lexical_scopes: vec![IrLexicalScope {
+                    parent: None,
+                    local: None,
+                }],
             },
         };
 
@@ -105,6 +112,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             locals: HashMap::new(),
             loops: Vec::new(),
             effects: EffectSet::default(),
+            current_scope: 0,
             current_debug_span: None,
         })
     }
@@ -119,8 +127,10 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         self.function.blocks.push(BasicBlock {
             instructions: Vec::new(),
             instruction_spans: Vec::new(),
+            instruction_scopes: Vec::new(),
             terminator: None,
             terminator_span: None,
+            terminator_scope: None,
         });
         id
     }
@@ -169,6 +179,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         block
             .instruction_spans
             .push(self.current_debug_span.unwrap_or_default());
+        block.instruction_scopes.push(self.current_scope);
         block.instructions.push(instruction);
     }
 
@@ -184,6 +195,16 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         let block = &mut self.function.blocks[self.current_block.index()];
         block.terminator = Some(terminator);
         block.terminator_span = self.current_debug_span;
+        block.terminator_scope = Some(self.current_scope);
+    }
+
+    pub(crate) fn introduce_debug_local(&mut self, local: LocalId) {
+        let scope = self.function.debug.lexical_scopes.len();
+        self.function.debug.lexical_scopes.push(IrLexicalScope {
+            parent: Some(self.current_scope),
+            local: Some(local),
+        });
+        self.current_scope = scope;
     }
 
     pub(crate) fn ensure_jump(&mut self, target: BlockId) {

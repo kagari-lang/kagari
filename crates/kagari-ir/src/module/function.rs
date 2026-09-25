@@ -102,8 +102,10 @@ pub struct IrModuleSlot {
 pub struct BasicBlock {
     pub instructions: InstructionBuffer,
     pub instruction_spans: SourceSpanBuffer,
+    pub instruction_scopes: Vec<usize>,
     pub terminator: Option<Terminator>,
     pub terminator_span: Option<Span>,
+    pub terminator_scope: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -111,6 +113,13 @@ pub struct IrFunctionDebugMetadata {
     pub source_span: Span,
     pub locals: IrLocalDebugBuffer,
     pub captured_bindings: CapturedBindingDebugBuffer,
+    pub lexical_scopes: Vec<IrLexicalScope>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IrLexicalScope {
+    pub parent: Option<usize>,
+    pub local: Option<LocalId>,
 }
 
 #[derive(Debug, Clone)]

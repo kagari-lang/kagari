@@ -302,8 +302,13 @@ fn lower_function(
             .sum(),
     );
     let mut instruction_spans = Vec::with_capacity(instructions.capacity());
+    let mut instruction_scopes = Vec::with_capacity(instructions.capacity());
 
     for (_, block) in emission_order(function) {
+        instruction_scopes.extend(&block.instruction_scopes);
+        if block.terminator.is_some() {
+            instruction_scopes.push(block.terminator_scope.unwrap_or(0));
+        }
         lower_block(
             block,
             &block_offsets,
@@ -331,7 +336,12 @@ fn lower_function(
         },
         control_flow_targets: collect_control_flow_targets(&instructions),
         effects: function.effects,
-        debug: collect_debug_metadata(function, &instructions, &instruction_spans),
+        debug: collect_debug_metadata(
+            function,
+            &instructions,
+            &instruction_spans,
+            &instruction_scopes,
+        ),
     };
 
     Ok(BytecodeFunction {
@@ -441,6 +451,7 @@ fn collect_debug_metadata(
     function: &IrFunction,
     instructions: &[BytecodeInstruction],
     instruction_spans: &[Span],
+    instruction_scopes: &[usize],
 ) -> BytecodeDebugMetadata {
     let source_spans = instruction_spans
         .iter()
@@ -513,37 +524,7 @@ fn collect_debug_metadata(
         }
     }
 
-    let end = instructions.len();
-    let mut first_stores = HashMap::new();
-    for (offset, instruction) in instructions.iter().enumerate() {
-        if let BytecodeInstruction::StoreLocal { local, .. } = instruction {
-            first_stores.entry(*local).or_insert(offset + 1);
-        }
-    }
-    let local_live_ranges = function
-        .debug
-        .locals
-        .iter()
-        .map(|local| {
-            let slot = lower_local(local.local);
-            // A debugger pauses before executing the instruction at its offset.
-            // A binding becomes readable only after its initializing store.
-            let start = if local.is_parameter {
-                0
-            } else {
-                first_stores.get(&slot).copied().unwrap_or(end)
-            };
-            LocalLiveRange {
-                local: slot,
-                name: local.name.clone(),
-                span: local.span,
-                start,
-                end,
-                ty: local.ty,
-                is_parameter: local.is_parameter,
-            }
-        })
-        .collect();
+    let local_live_ranges = collect_local_live_ranges(function, instructions, instruction_scopes);
     let captured_bindings = function
         .debug
         .captured_bindings
@@ -568,6 +549,86 @@ fn collect_debug_metadata(
             registers: function.temps.iter().map(|temp| temp.ty).collect(),
         },
     }
+}
+
+fn collect_local_live_ranges(
+    function: &IrFunction,
+    instructions: &[BytecodeInstruction],
+    instruction_scopes: &[usize],
+) -> Vec<LocalLiveRange> {
+    let end = instructions.len();
+    let mut ranges = Vec::new();
+    let locals = function
+        .debug
+        .locals
+        .iter()
+        .map(|local| (local.local, local))
+        .collect::<HashMap<_, _>>();
+    for local in function
+        .debug
+        .locals
+        .iter()
+        .filter(|local| local.is_parameter)
+    {
+        ranges.push(LocalLiveRange {
+            local: lower_local(local.local),
+            name: local.name.clone(),
+            span: local.span,
+            start: 0,
+            end,
+            ty: local.ty,
+            is_parameter: true,
+        });
+    }
+
+    let scopes = &function.debug.lexical_scopes;
+    let mut previous_path = Vec::<usize>::new();
+    let mut open = HashMap::<LocalId, usize>::new();
+    for offset in 0..=end {
+        let mut next_path = Vec::<usize>::new();
+        if offset < end && !scopes.is_empty() {
+            let mut scope = instruction_scopes.get(offset).copied().unwrap_or(0);
+            while let Some(entry) = scopes.get(scope) {
+                next_path.push(scope);
+                if next_path.len() >= scopes.len() {
+                    break;
+                }
+                let Some(parent) = entry.parent else { break };
+                scope = parent;
+            }
+            next_path.reverse();
+        }
+        let common = previous_path
+            .iter()
+            .zip(&next_path)
+            .take_while(|(left, right)| left == right)
+            .count();
+        for scope in previous_path[common..].iter().rev() {
+            if let Some(local) = scopes[*scope].local
+                && let Some(start) = open.remove(&local)
+                && start < offset
+                && let Some(info) = locals.get(&local)
+            {
+                ranges.push(LocalLiveRange {
+                    local: lower_local(local),
+                    name: info.name.clone(),
+                    span: info.span,
+                    start,
+                    end: offset,
+                    ty: info.ty,
+                    is_parameter: false,
+                });
+            }
+        }
+        for scope in &next_path[common..] {
+            if let Some(local) = scopes[*scope].local {
+                open.insert(local, offset);
+            }
+        }
+        previous_path = next_path;
+    }
+    ranges.sort_by_key(|range| (range.local.index(), range.start));
+    ranges
 }
 
 fn push_debug_point(
