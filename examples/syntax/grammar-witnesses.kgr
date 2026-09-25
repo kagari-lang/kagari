@@ -3,6 +3,8 @@ mod nested {
     fn answer() -> i32 { 42 }
 }
 
+mod external;
+
 use pkg::model::*;
 use {pkg::api, pkg::model};
 

@@ -85,11 +85,11 @@ The comment token forms are defined in the comments section below.
 ### Identifiers
 
 ```ebnf
-IDENT ::= XID_START XID_CONTINUE* ;
+IDENT ::= IDENT_START IDENT_CONTINUE* ;
 ```
 
-The portable identifier subset is ASCII letters, digits, and `_`.
-Implementations may accept broader Unicode identifiers only when they preserve the same token boundaries.
+`IDENT_START` is an ASCII letter or `_`; `IDENT_CONTINUE` additionally accepts
+ASCII digits. Unicode identifiers are not part of the current source grammar.
 An unsupported Unicode scalar is one unknown token spanning all of its UTF-8
 bytes. The lossless CST keeps the token and analysis reports a diagnostic; the
 parser must never slice through a code point during recovery.
@@ -167,8 +167,6 @@ The language reserves the following comment forms:
 
 - line comments beginning with `//`
 - block comments delimited by `/*` and `*/`; nested block comments are allowed
-
-Block comments do not nest.
 
 ### Operators and Delimiters
 
@@ -323,9 +321,11 @@ type_list       ::= type ("," type)* (",")? ;
 ```ebnf
 trait_item      ::= visibility? trait_decl ;
 
-trait_decl      ::= "trait" IDENT generic_param_clause? "{" trait_member* "}" ;
+trait_decl      ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" trait_member* "}" ;
 
-trait_member    ::= attribute* method_sig ";" ;
+supertrait_clause ::= ":" type_bound_list ;
+
+trait_member    ::= attribute* method_sig (";" | block) ;
 
 method_sig      ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
@@ -467,8 +467,7 @@ type            ::= path generic_args?
 
 function_type   ::= "fn" "(" type_list? ")" "->" type ;
 
-array_type      ::= "[" type "]"
-                  | "[" type ";" INTEGER "]" ;
+array_type      ::= "[" type "]" ;
 
 tuple_type      ::= "(" type_list? ")" ;
 
@@ -508,9 +507,9 @@ inherent_impl   ::= "impl" generic_param_clause? type where_clause? "{" impl_ite
 
 trait_impl      ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" impl_item* "}" ;
 
-impl_item       ::= attribute* visibility? method_decl ;
+impl_item       ::= attribute* method_decl ;
 
-method_decl     ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+method_decl     ::= visibility? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
 
 method_param_list
                 ::= receiver_param ("," param_list)? (",")?
@@ -815,15 +814,25 @@ an unconstrained `T` does not establish that recursive requirement.
 
 ### Patterns
 
-The core `match` grammar uses a deliberately small pattern language.
+Patterns use the same grouped, tuple, alternative and range punctuation as Rust,
+within Kagari's supported pattern kinds.
 
 ```ebnf
-pattern         ::= "_"
-                  | literal
-                  | path
-                  | tuple_struct_pattern
-                  | struct_pattern
-                  | tuple_pattern ;
+pattern         ::= or_pattern ;
+
+or_pattern      ::= range_pattern ("|" range_pattern)* ;
+
+range_pattern   ::= primary_pattern range_pattern_tail? ;
+
+range_pattern_tail ::= ".." range_bound
+                     | "..=" range_bound ;
+
+range_bound     ::= literal | path ;
+
+primary_pattern ::= "_" | literal | path | tuple_struct_pattern
+                  | struct_pattern | tuple_pattern | parenthesized_pattern ;
+
+parenthesized_pattern ::= "(" pattern ")" ;
 
 tuple_pattern   ::= "(" pattern_list? ")" ;
 
@@ -841,8 +850,8 @@ field_pattern   ::= IDENT
                   | IDENT ":" pattern ;
 ```
 
-This keeps `match`, binding conditions, and destructuring usable without adopting Rust's full pattern grammar.
-More advanced pattern forms are language extensions.
+`(p)` groups a pattern; `(p,)` is a one-element tuple pattern. Kagari does not
+currently accept all of Rust's reference, slice and rest patterns.
 
 ### Place Expressions
 

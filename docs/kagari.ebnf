@@ -49,7 +49,7 @@ attribute_value     ::= literal
                       | path
                       | "[" attribute_arg_list? "]" ;
 
-module_decl         ::= visibility? "mod" IDENT module_block ;
+module_decl         ::= visibility? "mod" IDENT (";" | module_block) ;
 
 module_block        ::= "{" item* "}" ;
 
