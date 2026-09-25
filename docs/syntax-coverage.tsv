@@ -110,11 +110,11 @@ match_arm_list	covered	examples/syntax/match.kgr	-
 match_arm	covered	examples/syntax/match.kgr	-
 match_guard	covered	examples/syntax/match-guards.kgr	-
 match_body	covered	examples/syntax/blocks.kgr	-
-pattern	partial	examples/syntax/match.kgr	Or and range pattern branches are not recognized
-or_pattern	partial	examples/syntax/match.kgr	Or branch is not recognized
-range_pattern	partial	examples/syntax/match.kgr	Range tail is not recognized
-range_pattern_tail	missing	gap:range_pattern	Range pattern tail is absent
-range_bound	missing	gap:range_pattern	Range pattern bound is absent
+pattern	covered	examples/syntax/pattern-alternatives.kgr	-
+or_pattern	covered	examples/syntax/pattern-alternatives.kgr	-
+range_pattern	covered	examples/syntax/pattern-alternatives.kgr	-
+range_pattern_tail	covered	examples/syntax/pattern-alternatives.kgr	-
+range_bound	covered	examples/syntax/pattern-alternatives.kgr	-
 primary_pattern	covered	examples/syntax/match.kgr	-
 parenthesized_pattern	covered	examples/syntax/match.kgr	-
 tuple_pattern	covered	examples/syntax/match.kgr	-

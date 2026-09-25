@@ -279,6 +279,11 @@ impl<'a> BodyResolver<'a> {
 
     fn bind_pattern(&mut self, pattern: crate::hir::PatternId, start: usize) {
         match &self.module.pattern(pattern).kind {
+            PatternKind::Or(alternatives) => {
+                if let Some(first) = alternatives.first() {
+                    self.bind_pattern(*first, start);
+                }
+            }
             PatternKind::Name { name, local } if !name.is_empty() && name != "<missing>" => {
                 let name = name.clone();
                 let local = *local;

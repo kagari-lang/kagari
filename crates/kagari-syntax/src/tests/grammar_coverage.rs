@@ -35,22 +35,6 @@ const GAPS: &[GapCase] = &[
         id: "binding_condition",
         source: "fn main() { if val x = 1 { x }; }",
     },
-    GapCase {
-        id: "or_pattern",
-        source: "fn main() { match 1 { 1 | 2 => 42, _ => 0 } }",
-    },
-    GapCase {
-        id: "range_pattern",
-        source: "fn main() { match 1 { 0..=2 => 42, _ => 0 } }",
-    },
-    GapCase {
-        id: "range_pattern_exclusive",
-        source: "fn main() { match 1 { 0..2 => 42, _ => 0 } }",
-    },
-    GapCase {
-        id: "range_pattern_path",
-        source: "fn main() { match 1 { 0..MAX => 42, _ => 0 } }",
-    },
 ];
 
 fn grammar_rules() -> BTreeSet<String> {

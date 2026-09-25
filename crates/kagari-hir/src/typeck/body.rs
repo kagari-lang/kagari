@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
@@ -8,6 +8,7 @@ use crate::{
         BuiltinFunction,
         surface::{self, StandardIntrinsic, StandardMethodReceiver, StandardTypeConstraint},
     },
+    hir::pattern::PatternBound,
     hir::{
         BinaryOp, BlockId, ExprId, ExprKind, LiteralKind, MatchArm, PatternKind, PlaceId,
         PlaceKind, PrefixOp, StmtId, StmtKind,
@@ -56,6 +57,7 @@ pub(crate) struct BodyChecker<'a> {
     names: &'a ResolvedNames,
     function_index: &'a FunctionTypeIndex,
     top_level_index: &'a TopLevelTypeIndex,
+    const_values: Option<&'a std::collections::HashMap<crate::hir::ConstId, super::ScalarValue>>,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
     type_table: &'a mut TypeTable,
     function_name: &'a str,
@@ -85,6 +87,7 @@ impl<'a> BodyChecker<'a> {
             names,
             function_index: indexes.function_index,
             top_level_index: indexes.top_level_index,
+            const_values: indexes.const_values,
             diagnostics,
             type_table,
             function_name,
@@ -1281,6 +1284,74 @@ impl<'a> BodyChecker<'a> {
         let span = self.lowered.source_map.pattern_span(pattern);
         match &self.lowered.module.pattern(pattern).kind {
             PatternKind::Wildcard => {}
+            PatternKind::Or(alternatives) => {
+                let original = env.clone();
+                let mut canonical = None;
+                for (index, alternative) in alternatives.iter().copied().enumerate() {
+                    let mut branch = original.clone();
+                    self.check_pattern(alternative, expected, &mut branch);
+                    let (binding_ids, duplicate) = self.pattern_binding_ids(alternative);
+                    let names = binding_ids
+                        .into_iter()
+                        .filter_map(|(name, local)| {
+                            branch.locals.get(&local).cloned().map(|ty| (name, ty))
+                        })
+                        .collect::<BTreeMap<_, _>>();
+                    if duplicate {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                                expected: "each name bound once per alternative".into(),
+                                found: format!("bindings {names:?}"),
+                            })
+                            .with_span(self.lowered.source_map.pattern_span(alternative)),
+                        );
+                    }
+                    if let Some(first) = &canonical
+                        && (first != &names)
+                    {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                                expected: "the same bindings in every alternative".into(),
+                                found: format!("bindings {names:?}"),
+                            })
+                            .with_span(self.lowered.source_map.pattern_span(alternative)),
+                        );
+                    }
+                    if index == 0 {
+                        *env = branch;
+                        canonical = Some(names);
+                    }
+                }
+            }
+            PatternKind::Range { start, end, .. } => {
+                let integer = TypeId::Builtin(BuiltinType::I32);
+                if expected.conflicts_with(&integer) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                            expected: display_type_id(expected),
+                            found: "i32 range pattern".into(),
+                        })
+                        .with_span(span),
+                    );
+                }
+                let start = self.resolve_pattern_bound(start, span);
+                let end = self.resolve_pattern_bound(end, span);
+                if let (Some(start), Some(end)) = (start, end) {
+                    if !matches!(start, super::ScalarValue::I32(_))
+                        || !matches!(end, super::ScalarValue::I32(_))
+                    {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                                expected: "i32 bounds".into(),
+                                found: "non-integer range bound".into(),
+                            })
+                            .with_span(span),
+                        );
+                    } else {
+                        self.type_table.insert_pattern_range(pattern, start, end);
+                    }
+                }
+            }
             PatternKind::Name { local, .. } => {
                 env.locals.insert(*local, expected.clone());
                 self.type_table.insert_local(*local, expected.clone());
@@ -1467,8 +1538,69 @@ impl<'a> BodyChecker<'a> {
             PatternKind::Struct { fields, .. } => fields
                 .iter()
                 .all(|field| self.pattern_is_irrefutable(field.pattern)),
-            PatternKind::Literal(_) | PatternKind::EnumVariant { .. } => false,
+            PatternKind::Or(alternatives) => alternatives
+                .iter()
+                .any(|alternative| self.pattern_is_irrefutable(*alternative)),
+            PatternKind::Range { .. }
+            | PatternKind::Literal(_)
+            | PatternKind::EnumVariant { .. } => false,
         }
+    }
+
+    fn pattern_binding_ids(
+        &self,
+        pattern: crate::hir::PatternId,
+    ) -> (HashMap<String, crate::hir::LocalId>, bool) {
+        let mut names = HashMap::new();
+        let mut duplicate = false;
+        let mut work = vec![pattern];
+        while let Some(pattern) = work.pop() {
+            match &self.lowered.module.pattern(pattern).kind {
+                PatternKind::Name { name, local } => {
+                    duplicate |= names.insert(name.clone(), *local).is_some();
+                }
+                PatternKind::Or(alternatives) => work.extend(alternatives.first().copied()),
+                PatternKind::Tuple(alternatives)
+                | PatternKind::EnumVariant {
+                    fields: alternatives,
+                    ..
+                } => work.extend(alternatives.iter().copied()),
+                PatternKind::Struct { fields, .. } => {
+                    work.extend(fields.iter().map(|field| field.pattern));
+                }
+                PatternKind::Wildcard | PatternKind::Literal(_) | PatternKind::Range { .. } => {}
+            }
+        }
+        (names, duplicate)
+    }
+
+    fn resolve_pattern_bound(
+        &mut self,
+        bound: &PatternBound,
+        span: kagari_common::Span,
+    ) -> Option<super::ScalarValue> {
+        let value = match bound {
+            PatternBound::Literal(literal) => super::ScalarValue::parse(literal).ok(),
+            PatternBound::Path(path) => self
+                .declarations
+                .names
+                .lookup(path)
+                .and_then(|entry| entry.target())
+                .and_then(|target| match target {
+                    ResolvedName::Const(id) => self.const_values?.get(&id).cloned(),
+                    _ => None,
+                }),
+        };
+        if value.is_none() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                    expected: "scalar constant range bound".into(),
+                    found: format!("{bound:?}"),
+                })
+                .with_span(span),
+            );
+        }
+        value
     }
 
     fn infer_standard_call_type(

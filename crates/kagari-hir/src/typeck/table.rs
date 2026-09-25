@@ -95,6 +95,7 @@ pub struct TypeTable {
     calls: HashMap<ExprId, ResolvedCall>,
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
+    pattern_ranges: HashMap<PatternId, (ScalarValue, ScalarValue)>,
     pattern_fields: HashMap<PatternId, Vec<DefinitionId>>,
     pattern_variants: HashMap<PatternId, DefinitionId>,
 }
@@ -172,7 +173,7 @@ impl TypeTable {
             }
             keys!(host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
-                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId,
+                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId,
                 interface_coercions: ExprId);
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {
@@ -564,6 +565,10 @@ impl TypeTable {
                 self.pattern_scalars
                     .insert(new_map.pattern_id(b), value.clone());
             }
+            if let Some(bounds) = old.pattern_ranges.get(&old_map.pattern_id(a)) {
+                self.pattern_ranges
+                    .insert(new_map.pattern_id(b), bounds.clone());
+            }
             if let Some(fields) = old.pattern_fields.get(&old_map.pattern_id(a)) {
                 self.pattern_fields
                     .insert(new_map.pattern_id(b), fields.clone());
@@ -629,6 +634,19 @@ impl TypeTable {
     }
     pub fn pattern_scalar_value(&self, id: PatternId) -> Option<&ScalarValue> {
         self.pattern_scalars.get(&id)
+    }
+
+    pub(crate) fn insert_pattern_range(
+        &mut self,
+        id: PatternId,
+        start: ScalarValue,
+        end: ScalarValue,
+    ) {
+        self.pattern_ranges.insert(id, (start, end));
+    }
+
+    pub fn pattern_range(&self, id: PatternId) -> Option<&(ScalarValue, ScalarValue)> {
+        self.pattern_ranges.get(&id)
     }
 
     pub fn insert_pattern_fields(&mut self, id: PatternId, fields: Vec<DefinitionId>) {

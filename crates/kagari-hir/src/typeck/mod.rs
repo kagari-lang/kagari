@@ -130,6 +130,7 @@ pub(crate) struct TypeIndexes<'a> {
     pub(crate) cancel: &'a kagari_common::cancellation::CancellationToken,
     pub(crate) function_index: &'a FunctionTypeIndex,
     pub(crate) top_level_index: &'a TopLevelTypeIndex,
+    pub(crate) const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
 }
 
 pub(crate) struct BodyInputs<'a> {

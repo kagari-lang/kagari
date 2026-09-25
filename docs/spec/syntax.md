@@ -780,6 +780,10 @@ literal         ::= INTEGER
 - A `match` guard is evaluated after its pattern binds names. It must be `bool`;
   a false guard continues to the next arm, even for an otherwise irrefutable
   pattern. Guards are evaluated only for matching patterns.
+- `|` pattern alternatives share one binding scope. Each alternative must bind
+  the same names with the same types. Integer range patterns accept `i32`
+  literal or local scalar `const` bounds; `..` excludes the upper bound and
+  `..=` includes it.
 - `range_expr` models the common `a..b` and `a..=b` forms.
 - Both bounds are evaluated once, left to right, and must be `i32`. A range
   produces a fresh `[i32]` array in ascending order; `..` excludes its end and

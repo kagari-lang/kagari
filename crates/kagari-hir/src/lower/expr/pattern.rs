@@ -1,5 +1,6 @@
 use kagari_syntax::ast;
 
+use crate::hir::pattern::PatternBound;
 use crate::hir::{PatternData, PatternId, PatternKind};
 use crate::lower::context::{Lowerer, syntax_span, token_span};
 
@@ -13,7 +14,32 @@ impl Lowerer {
                 .expect("grouped pattern has one element");
         }
         let span = syntax_span(pattern);
-        let kind = if pattern.is_wildcard() {
+        let kind = if pattern.is_or() {
+            PatternKind::Or(
+                pattern
+                    .elements()
+                    .map(|element| self.lower_pattern(&element))
+                    .collect(),
+            )
+        } else if let Some(inclusive) = pattern.range_inclusive() {
+            let mut bounds = pattern.range_bounds().map(|bound| match bound {
+                ast::PatternBound::Literal(literal) => {
+                    PatternBound::Literal(self.lower_literal(&literal))
+                }
+                ast::PatternBound::Path(path) => {
+                    PatternBound::Path(path.name_text().unwrap_or_default())
+                }
+            });
+            PatternKind::Range {
+                start: bounds
+                    .next()
+                    .unwrap_or_else(|| PatternBound::Path("<missing>".into())),
+                end: bounds
+                    .next()
+                    .unwrap_or_else(|| PatternBound::Path("<missing>".into())),
+                inclusive,
+            }
+        } else if pattern.is_wildcard() {
             PatternKind::Wildcard
         } else if pattern.is_struct() {
             PatternKind::Struct {

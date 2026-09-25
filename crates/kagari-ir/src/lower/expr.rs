@@ -462,6 +462,89 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<(), IrLoweringError> {
         match &self.analyzed.lowered.module.pattern(pattern).kind {
             hir::PatternKind::Wildcard => {}
+            hir::PatternKind::Or(alternatives) => {
+                let alternatives = alternatives.clone();
+                let success = self.new_block();
+                let mut canonical = std::collections::HashMap::<String, IrValue>::new();
+                for (index, alternative) in alternatives.iter().copied().enumerate() {
+                    let locals_before = self.function.locals.len();
+                    let next = if index + 1 == alternatives.len() {
+                        fail
+                    } else {
+                        self.new_block()
+                    };
+                    let mut branch_bindings = Vec::new();
+                    self.lower_pattern_decision(
+                        alternative,
+                        value,
+                        expected,
+                        next,
+                        &mut branch_bindings,
+                    )?;
+                    for (local, value) in branch_bindings {
+                        let name = self.function.locals[local.index()].name.clone();
+                        let merged = if let Some(merged) = canonical.get(&name) {
+                            *merged
+                        } else {
+                            let merged = self.alloc_temp(value.ty);
+                            canonical.insert(name, merged);
+                            bindings.push((local, merged));
+                            merged
+                        };
+                        self.emit(Instruction::Move {
+                            dst: merged,
+                            src: value,
+                        });
+                    }
+                    if index > 0 {
+                        self.function.locals.truncate(locals_before);
+                        self.function.debug.locals.truncate(locals_before);
+                        self.locals.retain(|_, local| local.index() < locals_before);
+                    }
+                    self.set_terminator(Terminator::Jump(success));
+                    if index + 1 < alternatives.len() {
+                        self.switch_to_block(next);
+                    }
+                }
+                self.switch_to_block(success);
+            }
+            hir::PatternKind::Range { inclusive, .. } => {
+                let (start, end) = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .pattern_range(pattern)
+                    .cloned()
+                    .ok_or(IrLoweringError::MissingBinding("checked range pattern"))?;
+                let start = self.lower_constant(start.into(), ValueType::I32);
+                let end = self.lower_constant(end.into(), ValueType::I32);
+                for (op, bound) in [
+                    (BinaryOp::Ge, start),
+                    (
+                        if *inclusive {
+                            BinaryOp::Le
+                        } else {
+                            BinaryOp::Lt
+                        },
+                        end,
+                    ),
+                ] {
+                    let cond = self.alloc_temp(ValueType::Bool);
+                    self.emit(Instruction::Binary {
+                        dst: cond,
+                        op,
+                        lhs: value,
+                        rhs: bound,
+                    });
+                    let next = self.new_block();
+                    self.set_terminator(Terminator::Branch {
+                        cond,
+                        then_block: next,
+                        else_block: fail,
+                    });
+                    self.switch_to_block(next);
+                }
+            }
             hir::PatternKind::Name { local, name } => {
                 let local = *local;
                 let name = name.clone();

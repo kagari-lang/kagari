@@ -422,6 +422,28 @@ impl MatchArm {
 }
 
 impl Pattern {
+    pub fn is_or(&self) -> bool {
+        support::token(self.syntax(), SyntaxKind::Pipe).is_some()
+    }
+
+    pub fn range_inclusive(&self) -> Option<bool> {
+        if support::token(self.syntax(), SyntaxKind::DotDotEq).is_some() {
+            Some(true)
+        } else if support::token(self.syntax(), SyntaxKind::DotDot).is_some() {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    pub fn range_bounds(&self) -> impl Iterator<Item = PatternBound> {
+        self.syntax().children().filter_map(|child| {
+            Literal::cast(child.clone())
+                .map(PatternBound::Literal)
+                .or_else(|| PathExpr::cast(child).map(PatternBound::Path))
+        })
+    }
+
     pub fn elements(&self) -> impl Iterator<Item = Pattern> {
         self.syntax().children().filter_map(Pattern::cast)
     }
@@ -459,6 +481,11 @@ impl Pattern {
     pub fn fields(&self) -> impl Iterator<Item = PatternField> {
         self.syntax().children().filter_map(PatternField::cast)
     }
+}
+
+pub enum PatternBound {
+    Literal(Literal),
+    Path(PathExpr),
 }
 
 impl PatternField {

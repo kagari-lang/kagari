@@ -8,6 +8,12 @@ pub struct PatternData {
 #[derive(Debug, Clone)]
 pub enum PatternKind {
     Wildcard,
+    Or(Vec<PatternId>),
+    Range {
+        start: PatternBound,
+        end: PatternBound,
+        inclusive: bool,
+    },
     Name {
         name: String,
         local: LocalId,
@@ -22,6 +28,12 @@ pub enum PatternKind {
         path: String,
         fields: Vec<PatternId>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum PatternBound {
+    Literal(Literal),
+    Path(String),
 }
 
 #[derive(Debug, Clone)]

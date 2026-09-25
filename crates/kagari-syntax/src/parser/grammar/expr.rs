@@ -472,6 +472,22 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_match_pattern_nested(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_single_pattern();
+        self.bump_trivia();
+        if self.at(TokenKind::Pipe) {
+            while self.at(TokenKind::Pipe) {
+                self.bump();
+                self.bump_trivia();
+                self.parse_single_pattern();
+                self.bump_trivia();
+            }
+            self.start_node_at(checkpoint, SyntaxKind::Pattern);
+            self.finish_node();
+        }
+    }
+
+    fn parse_single_pattern(&mut self) {
         self.start_node(SyntaxKind::Pattern);
         match self.current_kind() {
             Some(
@@ -494,6 +510,24 @@ impl<'a> Parser<'a> {
             ) => self.parse_literal(),
             Some(TokenKind::LParen) => self.parse_tuple_pattern(),
             _ => self.error_here(DiagnosticKind::ExpectedMatchPattern),
+        }
+        self.bump_trivia();
+        if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+            self.bump();
+            self.bump_trivia();
+            match self.current_kind() {
+                Some(
+                    TokenKind::Number
+                    | TokenKind::Float
+                    | TokenKind::String
+                    | TokenKind::TrueKw
+                    | TokenKind::FalseKw,
+                ) => self.parse_literal(),
+                Some(
+                    TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
+                ) => self.parse_path_expr(),
+                _ => self.error_here(DiagnosticKind::ExpectedMatchPattern),
+            }
         }
         self.finish_node();
     }

@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 15] = [
+    let cases: [(&str, &str, Value); 16] = [
+        (
+            "examples/syntax/pattern-alternatives.kgr",
+            include_str!("../../../examples/syntax/pattern-alternatives.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/match-guards.kgr",
             include_str!("../../../examples/syntax/match-guards.kgr"),
@@ -117,6 +122,22 @@ fn standalone_language_examples_execute_from_source_and_artifact() {
             assert_eq!(actual, expected, "{path}, encoded={encoded}");
         }
     }
+}
+
+#[test]
+fn pattern_alternatives_require_the_same_bindings() {
+    let engine = KagariEngine::default();
+    let error = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "bad-or-pattern.kgr",
+                "fn main() -> i32 { match (1, 2) { (1, x) | (2, y) => x, _ => 0 } }",
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("the same bindings in every alternative"));
 }
 
 #[test]

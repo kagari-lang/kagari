@@ -7,7 +7,7 @@ pub mod support;
 pub mod traits;
 mod ty;
 
-pub use expr::{BlockExpr, Expr, Literal, MatchArm, MatchArmList, PathExpr, Pattern};
+pub use expr::{BlockExpr, Expr, Literal, MatchArm, MatchArmList, PathExpr, Pattern, PatternBound};
 pub use item::{
     ConstDef, EnumDef, FnDef, ImplBlock, Item, MethodDef, ModuleBlock, ModuleDef, SourceFile,
     StructDef, TraitDef, UseDecl, UseTree, UseTreeList,

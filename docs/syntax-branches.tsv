@@ -76,10 +76,10 @@ closure_body	1	witnessed	examples/syntax/closures.kgr	-	expr
 closure_body	2	witnessed	examples/syntax/closures.kgr	-	block
 match_body	1	witnessed	examples/syntax/match.kgr	-	expr
 match_body	2	witnessed	examples/syntax/blocks.kgr	-	block
-range_pattern_tail	1	missing	gap:range_pattern_exclusive	Parser rejects this EBNF branch	".." range_bound
-range_pattern_tail	2	missing	gap:range_pattern	Parser rejects this EBNF branch	"..=" range_bound
-range_bound	1	missing	gap:range_pattern	Parser rejects this EBNF branch	literal
-range_bound	2	missing	gap:range_pattern_path	Parser rejects this EBNF branch	path
+range_pattern_tail	1	witnessed	examples/syntax/pattern-alternatives.kgr	-	".." range_bound
+range_pattern_tail	2	witnessed	examples/syntax/pattern-alternatives.kgr	-	"..=" range_bound
+range_bound	1	witnessed	examples/syntax/pattern-alternatives.kgr	-	literal
+range_bound	2	witnessed	examples/syntax/pattern-alternatives.kgr	-	path
 primary_pattern	1	witnessed	examples/syntax/match.kgr	-	"_"
 primary_pattern	2	witnessed	examples/syntax/match.kgr	-	literal
 primary_pattern	3	witnessed	examples/syntax/match.kgr	-	path
