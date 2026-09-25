@@ -4,8 +4,8 @@ use kagari_common::Span;
 
 use crate::bytecode::instruction::{
     BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldRef, FunctionRef,
-    HostImportId, JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructId,
-    UnaryOp,
+    HostImportId, InterfaceTableRef, JumpTarget, LocalSlot, ModuleSlot, PathId, Register,
+    RuntimeHelper, StructId, UnaryOp,
 };
 use crate::bytecode::module::{
     BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, BytecodeModuleSlot,
@@ -65,6 +65,7 @@ fn lower_linked_module(
         program,
         structures: &ir.structures,
         enumerations: &ir.enumerations,
+        public_items: &ir.abi.public_items,
         host_interface: kagari_common::host_interface::HostInterface {
             paths: vec![],
             types: ir.host_types.clone(),
@@ -164,6 +165,7 @@ struct BytecodeLoweringContext<'a> {
     program: Option<&'a crate::program::VerifiedIrProgram>,
     structures: &'a [crate::module::StructLayout],
     enumerations: &'a [crate::module::EnumLayout],
+    public_items: &'a [crate::module::PublicAbiItem],
     host_interface: kagari_common::host_interface::HostInterface,
     paths: Vec<PathRecord>,
 }
@@ -651,6 +653,25 @@ fn lower_instruction(
                 .iter()
                 .map(|element| lower_value(*element))
                 .collect(),
+        },
+        Instruction::MakeInterface {
+            dst,
+            value,
+            implementation,
+        } => BytecodeInstruction::MakeInterface {
+            dst: lower_value(*dst),
+            value: lower_value(*value),
+            implementation: InterfaceTableRef::new(
+                context
+                    .public_items
+                    .iter()
+                    .filter_map(|item| match item {
+                        crate::module::PublicAbiItem::InterfaceTable(table) => Some(table),
+                        _ => None,
+                    })
+                    .position(|table| &table.declaration == implementation)
+                    .expect("verified interface table"),
+            ),
         },
         Instruction::MakeEnum {
             dst,

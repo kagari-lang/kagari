@@ -1820,3 +1820,118 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
         matches!(error, VmError::RuntimeError(ref error) if error.message() == "interface method argument does not match its linked signature")
     );
 }
+
+fn interface_instruction_module() -> BytecodeModule {
+    use kagari_common::identity::{
+        DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
+    };
+    use kagari_ir::bytecode::{InterfaceTableRecord, InterfaceTableRef};
+    use kagari_ir::module::{
+        InterfaceTableAbi, PublicAbiItem, TraitAbi,
+        abi::{AbiType, BuiltinType, NominalAbiType},
+    };
+
+    let identity = ModuleIdentity::single_file("interface-instruction.kgr");
+    let declaration = |kind, name: &str| DefinitionId {
+        module: identity.clone(),
+        path: vec![DefinitionPathSegment {
+            kind,
+            name: name.into(),
+            occurrence: 0,
+        }],
+    };
+    let trait_id = declaration(DefinitionKind::Trait, "Tag");
+    let impl_id = declaration(DefinitionKind::Impl, "");
+    let mut module = verified_module(
+        None,
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(7),
+                },
+                BytecodeInstruction::MakeInterface {
+                    dst: Register::new(1),
+                    value: Register::new(0),
+                    implementation: InterfaceTableRef::new(0),
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
+            ],
+            ValueType::HeapObject,
+            vec![ValueType::I32, ValueType::HeapObject],
+        )],
+    );
+    module.identity = identity;
+    module.public_items = vec![
+        PublicAbiItem::Trait(TraitAbi {
+            name: "Tag".into(),
+            generic_params: vec![],
+            bounds: vec![],
+            methods: vec![],
+        }),
+        PublicAbiItem::InterfaceTable(InterfaceTableAbi {
+            declaration: impl_id.clone(),
+            name: String::new(),
+            generic_params: vec![],
+            bounds: vec![],
+            trait_type: AbiType::Trait(NominalAbiType {
+                declaration: trait_id,
+                arguments: vec![],
+            }),
+            for_type: AbiType::Builtin(BuiltinType::I32),
+            methods: vec![],
+        }),
+    ];
+    module.interface_tables = vec![InterfaceTableRecord {
+        declaration: impl_id,
+        methods: vec![],
+    }];
+    module
+}
+
+#[test]
+fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
+    use kagari_ir::bytecode::{
+        ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, InterfaceTableRef,
+        KbcArtifact, ModuleRef, verify_module,
+    };
+    let module = interface_instruction_module();
+    verify_module(&module).unwrap();
+
+    let mut invalid = module.clone();
+    invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
+        dst: Register::new(1),
+        value: Register::new(0),
+        implementation: InterfaceTableRef::new(1),
+    };
+    assert!(verify_module(&invalid).is_err());
+    invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
+        dst: Register::new(1),
+        value: Register::new(1),
+        implementation: InterfaceTableRef::new(0),
+    };
+    assert!(verify_module(&invalid).is_err());
+
+    let artifact = KbcArtifact::from_program(
+        BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    decoded
+        .validate_for_loader(&ArtifactCompatibility::default())
+        .unwrap();
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_program("interface-instruction", decoded.program)
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    assert!(matches!(value, Value::Interface(_)));
+    assert!(vm.runtime().gc().validate_value(&value));
+}

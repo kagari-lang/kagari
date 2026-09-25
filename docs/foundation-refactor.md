@@ -79,6 +79,16 @@ workload, repetitions and measurements; no unmeasured performance claims.
   script objects in tuples. Linked dependency layouts participate in nominal
   matching instead of limiting checks to the defining module.
 
+- R08 interface-allocation instruction checkpoint: typed IR names an
+  implementation declaration; lowering resolves it to a version-local table
+  slot. KBC format 35/runtime ABI v35 encode `MakeInterface`, and both IR and
+  bytecode verification require a concrete non-generic table, a heap result and
+  a receiver with the table's physical representation. Runtime construction
+  checks the full concrete receiver ABI and retains the linked program. An
+  artifact round trip executes the instruction; invalid slots and receiver
+  representations fail before execution. Source coercion and in-frame dynamic
+  dispatch still need the semantic facts and call target wiring.
+
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.

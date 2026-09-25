@@ -142,6 +142,36 @@ pub(super) fn verify(
         MakeTuple { dst, .. } | MakeArray { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "aggregate destination")?
         }
+        MakeInterface {
+            dst,
+            value,
+            implementation,
+        } => {
+            use crate::module::PublicAbiItem;
+            context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
+            let table = module.abi.public_items.iter().find_map(|item| match item {
+                PublicAbiItem::InterfaceTable(table) if &table.declaration == implementation => {
+                    Some(table)
+                }
+                _ => None,
+            });
+            let table = table.ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
+            if !table.generic_params.is_empty()
+                || !table.for_type.is_concrete()
+                || !table.trait_type.is_concrete()
+                || table
+                    .methods
+                    .iter()
+                    .any(|method| !method.generic_params.is_empty())
+            {
+                return Err(context.error(Error::InvalidInterfaceTable));
+            }
+            context.expect(
+                value.ty,
+                table.for_type.representation(),
+                "interface receiver",
+            )?;
+        }
         MakeEnum {
             dst,
             enumeration,

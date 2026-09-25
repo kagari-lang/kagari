@@ -833,6 +833,7 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             values.extend(elements.iter().copied());
             values
         }
+        Instruction::MakeInterface { dst, value, .. } => vec![*dst, *value],
         Instruction::MakeStruct { dst, fields, .. } => {
             let mut values = vec![*dst];
             values.extend(fields.iter().map(|field| field.value));
@@ -891,4 +892,74 @@ fn terminator_values(terminator: &Terminator) -> Vec<IrValue> {
         Terminator::Branch { cond, .. } => vec![*cond],
         Terminator::Jump(_) | Terminator::Unreachable => Vec::new(),
     }
+}
+
+#[test]
+fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
+    use crate::module::{IrVerificationErrorKind, PublicAbiItem, ValueType, verify_ir};
+    use kagari_common::cancellation::CancellationToken;
+
+    let checked = common::analyze_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");
+    let original = lower_to_ir(&checked, &Default::default()).unwrap();
+    let mut module = original.into_unverified();
+    let declaration = module
+        .abi
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) => Some(table.declaration.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let function = module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "main")
+        .unwrap();
+    let block = function
+        .blocks
+        .iter_mut()
+        .find(|block| matches!(block.terminator, Some(Terminator::Return(Some(_)))))
+        .unwrap();
+    let Some(Terminator::Return(Some(value))) = block.terminator else {
+        unreachable!()
+    };
+    let dst = IrValue {
+        temp: crate::module::TempId::new(function.temps.len()),
+        ty: ValueType::HeapObject,
+    };
+    function
+        .temps
+        .push(crate::module::function::IrTemp { ty: dst.ty });
+    let instruction = Instruction::MakeInterface {
+        dst,
+        value,
+        implementation: declaration,
+    };
+    function.effects = function.effects.union(instruction.effects());
+    block.instructions.push(instruction);
+    block.instruction_spans.push(kagari_common::Span::default());
+
+    let verified = verify_ir(module.clone(), &CancellationToken::default()).unwrap();
+    let bytecode = crate::bytecode::lower_to_bytecode(&verified).unwrap();
+    assert!(bytecode.functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, crate::bytecode::BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
+
+    let function = module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "main")
+        .unwrap();
+    let instruction = function
+        .blocks
+        .iter_mut()
+        .flat_map(|block| &mut block.instructions)
+        .find(|instruction| matches!(instruction, Instruction::MakeInterface { .. }))
+        .unwrap();
+    let Instruction::MakeInterface { implementation, .. } = instruction else {
+        unreachable!()
+    };
+    implementation.path.last_mut().unwrap().name = "missing".into();
+    assert!(
+        matches!(verify_ir(module, &CancellationToken::default()), Err(error) if error.kind == IrVerificationErrorKind::InvalidInterfaceTable)
+    );
 }

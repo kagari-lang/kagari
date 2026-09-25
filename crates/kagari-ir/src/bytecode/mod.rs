@@ -23,8 +23,8 @@ pub use artifact::{
 };
 pub use instruction::{
     BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, EnumId, FieldRef, FunctionRef,
-    HostImportId, JumpTarget, LocalSlot, ModuleSlot, PathId, Register, RuntimeHelper, StructId,
-    UnaryOp,
+    HostImportId, InterfaceTableRef, JumpTarget, LocalSlot, ModuleSlot, PathId, Register,
+    RuntimeHelper, StructId, UnaryOp,
 };
 pub use lower::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode};
 pub use module::{

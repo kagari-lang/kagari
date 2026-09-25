@@ -777,6 +777,39 @@ fn verify_instruction(
                 let _ = register_ty(function, *element)?;
             }
         }
+        BytecodeInstruction::MakeInterface {
+            dst,
+            value,
+            implementation,
+        } => {
+            use crate::module::PublicAbiItem;
+            expect_register_ty(function, *dst, ValueType::HeapObject, "interface dst")?;
+            let table = module
+                .public_items
+                .iter()
+                .filter_map(|item| match item {
+                    PublicAbiItem::InterfaceTable(table) => Some(table),
+                    _ => None,
+                })
+                .nth(implementation.index())
+                .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
+            if !table.generic_params.is_empty()
+                || !table.for_type.is_concrete()
+                || !table.trait_type.is_concrete()
+                || table
+                    .methods
+                    .iter()
+                    .any(|method| !method.generic_params.is_empty())
+            {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
+            expect_register_ty(
+                function,
+                *value,
+                table.for_type.representation(),
+                "interface receiver",
+            )?;
+        }
         BytecodeInstruction::MakeEnum {
             dst,
             enumeration,

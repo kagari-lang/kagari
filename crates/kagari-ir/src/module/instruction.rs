@@ -77,6 +77,11 @@ pub enum Instruction {
         dst: IrValue,
         elements: ValueBuffer,
     },
+    MakeInterface {
+        dst: IrValue,
+        value: IrValue,
+        implementation: kagari_common::identity::DefinitionId,
+    },
     MakeStruct {
         dst: IrValue,
         structure: super::abi::NominalAbiType,
@@ -323,6 +328,7 @@ impl Instruction {
             Self::Call { callee, .. } => callee.effects(),
             Self::MakeTuple { .. }
             | Self::MakeArray { .. }
+            | Self::MakeInterface { .. }
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
             Self::ReadAggregateField { .. } | Self::ReadAggregateIndex { .. } => {

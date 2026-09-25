@@ -62,6 +62,7 @@ pub enum IrVerificationErrorKind {
     InvalidPublicAbi,
     InvalidHostInterface,
     InvalidEnumInitializer,
+    InvalidInterfaceTable,
     InvalidField,
     InvalidStructInitializer,
     ReadOnlyField,
@@ -98,6 +99,7 @@ impl IrVerificationError {
             InvalidPublicAbi => "KG_IR_INVALID_PUBLIC_ABI",
             InvalidHostInterface => "KG_IR_INVALID_HOST_INTERFACE",
             InvalidEnumInitializer => "KG_IR_INVALID_ENUM_INITIALIZER",
+            InvalidInterfaceTable => "KG_IR_INVALID_INTERFACE_TABLE",
             InvalidField => "KG_IR_INVALID_FIELD",
             InvalidStructInitializer => "KG_IR_INVALID_STRUCT_INITIALIZER",
             ReadOnlyField => "KG_IR_READ_ONLY_FIELD",
@@ -417,6 +419,7 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
             fields: elements, ..
         } => elements.clone(),
         MakeStruct { fields, .. } => fields.iter().map(|f| f.value).collect(),
+        MakeInterface { value, .. } => smallvec::smallvec![*value],
         ReadAggregateField { base, .. } => smallvec::smallvec![*base],
         WriteAggregateField { base, value, .. } => smallvec::smallvec![*base, *value],
         ReadAggregateIndex { base, index, .. } => smallvec::smallvec![*base, *index],
@@ -470,6 +473,7 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | MakeArray { dst, .. }
         | MakeStruct { dst, .. }
         | MakeEnum { dst, .. }
+        | MakeInterface { dst, .. }
         | ReadAggregateField { dst, .. }
         | ReadAggregateIndex { dst, .. }
         | ReadPath { dst, .. }

@@ -100,6 +100,19 @@ impl<'a> Executor<'a> {
                 let value = self.make_array(&elements)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
+            BytecodeInstruction::MakeInterface {
+                dst,
+                value,
+                implementation,
+            } => {
+                let receiver = self.current_frame()?.read_register(value)?;
+                let loaded = self.current_loaded()?;
+                let interface = self
+                    .runtime
+                    .make_interface(&loaded, implementation.index(), receiver)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?.write_register(dst, interface)?;
+            }
             BytecodeInstruction::MakeEnum {
                 dst,
                 enumeration,

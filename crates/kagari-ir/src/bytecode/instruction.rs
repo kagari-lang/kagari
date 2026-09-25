@@ -15,6 +15,17 @@ impl EnumId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct InterfaceTableRef(u32);
+impl InterfaceTableRef {
+    pub fn new(index: usize) -> Self {
+        Self(u32::try_from(index).expect("interface table slot overflow"))
+    }
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 impl Register {
     pub fn new(index: usize) -> Self {
         Self(index as u16)
@@ -229,6 +240,11 @@ pub enum BytecodeInstruction {
         dst: Register,
         #[serde(deserialize_with = "crate::decode_limits::operands")]
         elements: Vec<Register>,
+    },
+    MakeInterface {
+        dst: Register,
+        value: Register,
+        implementation: InterfaceTableRef,
     },
     MakeStruct {
         dst: Register,
