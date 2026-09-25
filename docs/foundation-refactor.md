@@ -66,7 +66,9 @@ workload, repetitions and measurements; no unmeasured performance claims.
   concrete receiver; tracing keeps the payload alive, and collecting the last
   interface releases version retention. This entry currently accepts concrete
   non-generic script tables. Generic table instantiation, source coercion,
-  host-backed interface values and dynamic method calls remain to be connected.
+  host-backed interface values and source-level dynamic calls remain to be
+  connected. The VM embedding entry can invoke a linked interface method
+  against the receiver's pinned version after validating and rooting arguments.
 
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics

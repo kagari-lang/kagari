@@ -485,8 +485,9 @@ An embedding path that already has a linked implementation can create and
 retain such a value explicitly:
 
 ```rust,ignore
-let value = runtime.make_interface(&loaded_impl, table_index, concrete_value)?;
-let rooted = runtime.root_value(value).expect("valid runtime-owned value");
+let value = vm.runtime().make_interface(&loaded_impl, table_index, concrete_value)?;
+let rooted = vm.runtime().root_value(value).expect("valid runtime-owned value");
+let result = vm.invoke_interface_method(&rooted.value(), &method_id, &[])?;
 ```
 
 The root must remain alive while the host retains the value. The table index

@@ -193,6 +193,50 @@ impl Vm {
         })
     }
 
+    /// Invokes a linked script implementation through a runtime-owned
+    /// interface value. The receiver and arguments remain rooted while module
+    /// initialization and the method body execute.
+    pub fn invoke_interface_method(
+        &mut self,
+        interface: &Value,
+        method: &kagari_common::identity::DefinitionId,
+        arguments: &[Value],
+    ) -> Result<Value, VmError> {
+        let resolved = self
+            .runtime
+            .resolve_interface_method(interface, method)
+            .map_err(VmError::RuntimeError)?;
+        let loaded = resolved.implementation();
+        let function = loaded
+            .bytecode
+            .functions
+            .get(resolved.function().index())
+            .ok_or(VmError::InvalidFunctionRef(resolved.function()))?;
+        let args = std::iter::once(resolved.receiver().clone())
+            .chain(arguments.iter().cloned())
+            .collect::<Vec<_>>();
+        if args.len() != usize::from(function.parameter_count)
+            || !args
+                .iter()
+                .zip(&function.metadata.params)
+                .all(|(value, ty)| value.has_representation(*ty))
+        {
+            return Err(VmError::TypeMismatch("interface method arguments"));
+        }
+        let _argument_roots = args
+            .iter()
+            .cloned()
+            .map(|value| self.runtime.root_value(value))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(VmError::TypeMismatch("invalid interface method argument"))?;
+        let _session = self.begin_execution(loaded)?;
+        self.runtime
+            .validate_loaded_module(loaded)
+            .map_err(VmError::RuntimeError)?;
+        self.execute_module(loaded)?;
+        Executor::new(&self.runtime, loaded, resolved.function(), &args)?.run()
+    }
+
     pub fn execute_with_backend<B: CodegenBackend>(
         &mut self,
         module: &LoadedModule,

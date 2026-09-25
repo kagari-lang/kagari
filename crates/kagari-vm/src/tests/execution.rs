@@ -1741,4 +1741,51 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
             .resolve_interface_method(&Value::I32(7), &method)
             .is_err()
     );
+
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.invoke_interface_method(&boxed, &method, &[]).unwrap(),
+        Value::I32(8)
+    );
+    assert!(
+        vm.invoke_interface_method(&boxed, &method, &[Value::Bool(true)])
+            .is_err()
+    );
+}
+
+#[test]
+fn interface_method_keeps_its_implementation_across_reload() {
+    let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }";
+    let first = compile_test_bytecode(source);
+    let second = compile_test_bytecode(&source.replace("self + 1", "self + 2"));
+    let mut runtime = Runtime::default();
+    let program = |module| kagari_ir::bytecode::BytecodeProgram {
+        root: kagari_ir::bytecode::ModuleRef::new(0),
+        modules: vec![module],
+    };
+    let old = runtime
+        .load_program("interface-reload", program(first))
+        .unwrap();
+    let method = old.bytecode.interface_tables[0].methods[0].method.clone();
+    let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
+    let old_root = runtime.root_value(old_value.clone()).unwrap();
+    let candidate = runtime
+        .stage_reload_program(&old, "interface-reload", program(second))
+        .unwrap();
+    let new = runtime.publish_staged_reload(candidate).unwrap();
+    let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.invoke_interface_method(&old_value, &method, &[])
+            .unwrap(),
+        Value::I32(8)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&new_value, &method, &[])
+            .unwrap(),
+        Value::I32(9)
+    );
+    drop(old_root);
+    vm.runtime().collect_garbage().unwrap();
+    assert!(!vm.runtime().gc().validate_value(&old_value));
 }
