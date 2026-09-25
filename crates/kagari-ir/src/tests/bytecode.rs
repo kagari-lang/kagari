@@ -670,6 +670,35 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
 }
 
 #[test]
+fn host_trait_standard_bounds_are_rechecked_after_decode() {
+    use kagari_common::host_interface::HostValueType;
+
+    let module =
+        host_trait_test_module("trait Readable<T: HashKey> { fn get(self) -> T; } fn main() {}");
+    verify_module(&module).unwrap();
+    let valid = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    let mut forged = valid.clone();
+    let host = &mut forged.program.modules[0].host_interface.types[0];
+    host.trait_implementations[0].trait_arguments = vec![HostValueType::F32];
+    host.methods[0].return_type = HostValueType::F32;
+    forged.program.modules[0].host_interface.functions[0].return_type = HostValueType::F32;
+    let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+    assert!(matches!(
+        decoded.validate_for_loader(&ArtifactCompatibility::default()),
+        Err(ArtifactValidationError::Bytecode(
+            BytecodeVerificationError::InvalidHostInterface(_)
+        ))
+    ));
+}
+
+#[test]
 fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok(
         "fn main() -> bool { val a = [7]; std::iter::get(a, a.len()).is_none() }",

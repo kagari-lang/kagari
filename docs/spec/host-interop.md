@@ -787,8 +787,10 @@ roster, receiver, parameters, result and applied trait-parameter bounds against
 each bound host method. IR and bytecode verification repeat the trait roster and
 signature checks, including nested host types and applied arguments, against
 the defining module's public ABI record or its private executable trait
-contract. The latter is not exported as public API. Trait-parameter bounds
-still need execution-layer verification. Dynamic
+contract. The latter is not exported as public API. Standard trait-parameter
+bounds are checked again at this boundary using the same language predicate;
+applied bounds requiring another trait implementation still need execution-layer
+verification. Dynamic
 interface dispatch remains pending R08 work.
 For a concrete host receiver, an applied trait table satisfies the exact static
 trait bound. Reachable generic calls select the mapped host method by declaration

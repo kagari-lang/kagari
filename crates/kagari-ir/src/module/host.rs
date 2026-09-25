@@ -64,6 +64,20 @@ fn host_trait_matches(
     {
         return Ok(false);
     }
+    for bound in &trait_abi.bounds {
+        cancel.check()?;
+        let Some(argument) = implementation.trait_arguments.get(bound.position) else {
+            return Ok(false);
+        };
+        for constraint in &bound.constraints {
+            cancel.check()?;
+            if let super::abi::ConstraintAbi::Standard(standard) = constraint
+                && !kagari_hir::host::satisfies_standard_constraint(argument, *standard)
+            {
+                return Ok(false);
+            }
+        }
+    }
     for method in &trait_abi.methods {
         cancel.check()?;
         if !method.generic_params.is_empty() || method.params.is_empty() {

@@ -169,11 +169,7 @@ impl HostDeclarations {
                     for constraint in trait_signature.bounds.get(parameter).into_iter().flatten() {
                         let satisfied = match constraint {
                             crate::typeck::ConstraintTarget::Standard(standard) => {
-                                crate::typeck::type_satisfies_standard_constraint(
-                                    &actual,
-                                    *standard,
-                                    &Default::default(),
-                                )
+                                satisfies_standard_constraint(argument, *standard)
                             }
                             crate::typeck::ConstraintTarget::Trait(required) => {
                                 let required = required.instantiate(&substitution);
@@ -547,4 +543,16 @@ pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
             _ => unreachable!("composite handled above"),
         }),
     }
+}
+
+/// Reuse the language's standard-bound rule for portable host type arguments.
+pub fn satisfies_standard_constraint(
+    ty: &HostValueType,
+    constraint: crate::builtin::surface::StandardTypeConstraint,
+) -> bool {
+    crate::typeck::type_satisfies_standard_constraint(
+        &signature_type(ty),
+        constraint,
+        &Default::default(),
+    )
 }

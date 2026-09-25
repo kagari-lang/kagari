@@ -343,8 +343,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   missing or mismatched host trait mappings before publication. The private
   `Readable` example runs through source, encoded artifact, interpreter and
   existing JIT fallback; tampered private signatures and omitted contracts fail
-  artifact validation. Applied trait-parameter bounds remain a separate
-  verification task.
+  artifact validation. Trait-parameter bounds are covered by the following
+  checkpoints.
+
+- R08 host standard-bound checkpoint: source analysis and executable host-trait
+  verification now call the same standard-constraint predicate for portable
+  host type arguments. A decoded private `Readable<T: HashKey>` artifact rejects
+  a forged `Readable<f32>` binding even when its host method signature is
+  changed consistently. Applied trait bounds that require another trait
+  implementation remain open.
 
 - R04/R06 call-navigation checkpoint: offline `host_function_at` and
   `source_function_at` queries restrict dotted callees to their member names.
