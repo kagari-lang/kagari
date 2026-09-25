@@ -32,6 +32,8 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
     let mut enum_layouts = HashMap::new();
     let mut hosts = HashMap::new();
     let mut symbols = HashMap::new();
+    let mut host_types = HashMap::new();
+    let mut host_type_symbols = HashMap::new();
     for (index, module) in program.modules.iter().enumerate() {
         let mut dependencies = HashSet::new();
         if !identities.insert(&module.identity)
@@ -89,6 +91,19 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             {
                 return Err(BytecodeVerificationError::InvalidHostInterface(
                     "conflicting declarations across program members".into(),
+                ));
+            }
+        }
+        for declaration in &module.host_interface.types {
+            if host_types
+                .insert(&declaration.id, declaration)
+                .is_some_and(|previous| !previous.matches_binding(declaration))
+                || host_type_symbols
+                    .insert(&declaration.symbol, &declaration.id)
+                    .is_some_and(|previous| previous != &declaration.id)
+            {
+                return Err(BytecodeVerificationError::InvalidHostInterface(
+                    "conflicting host type declarations across program members".into(),
                 ));
             }
         }

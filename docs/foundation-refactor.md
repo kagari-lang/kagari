@@ -360,6 +360,12 @@ workload, repetitions and measurements; no unmeasured performance claims.
   public tables continue to use their public ABI record. Applied trait-bound
   proof across the dependency closure remains open.
 
+- R08 host-type closure checkpoint: whole-program bytecode verification now
+  rejects conflicting declarations for one host type identity or symbol across
+  modules before linking. Equivalent declarations with different documentation
+  remain the same executable contract. A two-module regression checks both
+  cases; this makes the host catalog used by later trait-bound proofs unique.
+
 - R04/R06 call-navigation checkpoint: offline `host_function_at` and
   `source_function_at` queries restrict dotted callees to their member names.
   A receiver call retains its separate checked target; dot positions no longer

@@ -495,6 +495,8 @@ The bytecode verifier checks:
 - local interface implementation tables match the defining public or private
   trait method roster and substituted signatures before their method slots can
   be used as executable bound evidence
+- modules in one dependency closure agree on each host type identity, symbol
+  and executable declaration before runtime binding
 
 Verification rejects malformed bytecode before execution.
 Runtime checks are still required for host object liveness, dynamic index validity, capability state, and host-side invariants.

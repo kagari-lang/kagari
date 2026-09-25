@@ -741,6 +741,51 @@ fn private_interface_tables_must_match_their_trait_contract() {
 }
 
 #[test]
+fn program_rejects_conflicting_host_types_before_linking() {
+    use kagari_common::host_interface::{HostTypeDeclaration, HostTypeOwnership};
+
+    let base = HostTypeDeclaration::new("demo.Counter");
+    let program = |other: HostTypeDeclaration| crate::bytecode::BytecodeProgram {
+        root: crate::bytecode::ModuleRef::new(1),
+        modules: vec![
+            BytecodeModule {
+                identity: ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec!["owner".into()],
+                },
+                host_interface: kagari_common::host_interface::HostInterface {
+                    types: vec![base.clone()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            BytecodeModule {
+                identity: ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec!["consumer".into()],
+                },
+                dependencies: vec![crate::bytecode::ModuleRef::new(0)],
+                host_interface: kagari_common::host_interface::HostInterface {
+                    types: vec![other],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ],
+    };
+    let mut documentation_only = base.clone();
+    documentation_only.documentation = "editor help".into();
+    crate::bytecode::verify_program(&program(documentation_only)).unwrap();
+
+    let mut conflict = base.clone();
+    conflict.ownership = HostTypeOwnership::HostRoot;
+    assert!(matches!(
+        crate::bytecode::verify_program(&program(conflict)),
+        Err(BytecodeVerificationError::InvalidHostInterface(_))
+    ));
+}
+
+#[test]
 fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok(
         "fn main() -> bool { val a = [7]; std::iter::get(a, a.len()).is_none() }",
