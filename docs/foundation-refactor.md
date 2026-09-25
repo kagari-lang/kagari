@@ -23,7 +23,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R10: Shared immutable generations and runtime-local state.
 - [x] R11: Value semantics, owned handles/roots, nonmoving mark-sweep baseline.
 - [x] R12: Execution sessions, synchronous host reentry, shared cleanup/budgets.
-- [ ] R13: Failure-atomic standard mutation and dirty-record commit.
+- [x] R13: Failure-atomic standard mutation and dirty-record commit.
 - [ ] R14: Acyclic initialization and isolated prepare/initialize/publish.
 - [ ] R15: Compile-time capability and resource limits.
 - [x] R16: Injectable deterministic context and host trace fixtures.
@@ -2033,8 +2033,7 @@ Implemented foundation slices:
   attempts quarantine the runtime and preserve EngineFault through VM/embedding/JIT
   boundaries; cleanup releases frame roots and call depth. Direct/encoded programs
   and existing JIT fallback cover commit faults and subsequent execution rejection.
-  Full engine-invariant coverage outside path commits and unified frame/host-borrow
-  cleanup remain open; this does not complete R13.
+  The remaining linked-state and GC-root invariant checks are recorded below.
   R13 GC-root invariant checkpoint: collection now quarantines a runtime whose
   registered or module-state roots contain an invalid heap reference. A corrupt
   foreign handle in module state previously surfaced as a recoverable script
@@ -2054,6 +2053,19 @@ Implemented foundation slices:
   store accessor is no longer public. Candidate-isolation tests distinguish
   policy denial from the corrupt-slot regression. Retaining a mutable instance
   borrow across another entry now produces EngineFault without a RefCell panic.
+
+- R13 acceptance: standard Array/Map/Set growth, removals and struct-field writes
+  validate targets and resources before committing; typed path writes prepare
+  their host action and dirty ledger slot before the infallible commit. The
+  [atomic host path example](../crates/kagari-runtime/examples/atomic_host_path.rs)
+  demonstrates a rejected ledger-full write followed by a successful write after
+  draining records. [Conformance cases](../crates/kagari-vm/src/tests/language_contract.rs)
+  cover source/artifact and interpreter/JIT fallback mutation order, retained
+  earlier effects and trap/cancellation behavior. Resource-failure fixtures,
+  session cleanup tests and corrupt-state regressions verify no partial target
+  write on ordinary failure, released frames/roots, and runtime quarantine on
+  engine faults. Business `Result` values, script traps, termination and engine
+  faults remain distinct; external transaction boundaries belong to the host.
   Initialization now owns a lifecycle guard and version retention with no long
   module-state borrow. Success validates the stored result; every unfinished exit
   records failure and releases retention. Failure cleanup is allowed after runtime
