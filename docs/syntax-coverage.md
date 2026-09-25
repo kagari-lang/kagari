@@ -30,10 +30,10 @@ The audit maintains three inventories:
 
 The tests also extract quoted source terminals from the EBNF and compare them
 with the lexer. The current unrecognized terminal baseline is `@`, `..`, and
-`..=`. Negative source cases keep larger gaps, including attributes, range
-forms, match guards, block comments, numeric literal forms, and escaped
-strings, visible until implemented. If a gap becomes accepted, its negative
-case fails so the inventory and positive example must be updated together.
+`..=`. Negative source cases keep remaining gaps, including attributes, range
+forms, and match guards, visible until implemented. If a gap becomes accepted,
+its negative case fails so the inventory and positive example must be updated
+together.
 
 When changing syntax, update the EBNF, add a focused parser case or executable
 example, and then update the affected inventory rows. Keep `unverified` when

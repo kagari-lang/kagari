@@ -5,6 +5,7 @@ pub enum SyntaxKind {
     Eof,
     Whitespace,
     LineComment,
+    BlockComment,
     Ident,
     Number,
     Float,
@@ -142,6 +143,9 @@ pub enum SyntaxKind {
 
 impl SyntaxKind {
     pub fn is_trivia(self) -> bool {
-        matches!(self, Self::Whitespace | Self::LineComment)
+        matches!(
+            self,
+            Self::Whitespace | Self::LineComment | Self::BlockComment
+        )
     }
 }

@@ -16,6 +16,7 @@ cargo test -p kagari-embed --test syntax_examples
 | `for` over Array, Map, Set and String | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
 | Struct fields, shorthand initialization, inherent methods, enum payloads, tuples and arrays | [data-model.kgr](syntax/data-model.kgr) | `42` |
 | Arithmetic (including `%`), comparison, unary and short-circuit logical operators | [expressions.kgr](syntax/expressions.kgr) | `42` |
+| Numeric bases and separators, exponents, escaped strings, and nested block comments | [literals-and-comments.kgr](syntax/literals-and-comments.kgr) | `42` |
 | Literal, wildcard, binding, nested tuple, struct and enum `match` patterns | [match.kgr](syntax/match.kgr) | `42` |
 | Generic function `where` bound and trait call | [where-bounds.kgr](syntax/where-bounds.kgr) | `42` |
 | Lexical closures, mutable captures, nested closures, function types and higher-order calls | [closures.kgr](syntax/closures.kgr) | `42` |

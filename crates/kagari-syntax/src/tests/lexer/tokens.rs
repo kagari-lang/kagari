@@ -20,6 +20,57 @@ fn line_comments_keep_unicode_ranges_and_crlf_trivia() {
 }
 
 #[test]
+fn nested_block_comments_are_lossless_trivia_and_unclosed_comments_reject() {
+    let source = "fn main() { /* 中😀\r\n /* nested */ done */ 42 }";
+    let tokens = lex(source);
+    let comment = tokens
+        .iter()
+        .find(|token| token.kind == TokenKind::BlockComment)
+        .expect("block comment token");
+    assert_eq!(
+        &source[comment.span.start..comment.span.end],
+        "/* 中😀\r\n /* nested */ done */"
+    );
+    assert!(common::parse(source).diagnostics().is_empty());
+    assert!(!common::parse("/* never closed").diagnostics().is_empty());
+}
+
+#[test]
+fn numeric_and_escaped_string_tokens_keep_range_boundaries() {
+    let source = r#"0b1010 0o12 0x2a 1_000 1.25e+2 1e2 1..2 1..=2 "a\"b\n\u{4E2D}""#;
+    let tokens = lex(source)
+        .into_iter()
+        .filter(|token| token.kind != TokenKind::Whitespace)
+        .map(|token| token.kind)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tokens,
+        [
+            TokenKind::Number,
+            TokenKind::Number,
+            TokenKind::Number,
+            TokenKind::Number,
+            TokenKind::Float,
+            TokenKind::Float,
+            TokenKind::Number,
+            TokenKind::Dot,
+            TokenKind::Dot,
+            TokenKind::Number,
+            TokenKind::Number,
+            TokenKind::Dot,
+            TokenKind::Dot,
+            TokenKind::Eq,
+            TokenKind::Number,
+            TokenKind::String,
+            TokenKind::Eof,
+        ]
+    );
+    for malformed in ["0b", "0xgg", "1e+", r#""\q""#, r#""\u{110000}""#] {
+        assert_eq!(lex(malformed)[0].kind, TokenKind::Unknown, "{malformed}");
+    }
+}
+
+#[test]
 fn unsupported_unicode_tokens_keep_utf8_boundaries_and_parse_without_panicking() {
     let text = "fn main() { 中😀 }";
     let unknown = lex(text)

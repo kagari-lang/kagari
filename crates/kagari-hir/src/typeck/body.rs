@@ -699,7 +699,8 @@ impl<'a> BodyChecker<'a> {
                 if matches!(op, PrefixOp::Neg)
                     && let ExprKind::Literal(literal) = &self.lowered.module.expr(*expr).kind
                     && literal.kind == LiteralKind::Number
-                    && literal.text.parse::<u64>().ok() == Some(2147483648)
+                    && kagari_common::literal::parse_integer_literal(&literal.text).ok()
+                        == Some(2147483648)
                 {
                     let ty = TypeId::Builtin(BuiltinType::I32);
                     self.type_table

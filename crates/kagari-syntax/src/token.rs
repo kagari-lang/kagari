@@ -6,6 +6,7 @@ use crate::kind::SyntaxKind;
 pub enum TokenKind {
     Whitespace,
     LineComment,
+    BlockComment,
     AsKw,
     CrateKw,
     ForKw,
@@ -83,13 +84,17 @@ pub struct Token {
 
 impl TokenKind {
     pub fn is_trivia(&self) -> bool {
-        matches!(self, Self::Whitespace | Self::LineComment)
+        matches!(
+            self,
+            Self::Whitespace | Self::LineComment | Self::BlockComment
+        )
     }
 
     pub fn to_syntax_kind(&self) -> SyntaxKind {
         match self {
             Self::Whitespace => SyntaxKind::Whitespace,
             Self::LineComment => SyntaxKind::LineComment,
+            Self::BlockComment => SyntaxKind::BlockComment,
             Self::AsKw => SyntaxKind::AsKw,
             Self::CrateKw => SyntaxKind::CrateKw,
             Self::ForKw => SyntaxKind::ForKw,

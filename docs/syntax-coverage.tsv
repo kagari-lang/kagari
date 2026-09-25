@@ -129,29 +129,29 @@ place_suffix	covered	examples/syntax/data-model.kgr	-
 literal	covered	examples/syntax/expressions.kgr	-
 WHITESPACE	covered	examples/syntax/expressions.kgr	-
 LINE_COMMENT	covered	examples/syntax/expressions.kgr	-
-BLOCK_COMMENT	missing	gap:block_comment	Block comments are absent
+BLOCK_COMMENT	covered	examples/syntax/literals-and-comments.kgr	-
 IDENT	covered	examples/syntax/expressions.kgr	-
 IDENT_START	covered	examples/syntax/expressions.kgr	-
 IDENT_CONTINUE	covered	examples/syntax/expressions.kgr	-
-INTEGER	partial	examples/syntax/expressions.kgr	Base-prefixed and underscore forms are not recognized
-DEC_INTEGER	partial	examples/syntax/expressions.kgr	Underscore form is not recognized
-BIN_INTEGER	missing	gap:binary_integer	Binary integer literals are absent
-OCT_INTEGER	missing	gap:octal_integer	Octal integer literals are absent
-HEX_INTEGER	missing	gap:hex_integer	Hexadecimal integer literals are absent
-FLOAT	partial	examples/standard-library.kgr	Exponent and underscore forms are not recognized
-EXPONENT	missing	gap:exponent	Exponent notation is absent
-STRING	partial	examples/standard-library.kgr	Escaped quote and Unicode escape forms are not recognized
-STRING_CHAR	partial	examples/standard-library.kgr	Escape sequences are not recognized
-ESCAPE_SEQUENCE	missing	gap:escaped_string	String escape handling is absent
-UNICODE_ESCAPE	missing	gap:escaped_string	Unicode escape handling is absent
+INTEGER	covered	examples/syntax/literals-and-comments.kgr	-
+DEC_INTEGER	covered	examples/syntax/literals-and-comments.kgr	-
+BIN_INTEGER	covered	examples/syntax/literals-and-comments.kgr	-
+OCT_INTEGER	covered	examples/syntax/literals-and-comments.kgr	-
+HEX_INTEGER	covered	examples/syntax/literals-and-comments.kgr	-
+FLOAT	covered	examples/syntax/literals-and-comments.kgr	-
+EXPONENT	covered	examples/syntax/literals-and-comments.kgr	-
+STRING	covered	examples/syntax/literals-and-comments.kgr	-
+STRING_CHAR	covered	examples/syntax/literals-and-comments.kgr	-
+ESCAPE_SEQUENCE	covered	examples/syntax/literals-and-comments.kgr	-
+UNICODE_ESCAPE	covered	examples/syntax/literals-and-comments.kgr	-
 OPERATOR_TOKEN	partial	examples/syntax/expressions.kgr	Range operators are not recognized
 DELIMITER_TOKEN	partial	examples/syntax/expressions.kgr	Attribute introducer is not recognized
 ASCII_LETTER	covered	examples/syntax/expressions.kgr	-
 DIGIT	covered	examples/syntax/expressions.kgr	-
-BIN_DIGIT	unverified	-	No production-specific witness recorded
-OCT_DIGIT	unverified	-	No production-specific witness recorded
-HEX_DIGIT	unverified	-	No production-specific witness recorded
+BIN_DIGIT	covered	examples/syntax/literals-and-comments.kgr	-
+OCT_DIGIT	covered	examples/syntax/literals-and-comments.kgr	-
+HEX_DIGIT	covered	examples/syntax/literals-and-comments.kgr	-
 LINE_TEXT	covered	examples/syntax/expressions.kgr	-
-BLOCK_COMMENT_TEXT	missing	gap:block_comment	Block comments are absent
+BLOCK_COMMENT_TEXT	covered	examples/syntax/literals-and-comments.kgr	-
 STRING_TEXT_CHAR	covered	examples/standard-library.kgr	-
 LINE_END	covered	examples/syntax/expressions.kgr	-

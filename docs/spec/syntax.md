@@ -166,7 +166,7 @@ Strings support the usual single-character escapes and Unicode escapes of the fo
 The language reserves the following comment forms:
 
 - line comments beginning with `//`
-- block comments delimited by `/*` and `*/`
+- block comments delimited by `/*` and `*/`; nested block comments are allowed
 
 Block comments do not nest.
 

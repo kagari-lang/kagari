@@ -142,6 +142,33 @@ pub fn lex_with_cancellation(
                     tokens.push(token(TokenKind::LineComment, index, end));
                     continue;
                 }
+                if chars.peek().is_some_and(|(_, ch)| *ch == '*') {
+                    let (star, _) = chars.next().expect("block comment opener");
+                    let mut end = star + 1;
+                    let mut depth = 1usize;
+                    while let Some((next_index, next)) = chars.next() {
+                        end = next_index + next.len_utf8();
+                        if next == '/' && chars.peek().is_some_and(|(_, ch)| *ch == '*') {
+                            let (star, _) = chars.next().expect("nested comment opener");
+                            end = star + 1;
+                            depth += 1;
+                        } else if next == '*' && chars.peek().is_some_and(|(_, ch)| *ch == '/') {
+                            let (slash, _) = chars.next().expect("block comment closer");
+                            end = slash + 1;
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    let kind = if depth == 0 {
+                        TokenKind::BlockComment
+                    } else {
+                        TokenKind::Unknown
+                    };
+                    tokens.push(token(kind, index, end));
+                    continue;
+                }
                 if let Some((end, '=')) = chars.peek().copied() {
                     chars.next();
                     tokens.push(token(TokenKind::SlashEq, index, end + 1));
@@ -200,39 +227,113 @@ pub fn lex_with_cancellation(
             }
             '"' => {
                 chars.next();
-                let mut end = index;
+                let mut end = index + 1;
+                let mut escaped = false;
+                let mut closed = false;
                 while let Some((next_index, next)) = chars.peek().copied() {
-                    end = next_index;
+                    if matches!(next, '\r' | '\n') {
+                        break;
+                    }
                     chars.next();
+                    end = next_index + next.len_utf8();
+                    if escaped {
+                        escaped = false;
+                        continue;
+                    }
+                    if next == '\\' {
+                        escaped = true;
+                        continue;
+                    }
                     if next == '"' {
+                        closed = true;
                         break;
                     }
                 }
-                tokens.push(token(TokenKind::String, index, end + 1));
+                let kind = if closed
+                    && kagari_common::literal::decode_string_literal(&input[index..end]).is_ok()
+                {
+                    TokenKind::String
+                } else {
+                    TokenKind::Unknown
+                };
+                tokens.push(token(kind, index, end));
             }
             '0'..='9' => {
-                let mut end = index;
-                let mut saw_dot = false;
-                while let Some((next_index, next)) = chars.peek().copied() {
-                    if next.is_ascii_digit() {
-                        end = next_index;
+                chars.next();
+                let mut end = index + 1;
+                if ch == '0'
+                    && chars
+                        .peek()
+                        .is_some_and(|(_, ch)| matches!(ch, 'b' | 'o' | 'x'))
+                {
+                    let (prefix, _) = chars.next().expect("integer base prefix");
+                    end = prefix + 1;
+                    while let Some((next_index, next)) = chars.peek().copied() {
+                        if !(next.is_ascii_alphanumeric() || next == '_') {
+                            break;
+                        }
                         chars.next();
-                        continue;
+                        end = next_index + 1;
                     }
-                    if !saw_dot && next == '.' {
-                        saw_dot = true;
-                        end = next_index;
-                        chars.next();
-                        continue;
-                    }
-                    break;
+                    let kind = if kagari_common::literal::is_integer_literal(&input[index..end]) {
+                        TokenKind::Number
+                    } else {
+                        TokenKind::Unknown
+                    };
+                    tokens.push(token(kind, index, end));
+                    continue;
                 }
-                let kind = if saw_dot {
-                    TokenKind::Float
-                } else {
-                    TokenKind::Number
-                };
-                tokens.push(token(kind, index, end + 1));
+                while let Some((next_index, next)) = chars.peek().copied() {
+                    if !(next.is_ascii_digit() || next == '_') {
+                        break;
+                    }
+                    chars.next();
+                    end = next_index + 1;
+                }
+                let mut kind = TokenKind::Number;
+                if chars.peek().is_some_and(|(dot, next)| {
+                    *next == '.'
+                        && input
+                            .as_bytes()
+                            .get(dot + 1)
+                            .is_some_and(u8::is_ascii_digit)
+                }) {
+                    let (dot, _) = chars.next().expect("fraction dot");
+                    end = dot + 1;
+                    kind = TokenKind::Float;
+                    while let Some((next_index, next)) = chars.peek().copied() {
+                        if !(next.is_ascii_digit() || next == '_') {
+                            break;
+                        }
+                        chars.next();
+                        end = next_index + 1;
+                    }
+                }
+                if chars.peek().is_some_and(|(_, ch)| matches!(ch, 'e' | 'E')) {
+                    let (exponent, _) = chars.next().expect("exponent marker");
+                    end = exponent + 1;
+                    kind = TokenKind::Float;
+                    if chars.peek().is_some_and(|(_, ch)| matches!(ch, '+' | '-')) {
+                        let (sign, _) = chars.next().expect("exponent sign");
+                        end = sign + 1;
+                    }
+                    if !chars.peek().is_some_and(|(_, ch)| ch.is_ascii_digit()) {
+                        kind = TokenKind::Unknown;
+                    }
+                    while let Some((next_index, next)) = chars.peek().copied() {
+                        if !(next.is_ascii_digit() || next == '_') {
+                            break;
+                        }
+                        chars.next();
+                        end = next_index + 1;
+                    }
+                }
+                if kind == TokenKind::Number
+                    && !kagari_common::literal::is_integer_literal(&input[index..end])
+                {
+                    kind = TokenKind::Unknown;
+                }
+                tokens.push(token(kind, index, end));
             }
             '_' | 'a'..='z' | 'A'..='Z' => {
                 let mut end = index;

@@ -60,30 +60,6 @@ const GAPS: &[GapCase] = &[
         source: "fn main() { match 1 { 0..MAX => 42, _ => 0 } }",
     },
     GapCase {
-        id: "block_comment",
-        source: "/* comment */ fn main() {}",
-    },
-    GapCase {
-        id: "binary_integer",
-        source: "fn main() -> i32 { 0b1010 }",
-    },
-    GapCase {
-        id: "octal_integer",
-        source: "fn main() -> i32 { 0o12 }",
-    },
-    GapCase {
-        id: "hex_integer",
-        source: "fn main() -> i32 { 0x2a }",
-    },
-    GapCase {
-        id: "exponent",
-        source: "fn main() -> f64 { 1e2 }",
-    },
-    GapCase {
-        id: "escaped_string",
-        source: r#"fn main() -> String { "a\"b" }"#,
-    },
-    GapCase {
         id: "block_expression",
         source: "fn main() -> i32 { val value = { 42 }; value }",
     },

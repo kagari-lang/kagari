@@ -1,0 +1,19 @@
+// Integer bases, separators, exponents, escaped strings, and nested comments.
+/* outer
+   /* inner */
+   still outer */
+const TEN: i32 = 0b1010;
+
+fn main() -> i32 {
+    val octal = 0o12;
+    val hex = 0x0A;
+    val separated = 1_0;
+    val fractional = 1.25e1;
+    std::debug::assert_eq(fractional, 12.5, "exponent literal");
+    std::debug::assert_eq(1_2.5e0, fractional, "float separator");
+    std::debug::assert_eq("\u{41}", "A", "Unicode escape");
+    std::debug::assert_eq("\"", "\u{22}", "escaped quote");
+    std::debug::assert_eq("\\", "\u{5c}", "escaped backslash");
+    std::debug::assert_eq("\n", "\u{A}", "escaped newline");
+    TEN + octal + hex + separated + 2
+}
