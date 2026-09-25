@@ -192,6 +192,8 @@ pub struct RootedInterfaceMethod {
     interface_type: kagari_ir::module::abi::NominalAbiType,
     implementation: LoadedModule,
     function: kagari_ir::bytecode::FunctionRef,
+    parameter_types: Vec<kagari_ir::module::abi::AbiType>,
+    return_type: kagari_ir::module::abi::AbiType,
 }
 
 impl RootedInterfaceMethod {
@@ -209,6 +211,12 @@ impl RootedInterfaceMethod {
     }
     pub fn function(&self) -> kagari_ir::bytecode::FunctionRef {
         self.function
+    }
+    pub fn parameter_types(&self) -> &[kagari_ir::module::abi::AbiType] {
+        &self.parameter_types
+    }
+    pub fn return_type(&self) -> &kagari_ir::module::abi::AbiType {
+        &self.return_type
     }
 }
 
@@ -568,7 +576,12 @@ impl Runtime {
             if candidates.next().is_some() {
                 return Err(invalid());
             }
-            methods.push((method_id, slot.function));
+            methods.push(gc::InterfaceMethodBinding {
+                method: method_id,
+                function: slot.function,
+                parameter_types: method.params.iter().map(|param| param.ty.clone()).collect(),
+                return_type: method.return_type.clone(),
+            });
         }
         self.validate_heap_payloads(std::slice::from_ref(&data))?;
         let retention = self
@@ -606,10 +619,10 @@ impl Runtime {
         let snapshot = self.gc.interface_snapshot(*id).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
         })?;
-        let function = snapshot
+        let binding = snapshot
             .methods
             .iter()
-            .find_map(|(candidate, function)| (candidate == method).then_some(*function))
+            .find(|binding| &binding.method == method)
             .ok_or_else(|| {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "interface method unavailable")
             })?;
@@ -619,8 +632,73 @@ impl Runtime {
             concrete_type: snapshot.concrete_type,
             interface_type: snapshot.interface_type,
             implementation: snapshot.implementation,
-            function,
+            function: binding.function,
+            parameter_types: binding.parameter_types.clone(),
+            return_type: binding.return_type.clone(),
         })
+    }
+
+    pub fn validate_interface_method_arguments(
+        &self,
+        method: &RootedInterfaceMethod,
+        arguments: &[value::Value],
+    ) -> Result<(), RuntimeError> {
+        if !method.implementation.belongs_to(self.host.owner())
+            || arguments.len() != method.parameter_types.len()
+            || !arguments
+                .iter()
+                .zip(&method.parameter_types)
+                .all(|(value, ty)| {
+                    self.matches_interface_method_abi(value, ty, &method.implementation)
+                })
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "interface method argument does not match its linked signature",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_interface_method_result(
+        &self,
+        method: &RootedInterfaceMethod,
+        result: &value::Value,
+    ) -> Result<(), RuntimeError> {
+        if !method.implementation.belongs_to(self.host.owner())
+            || !self.matches_interface_method_abi(
+                result,
+                &method.return_type,
+                &method.implementation,
+            )
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "interface method result does not match its linked signature",
+            ));
+        }
+        Ok(())
+    }
+
+    fn matches_interface_method_abi(
+        &self,
+        value: &value::Value,
+        ty: &kagari_ir::module::abi::AbiType,
+        implementation: &LoadedModule,
+    ) -> bool {
+        if !self.gc.validate_value(value) {
+            return false;
+        }
+        match (value, ty) {
+            (value::Value::HostRoot(root), kagari_ir::module::abi::AbiType::Host(id)) => {
+                self.host.matches_root(*root)
+                    && self
+                        .host
+                        .host_type_by_declaration(id)
+                        .is_some_and(|host| host.type_id == root.type_id())
+            }
+            _ => self.gc.matches_abi(value, ty, implementation),
+        }
     }
 
     pub fn host(&self) -> &HostRegistry {

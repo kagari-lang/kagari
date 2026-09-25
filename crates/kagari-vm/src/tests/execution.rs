@@ -1741,6 +1741,11 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
             .resolve_interface_method(&Value::I32(7), &method)
             .is_err()
     );
+    assert!(
+        runtime
+            .validate_interface_method_result(&resolved, &Value::Bool(true))
+            .is_err()
+    );
 
     let mut vm = Vm::new(runtime);
     assert_eq!(
@@ -1788,4 +1793,30 @@ fn interface_method_keeps_its_implementation_across_reload() {
     drop(old_root);
     vm.runtime().collect_garbage().unwrap();
     assert!(!vm.runtime().gc().validate_value(&old_value));
+}
+
+#[test]
+fn interface_method_rejects_wrong_nominal_argument_before_execution() {
+    let (runtime, loaded) = load_test_module(
+        "struct A { val n: i32 } struct B { val n: i32 } trait Tag { fn read(self, x: A) -> i32; } impl Tag for i32 { fn read(self, x: A) -> i32 { x.n } } fn run<T: Tag>(x: T, a: A) -> i32 { x.read(a) } fn main() -> i32 { run(7, A { n: 1 }) } fn make_a() -> A { A { n: 5 } } fn make_b() -> B { B { n: 9 } }",
+    );
+    let method = loaded.bytecode.interface_tables[0].methods[0]
+        .method
+        .clone();
+    let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
+    let mut vm = Vm::new(runtime);
+    let right = vm.execute(&loaded, "make_a").unwrap().return_value;
+    assert_eq!(
+        vm.invoke_interface_method(&boxed, &method, &[right])
+            .unwrap(),
+        Value::I32(5)
+    );
+    let wrong = vm.execute(&loaded, "make_b").unwrap().return_value;
+    assert!(matches!(wrong, Value::Struct(_)));
+    let error = vm
+        .invoke_interface_method(&boxed, &method, &[wrong])
+        .unwrap_err();
+    assert!(
+        matches!(error, VmError::RuntimeError(ref error) if error.message() == "interface method argument does not match its linked signature")
+    );
 }

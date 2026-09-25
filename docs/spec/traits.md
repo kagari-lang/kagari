@@ -492,6 +492,8 @@ let result = vm.invoke_interface_method(&rooted.value(), &method_id, &[])?;
 
 The root must remain alive while the host retains the value. The table index
 belongs to `loaded_impl`; another runtime cannot use that linked module.
+The invocation boundary checks concrete parameter and result ABI types,
+including nominal script identity, before accepting an embedding call.
 
 Concrete implementations defined in a dependency are visible to bound-call
 resolution through the checked implementation catalog. Their methods link by

@@ -70,6 +70,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   connected. The VM embedding entry can invoke a linked interface method
   against the receiver's pinned version after validating and rooting arguments.
 
+- R08 interface-call ABI checkpoint: boxed methods retain their verified
+  parameter and result types. Embedding calls check the full script nominal
+  signature before entering a frame and check the result on exit; a Struct with
+  the same coarse heap representation but a different declaration is rejected.
+  Exact host-root arguments use the linked host type identity. The invocation
+  roots all arguments across initialization and execution, including nested
+  script objects in tuples. Linked dependency layouts participate in nominal
+  matching instead of limiting checks to the defining module.
+
 - R03 lexer-boundary checkpoint: unknown Unicode scalars now retain full UTF-8
   byte ranges. Parsing unsupported Chinese or emoji tokens produces diagnostics
   and lossless CST tokens instead of slicing inside a code point and panicking.

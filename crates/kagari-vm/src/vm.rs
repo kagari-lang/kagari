@@ -215,6 +215,9 @@ impl Vm {
         let args = std::iter::once(resolved.receiver().clone())
             .chain(arguments.iter().cloned())
             .collect::<Vec<_>>();
+        self.runtime
+            .validate_interface_method_arguments(&resolved, &args)
+            .map_err(VmError::RuntimeError)?;
         if args.len() != usize::from(function.parameter_count)
             || !args
                 .iter()
@@ -223,18 +226,21 @@ impl Vm {
         {
             return Err(VmError::TypeMismatch("interface method arguments"));
         }
-        let _argument_roots = args
-            .iter()
-            .cloned()
-            .map(|value| self.runtime.root_value(value))
-            .collect::<Option<Vec<_>>>()
+        let _argument_roots = self
+            .runtime
+            .gc()
+            .root_execution_values(args.clone())
             .ok_or(VmError::TypeMismatch("invalid interface method argument"))?;
         let _session = self.begin_execution(loaded)?;
         self.runtime
             .validate_loaded_module(loaded)
             .map_err(VmError::RuntimeError)?;
         self.execute_module(loaded)?;
-        Executor::new(&self.runtime, loaded, resolved.function(), &args)?.run()
+        let result = Executor::new(&self.runtime, loaded, resolved.function(), &args)?.run()?;
+        self.runtime
+            .validate_interface_method_result(&resolved, &result)
+            .map_err(VmError::RuntimeError)?;
+        Ok(result)
     }
 
     pub fn execute_with_backend<B: CodegenBackend>(

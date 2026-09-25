@@ -12,15 +12,20 @@ use crate::error::{RuntimeError, RuntimeErrorKind};
 use crate::value::{EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value};
 
 #[derive(Debug, Clone)]
+pub(crate) struct InterfaceMethodBinding {
+    pub(crate) method: kagari_common::identity::DefinitionId,
+    pub(crate) function: kagari_ir::bytecode::FunctionRef,
+    pub(crate) parameter_types: Vec<kagari_ir::module::abi::AbiType>,
+    pub(crate) return_type: kagari_ir::module::abi::AbiType,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct InterfaceValueSnapshot {
     pub(crate) data: Value,
     pub(crate) concrete_type: kagari_ir::module::abi::AbiType,
     pub(crate) interface_type: kagari_ir::module::abi::NominalAbiType,
     pub(crate) implementation: crate::module::LoadedModule,
-    pub(crate) methods: Vec<(
-        kagari_common::identity::DefinitionId,
-        kagari_ir::bytecode::FunctionRef,
-    )>,
+    pub(crate) methods: Vec<InterfaceMethodBinding>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -368,10 +373,13 @@ impl GcHeap {
                     pending.extend(values.into_iter().zip(types));
                 },
                 (Value::Struct(id), AbiType::Struct(expected)) => {
-                    if !self.struct_layout(id).is_some_and(|layout| owner.bytecode.structures.iter().any(|current| current.declaration == expected.declaration && current.arguments == expected.arguments && layout.layout() == current)) { return false; }
+                    if !self.struct_layout(id).is_some_and(|layout| owner.members().any(|member| member.bytecode.structures.iter().any(|current| current.declaration == expected.declaration && current.arguments == expected.arguments && layout.layout() == current))) { return false; }
                 },
                 (Value::Enum(id), AbiType::Enum(expected)) => {
-                    if !self.enum_snapshot(id).is_some_and(|value| matches!(value.tag, EnumTag::Declared(layout) if owner.bytecode.enumerations.iter().any(|current| current.declaration == expected.declaration && current.arguments == expected.arguments && layout.layout() == current))) { return false; }
+                    if !self.enum_snapshot(id).is_some_and(|value| matches!(value.tag, EnumTag::Declared(layout) if owner.members().any(|member| member.bytecode.enumerations.iter().any(|current| current.declaration == expected.declaration && current.arguments == expected.arguments && layout.layout() == current)))) { return false; }
+                },
+                (Value::Interface(id), AbiType::Trait(expected)) => {
+                    if !self.interface_snapshot(id).is_some_and(|value| value.interface_type == *expected) { return false; }
                 },
                 (Value::Array(id), AbiType::Array(element)) => {
                     let Some(values) = self.array_snapshot(id) else { return false; };
