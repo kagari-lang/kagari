@@ -320,6 +320,18 @@ pub(super) fn verify_module_with_program(
         &Default::default(),
     )
     .map_err(|error| BytecodeVerificationError::InvalidHostInterface(format!("{error:?}")))?;
+    if !crate::module::host::public_trait_bindings_match(
+        &module.host_interface,
+        &module.identity,
+        &module.public_items,
+        &Default::default(),
+    )
+    .expect("bytecode verification uses an uncancelled token")
+    {
+        return Err(BytecodeVerificationError::InvalidHostInterface(
+            "host trait table disagrees with script trait ABI".into(),
+        ));
+    }
     if module.function_table.len() != module.functions.len() {
         return Err(BytecodeVerificationError::FunctionTableLengthMismatch {
             functions: module.functions.len(),

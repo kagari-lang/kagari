@@ -482,6 +482,112 @@ fn unsupported_dynamic_calls_fail_before_artifact_execution() {
 }
 
 #[test]
+fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
+    use kagari_common::{
+        host_interface::{
+            HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
+            HostTypeDeclaration, HostValueType,
+        },
+        identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    };
+
+    let mut module =
+        common::bytecode_ok("pub trait Readable<T> { fn get(self) -> T; } fn main() {}");
+    let trait_id = DefinitionId {
+        module: module.identity.clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: "Readable".into(),
+            occurrence: 0,
+        }],
+    };
+    let mut trait_method = trait_id.clone();
+    trait_method.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: "get".into(),
+        occurrence: 0,
+    });
+    let mut host = HostTypeDeclaration::new("demo.Counter");
+    let method = HostMethodDeclaration::new(&host.id, "read", vec![], HostValueType::I32);
+    host.methods.push(method.clone());
+    host.trait_implementations
+        .push(HostTraitImplementationDeclaration::new(
+            trait_id,
+            vec![HostValueType::I32],
+            vec![HostTraitMethodBinding {
+                trait_method,
+                host_method: method.id.clone(),
+            }],
+        ));
+    module
+        .host_interface
+        .functions
+        .push(host.method_contract(&method.id).unwrap());
+    module.host_interface.types.push(host);
+    verify_module(&module).unwrap();
+
+    let valid = KbcArtifact::from_program(
+        crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(0),
+            modules: vec![module],
+        },
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    for corrupt in ["argument", "return", "method"] {
+        let mut forged = valid.clone();
+        let host = &mut forged.program.modules[0].host_interface.types[0];
+        match corrupt {
+            "argument" => host.trait_implementations[0].trait_arguments = vec![HostValueType::Bool],
+            "return" => {
+                host.methods[0].return_type = HostValueType::Bool;
+                forged.program.modules[0].host_interface.functions[0].return_type =
+                    HostValueType::Bool;
+            }
+            "method" => host.trait_implementations[0].methods.clear(),
+            _ => unreachable!(),
+        }
+        let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+        assert!(
+            matches!(
+                decoded.validate_for_loader(&ArtifactCompatibility::default()),
+                Err(ArtifactValidationError::Bytecode(
+                    BytecodeVerificationError::InvalidHostInterface(_)
+                ))
+            ),
+            "{corrupt}"
+        );
+    }
+
+    let owner = valid.program.modules[0].clone();
+    let mut importer = BytecodeModule {
+        identity: ModuleIdentity {
+            package: PackageId("pkg".into()),
+            path: vec!["consumer".into()],
+        },
+        dependencies: vec![crate::bytecode::ModuleRef::new(0)],
+        host_interface: owner.host_interface.clone(),
+        ..Default::default()
+    };
+    assert!(
+        crate::bytecode::verify_program(&crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(1),
+            modules: vec![owner.clone(), importer.clone()],
+        })
+        .is_ok()
+    );
+    importer.host_interface.types[0].trait_implementations[0].trait_arguments =
+        vec![HostValueType::Bool];
+    assert!(matches!(
+        crate::bytecode::verify_program(&crate::bytecode::BytecodeProgram {
+            root: crate::bytecode::ModuleRef::new(1),
+            modules: vec![owner, importer],
+        }),
+        Err(BytecodeVerificationError::InvalidHostInterface(_))
+    ));
+}
+
+#[test]
 fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok(
         "fn main() -> bool { val a = [7]; std::iter::get(a, a.len()).is_none() }",

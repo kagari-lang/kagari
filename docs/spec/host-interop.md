@@ -784,7 +784,11 @@ nominal types are not host declaration arguments. Linking
 requires an identical registered table and bound callbacks for all mapped host
 methods before publication. Signature analysis checks the script trait's method
 roster, receiver, parameters, result and applied trait-parameter bounds against
-each bound host method. Dynamic interface dispatch remains pending R08 work.
+each bound host method. IR and bytecode verification repeat the public trait
+roster and signature checks, including nested host types and applied arguments,
+against the ABI record in the defining module. Private trait contracts and
+trait-parameter bounds still need execution-layer verification. Dynamic
+interface dispatch remains pending R08 work.
 For a concrete host receiver, an applied trait table satisfies the exact static
 trait bound. Reachable generic calls select the mapped host method by declaration
 identity and execute it with the normal host capability, effect and borrow checks.

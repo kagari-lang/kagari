@@ -168,6 +168,35 @@ pub enum AbiType {
 }
 
 impl AbiType {
+    pub(crate) fn from_host_type(ty: &kagari_common::host_interface::HostValueType) -> Self {
+        use kagari_common::host_interface::HostValueType as Host;
+        match ty {
+            Host::Unit => Self::Builtin(BuiltinType::Unit),
+            Host::Bool => Self::Builtin(BuiltinType::Bool),
+            Host::I32 => Self::Builtin(BuiltinType::I32),
+            Host::I64 => Self::Builtin(BuiltinType::I64),
+            Host::F32 => Self::Builtin(BuiltinType::F32),
+            Host::F64 => Self::Builtin(BuiltinType::F64),
+            Host::String => Self::Builtin(BuiltinType::String),
+            Host::Opaque(id) => Self::Host(id.clone()),
+            Host::Tuple(types) => Self::Tuple(types.iter().map(Self::from_host_type).collect()),
+            Host::Array(ty) => Self::Array(Box::new(Self::from_host_type(ty))),
+            Host::Map { key, value } => Self::Map {
+                key: Box::new(Self::from_host_type(key)),
+                value: Box::new(Self::from_host_type(value)),
+            },
+            Host::Set(ty) => Self::Set(Box::new(Self::from_host_type(ty))),
+            Host::Option(ty) => Self::StandardEnum {
+                kind: StandardEnumKind::Option,
+                args: vec![Self::from_host_type(ty)],
+            },
+            Host::Result { ok, error } => Self::StandardEnum {
+                kind: StandardEnumKind::Result,
+                args: vec![Self::from_host_type(ok), Self::from_host_type(error)],
+            },
+        }
+    }
+
     pub fn representation(&self) -> super::ValueType {
         match self {
             Self::Host(_) => super::ValueType::HostHandle,

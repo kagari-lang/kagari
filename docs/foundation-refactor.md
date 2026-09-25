@@ -327,6 +327,15 @@ workload, repetitions and measurements; no unmeasured performance claims.
   artifact and VM reflection fixtures retain valid behavior. Dynamic member
   existence and capability decisions remain runtime checks.
 
+- R08 public host-trait verification checkpoint: IR and bytecode verification
+  recheck every host trait table whose defining script trait has a public ABI
+  record in the same module or dependency closure. The check compares applied
+  argument count, complete method roster, receiver, nested parameter and result
+  types, and rejects mismatches before publication. Encoded-artifact tampering
+  tests cover changed arguments, results and method mappings; a cross-module
+  fixture checks the dependency owner. Private trait contracts and applied
+  trait-parameter bounds still need an executable contract catalog.
+
 - R04/R06 call-navigation checkpoint: offline `host_function_at` and
   `source_function_at` queries restrict dotted callees to their member names.
   A receiver call retains its separate checked target; dot positions no longer

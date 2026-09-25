@@ -55,6 +55,19 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
             _ => Error::InvalidPublicAbi,
         })
     })?;
+    if !crate::module::host::public_trait_bindings_match(
+        &kagari_common::host_interface::HostInterface {
+            types: module.host_types.clone(),
+            ..Default::default()
+        },
+        &module.identity,
+        &module.abi.public_items,
+        context.cancel,
+    )
+    .map_err(|_| context.error(Error::Cancelled))?
+    {
+        return Err(context.error(Error::InvalidHostInterface));
+    }
     if !crate::module::layout::struct_abi_matches(
         &module.structures,
         &module.identity,

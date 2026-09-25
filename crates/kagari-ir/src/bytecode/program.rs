@@ -93,6 +93,21 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             }
         }
         super::verifier::verify_module_with_program(module, Some(program))?;
+        for owner in &program.modules {
+            if owner.identity != module.identity
+                && !crate::module::host::public_trait_bindings_match(
+                    &module.host_interface,
+                    &owner.identity,
+                    &owner.public_items,
+                    &Default::default(),
+                )
+                .expect("bytecode verification uses an uncancelled token")
+            {
+                return Err(BytecodeVerificationError::InvalidHostInterface(
+                    "host trait table disagrees with dependency trait ABI".into(),
+                ));
+            }
+        }
         for layout in &module.enumerations {
             let Some(owner) = program
                 .modules
