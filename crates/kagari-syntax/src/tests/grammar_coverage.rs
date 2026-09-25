@@ -26,16 +26,10 @@ struct GapCase {
     source: &'static str,
 }
 
-const GAPS: &[GapCase] = &[
-    GapCase {
-        id: "attribute",
-        source: "@tag fn main() {}",
-    },
-    GapCase {
-        id: "binding_condition",
-        source: "fn main() { if val x = 1 { x }; }",
-    },
-];
+const GAPS: &[GapCase] = &[GapCase {
+    id: "attribute",
+    source: "@tag fn main() {}",
+}];
 
 fn grammar_rules() -> BTreeSet<String> {
     let mut rules = BTreeSet::new();

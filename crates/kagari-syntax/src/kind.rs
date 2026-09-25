@@ -127,6 +127,7 @@ pub enum SyntaxKind {
     PrefixExpr,
     BinaryExpr,
     RangeExpr,
+    BindingCondition,
     CallExpr,
     FieldExpr,
     IndexExpr,

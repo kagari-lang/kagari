@@ -31,7 +31,7 @@ pub enum StmtKind {
         expr: Option<ExprId>,
     },
     While {
-        condition: ExprId,
+        condition: crate::hir::Condition,
         body: BlockId,
     },
     Loop {

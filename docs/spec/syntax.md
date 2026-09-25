@@ -780,6 +780,9 @@ literal         ::= INTEGER
 - A `match` guard is evaluated after its pattern binds names. It must be `bool`;
   a false guard continues to the next arm, even for an otherwise irrefutable
   pattern. Guards are evaluated only for matching patterns.
+- `if val pattern = expr` and `while val pattern = expr` evaluate `expr` once
+  per condition check. On a match, names are visible only in the then branch or
+  loop body. A failed match selects `else` or exits the loop.
 - `|` pattern alternatives share one binding scope. Each alternative must bind
   the same names with the same types. Integer range patterns accept `i32`
   literal or local scalar `const` bounds; `..` excludes the upper bound and

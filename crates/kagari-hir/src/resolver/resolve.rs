@@ -145,8 +145,15 @@ impl<'a> BodyResolver<'a> {
                 }
             }
             StmtKind::While { condition, body } => {
-                self.resolve_expr(*condition);
+                self.resolve_expr(condition.value());
+                if let crate::hir::Condition::Binding { pattern, .. } = condition {
+                    self.push_child_scope(self.source_map.block_span(*body));
+                    self.bind_pattern(*pattern, self.source_map.block_span(*body).start);
+                }
                 self.resolve_block(*body);
+                if matches!(condition, crate::hir::Condition::Binding { .. }) {
+                    self.pop_scope();
+                }
             }
             StmtKind::Loop { body } => self.resolve_block(*body),
             StmtKind::For {
@@ -217,8 +224,15 @@ impl<'a> BodyResolver<'a> {
                 then_branch,
                 else_branch,
             } => {
-                self.resolve_expr(*condition);
+                self.resolve_expr(condition.value());
+                if let crate::hir::Condition::Binding { pattern, .. } = condition {
+                    self.push_child_scope(self.source_map.block_span(*then_branch));
+                    self.bind_pattern(*pattern, self.source_map.block_span(*then_branch).start);
+                }
                 self.resolve_block(*then_branch);
+                if matches!(condition, crate::hir::Condition::Binding { .. }) {
+                    self.pop_scope();
+                }
                 if let Some(expr) = else_branch {
                     self.resolve_expr(*expr);
                 }

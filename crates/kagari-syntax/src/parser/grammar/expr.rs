@@ -57,6 +57,22 @@ impl<'a> Parser<'a> {
         self.with_struct_literals_allowed(false, |parser| parser.parse_expr());
     }
 
+    pub(crate) fn parse_condition(&mut self) {
+        self.bump_trivia();
+        if self.at(TokenKind::ValKw) {
+            self.start_node(SyntaxKind::BindingCondition);
+            self.bump();
+            self.bump_trivia();
+            self.parse_match_pattern();
+            self.bump_trivia();
+            self.expect(TokenKind::Eq, DiagnosticKind::UnexpectedToken);
+            self.parse_condition_expr();
+            self.finish_node();
+        } else {
+            self.parse_condition_expr();
+        }
+    }
+
     fn parse_logical_or_expr(&mut self) {
         let checkpoint = self.checkpoint();
         self.parse_logical_and_expr();
@@ -412,7 +428,7 @@ impl<'a> Parser<'a> {
     fn parse_if_expr_nested(&mut self) {
         self.start_node(SyntaxKind::IfExpr);
         self.expect(TokenKind::IfKw, DiagnosticKind::ExpectedIfKeyword);
-        self.parse_condition_expr();
+        self.parse_condition();
         self.bump_trivia();
         self.parse_block();
         self.bump_trivia();

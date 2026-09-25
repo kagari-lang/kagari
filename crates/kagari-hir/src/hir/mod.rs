@@ -10,8 +10,8 @@ pub mod writeability;
 
 pub use body::Body;
 pub use expr::{
-    BinaryOp, ClosureParam, ExprBuffer, ExprData, ExprKind, FieldInit, FieldInitBuffer, Literal,
-    LiteralKind, MatchArm, MatchArmBuffer, PrefixOp,
+    BinaryOp, ClosureParam, Condition, ExprBuffer, ExprData, ExprKind, FieldInit, FieldInitBuffer,
+    Literal, LiteralKind, MatchArm, MatchArmBuffer, PrefixOp,
 };
 pub(crate) use ids::BodySelection;
 pub use ids::{

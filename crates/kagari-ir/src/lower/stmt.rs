@@ -153,7 +153,7 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_while(
         &mut self,
-        condition: hir::ExprId,
+        condition: hir::Condition,
         body: hir::BlockId,
     ) -> Result<(), IrLoweringError> {
         let cond_block = self.new_block();
@@ -161,17 +161,33 @@ impl FunctionLowerer<'_, '_> {
         self.ensure_jump(cond_block);
 
         self.switch_to_block(cond_block);
-        let cond = self.lower_expr(condition)?;
+        let cond = self.lower_expr(condition.value())?;
         if self.current_block_terminated() {
             return Ok(());
         }
         let body_block = self.new_block();
         let exit_block = self.new_block();
-        self.set_terminator(Terminator::Branch {
-            cond,
-            then_block: body_block,
-            else_block: exit_block,
-        });
+        let mut bindings = Vec::new();
+        match condition {
+            hir::Condition::Expr(_) => self.set_terminator(Terminator::Branch {
+                cond,
+                then_block: body_block,
+                else_block: exit_block,
+            }),
+            hir::Condition::Binding {
+                pattern,
+                initializer,
+            } => {
+                let ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(initializer)
+                    .ok_or(IrLoweringError::MissingExprType(initializer))?;
+                self.lower_pattern_decision(pattern, cond, &ty, exit_block, &mut bindings)?;
+                self.set_terminator(Terminator::Jump(body_block));
+            }
+        }
 
         self.loops.push(LoopScope {
             break_block: exit_block,
@@ -179,10 +195,16 @@ impl FunctionLowerer<'_, '_> {
             break_value: None,
         });
         self.switch_to_block(body_block);
+        let outer_scope = self.current_scope;
+        for (local, value) in bindings {
+            self.emit(Instruction::StoreLocal { local, src: value });
+            self.introduce_debug_local(local);
+        }
         let _ = self.lower_block(body)?;
         self.ensure_jump(cond_block);
         self.loops.pop();
 
+        self.current_scope = outer_scope;
         self.switch_to_block(exit_block);
         Ok(())
     }

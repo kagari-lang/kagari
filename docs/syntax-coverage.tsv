@@ -74,8 +74,8 @@ loop_stmt	covered	examples/syntax/control-flow.kgr	-
 for_stmt	covered	examples/syntax/control-flow.kgr	-
 break_stmt	covered	examples/syntax/control-flow.kgr	-
 continue_stmt	covered	examples/syntax/control-flow.kgr	-
-condition	partial	examples/syntax/expressions.kgr	Binding conditions are not recognized
-binding_condition	missing	gap:binding_condition	Binding condition is absent
+condition	covered	examples/syntax/binding-conditions.kgr	-
+binding_condition	covered	examples/syntax/binding-conditions.kgr	-
 expr	covered	examples/syntax/ranges.kgr	-
 range_expr	covered	examples/syntax/ranges.kgr	-
 range_op	covered	examples/syntax/ranges.kgr	-

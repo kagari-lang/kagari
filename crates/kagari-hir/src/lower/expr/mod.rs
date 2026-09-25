@@ -6,11 +6,37 @@ use kagari_syntax::kind::SyntaxKind;
 use smallvec::{SmallVec, smallvec};
 
 use crate::hir::{
-    BlockData, ClosureParam, ExprData, ExprId, ExprKind, FieldInit, MatchArm, PrefixOp,
+    BlockData, ClosureParam, Condition, ExprData, ExprId, ExprKind, FieldInit, MatchArm, PrefixOp,
 };
 use crate::lower::context::{Lowerer, lower_binary_op, syntax_span, token_span};
 
 impl Lowerer {
+    pub(crate) fn lower_condition(
+        &mut self,
+        binding: Option<ast::BindingCondition>,
+        plain: Option<ast::Expr>,
+    ) -> Condition {
+        if let Some(binding) = binding {
+            Condition::Binding {
+                pattern: binding
+                    .pattern()
+                    .map(|pattern| self.lower_pattern(&pattern))
+                    .unwrap_or_else(|| self.synthetic_name_pattern("<missing>")),
+                initializer: binding
+                    .initializer()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr()),
+            }
+        } else {
+            Condition::Expr(
+                plain
+                    .as_ref()
+                    .map(|expr| self.lower_expr(expr))
+                    .unwrap_or_else(|| self.missing_expr()),
+            )
+        }
+    }
+
     pub(crate) fn lower_expr(&mut self, expr: &ast::Expr) -> ExprId {
         if self.cancel.check().is_err() {
             return self.missing_expr();
@@ -105,10 +131,7 @@ impl Lowerer {
                     .unwrap_or_else(|| self.missing_expr()),
             },
             ast::Expr::IfExpr(if_expr) => ExprKind::If {
-                condition: if_expr
-                    .condition()
-                    .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.missing_expr()),
+                condition: self.lower_condition(if_expr.binding_condition(), if_expr.condition()),
                 then_branch: match if_expr.then_branch() {
                     Some(block) => self.lower_block(&block),
                     None => self.alloc_block(

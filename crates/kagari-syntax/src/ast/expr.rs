@@ -31,6 +31,7 @@ ast_node!(ClosureParamList, ClosureParamList);
 ast_node!(ClosureParam, ClosureParam);
 ast_node!(MatchArmList, MatchArmList);
 ast_node!(MatchArm, MatchArm);
+ast_node!(BindingCondition, BindingCondition);
 ast_node!(Pattern, Pattern);
 ast_node!(PatternField, PatternField);
 ast_node!(TupleExpr, TupleExpr);
@@ -287,6 +288,10 @@ impl IndexExpr {
 }
 
 impl IfExpr {
+    pub fn binding_condition(&self) -> Option<BindingCondition> {
+        support::child(self.syntax())
+    }
+
     pub fn condition(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
@@ -311,6 +316,16 @@ impl IfExpr {
 
                 seen_then_branch
             })
+    }
+}
+
+impl BindingCondition {
+    pub fn pattern(&self) -> Option<Pattern> {
+        support::child(self.syntax())
+    }
+
+    pub fn initializer(&self) -> Option<Expr> {
+        support::child(self.syntax())
     }
 }
 

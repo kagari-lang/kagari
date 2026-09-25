@@ -270,12 +270,24 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             StmtKind::While { condition, body } => {
-                if self.check_condition_type(*condition, "while", env).is_err() {
-                    return;
+                let mut body_env = env.clone();
+                match condition {
+                    crate::hir::Condition::Expr(expr) => {
+                        if self.check_condition_type(*expr, "while", env).is_err() {
+                            return;
+                        }
+                    }
+                    crate::hir::Condition::Binding {
+                        pattern,
+                        initializer,
+                    } => {
+                        let ty = self.infer_expr_type(*initializer, env);
+                        self.check_pattern(*pattern, &ty, &mut body_env);
+                    }
                 }
                 self.loop_depth += 1;
                 self.loop_results.push(LoopResult::Statement);
-                let _ = self.infer_block_types(*body, env);
+                let _ = self.infer_block_types(*body, &mut body_env);
                 self.loop_results.pop();
                 self.loop_depth -= 1;
             }
@@ -962,11 +974,32 @@ impl<'a> BodyChecker<'a> {
                 then_branch,
                 else_branch,
             } => {
-                let Ok(condition_completes) = self.check_condition_type(*condition, "if", env)
-                else {
-                    return TypeId::Unknown;
+                let mut then_env = env.clone();
+                let condition_completes = match condition {
+                    crate::hir::Condition::Expr(expr) => {
+                        let Ok(completes) = self.check_condition_type(*expr, "if", env) else {
+                            return TypeId::Unknown;
+                        };
+                        completes
+                    }
+                    crate::hir::Condition::Binding {
+                        pattern,
+                        initializer,
+                    } => {
+                        let ty = self.infer_expr_type(*initializer, env);
+                        self.check_pattern(*pattern, &ty, &mut then_env);
+                        let Ok(completes) = super::completion::expr_can_complete(
+                            &self.lowered.module,
+                            *initializer,
+                            self.cancel,
+                        ) else {
+                            return TypeId::Unknown;
+                        };
+                        completes
+                    }
                 };
-                let mut then_ty = self.infer_block_types_expected(*then_branch, env, expected);
+                let mut then_ty =
+                    self.infer_block_types_expected(*then_branch, &mut then_env, expected);
                 match else_branch {
                     Some(else_expr) => {
                         let Ok(then_completes) = super::completion::block_can_complete(

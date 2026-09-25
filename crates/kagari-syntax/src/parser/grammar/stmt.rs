@@ -120,7 +120,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_while_stmt(&mut self) {
         self.start_node(SyntaxKind::WhileStmt);
         self.expect(TokenKind::WhileKw, DiagnosticKind::ExpectedWhileKeyword);
-        self.parse_condition_expr();
+        self.parse_condition();
         self.bump_trivia();
         self.parse_block();
         self.finish_node();

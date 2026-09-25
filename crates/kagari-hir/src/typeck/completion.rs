@@ -248,7 +248,7 @@ impl<'a> Completion<'a> {
                                 continue;
                             }
                             StmtKind::While { condition, .. } => {
-                                work.push(Task::Visit(Node::Expr(*condition)));
+                                work.push(Task::Visit(Node::Expr(condition.value())));
                                 continue;
                             }
                             StmtKind::Loop { body } => {
@@ -318,7 +318,7 @@ impl<'a> Completion<'a> {
                                 else_branch,
                             } => Box::new(
                                 [
-                                    Node::Expr(*condition),
+                                    Node::Expr(condition.value()),
                                     Node::Branches(*then_branch, *else_branch),
                                 ]
                                 .into_iter(),

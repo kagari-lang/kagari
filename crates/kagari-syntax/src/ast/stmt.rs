@@ -149,6 +149,10 @@ impl AssignStmt {
 }
 
 impl WhileStmt {
+    pub fn binding_condition(&self) -> Option<super::BindingCondition> {
+        support::child(self.syntax())
+    }
+
     pub fn condition(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }

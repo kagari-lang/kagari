@@ -226,30 +226,53 @@ impl FunctionLowerer<'_, '_> {
     fn lower_if(
         &mut self,
         expr_id: hir::ExprId,
-        condition: hir::ExprId,
+        condition: hir::Condition,
         then_branch: hir::BlockId,
         else_branch: Option<hir::ExprId>,
     ) -> Result<IrValue, IrLoweringError> {
-        let cond = self.lower_expr(condition)?;
+        let cond = self.lower_expr(condition.value())?;
         if self.current_block_terminated() {
             return Ok(cond);
         }
+        let outer_scope = self.current_scope;
         let then_block = self.new_block();
         let else_block = self.new_block();
         let join_block = self.new_block();
         let result = self.alloc_temp(self.expr_type(expr_id)?);
-
-        self.set_terminator(Terminator::Branch {
-            cond,
-            then_block,
-            else_block,
-        });
+        let mut bindings = Vec::new();
+        match condition {
+            hir::Condition::Expr(_) => self.set_terminator(Terminator::Branch {
+                cond,
+                then_block,
+                else_block,
+            }),
+            hir::Condition::Binding {
+                pattern,
+                initializer,
+            } => {
+                let ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(initializer)
+                    .ok_or(IrLoweringError::MissingExprType(initializer))?;
+                self.lower_pattern_decision(pattern, cond, &ty, else_block, &mut bindings)?;
+                self.set_terminator(Terminator::Jump(then_block));
+            }
+        }
 
         self.switch_to_block(then_block);
-        let then_value = self
-            .lower_block(then_branch)?
-            .unwrap_or_else(|| self.lower_unit());
+        for (local, value) in bindings {
+            self.emit(Instruction::StoreLocal { local, src: value });
+            self.introduce_debug_local(local);
+        }
+        let then_value = self.lower_block(then_branch)?;
         if !self.current_block_terminated() {
+            let then_value = if else_branch.is_some() {
+                then_value.unwrap_or_else(|| self.lower_unit())
+            } else {
+                self.lower_unit()
+            };
             self.emit(Instruction::Move {
                 dst: result,
                 src: then_value,
@@ -257,6 +280,7 @@ impl FunctionLowerer<'_, '_> {
             self.set_terminator(Terminator::Jump(join_block));
         }
 
+        self.current_scope = outer_scope;
         self.switch_to_block(else_block);
         let else_value = match else_branch {
             Some(expr) => self.lower_expr(expr)?,

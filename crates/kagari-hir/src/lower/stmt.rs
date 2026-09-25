@@ -74,10 +74,7 @@ impl Lowerer {
                 expr: stmt.expr().map(|expr| self.lower_expr(&expr)),
             },
             ast::Stmt::WhileStmt(stmt) => StmtKind::While {
-                condition: stmt
-                    .condition()
-                    .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.missing_expr()),
+                condition: self.lower_condition(stmt.binding_condition(), stmt.condition()),
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
                     None => self.alloc_block(

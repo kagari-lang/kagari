@@ -48,7 +48,7 @@ pub enum ExprKind {
         index: ExprId,
     },
     If {
-        condition: ExprId,
+        condition: Condition,
         then_branch: BlockId,
         else_branch: Option<ExprId>,
     },
@@ -71,6 +71,24 @@ pub enum ExprKind {
     Tuple(ExprBuffer),
     Array(ExprBuffer),
     Block(BlockId),
+}
+
+#[derive(Debug, Clone)]
+pub enum Condition {
+    Expr(ExprId),
+    Binding {
+        pattern: PatternId,
+        initializer: ExprId,
+    },
+}
+
+impl Condition {
+    pub fn value(&self) -> ExprId {
+        match self {
+            Self::Expr(expr) => *expr,
+            Self::Binding { initializer, .. } => *initializer,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
