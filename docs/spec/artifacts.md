@@ -200,7 +200,7 @@ exported. Version 32 products are rejected without migration.
 Version 38 and runtime ABI v38 require program-point and lexical-scope local
 visibility in debugger metadata. Earlier products, which could expose locals
 outside their scope, are rejected before execution.
-The runtime ABI identity is `kagari-runtime-abi-v33`; the runtime-helper ABI is
+The current runtime ABI identity is `kagari-runtime-abi-v38`; the runtime-helper ABI is
 v5. Previous ABI artifacts are rejected even when requested by the caller: v5
 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and

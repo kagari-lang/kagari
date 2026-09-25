@@ -1,6 +1,6 @@
 # Foundation Refactor
 
-This track supersedes conflicting milestone behavior in implementation-roadmap.md.
+This is the active foundation track linked from implementation-roadmap.md.
 It is a breaking replacement: no old API facade, dual semantic path, artifact
 upgrade, or legacy interpreter. Runtime ABI/schema/authority checks remain required.
 
@@ -28,7 +28,7 @@ complete replay, automatic state migration, and advanced JIT are later tracks.
 - [x] R15: Compile-time capability and resource limits.
 - [x] R16: Injectable deterministic context and host trace fixtures.
 - [x] R17: Interpreter/JIT/debugger contract equivalence.
-- [ ] R18: Obsolete-path audit, full validation, reproducible resource baselines.
+- [x] R18: Obsolete-path audit, full validation, reproducible resource baselines.
 
 ## Validation
 
@@ -38,6 +38,22 @@ Focused tests accompany each semantic change. Final gates are `cargo fmt --all
 workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
+
+- R18 final audit: `implementation-roadmap.md` now points only to this active
+  checklist; the old M1–M11 instructions were removed from the roadmap and goal
+  guide. The artifact specification names the current v38 ABI while retaining
+  historical version notes. A source audit found no old-format decoder, API
+  alias or alternate semantic executor; remaining `compatibility` references
+  perform required artifact/runtime checks, and `legacy` tests reject old
+  products. README links the authoritative track and the
+  [reproducible performance baseline](performance-baseline.md). The standard-library
+  CLI and cross-module embedding examples run successfully. The baseline example
+  records cold compilation, one-function edit reuse, pointer-identical code
+  sharing across two runtimes, and a root call with one internal call. The GC
+  example records collector pauses. Final `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
+  and `git diff --check` passed. Full editor integration, advanced GC, async,
+  replay, and optimized JIT remain separate future tracks.
 
 - R08 bounded trait-proof checkpoint: source analysis and executable validation
   can use the same implementation matcher. The shared query preserves generic

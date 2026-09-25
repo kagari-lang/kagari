@@ -21,6 +21,8 @@ This currently means:
 - [Project goal](docs/project_goal.md)
 - [Architecture](docs/architecture.md)
 - [Implementation roadmap](docs/implementation-roadmap.md)
+- [Foundation checkpoints and semantic contracts](docs/foundation-refactor.md)
+- [Foundation performance baseline](docs/performance-baseline.md)
 - [Codex goal guide](docs/codex-goal-guide.md)
 - [Syntax grammar](docs/kagari.ebnf)
 - [Embedding API specification](docs/spec/embedding-api.md)

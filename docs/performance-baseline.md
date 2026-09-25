@@ -1,7 +1,54 @@
 # Foundation Performance Measurements
 
-These measurements accompany the foundation refactor; they do not close R18.
-Compiler, reanalysis, shared-code memory and call-overhead measurements remain open.
+These reproducible workloads establish a baseline for R18. The figures are
+observations on one machine, not performance guarantees.
+
+## Foundation baseline, 2026-09-25
+
+Environment: Windows x86_64, Intel Core i9-12900K, rustc 1.98.1
+(`48a229cea`, LLVM 22.1.8), target `x86_64-pc-windows-msvc`, Cargo release profile.
+Implementation: commit `e243943` plus the benchmark example below; KBC format 38
+and runtime ABI v38.
+
+Run `cargo run --release -p kagari-embed --example foundation_baseline` to measure
+the compiler and VM. Five independent process runs each take five cold compilation
+samples of a 33-function source module; the table reports each process's median.
+The edit replaces the body of one function through a source overlay, then analyzes
+the new snapshot. The VM measurement averages 10,000 root calls to `main`, each of
+which makes one internal function call, after 100 warmup calls. The compiler time
+includes construction of a fresh engine, analysis, lowering, verification and
+artifact creation; it excludes serialization.
+
+| Process | Cold compile median (µs) | Edit analysis (µs) | Root + internal call (ns) | Reused / checked bodies |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 860 | 470 | 1,651 | 32 / 1 |
+| 2 | 840 | 481 | 2,201 | 32 / 1 |
+| 3 | 730 | 408 | 1,597 | 32 / 1 |
+| 4 | 773 | 416 | 1,647 | 32 / 1 |
+| 5 | 810 | 409 | 1,649 | 32 / 1 |
+| Median | 810 | 416 | 1,649 | 32 / 1 |
+
+The executable image serializes to 24,513 bytes. Two runtimes loaded from one
+`VerifiedProgram` have pointer-identical `Arc<BytecodeModule>` handles; the
+shared module has three strong references during the measurement. The encoded
+size is a stable proxy for code size, **not** the resident heap footprint.
+Runtime-owned instance state is separate from this shared code allocation.
+
+Run `cargo run --release -p kagari-runtime --example rooted_values` for the GC
+workload described below. Five repetitions, each with a fresh runtime and 10,000
+array links, produced the following collector-only pauses:
+
+| Repetition | All-live collection (ns) | All-dead collection (ns) | Reclaimed units |
+| --- | ---: | ---: | ---: |
+| 0 | 1,145,100 | 361,400 | 20,000 |
+| 1 | 1,142,700 | 320,200 | 20,000 |
+| 2 | 1,360,000 | 313,500 | 20,000 |
+| 3 | 1,281,700 | 319,900 | 20,000 |
+| 4 | 1,024,300 | 295,400 | 20,000 |
+| Median | 1,145,100 | 319,900 | 20,000 |
+
+Neither workload measures server concurrency, process peak memory, nor optimized
+JIT calls. The older GC series remains below for historical comparison.
 
 ## Mark-sweep baseline, 2026-09-12
 
