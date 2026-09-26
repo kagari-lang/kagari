@@ -80,8 +80,8 @@ and hashing, explicit nominal formatting impls, structural and identity keys,
 and GC tracing of keys. See [contracts](spec/builtins.md) and
 [standard-traits.kgr](../examples/syntax/standard-traits.kgr). Artifact format 51,
 runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing,
-Iterator, generalized propagation and Error origin/stack modeling remain
-separate later checkpoints.
+generalized propagation and Error origin/stack modeling remain separate later
+checkpoints. Iterator/IntoIterator are completed in B08 below.
 
 Completed equality checkpoint: object identity operators `===`/`!==`, checked
 from syntax through IR and VM, with artifact format 52 and runtime ABI v52.
@@ -133,7 +133,7 @@ RHS overload selection and resource cleanup after operator traps/budget exhausti
 
 - [x] B07: explicit From/Into and TryFrom/TryInto, static conversion calls, derived reverse bounds and associated errors.
 - [x] B08: Iterator/IntoIterator contracts, custom for loops and native collection integration.
-- [ ] B09: conformance, examples, resource cleanup and workspace validation.
+- [x] B09: conformance, examples, resource cleanup and workspace validation.
 
 Each checkpoint uses a Conventional Commit. Conversions are explicit; reverse
 protocols are derived and cannot be implemented independently. Iteration preserves
@@ -145,3 +145,13 @@ cursors share protocol-based for lowering. Native cursors retain source guards,
 GC roots and code versions; loop/session cleanup and structural revision checks
 cover early exit and resumed cursors. See the authoritative iteration contract in
 [the builtins specification](spec/builtins.md#iteration-protocols).
+
+B09 validation: 1,132 workspace tests passed, including 6 conversion and 10
+iteration integration cases. Source, artifact roundtrips and JIT fallback cover
+single evaluation, qualified conversions, derived bounds, cross-module generic
+implementations, native/custom iteration and associated output checking. Invalid
+cursor instructions are rejected before execution. Cleanup tests cover nested
+loops, return, trap, cancellation, budgets, rooted cursors across GC, foreign/stale
+handles and structure changes between calls. Formatting, workspace clippy with
+warnings denied, and `git diff --check` passed. The former generic Iterator<T>
+proposal now references the implemented associated-Item contract.

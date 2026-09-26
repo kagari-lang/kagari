@@ -256,7 +256,9 @@ fn matches_host_type(
                 pending.push((ar, br));
                 pending.extend(ap.iter().zip(bp));
             }
-            (AbiType::Array(a), AbiType::Array(b)) | (AbiType::Set(a), AbiType::Set(b)) => {
+            (AbiType::Cursor(a), AbiType::Cursor(b))
+            | (AbiType::Array(a), AbiType::Array(b))
+            | (AbiType::Set(a), AbiType::Set(b)) => {
                 pending.push((a, b));
             }
             (AbiType::Map { key: ak, value: av }, AbiType::Map { key: bk, value: bv }) => {

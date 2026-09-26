@@ -137,7 +137,9 @@ queries and clear operations do not invoke equality/hash callbacks.
 
 The standard declarations include `std::cmp::{PartialEq, Eq, PartialOrd, Ord}`,
 `std::hash::Hash`, `std::fmt::{Debug, Display}`, and
-`std::ops::{Add, Sub, Mul, Div, Rem, Neg, Not, Index}`. Their short names are available in the prelude;
+`std::ops::{Add, Sub, Mul, Div, Rem, Neg, Not, Index}`,
+`std::convert::{From, Into, TryFrom, TryInto}` and `std::iter::{Iterator, IntoIterator}`.
+Their short names are available in the prelude;
 normal declarations and imports shadow them. Aliases and wildcard imports retain
 the declaration identity. `Eq` extends `PartialEq`. These are ordinary trait
 bounds, including on associated outputs and GAT parameters. A user trait with

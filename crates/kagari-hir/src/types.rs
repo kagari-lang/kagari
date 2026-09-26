@@ -594,12 +594,11 @@ impl TypeId {
                 | Self::Generic(_)
                 | Self::SelfType(_)
                 | Self::Projection { .. } => return false,
-                Self::Function { .. } => return false,
+                Self::Function { .. } | Self::Cursor(_) => return false,
                 // The elements of mutable containers do not participate in identity equality.
                 Self::Builtin(_)
                 | Self::Struct(_)
                 | Self::Enum(_)
-                | Self::Cursor(_)
                 | Self::Array(_)
                 | Self::Map { .. }
                 | Self::Set(_) => {}

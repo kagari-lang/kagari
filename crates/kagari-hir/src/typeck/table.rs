@@ -936,7 +936,8 @@ pub(crate) fn match_implementation(
                 pending.push((left_result, right_result));
                 pending.extend(left.iter().zip(right));
             }
-            (TypeId::Array(left), TypeId::Array(right))
+            (TypeId::Cursor(left), TypeId::Cursor(right))
+            | (TypeId::Array(left), TypeId::Array(right))
             | (TypeId::Set(left), TypeId::Set(right)) => pending.push((left, right)),
             (
                 TypeId::Map {

@@ -156,7 +156,12 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     let root = rt.root_value(Value::Array(array)).unwrap();
     let item = AbiType::Builtin(BuiltinType::I32);
     let ty = AbiType::Cursor(Box::new(item.clone()));
-    let session = rt.begin_execution(&loaded, Default::default()).unwrap();
+    let cancellation = kagari_common::cancellation::CancellationToken::default();
+    let options = kagari_runtime::ExecutionOptions {
+        cancellation: cancellation.clone(),
+        ..Default::default()
+    };
+    let session = rt.begin_execution(&loaded, options).unwrap();
     let value = rt
         .cursor_operation(
             &loaded,
@@ -167,6 +172,8 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         .unwrap();
     let cursor = rt.root_value(value.clone()).unwrap();
     assert!(rt.gc().array_push(array, Value::I32(1)).is_err());
+    cancellation.cancel();
+    assert!(rt.gc_safepoint().is_err());
     drop(session);
     rt.collect_garbage().unwrap();
     for expected in [20, 22] {
@@ -246,6 +253,85 @@ fn consume<T:Iterator<Item=i32>>(it:T)->i32{var total=0;for value in it {total+=
 struct Wrap<T>{val inner:T}
 impl<T:Iterator<Item=i32>> IntoIterator for Wrap<T>{type Item=i32;type IntoIter=T;fn into_iter(self)->T{self.inner}}
 fn main()->i32 {val a=Wrap{inner:Counter{value:21}};var total=consume(Counter{value:21});for value in a {total+=value;}total}
+"#,
+    );
+}
+
+#[test]
+fn derived_into_iterator_satisfies_nested_impl_bounds() {
+    execute(
+        r#"
+struct Counter{var value:i32}
+impl Iterator for Counter{type Item=i32;fn next(self)->Option<i32>{if self.value>0 {val n=self.value;self.value=0;Some(n)}else{None}}}
+trait Sum{fn sum(self)->i32;}
+struct Wrap<T>{val inner:T}
+impl<T:IntoIterator<Item=i32>> Sum for Wrap<T>{fn sum(self)->i32{var total=0;for x in self.inner {total+=x;}total}}
+fn main()->i32{Wrap{inner:Counter{value:42}}.sum()}
+"#,
+    );
+}
+
+#[test]
+fn malformed_native_cursor_operations_are_rejected_before_execution() {
+    use kagari_ir::{
+        bytecode::BytecodeInstruction,
+        module::{
+            abi::{AbiType, BuiltinType},
+            instruction::CursorOp,
+        },
+    };
+    let artifact = KagariEngine::default()
+        .compile_to_artifact(
+            SourceFile::new(
+                "cursor-wire.kgr",
+                "fn main()->i32 {var total=0;for x in [20,22]{total+=x;}total}",
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    for corrupt in 0..3 {
+        let mut program = artifact.program.clone();
+        let (ty, value) = program
+            .modules
+            .iter_mut()
+            .flat_map(|m| &mut m.functions)
+            .flat_map(|f| &mut f.instructions)
+            .find_map(|i| match i {
+                BytecodeInstruction::Cursor {
+                    ty,
+                    value,
+                    op: CursorOp::New,
+                    ..
+                } => Some((ty, value)),
+                _ => None,
+            })
+            .unwrap();
+        match corrupt {
+            0 => *ty = AbiType::Builtin(BuiltinType::I32),
+            1 => *value = None,
+            _ => {
+                *ty = AbiType::Array(Box::new(AbiType::StandardEnum {
+                    kind: kagari_hir::builtin::surface::StandardEnum::Option,
+                    args: vec![],
+                }))
+            }
+        }
+        assert!(kagari_ir::bytecode::verify_program(&program).is_err());
+    }
+}
+
+#[test]
+fn for_evaluates_source_and_conversion_once_and_stops_next_at_break() {
+    execute(
+        r#"
+struct Calls{var source:i32,var into:i32,var next:i32}
+struct Range{val calls:Calls}
+struct Counter{val calls:Calls}
+fn make(calls:Calls)->Range{calls.source+=1;Range{calls}}
+impl IntoIterator for Range{type Item=i32;type IntoIter=Counter;fn into_iter(self)->Counter{self.calls.into+=1;Counter{calls:self.calls}}}
+impl Iterator for Counter{type Item=i32;fn next(self)->Option<i32>{self.calls.next+=1;Some(21)}}
+fn main()->i32{val calls=Calls{source:0,into:0,next:0};var total=0;for x in make(calls){total+=x;if total==42 {break;}}std::debug::assert_eq(calls.source,1,"source once");std::debug::assert_eq(calls.into,1,"into once");std::debug::assert_eq(calls.next,2,"no next after break");total}
 "#,
     );
 }

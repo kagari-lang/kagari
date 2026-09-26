@@ -885,3 +885,26 @@ pub fn iteration_outputs(
         .collect(),
     )
 }
+
+/// Identity IntoIterator's proof obligation, for recursive searches using one budget.
+pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Option<NominalType> {
+    if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::IntoIterator)
+        || !interface.arguments.is_empty()
+    {
+        return None;
+    }
+    let item = crate::types::associated_type_id(&interface.declaration, "Item");
+    let iterator = crate::types::associated_type_id(&interface.declaration, "IntoIter");
+    let mut required = StandardTrait::Iterator.nominal();
+    for (member, ty) in &interface.associated_types {
+        if *member == item {
+            required.associated_types.insert(
+                crate::types::associated_type_id(&required.declaration, "Item"),
+                ty.clone(),
+            );
+        } else if *member != iterator || ty != receiver {
+            return None;
+        }
+    }
+    Some(required)
+}

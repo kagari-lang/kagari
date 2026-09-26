@@ -578,65 +578,25 @@ impl Damageable for EntityRef {
 }
 ```
 
-Traits support:
+Traits support required/default methods, generic bounds, supertraits, generic
+traits, associated types and constants, and type-parameterized GATs. Eligible
+traits can be used as dynamic interface values. The authoritative constraints and
+scope exclusions are in [the trait specification](spec/traits.md).
 
-- required methods
-- default methods
-- simple trait bounds
-- simple supertraits if needed
-- `impl Trait for Type`
-- generic traits in the form `trait Repository<T>`
-- using a trait name directly as an interface type, such as `Vec<SkillEffect>`
-
-Traits avoid:
-
-- associated types
-- GAT
-- HKT
-- specialization
-- negative impls
-- auto traits
-- complex blanket impls
-- Rust object-safety terminology
-- explicit `dyn Trait` syntax
-- trait upcasting as a user-facing feature
-- advanced coherence rules
-
-Use generic traits instead of associated types.
-
-Instead of this Rust-like style:
+Generic trait parameters express inputs; associated types express outputs selected
+by an implementation. Standard iteration therefore uses an associated Item:
 
 ```kagari
 trait Iterator {
-    type Item
-    fn next(self) -> Option<Self::Item>
+    type Item;
+    fn next(self) -> Option<Self::Item>;
 }
 ```
 
-Kagari style:
-
-```kagari
-trait Iterator<T> {
-    fn next(self) -> Option<T>
-}
-```
-
-Instead of:
-
-```kagari
-trait Repository {
-    type Entity
-    fn get(self, id: i64) -> Option<Self::Entity>
-}
-```
-
-Kagari style:
-
-```kagari
-trait Repository<E> {
-    fn get(self, id: i64) -> Option<E>
-}
-```
+This replaces the earlier generic Iterator<T> proposal. Iterator, IntoIterator,
+From/Into and TryFrom/TryInto use the declaration-owned standard protocols in
+[builtins](spec/builtins.md). Standard protocols currently use static dispatch;
+this does not introduce Rust lifetime syntax or `dyn` syntax.
 
 ## 10. Trait Values and Interface Dispatch
 

@@ -44,7 +44,7 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
-    /// Standard operator/equality implementations are type-owned, so dependencies and callers
+    /// Standard protocol implementations are type-owned, so dependencies and callers
     /// cannot disagree because a downstream module adds a different override.
     pub fn standard_override_error(
         &self,
@@ -52,19 +52,21 @@ impl AggregateCatalog {
     ) -> Option<&'static str> {
         use crate::builtin::traits::StandardTrait;
         let protocol = StandardTrait::from_id(&implementation.trait_type.declaration)?;
-        if protocol == StandardTrait::IntoIterator
-            && self
-                .concrete_interface_implementation(
-                    &StandardTrait::Iterator.nominal(),
-                    &implementation.for_type,
-                    &implementation.bounds,
-                    4096,
-                    64,
-                    &Default::default(),
-                )
-                .is_ok_and(|i| i.is_some())
-        {
-            return Some("Iterator already supplies identity IntoIterator");
+        if protocol.iteration() {
+            let other = if protocol == StandardTrait::Iterator {
+                StandardTrait::IntoIterator
+            } else {
+                StandardTrait::Iterator
+            };
+            if self.implementations.values().any(|candidate| {
+                candidate.trait_type.declaration == other.contract().id
+                    && crate::typeck::possibly_overlapping_impls(
+                        &candidate.for_type,
+                        &implementation.for_type,
+                    )
+            }) {
+                return Some("Iterator already supplies identity IntoIterator");
+            }
         }
         if protocol.reverse_conversion() {
             return Some(
@@ -77,11 +79,19 @@ impl AggregateCatalog {
                 .arguments
                 .first()
                 .is_some_and(|input| {
-                    matches!(input, TypeId::Generic(_))
-                        || crate::typeck::possibly_overlapping_impls(
+                    if input == &implementation.for_type {
+                        return true;
+                    }
+                    match (input, &implementation.for_type) {
+                        (TypeId::Generic(_), target) => !occurs_in_constructor(input, target),
+                        (source, TypeId::Generic(_)) => {
+                            !occurs_in_constructor(&implementation.for_type, source)
+                        }
+                        _ => crate::typeck::possibly_overlapping_impls(
                             input,
                             &implementation.for_type,
-                        )
+                        ),
+                    }
                 })
         {
             return Some("identity From<T> for T is supplied by the language");
@@ -105,13 +115,11 @@ impl AggregateCatalog {
             return None;
         }
         let (TypeId::Struct(nominal) | TypeId::Enum(nominal)) = &implementation.for_type else {
-            return Some(
-                "standard operator/equality implementations require a script Struct or enum",
-            );
+            return Some("standard protocol implementations require a script Struct or enum");
         };
         if nominal.declaration.module != implementation.id.module {
             return Some(
-                "standard operator/equality implementations must belong to the type's defining module",
+                "standard protocol implementations must belong to the type's defining module",
             );
         }
         if !protocol.equality_protocol() {
@@ -223,6 +231,11 @@ impl AggregateCatalog {
                         }
                     }
                 }
+            }
+            if protocol == StandardTrait::IntoIterator
+                && self.standard_holds(StandardTrait::Iterator, ty, visiting, budget)?
+            {
+                return Ok(true);
             }
             if !protocol.equality_protocol() {
                 return Ok(crate::builtin::traits::intrinsic_holds(
@@ -753,6 +766,21 @@ impl AggregateCatalog {
                                         return Ok(true);
                                     }
                                 }
+                                if let Some(iterator) =
+                                    crate::builtin::traits::iterator_requirement(&required, &actual)
+                                {
+                                    if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b|matches!(b,crate::typeck::ConstraintTarget::Trait(n) if n.satisfies(&iterator)))) {return Ok(true);}
+                                    for candidate in self.implementations.values() {
+                                        if self
+                                            .implementation_matches(
+                                                candidate, &iterator, &actual, visiting, budget,
+                                            )?
+                                            .is_some()
+                                        {
+                                            return Ok(true);
+                                        }
+                                    }
+                                }
                                 Ok(false)
                             })();
                             budget.depth -= 1;
@@ -769,6 +797,31 @@ impl AggregateCatalog {
         visiting.remove(&key);
         Ok(holds?.then_some(matched))
     }
+}
+
+// From<T> for Wrapper<T> cannot overlap identity: T = Wrapper<T> has no finite solution.
+// Associated projections are not injective constructors and provide no such proof.
+fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        if ty == parameter {
+            return true;
+        }
+        match ty {
+            TypeId::Struct(n) | TypeId::Enum(n) => pending.extend(&n.arguments),
+            TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
+                pending.extend(items)
+            }
+            TypeId::Array(item) | TypeId::Set(item) | TypeId::Cursor(item) => pending.push(item),
+            TypeId::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+            TypeId::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 #[cfg(test)]

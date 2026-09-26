@@ -272,7 +272,7 @@ impl FunctionLowerer<'_, '_> {
         let concrete_iterator = self
             .planner
             .arguments(
-                &[fact.iterator.clone()],
+                std::slice::from_ref(&fact.iterator),
                 &self.instance.substitution,
                 self.function.debug.source_span,
             )?

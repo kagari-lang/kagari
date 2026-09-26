@@ -38,7 +38,16 @@ impl BodyChecker<'_> {
                     name,
                     explicit_type,
                 } => {
-                    let (owner, member) = name.rsplit_once("::")?;
+                    let (owner, member) = if explicit_type.is_some_and(|id| {
+                        matches!(
+                            self.lowered.module.type_ref(id).kind,
+                            crate::hir::TypeKind::Projection { .. }
+                        )
+                    }) {
+                        ("", name.as_str())
+                    } else {
+                        name.rsplit_once("::")?
+                    };
                     let protocol = match member {
                         "from" => StandardTrait::From,
                         "try_from" => StandardTrait::TryFrom,
