@@ -241,3 +241,217 @@ fn none_and_handled_errors_do_not_become_execution_failures() {
         );
     }
 }
+
+#[test]
+fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
+    let engine = KagariEngine::default();
+    let compile = |source| {
+        engine
+            .compile_to_artifact(
+                SourceFile::new("changing.kgr", source),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap()
+    };
+    let first = compile("fn main()->Result<i32,String> {Err(\"old\")}");
+    let second = compile("fn main()->Result<i32,String> {\n\n    Err(\"new\")\n}");
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let old = runtime.load_program(first, Default::default()).unwrap();
+    let report = runtime.execute(&old, "main", &[], &context).unwrap();
+    let root = runtime.runtime().root_value(report.return_value).unwrap();
+    let failure = report.failure.unwrap();
+    let new = runtime
+        .reload_program(&old, second, Default::default())
+        .unwrap();
+    let new_report = runtime
+        .execute(&new, "main", &[], &context)
+        .unwrap()
+        .failure
+        .unwrap();
+    assert_eq!(failure.trace.frames[0].line, Some(1));
+    assert_eq!(new_report.trace.frames[0].line, Some(3));
+    assert_ne!(
+        failure.trace.frames[0].epoch,
+        new_report.trace.frames[0].epoch
+    );
+    assert_ne!(
+        failure.trace.frames[0].code_fingerprint,
+        new_report.trace.frames[0].code_fingerprint
+    );
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(
+        runtime.runtime().result_failure(&root.value()).unwrap(),
+        failure
+    );
+    let raw = root.value();
+    drop(root);
+    drop(old);
+    drop(new);
+    runtime.runtime().collect_garbage().unwrap();
+    assert!(!runtime.runtime().gc().validate_value(&raw));
+    assert!(runtime.runtime().result_failure(&raw).is_none());
+    assert_eq!(failure.message, "old");
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
+    let engine = KagariEngine::default();
+    let prefix = "    /* 中文😀 */ ";
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "unicode.kgr",
+                format!("fn main()->Result<i32,String> {{\r\n{prefix}Err(\"问题\")\r\n}}"),
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    assert!(artifact.debug.is_none());
+    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_program(
+            artifact,
+            kagari_embed::LoadOptions {
+                module_name: Some("unrelated-load-alias".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let failure = runtime
+        .execute(&loaded, "main", &[], &context)
+        .unwrap()
+        .failure
+        .unwrap();
+    let origin = &failure.trace.frames[0];
+    assert!(origin.source_uri.ends_with("unicode.kgr"));
+    assert_eq!(
+        (origin.line, origin.column),
+        (Some(2), Some(prefix.len() as u32 + 1))
+    );
+    assert_eq!(failure.message, "问题");
+}
+
+#[test]
+fn budget_exhaustion_keeps_the_failing_frame_and_releases_resources() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "budget.kgr",
+                "fn deep()->i32 { var x=0; while x<1000 {x+=1;} x } fn main()->i32 {deep()}",
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let mut context = ExecutionContext::default();
+    context.resources.max_instruction_steps = Some(25);
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+    assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
+    assert_eq!(
+        error
+            .error_trace()
+            .unwrap()
+            .frames
+            .iter()
+            .map(|f| f.function_name.as_str())
+            .collect::<Vec<_>>(),
+        ["deep", "main"]
+    );
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+    assert!(runtime.runtime().execution_root().is_none());
+    assert!(!runtime.runtime().is_quarantined());
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &ExecutionContext::default())
+            .unwrap()
+            .return_value,
+        kagari_runtime::value::Value::I32(1000)
+    );
+}
+
+#[test]
+fn diagnostic_previews_do_not_call_user_debug_and_cannot_turn_err_into_a_trap() {
+    run_failure(
+        r#"struct Problem { val code:i32 }
+impl Debug for Problem {fn debug(self)->String {std::debug::assert(false,"must not run");"bad"}}
+fn main()->Result<i32,Problem>{Err(Problem {code:7})}
+"#,
+        "main",
+        3,
+        "Struct@0:0",
+    );
+}
+
+#[test]
+fn imported_error_frames_keep_their_own_source_locations() {
+    use kagari_common::{
+        identity::{ModuleIdentity, PackageId},
+        source_database::SourceLayer,
+    };
+    let engine = KagariEngine::default();
+    let mut root = None;
+    for (name, source) in [
+        (
+            "origin",
+            "pub fn fail()->Result<i32,String>{\n    Err(\"imported\")\n}",
+        ),
+        (
+            "root",
+            "use pkg::origin::fail; fn main()->Result<i32,String>{fail()}",
+        ),
+    ] {
+        let uri = format!("mem://{name}");
+        engine
+            .bind_module(
+                &uri,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+        let id = engine
+            .set_source(&uri, source.into(), SourceLayer::Base)
+            .unwrap();
+        if name == "root" {
+            root = Some(id);
+        }
+    }
+    let checked = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            root.unwrap(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
+    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let trace = runtime
+        .execute(&loaded, "main", &[], &context)
+        .unwrap()
+        .failure
+        .unwrap()
+        .trace;
+    assert_eq!(trace.frames.len(), 2);
+    assert_eq!(trace.frames[0].source_uri, "mem://origin");
+    assert_eq!(trace.frames[0].line, Some(2));
+    assert_eq!(trace.frames[1].source_uri, "mem://root");
+    assert_eq!(trace.frames[1].line, Some(1));
+}

@@ -218,6 +218,21 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     vm.execute(&loaded, "main")
                 }
                 .unwrap_err();
+                let names = error
+                    .trace()
+                    .unwrap()
+                    .frames
+                    .iter()
+                    .map(|frame| frame.function_name.as_str())
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    names,
+                    if cancel {
+                        vec!["nested", "main"]
+                    } else {
+                        vec!["main"]
+                    }
+                );
                 assert!(
                     matches!(error, VmError::RuntimeError(error) if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::ResourceLimitExceeded })
                 );
@@ -552,5 +567,70 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         assert_eq!(vm.runtime().resources().counters().loaded_modules, 1);
         assert!(vm.runtime().execution_root().is_none());
         assert!(!vm.runtime().is_quarantined());
+    }
+}
+
+#[test]
+fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
+    use kagari_runtime::{host::HostError, value::EnumTag};
+    use std::{cell::RefCell, rc::Rc};
+    for encoded in [false, true] {
+        let module =
+            compile_test_bytecode("fn main()->i32 { print(\"entry\");42 } fn fail()->i32 {42/0}");
+        let fail = module
+            .functions
+            .iter()
+            .find(|f| f.name == "fail")
+            .unwrap()
+            .id;
+        let captured = Rc::new(RefCell::new(None));
+        let saved = captured.clone();
+        let mut runtime = runtime(None);
+        runtime
+            .register_host_function(HostFunction::new(standard_log(), move |context, _| {
+                let value = Value::Enum(
+                    context
+                        .runtime()
+                        .alloc_enum(EnumTag::ResultErr, vec![Value::Str("host failure".into())])
+                        .unwrap(),
+                );
+                *saved.borrow_mut() = context.runtime().result_failure(&value);
+                let root = context.runtime().execution_root().unwrap();
+                let error = crate::reenter(context, &root, fail, &[]).unwrap_err();
+                Err(HostError::new("nested call failed").with_trace(error.trace().unwrap().clone()))
+            }))
+            .unwrap();
+        let loaded = runtime
+            .load_program(
+                "host-origin.kgr",
+                route(
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![module],
+                    },
+                    encoded,
+                ),
+            )
+            .unwrap();
+        let mut vm = Vm::new(runtime);
+        let error = vm.execute(&loaded, "main").unwrap_err();
+        assert_eq!(
+            error
+                .trace()
+                .unwrap()
+                .frames
+                .iter()
+                .map(|frame| frame.function_name.as_str())
+                .collect::<Vec<_>>(),
+            ["fail", "main"]
+        );
+        let saved = captured.borrow();
+        let report = saved.as_ref().unwrap();
+        assert_eq!(report.message, "host failure");
+        assert_eq!(report.trace.frames.len(), 1);
+        assert_eq!(report.trace.frames[0].function_name, "main");
+        vm.runtime().collect_garbage().unwrap();
+        assert_eq!(vm.runtime().gc().active_roots(), 0);
+        assert!(vm.runtime().execution_root().is_none());
     }
 }

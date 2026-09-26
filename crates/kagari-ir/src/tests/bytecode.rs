@@ -2933,3 +2933,42 @@ fn executable_layouts_reject_noncanonical_declaration_and_member_identities() {
         );
     }
 }
+
+#[test]
+fn mapped_result_error_rejects_invalid_contracts_and_registers() {
+    use crate::module::abi::{AbiType, BuiltinType, StandardEnumKind};
+    let module = common::bytecode_ok(
+        "fn main()->Result<i32,String>{val r:Result<i32,String> = Err(\"error\");r.map_err(|e|e)}",
+    );
+    verify_module(&module).unwrap();
+    for mutation in 0..4 {
+        let mut invalid = module.clone();
+        let instruction = invalid
+            .functions
+            .iter_mut()
+            .flat_map(|f| &mut f.instructions)
+            .find(|i| matches!(i, BytecodeInstruction::MapResultError { .. }))
+            .unwrap();
+        let BytecodeInstruction::MapResultError {
+            original,
+            error,
+            ty,
+            ..
+        } = instruction
+        else {
+            unreachable!()
+        };
+        match mutation {
+            0 => *ty = AbiType::Builtin(BuiltinType::Bool),
+            1 => {
+                *ty = AbiType::StandardEnum {
+                    kind: StandardEnumKind::Result,
+                    args: vec![],
+                }
+            }
+            2 => *original = Register::new(usize::MAX),
+            _ => *error = Register::new(usize::MAX),
+        }
+        assert!(verify_module(&invalid).is_err());
+    }
+}

@@ -758,4 +758,49 @@ mod tests {
 
         fs::remove_dir_all(dir).expect("temp dir should be removed");
     }
+    #[test]
+    fn returned_errors_report_the_original_site_from_source_and_artifact() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("kagari-cli-origin-{unique}-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("main.kgr");
+        let artifact = dir.join("main.kbc");
+        fs::write(&source, "fn fail()->Result<i32,String>{\n    Err(\"original\")\n}\nfn main()->Result<i32,String>{fail().map_err(|e|\"mapped\")}").unwrap();
+        run_cli(Cli {
+            command: Command::Emit {
+                source: source.clone(),
+                output: artifact.clone(),
+            },
+            profile: CliProfile::Dev,
+            jit: false,
+        })
+        .unwrap();
+        let direct = run_cli(Cli {
+            command: Command::RunSource {
+                source: source.clone(),
+            },
+            profile: CliProfile::Dev,
+            jit: false,
+        })
+        .unwrap_err();
+        assert_eq!(direct.exit_code(), 1);
+        assert!(direct.to_string().contains("Result::Err: mapped"));
+        assert!(direct.to_string().contains("main.kgr:2:5"));
+        // Portable reporting must not read edited source files during artifact execution.
+        fs::write(&source, "this is no longer the compiled code").unwrap();
+        let encoded = run_cli(Cli {
+            command: Command::RunArtifact { artifact },
+            profile: CliProfile::Dev,
+            jit: cfg!(feature = "jit"),
+        })
+        .unwrap_err();
+        assert_eq!(direct.to_string(), encoded.to_string());
+        fs::remove_file(&source).unwrap();
+        fs::remove_file(dir.join("main.kbc")).unwrap();
+        fs::remove_dir(dir).unwrap();
+    }
 }

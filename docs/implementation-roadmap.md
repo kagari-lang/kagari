@@ -72,16 +72,16 @@ Source, encoded artifacts and JIT fallback share ordinary frame control flow,
 including GC and iteration cleanup. See [builtins](spec/builtins.md#option-and-result)
 and [result-option.kgr](../examples/syntax/result-option.kgr). Artifact format 50
 and runtime ABI v50 reject previous products; KHI remains v10. General built-in
-propagation traits and Error origin/stack modeling are a later design checkpoint.
+propagation traits remain deferred; error origins/stacks are completed in E01–E03 below.
 
 Completed standard-protocol checkpoint: declaration-owned PartialEq/Eq/Hash and
 Debug/Display, ordinary generic and associated bounds, sealed intrinsic equality
 and hashing, explicit nominal formatting impls, structural and identity keys,
 and GC tracing of keys. See [contracts](spec/builtins.md) and
 [standard-traits.kgr](../examples/syntax/standard-traits.kgr). Artifact format 51,
-runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing,
-generalized propagation and Error origin/stack modeling remain separate later
-checkpoints. Iterator/IntoIterator are completed in B08 below.
+runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing
+and generalized propagation remain separate later checkpoints. Error origins
+and stacks are completed in E01–E03; Iterator/IntoIterator are completed in B08 below.
 
 Completed equality checkpoint: object identity operators `===`/`!==`, checked
 from syntax through IR and VM, with artifact format 52 and runtime ABI v52.
@@ -138,7 +138,8 @@ RHS overload selection and resource cleanup after operator traps/budget exhausti
 Each checkpoint uses a Conventional Commit. Conversions are explicit; reverse
 protocols are derived and cannot be implemented independently. Iteration preserves
 native structural-mutation guards; custom iterators own their consistency rules.
-Error origins, general propagation, Clone and writable indexing remain separate.
+General propagation, Clone and writable indexing remain separate. Error origins
+are completed in E01–E03 below.
 
 B08 uses artifact format 59 and runtime ABI v59. Custom iterators and native
 cursors share protocol-based for lowering. Native cursors retain source guards,
@@ -161,7 +162,7 @@ proposal now references the implemented associated-Item contract.
 
 - [x] E01: bounded source-aware stack snapshots for runtime failures, including native JIT program points and portable source locations.
 - [x] E02: Result Err origin metadata, preservation through propagation/combinators, host reports and CLI rendering.
-- [ ] E03: source/artifact/backend, lifecycle and diagnostic conformance; documentation and workspace checks.
+- [x] E03: source/artifact/backend, lifecycle and diagnostic conformance; documentation and workspace checks.
 
 Errors remain Result values. New Err captures its origin; propagation preserves it.
 Reconstruction creates a new origin. None does not carry an error stack. Error
@@ -170,3 +171,12 @@ traits, cause chains and generalized propagation remain subsequent features.
 E02 uses artifact format/runtime ABI 61 and helper ABI 6. The authoritative
 [error-reporting contract](spec/error-reporting.md) covers origins, metadata
 propagation, host inspection and CLI presentation.
+
+E03 validation: 1,148 workspace tests passed, including 13 error-reporting
+integration cases. Coverage includes imported frames, UTF-8/CRLF locations,
+minimal artifacts, source edits after compilation, native overflow positions,
+propagation and reconstruction, equality/hash independence, bounded recursion,
+GC/reload, host reentry and cancellation/budget cleanup. Malformed mapped-error
+contracts and registers are rejected before execution. CLI source/artifact
+reports agree; the optional JIT CLI test also passed. Formatting, workspace
+clippy with warnings denied and `git diff --check` passed.
