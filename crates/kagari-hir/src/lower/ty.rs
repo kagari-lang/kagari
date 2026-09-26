@@ -11,6 +11,10 @@ impl Lowerer {
         }
         let kind = if let Some(qualified) = ty.qualified_type() {
             TypeKind::Projection {
+                arguments: qualified
+                    .generic_args()
+                    .map(|args| args.args().map(|arg| self.lower_type(&arg)).collect())
+                    .unwrap_or_default(),
                 receiver: qualified
                     .receiver()
                     .map(|ty| self.lower_type(&ty))

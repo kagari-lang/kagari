@@ -962,6 +962,8 @@ mod completion_tests;
 #[cfg(test)]
 mod constructor_tests;
 #[cfg(test)]
+mod gat_tests;
+#[cfg(test)]
 mod generic_type_tests;
 #[cfg(test)]
 mod identity_tests;

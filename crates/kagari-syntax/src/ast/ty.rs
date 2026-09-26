@@ -12,6 +12,9 @@ ast_node!(FunctionType, FunctionType);
 ast_node!(QualifiedType, QualifiedType);
 
 impl QualifiedType {
+    pub fn generic_args(&self) -> Option<super::GenericArgList> {
+        support::child(self.syntax())
+    }
     pub fn receiver(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }

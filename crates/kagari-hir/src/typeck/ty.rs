@@ -166,7 +166,12 @@ pub(super) fn resolve_type_in(
             target = reference.target;
             if reference.ty == TypeId::Error && name.contains("::") {
                 let resolved = super::associated::resolve_projection_name(
-                    module, name, context, table, cancel,
+                    module,
+                    name,
+                    Vec::new(),
+                    context,
+                    table,
+                    cancel,
                 );
                 table.resolving_types.remove(&ty);
                 table.insert_type_ref(
@@ -214,6 +219,20 @@ pub(super) fn resolve_type_in(
                     )
                 })
                 .collect::<Vec<_>>();
+            if reference.ty.is_unresolved() && name.contains("::") && bindings.is_empty() {
+                let resolved = super::associated::resolve_projection_name(
+                    module, name, args, context, table, cancel,
+                );
+                table.resolving_types.remove(&ty);
+                table.insert_type_ref(
+                    ty,
+                    ResolvedTypeRef {
+                        ty: resolved.clone(),
+                        target: None,
+                    },
+                );
+                return resolved;
+            }
             match reference.ty {
                 TypeId::Struct(mut nominal)
                     if !nominal.arguments.is_empty()
@@ -246,6 +265,12 @@ pub(super) fn resolve_type_in(
                     for (name, value) in resolved_bindings {
                         let id = crate::types::associated_type_id(&nominal.declaration, &name);
                         valid &= members.contains(&name)
+                            && super::associated::member_arity(
+                                module,
+                                context.declarations,
+                                &nominal.declaration,
+                                &name,
+                            ) == Some(0)
                             && nominal.associated_types.insert(id, value).is_none();
                     }
                     if valid {
@@ -264,11 +289,22 @@ pub(super) fn resolve_type_in(
             receiver,
             trait_ref,
             member,
+            arguments,
         } => {
             let receiver = resolve_type_in(module, *receiver, context, table, cancel);
             let interface = resolve_type_in(module, *trait_ref, context, table, cancel);
+            let arguments = arguments
+                .iter()
+                .map(|arg| resolve_type_in(module, *arg, context, table, cancel))
+                .collect();
             super::associated::qualified_projection(
-                module, receiver, interface, member, context, table, cancel,
+                module,
+                receiver,
+                interface,
+                (member, arguments),
+                context,
+                table,
+                cancel,
             )
         }
         hir::TypeKind::Tuple(elements) => {
@@ -328,11 +364,26 @@ pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
             receiver,
             trait_ref,
             member,
-        } => format!(
-            "<{} as {}>::{member}",
-            display_type(module, *receiver),
-            display_type(module, *trait_ref)
-        ),
+            arguments,
+        } => {
+            let suffix = if arguments.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "<{}>",
+                    arguments
+                        .iter()
+                        .map(|arg| display_type(module, *arg))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            format!(
+                "<{} as {}>::{member}{suffix}",
+                display_type(module, *receiver),
+                display_type(module, *trait_ref)
+            )
+        }
         hir::TypeKind::Tuple(elements) => {
             let inner = elements
                 .iter()

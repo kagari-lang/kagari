@@ -175,6 +175,7 @@ pub(super) fn collect(
         }
         abi.public_items
             .push(PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+                associated_type_families: Vec::new(),
                 associated_consts: Vec::new(),
                 host_bridge: true,
                 declaration,

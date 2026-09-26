@@ -103,7 +103,7 @@ pub(super) fn resolve_constraints(
     }
 }
 
-fn resolve_owner(
+pub(super) fn resolve_owner(
     lowered: &LoweredModule,
     generics: &[hir::GenericParam],
     bounds: &[hir::TraitBound],
@@ -118,6 +118,18 @@ fn resolve_owner(
         self_type: None,
         implementation: None,
     };
+    resolve_owner_in(lowered, bounds, context, table, diagnostics, cancel);
+}
+
+pub(super) fn resolve_owner_in(
+    lowered: &LoweredModule,
+    bounds: &[hir::TraitBound],
+    context: TypeContext<'_>,
+    table: &mut TypeTable,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+    cancel: &CancellationToken,
+) {
+    let generics = context.generics;
     for param in generics {
         for reference in &param.bounds {
             resolve_constraint(lowered, reference, context, table, diagnostics, cancel);

@@ -107,6 +107,10 @@ fn executable_interface(
             return false;
         };
         if !record.associated_consts.is_empty()
+            || record
+                .associated_types
+                .iter()
+                .any(|member| !member.generic_params.is_empty())
             || view.associated_types.len() != record.associated_types.len()
             || record
                 .associated_types
@@ -139,41 +143,96 @@ fn executable_interface(
 }
 
 fn signature(table: &InterfaceTableAbi) -> Option<ImplementationSignature> {
-    let AbiType::Trait(trait_type) = &table.trait_type else {
-        return None;
-    };
-    let generic_params = table
-        .generic_params
-        .iter()
-        .map(|param| GenericParameterType {
-            owner: param.owner.clone(),
-            position: param.position,
-            name: String::new(),
-        })
-        .collect::<Vec<_>>();
-    let mut bounds = kagari_hir::typeck::GenericBounds::new();
-    for bound in &table.bounds {
-        let parameter = bound.ty.to_checked_type();
-        bounds.insert(
-            parameter,
-            bound
-                .constraints
+    table.checked_signature()
+}
+
+/// Check constructor references even in unused portable templates.
+fn projection_uses_valid(
+    ty: &TypeId,
+    assumptions: Option<&kagari_hir::typeck::GenericBounds>,
+    catalog: &AggregateCatalog,
+    closure: &[&BytecodeModule],
+    cancel: &kagari_common::cancellation::CancellationToken,
+) -> bool {
+    let mut pending = vec![ty.clone()];
+    let mut remaining = 8192usize;
+    while let Some(ty) = pending.pop() {
+        if cancel.check().is_err() || remaining == 0 {
+            return false;
+        }
+        remaining -= 1;
+        if let TypeId::Projection {
+            receiver,
+            interface,
+            member,
+            arguments,
+        } = &ty
+        {
+            let Some(record) = contract(&interface.declaration, closure) else {
+                return false;
+            };
+            let Some(definition) = record
+                .associated_types
                 .iter()
-                .map(|constraint| match constraint {
-                    ConstraintAbi::Standard(standard) => ConstraintTarget::Standard(*standard),
-                    ConstraintAbi::Trait(ty) => ConstraintTarget::Trait(ty.to_checked_type()),
-                })
-                .collect(),
-        );
+                .find(|definition| &definition.declaration == member)
+            else {
+                return false;
+            };
+            if definition.generic_params.len() != arguments.len()
+                || record.generic_params.len() != interface.arguments.len()
+            {
+                return false;
+            }
+            if let Some(assumptions) = assumptions {
+                let mut substitution: kagari_hir::types::TypeSubstitution = record
+                    .generic_params
+                    .iter()
+                    .zip(&interface.arguments)
+                    .chain(definition.generic_params.iter().zip(arguments))
+                    .map(|(parameter, argument)| {
+                        (
+                            GenericParameterType {
+                                owner: parameter.owner.clone(),
+                                position: parameter.position,
+                                name: String::new(),
+                            },
+                            argument.clone(),
+                        )
+                    })
+                    .collect();
+                substitution
+                    .insert_receiver(interface.declaration.clone(), receiver.as_ref().clone());
+                for bound in &definition.parameter_bounds {
+                    let actual = catalog
+                        .normalize_type(&bound.ty.to_checked_type().instantiate(&substitution));
+                    for required in &bound.constraints {
+                        let valid = match required {
+                            ConstraintAbi::Standard(required) => {
+                                kagari_hir::typeck::type_satisfies_standard_constraint(
+                                    &actual,
+                                    *required,
+                                    assumptions,
+                                )
+                            }
+                            ConstraintAbi::Trait(required) => {
+                                let required =
+                                    required.to_checked_type().instantiate(&substitution);
+                                assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&required)))) || matches!(catalog.concrete_interface_implementation(&required, &actual, assumptions, MAX_MATCH_CHECKS, MAX_PROOF_DEPTH, cancel), Ok(Some(_)))
+                            }
+                        };
+                        if !valid {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        ty.map_children(|child| {
+            pending.push(child.clone());
+            child.clone()
+        });
     }
-    Some(ImplementationSignature {
-        id: table.declaration.clone(),
-        trait_type: trait_type.to_checked_type(),
-        for_type: table.for_type.to_checked_type(),
-        generic_params,
-        bounds,
-        methods: Default::default(),
-    })
+    true
 }
 
 pub(super) fn trait_bounds_match(
@@ -217,6 +276,7 @@ pub(super) fn trait_bounds_match(
                     occurrence: index as u32,
                 });
             signatures.push(ImplementationSignature {
+                associated_type_families: Default::default(),
                 id,
                 trait_type: kagari_hir::host::HostDeclarations::trait_type(implementation),
                 for_type: TypeId::Host(host.id.clone()),
@@ -343,6 +403,25 @@ pub(super) fn trait_bounds_match(
             if inheritance(&applied, &TypeId::SelfType(id), closure).is_none() {
                 return false;
             }
+            for method in &record.methods {
+                if !projection_uses_valid(
+                    &method.return_type.to_checked_type(),
+                    None,
+                    &catalog,
+                    closure,
+                    &cancel,
+                ) || method.params.iter().any(|parameter| {
+                    !projection_uses_valid(
+                        &parameter.ty.to_checked_type(),
+                        None,
+                        &catalog,
+                        closure,
+                        &cancel,
+                    )
+                }) {
+                    return false;
+                }
+            }
         }
     }
     for implementation in catalog.implementations() {
@@ -431,8 +510,17 @@ pub(super) fn trait_bounds_match(
         let Some(contract) = contract else {
             return false;
         };
-        if interface.associated_types.len() != contract.associated_types.len()
+        if interface.associated_types.len()
+            != contract
+                .associated_types
+                .iter()
+                .filter(|member| member.generic_params.is_empty())
+                .count()
             || !crate::module::abi::verify::interface_constants_match(table, contract)
+            || !crate::module::abi::verify::interface_families_match(table, contract, &cancel)
+            || !crate::module::abi::verify::interface_methods_match(
+                table, contract, &catalog, &cancel,
+            )
         {
             return false;
         }
@@ -452,7 +540,7 @@ pub(super) fn trait_bounds_match(
             return false;
         }
         let checked = interface.to_checked_type();
-        let substitution = contract
+        let substitution: kagari_hir::types::TypeSubstitution = contract
             .generic_params
             .iter()
             .map(|parameter| GenericParameterType {
@@ -474,8 +562,83 @@ pub(super) fn trait_bounds_match(
             return false;
         };
         for member in &contract.associated_types {
-            let Some(actual) = checked.associated_types.get(&member.declaration) else {
-                return false;
+            let mut substitution = substitution.clone();
+            let mut available = implementation.bounds.clone();
+            let actual = if member.generic_params.is_empty() {
+                let Some(actual) = checked.associated_types.get(&member.declaration) else {
+                    return false;
+                };
+                actual.clone()
+            } else {
+                let Some(family) = implementation
+                    .associated_type_families
+                    .get(&member.declaration)
+                else {
+                    return false;
+                };
+                substitution.extend(
+                    member
+                        .generic_params
+                        .iter()
+                        .zip(&family.inputs.parameters)
+                        .map(|(parameter, actual)| {
+                            (
+                                GenericParameterType {
+                                    owner: parameter.owner.clone(),
+                                    position: parameter.position,
+                                    name: String::new(),
+                                },
+                                TypeId::Generic(actual.clone()),
+                            )
+                        }),
+                );
+                for (target, bounds) in &family.inputs.bounds {
+                    available
+                        .entry(target.clone())
+                        .or_default()
+                        .extend(bounds.clone());
+                }
+                for bound in &member.parameter_bounds {
+                    available
+                        .entry(bound.ty.to_checked_type().instantiate(&substitution))
+                        .or_default()
+                        .extend(bound.constraints.iter().map(|constraint| match constraint {
+                            ConstraintAbi::Standard(value) => ConstraintTarget::Standard(*value),
+                            ConstraintAbi::Trait(value) => ConstraintTarget::Trait(
+                                value.to_checked_type().instantiate(&substitution),
+                            ),
+                        }));
+                }
+                for (receiver, constraints) in available.clone() {
+                    for constraint in constraints {
+                        if let ConstraintTarget::Trait(applied) = constraint {
+                            let Some(parents) = inheritance(&applied, &receiver, closure) else {
+                                return false;
+                            };
+                            let expanded = available.entry(receiver.clone()).or_default();
+                            for parent in parents {
+                                let constraint = ConstraintTarget::Trait(parent);
+                                if !expanded.contains(&constraint) {
+                                    expanded.push(constraint);
+                                }
+                            }
+                        }
+                    }
+                }
+                if !projection_uses_valid(
+                    &family.value,
+                    Some(&available),
+                    &catalog,
+                    closure,
+                    &cancel,
+                ) {
+                    return false;
+                }
+                let value = catalog.normalize_type(&family.value);
+                if value.is_unresolved() {
+                    return false;
+                }
+                value
             };
             for constraint in &member.bounds {
                 let required = match constraint {
@@ -491,9 +654,9 @@ pub(super) fn trait_bounds_match(
                     }
                 };
                 let proven = match &required {
-                    ConstraintTarget::Standard(value) => kagari_hir::typeck::type_satisfies_standard_constraint(actual, *value, &implementation.bounds),
-                    ConstraintTarget::Trait(required) => implementation.bounds.get(actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(required))))
-                        || matches!(catalog.implementation_count_bounded(required, actual, MAX_MATCH_CHECKS, MAX_PROOF_DEPTH, &cancel), Ok(1)),
+                    ConstraintTarget::Standard(value) => kagari_hir::typeck::type_satisfies_standard_constraint(&actual, *value, &available),
+                    ConstraintTarget::Trait(required) => available.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(required))))
+                        || matches!(catalog.concrete_interface_implementation(required, &actual, &available, MAX_MATCH_CHECKS, MAX_PROOF_DEPTH, &cancel), Ok(Some(_))),
                 };
                 if !proven {
                     return false;

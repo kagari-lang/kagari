@@ -609,7 +609,9 @@ fn instantiate(
             receiver,
             interface,
             member,
+            arguments,
         } => TypeId::Projection {
+            arguments: arguments.iter().map(&mut child).collect::<Result<_, _>>()?,
             receiver: Box::new(child(receiver)?),
             interface: Box::new(kagari_hir::types::NominalType {
                 declaration: interface.declaration.clone(),

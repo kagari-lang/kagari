@@ -10,8 +10,8 @@ Completed language extension: ordinary associated types, equality bindings,
 projection bounds and qualified projections, preserving the existing static and
 dynamic interface model. The [trait contract](spec/traits.md#ordinary-associated-types),
 [runnable example](../examples/syntax/associated-types.kgr) and associated-type
-integration tests define this checkpoint. GAT, associated consts and advanced
-coherence/solver features remain separate future work.
+integration tests define this checkpoint. Subsequent trait extensions are
+recorded below; advanced coherence/solver features remain future work.
 
 Completed language extension: generic implementation interface tables, keyed by
 impl declaration and concrete arguments, with shared instantiation limits and
@@ -51,9 +51,16 @@ artifact validation reject constant-bearing dynamic interfaces, including
 subtraits. Artifact format 48 and runtime ABI v48 reject previous products;
 KHI remains v10. Native host tables cannot supply constants; use script impls.
 
-The next trait checkpoint is type-parameterized GAT.
-A trait declaring associated consts or GAT, and every
-trait inheriting it, will be usable only for static dispatch. Each checkpoint updates executable examples,
-semantic and artifact validation, and commits separately. Lifetimes, script-level
-`dyn`, higher-kinded type parameters, specialization, negative impls, auto traits
-and advanced coherence/solver behavior are outside this sequence.
+Completed language extension: type-parameterized generic associated types,
+declaration-owned constructor binders, input and output bounds, inherited
+projections, generic impls and defaults. Source, encoded artifacts and JIT-enabled
+execution cover static specialization, imported contracts and malformed unused
+metadata. See the [trait contract](spec/traits.md#generic-associated-types) and
+[runnable example](../examples/syntax/generic-associated-types.kgr). Artifact
+format 49 and runtime ABI v49 reject previous products; KHI remains v10.
+
+Traits declaring associated constants or GAT, including every descendant,
+are static-only. Native host tables cannot supply those members; script impls
+on host types can. Lifetimes, script-level `dyn`, higher-kinded type parameters,
+associated type defaults, specialization, negative impls, auto traits and
+advanced coherence/solver behavior are outside this sequence.

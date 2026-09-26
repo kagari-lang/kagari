@@ -38,6 +38,7 @@ impl MethodSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitSignature {
+    pub associated_type_parameters: BTreeMap<DefinitionId, crate::types::AssociatedTypeParameters>,
     pub associated_consts: BTreeMap<DefinitionId, AssociatedConstSignature>,
     pub id: DefinitionId,
     pub generic_params: Vec<GenericParameterType>,
@@ -185,6 +186,21 @@ impl AggregateCatalog {
             self.traits.insert(
                 id.clone(),
                 Arc::new(TraitSignature {
+                    associated_type_parameters: item
+                        .associated_types
+                        .iter()
+                        .filter(|member| !member.generic_params.is_empty())
+                        .filter_map(|member| {
+                            let id = crate::types::associated_type_id(id, &member.name);
+                            Some((
+                                id.clone(),
+                                signatures
+                                    .type_table()
+                                    .associated_type_parameters(&id)?
+                                    .clone(),
+                            ))
+                        })
+                        .collect(),
                     associated_consts: item
                         .associated_consts
                         .iter()
@@ -280,6 +296,7 @@ impl AggregateCatalog {
                     a.generic_params == b.generic_params
                         && a.supertraits == b.supertraits
                         && a.associated_types == b.associated_types
+                        && a.associated_type_parameters == b.associated_type_parameters
                         && a.associated_consts.len() == b.associated_consts.len()
                         && a.associated_consts.iter().all(|(id, member)| {
                             b.associated_consts.get(id).is_some_and(|other| {

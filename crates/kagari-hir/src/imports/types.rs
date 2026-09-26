@@ -11,6 +11,7 @@ pub struct SourceTypeId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedType {
+    pub associated_arities: std::collections::BTreeMap<String, usize>,
     pub id: SourceTypeId,
     pub declaration: Declaration,
     pub ty: TypeId,
@@ -196,6 +197,19 @@ impl<'a> TypeCatalog<'a> {
         let declaration = module.declarations.target(resolved)?;
         let identity = module.declarations.definition(resolved)?;
         Some(ImportedType {
+            associated_arities: match item {
+                ExportItem::Trait(id) => module
+                    .lowered
+                    .module
+                    .traits
+                    .iter()
+                    .find(|item| item.id == id)
+                    .into_iter()
+                    .flat_map(|item| &item.associated_types)
+                    .map(|member| (member.name.clone(), member.generic_params.len()))
+                    .collect(),
+                _ => Default::default(),
+            },
             supertraits: Vec::new(),
             associated_types: match item {
                 ExportItem::Trait(id) => module

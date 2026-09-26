@@ -40,7 +40,8 @@ pub fn check_module(
         &Default::default(),
     )
     .with_bindings(lowered, names, &Default::default());
-    let signatures = crate::typeck::check_signatures(lowered, &declarations, &Default::default());
+    let mut signatures =
+        crate::typeck::check_signatures(lowered, &declarations, &Default::default());
     let mut aggregates = crate::aggregates::AggregateCatalog::default();
     aggregates
         .add_module(
@@ -50,6 +51,16 @@ pub fn check_module(
             &Default::default(),
         )
         .unwrap();
+    let mut diagnostics = crate::DiagnosticBuffer::new();
+    crate::typeck::validate_signature_applications(
+        lowered,
+        &declarations,
+        signatures.facts(),
+        &aggregates,
+        &mut diagnostics,
+        &Default::default(),
+    );
+    signatures.diagnostics.extend(diagnostics);
     crate::typeck::check_bodies_controlled(
         lowered,
         names,

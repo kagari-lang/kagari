@@ -26,13 +26,13 @@ The current trait scope excludes:
 - script-level `dyn` trait-object syntax
 - Rust-style trait object syntax such as borrowed or boxed `dyn` trait objects
 - lifetime-parameterized traits
-- generic associated types (GAT), including lifetime-parameterized forms
+- lifetime- or const-parameterized associated types
 - specialization
 - negative impls
 - auto traits
 - full Rust-style coherence and orphan behavior
 - higher-rank bounds
-- higher-kinded type parameters and projection-heavy solving beyond ordinary associated types
+- higher-kinded type parameters and projection-heavy solving beyond the bounded associated type normalizer
 
 ## Associated Constants
 
@@ -65,6 +65,54 @@ only static dispatch: it cannot be used as an interface value type. The same
 rule is enforced when verifying artifacts. Native host method tables cannot
 supply associated constants; script impls on host types may supply them.
 
+
+## Generic Associated Types
+
+Traits may declare a type constructor whose inputs are type parameters:
+
+```kagari
+trait Family {
+    type Item<T: Comparable>: Comparable;
+    fn make<T: Comparable>(self, value: T) -> Self::Item<T>;
+}
+struct Identity {}
+impl Family for Identity {
+    type Item<U> = U where U: Comparable;
+    fn make<V: Comparable>(self, value: V) -> V { value }
+}
+fn make<F: Family>(family: F) -> F::Item<i32> { family.make(42) }
+fn main() -> i32 {
+    val value: <Identity as Family>::Item<i32> = make(Identity {});
+    value
+}
+```
+
+Each constructor binder is identified by its owning associated declaration and
+position, separately from trait, impl and method parameters. Renaming a binder
+does not change a contract. Every impl must define each constructor with the
+same arity. Trait input bounds apply even when omitted from the impl; an impl
+may restate them but cannot add requirements. Inline input bounds and trailing
+`where` predicates are supported. Each definition is checked under those input
+assumptions, including its declared output bounds, even when unused.
+
+`T::Item<U>`, `Self::Item<U>` and `<T as Family>::Item<U>` retain both the applied
+trait inputs and member inputs in checked signatures. Inherited families use
+the declaring parent trait, preserving its applied arguments. Static calls and
+default methods normalize projections in the shared bounded normalizer during
+compilation. Concrete executable layouts and calls contain no runtime family
+lookup or generic specialization. Unknown members, wrong arity, invalid inputs,
+stronger impl bounds, recursive definitions and invalid output bounds are
+compile errors; loading checks their portable metadata before execution.
+
+A trait declaring a family, and every trait inheriting it, is static-only.
+Binding a family as an ordinary equality output (`Family<Item = i32>`) is not
+supported. Native host method tables cannot supply families; script impls on
+host types can. Lifetime and const parameters, associated type defaults,
+first-class type constructors, higher-kinded parameters and unrestricted
+projection solving remain excluded.
+
+See [generic-associated-types.kgr](../../examples/syntax/generic-associated-types.kgr)
+for a runnable example returning `42`.
 
 ## Core Model
 
@@ -220,8 +268,8 @@ for same-spelled members on unrelated traits. Loading rechecks associated schema
 method contracts and output bounds before execution.
 
 Every trait impl must define each declared output exactly once. Defaults,
-recursive definitions, associated types in inherent impls, GAT and associated
-consts are outside this checkpoint. Host implementations declare their ordinary
+recursive definitions and associated types in inherent impls are rejected.
+Type-parameterized families and scalar constants are defined below. Host implementations declare their ordinary
 associated outputs in the same offline interface used for runtime registration;
 see [Host Associated Outputs and Interfaces](#host-associated-outputs-and-interfaces).
 
@@ -293,7 +341,7 @@ supertrait_clause ::= ":" type_bound_list ;
 
 trait_member     ::= attribute* trait_method | associated_type_decl ;
 trait_method     ::= method_sig (";" | block) ;
-associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
+associated_type_decl ::= "type" IDENT generic_param_clause? (":" type_bound_list)? where_clause? ";" ;
 
 method_sig       ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
@@ -302,7 +350,7 @@ Trait members are limited to:
 
 - methods, optionally with checked default bodies that supply omitted script impl methods
 - ordinary associated types, optionally constrained by trait or standard bounds
-- no associated consts or generic associated types
+- scalar associated constants and type-parameterized associated types for static dispatch
 
 ## Trait Implementation
 
@@ -677,8 +725,8 @@ followed by runtime binding and static/dynamic calls returning `42`.
 
 ### Remaining Execution Work
 
-Runtime downcasting remains separate work. Associated consts and
-type-parameterized GAT follow as individual checkpoints.
+Runtime downcasting remains separate work. Scalar associated constants and
+type-parameterized GAT are implemented below.
 
 ### Trait Inheritance and Upcasting
 

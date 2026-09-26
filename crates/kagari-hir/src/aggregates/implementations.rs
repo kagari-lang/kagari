@@ -32,6 +32,7 @@ impl SearchBudget<'_> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplementationSignature {
+    pub associated_type_families: BTreeMap<DefinitionId, crate::types::AssociatedTypeFamily>,
     pub id: DefinitionId,
     pub trait_type: NominalType,
     pub for_type: TypeId,
@@ -46,7 +47,7 @@ impl AggregateCatalog {
         self.implementations.get(id).map(AsRef::as_ref)
     }
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
-        crate::typeck::associated::normalize(ty, &|interface, receiver, member| {
+        crate::typeck::associated::normalize(ty, &|interface, receiver, member, arguments| {
             if let TypeId::Trait(actual) = receiver {
                 return self
                     .trait_closure(actual, receiver, &Default::default())
@@ -65,6 +66,12 @@ impl AggregateCatalog {
                     receiver,
                     &implementation.generic_params,
                 )?;
+                if !arguments.is_empty() {
+                    return implementation
+                        .associated_type_families
+                        .get(member)?
+                        .apply(&substitution, arguments);
+                }
                 Some(
                     implementation
                         .trait_type
@@ -163,6 +170,25 @@ impl AggregateCatalog {
             self.implementations.insert(
                 id.clone(),
                 Arc::new(ImplementationSignature {
+                    associated_type_families: signatures
+                        .type_table()
+                        .associated_type_families
+                        .iter()
+                        .filter_map(|(member, family)| {
+                            let mut parent = member.clone();
+                            parent.path.pop();
+                            if parent != *id {
+                                return None;
+                            }
+                            Some((
+                                crate::types::associated_type_id(
+                                    &trait_type.declaration,
+                                    &member.path.last()?.name,
+                                ),
+                                family.clone(),
+                            ))
+                        })
+                        .collect(),
                     id: id.clone(),
                     trait_type: trait_type.clone(),
                     for_type: for_type.clone(),
@@ -470,6 +496,7 @@ mod search_tests {
             arguments: vec![argument],
         };
         let signature = ImplementationSignature {
+            associated_type_families: Default::default(),
             id: owner,
             trait_type: applied(TypeId::Generic(parameter.clone())),
             for_type: TypeId::Generic(parameter.clone()),
@@ -512,6 +539,7 @@ mod search_tests {
             name: "U".into(),
         };
         let next_signature = ImplementationSignature {
+            associated_type_families: Default::default(),
             id: next_parameter.owner.clone(),
             trait_type: NominalType {
                 associated_types: Default::default(),

@@ -1,0 +1,27 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/generic-associated-types.kgr
+// Result: main returns 42. Type families use static dispatch.
+trait Family {
+    type Item<T: Comparable>: Comparable;
+    fn make<T: Comparable>(self, value: T) -> Self::Item<T>;
+    fn again<T: Comparable>(self, value: T) -> Self::Item<T> {
+        self.make(value)
+    }
+}
+
+struct Identity {}
+impl Family for Identity {
+    type Item<U> = U where U: Comparable;
+    fn make<V: Comparable>(self, value: V) -> V { value }
+}
+
+trait Child: Family {}
+impl Child for Identity {}
+
+fn make<F: Child>(family: F) -> F::Item<i32> {
+    family.again(42)
+}
+
+fn main() -> i32 {
+    val value: <Identity as Family>::Item<i32> = make(Identity {});
+    value
+}

@@ -826,23 +826,6 @@ fn validate_trait_surface(
         }
         seen_impls.push((id.clone(), for_ty.clone()));
 
-        if let Some(trait_def) = trait_def {
-            validate_impl_methods(
-                lowered,
-                function_index,
-                trait_def,
-                impl_block,
-                (
-                    &for_ty,
-                    declarations
-                        .definition(ResolvedName::Trait(trait_def.id))
-                        .expect("checked trait declaration"),
-                    id.arguments.as_slice(),
-                    &id.associated_types,
-                ),
-                diagnostics,
-            );
-        }
         let methods = if let Some(trait_def) = trait_def {
             trait_def
                 .methods
@@ -1089,6 +1072,21 @@ fn validate_interface_type(
                         .with_span(span),
                     );
                 }
+                if trait_def
+                    .associated_types
+                    .iter()
+                    .any(|member| !member.generic_params.is_empty())
+                {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                            trait_name: trait_def.name.clone(),
+                            reason:
+                                "traits with generic associated types only support static dispatch"
+                                    .into(),
+                        })
+                        .with_span(span),
+                    );
+                }
                 if trait_def.associated_types.iter().any(|member| {
                     !trait_name
                         .associated_types
@@ -1214,72 +1212,6 @@ fn validate_interface_type(
     }
 }
 
-fn validate_impl_methods(
-    lowered: &LoweredModule,
-    function_index: &FunctionTypeIndex,
-    trait_def: &crate::hir::TraitDef,
-    impl_block: &crate::hir::Impl,
-    receiver: (
-        &TypeId,
-        &kagari_common::identity::DefinitionId,
-        &[TypeId],
-        &std::collections::BTreeMap<kagari_common::identity::DefinitionId, TypeId>,
-    ),
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    for trait_method in &trait_def.methods {
-        let Some(impl_method) = impl_block
-            .methods
-            .iter()
-            .find(|method| method.name == trait_method.name)
-        else {
-            if trait_method.has_default {
-                continue;
-            }
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                    trait_name: trait_def.name.clone(),
-                    method_name: trait_method.name.clone(),
-                    reason: "missing impl method".to_string(),
-                })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
-            );
-            continue;
-        };
-        compare_impl_method_signature(
-            function_index,
-            trait_def,
-            trait_method,
-            impl_method,
-            (
-                receiver.0,
-                receiver.1,
-                receiver.2,
-                impl_block.generic_params.len(),
-                receiver.3,
-            ),
-            lowered.source_map.impl_span(impl_block.id),
-            diagnostics,
-        );
-    }
-    for impl_method in &impl_block.methods {
-        if !trait_def
-            .methods
-            .iter()
-            .any(|trait_method| trait_method.name == impl_method.name)
-        {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                    trait_name: trait_def.name.clone(),
-                    method_name: impl_method.name.clone(),
-                    reason: "method is not declared by trait".to_string(),
-                })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
-            );
-        }
-    }
-}
-
 pub(super) trait MethodSignatureView {
     fn generic_params(&self) -> &[crate::types::GenericParameterType];
     fn bounds(&self) -> &super::GenericBounds;
@@ -1334,8 +1266,7 @@ pub(super) struct MethodComparison<'a> {
     pub receiver: &'a TypeId,
     pub trait_owner: &'a kagari_common::identity::DefinitionId,
     pub trait_arguments: &'a [TypeId],
-    pub associated_types:
-        &'a std::collections::BTreeMap<kagari_common::identity::DefinitionId, TypeId>,
+    pub catalog: &'a crate::aggregates::AggregateCatalog,
     pub span: kagari_common::Span,
 }
 
@@ -1371,7 +1302,7 @@ pub(super) fn compare_method_contract(
         diagnostics.push(mismatch("generic parameter count differs".into()));
         return;
     }
-    let substitution = expected
+    let mut substitution: crate::types::TypeSubstitution = expected
         .generic_params()
         .iter()
         .take(comparison.trait_generic_count)
@@ -1384,18 +1315,8 @@ pub(super) fn compare_method_contract(
                 .map(|(expected, actual)| (expected.clone(), TypeId::Generic(actual.clone()))),
         )
         .collect();
-    let normalize = |ty: TypeId| {
-        super::associated::normalize(&ty, &|interface, _, member| {
-            (interface.declaration == *comparison.trait_owner)
-                .then(|| {
-                    comparison
-                        .associated_types
-                        .get(member)
-                        .map(|ty| ty.instantiate(&substitution))
-                })
-                .flatten()
-        })
-    };
+    substitution.insert_receiver(comparison.trait_owner.clone(), comparison.receiver.clone());
+    let normalize = |ty: TypeId| comparison.catalog.normalize_type(&ty);
     for (expected_param, actual_param) in expected
         .generic_params()
         .iter()
@@ -1446,7 +1367,7 @@ pub(super) fn compare_method_contract(
             ty.with_self(comparison.trait_owner, comparison.receiver)
                 .instantiate(&substitution),
         );
-        if expected_ty != actual_param.ty {
+        if expected_ty != normalize(actual_param.ty.clone()) {
             diagnostics.push(mismatch(format!(
                 "parameter `{name}` expected `{}`, found `{}`",
                 display_type_id(&expected_ty),
@@ -1495,52 +1416,13 @@ pub(super) fn compare_method_contract(
             .with_self(comparison.trait_owner, comparison.receiver)
             .instantiate(&substitution),
     );
-    if expected_return != actual.return_type {
+    if expected_return != normalize(actual.return_type.clone()) {
         diagnostics.push(mismatch(format!(
             "return type expected `{}`, found `{}`",
             display_type_id(&expected_return),
             display_type_id(&actual.return_type)
         )));
     }
-}
-
-fn compare_impl_method_signature(
-    function_index: &FunctionTypeIndex,
-    trait_def: &crate::hir::TraitDef,
-    trait_method: &crate::hir::TraitMethod,
-    impl_method: &crate::hir::ImplMethod,
-    receiver: (
-        &TypeId,
-        &kagari_common::identity::DefinitionId,
-        &[TypeId],
-        usize,
-        &std::collections::BTreeMap<kagari_common::identity::DefinitionId, TypeId>,
-    ),
-    span: kagari_common::Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    let Some(trait_function) = function_index.by_id.get(&trait_method.function) else {
-        return;
-    };
-    let Some(impl_function) = function_index.by_id.get(&impl_method.function) else {
-        return;
-    };
-    compare_method_contract(
-        trait_function,
-        impl_function,
-        &MethodComparison {
-            trait_name: &trait_def.name,
-            method_name: &trait_method.name,
-            trait_generic_count: trait_def.generic_params.len(),
-            impl_generic_count: receiver.3,
-            receiver: receiver.0,
-            trait_owner: receiver.1,
-            trait_arguments: receiver.2,
-            associated_types: receiver.4,
-            span,
-        },
-        diagnostics,
-    );
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

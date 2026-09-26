@@ -27,7 +27,55 @@ pub(super) fn validate(
                 receiver,
                 interface,
                 member,
+                arguments,
             } => {
+                if let Some(contract) = catalog.trait_(&interface.declaration)
+                    && let Some(inputs) = contract.associated_type_parameters.get(member)
+                {
+                    let mut substitution: crate::types::TypeSubstitution = contract
+                        .generic_params
+                        .iter()
+                        .cloned()
+                        .zip(interface.arguments.iter().cloned())
+                        .chain(
+                            inputs
+                                .parameters
+                                .iter()
+                                .cloned()
+                                .zip(arguments.iter().cloned()),
+                        )
+                        .collect();
+                    substitution.insert_receiver(contract.id.clone(), receiver.as_ref().clone());
+                    if inputs.parameters.len() != arguments.len() {
+                        diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
+                                name: member.path.last().expect("member").name.clone(),
+                                reason: "generic associated type argument count differs".into(),
+                            })
+                            .with_span(span),
+                        );
+                    }
+                    for (parameter, constraints) in &inputs.bounds {
+                        let actual = parameter.instantiate(&substitution);
+                        for constraint in constraints {
+                            let satisfied = match constraint {
+                                ConstraintTarget::Standard(required) => {
+                                    super::type_satisfies_standard_constraint(
+                                        &actual, *required, bounds,
+                                    )
+                                }
+                                ConstraintTarget::Trait(required) => {
+                                    let required = required.instantiate(&substitution);
+                                    bounds.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&required))))
+                                        || catalog.implementation_count(&required, &actual) + usize::from(hosts.implements(&required, &actual)) == 1
+                                }
+                            };
+                            if !satisfied && !actual.is_unresolved() {
+                                diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidAssociatedType { name: member.path.last().expect("member").name.clone(), reason: "generic associated type input does not satisfy its bound".into() }).with_span(span));
+                            }
+                        }
+                    }
+                }
                 if receiver.is_concrete()
                     && catalog.implementation_count(interface, receiver)
                         + usize::from(hosts.implements(interface, receiver))
@@ -49,6 +97,7 @@ pub(super) fn validate(
                     );
                 }
                 pending.push(receiver);
+                pending.extend(arguments);
                 pending.extend(&interface.arguments);
                 pending.extend(interface.associated_types.values());
             }
@@ -207,6 +256,14 @@ pub(crate) fn validate_signatures(
     diagnostics: &mut crate::DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
+    super::families::validate(
+        lowered,
+        declarations,
+        signatures,
+        catalog,
+        diagnostics,
+        cancel,
+    );
     for function in signatures.functions() {
         if cancel.check().is_err() {
             return;
@@ -248,7 +305,6 @@ pub(crate) fn validate_signatures(
             cancel,
         );
     }
-    let identity = lowered.source.module_identity();
     for impl_block in &lowered.module.impls {
         if cancel.check().is_err() {
             return;
@@ -278,9 +334,6 @@ pub(crate) fn validate_signatures(
             diagnostics,
             cancel,
         );
-        if instance.declaration.module == *identity {
-            continue;
-        }
         let Some(receiver) = impl_block
             .for_type
             .and_then(|ty| signatures.type_table().type_ref(ty))
@@ -326,7 +379,7 @@ pub(crate) fn validate_signatures(
                     receiver,
                     trait_owner: &contract.id,
                     trait_arguments: &instance.arguments,
-                    associated_types: &instance.associated_types,
+                    catalog,
                     span,
                 },
                 diagnostics,
@@ -349,6 +402,7 @@ pub(crate) fn validate_signatures(
             }
         }
     }
+    let identity = lowered.source.module_identity();
     for structure in catalog.structures().filter(|s| &s.id.module == identity) {
         for field in &structure.fields {
             validate(
@@ -421,6 +475,9 @@ pub(super) fn validate_imported_interface_type(
                             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
                                 trait_name: contract.declaration.name.clone(), reason: "traits with associated constants only support static dispatch".into(),
                             }).with_span(span));
+                        }
+                        if !contract.associated_type_parameters.is_empty() {
+                            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: contract.declaration.name.clone(), reason: "traits with generic associated types only support static dispatch".into() }).with_span(span));
                         }
                         if contract
                             .associated_types

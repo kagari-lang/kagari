@@ -1,5 +1,6 @@
 mod applications;
 pub(crate) mod associated_consts;
+mod families;
 mod supertraits;
 pub(crate) use supertraits::trait_supertrait_surface;
 pub(crate) use supertraits::validate as validate_supertraits;

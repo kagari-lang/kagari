@@ -81,6 +81,9 @@ pub struct TypeTable {
     associated_consts: HashMap<ExprId, ResolvedAssociatedConst>,
     pub(super) resolving_types: HashSet<crate::hir::TypeRefId>,
     pub(crate) associated_bounds: HashMap<DefinitionId, Vec<ConstraintTarget>>,
+    pub(crate) associated_type_parameters:
+        HashMap<DefinitionId, crate::types::AssociatedTypeParameters>,
+    pub(crate) associated_type_families: HashMap<DefinitionId, crate::types::AssociatedTypeFamily>,
     host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
     host_paths: HashMap<ExprId, ResolvedHostPath>,
     implementations: HashMap<(NominalType, TypeId), TraitImplementation>,
@@ -145,6 +148,18 @@ pub struct ResolvedHostPlacePath {
 }
 
 impl TypeTable {
+    pub fn associated_type_parameters(
+        &self,
+        member: &DefinitionId,
+    ) -> Option<&crate::types::AssociatedTypeParameters> {
+        self.associated_type_parameters.get(member)
+    }
+    pub fn associated_type_family(
+        &self,
+        member: &DefinitionId,
+    ) -> Option<&crate::types::AssociatedTypeFamily> {
+        self.associated_type_families.get(member)
+    }
     pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst> {
         self.associated_consts.get(&expr)
     }

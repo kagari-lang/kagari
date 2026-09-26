@@ -433,6 +433,33 @@ impl Declarations {
                 );
             }
         }
+        for (members, owner) in module
+            .traits
+            .iter()
+            .filter_map(|item| {
+                builder
+                    .result
+                    .definition(ResolvedName::Trait(item.id))
+                    .cloned()
+                    .map(|owner| (&item.associated_types, owner))
+            })
+            .chain(module.impls.iter().filter_map(|item| {
+                builder
+                    .result
+                    .impl_identity(item.id)
+                    .cloned()
+                    .map(|owner| (&item.associated_types, owner))
+            }))
+            .collect::<Vec<_>>()
+        {
+            for member in members {
+                builder.generic_params(
+                    &crate::types::associated_type_id(&owner, &member.name),
+                    &member.generic_params,
+                    map,
+                );
+            }
+        }
         builder.result
     }
 

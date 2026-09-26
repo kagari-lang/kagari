@@ -954,12 +954,16 @@ Ordinary parameters use the language's ordinary value model:
 
 The exact runtime meaning of object values is specified outside this syntax document.
 
+Associated constant and type-family syntax and constraints are specified in
+[traits.md](traits.md#generic-associated-types); the authoritative grammar is
+[the EBNF](../kagari.ebnf).
+
 ## Future Language Extensions
 
 The following areas are outside this syntax specification:
 
-- visibility and module public-interface semantics
-- associated consts, generic associated types and associated type defaults
+- package visibility and `pub(in path)`
+- lifetime/const-parameterized associated types and associated type defaults
 - extended pattern grammar
 - higher-kinded parameters and advanced trait solving
 - host-exposed type syntax

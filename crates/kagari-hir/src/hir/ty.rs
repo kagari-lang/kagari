@@ -17,6 +17,7 @@ pub enum TypeKind {
         positional_after_binding: bool,
     },
     Projection {
+        arguments: TypeBuffer,
         receiver: TypeRefId,
         trait_ref: TypeRefId,
         member: String,

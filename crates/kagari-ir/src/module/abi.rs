@@ -169,6 +169,7 @@ impl NominalAbiType {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AbiType {
     Projection {
+        arguments: Vec<AbiType>,
         receiver: Box<AbiType>,
         interface: Box<NominalAbiType>,
         member: kagari_common::identity::DefinitionId,
@@ -210,7 +211,9 @@ impl AbiType {
                 receiver,
                 interface,
                 member,
+                arguments,
             } => TypeId::Projection {
+                arguments: arguments.iter().map(AbiType::to_checked_type).collect(),
                 receiver: Box::new(receiver.to_checked_type()),
                 interface: Box::new(interface.to_checked_type()),
                 member: member.clone(),
@@ -290,7 +293,9 @@ impl AbiType {
                 receiver,
                 interface,
                 member,
+                arguments,
             } => Self::Projection {
+                arguments: arguments.iter().map(Self::from_checked_type).collect(),
                 receiver: Box::new(Self::from_checked_type(receiver)),
                 interface: Box::new(NominalAbiType::from_checked_type(interface)),
                 member: member.clone(),
@@ -443,13 +448,29 @@ pub struct AssociatedConstAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssociatedTypeAbi {
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub generic_params: Vec<GenericParameterAbi>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub parameter_bounds: Vec<GenericBoundAbi>,
     pub declaration: kagari_common::identity::DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub bounds: Vec<ConstraintAbi>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssociatedTypeFamilyAbi {
+    pub declaration: kagari_common::identity::DefinitionId,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub generic_params: Vec<GenericParameterAbi>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub bounds: Vec<GenericBoundAbi>,
+    pub value: AbiType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceTableAbi {
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub associated_type_families: Vec<AssociatedTypeFamilyAbi>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub associated_consts: Vec<ConstAbi>,
     pub host_bridge: bool,
@@ -466,6 +487,66 @@ pub struct InterfaceTableAbi {
 }
 
 impl InterfaceTableAbi {
+    pub(crate) fn checked_signature(
+        &self,
+    ) -> Option<kagari_hir::aggregates::ImplementationSignature> {
+        let AbiType::Trait(trait_type) = &self.trait_type else {
+            return None;
+        };
+        let parameter = |param: &GenericParameterAbi| kagari_hir::types::GenericParameterType {
+            owner: param.owner.clone(),
+            position: param.position,
+            name: String::new(),
+        };
+        let bounds = |bounds: &[GenericBoundAbi]| {
+            bounds
+                .iter()
+                .map(|bound| {
+                    (
+                        bound.ty.to_checked_type(),
+                        bound
+                            .constraints
+                            .iter()
+                            .map(|constraint| match constraint {
+                                ConstraintAbi::Standard(value) => {
+                                    kagari_hir::typeck::ConstraintTarget::Standard(*value)
+                                }
+                                ConstraintAbi::Trait(value) => {
+                                    kagari_hir::typeck::ConstraintTarget::Trait(
+                                        value.to_checked_type(),
+                                    )
+                                }
+                            })
+                            .collect(),
+                    )
+                })
+                .collect()
+        };
+        Some(kagari_hir::aggregates::ImplementationSignature {
+            id: self.declaration.clone(),
+            trait_type: trait_type.to_checked_type(),
+            for_type: self.for_type.to_checked_type(),
+            generic_params: self.generic_params.iter().map(parameter).collect(),
+            bounds: bounds(&self.bounds),
+            methods: Default::default(),
+            associated_type_families: self
+                .associated_type_families
+                .iter()
+                .map(|family| {
+                    (
+                        family.declaration.clone(),
+                        kagari_hir::types::AssociatedTypeFamily {
+                            inputs: kagari_hir::types::AssociatedTypeParameters {
+                                parameters: family.generic_params.iter().map(parameter).collect(),
+                                bounds: bounds(&family.bounds),
+                            },
+                            value: family.value.to_checked_type(),
+                        },
+                    )
+                })
+                .collect(),
+        })
+    }
     /// Substitute a selected impl's concrete arguments into its call contract.
     /// The verifier separately proves template validity, bounds and method slots.
     pub fn instantiate(&self, arguments: &[AbiType]) -> Option<Self> {
@@ -475,6 +556,24 @@ impl InterfaceTableAbi {
             return None;
         }
         let apply = |ty: &AbiType| ty.instantiate(&self.declaration, arguments);
+        let substitution = self
+            .generic_params
+            .iter()
+            .zip(arguments)
+            .map(|(parameter, argument)| {
+                (
+                    kagari_hir::types::GenericParameterType {
+                        owner: parameter.owner.clone(),
+                        position: parameter.position,
+                        name: String::new(),
+                    },
+                    argument.to_checked_type(),
+                )
+            })
+            .collect();
+        let family_apply = |ty: &AbiType| {
+            AbiType::from_checked_type(&ty.to_checked_type().instantiate(&substitution))
+        };
         let methods = self
             .methods
             .iter()
@@ -499,6 +598,41 @@ impl InterfaceTableAbi {
             })
             .collect::<Option<Vec<_>>>()?;
         Some(Self {
+            associated_type_families: self
+                .associated_type_families
+                .iter()
+                .map(|family| {
+                    Some(AssociatedTypeFamilyAbi {
+                        declaration: family.declaration.clone(),
+                        generic_params: family.generic_params.clone(),
+                        bounds: family
+                            .bounds
+                            .iter()
+                            .map(|bound| GenericBoundAbi {
+                                ty: family_apply(&bound.ty),
+                                constraints: bound
+                                    .constraints
+                                    .iter()
+                                    .map(|constraint| match constraint {
+                                        ConstraintAbi::Standard(value) => {
+                                            ConstraintAbi::Standard(*value)
+                                        }
+                                        ConstraintAbi::Trait(value) => {
+                                            let AbiType::Trait(value) =
+                                                family_apply(&AbiType::Trait(value.clone()))
+                                            else {
+                                                unreachable!("trait constraint")
+                                            };
+                                            ConstraintAbi::Trait(value)
+                                        }
+                                    })
+                                    .collect(),
+                            })
+                            .collect(),
+                        value: family_apply(&family.value),
+                    })
+                })
+                .collect::<Option<_>>()?,
             associated_consts: self.associated_consts.clone(),
             host_bridge: self.host_bridge,
             declaration: self.declaration.clone(),
@@ -548,6 +682,10 @@ pub(crate) fn interface_method_types(
         return None;
     }
     if !trait_abi.associated_consts.is_empty()
+        || trait_abi
+            .associated_types
+            .iter()
+            .any(|member| !member.generic_params.is_empty())
         || interface.associated_types.len() != trait_abi.associated_types.len()
         || trait_abi.associated_types.iter().any(|member| {
             !interface

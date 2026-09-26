@@ -28,6 +28,10 @@ The audit maintains three inventories:
   the current audit does not claim that both sides of each optional or every
   repetition count have test witnesses.
 
+Type-parameterized associated declarations and definitions, including their
+input/output bounds and qualified member arguments, have an executable witness
+in [generic-associated-types.kgr](../examples/syntax/generic-associated-types.kgr).
+
 All 165 EBNF rules and 115 top-level alternatives now have parse-clean
 witnesses. This is parser coverage, not an assertion that every form has linked
 runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)

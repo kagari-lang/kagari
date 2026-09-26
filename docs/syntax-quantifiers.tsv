@@ -45,7 +45,9 @@ trait_decl	1	?	generic_param_clause
 trait_decl	2	?	supertrait_clause
 trait_decl	3	*	trait_member
 trait_member	1	*	attribute
-associated_type_decl	1	?	(":" type_bound_list)
+associated_type_decl	1	?	generic_param_clause
+associated_type_decl	2	?	(":" type_bound_list)
+associated_type_decl	3	?	where_clause
 method_sig	1	?	generic_param_clause
 method_sig	2	?	method_param_list
 method_sig	3	?	return_type
@@ -130,3 +132,6 @@ trait_member	3	*	attribute
 trait_impl_item	2	*	attribute
 trait_impl_item	3	*	attribute
 associated_const_decl	1	?	("=" expr)
+qualified_type	1	?	generic_args
+associated_type_def	1	?	generic_param_clause
+associated_type_def	2	?	where_clause

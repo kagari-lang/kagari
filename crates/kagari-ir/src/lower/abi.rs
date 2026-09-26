@@ -205,6 +205,15 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                                 unreachable!("nominal trait")
                             };
                             crate::module::abi::AssociatedTypeAbi {
+                                generic_params: generic_param_abi(module, &member.generic_params),
+                                parameter_bounds: module
+                                    .typed
+                                    .type_table
+                                    .associated_type_parameters(
+                                        &kagari_hir::types::associated_type_id(owner, &member.name),
+                                    )
+                                    .map(|inputs| checked_bounds(&inputs.bounds))
+                                    .unwrap_or_default(),
                                 declaration: kagari_hir::types::associated_type_id(
                                     owner,
                                     &member.name,
@@ -287,6 +296,32 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             trait_type.display_name()
         );
         public_items.push(PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+            associated_type_families: module
+                .aggregates
+                .implementation_signature(
+                    module
+                        .declarations
+                        .impl_identity(impl_block.id)
+                        .expect("impl identity"),
+                )
+                .expect("impl signature")
+                .associated_type_families
+                .iter()
+                .map(|(id, family)| crate::module::abi::AssociatedTypeFamilyAbi {
+                    declaration: id.clone(),
+                    generic_params: family
+                        .inputs
+                        .parameters
+                        .iter()
+                        .map(|param| GenericParameterAbi {
+                            owner: param.owner.clone(),
+                            position: param.position,
+                        })
+                        .collect(),
+                    bounds: checked_bounds(&family.inputs.bounds),
+                    value: abi_type(module, &family.value),
+                })
+                .collect(),
             associated_consts: impl_block
                 .associated_consts
                 .iter()

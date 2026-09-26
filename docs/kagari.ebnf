@@ -106,7 +106,7 @@ trait_member        ::= attribute* trait_method
 
 associated_const_decl ::= "const" IDENT ":" type ("=" expr)? ";" ;
 
-associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
+associated_type_decl ::= "type" IDENT generic_param_clause? (":" type_bound_list)? where_clause? ";" ;
 
 trait_method        ::= method_sig (";" | block) ;
 
@@ -121,7 +121,7 @@ type                ::= path generic_args?
                       | parenthesized_type
                       | qualified_type ;
 
-qualified_type      ::= "<" type "as" trait_ref ">" "::" IDENT ;
+qualified_type      ::= "<" type "as" trait_ref ">" "::" IDENT generic_args? ;
 
 function_type       ::= "fn" "(" type_list? ")" "->" type ;
 
@@ -167,7 +167,7 @@ trait_impl_item     ::= attribute* method_decl
 
 associated_const_def ::= "const" IDENT ":" type "=" expr ";" ;
 
-associated_type_def ::= "type" IDENT "=" type ";" ;
+associated_type_def ::= "type" IDENT generic_param_clause? "=" type where_clause? ";" ;
 
 impl_item           ::= attribute* method_decl ;
 

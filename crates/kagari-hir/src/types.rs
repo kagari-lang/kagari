@@ -45,6 +45,35 @@ pub struct GenericParameterType {
     pub name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedTypeParameters {
+    pub parameters: Vec<GenericParameterType>,
+    pub bounds: crate::typeck::GenericBounds,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedTypeFamily {
+    pub inputs: AssociatedTypeParameters,
+    pub value: TypeId,
+}
+
+impl AssociatedTypeFamily {
+    pub fn apply(&self, outer: &TypeSubstitution, arguments: &[TypeId]) -> Option<TypeId> {
+        if arguments.len() != self.inputs.parameters.len() {
+            return None;
+        }
+        let mut substitution = outer.clone();
+        substitution.extend(
+            self.inputs
+                .parameters
+                .iter()
+                .cloned()
+                .zip(arguments.iter().cloned()),
+        );
+        Some(self.value.instantiate(&substitution))
+    }
+}
+
 impl PartialEq for GenericParameterType {
     fn eq(&self, other: &Self) -> bool {
         self.owner == other.owner && self.position == other.position
@@ -168,6 +197,7 @@ pub enum TypeId {
     Host(DefinitionId),
     Generic(GenericParameterType),
     Projection {
+        arguments: Vec<TypeId>,
         receiver: Box<TypeId>,
         interface: Box<NominalType>,
         member: DefinitionId,
@@ -204,8 +234,8 @@ impl TypeId {
         false
     }
     pub fn with_associated_types(&self, interface: &NominalType) -> Self {
-        crate::typeck::associated::normalize(self, &|projected, _, member| {
-            (projected.declaration == interface.declaration)
+        crate::typeck::associated::normalize(self, &|projected, _, member, arguments| {
+            (arguments.is_empty() && projected.declaration == interface.declaration)
                 .then(|| interface.associated_types.get(member).cloned())
                 .flatten()
         })
@@ -238,8 +268,10 @@ impl TypeId {
                 Self::Projection {
                     receiver,
                     interface,
+                    arguments,
                     ..
                 } => {
+                    pending.extend(arguments);
                     pending.push(receiver);
                     pending.extend(&interface.arguments);
                     pending.extend(interface.associated_types.values());
@@ -303,7 +335,9 @@ impl TypeId {
                 receiver,
                 interface,
                 member,
+                arguments,
             } => Self::Projection {
+                arguments: arguments.iter().map(&mut map).collect(),
                 receiver: Box::new(map(receiver)),
                 interface: Box::new(interface.map_arguments(map)),
                 member: member.clone(),
@@ -356,8 +390,12 @@ impl TypeId {
                     result: Box::new(Self::Unknown),
                 },
                 Self::Projection {
-                    interface, member, ..
+                    interface,
+                    member,
+                    arguments,
+                    ..
                 } => Self::Projection {
+                    arguments: vec![Self::Unknown; arguments.len()],
                     receiver: Box::new(Self::Unknown),
                     interface: Box::new(interface.map_arguments(|_| Self::Unknown)),
                     member: member.clone(),
@@ -388,14 +426,21 @@ impl TypeId {
                     Self::Projection {
                         receiver: sr,
                         interface: si,
+                        arguments: sa,
                         ..
                     },
                     Self::Projection {
                         receiver: tr,
                         interface: ti,
+                        arguments: ta,
                         ..
                     },
                 ) => {
+                    pending.extend(
+                        sa.iter()
+                            .zip(ta)
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
                     pending.push((sr, tr, substitute));
                     pending.extend(
                         si.arguments
@@ -488,8 +533,16 @@ impl TypeId {
                     pending.push(result);
                 }
                 Self::Generic(parameter) if parameters.contains(parameter) => {}
-                Self::Projection { receiver, .. }
-                    if receiver.is_resolved_in(parameters) && !parameters.is_empty() => {}
+                Self::Projection {
+                    receiver,
+                    arguments,
+                    interface,
+                    ..
+                } if receiver.is_resolved_in(parameters) && !parameters.is_empty() => {
+                    pending.extend(arguments);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                }
                 Self::Projection { .. }
                 | Self::Generic(_)
                 | Self::Unknown
@@ -571,8 +624,10 @@ impl TypeId {
                 Self::Projection {
                     receiver,
                     interface,
+                    arguments,
                     ..
                 } => {
+                    pending.extend(arguments);
                     pending.push(receiver);
                     pending.extend(&interface.arguments);
                     pending.extend(interface.associated_types.values());
@@ -855,6 +910,7 @@ impl TypeId {
                         receiver,
                         interface,
                         member,
+                        arguments,
                     } => {
                         output.push_str(&format!(
                             "<{} as {}>::{}",
@@ -866,6 +922,17 @@ impl TypeId {
                                 .map_or("", |p| p.name.as_str()),
                             member.path.last().map_or("", |p| p.name.as_str())
                         ));
+                        if !arguments.is_empty() {
+                            output.push('<');
+                            output.push_str(
+                                &arguments
+                                    .iter()
+                                    .map(TypeId::display_name)
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            );
+                            output.push('>');
+                        }
                     }
                     Self::StandardEnum { kind, args } => {
                         sequence(&mut pending, args, "<", ">");

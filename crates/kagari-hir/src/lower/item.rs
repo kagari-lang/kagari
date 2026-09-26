@@ -258,6 +258,14 @@ impl Lowerer {
             },
         );
         crate::hir::AssociatedType {
+            generic_params: item
+                .generic_params()
+                .map(|params| self.lower_generic_params(&params))
+                .unwrap_or_default(),
+            parameter_bounds: item
+                .where_clause()
+                .map(|clause| self.lower_where_clause(&clause))
+                .unwrap_or_default(),
             name,
             name_ref,
             ty: item.ty().map(|ty| self.lower_type(&ty)),

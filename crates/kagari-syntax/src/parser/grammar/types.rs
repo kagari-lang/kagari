@@ -44,6 +44,10 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::ColonColon, DiagnosticKind::ExpectedType);
         self.bump_trivia();
         self.parse_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_arg_list();
+        }
         self.finish_node();
     }
 

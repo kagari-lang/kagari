@@ -52,6 +52,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                             methods: vec![],
                         }),
                         PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+                            associated_type_families: Vec::new(),
                             associated_consts: Vec::new(),
                             host_bridge: false,
                             declaration: impl_id.clone(),

@@ -35,6 +35,12 @@ ast_node!(EnumDef, EnumDef);
 ast_node!(AssociatedType, AssociatedType);
 
 impl AssociatedType {
+    pub fn generic_params(&self) -> Option<GenericParamList> {
+        support::child(self.syntax())
+    }
+    pub fn where_clause(&self) -> Option<WhereClause> {
+        support::child(self.syntax())
+    }
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }

@@ -70,6 +70,10 @@ fn host_trait_matches(
         })
         .collect();
     if !trait_abi.associated_consts.is_empty()
+        || trait_abi
+            .associated_types
+            .iter()
+            .any(|member| !member.generic_params.is_empty())
         || args.len() != trait_abi.generic_params.len()
         || outputs.len() != trait_abi.associated_types.len()
         || trait_abi
@@ -196,9 +200,11 @@ fn matches_host_type(
                     receiver: source,
                     interface,
                     member,
+                    arguments: member_arguments,
                 },
                 actual,
-            ) if interface.declaration == *owner
+            ) if member_arguments.is_empty()
+                && interface.declaration == *owner
                 && matches!(source.as_ref(), AbiType::SelfType(id) if id == owner) =>
             {
                 let Some(output) = outputs.get(member) else {

@@ -2632,7 +2632,8 @@ impl<'a> BodyChecker<'a> {
                 receiver,
                 trait_ref,
                 member,
-            } => Some((*receiver, *trait_ref, member.clone())),
+                arguments,
+            } if arguments.is_empty() => Some((*receiver, *trait_ref, member.clone())),
             _ => None,
         });
         let (receiver, member, requested) = if let Some((receiver, trait_ref, member)) = qualified {
@@ -2767,15 +2768,25 @@ impl<'a> BodyChecker<'a> {
             receiver: _,
             interface,
             member,
+            arguments,
         } = ty
             && let Some(contract) = self.aggregates.trait_(&interface.declaration)
         {
-            let substitution = contract
+            let mut substitution: crate::types::TypeSubstitution = contract
                 .generic_params
                 .iter()
                 .cloned()
                 .zip(interface.arguments.iter().cloned())
                 .collect();
+            if let Some(inputs) = contract.associated_type_parameters.get(member) {
+                substitution.extend(
+                    inputs
+                        .parameters
+                        .iter()
+                        .cloned()
+                        .zip(arguments.iter().cloned()),
+                );
+            }
             bounds.extend(
                 contract
                     .associated_types
@@ -2861,7 +2872,7 @@ impl<'a> BodyChecker<'a> {
             .aggregates
             .trait_(&interface.declaration)
             .expect("catalog trait");
-        let mut substitution = trait_contract
+        let mut substitution: crate::types::TypeSubstitution = trait_contract
             .generic_params
             .iter()
             .cloned()
@@ -2869,6 +2880,7 @@ impl<'a> BodyChecker<'a> {
             .collect();
         let self_owner = &method.owner;
         let self_ty = receiver_ty;
+        substitution.insert_receiver(self_owner.clone(), self_ty.clone());
         let method_generics = &method.generic_params[trait_contract.generic_params.len()..];
         let return_pattern = method
             .return_type

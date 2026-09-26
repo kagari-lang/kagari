@@ -45,6 +45,8 @@ pub struct AssociatedConst {
 
 #[derive(Debug, Clone)]
 pub struct AssociatedType {
+    pub generic_params: GenericParamBuffer,
+    pub parameter_bounds: TraitBoundBuffer,
     pub name: String,
     pub name_ref: TypeRefId,
     pub ty: Option<TypeRefId>,

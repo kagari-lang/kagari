@@ -110,6 +110,7 @@ pub(crate) fn validate(
                                 && scalar_const_valid(&member.ty, &member.value)
                         })
                     }) && bounds_valid(&table.bounds, &params, cancel)
+                        && families_valid(table, &params, cancel)
                         && (!table.host_bridge
                             || (table.generic_params.is_empty()
                                 && table.bounds.is_empty()
@@ -299,10 +300,14 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
                         cancel,
                     )
                 })
-                && ty
-                    .associated_types
-                    .iter()
-                    .all(|member| constraints_valid(&member.bounds, &params, Some(&owner), cancel))
+                && ty.associated_types.iter().all(|member| {
+                    parameters(&member.generic_params, &member.declaration, &params).is_some_and(
+                        |params| {
+                            bounds_valid_in(&member.parameter_bounds, &params, Some(&owner), cancel)
+                                && constraints_valid(&member.bounds, &params, Some(&owner), cancel)
+                        },
+                    )
+                })
                 && ty.methods.iter().all(|method| {
                     methods.insert(&method.name)
                         && function_valid(
@@ -328,24 +333,24 @@ pub(crate) fn interface_contract_matches(
     let mut matched = HashSet::new();
     interface_constants_match(table, interface)
         && instance.arguments.len() == interface.generic_params.len()
-        && instance.associated_types.len() == interface.associated_types.len()
+        && interface_families_match(table, interface, cancel)
+        && instance.associated_types.len()
+            == interface
+                .associated_types
+                .iter()
+                .filter(|member| member.generic_params.is_empty())
+                .count()
         && interface
             .associated_types
             .iter()
+            .filter(|member| member.generic_params.is_empty())
             .all(|member| instance.associated_types.contains_key(&member.declaration))
         && table.methods.len() == interface.methods.len()
         && table.methods.iter().all(|method| {
             cancel.check().is_ok()
                 && interface.methods.iter().any(|declared| {
                     declared.name == method.name
-                        && same_method_contract(
-                            declared,
-                            method,
-                            instance,
-                            &table.declaration,
-                            &table.for_type,
-                            cancel,
-                        )
+                        && same_method_contract(declared, method, instance, table, cancel)
                         && matched.insert(&declared.name)
                 })
         })
@@ -378,167 +383,325 @@ pub(crate) fn interface_constants_match(table: &InterfaceTableAbi, interface: &T
     }
 }
 
+fn families_valid(
+    table: &InterfaceTableAbi,
+    outer: &Parameters,
+    cancel: &CancellationToken,
+) -> bool {
+    let AbiType::Trait(interface) = &table.trait_type else {
+        return false;
+    };
+    let mut seen = HashSet::new();
+    table.associated_type_families.iter().all(|family| {
+        let name = family
+            .declaration
+            .path
+            .last()
+            .map_or("", |part| part.name.as_str());
+        !name.is_empty()
+            && seen.insert(&family.declaration)
+            && family.declaration
+                == kagari_hir::types::associated_type_id(&interface.declaration, name)
+            && !family.generic_params.is_empty()
+            && parameters(
+                &family.generic_params,
+                &kagari_hir::types::associated_type_id(&table.declaration, name),
+                outer,
+            )
+            .is_some_and(|params| {
+                bounds_valid(&family.bounds, &params, cancel)
+                    && type_valid(&family.value, &params, None, cancel)
+            })
+    })
+}
+
+pub(crate) fn interface_families_match(
+    table: &InterfaceTableAbi,
+    interface: &TraitAbi,
+    cancel: &CancellationToken,
+) -> bool {
+    let AbiType::Trait(instance) = &table.trait_type else {
+        return false;
+    };
+    let families = interface
+        .associated_types
+        .iter()
+        .filter(|member| !member.generic_params.is_empty())
+        .collect::<Vec<_>>();
+    if families.len() != table.associated_type_families.len() {
+        return false;
+    }
+    families.into_iter().all(|member| {
+        let Some(family) = table
+            .associated_type_families
+            .iter()
+            .find(|family| family.declaration == member.declaration)
+        else {
+            return false;
+        };
+        if member.generic_params.len() != family.generic_params.len() {
+            return false;
+        }
+        let mut substitution: kagari_hir::types::TypeSubstitution = instance
+            .arguments
+            .iter()
+            .enumerate()
+            .map(|(position, value)| {
+                (
+                    kagari_hir::types::GenericParameterType {
+                        owner: instance.declaration.clone(),
+                        position,
+                        name: String::new(),
+                    },
+                    value.to_checked_type(),
+                )
+            })
+            .chain(
+                member
+                    .generic_params
+                    .iter()
+                    .zip(&family.generic_params)
+                    .map(|(expected, actual)| {
+                        (
+                            kagari_hir::types::GenericParameterType {
+                                owner: expected.owner.clone(),
+                                position: expected.position,
+                                name: String::new(),
+                            },
+                            kagari_hir::types::TypeId::Generic(
+                                kagari_hir::types::GenericParameterType {
+                                    owner: actual.owner.clone(),
+                                    position: actual.position,
+                                    name: String::new(),
+                                },
+                            ),
+                        )
+                    }),
+            )
+            .collect();
+        substitution.insert_receiver(
+            instance.declaration.clone(),
+            table.for_type.to_checked_type(),
+        );
+        let expected = member
+            .parameter_bounds
+            .iter()
+            .map(|bound| GenericBoundAbi {
+                ty: AbiType::from_checked_type(
+                    &bound.ty.to_checked_type().instantiate(&substitution),
+                ),
+                constraints: bound
+                    .constraints
+                    .iter()
+                    .map(|constraint| match constraint {
+                        ConstraintAbi::Standard(value) => ConstraintAbi::Standard(*value),
+                        ConstraintAbi::Trait(value) => {
+                            let AbiType::Trait(value) = AbiType::from_checked_type(
+                                &AbiType::Trait(value.clone())
+                                    .to_checked_type()
+                                    .instantiate(&substitution),
+                            ) else {
+                                unreachable!("trait bound")
+                            };
+                            ConstraintAbi::Trait(value)
+                        }
+                    })
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        cancel.check().is_ok()
+            && family.bounds.iter().all(|bound| {
+                expected.iter().any(|required| {
+                    bound.ty == required.ty
+                        && bound
+                            .constraints
+                            .iter()
+                            .all(|constraint| required.constraints.contains(constraint))
+                })
+            })
+    })
+}
+
 fn same_method_contract(
     declared: &FunctionAbi,
     implemented: &FunctionAbi,
     instance: &NominalAbiType,
-    impl_owner: &DefinitionId,
-    for_type: &AbiType,
+    table: &InterfaceTableAbi,
     cancel: &CancellationToken,
 ) -> bool {
-    let trait_owner = &instance.declaration;
-    let trait_arguments = &instance.arguments;
-    let associated_types = &instance.associated_types;
     if declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
-        || declared.bounds.len() != implemented.bounds.len()
     {
         return false;
     }
-    let trait_method = owner(
-        &trait_owner.module,
-        &trait_owner.path,
-        DefinitionKind::Method,
-        &declared.name,
-    );
-    let impl_method = owner(
-        &impl_owner.module,
-        &impl_owner.path,
-        DefinitionKind::Method,
-        &implemented.name,
-    );
-    let matches_type = |expected: &AbiType, actual: &AbiType| {
-        let mut pending = vec![(expected, actual)];
-        while let Some((expected, actual)) = pending.pop() {
-            if cancel.check().is_err() {
-                return false;
-            }
-            match (expected, actual) {
-                (
-                    AbiType::Projection {
-                        receiver,
-                        interface,
-                        member,
-                    },
-                    actual,
-                ) if interface.declaration == *trait_owner
-                    && matches!(receiver.as_ref(), AbiType::SelfType(owner) if owner == trait_owner) =>
-                {
-                    let Some(value) = associated_types.get(member) else {
-                        return false;
-                    };
-                    pending.push((value, actual));
-                }
-                (AbiType::SelfType(id), actual) if id == trait_owner => {
-                    pending.push((for_type, actual));
-                }
-                (
-                    AbiType::Parameter {
-                        owner: id,
-                        position,
-                    },
-                    actual,
-                ) if id == trait_owner => {
-                    let Some(argument) = trait_arguments.get(*position) else {
-                        return false;
-                    };
-                    pending.push((argument, actual));
-                }
-                (
-                    AbiType::Parameter {
-                        owner: id,
-                        position,
-                    },
-                    AbiType::Parameter {
-                        owner: actual_owner,
-                        position: actual_position,
-                    },
-                ) if id == &trait_method
-                    && actual_owner == &impl_method
-                    && position == actual_position => {}
-                (
-                    AbiType::Parameter {
-                        owner: expected_owner,
-                        position: expected_position,
-                    },
-                    AbiType::Parameter {
-                        owner: actual_owner,
-                        position: actual_position,
-                    },
-                ) if expected_owner == actual_owner && expected_position == actual_position => {}
-                (AbiType::Builtin(a), AbiType::Builtin(b)) if a == b => {}
-                (AbiType::Host(a), AbiType::Host(b)) if a == b => {}
-                (AbiType::Tuple(a), AbiType::Tuple(b)) if a.len() == b.len() => {
-                    pending.extend(a.iter().zip(b));
-                }
-                (
-                    AbiType::Function {
-                        params: ap,
-                        result: ar,
-                    },
-                    AbiType::Function {
-                        params: bp,
-                        result: br,
-                    },
-                ) if ap.len() == bp.len() => {
-                    pending.push((ar, br));
-                    pending.extend(ap.iter().zip(bp));
-                }
-                (AbiType::Array(a), AbiType::Array(b)) | (AbiType::Set(a), AbiType::Set(b)) => {
-                    pending.push((a, b))
-                }
-                (AbiType::Map { key: ak, value: av }, AbiType::Map { key: bk, value: bv }) => {
-                    pending.extend([(ak.as_ref(), bk.as_ref()), (av.as_ref(), bv.as_ref())])
-                }
-                (AbiType::Struct(a), AbiType::Struct(b))
-                | (AbiType::Enum(a), AbiType::Enum(b))
-                | (AbiType::Trait(a), AbiType::Trait(b))
-                    if a.declaration == b.declaration
-                        && a.arguments.len() == b.arguments.len()
-                        && a.associated_types.keys().eq(b.associated_types.keys()) =>
-                {
-                    pending.extend(a.associated_types.values().zip(b.associated_types.values()));
-                    pending.extend(a.arguments.iter().zip(&b.arguments));
-                }
-                (
-                    AbiType::StandardEnum { kind: ak, args: aa },
-                    AbiType::StandardEnum { kind: bk, args: ba },
-                ) if ak == bk && aa.len() == ba.len() => pending.extend(aa.iter().zip(ba)),
-                _ => return false,
-            }
-        }
-        true
+    let Some(signature) = table.checked_signature() else {
+        return false;
     };
-    if !declared
-        .bounds
+    let Some(catalog) =
+        kagari_hir::aggregates::AggregateCatalog::from_implementation_signatures([signature])
+    else {
+        return false;
+    };
+    method_contract_matches(
+        declared,
+        implemented,
+        instance,
+        table,
+        &catalog,
+        true,
+        cancel,
+    )
+}
+
+pub(crate) fn interface_methods_match(
+    table: &InterfaceTableAbi,
+    interface: &TraitAbi,
+    catalog: &kagari_hir::aggregates::AggregateCatalog,
+    cancel: &CancellationToken,
+) -> bool {
+    let AbiType::Trait(instance) = &table.trait_type else {
+        return false;
+    };
+    table.methods.len() == interface.methods.len()
+        && table.methods.iter().all(|implemented| {
+            interface
+                .methods
+                .iter()
+                .find(|declared| declared.name == implemented.name)
+                .is_some_and(|declared| {
+                    method_contract_matches(
+                        declared,
+                        implemented,
+                        instance,
+                        table,
+                        catalog,
+                        false,
+                        cancel,
+                    )
+                })
+        })
+}
+
+fn method_contract_matches(
+    declared: &FunctionAbi,
+    implemented: &FunctionAbi,
+    instance: &NominalAbiType,
+    table: &InterfaceTableAbi,
+    catalog: &kagari_hir::aggregates::AggregateCatalog,
+    defer_projection: bool,
+    cancel: &CancellationToken,
+) -> bool {
+    if declared.generic_params.len() != implemented.generic_params.len()
+        || declared.params.len() != implemented.params.len()
+    {
+        return false;
+    }
+    let mut substitution: kagari_hir::types::TypeSubstitution = instance
+        .arguments
         .iter()
-        .zip(&implemented.bounds)
-        .all(|(expected, actual)| {
-            matches_type(&expected.ty, &actual.ty)
-                && expected.constraints.len() == actual.constraints.len()
-                && expected
+        .enumerate()
+        .map(|(position, argument)| {
+            (
+                kagari_hir::types::GenericParameterType {
+                    owner: instance.declaration.clone(),
+                    position,
+                    name: String::new(),
+                },
+                argument.to_checked_type(),
+            )
+        })
+        .collect();
+    substitution.extend(
+        declared
+            .generic_params
+            .iter()
+            .zip(&implemented.generic_params)
+            .map(|(expected, actual)| {
+                (
+                    kagari_hir::types::GenericParameterType {
+                        owner: expected.owner.clone(),
+                        position: expected.position,
+                        name: String::new(),
+                    },
+                    kagari_hir::types::TypeId::Generic(kagari_hir::types::GenericParameterType {
+                        owner: actual.owner.clone(),
+                        position: actual.position,
+                        name: String::new(),
+                    }),
+                )
+            }),
+    );
+    let expected = |ty: &AbiType| {
+        catalog.normalize_type(
+            &ty.to_checked_type()
+                .with_self(&instance.declaration, &table.for_type.to_checked_type())
+                .instantiate(&substitution),
+        )
+    };
+    let actual = |ty: &AbiType| catalog.normalize_type(&ty.to_checked_type());
+    // A module-only shape check cannot normalize outputs supplied by a dependency.
+    // The linked verifier repeats the full comparison with its complete catalog.
+    if defer_projection
+        && std::iter::once(expected(&declared.return_type))
+            .chain(std::iter::once(actual(&implemented.return_type)))
+            .chain(declared.params.iter().map(|p| expected(&p.ty)))
+            .chain(implemented.params.iter().map(|p| actual(&p.ty)))
+            .any(|ty| ty.contains_projection() && !ty.is_unresolved())
+    {
+        return true;
+    }
+    let bounds = |function: &FunctionAbi,
+                  normalize: &dyn Fn(&AbiType) -> kagari_hir::types::TypeId| {
+        function
+            .bounds
+            .iter()
+            .map(|bound| {
+                let mut constraints = bound
                     .constraints
                     .iter()
-                    .zip(&actual.constraints)
-                    .all(|(expected, actual)| match (expected, actual) {
-                        (ConstraintAbi::Standard(a), ConstraintAbi::Standard(b)) => a == b,
-                        (ConstraintAbi::Trait(a), ConstraintAbi::Trait(b)) => {
-                            matches_type(&AbiType::Trait(a.clone()), &AbiType::Trait(b.clone()))
-                        }
-                        _ => false,
+                    .map(|constraint| {
+                        Some(match constraint {
+                            ConstraintAbi::Standard(value) => ConstraintAbi::Standard(*value),
+                            ConstraintAbi::Trait(value) => {
+                                let normalized = normalize(&AbiType::Trait(value.clone()));
+                                if normalized.is_unresolved() {
+                                    return None;
+                                }
+                                let AbiType::Trait(value) = AbiType::from_checked_type(&normalized)
+                                else {
+                                    return None;
+                                };
+                                ConstraintAbi::Trait(value)
+                            }
+                        })
                     })
-        })
-    {
-        return false;
-    }
-    declared
-        .params
-        .iter()
-        .zip(&implemented.params)
-        .all(|(expected, actual)| {
-            expected.mutable == actual.mutable && matches_type(&expected.ty, &actual.ty)
-        })
-        && matches_type(&declared.return_type, &implemented.return_type)
+                    .collect::<Option<Vec<_>>>()?;
+                constraints.sort();
+                let target = normalize(&bound.ty);
+                if target.is_unresolved() {
+                    return None;
+                }
+                Some((AbiType::from_checked_type(&target), constraints))
+            })
+            .collect::<Option<std::collections::BTreeMap<_, _>>>()
+    };
+    cancel.check().is_ok()
+        && bounds(declared, &expected)
+            .is_some_and(|declared| Some(declared) == bounds(implemented, &actual))
+        && !expected(&declared.return_type).is_unresolved()
+        && !actual(&implemented.return_type).is_unresolved()
+        && expected(&declared.return_type) == actual(&implemented.return_type)
+        && declared
+            .params
+            .iter()
+            .zip(&implemented.params)
+            .all(|(declared, implemented)| {
+                cancel.check().is_ok()
+                    && declared.mutable == implemented.mutable
+                    && !expected(&declared.ty).is_unresolved()
+                    && !actual(&implemented.ty).is_unresolved()
+                    && expected(&declared.ty) == actual(&implemented.ty)
+            })
 }
 
 fn aggregate_shape_valid(ty: &TypeAbi, cancel: &CancellationToken) -> bool {
@@ -596,19 +759,27 @@ fn bounds_valid(
     params: &Parameters,
     cancel: &CancellationToken,
 ) -> bool {
+    bounds_valid_in(bounds, params, None, cancel)
+}
+fn bounds_valid_in(
+    bounds: &[GenericBoundAbi],
+    params: &Parameters,
+    self_owner: Option<&DefinitionId>,
+    cancel: &CancellationToken,
+) -> bool {
     if !bounds.windows(2).all(|pair| pair[0].ty < pair[1].ty) {
         return false;
     }
     let mut seen = HashSet::new();
     bounds.iter().all(|bound| {
-        type_valid(&bound.ty, params, None, cancel)
+        type_valid(&bound.ty, params, self_owner, cancel)
             && matches!(
                 bound.ty,
                 AbiType::Parameter { .. } | AbiType::Projection { .. }
             )
             && seen.insert(&bound.ty)
             && !bound.constraints.is_empty()
-            && constraints_valid(&bound.constraints, params, None, cancel)
+            && constraints_valid(&bound.constraints, params, self_owner, cancel)
     })
 }
 
@@ -642,7 +813,7 @@ fn function_valid(
     };
     let owner = owner(module, parent, kind, &function.name);
     parameters(&function.generic_params, &owner, outer).is_some_and(|params| {
-        bounds_valid(&function.bounds, &params, cancel)
+        bounds_valid_in(&function.bounds, &params, self_owner, cancel)
             && signature_valid(function, &params, self_owner, cancel)
     })
 }
@@ -684,6 +855,7 @@ fn type_valid(
                 receiver,
                 interface,
                 member,
+                arguments,
             } => {
                 if params.is_empty() && self_owner.is_none() {
                     return false;
@@ -698,6 +870,7 @@ fn type_valid(
                     return false;
                 }
                 pending.push(receiver);
+                pending.extend(arguments);
                 for (binding, value) in &interface.associated_types {
                     if *binding
                         != kagari_hir::types::associated_type_id(
@@ -844,12 +1017,23 @@ mod tests {
             arguments: Vec::new(),
             associated_types: Default::default(),
         };
+        let make_table = || InterfaceTableAbi {
+            name: "Read".into(),
+            associated_type_families: Vec::new(),
+            associated_consts: Vec::new(),
+            declaration: impl_owner.clone(),
+            for_type: for_type.clone(),
+            trait_type: AbiType::Trait(trait_instance.clone()),
+            generic_params: Vec::new(),
+            bounds: Vec::new(),
+            methods: Vec::new(),
+            host_bridge: false,
+        };
         assert!(same_method_contract(
             &declared,
             &implemented,
             &trait_instance,
-            &impl_owner,
-            &for_type,
+            &make_table(),
             &cancel,
         ));
         let original_param = implemented.params[0].ty.clone();
@@ -861,8 +1045,7 @@ mod tests {
             &declared,
             &implemented,
             &trait_instance,
-            &impl_owner,
-            &for_type,
+            &make_table(),
             &cancel,
         ));
         implemented.params[0].ty = original_param;
@@ -886,8 +1069,7 @@ mod tests {
             &declared,
             &implemented,
             &trait_instance,
-            &impl_owner,
-            &for_type,
+            &make_table(),
             &cancel,
         ));
         implemented.bounds[0].constraints.clear();
@@ -895,8 +1077,7 @@ mod tests {
             &declared,
             &implemented,
             &trait_instance,
-            &impl_owner,
-            &for_type,
+            &make_table(),
             &cancel,
         ));
         let marker = owner(&module, &[], DefinitionKind::Trait, "Marker");
@@ -916,8 +1097,7 @@ mod tests {
             &declared,
             &implemented,
             &trait_instance,
-            &impl_owner,
-            &for_type,
+            &make_table(),
             &cancel,
         ));
         let ConstraintAbi::Trait(instance) = &mut implemented.bounds[0].constraints[0] else {
@@ -928,8 +1108,7 @@ mod tests {
             &declared,
             &implemented,
             &trait_instance,
-            &impl_owner,
-            &for_type,
+            &make_table(),
             &cancel,
         ));
     }

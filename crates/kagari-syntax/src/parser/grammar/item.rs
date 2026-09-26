@@ -704,6 +704,10 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         self.parse_name();
         self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
+        self.bump_trivia();
         if self.at(TokenKind::Colon) {
             self.bump();
             self.parse_trait_bound_list();
@@ -712,6 +716,10 @@ impl<'a> Parser<'a> {
         if self.at(TokenKind::Eq) {
             self.bump();
             self.parse_type_ref();
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::WhereKw) {
+            self.parse_where_clause();
         }
         self.bump_trivia();
         self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);

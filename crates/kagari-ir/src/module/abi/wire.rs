@@ -32,6 +32,7 @@ enum Node {
         #[serde(deserialize_with = "crate::decode_limits::nested")] Vec<DefinitionId>,
     ),
     Projection {
+        member_arguments: u32,
         member: DefinitionId,
         owner: DefinitionId,
         arguments: u32,
@@ -154,10 +155,14 @@ impl AbiType {
                     receiver,
                     interface,
                     member,
+                    arguments,
                 } => {
                     if !member.within_path_limit()
                         || !interface.declaration.within_path_limit()
-                        || interface.arguments.len() + interface.associated_types.len() > MAX_NODES
+                        || arguments.len()
+                            + interface.arguments.len()
+                            + interface.associated_types.len()
+                            > MAX_NODES
                         || interface
                             .associated_types
                             .keys()
@@ -165,6 +170,7 @@ impl AbiType {
                     {
                         return Err("ABI projection limit exceeded");
                     }
+                    pending.extend(arguments.iter().rev().map(|ty| (ty, depth + 1)));
                     pending.extend(
                         interface
                             .associated_types
@@ -175,6 +181,7 @@ impl AbiType {
                     pending.extend(interface.arguments.iter().rev().map(|ty| (ty, depth + 1)));
                     pending.push((receiver, depth + 1));
                     Node::Projection {
+                        member_arguments: arguments.len() as u32,
                         member: member.clone(),
                         owner: interface.declaration.clone(),
                         arguments: interface.arguments.len() as u32,
@@ -300,6 +307,7 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
             })
         }
         Node::Projection {
+            member_arguments,
             member,
             owner,
             arguments,
@@ -318,6 +326,7 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
                 associated_types.insert(id, build(nodes, depth + 1)?);
             }
             AbiType::Projection {
+                arguments: children(member_arguments, nodes)?,
                 receiver,
                 interface: Box::new(NominalAbiType {
                     declaration: owner,
@@ -420,6 +429,7 @@ mod tests {
                 receiver: Box::new(AbiType::SelfType(trait_id.clone())),
                 interface: Box::new(interface),
                 member: member.clone(),
+                arguments: vec![AbiType::Builtin(BuiltinType::I32)],
             },
         ] {
             let encoded = codec().serialize(&ty).unwrap();

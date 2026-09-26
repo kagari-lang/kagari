@@ -162,11 +162,6 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
         if !reachable.contains(&ModuleRef::new(index)) {
             closure.push(module);
         }
-        if !super::trait_bounds::trait_bounds_match(module, &closure, Some(program)) {
-            return Err(BytecodeVerificationError::InvalidHostInterface(
-                "trait output or host bound has no unique valid implementation".into(),
-            ));
-        }
         for item in &module.public_items {
             let crate::module::PublicAbiItem::InterfaceTable(table) = item else {
                 continue;
@@ -212,6 +207,11 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             ) {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
+        }
+        if !super::trait_bounds::trait_bounds_match(module, &closure, Some(program)) {
+            return Err(BytecodeVerificationError::InvalidHostInterface(
+                "trait output or host bound has no unique valid implementation".into(),
+            ));
         }
         for instruction in module
             .functions
