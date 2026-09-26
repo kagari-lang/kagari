@@ -32,6 +32,23 @@ ast_node!(ConstDef, ConstDef);
 ast_node!(StructDef, StructDef);
 ast_node!(EnumDef, EnumDef);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    Private,
+    Public,
+    PublicSuper,
+}
+
+pub(crate) fn visibility_of(syntax: &SyntaxNode) -> Visibility {
+    if support::token(syntax, SyntaxKind::PubKw).is_none() {
+        Visibility::Private
+    } else if support::token(syntax, SyntaxKind::SuperKw).is_some() {
+        Visibility::PublicSuper
+    } else {
+        Visibility::Public
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
     ModuleDef(ModuleDef),
@@ -144,8 +161,8 @@ impl AttributeValue {
 }
 
 impl ModuleDef {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
     }
 
     pub fn name(&self) -> Option<Name> {
@@ -168,8 +185,8 @@ impl ModuleBlock {
 }
 
 impl UseDecl {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
     }
 
     pub fn tree(&self) -> Option<UseTree> {
@@ -215,8 +232,8 @@ impl UseTreeList {
 }
 
 impl TraitDef {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
     }
 
     pub fn name(&self) -> Option<Name> {
@@ -259,8 +276,8 @@ impl ImplBlock {
 }
 
 impl MethodDef {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
     }
 
     pub fn name(&self) -> Option<Name> {
@@ -299,8 +316,8 @@ impl SourceFile {
 }
 
 impl FnDef {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
     }
 
     pub fn name(&self) -> Option<Name> {
@@ -333,8 +350,8 @@ impl FnDef {
 }
 
 impl ConstDef {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
     }
 
     pub fn name(&self) -> Option<Name> {
@@ -355,8 +372,8 @@ impl ConstDef {
 }
 
 impl StructDef {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
     }
 
     pub fn name(&self) -> Option<Name> {
@@ -377,8 +394,8 @@ impl StructDef {
 }
 
 impl EnumDef {
-    pub fn is_pub(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::PubKw).is_some()
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
     }
 
     pub fn name(&self) -> Option<Name> {

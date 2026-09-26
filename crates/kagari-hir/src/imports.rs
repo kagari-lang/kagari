@@ -1,7 +1,7 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
 use crate::{
     builtin::surface,
-    hir::ExportItem,
+    hir::{ExportItem, Visibility},
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,
 };
@@ -56,7 +56,7 @@ pub struct ResolvedImport {
     pub target: Option<ImportTarget>,
     pub glob_root: bool,
     pub implicit_module: Option<crate::hir::ModuleId>,
-    pub public_glob: bool,
+    pub visibility: Visibility,
     pub internal_namespace: bool,
 }
 
@@ -86,7 +86,7 @@ impl ModuleImports {
                     && a.target == b.target
                     && a.glob_root == b.glob_root
                     && a.implicit_module == b.implicit_module
-                    && a.public_glob == b.public_glob
+                    && a.visibility == b.visibility
                     && a.internal_namespace == b.internal_namespace
             })
     }
@@ -325,39 +325,56 @@ fn resolve_imports(
                 target,
                 glob_root: true,
                 implicit_module: None,
-                public_glob: false,
+                visibility: import.visibility,
                 internal_namespace: false,
             });
             continue;
         }
-        let target =
-            if local_items.contains(import.alias.as_str()) || !aliases.insert(&import.alias) {
-                ambiguous.insert(import.alias.as_str());
-                result.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::DuplicateImport {
-                        name: import.alias.clone(),
-                    })
-                    .with_span(import.span),
-                );
-                None
-            } else {
-                match resolve_path(&path, module.source.module_identity(), catalog, hosts) {
-                    Ok(target) => Some(target),
-                    Err(kind) => {
-                        result
-                            .diagnostics
-                            .push(Diagnostic::error(kind).with_span(import.span));
-                        None
-                    }
+        let target = if local_items.contains(import.alias.as_str())
+            || !aliases.insert(&import.alias)
+        {
+            ambiguous.insert(import.alias.as_str());
+            result.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::DuplicateImport {
+                    name: import.alias.clone(),
+                })
+                .with_span(import.span),
+            );
+            None
+        } else {
+            match resolve_path(&path, module.source.module_identity(), catalog, hosts) {
+                Ok(target)
+                    if reexport_allowed(
+                        &target,
+                        import.visibility,
+                        module.source.module_identity(),
+                        catalog,
+                    ) =>
+                {
+                    Some(target)
                 }
-            };
+                Ok(_) => {
+                    result.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::ImportNotPublic { path: path.clone() })
+                            .with_span(import.span),
+                    );
+                    None
+                }
+                Err(kind) => {
+                    result
+                        .diagnostics
+                        .push(Diagnostic::error(kind).with_span(import.span));
+                    None
+                }
+            }
+        };
         result.entries.push(ResolvedImport {
             alias: import.alias.clone(),
             span: import.span,
             target,
             glob_root: false,
             implicit_module: None,
-            public_glob: false,
+            visibility: import.visibility,
             internal_namespace: false,
         });
     }
@@ -386,7 +403,7 @@ fn resolve_imports(
             target,
             glob_root: false,
             implicit_module: Some(declaration.id),
-            public_glob: false,
+            visibility: declaration.visibility,
             internal_namespace: false,
         });
     }
@@ -406,7 +423,14 @@ fn resolve_imports(
                     };
                     let mut target = source.clone();
                     target.item = Some(*item);
-                    Some((name.clone(), ImportTarget::Source(target)))
+                    let target = ImportTarget::Source(target);
+                    reexport_allowed(
+                        &target,
+                        import.visibility,
+                        module.source.module_identity(),
+                        catalog,
+                    )
+                    .then(|| (name.clone(), target))
                 })
                 .collect::<Vec<_>>(),
             Some(ImportTarget::StandardModule(module)) => {
@@ -473,7 +497,7 @@ fn resolve_imports(
                 target: Some(target),
                 glob_root: false,
                 implicit_module: None,
-                public_glob: import.visibility == crate::hir::Visibility::Public,
+                visibility: import.visibility,
                 internal_namespace: false,
             });
         }
@@ -504,10 +528,12 @@ fn resolve_imports(
                 result.entries.push(ResolvedImport {
                     alias: String::new(),
                     span: Span::new(0, 0),
-                    target: Some(ImportTarget::Source(entry.target(None))),
+                    target: Some(ImportTarget::Source(
+                        entry.target(None, module.source.module_identity()),
+                    )),
                     glob_root: false,
                     implicit_module: None,
-                    public_glob: false,
+                    visibility: Visibility::Private,
                     internal_namespace: true,
                 });
             }
@@ -520,6 +546,87 @@ fn resolve_imports(
         }
     }
     Ok(result)
+}
+
+fn visibility_covers(
+    source: Visibility,
+    source_owner: &ModuleIdentity,
+    exported: Visibility,
+    exporter: &ModuleIdentity,
+) -> bool {
+    if source == Visibility::Public {
+        return true;
+    }
+    if exported == Visibility::Public || source_owner.package != exporter.package {
+        return false;
+    }
+    let source_scope = if source == Visibility::Private {
+        source_owner.path.len()
+    } else {
+        source_owner.path.len().saturating_sub(1)
+    };
+    let export_scope = if exported == Visibility::Private {
+        exporter.path.len()
+    } else {
+        exporter.path.len().saturating_sub(1)
+    };
+    exporter.path[..export_scope].starts_with(&source_owner.path[..source_scope])
+}
+
+fn reexport_allowed(
+    target: &ImportTarget,
+    visibility: Visibility,
+    exporter: &ModuleIdentity,
+    catalog: &SourceCatalog<'_>,
+) -> bool {
+    let ImportTarget::Source(source) = target else {
+        return true;
+    };
+    let (owner, item) = if let Some(item) = source.item {
+        (&source.module, item)
+    } else {
+        let mut parent = source.module.clone();
+        let Some(name) = parent.path.pop() else {
+            return true;
+        };
+        let Some(entries) = catalog.paths.get(&parent.to_string()) else {
+            return true;
+        };
+        return entries
+            .iter()
+            .flat_map(|entry| {
+                entry
+                    .members
+                    .get(&name)
+                    .into_iter()
+                    .flatten()
+                    .filter(move |member| matches!(member.item, ExportItem::Module(_)))
+                    .map(move |member| (entry, member))
+            })
+            .any(|(entry, member)| {
+                visibility_covers(
+                    member.visibility,
+                    entry.source.module_identity(),
+                    visibility,
+                    exporter,
+                )
+            });
+    };
+    catalog
+        .paths
+        .get(&owner.to_string())
+        .is_some_and(|entries| {
+            entries
+                .iter()
+                .filter(|entry| {
+                    entry.source.id() == source.file && entry.source.revision() == source.revision
+                })
+                .flat_map(|entry| entry.members.values().flatten())
+                .any(|member| {
+                    member.item == item
+                        && visibility_covers(member.visibility, owner, visibility, exporter)
+                })
+        })
 }
 
 fn resolve_path(
@@ -550,7 +657,7 @@ fn resolve_path(
     let mut private = false;
     for module in catalog.paths.get(path).into_iter().flatten() {
         if source_module_accessible(module.source.module_identity(), importer, catalog) {
-            candidates.push(ImportTarget::Source(module.target(None)));
+            candidates.push(ImportTarget::Source(module.target(None, importer)));
         } else {
             private = true;
         }
@@ -561,24 +668,34 @@ fn resolve_path(
                 private = true;
                 continue;
             }
-            match module.members.get(member).map(Vec::as_slice) {
+            let visible = module.members.get(member).map(|items| {
+                items
+                    .iter()
+                    .filter(|entry| {
+                        entry
+                            .visibility
+                            .allows(module.source.module_identity(), importer)
+                    })
+                    .collect::<Vec<_>>()
+            });
+            match visible.as_deref() {
                 Some([item])
-                    if matches!(item, ExportItem::Module(_))
+                    if matches!(item.item, ExportItem::Module(_))
                         && catalog.paths.contains_key(path) => {}
                 Some([item]) => {
-                    let namespace = match item {
-                        ExportItem::Import(index) => module
-                            .reexports
-                            .get(index)
-                            .cloned()
-                            .and_then(|target| canonical_namespace_target(target, catalog)),
+                    let namespace = match item.item {
+                        ExportItem::Import(index) => {
+                            module.reexports.get(&index).cloned().and_then(|target| {
+                                canonical_namespace_target(target, catalog, importer)
+                            })
+                        }
                         _ => None,
                     };
-                    candidates.push(
-                        namespace
-                            .unwrap_or_else(|| ImportTarget::Source(module.target(Some(*item)))),
-                    );
+                    candidates.push(namespace.unwrap_or_else(|| {
+                        ImportTarget::Source(module.target(Some(item.item), importer))
+                    }));
                 }
+                Some([]) => private = true,
                 Some(_) => return Err(DiagnosticKind::AmbiguousImport { path: path.into() }),
                 None => private = true,
             }
@@ -595,11 +712,23 @@ fn resolve_path(
 fn canonical_namespace_target(
     mut target: ImportTarget,
     catalog: &SourceCatalog<'_>,
+    importer: &ModuleIdentity,
 ) -> Option<ImportTarget> {
     let mut seen = HashSet::new();
     loop {
         match &target {
-            ImportTarget::Source(source) if source.item.is_none() => return Some(target),
+            ImportTarget::Source(source) if source.item.is_none() => {
+                let entry =
+                    catalog
+                        .paths
+                        .get(&source.module.to_string())?
+                        .iter()
+                        .find(|entry| {
+                            entry.source.id() == source.file
+                                && entry.source.revision() == source.revision
+                        })?;
+                return Some(ImportTarget::Source(entry.target(None, importer)));
+            }
             ImportTarget::Source(source) => {
                 let Some(ExportItem::Import(index)) = source.item else {
                     return None;
@@ -632,15 +761,27 @@ fn source_module_accessible(
     let mut child = target.clone();
     while child.path.len() > 1 {
         let name = child.path.pop().expect("nonempty child path");
-        if importer.package == child.package && importer.path.starts_with(&child.path) {
-            return true;
-        }
         let Some(parent) = catalog.paths.get(&child.to_string()) else {
             break;
         };
-        if !parent
+        let declared = parent
             .iter()
-            .any(|module| module.members.contains_key(&name))
+            .flat_map(|module| {
+                module
+                    .members
+                    .get(&name)
+                    .into_iter()
+                    .flatten()
+                    .filter(move |member| matches!(member.item, ExportItem::Module(_)))
+                    .map(move |member| (module, member))
+            })
+            .collect::<Vec<_>>();
+        if !declared.is_empty()
+            && !declared.iter().any(|(module, member)| {
+                member
+                    .visibility
+                    .allows(module.source.module_identity(), importer)
+            })
         {
             return false;
         }
@@ -654,8 +795,14 @@ struct SourceCatalog<'a> {
 
 struct SourceCatalogEntry<'a> {
     source: &'a kagari_common::SourceFile,
-    members: Arc<BTreeMap<String, Vec<ExportItem>>>,
+    members: Arc<BTreeMap<String, Vec<CatalogMember>>>,
     reexports: BTreeMap<usize, ImportTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CatalogMember {
+    item: ExportItem,
+    visibility: Visibility,
 }
 
 impl<'a> SourceCatalog<'a> {
@@ -668,22 +815,58 @@ impl<'a> SourceCatalog<'a> {
         for module in sources {
             cancel.check()?;
             let mut members = BTreeMap::<_, Vec<_>>::new();
-            for export in &module.module.exports {
-                cancel.check()?;
+            let mut add = |name: &str, item, visibility| {
                 members
-                    .entry(export.name.clone())
-                    .or_default()
-                    .push(export.item);
+                    .entry(name.to_owned())
+                    .or_insert_with(Vec::new)
+                    .push(CatalogMember { item, visibility });
+            };
+            for item in &module.module.functions {
+                cancel.check()?;
+                add(&item.name, ExportItem::Function(item.id), item.visibility);
+            }
+            for item in &module.module.consts {
+                cancel.check()?;
+                add(&item.name, ExportItem::Const(item.id), item.visibility);
+            }
+            for item in &module.module.modules {
+                cancel.check()?;
+                add(&item.name, ExportItem::Module(item.id), item.visibility);
+            }
+            for item in &module.module.structs {
+                cancel.check()?;
+                add(&item.name, ExportItem::Struct(item.id), item.visibility);
+            }
+            for item in &module.module.enums {
+                cancel.check()?;
+                add(&item.name, ExportItem::Enum(item.id), item.visibility);
+            }
+            for item in &module.module.traits {
+                cancel.check()?;
+                add(&item.name, ExportItem::Trait(item.id), item.visibility);
+            }
+            for (index, item) in module.module.imports.iter().enumerate() {
+                cancel.check()?;
+                if !item.glob {
+                    add(&item.alias, ExportItem::Import(index), item.visibility);
+                }
             }
             let resolved_imports = imports.and_then(|all| all.get(module.source.module_identity()));
             if let Some(imports) = resolved_imports {
                 for (index, import) in imports.entries.iter().enumerate() {
                     cancel.check()?;
-                    if import.public_glob
+                    if index >= module.module.imports.len()
+                        && !import.internal_namespace
                         && import.target.is_some()
                         && !members.contains_key(&import.alias)
                     {
-                        members.insert(import.alias.clone(), vec![ExportItem::Import(index)]);
+                        members.insert(
+                            import.alias.clone(),
+                            vec![CatalogMember {
+                                item: ExportItem::Import(index),
+                                visibility: import.visibility,
+                            }],
+                        );
                     }
                 }
             }
@@ -749,13 +932,29 @@ fn normalize_import_path(path: &str, current: &ModuleIdentity) -> String {
 }
 
 impl SourceCatalogEntry<'_> {
-    fn target(&self, item: Option<ExportItem>) -> SourceImport {
+    fn target(&self, item: Option<ExportItem>, importer: &ModuleIdentity) -> SourceImport {
         SourceImport {
             module: self.source.module_identity().clone(),
             file: self.source.id(),
             revision: self.source.revision(),
             item,
-            members: self.members.clone(),
+            members: Arc::new(
+                self.members
+                    .iter()
+                    .filter_map(|(name, members)| {
+                        let visible = members
+                            .iter()
+                            .filter(|member| {
+                                member
+                                    .visibility
+                                    .allows(self.source.module_identity(), importer)
+                            })
+                            .map(|member| member.item)
+                            .collect::<Vec<_>>();
+                        (!visible.is_empty()).then(|| (name.clone(), visible))
+                    })
+                    .collect(),
+            ),
         }
     }
 }

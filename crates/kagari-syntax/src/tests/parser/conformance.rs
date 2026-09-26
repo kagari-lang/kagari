@@ -95,7 +95,7 @@ where T: Display + Clone
 
     match &items[0] {
         Item::StructDef(struct_def) => {
-            assert!(struct_def.is_pub());
+            assert!(struct_def.visibility() == crate::ast::Visibility::Public);
             assert_eq!(struct_def.name_text().as_deref(), Some("PlayerInfo"));
             assert_eq!(
                 struct_def
@@ -169,7 +169,7 @@ where T: Display + Clone
             );
             let methods = impl_block.methods().collect::<Vec<_>>();
             assert_eq!(methods.len(), 1);
-            assert!(methods[0].is_pub());
+            assert!(methods[0].visibility() == crate::ast::Visibility::Public);
             assert!(methods[0].body().is_some());
         }
         other => panic!("unexpected fourth item: {other:?}"),

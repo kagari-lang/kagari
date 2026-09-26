@@ -15,7 +15,7 @@ fn imported_struct_initializers_and_nested_mutations_use_nominal_fields() {
     let models = insert(
         &mut db,
         "models",
-        "pub struct Inner { var number: i32 } pub struct Outer { val inner: Inner }",
+        "pub struct Inner { pub var number: i32 } pub struct Outer { pub val inner: Inner }",
     );
     let text = "use pkg::models as m; struct Inner { var number: bool } fn make() -> m::Outer { m::Outer { inner: m::Inner { number: 42 } } } fn update(x: m::Outer) -> i32 { x.inner.number += 1; x.inner.number }";
     let root = insert(&mut db, "root", text);
@@ -60,6 +60,29 @@ fn imported_struct_initializers_and_nested_mutations_use_nominal_fields() {
 }
 
 #[test]
+fn private_foreign_fields_are_rejected_but_public_fields_remain_accessible() {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "models",
+        "pub struct Data { val hidden: i32, pub val shown: i32 }",
+    );
+    let root = insert(
+        &mut db,
+        "root",
+        "use pkg::models::Data; fn read(x: Data) -> i32 { x.shown + x.hidden }",
+    );
+    let snapshot = analyze(&db);
+    let diagnostics = snapshot.file(root).unwrap().result().diagnostics();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::UnknownName { .. })),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
 fn incomplete_foreign_member_access_retains_the_nominal_receiver() {
     let mut db = SourceDatabase::default();
     insert(&mut db, "models", "pub struct Data { var count: i32 }");
@@ -83,7 +106,7 @@ fn imported_readonly_fields_and_initializer_errors_keep_receiver_facts() {
     let models = insert(
         &mut db,
         "models",
-        "pub struct Data { val fixed: i32, var count: i32 }",
+        "pub struct Data { pub val fixed: i32, pub var count: i32 }",
     );
     let text = "use pkg::models::Data; fn bad(x: Data) { x.fixed = 1; x.count = true; } fn broken() -> Data { Data { count: true, extra: 2 } } fn good(x: Data) -> i32 { x.count }";
     let root = insert(&mut db, "root", text);
@@ -124,7 +147,7 @@ fn imported_readonly_fields_and_initializer_errors_keep_receiver_facts() {
 #[test]
 fn inferred_foreign_fields_invalidate_through_unchanged_function_facades() {
     let mut db = SourceDatabase::default();
-    insert(&mut db, "models", "pub struct Data { var count: i32 }");
+    insert(&mut db, "models", "pub struct Data { pub var count: i32 }");
     let api = insert(
         &mut db,
         "api",
@@ -144,7 +167,7 @@ fn inferred_foreign_fields_invalidate_through_unchanged_function_facades() {
     assert!(first.file(root).unwrap().result().diagnostics().is_empty());
     db.set(
         "mem://models",
-        "pub struct Data { var count: bool }".into(),
+        "pub struct Data { pub var count: bool }".into(),
         SourceLayer::Overlay,
     )
     .unwrap();

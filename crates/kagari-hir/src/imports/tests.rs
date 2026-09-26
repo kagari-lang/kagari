@@ -116,6 +116,107 @@ fn private_inline_children_are_not_importable_from_other_modules() {
 }
 
 #[test]
+fn scoped_visibility_allows_parent_tree_and_rejects_outsiders() {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "root",
+        "pub mod family { pub(super) fn shared() -> i32 { 7 } fn hidden() -> i32 { 8 } pub(super) mod child { pub fn value() -> i32 { 9 } } }",
+    );
+    let parent = insert(
+        &mut db,
+        "root::caller",
+        "use pkg::root::family::shared; use pkg::root::family::child::value; fn main() -> i32 { shared() + value() }",
+    );
+    let sibling = insert(
+        &mut db,
+        "root::family::sibling",
+        "use pkg::root::family::hidden; fn main() -> i32 { hidden() }",
+    );
+    let outsider = insert(
+        &mut db,
+        "outsider",
+        "use pkg::root::family::shared; use pkg::root::family::child;",
+    );
+    let snapshot = analyze(&db);
+    assert!(
+        snapshot
+            .file(parent)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty(),
+        "{:?}",
+        snapshot.file(parent).unwrap().result().diagnostics()
+    );
+    assert!(
+        snapshot
+            .file(sibling)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty(),
+        "{:?}",
+        snapshot.file(sibling).unwrap().result().diagnostics()
+    );
+    snapshot.check_program(parent, &Default::default()).unwrap();
+    snapshot
+        .check_program(sibling, &Default::default())
+        .unwrap();
+    assert!(
+        snapshot
+            .file(outsider)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .filter(|d| matches!(d.kind, DiagnosticKind::ImportNotPublic { .. }))
+            .count()
+            >= 2
+    );
+}
+
+#[test]
+fn reexports_cannot_widen_private_items_or_modules() {
+    let mut db = SourceDatabase::default();
+    let facade = insert(
+        &mut db,
+        "facade",
+        "mod hidden { pub fn value() -> i32 { 1 } fn secret() -> i32 { 2 } } pub use self::hidden::value; pub use self::hidden::secret; pub use self::hidden as leaked;",
+    );
+    let outsider = insert(
+        &mut db,
+        "outsider",
+        "use pkg::facade::value; fn main() -> i32 { value() }",
+    );
+    let snapshot = analyze(&db);
+    let errors = snapshot
+        .file(facade)
+        .unwrap()
+        .result()
+        .diagnostics()
+        .iter()
+        .filter(|d| matches!(d.kind, DiagnosticKind::ImportNotPublic { .. }))
+        .count();
+    assert_eq!(
+        errors,
+        2,
+        "{:?}",
+        snapshot.file(facade).unwrap().result().diagnostics()
+    );
+    assert!(
+        snapshot
+            .file(outsider)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty(),
+        "{:?}",
+        snapshot.file(outsider).unwrap().result().diagnostics()
+    );
+}
+
+#[test]
 fn wildcard_import_expands_offline_host_module_declarations() {
     use kagari_common::host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,

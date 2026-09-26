@@ -41,9 +41,9 @@ KbcArtifact {
 }
 ```
 
-Format version 41 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 42 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 40 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 41 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
@@ -242,7 +242,7 @@ metadata or computing fingerprints. In-memory loader validation likewise checks
 bytecode before hashing, so invalid host type declarations cannot cause a
 serialization panic. A checksum cannot substitute for bytecode validation.
 
-The language contract version is `kagari-language-v1`, independent of Rust crate
+The language contract version is `kagari-language-v2`, independent of Rust crate
 versions and the binary format version. Artifacts carrying the former crate-based
 language version are rejected before execution; they may encode older assignment
 evaluation rules even when their binary layout is readable.

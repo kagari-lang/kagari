@@ -224,7 +224,7 @@ fn fixture() -> CheckedProgram {
     insert(
         &mut db,
         "shared",
-        "fn id<T>(x: T) -> T { x } pub fn answer(x: i32) -> i32 { id(x) } pub fn flag(x: bool) -> i32 { if x { 1 } else { 0 } } pub struct Data { var x: i32 }",
+        "fn id<T>(x: T) -> T { x } pub fn answer(x: i32) -> i32 { id(x) } pub fn flag(x: bool) -> i32 { if x { 1 } else { 0 } } pub struct Data { pub var x: i32 }",
     );
     insert(
         &mut db,
@@ -251,7 +251,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     insert(
         &mut db,
         "types",
-        "pub struct Cell<T> { var value: T } pub enum Packet<T> { Data(T) } fn seed() { val c = Cell { value: true }; }",
+        "pub struct Cell<T> { pub var value: T } pub enum Packet<T> { Data(T) } fn seed() { val c = Cell { value: true }; }",
     );
     insert(
         &mut db,

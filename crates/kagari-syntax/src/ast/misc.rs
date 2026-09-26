@@ -160,6 +160,10 @@ impl FieldList {
 }
 
 impl Field {
+    pub fn visibility(&self) -> super::Visibility {
+        super::item::visibility_of(self.syntax())
+    }
+
     pub fn writeability(&self) -> Option<Writeability> {
         if support::token(self.syntax(), SyntaxKind::ValKw).is_some() {
             Some(Writeability::Val)

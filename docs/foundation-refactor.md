@@ -44,6 +44,13 @@ workload, repetitions and measurements; no unmeasured performance claims.
 
 ## Current implementation status
 
+- R14 visibility checkpoint: source declarations, imports, re-exports and fields
+  now carry scoped visibility. Import resolution checks each module edge and
+  rejects widening re-exports; field reads, writes, patterns and construction
+  check the owning module. `pub(super)` is accepted; `pub(crate)` and
+  `pub(in path)` remain deferred. Artifact format 42 and language contract v2
+  reject products compiled under the earlier visibility rules.
+
 - R18 final audit: `implementation-roadmap.md` now points only to this active
   checklist; the old M1–M11 instructions were removed from the roadmap and goal
   guide. The artifact specification names the current v38 ABI while retaining

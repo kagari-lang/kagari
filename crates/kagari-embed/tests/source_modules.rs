@@ -60,6 +60,27 @@ fn public_source_glob_reexports_members_through_artifacts() {
 }
 
 #[test]
+fn parent_module_can_execute_pub_super_child_function() {
+    let engine = KagariEngine::default();
+    let root = insert(
+        &engine,
+        "root",
+        "mod child { pub(super) fn value() -> i32 { 42 } } fn main() -> i32 { child::value() }",
+    );
+    let artifact = compile(&engine, root, Default::default());
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
 fn wildcard_import_can_expose_a_public_inline_child_module() {
     let engine = KagariEngine::default();
     insert(
@@ -241,7 +262,7 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
     insert(
         &engine,
         "shared",
-        "pub struct Data { var x: i32 } fn id<T>(x: T) -> T { x } pub fn make(x: i32) -> Data { Data { x: id(x) } } pub fn add(p: Data, x: i32) -> i32 { p.x += x; p.x }",
+        "pub struct Data { pub var x: i32 } fn id<T>(x: T) -> T { x } pub fn make(x: i32) -> Data { Data { x: id(x) } } pub fn add(p: Data, x: i32) -> i32 { p.x += x; p.x }",
     );
     insert(&engine, "left", "pub use pkg::shared::make;");
     insert(&engine, "right", "pub use pkg::shared::add;");
@@ -535,7 +556,7 @@ fn sibling_dependency_implementations_reject_even_when_unused_and_recover_after_
     insert(
         &engine,
         "model",
-        "pub struct Holder { val number: i32 } pub fn make() -> Holder { Holder { number: 9 } }",
+        "pub struct Holder { pub val number: i32 } pub fn make() -> Holder { Holder { number: 9 } }",
     );
     insert(
         &engine,
@@ -781,7 +802,7 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
     insert(
         &engine,
         "types",
-        "pub struct Marker<T> { val value: i32 } pub enum Token<T> { Empty } pub fn take(value: Marker<i32>, token: Token<bool>) -> i32 { value.value }",
+        "pub struct Marker<T> { pub val value: i32 } pub enum Token<T> { Empty } pub fn take(value: Marker<i32>, token: Token<bool>) -> i32 { value.value }",
     );
     insert(
         &engine,

@@ -1,6 +1,7 @@
 rule	index	operator	operand
 module	1	*	item
 item	1	*	attribute
+visibility	1	?	("(" "super" ")")
 function_item	1	?	visibility
 const_item	1	?	visibility
 const_item	2	?	type_annotation

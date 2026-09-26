@@ -3,7 +3,7 @@
    evidence gaps are tracked in docs/syntax-coverage.tsv. *)
 (* Kagari is a Kotlin-style business scripting language with Rust-inspired syntax. *)
 (* Trait names are interface types directly. There is no script-level dyn trait-object syntax. *)
-(* `pub` is the only explicit visibility marker; unmarked items are private. *)
+(* `pub` and `pub(super)` are explicit visibility markers; unmarked items are private. *)
 (* Fields and referenced objects may be mutated according to their type and host policy. *)
 (* `val` declares a read-only binding or field slot; `var` declares a writable one. *)
 (* `const` is the immutable compile-time value form. *)
@@ -21,7 +21,7 @@ item_decl           ::= use_decl
                       | trait_item
                       | impl_block ;
 
-visibility          ::= "pub" ;
+visibility          ::= "pub" ("(" "super" ")")? ;
 
 function_item       ::= visibility? function_decl ;
 

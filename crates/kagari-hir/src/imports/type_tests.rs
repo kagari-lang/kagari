@@ -15,7 +15,7 @@ fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
     let library = insert(
         &mut db,
         "library",
-        "pub struct Data { val value: i32 } pub fn answer() -> i32 { 7 }",
+        "pub struct Data { pub val value: i32 } pub fn answer() -> i32 { 7 }",
     );
     insert(
         &mut db,

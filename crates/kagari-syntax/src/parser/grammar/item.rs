@@ -47,7 +47,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_public_item(&mut self) {
-        match self.nth_nontrivia_kind(1) {
+        let offset = if self.nth_nontrivia_kind(1) == Some(TokenKind::LParen) {
+            4
+        } else {
+            1
+        };
+        match self.nth_nontrivia_kind(offset) {
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
             Some(TokenKind::FnKw) => self.parse_function(),
@@ -140,7 +145,14 @@ impl<'a> Parser<'a> {
             }
         }
         if kind == TokenKind::PubKw {
-            self.nth_nontrivia_kind_from(&mut cursor)
+            let next = self.nth_nontrivia_kind_from(&mut cursor)?;
+            if next == TokenKind::LParen {
+                self.nth_nontrivia_kind_from(&mut cursor)?;
+                self.nth_nontrivia_kind_from(&mut cursor)?;
+                self.nth_nontrivia_kind_from(&mut cursor)
+            } else {
+                Some(next)
+            }
         } else {
             Some(kind)
         }
@@ -232,13 +244,26 @@ impl<'a> Parser<'a> {
         self.with_nesting(Self::parse_module_nested);
     }
 
+    fn parse_visibility(&mut self) {
+        self.bump_trivia();
+        if !self.at(TokenKind::PubKw) {
+            return;
+        }
+        self.bump();
+        self.bump_trivia();
+        if self.at(TokenKind::LParen) {
+            self.bump();
+            self.expect(TokenKind::SuperKw, DiagnosticKind::UnexpectedToken);
+            self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+        }
+        self.bump_trivia();
+    }
+
     fn parse_module_nested(&mut self) {
         self.start_node(SyntaxKind::ModuleDef);
         self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::ModKw, DiagnosticKind::ExpectedModuleKeyword);
         self.parse_module_name();
         self.bump_trivia();
@@ -272,9 +297,7 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::UseDecl);
         self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::UseKw, DiagnosticKind::ExpectedUseKeyword);
         self.parse_use_tree();
         self.bump_trivia();
@@ -344,9 +367,7 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::FnDef);
         self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
         self.parse_name();
         self.bump_trivia();
@@ -382,9 +403,7 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::ConstDef);
         self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::ConstKw, DiagnosticKind::ExpectedConstKeyword);
         self.parse_const_name();
         self.bump_trivia();
@@ -403,9 +422,7 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::StructDef);
         self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::StructKw, DiagnosticKind::ExpectedStructKeyword);
         self.parse_struct_name();
         self.bump_trivia();
@@ -422,10 +439,7 @@ impl<'a> Parser<'a> {
             self.start_node(SyntaxKind::Field);
             self.parse_attributes();
             self.bump_trivia();
-            if self.at(TokenKind::PubKw) {
-                self.bump();
-                self.bump_trivia();
-            }
+            self.parse_visibility();
             if self.at_any(&[TokenKind::ValKw, TokenKind::VarKw]) {
                 self.bump();
             } else {
@@ -455,9 +469,7 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::EnumDef);
         self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::EnumKw, DiagnosticKind::ExpectedEnumKeyword);
         self.parse_enum_name();
         self.bump_trivia();
@@ -499,9 +511,7 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::TraitDef);
         self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::TraitKw, DiagnosticKind::ExpectedTraitKeyword);
         self.parse_trait_name();
         self.bump_trivia();
@@ -819,9 +829,8 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::MethodDef);
         self.parse_attributes();
         self.bump_trivia();
-        if allow_visibility && self.at(TokenKind::PubKw) {
-            self.bump();
-            self.bump_trivia();
+        if allow_visibility {
+            self.parse_visibility();
         }
         self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
         self.parse_name();

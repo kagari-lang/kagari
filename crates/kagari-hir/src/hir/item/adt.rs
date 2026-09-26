@@ -16,6 +16,7 @@ pub struct Struct {
 #[derive(Debug, Clone)]
 pub struct Field {
     pub id: crate::hir::FieldId,
+    pub visibility: Visibility,
     pub writeability: Writeability,
     pub name: String,
     pub ty: TypeRefId,

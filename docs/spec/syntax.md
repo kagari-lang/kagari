@@ -240,10 +240,10 @@ Notes:
   source-positioned analysis metadata. They do not change runtime behavior.
   `@reflect`, `@requires`, and `@profile` are reserved and diagnosed until their
   behavior is implemented; other unqualified names are diagnosed as unknown.
-- `pub` is the only explicit visibility marker in the source syntax
+- `pub` and `pub(super)` are the explicit visibility markers in the source syntax
 - unmarked declarations are private in their containing scope
 - public top-level items form the module's public interface
-- Rust-style scoped visibility forms such as `pub(crate)` and `pub(super)` are not part of the source syntax
+- `pub(super)` makes an item available to the parent module tree; `pub(crate)` and `pub(in path)` are not part of the source syntax
 
 ### Functions
 

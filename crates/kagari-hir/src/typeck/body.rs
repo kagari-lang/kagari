@@ -3406,7 +3406,12 @@ impl<'a> BodyChecker<'a> {
         let mut field = structure
             .fields
             .iter()
-            .find(|field| field.name == field_name)?
+            .find(|field| {
+                field.name == field_name
+                    && field
+                        .visibility
+                        .allows(&field.owner.module, self.lowered.source.module_identity())
+            })?
             .clone();
         field.ty = field.ty.instantiate(&substitution);
         Some(field)
@@ -3642,10 +3647,12 @@ impl<'a> BodyChecker<'a> {
             if self.cancel.check().is_err() {
                 return TypeId::Unknown;
             }
-            let parameter = struct_def
-                .fields
-                .iter()
-                .find(|member| member.name == field.name);
+            let parameter = struct_def.fields.iter().find(|member| {
+                member.name == field.name
+                    && member
+                        .visibility
+                        .allows(&member.owner.module, self.lowered.source.module_identity())
+            });
             let expected = parameter.map(|member| {
                 member
                     .ty
@@ -3691,7 +3698,13 @@ impl<'a> BodyChecker<'a> {
                     struct_def
                         .fields
                         .iter()
-                        .find(|field| field.name == init.name)
+                        .find(|field| {
+                            field.name == init.name
+                                && field.visibility.allows(
+                                    &field.owner.module,
+                                    self.lowered.source.module_identity(),
+                                )
+                        })
                         .map(|field| field.id.clone())
                 })
                 .collect(),

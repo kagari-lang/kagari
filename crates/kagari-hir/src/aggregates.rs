@@ -3,7 +3,7 @@ mod implementations;
 mod traits;
 use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
-    hir::Writeability,
+    hir::{Visibility, Writeability},
     imports::ModuleGraph,
     lower::LoweredModule,
     resolver::ResolvedName,
@@ -27,6 +27,7 @@ pub struct FieldSignature {
     pub owner: DefinitionId,
     pub slot: usize,
     pub name: String,
+    pub visibility: Visibility,
     pub writeability: Writeability,
     pub ty: TypeId,
     pub declaration: Declaration,
@@ -125,6 +126,7 @@ impl AggregateCatalog {
                     owner: id.clone(),
                     slot: field.id.slot(),
                     name: field.name.clone(),
+                    visibility: field.visibility,
                     writeability: field.writeability,
                     ty: signatures
                         .type_table()
@@ -298,6 +300,7 @@ impl AggregateCatalog {
                             a.id == b.id
                                 && a.slot == b.slot
                                 && a.name == b.name
+                                && a.visibility == b.visibility
                                 && a.writeability == b.writeability
                                 && a.ty == b.ty
                         })

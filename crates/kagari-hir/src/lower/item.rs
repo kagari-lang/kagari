@@ -8,6 +8,14 @@ use crate::hir::{
 use crate::hir::{BodyOwner, HirOwner};
 use crate::lower::context::{Lowerer, syntax_span, token_span};
 
+fn lower_visibility(visibility: ast::Visibility) -> Visibility {
+    match visibility {
+        ast::Visibility::Private => Visibility::Private,
+        ast::Visibility::PublicSuper => Visibility::PublicSuper,
+        ast::Visibility::Public => Visibility::Public,
+    }
+}
+
 impl Lowerer {
     pub(crate) fn lower_module(&mut self, module: &ast::SourceFile) {
         for item in module.items() {
@@ -99,11 +107,7 @@ impl Lowerer {
         }
         ModuleDecl {
             id,
-            visibility: if module_def.is_pub() {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
+            visibility: lower_visibility(module_def.visibility()),
             name: module_def.name_text().unwrap_or_default(),
             inline: module_def.block().is_some(),
         }
@@ -113,11 +117,7 @@ impl Lowerer {
         let Some(tree) = use_decl.tree() else {
             return;
         };
-        let visibility = if use_decl.is_pub() {
-            Visibility::Public
-        } else {
-            Visibility::Private
-        };
+        let visibility = lower_visibility(use_decl.visibility());
         self.lower_use_tree(visibility, None, &tree);
     }
 
@@ -191,11 +191,7 @@ impl Lowerer {
             .collect::<Vec<_>>();
         TraitDef {
             id,
-            visibility: if trait_def.is_pub() {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
+            visibility: lower_visibility(trait_def.visibility()),
             name: trait_def.name_text().unwrap_or_default(),
             generic_params,
             methods,
@@ -296,11 +292,7 @@ impl Lowerer {
         let result = Function {
             id,
             kind,
-            visibility: if method.is_pub() {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
+            visibility: lower_visibility(method.visibility()),
             name: method.name_text().unwrap_or_default(),
             generic_params,
             bounds: method
@@ -393,11 +385,7 @@ impl Lowerer {
         let result = Function {
             id,
             kind: FunctionKind::User,
-            visibility: if function.is_pub() {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
+            visibility: lower_visibility(function.visibility()),
             name: function.name_text().unwrap_or_default(),
             generic_params: function
                 .generic_params()
@@ -513,11 +501,7 @@ impl Lowerer {
             .set_owner(HirOwner::Body(BodyOwner::Const(id)));
         let result = ConstItem {
             id,
-            visibility: if const_def.is_pub() {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
+            visibility: lower_visibility(const_def.visibility()),
             name: const_def.name_text().unwrap_or_default(),
             ty: const_def.ty().map(|ty| self.lower_type(&ty)),
             initializer: const_def
@@ -555,6 +539,7 @@ impl Lowerer {
                                 .unwrap_or_else(|| syntax_span(&field)),
                         );
                         Field {
+                            visibility: lower_visibility(field.visibility()),
                             id: field_id,
                             writeability: if field.is_var() {
                                 Writeability::Var
@@ -574,11 +559,7 @@ impl Lowerer {
 
         Struct {
             id,
-            visibility: if struct_def.is_pub() {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
+            visibility: lower_visibility(struct_def.visibility()),
             name: struct_def.name_text().unwrap_or_default(),
             generic_params,
             fields,
@@ -628,11 +609,7 @@ impl Lowerer {
 
         Enum {
             id,
-            visibility: if enum_def.is_pub() {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
+            visibility: lower_visibility(enum_def.visibility()),
             name: enum_def.name_text().unwrap_or_default(),
             generic_params,
             variants,
