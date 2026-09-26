@@ -395,7 +395,11 @@ impl<'a> Parser<'a> {
             self.parse_where_clause();
         }
         self.bump_trivia();
-        self.parse_block();
+        if self.declarations && self.at(TokenKind::Semi) {
+            self.bump();
+        } else {
+            self.parse_block();
+        }
         self.finish_node();
     }
 

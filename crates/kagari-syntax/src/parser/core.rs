@@ -29,6 +29,7 @@ pub(crate) struct Parser<'a> {
     node_starts: Vec<usize>,
     child_depths: Vec<usize>,
     cancel: CancellationToken,
+    pub(crate) declarations: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -51,6 +52,7 @@ impl<'a> Parser<'a> {
             node_starts: Vec::new(),
             child_depths: Vec::new(),
             cancel,
+            declarations: false,
         }
     }
 

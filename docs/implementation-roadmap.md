@@ -180,3 +180,19 @@ GC/reload, host reentry and cancellation/budget cleanup. Malformed mapped-error
 contracts and registers are rejected before execution. CLI source/artifact
 reports agree; the optional JIT CLI test also passed. Formatting, workspace
 clippy with warnings denied and `git diff --check` passed.
+
+
+## Standard library declaration sources
+
+Source comments and API documentation are written in English.
+
+- [x] S01: declaration parsing, documentation and source-location foundation.
+- [ ] S02: source-owned standard function signatures and method bindings.
+- [ ] S03: standard enum/type declarations and the 21 standard trait contracts.
+- [ ] S04: shared semantic queries for navigation, documentation and signatures.
+- [ ] S05: executable documentation, binding validation, removal of duplicate definitions and workspace acceptance.
+
+This sequence migrates all 71 existing public standard functions and 54 method
+views without expanding their runtime semantics. Host API declaration generation
+and the LSP transport remain subsequent checkpoints. Native layout, GC, mutation,
+resource and bytecode-validation contracts remain engine responsibilities.

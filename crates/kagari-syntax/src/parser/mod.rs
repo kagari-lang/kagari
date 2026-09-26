@@ -69,8 +69,27 @@ pub fn parse_with_limits(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<Parse, Cancelled> {
+    parse_with_mode(source, limits, cancel, false)
+}
+
+/// Parse an offline interface. This does not authorize executable code generation.
+pub fn parse_declarations(
+    source: &SourceFile,
+    limits: ParseLimits,
+    cancel: &CancellationToken,
+) -> Result<Parse, Cancelled> {
+    parse_with_mode(source, limits, cancel, true)
+}
+
+fn parse_with_mode(
+    source: &SourceFile,
+    limits: ParseLimits,
+    cancel: &CancellationToken,
+    declarations: bool,
+) -> Result<Parse, Cancelled> {
     let tokens = lex_with_cancellation(source.text(), cancel)?;
     let mut parser = Parser::new(source.text(), tokens, limits, cancel.clone());
+    parser.declarations = declarations;
     parser.parse_root();
     let (green, diagnostics) = parser.finish();
     cancel.check()?;
