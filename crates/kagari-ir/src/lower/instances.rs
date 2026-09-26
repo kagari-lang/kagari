@@ -251,6 +251,7 @@ impl<'a> InstancePlanner<'a> {
                     0,
                     span,
                 )
+                .map(|ty| self.module.aggregates.normalize_type(&ty))
             })
             .collect()
     }
@@ -271,6 +272,7 @@ impl<'a> InstancePlanner<'a> {
             0,
             span,
         )?;
+        let ty = self.module.aggregates.normalize_type(&ty);
         if !ty.is_concrete() {
             return Err(unresolved_type(&ty, span));
         }
@@ -346,6 +348,11 @@ fn instantiate(
         },
         TypeId::Struct(nominal) | TypeId::Enum(nominal) | TypeId::Trait(nominal) => {
             let instance = kagari_hir::types::NominalType {
+                associated_types: nominal
+                    .associated_types
+                    .iter()
+                    .map(|(id, ty)| Ok((id.clone(), child(ty)?)))
+                    .collect::<Result<_, IrLoweringError>>()?,
                 declaration: nominal.declaration.clone(),
                 arguments: nominal
                     .arguments
@@ -359,6 +366,27 @@ fn instantiate(
                 _ => TypeId::Trait(instance),
             }
         }
+        TypeId::Projection {
+            receiver,
+            interface,
+            member,
+        } => TypeId::Projection {
+            receiver: Box::new(child(receiver)?),
+            interface: Box::new(kagari_hir::types::NominalType {
+                declaration: interface.declaration.clone(),
+                arguments: interface
+                    .arguments
+                    .iter()
+                    .map(&mut child)
+                    .collect::<Result<_, _>>()?,
+                associated_types: interface
+                    .associated_types
+                    .iter()
+                    .map(|(id, ty)| Ok((id.clone(), child(ty)?)))
+                    .collect::<Result<_, IrLoweringError>>()?,
+            }),
+            member: member.clone(),
+        },
         _ => ty.clone(),
     })
 }

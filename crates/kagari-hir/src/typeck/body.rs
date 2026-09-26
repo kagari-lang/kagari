@@ -145,10 +145,23 @@ impl<'a> BodyChecker<'a> {
                             declarations: self.declarations,
                             generics: &env.generics,
                             self_type: None,
+                            implementation: None,
                         },
                         self.type_table,
                         self.cancel,
                     );
+                    if resolved.contains_projection() {
+                        super::applications::validate(
+                            &resolved,
+                            &env.generic_bounds,
+                            (self.aggregates, &self.names.hosts),
+                            self.type_table,
+                            self.lowered.source_map.type_span(ty),
+                            self.diagnostics,
+                            self.cancel,
+                        );
+                    }
+                    let resolved = self.aggregates.normalize_type(&resolved);
                     if resolved.is_unresolved() {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
@@ -869,6 +882,7 @@ impl<'a> BodyChecker<'a> {
                                 declarations: self.declarations,
                                 generics: &env.generics,
                                 self_type: None,
+                                implementation: None,
                             },
                             self.type_table,
                             self.cancel,
@@ -2539,7 +2553,59 @@ impl<'a> BodyChecker<'a> {
         all_args.push((receiver, receiver_ty));
         all_args.extend(arg_tys);
         self.check_function_arguments(&function, &substitution, callee, &all_args);
-        Some(function.return_type.instantiate(&substitution))
+        Some(
+            self.aggregates
+                .normalize_type(&function.return_type.instantiate(&substitution)),
+        )
+    }
+
+    fn trait_bounds_for(&self, ty: &TypeId, env: &BodyTypeEnv) -> Vec<crate::types::NominalType> {
+        if let TypeId::Trait(interface) = ty {
+            return vec![interface.clone()];
+        }
+        let mut bounds = env
+            .generic_bounds
+            .get(ty)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        if let TypeId::Projection {
+            receiver: _,
+            interface,
+            member,
+        } = ty
+            && let Some(contract) = self.aggregates.trait_(&interface.declaration)
+        {
+            let substitution = contract
+                .generic_params
+                .iter()
+                .cloned()
+                .zip(interface.arguments.iter().cloned())
+                .collect();
+            bounds.extend(
+                contract
+                    .associated_types
+                    .get(member)
+                    .into_iter()
+                    .flatten()
+                    .map(|bound| match bound {
+                        super::ConstraintTarget::Standard(value) => {
+                            super::ConstraintTarget::Standard(*value)
+                        }
+                        super::ConstraintTarget::Trait(value) => {
+                            super::ConstraintTarget::Trait(value.instantiate(&substitution))
+                        }
+                    }),
+            );
+        }
+        bounds
+            .into_iter()
+            .filter_map(|bound| match bound {
+                super::ConstraintTarget::Trait(ty) => Some(ty),
+                _ => None,
+            })
+            .collect()
     }
 
     fn infer_trait_method_call_type(
@@ -2555,19 +2621,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
-        let trait_types = match &receiver_ty {
-            TypeId::Trait(ty) => vec![ty.clone()],
-            TypeId::Generic(parameter) => env
-                .generic_bounds
-                .get(parameter)?
-                .iter()
-                .filter_map(|bound| match bound {
-                    super::ConstraintTarget::Trait(ty) => Some(ty.clone()),
-                    _ => None,
-                })
-                .collect(),
-            _ => return None,
-        };
+        let trait_types = self.trait_bounds_for(&receiver_ty, env);
         let mut candidates = Vec::new();
         for interface in trait_types {
             if let Some(contract) = self.aggregates.trait_(&interface.declaration) {
@@ -2613,7 +2667,8 @@ impl<'a> BodyChecker<'a> {
         let return_pattern = method
             .return_type
             .with_self(self_owner, &self_ty)
-            .instantiate(&substitution);
+            .instantiate(&substitution)
+            .with_associated_types(interface);
         if let Some(expected) = expected
             && super::inference::infer(
                 &return_pattern,
@@ -2646,6 +2701,7 @@ impl<'a> BodyChecker<'a> {
                     .ty
                     .with_self(self_owner, &self_ty)
                     .instantiate(&substitution)
+                    .with_associated_types(interface)
             })
             .collect::<Vec<_>>();
         let arg_tys = self.infer_generic_args(
@@ -2673,7 +2729,29 @@ impl<'a> BodyChecker<'a> {
         );
         self.type_table
             .insert_type_arguments(call_expr, type_arguments);
-        self.check_generic_call_bounds(method_generics, &method.bounds, &substitution, env, callee);
+        let method_bounds = method
+            .bounds
+            .iter()
+            .map(|(ty, constraints)| {
+                (
+                    ty.with_self(self_owner, &self_ty)
+                        .instantiate(&substitution)
+                        .with_associated_types(interface),
+                    constraints
+                        .iter()
+                        .map(|constraint| match constraint {
+                            super::ConstraintTarget::Standard(standard) => {
+                                super::ConstraintTarget::Standard(*standard)
+                            }
+                            super::ConstraintTarget::Trait(bound) => {
+                                super::ConstraintTarget::Trait(bound.instantiate(&substitution))
+                            }
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+        self.check_generic_call_bounds(method_generics, &method_bounds, &substitution, env, callee);
         if params.len() != arg_tys.len() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CallArityMismatch {
@@ -2697,7 +2775,10 @@ impl<'a> BodyChecker<'a> {
             );
         }
 
-        Some(return_pattern.instantiate(&substitution))
+        Some(
+            self.aggregates
+                .normalize_type(&return_pattern.instantiate(&substitution)),
+        )
     }
 
     fn enum_member_owner(&self, expr: ExprId) -> Option<kagari_common::identity::DefinitionId> {
@@ -2727,6 +2808,7 @@ impl<'a> BodyChecker<'a> {
                 declarations: self.declarations,
                 generics: &env.generics,
                 self_type: None,
+                implementation: None,
             },
             self.type_table,
             self.cancel,
@@ -2839,6 +2921,7 @@ impl<'a> BodyChecker<'a> {
             !completes,
         );
         let result = TypeId::Enum(crate::types::NominalType {
+            associated_types: Default::default(),
             declaration: enumeration,
             arguments,
         });
@@ -2891,7 +2974,13 @@ impl<'a> BodyChecker<'a> {
         {
             let arg_tys = self.infer_typed_args(
                 args,
-                imported.signature.params.iter().map(|p| p.ty.clone()),
+                imported
+                    .signature
+                    .params
+                    .iter()
+                    .map(|p| self.aggregates.normalize_type(&p.ty))
+                    .collect::<Vec<_>>()
+                    .into_iter(),
                 env,
             );
             self.type_table
@@ -2911,7 +3000,9 @@ impl<'a> BodyChecker<'a> {
                 callee,
                 &arg_tys,
             );
-            return imported.signature.return_type.clone();
+            return self
+                .aggregates
+                .normalize_type(&imported.signature.return_type);
         }
         let Some(ResolvedName::Function(id)) = self.names.expr_resolution(callee) else {
             let callee_ty = self.infer_expr_type(callee, env);
@@ -3007,22 +3098,24 @@ impl<'a> BodyChecker<'a> {
             callee,
         );
         self.check_function_arguments(function, &substitution, callee, &arg_tys);
-        function.return_type.instantiate(&substitution)
+        self.aggregates
+            .normalize_type(&function.return_type.instantiate(&substitution))
     }
 
     fn check_generic_call_bounds(
         &mut self,
-        parameters: &[crate::types::GenericParameterType],
+        _parameters: &[crate::types::GenericParameterType],
         bounds: &super::GenericBounds,
         substitution: &crate::types::TypeSubstitution,
         env: &BodyTypeEnv,
         callee: ExprId,
     ) {
-        for parameter in parameters {
-            let Some(actual) = substitution.get(parameter) else {
-                continue;
-            };
-            for constraint in bounds.get(parameter).into_iter().flatten().cloned() {
+        for (target, constraints) in bounds {
+            let actual_owned = self
+                .aggregates
+                .normalize_type(&target.instantiate(substitution));
+            let actual = &actual_owned;
+            for constraint in constraints.iter().cloned() {
                 match constraint {
                     super::ConstraintTarget::Standard(constraint) => {
                         self.check_standard_constraint(actual, constraint, env, callee)
@@ -3030,13 +3123,10 @@ impl<'a> BodyChecker<'a> {
                     super::ConstraintTarget::Trait(trait_type) => {
                         let trait_type = trait_type.instantiate(substitution);
                         let satisfied = match actual {
-                            TypeId::Generic(parameter) => {
-                                env.generic_bounds.get(parameter).is_some_and(|bounds| {
-                                    bounds.contains(&super::ConstraintTarget::Trait(
-                                        trait_type.clone(),
-                                    ))
-                                })
-                            }
+                            TypeId::Generic(_) | TypeId::Projection { .. } => self
+                                .trait_bounds_for(actual, env)
+                                .iter()
+                                .any(|bound| bound.satisfies(&trait_type)),
                             _ => match self.aggregates.implementation_count(&trait_type, actual)
                                 + usize::from(
                                     self.declarations.hosts.implements(&trait_type, actual),
@@ -3097,7 +3187,8 @@ impl<'a> BodyChecker<'a> {
             self.check_arg_type(
                 &function.name,
                 &param.name,
-                param.ty.instantiate(substitution),
+                self.aggregates
+                    .normalize_type(&param.ty.instantiate(substitution)),
                 index,
                 arg_tys,
             );
@@ -3426,7 +3517,9 @@ impl<'a> BodyChecker<'a> {
                         .allows(&field.owner.module, self.lowered.source.module_identity())
             })?
             .clone();
-        field.ty = field.ty.instantiate(&substitution);
+        field.ty = self
+            .aggregates
+            .normalize_type(&field.ty.instantiate(&substitution));
         Some(field)
     }
 
@@ -3747,11 +3840,10 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
 
-            let Some(expected) = self
-                .aggregates
-                .field(field)
-                .map(|field| field.ty.instantiate(&substitution))
-            else {
+            let Some(expected) = self.aggregates.field(field).map(|field| {
+                self.aggregates
+                    .normalize_type(&field.ty.instantiate(&substitution))
+            }) else {
                 continue;
             };
             if *field_completes && expected.conflicts_with(value_ty) {
@@ -3779,6 +3871,7 @@ impl<'a> BodyChecker<'a> {
         }
 
         TypeId::Struct(crate::types::NominalType {
+            associated_types: Default::default(),
             declaration: struct_def.id,
             arguments,
         })

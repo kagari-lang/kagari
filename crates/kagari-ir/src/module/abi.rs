@@ -127,11 +127,19 @@ pub struct NominalAbiType {
     pub declaration: kagari_common::identity::DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
+    #[serde(deserialize_with = "crate::decode_limits::map")]
+    pub associated_types:
+        std::collections::BTreeMap<kagari_common::identity::DefinitionId, AbiType>,
 }
 
 impl NominalAbiType {
     pub(crate) fn to_checked_type(&self) -> kagari_hir::types::NominalType {
         kagari_hir::types::NominalType {
+            associated_types: self
+                .associated_types
+                .iter()
+                .map(|(id, ty)| (id.clone(), ty.to_checked_type()))
+                .collect(),
             declaration: self.declaration.clone(),
             arguments: self
                 .arguments
@@ -143,6 +151,11 @@ impl NominalAbiType {
 
     pub(crate) fn from_checked_type(ty: &kagari_hir::types::NominalType) -> Self {
         Self {
+            associated_types: ty
+                .associated_types
+                .iter()
+                .map(|(id, ty)| (id.clone(), AbiType::from_checked_type(ty)))
+                .collect(),
             declaration: ty.declaration.clone(),
             arguments: ty
                 .arguments
@@ -155,6 +168,11 @@ impl NominalAbiType {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AbiType {
+    Projection {
+        receiver: Box<AbiType>,
+        interface: Box<NominalAbiType>,
+        member: kagari_common::identity::DefinitionId,
+    },
     Host(kagari_common::identity::DefinitionId),
     /// Receiver template in a trait signature, never an executable value layout.
     SelfType(kagari_common::identity::DefinitionId),
@@ -188,6 +206,15 @@ impl AbiType {
     pub(crate) fn to_checked_type(&self) -> kagari_hir::types::TypeId {
         use kagari_hir::types::{GenericParameterType, TypeId};
         match self {
+            Self::Projection {
+                receiver,
+                interface,
+                member,
+            } => TypeId::Projection {
+                receiver: Box::new(receiver.to_checked_type()),
+                interface: Box::new(interface.to_checked_type()),
+                member: member.clone(),
+            },
             Self::Host(id) => TypeId::Host(id.clone()),
             Self::SelfType(id) => TypeId::SelfType(id.clone()),
             Self::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
@@ -259,6 +286,15 @@ impl AbiType {
     pub(crate) fn from_checked_type(ty: &kagari_hir::types::TypeId) -> Self {
         use kagari_hir::types::TypeId;
         match ty {
+            TypeId::Projection {
+                receiver,
+                interface,
+                member,
+            } => Self::Projection {
+                receiver: Box::new(Self::from_checked_type(receiver)),
+                interface: Box::new(NominalAbiType::from_checked_type(interface)),
+                member: member.clone(),
+            },
             TypeId::Host(id) => Self::Host(id.clone()),
             TypeId::Builtin(ty) => Self::Builtin(*ty),
             TypeId::Tuple(elements) => {
@@ -296,7 +332,9 @@ impl AbiType {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
-                Self::Parameter { .. } | Self::SelfType(_) => return false,
+                Self::Projection { .. } | Self::Parameter { .. } | Self::SelfType(_) => {
+                    return false;
+                }
                 Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
                     pending.extend(types)
                 }
@@ -307,7 +345,8 @@ impl AbiType {
                 Self::Array(ty) | Self::Set(ty) => pending.push(ty),
                 Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                    pending.extend(&ty.arguments)
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values());
                 }
                 Self::Host(_) | Self::Builtin(_) => {}
             }
@@ -322,6 +361,11 @@ impl AbiType {
     ) -> Option<Self> {
         let nominal = |ty: &NominalAbiType| -> Option<NominalAbiType> {
             Some(NominalAbiType {
+                associated_types: ty
+                    .associated_types
+                    .iter()
+                    .map(|(id, ty)| Some((id.clone(), ty.instantiate(owner, arguments)?)))
+                    .collect::<Option<_>>()?,
                 declaration: ty.declaration.clone(),
                 arguments: ty
                     .arguments
@@ -331,6 +375,7 @@ impl AbiType {
             })
         };
         Some(match self {
+            Self::Projection { .. } => return None,
             Self::Parameter {
                 owner: parameter_owner,
                 position,
@@ -379,6 +424,15 @@ pub struct TraitAbi {
     pub bounds: Vec<GenericBoundAbi>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub methods: Vec<FunctionAbi>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub associated_types: Vec<AssociatedTypeAbi>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssociatedTypeAbi {
+    pub declaration: kagari_common::identity::DefinitionId,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub bounds: Vec<ConstraintAbi>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -430,6 +484,16 @@ pub(crate) fn interface_method_types(
     if interface.arguments.len() != trait_abi.generic_params.len() {
         return None;
     }
+    if interface.associated_types.len() != trait_abi.associated_types.len()
+        || trait_abi.associated_types.iter().any(|member| {
+            !interface
+                .associated_types
+                .get(&member.declaration)
+                .is_some_and(AbiType::is_concrete)
+        })
+    {
+        return None;
+    }
     let method = trait_abi.methods.get(slot)?;
     if !method.generic_params.is_empty()
         || method.params.first()?.ty != AbiType::SelfType(interface.declaration.clone())
@@ -437,9 +501,23 @@ pub(crate) fn interface_method_types(
         return None;
     }
     let instantiated = |ty: &AbiType| {
-        ty.instantiate(&interface.declaration, &interface.arguments)
-            .filter(AbiType::is_concrete)
-            .map(|ty| ty.representation())
+        let interface = interface.to_checked_type();
+        let substitution = trait_abi
+            .generic_params
+            .iter()
+            .map(|parameter| kagari_hir::types::GenericParameterType {
+                owner: parameter.owner.clone(),
+                position: parameter.position,
+                name: String::new(),
+            })
+            .zip(interface.arguments.iter().cloned())
+            .collect();
+        let ty = ty
+            .to_checked_type()
+            .instantiate(&substitution)
+            .with_associated_types(&interface);
+        ty.is_concrete()
+            .then(|| super::ValueType::from_type_id(&ty))
     };
     let mut params = vec![super::ValueType::HeapObject];
     params.extend(
@@ -491,8 +569,7 @@ pub struct GenericParameterAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenericBoundAbi {
-    pub owner: kagari_common::identity::DefinitionId,
-    pub position: usize,
+    pub ty: AbiType,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub constraints: Vec<ConstraintAbi>,
 }

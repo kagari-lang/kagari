@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 use smallvec::SmallVec;
 
@@ -60,6 +58,7 @@ pub(super) fn resolve_constraints(
                     declarations,
                     generics: &item.generic_params,
                     self_type: None,
+                    implementation: None,
                 },
                 table,
                 diagnostics,
@@ -102,9 +101,15 @@ fn resolve_owner(
         declarations,
         generics,
         self_type: None,
+        implementation: None,
     };
     for param in generics {
         for reference in &param.bounds {
+            resolve_constraint(lowered, reference, context, table, diagnostics, cancel);
+        }
+    }
+    for bound in bounds {
+        for reference in &bound.traits {
             resolve_constraint(lowered, reference, context, table, diagnostics, cancel);
         }
     }
@@ -118,7 +123,17 @@ fn resolve_owner(
                 .type_ref(bound.target_ref)
                 .and_then(|reference| reference.target),
             Some(TypeTarget::Generic(_))
-        ) {
+        ) && !(table
+            .type_ref(bound.target_ref)
+            .is_some_and(|reference| !reference.ty.is_unresolved())
+            && match &lowered.module.type_ref(bound.target_ref).kind {
+                hir::TypeKind::Projection { .. } => true,
+                hir::TypeKind::Named(name) => name
+                    .split_once("::")
+                    .is_some_and(|(base, _)| generics.iter().any(|param| param.name == base)),
+                _ => false,
+            })
+        {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidBoundTarget {
                     name: bound.target.clone(),
@@ -132,7 +147,7 @@ fn resolve_owner(
     }
 }
 
-fn resolve_constraint(
+pub(super) fn resolve_constraint(
     lowered: &LoweredModule,
     reference: &hir::TraitRef,
     context: TypeContext<'_>,
@@ -247,7 +262,7 @@ pub(super) fn function_bounds(
     function: &hir::Function,
     declarations: &crate::declarations::Declarations,
     table: &TypeTable,
-) -> HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>> {
+) -> super::GenericBounds {
     let mut result = parameter_bounds(&function.generic_params, declarations, table);
     let inherited = module
         .impls
@@ -260,13 +275,10 @@ pub(super) fn function_bounds(
         .map(|item| item.bounds.as_slice())
         .unwrap_or_default();
     for bound in inherited.iter().chain(&function.bounds) {
-        let Some(TypeTarget::Generic(id)) = table
+        let Some(param) = table
             .type_ref(bound.target_ref)
-            .and_then(|reference| reference.target)
+            .map(|reference| reference.ty.clone())
         else {
-            continue;
-        };
-        let Some(param) = declarations.generic_type(id) else {
             continue;
         };
         result.entry(param).or_default().extend(
@@ -286,13 +298,10 @@ pub(super) fn implementation_bounds(
 ) -> super::GenericBounds {
     let mut result = parameter_bounds(&implementation.generic_params, declarations, table);
     for bound in &implementation.bounds {
-        let Some(TypeTarget::Generic(id)) = table
+        let Some(parameter) = table
             .type_ref(bound.target_ref)
-            .and_then(|reference| reference.target)
+            .map(|reference| reference.ty.clone())
         else {
-            continue;
-        };
-        let Some(parameter) = declarations.generic_type(id) else {
             continue;
         };
         result.entry(parameter).or_default().extend(
@@ -314,7 +323,7 @@ pub(super) fn parameter_bounds(
         .iter()
         .filter_map(|param| {
             Some((
-                declarations.generic_type(param.id)?,
+                TypeId::Generic(declarations.generic_type(param.id)?),
                 param
                     .bounds
                     .iter()
@@ -325,7 +334,7 @@ pub(super) fn parameter_bounds(
         .collect()
 }
 
-pub(crate) fn type_satisfies_standard_constraint(
+pub fn type_satisfies_standard_constraint(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
     bounds: &super::GenericBounds,
@@ -338,8 +347,8 @@ pub(crate) fn type_satisfies_standard_constraint(
                 .iter()
                 .all(|ty| type_satisfies_standard_constraint(ty, constraint, bounds))
         }
-        TypeId::Generic(name) => bounds
-            .get(name)
+        TypeId::Generic(_) | TypeId::Projection { .. } => bounds
+            .get(ty)
             .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
         _ => match constraint {
             StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),

@@ -42,6 +42,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                     identity,
                     public_items: vec![
                         PublicAbiItem::Trait(TraitAbi {
+                            associated_types: Vec::new(),
                             name: "Tag".into(),
                             generic_params: vec![],
                             bounds: vec![],
@@ -53,6 +54,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                             generic_params: vec![],
                             bounds: vec![],
                             trait_type: AbiType::Trait(NominalAbiType {
+                                associated_types: Default::default(),
                                 declaration: trait_id,
                                 arguments: vec![],
                             }),

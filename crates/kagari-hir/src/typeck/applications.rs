@@ -19,6 +19,32 @@ pub(super) fn validate(
             return;
         }
         match ty {
+            TypeId::Projection {
+                receiver,
+                interface,
+                member,
+            } => {
+                if receiver.is_concrete() && catalog.implementation_count(interface, receiver) != 1
+                {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
+                            name: member
+                                .path
+                                .last()
+                                .expect("associated identity")
+                                .name
+                                .clone(),
+                            reason:
+                                "projection requires a unique implementation satisfying its bounds"
+                                    .into(),
+                        })
+                        .with_span(span),
+                    );
+                }
+                pending.push(receiver);
+                pending.extend(&interface.arguments);
+                pending.extend(interface.associated_types.values());
+            }
             TypeId::Struct(instance) | TypeId::Enum(instance) | TypeId::Trait(instance) => {
                 let contract = match ty {
                     TypeId::Struct(_) => catalog
@@ -39,7 +65,11 @@ pub(super) fn validate(
                         .zip(instance.arguments.iter().cloned())
                         .collect();
                     for (parameter, actual) in parameters.iter().zip(&instance.arguments) {
-                        for constraint in required.get(parameter).into_iter().flatten() {
+                        for constraint in required
+                            .get(&TypeId::Generic(parameter.clone()))
+                            .into_iter()
+                            .flatten()
+                        {
                             // Trait implementation identity needs complete members;
                             // standard constraint recovery belongs to the shared checker.
                             if actual.is_unresolved()
@@ -60,13 +90,13 @@ pub(super) fn validate(
                                 ConstraintTarget::Trait(id) => {
                                     let applied = id.instantiate(&substitution);
                                     let satisfied = match actual {
-                                        TypeId::Generic(parameter) => {
-                                            bounds.get(parameter).is_some_and(|bounds| {
+                                        TypeId::Generic(parameter) => bounds
+                                            .get(&TypeId::Generic(parameter.clone()))
+                                            .is_some_and(|bounds| {
                                                 bounds.contains(&ConstraintTarget::Trait(
                                                     applied.clone(),
                                                 ))
-                                            })
-                                        }
+                                            }),
                                         _ => match catalog.implementation_count(&applied, actual)
                                             + usize::from(hosts.implements(&applied, actual))
                                         {
@@ -96,7 +126,54 @@ pub(super) fn validate(
                         }
                     }
                 }
+                if let TypeId::Trait(_) = ty
+                    && let Some(contract) = catalog.trait_(&instance.declaration)
+                {
+                    let substitution = contract
+                        .generic_params
+                        .iter()
+                        .cloned()
+                        .zip(instance.arguments.iter().cloned())
+                        .collect();
+                    for (member, actual) in &instance.associated_types {
+                        for constraint in
+                            contract.associated_types.get(member).into_iter().flatten()
+                        {
+                            let satisfied = match constraint {
+                                ConstraintTarget::Standard(standard) => {
+                                    super::constraints::type_satisfies_standard_constraint(
+                                        actual, *standard, bounds,
+                                    )
+                                }
+                                ConstraintTarget::Trait(required) => {
+                                    let required = required.instantiate(&substitution);
+                                    bounds.get(actual).is_some_and(|constraints| constraints.iter().any(|constraint| matches!(constraint, ConstraintTarget::Trait(available) if available.satisfies(&required))))
+                                        || catalog.implementation_count(&required, actual) == 1
+                                        || hosts.implements(&required, actual)
+                                }
+                            };
+                            if !satisfied && !actual.is_unresolved() {
+                                diagnostics.push(
+                                    Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
+                                        name: member
+                                            .path
+                                            .last()
+                                            .expect("associated identity")
+                                            .name
+                                            .clone(),
+                                        reason: format!(
+                                            "type `{}` does not satisfy its declared bound",
+                                            actual.display_name()
+                                        ),
+                                    })
+                                    .with_span(span),
+                                );
+                            }
+                        }
+                    }
+                }
                 pending.extend(&instance.arguments);
+                pending.extend(instance.associated_types.values());
             }
             TypeId::Tuple(types) | TypeId::StandardEnum { args: types, .. } => {
                 pending.extend(types)
@@ -177,9 +254,6 @@ pub(crate) fn validate_signatures(
         else {
             continue;
         };
-        if instance.declaration.module == *identity {
-            continue;
-        }
         let Some(contract) = catalog.trait_(&instance.declaration) else {
             continue;
         };
@@ -197,6 +271,9 @@ pub(crate) fn validate_signatures(
             diagnostics,
             cancel,
         );
+        if instance.declaration.module == *identity {
+            continue;
+        }
         let Some(receiver) = impl_block
             .for_type
             .and_then(|ty| signatures.type_table().type_ref(ty))
@@ -239,6 +316,7 @@ pub(crate) fn validate_signatures(
                     receiver,
                     trait_owner: &contract.id,
                     trait_arguments: &instance.arguments,
+                    associated_types: &instance.associated_types,
                     span,
                 },
                 diagnostics,
@@ -309,6 +387,21 @@ fn validate_imported_interface_type(
                 if &instance.declaration.module != module
                     && let Some(contract) = catalog.trait_(&instance.declaration)
                 {
+                    if contract
+                        .associated_types
+                        .keys()
+                        .any(|member| !instance.associated_types.contains_key(member))
+                    {
+                        diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                                trait_name: contract.declaration.name.clone(),
+                                reason:
+                                    "interface values require bindings for all associated types"
+                                        .into(),
+                            })
+                            .with_span(span),
+                        );
+                    }
                     for method in &contract.methods {
                         if !super::check::interface_method_compatible(
                             method.generic_params.len(),
@@ -317,8 +410,14 @@ fn validate_imported_interface_type(
                                 .params
                                 .first()
                                 .is_some_and(|param| param.name == "self"),
-                            &method.return_type,
-                            method.params.iter().skip(1).map(|param| &param.ty),
+                            &method.return_type.with_associated_types(instance),
+                            method
+                                .params
+                                .iter()
+                                .skip(1)
+                                .map(|param| param.ty.with_associated_types(instance))
+                                .collect::<Vec<_>>()
+                                .iter(),
                         ) {
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::InvalidInterfaceType {

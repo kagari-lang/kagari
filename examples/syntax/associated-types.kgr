@@ -1,0 +1,31 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/associated-types.kgr
+// Result: main returns 42.
+trait Reader {
+    type Item: HashKey;
+    fn read(self) -> Self::Item;
+}
+
+trait Sink { type Item; fn take(self, value: Self::Item); }
+
+struct Number {
+    val value: i32,
+}
+
+impl Reader for Number {
+    type Item = i32;
+    fn read(self) -> Self::Item { self.value }
+}
+
+fn read_generic<R: Reader>(reader: R) -> R::Item { reader.read() }
+fn read_integer<R: Reader<Item = i32,>>(reader: R) -> i32 { reader.read() }
+fn read_qualified<R: Reader>(reader: R) -> <R as Reader>::Item
+where R::Item: HashKey { reader.read() }
+fn read_interface(reader: Reader<Item = i32>) -> i32 { reader.read() }
+
+fn main() -> i32 {
+    val first: i32 = read_generic(Number { value: 20 });
+    val second = read_integer(Number { value: 20 });
+    val third = read_qualified(Number { value: 1 });
+    val fourth = read_interface(Number { value: 1 });
+    first + second + third + fourth
+}

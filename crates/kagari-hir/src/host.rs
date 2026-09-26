@@ -153,6 +153,10 @@ impl HostDeclarations {
                     ));
                     continue;
                 }
+                if !trait_signature.associated_types.is_empty() {
+                    report("host trait registrations cannot define associated types".into());
+                    continue;
+                }
                 let substitution: crate::types::TypeSubstitution = trait_signature
                     .generic_params
                     .iter()
@@ -166,7 +170,12 @@ impl HostDeclarations {
                 {
                     cancel.check()?;
                     let actual = signature_type(argument);
-                    for constraint in trait_signature.bounds.get(parameter).into_iter().flatten() {
+                    for constraint in trait_signature
+                        .bounds
+                        .get(&TypeId::Generic(parameter.clone()))
+                        .into_iter()
+                        .flatten()
+                    {
                         let satisfied = match constraint {
                             crate::typeck::ConstraintTarget::Standard(standard) => {
                                 satisfies_standard_constraint(argument, *standard)

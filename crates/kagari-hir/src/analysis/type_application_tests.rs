@@ -34,7 +34,7 @@ fn explicit_empty_applications_are_not_erased_to_bare_types() {
             .params[0]
             .ty;
         assert!(matches!(&facts.lowered.module.type_ref(reference).kind,
-            TypeKind::Generic { name: base, args } if base == name && args.is_empty()));
+            TypeKind::Generic { name: base, args, .. } if base == name && args.is_empty()));
         assert_eq!(file.type_at(start), Some(TypeId::Error), "{name}");
         assert_eq!(
             file.definition_at(start).map(|d| d.name.as_str()),

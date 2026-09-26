@@ -250,11 +250,11 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
         };
         assert_ne!(outer, inner);
         assert!(matches!(
-            method.bounds[outer].as_slice(),
+            method.bounds[&crate::types::TypeId::Generic(outer.clone())].as_slice(),
             [ConstraintTarget::Standard(_)]
         ));
         assert!(matches!(
-            method.bounds[inner].as_slice(),
+            method.bounds[&crate::types::TypeId::Generic(inner.clone())].as_slice(),
             [ConstraintTarget::Trait(_)]
         ));
         assert_eq!(method.bounds.len(), 2);

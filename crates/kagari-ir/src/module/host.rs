@@ -60,13 +60,20 @@ fn host_trait_matches(
         .map(AbiType::from_host_type)
         .collect::<Vec<_>>();
     if args.len() != trait_abi.generic_params.len()
+        || !trait_abi.associated_types.is_empty()
         || implementation.methods.len() != trait_abi.methods.len()
     {
         return Ok(false);
     }
     for bound in &trait_abi.bounds {
         cancel.check()?;
-        let Some(argument) = implementation.trait_arguments.get(bound.position) else {
+        let AbiType::Parameter { owner, position } = &bound.ty else {
+            return Ok(false);
+        };
+        if owner != &implementation.trait_id {
+            return Ok(false);
+        }
+        let Some(argument) = implementation.trait_arguments.get(*position) else {
             return Ok(false);
         };
         for constraint in &bound.constraints {

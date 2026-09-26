@@ -23,6 +23,11 @@ pub(super) fn infer(
                     && expected.arguments.len() == actual.arguments.len() =>
             {
                 pending.extend(expected.arguments.iter().zip(&actual.arguments).rev());
+                for (member, expected) in &expected.associated_types {
+                    if let Some(actual) = actual.associated_types.get(member) {
+                        pending.push((expected, actual));
+                    }
+                }
             }
             (TypeId::Generic(parameter), _) if parameters.contains(parameter) => {
                 substitution
@@ -201,11 +206,13 @@ mod tests {
             path: vec![],
         };
         let mut nominal = TypeId::Struct(NominalType {
+            associated_types: Default::default(),
             declaration: declaration.clone(),
             arguments: vec![TypeId::Error],
         });
         let before = nominal.clone();
         nominal.recover_from(&TypeId::Enum(NominalType {
+            associated_types: Default::default(),
             declaration: declaration.clone(),
             arguments: vec![TypeId::Builtin(BuiltinType::I32)],
         }));
@@ -213,6 +220,7 @@ mod tests {
         let mut foreign = declaration;
         foreign.module = ModuleIdentity::single_file("b.kgr");
         nominal.recover_from(&TypeId::Struct(NominalType {
+            associated_types: Default::default(),
             declaration: foreign,
             arguments: vec![TypeId::Builtin(BuiltinType::I32)],
         }));
@@ -236,10 +244,12 @@ mod tests {
         };
         for make in [TypeId::Struct, TypeId::Enum, TypeId::Trait] {
             let template = make(NominalType {
+                associated_types: Default::default(),
                 declaration: declaration.clone(),
                 arguments: vec![TypeId::Array(Box::new(TypeId::Generic(parameter.clone())))],
             });
             let actual = make(NominalType {
+                associated_types: Default::default(),
                 declaration: declaration.clone(),
                 arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
             });
@@ -263,10 +273,12 @@ mod tests {
             };
             for mismatch in [
                 make(NominalType {
+                    associated_types: Default::default(),
                     declaration: foreign,
                     arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
                 }),
                 make(NominalType {
+                    associated_types: Default::default(),
                     declaration: declaration.clone(),
                     arguments: Vec::new(),
                 }),

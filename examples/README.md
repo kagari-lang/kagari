@@ -30,6 +30,7 @@ cargo test -p kagari-embed --test syntax_examples
 | Inline module body and wildcard import | [inline-modules.kgr](syntax/inline-modules.kgr) | `42` |
 | Private field with parent-visible module, function and method | [visibility.kgr](syntax/visibility.kgr) | `42` |
 | Concrete interface value and dynamic method dispatch | [interface-dispatch.kgr](interface-dispatch.kgr) | `42` |
+| Associated types, equality bindings, projection bounds and static/dynamic calls | [associated-types.kgr](syntax/associated-types.kgr) | `42` |
 | Generic trait method | [generic-trait-methods.kgr](generic-trait-methods.kgr) | `42` |
 | Functions, `const`, generics, structs, enums, arrays, tuples, fields, indexes, assignment and core standard modules | [standard-library.kgr](standard-library.kgr) | `(3, true, 2, true, 2, true, 12)` |
 

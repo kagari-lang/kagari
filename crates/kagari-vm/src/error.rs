@@ -23,7 +23,7 @@ pub enum VmError {
     JitInvocation(BackendInvocationError),
     Trap(&'static str),
     TypeMismatch(&'static str),
-    UnsupportedCallTarget(CallTarget),
+    UnsupportedCallTarget(Box<CallTarget>),
     UnsupportedInstruction(&'static str),
 }
 

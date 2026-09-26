@@ -21,12 +21,12 @@ pub use ids::{
 };
 pub use ids::{BodyOwner, HirArenaId, HirOwner, VariantId};
 pub use item::{
-    ConstBuffer, ConstItem, Enum, EnumBuffer, Export, ExportBuffer, ExportItem, Field, FieldBuffer,
-    Function, FunctionBuffer, FunctionKind, GenericParam, GenericParamBuffer, Impl, ImplBuffer,
-    ImplMethod, ImplMethodBuffer, Import, ImportBuffer, Item, ItemBuffer, Method, MethodBuffer,
-    MethodOwner, Module, ModuleDecl, ModuleDeclBuffer, Param, ParamBuffer, ReceiverKind, Struct,
-    StructBuffer, TraitBound, TraitBoundBuffer, TraitBuffer, TraitDef, TraitMethod,
-    TraitMethodBuffer, TraitRef, TraitRefBuffer, Variant, VariantBuffer, Visibility,
+    AssociatedType, ConstBuffer, ConstItem, Enum, EnumBuffer, Export, ExportBuffer, ExportItem,
+    Field, FieldBuffer, Function, FunctionBuffer, FunctionKind, GenericParam, GenericParamBuffer,
+    Impl, ImplBuffer, ImplMethod, ImplMethodBuffer, Import, ImportBuffer, Item, ItemBuffer, Method,
+    MethodBuffer, MethodOwner, Module, ModuleDecl, ModuleDeclBuffer, Param, ParamBuffer,
+    ReceiverKind, Struct, StructBuffer, TraitBound, TraitBoundBuffer, TraitBuffer, TraitDef,
+    TraitMethod, TraitMethodBuffer, TraitRef, TraitRefBuffer, Variant, VariantBuffer, Visibility,
 };
 pub use pattern::{PatternData, PatternField, PatternKind};
 pub use place::{PlaceData, PlaceKind};

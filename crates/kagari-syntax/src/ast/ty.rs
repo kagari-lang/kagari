@@ -9,8 +9,24 @@ ast_node!(TypeRef, TypeRef);
 ast_node!(TupleType, TupleType);
 ast_node!(ArrayType, ArrayType);
 ast_node!(FunctionType, FunctionType);
+ast_node!(QualifiedType, QualifiedType);
+
+impl QualifiedType {
+    pub fn receiver(&self) -> Option<TypeRef> {
+        support::child(self.syntax())
+    }
+    pub fn trait_ref(&self) -> Option<super::misc::TraitRef> {
+        support::child(self.syntax())
+    }
+    pub fn member(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+}
 
 impl TypeRef {
+    pub fn qualified_type(&self) -> Option<QualifiedType> {
+        support::child(self.syntax())
+    }
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }

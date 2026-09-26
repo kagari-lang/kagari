@@ -1,4 +1,4 @@
-//! Recheck concrete host trait bounds against the verified dependency closure.
+//! Recheck associated outputs and host trait bounds against the dependency closure.
 use super::BytecodeModule;
 use crate::module::{
     PublicAbiItem,
@@ -29,11 +29,7 @@ fn signature(table: &InterfaceTableAbi) -> Option<ImplementationSignature> {
         .collect::<Vec<_>>();
     let mut bounds = kagari_hir::typeck::GenericBounds::new();
     for bound in &table.bounds {
-        let parameter = GenericParameterType {
-            owner: bound.owner.clone(),
-            position: bound.position,
-            name: String::new(),
-        };
+        let parameter = bound.ty.to_checked_type();
         bounds.insert(
             parameter,
             bound
@@ -56,7 +52,7 @@ fn signature(table: &InterfaceTableAbi) -> Option<ImplementationSignature> {
     })
 }
 
-pub(super) fn host_bounds_match(module: &BytecodeModule, closure: &[&BytecodeModule]) -> bool {
+pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeModule]) -> bool {
     let mut signatures = Vec::new();
     for dependency in closure {
         for item in &dependency.public_items {
@@ -75,6 +71,89 @@ pub(super) fn host_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMod
         return false;
     };
     let cancel = kagari_common::cancellation::CancellationToken::default();
+    for item in &module.public_items {
+        let PublicAbiItem::InterfaceTable(table) = item else {
+            continue;
+        };
+        let AbiType::Trait(interface) = &table.trait_type else {
+            return false;
+        };
+        let Some(owner) = closure
+            .iter()
+            .find(|member| member.identity == interface.declaration.module)
+        else {
+            return false;
+        };
+        let contract = owner
+            .public_items
+            .iter()
+            .find_map(|item| match item {
+                PublicAbiItem::Trait(contract)
+                    if interface
+                        .declaration
+                        .path
+                        .last()
+                        .is_some_and(|part| part.name == contract.name) =>
+                {
+                    Some(contract)
+                }
+                _ => None,
+            })
+            .or_else(|| {
+                owner
+                    .trait_contracts
+                    .iter()
+                    .find(|contract| contract.declaration == interface.declaration)
+                    .map(|contract| &contract.abi)
+            });
+        let Some(contract) = contract else {
+            return false;
+        };
+        if interface.associated_types.len() != contract.associated_types.len() {
+            return false;
+        }
+        let checked = interface.to_checked_type();
+        let substitution = contract
+            .generic_params
+            .iter()
+            .map(|parameter| GenericParameterType {
+                owner: parameter.owner.clone(),
+                position: parameter.position,
+                name: String::new(),
+            })
+            .zip(checked.arguments.iter().cloned())
+            .collect();
+        let Some(implementation) = catalog.implementation_signature(&table.declaration) else {
+            return false;
+        };
+        for member in &contract.associated_types {
+            let Some(actual) = checked.associated_types.get(&member.declaration) else {
+                return false;
+            };
+            for constraint in &member.bounds {
+                let required = match constraint {
+                    ConstraintAbi::Standard(value) => ConstraintTarget::Standard(*value),
+                    ConstraintAbi::Trait(value) => {
+                        let required = TypeId::Trait(value.to_checked_type())
+                            .with_self(&checked.declaration, &implementation.for_type)
+                            .instantiate(&substitution);
+                        let TypeId::Trait(required) = required else {
+                            return false;
+                        };
+                        ConstraintTarget::Trait(required)
+                    }
+                };
+                let proven = match &required {
+                    ConstraintTarget::Standard(value) => kagari_hir::typeck::type_satisfies_standard_constraint(actual, *value, &implementation.bounds),
+                    ConstraintTarget::Trait(required) => implementation.bounds.get(actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(required))))
+                        || matches!(catalog.implementation_count_bounded(required, actual, MAX_MATCH_CHECKS, MAX_PROOF_DEPTH, &cancel), Ok(1)),
+                };
+                if !proven {
+                    return false;
+                }
+            }
+        }
+    }
     for host in &module.host_interface.types {
         for implementation in &host.trait_implementations {
             let Some(owner) = closure
@@ -107,7 +186,8 @@ pub(super) fn host_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMod
                 .map(AbiType::from_host_type)
                 .collect::<Vec<_>>();
             for bound in &trait_abi.bounds {
-                let Some(argument) = arguments.get(bound.position) else {
+                let Some(argument) = bound.ty.instantiate(&implementation.trait_id, &arguments)
+                else {
                     return false;
                 };
                 let actual = argument.to_checked_type();

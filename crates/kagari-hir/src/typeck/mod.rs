@@ -1,4 +1,5 @@
 mod applications;
+pub(crate) mod associated;
 pub(crate) use applications::validate_signatures as validate_signature_applications;
 mod body;
 mod check;
@@ -24,11 +25,11 @@ use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability};
 
 pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
-pub type GenericBounds = HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>>;
+pub type GenericBounds = HashMap<TypeId, Vec<ConstraintTarget>>;
 
 pub(crate) use check::possibly_overlapping_impls;
 pub(crate) use check::{check_bodies_controlled, check_signatures};
-pub(crate) use constraints::type_satisfies_standard_constraint;
+pub use constraints::type_satisfies_standard_constraint;
 pub(crate) use table::match_implementation;
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
@@ -97,7 +98,7 @@ pub struct TypedFunction {
     pub generic_params: Vec<crate::types::GenericParameterType>,
     /// Checked constraints keyed by the declaring parameter, including inherited
     /// impl parameters shadowed by a method parameter with the same name.
-    pub bounds: HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>>,
+    pub bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
     pub id: FunctionId,
     pub name: String,
     pub params: TypedParameterBuffer,
@@ -148,5 +149,5 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) local_writeability: HashMap<LocalId, Writeability>,
     pub(crate) exprs: HashMap<ExprId, TypeId>,
     pub(crate) generics: Vec<crate::hir::GenericParam>,
-    pub(crate) generic_bounds: HashMap<crate::types::GenericParameterType, Vec<ConstraintTarget>>,
+    pub(crate) generic_bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
 }

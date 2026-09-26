@@ -195,6 +195,10 @@ impl Lowerer {
             name: trait_def.name_text().unwrap_or_default(),
             generic_params,
             methods,
+            associated_types: trait_def
+                .associated_types()
+                .map(|item| self.lower_associated_type(&item))
+                .collect(),
         }
     }
 
@@ -222,6 +226,32 @@ impl Lowerer {
                 .map(|where_clause| self.lower_where_clause(&where_clause))
                 .unwrap_or_default(),
             methods,
+            associated_types: impl_block
+                .associated_types()
+                .map(|item| self.lower_associated_type(&item))
+                .collect(),
+        }
+    }
+
+    fn lower_associated_type(&mut self, item: &ast::AssociatedType) -> crate::hir::AssociatedType {
+        let name = item.name_text().unwrap_or_default();
+        let name_ref = self.alloc_type(
+            item.name()
+                .as_ref()
+                .map(token_span)
+                .unwrap_or_else(|| syntax_span(item)),
+            crate::hir::TypeData {
+                kind: crate::hir::TypeKind::Named(name.clone()),
+            },
+        );
+        crate::hir::AssociatedType {
+            name,
+            name_ref,
+            ty: item.ty().map(|ty| self.lower_type(&ty)),
+            bounds: item
+                .bounds()
+                .map(|bounds| self.lower_trait_refs(bounds.bounds()))
+                .unwrap_or_default(),
         }
     }
 
@@ -437,21 +467,10 @@ impl Lowerer {
         where_clause
             .predicates()
             .map(|predicate| {
-                let name = predicate.name();
-                let target_ref = self.alloc_type(
-                    name.as_ref()
-                        .map(token_span)
-                        .unwrap_or_else(|| syntax_span(&predicate)),
-                    crate::hir::TypeData {
-                        kind: crate::hir::TypeKind::Named(
-                            predicate.name_text().unwrap_or_default(),
-                        ),
-                    },
-                );
-                if let Some(name) = name {
-                    self.source_map
-                        .insert_type_name(target_ref, token_span(&name));
-                }
+                let target_ref = predicate
+                    .target_type()
+                    .map(|ty| self.lower_type(&ty))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>"));
                 TraitBound {
                     target: predicate.name_text().unwrap_or_default(),
                     target_ref,
@@ -469,7 +488,7 @@ impl Lowerer {
             .collect()
     }
 
-    fn lower_trait_ref(&mut self, trait_ref: &ast::TraitRef) -> TraitRef {
+    pub(crate) fn lower_trait_ref(&mut self, trait_ref: &ast::TraitRef) -> TraitRef {
         let name = trait_ref.path_text().unwrap_or_default();
         let args: smallvec::SmallVec<[TypeRefId; 4]> = trait_ref
             .generic_args()
@@ -478,7 +497,14 @@ impl Lowerer {
         let kind = if trait_ref.generic_args().is_none() {
             crate::hir::TypeKind::Named(name)
         } else {
-            crate::hir::TypeKind::Generic { name, args }
+            let list = trait_ref.generic_args().expect("generic arguments");
+            let bindings = self.lower_associated_bindings(&list);
+            crate::hir::TypeKind::Generic {
+                name,
+                args,
+                bindings,
+                positional_after_binding: list.positional_after_binding(),
+            }
         };
         let ty = self.alloc_type(
             crate::lower::context::token_span(trait_ref),

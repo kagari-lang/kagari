@@ -78,6 +78,8 @@ struct TraitImplementation {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
+    pub(super) resolving_types: HashSet<crate::hir::TypeRefId>,
+    pub(crate) associated_bounds: HashMap<DefinitionId, Vec<ConstraintTarget>>,
     host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
     host_paths: HashMap<ExprId, ResolvedHostPath>,
     implementations: HashMap<(NominalType, TypeId), TraitImplementation>,
@@ -340,20 +342,18 @@ impl TypeTable {
             .bounds
             .iter()
             .all(|(parameter, constraints)| {
-                let Some(actual) = matched.get(parameter) else {
-                    return false;
-                };
+                let actual = parameter.instantiate(matched);
                 constraints.iter().all(|constraint| match constraint {
                     ConstraintTarget::Standard(standard) => {
                         super::constraints::type_satisfies_standard_constraint(
-                            actual,
+                            &actual,
                             *standard,
                             &Default::default(),
                         )
                     }
                     ConstraintTarget::Trait(trait_type) => self.implements_with_guard(
                         &trait_type.instantiate(matched),
-                        actual,
+                        &actual,
                         visiting,
                     ),
                 })
@@ -756,9 +756,18 @@ pub(crate) fn match_implementation(
             | (TypeId::Trait(left), TypeId::Trait(right)) => {
                 if left.declaration != right.declaration
                     || left.arguments.len() != right.arguments.len()
+                    || !left
+                        .associated_types
+                        .keys()
+                        .eq(right.associated_types.keys())
                 {
                     return None;
                 }
+                pending.extend(
+                    left.associated_types
+                        .values()
+                        .zip(right.associated_types.values()),
+                );
                 pending.extend(left.arguments.iter().zip(&right.arguments));
             }
             (TypeId::Tuple(left), TypeId::Tuple(right))
@@ -809,6 +818,15 @@ pub(crate) fn match_implementation(
             }
             (left, right) if left == right => {}
             _ => return None,
+        }
+    }
+    for (member, expected) in &requested_trait.associated_types {
+        let actual = implemented_trait
+            .associated_types
+            .get(member)?
+            .instantiate(&bindings);
+        if actual != *expected {
+            return None;
         }
     }
     Some(bindings)

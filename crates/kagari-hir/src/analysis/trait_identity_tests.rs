@@ -30,6 +30,7 @@ fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
         .unwrap()
         .clone();
     let point = TypeId::Struct(crate::types::NominalType {
+        associated_types: Default::default(),
         declaration: facts
             .aggregates
             .structures()
@@ -44,6 +45,7 @@ fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
 
 fn interface(id: &DefinitionId) -> crate::types::NominalType {
     crate::types::NominalType {
+        associated_types: Default::default(),
         declaration: id.clone(),
         arguments: Vec::new(),
     }

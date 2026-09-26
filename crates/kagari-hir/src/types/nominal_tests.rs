@@ -18,18 +18,22 @@ fn nominal_identity_includes_kind_declaration_and_ordered_type_arguments() {
     let integer = TypeId::Builtin(BuiltinType::I32);
     let boolean = TypeId::Builtin(BuiltinType::Bool);
     let a = NominalType {
+        associated_types: Default::default(),
         declaration: owner.clone(),
         arguments: vec![integer.clone(), boolean.clone()],
     };
     let reversed = NominalType {
+        associated_types: Default::default(),
         declaration: owner.clone(),
         arguments: vec![boolean, integer],
     };
     let foreign = NominalType {
+        associated_types: Default::default(),
         declaration: definition("right.kgr", DefinitionKind::Struct),
         arguments: a.arguments.clone(),
     };
     let bare = NominalType {
+        associated_types: Default::default(),
         declaration: owner,
         arguments: Vec::new(),
     };
@@ -64,6 +68,7 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
         name: "T".into(),
     };
     let inner = TypeId::Enum(NominalType {
+        associated_types: Default::default(),
         declaration: definition("inner.kgr", DefinitionKind::Enum),
         arguments: vec![
             TypeId::Generic(parameter.clone()),
@@ -72,6 +77,7 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
     });
     for make in [TypeId::Struct, TypeId::Enum, TypeId::Trait] {
         let template = make(NominalType {
+            associated_types: Default::default(),
             declaration: owner.clone(),
             arguments: vec![TypeId::Array(Box::new(inner.clone()))],
         });
@@ -103,10 +109,12 @@ fn self_substitution_reaches_nested_nominal_arguments_without_replacing_foreign_
     let owner = definition("owner.kgr", DefinitionKind::Trait);
     let foreign = definition("other.kgr", DefinitionKind::Trait);
     let template = TypeId::Struct(NominalType {
+        associated_types: Default::default(),
         declaration: definition("box.kgr", DefinitionKind::Struct),
         arguments: vec![
             TypeId::SelfType(owner.clone()),
             TypeId::Trait(NominalType {
+                associated_types: Default::default(),
                 declaration: foreign.clone(),
                 arguments: vec![TypeId::SelfType(foreign)],
             }),

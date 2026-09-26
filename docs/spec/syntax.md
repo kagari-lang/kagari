@@ -130,6 +130,7 @@ The following keywords are reserved:
 - `use`
 - `val`
 - `var`
+- `type`
 - `where`
 - `while`
 
@@ -339,14 +340,15 @@ trait_decl      ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" t
 
 supertrait_clause ::= ":" type_bound_list ;
 
-trait_member    ::= attribute* method_sig (";" | block) ;
+trait_member    ::= attribute* method_sig (";" | block) | associated_type_decl ;
+associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
 
 method_sig      ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
 
 Notes:
 
-- trait members are methods
+- trait members are methods and ordinary associated types
 - attributes on trait members are the intended hook for future reflection or security-related metadata
 
 ### Binding and Field Writeability
@@ -478,7 +480,8 @@ type            ::= path generic_args?
                   | array_type
                   | tuple_type
                   | function_type
-                  | parenthesized_type ;
+                  | parenthesized_type
+                  | qualified_type ;
 
 function_type   ::= "fn" "(" type_list? ")" "->" type ;
 
@@ -489,11 +492,14 @@ tuple_type      ::= "(" ")"
 
 parenthesized_type ::= "(" type ")" ;
 
-generic_args    ::= "<" type ("," type)* (",")? ">" ;
+generic_args    ::= "<" generic_arg ("," generic_arg)* (",")? ">" ;
+generic_arg     ::= type | associated_type_binding ;
+associated_type_binding ::= IDENT "=" type ;
+qualified_type  ::= "<" type "as" trait_ref ">" "::" IDENT ;
 
 where_clause    ::= "where" where_predicate ("," where_predicate)* (",")? ;
 
-where_predicate ::= IDENT ":" type_bound_list ;
+where_predicate ::= type ":" type_bound_list ;
 
 trait_ref       ::= path generic_args? ;
 
@@ -513,8 +519,15 @@ Kagari does not expose Rust-style `dyn` trait-object, boxed trait-object, or bor
 
 The empty tuple type `()` is Kagari's unit type.
 As in Rust, `(T)` groups a type and `(T,)` is a one-element tuple type.
-It represents the absence of a meaningful value and is the default result type for functions or module initialization paths that do not produce a value.
+It represents the absence of a meaningful value and is the default result type for functions that do not produce a value.
 Source code does not need to spell a trailing `()` expression; a block with no tail expression produces `()`.
+
+Ordinary associated types use `type Item;` in traits and `type Item = T;`
+in trait implementations. Trait arguments can bind outputs (`Reader<Item = i32>`),
+and types can project them (`Self::Item`, `R::Item`, `<R as Reader>::Item`).
+A `where` target may be a generic parameter or its associated projection.
+See [traits.md](traits.md#ordinary-associated-types) for the authoritative rules;
+[the EBNF](../kagari.ebnf) defines their complete grammar.
 
 ### Impl Blocks and Methods
 
@@ -524,7 +537,9 @@ impl_block      ::= inherent_impl
 
 inherent_impl   ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
 
-trait_impl      ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" impl_item* "}" ;
+trait_impl      ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" trait_impl_item* "}" ;
+trait_impl_item ::= attribute* method_decl | associated_type_def ;
+associated_type_def ::= "type" IDENT "=" type ";" ;
 
 impl_item       ::= attribute* method_decl ;
 
@@ -944,9 +959,9 @@ The exact runtime meaning of object values is specified outside this syntax docu
 The following areas are outside this syntax specification:
 
 - visibility and module public-interface semantics
-- associated items beyond methods
+- associated consts, generic associated types and associated type defaults
 - extended pattern grammar
-- extended generic constraints and `where` predicates
+- higher-kinded parameters and advanced trait solving
 - host-exposed type syntax
 
 ## Parser Guidance

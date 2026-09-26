@@ -528,7 +528,11 @@ impl<'a> Parser<'a> {
 
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            self.parse_method(false);
+            if self.nth_nontrivia_kind(0) == Some(TokenKind::TypeKw) {
+                self.parse_associated_type();
+            } else {
+                self.parse_method(false);
+            }
             self.bump_trivia();
         }
 
@@ -565,7 +569,11 @@ impl<'a> Parser<'a> {
 
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            self.parse_method(true);
+            if self.nth_nontrivia_kind(0) == Some(TokenKind::TypeKw) {
+                self.parse_associated_type();
+            } else {
+                self.parse_method(true);
+            }
             self.bump_trivia();
         }
 
@@ -660,7 +668,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_trait_bound_list(&mut self) {
+    pub(crate) fn parse_trait_bound_list(&mut self) {
         self.start_node(SyntaxKind::TraitBoundList);
         self.parse_trait_ref();
         self.bump_trivia();
@@ -674,13 +682,33 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_trait_ref(&mut self) {
+    pub(crate) fn parse_trait_ref(&mut self) {
         self.start_node(SyntaxKind::TraitRef);
         self.parse_path();
         self.bump_trivia();
         if self.at(TokenKind::Lt) {
             self.parse_generic_arg_list();
         }
+        self.finish_node();
+    }
+
+    fn parse_associated_type(&mut self) {
+        self.start_node(SyntaxKind::AssociatedType);
+        self.expect(TokenKind::TypeKw, DiagnosticKind::ExpectedType);
+        self.bump_trivia();
+        self.parse_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Colon) {
+            self.bump();
+            self.parse_trait_bound_list();
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.parse_type_ref();
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
         self.finish_node();
     }
 
@@ -691,12 +719,7 @@ impl<'a> Parser<'a> {
 
         while !self.at_any(&[TokenKind::LBrace, TokenKind::Eof]) {
             self.start_node(SyntaxKind::WherePredicate);
-            self.start_node(SyntaxKind::Name);
-            self.expect(
-                TokenKind::Ident,
-                DiagnosticKind::ExpectedGenericParameterName,
-            );
-            self.finish_node();
+            self.parse_type_ref();
             self.expect(
                 TokenKind::Colon,
                 DiagnosticKind::ExpectedWherePredicateSeparator,

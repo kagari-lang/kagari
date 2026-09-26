@@ -205,7 +205,7 @@ pub(crate) fn validate_enum_layouts(
             .map_err(|_| LayoutValidationError::Cancelled)?;
         use super::abi::{AbiType, StandardEnumKind};
         match ty {
-            AbiType::Parameter { .. } | AbiType::SelfType(_) => {
+            AbiType::Projection { .. } | AbiType::Parameter { .. } | AbiType::SelfType(_) => {
                 return Err(LayoutValidationError::Invalid);
             }
             AbiType::Builtin(_) | AbiType::Host(_) => {}
@@ -231,6 +231,7 @@ pub(crate) fn validate_enum_layouts(
             }
             AbiType::Struct(instance) | AbiType::Enum(instance) | AbiType::Trait(instance) => {
                 pending.extend(&instance.arguments);
+                pending.extend(instance.associated_types.values());
                 let id = &instance.declaration;
                 let kind = match ty {
                     AbiType::Struct(_) => DefinitionKind::Struct,

@@ -7,6 +7,7 @@ pub(super) struct TypeContext<'a> {
     pub declarations: &'a crate::declarations::Declarations,
     pub generics: &'a [hir::GenericParam],
     pub self_type: Option<hir::TraitId>,
+    pub implementation: Option<hir::ImplId>,
 }
 
 pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> ResolvedTypeRef {
@@ -56,6 +57,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     ResolvedName::Struct(id) => {
                         target = Some(TypeTarget::Struct(id));
                         TypeId::Struct(crate::types::NominalType {
+                            associated_types: Default::default(),
                             declaration: definition,
                             arguments,
                         })
@@ -63,6 +65,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     ResolvedName::Enum(id) => {
                         target = Some(TypeTarget::Enum(id));
                         TypeId::Enum(crate::types::NominalType {
+                            associated_types: Default::default(),
                             declaration: definition,
                             arguments,
                         })
@@ -70,6 +73,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     ResolvedName::Trait(id) => {
                         target = Some(TypeTarget::Trait(id));
                         TypeId::Trait(crate::types::NominalType {
+                            associated_types: Default::default(),
                             declaration: definition,
                             arguments,
                         })
@@ -109,6 +113,7 @@ pub(super) fn resolve_type(
             declarations,
             generics: &[],
             self_type: None,
+            implementation: None,
         },
         table,
         cancel,
@@ -122,14 +127,57 @@ pub(super) fn resolve_type_in(
     table: &mut TypeTable,
     cancel: &CancellationToken,
 ) -> TypeId {
-    if cancel.check().is_err() {
+    if cancel.check().is_err() || !table.resolving_types.insert(ty) {
         return TypeId::Error;
     }
+    let context = if let hir::HirOwner::Body(hir::BodyOwner::Function(function)) = ty.owner() {
+        TypeContext {
+            self_type: context.self_type.or_else(|| {
+                module
+                    .traits
+                    .iter()
+                    .find(|item| {
+                        item.methods
+                            .iter()
+                            .any(|method| method.function == function)
+                    })
+                    .map(|item| item.id)
+            }),
+            implementation: context.implementation.or_else(|| {
+                module
+                    .impls
+                    .iter()
+                    .find(|item| {
+                        item.methods
+                            .iter()
+                            .any(|method| method.function == function)
+                    })
+                    .map(|item| item.id)
+            }),
+            ..context
+        }
+    } else {
+        context
+    };
     let mut target = None;
     let resolved = match &module.type_ref(ty).kind {
         hir::TypeKind::Named(name) => {
             let reference = resolve_named_type(name, context);
             target = reference.target;
+            if reference.ty == TypeId::Error && name.contains("::") {
+                let resolved = super::associated::resolve_projection_name(
+                    module, name, context, table, cancel,
+                );
+                table.resolving_types.remove(&ty);
+                table.insert_type_ref(
+                    ty,
+                    ResolvedTypeRef {
+                        ty: resolved.clone(),
+                        target: None,
+                    },
+                );
+                return resolved;
+            }
             match &reference.ty {
                 TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty)
                     if !ty.arguments.is_empty() =>
@@ -139,7 +187,12 @@ pub(super) fn resolve_type_in(
                 _ => reference.ty,
             }
         }
-        hir::TypeKind::Generic { name, args } => {
+        hir::TypeKind::Generic {
+            name,
+            args,
+            bindings,
+            positional_after_binding,
+        } => {
             let reference = resolve_named_type(name, context);
             target = reference.target;
             // An application has the same base binding as a named annotation.
@@ -152,28 +205,71 @@ pub(super) fn resolve_type_in(
                 .iter()
                 .map(|arg| resolve_type_in(module, *arg, context, table, cancel))
                 .collect::<Vec<_>>();
+            let resolved_bindings = bindings
+                .iter()
+                .map(|(name, ty)| {
+                    (
+                        name.clone(),
+                        resolve_type_in(module, *ty, context, table, cancel),
+                    )
+                })
+                .collect::<Vec<_>>();
             match reference.ty {
                 TypeId::Struct(mut nominal)
-                    if !nominal.arguments.is_empty() && nominal.arguments.len() == args.len() =>
+                    if !nominal.arguments.is_empty()
+                        && nominal.arguments.len() == args.len()
+                        && bindings.is_empty() =>
                 {
                     nominal.arguments = args;
                     TypeId::Struct(nominal)
                 }
                 TypeId::Enum(mut nominal)
-                    if !nominal.arguments.is_empty() && nominal.arguments.len() == args.len() =>
+                    if !nominal.arguments.is_empty()
+                        && nominal.arguments.len() == args.len()
+                        && bindings.is_empty() =>
                 {
                     nominal.arguments = args;
                     TypeId::Enum(nominal)
                 }
                 TypeId::Trait(mut nominal)
-                    if !nominal.arguments.is_empty() && nominal.arguments.len() == args.len() =>
+                    if nominal.arguments.len() == args.len()
+                        && (!nominal.arguments.is_empty() || !bindings.is_empty())
+                        && !*positional_after_binding =>
                 {
                     nominal.arguments = args;
-                    TypeId::Trait(nominal)
+                    let members = super::associated::members(
+                        module,
+                        context.declarations,
+                        &nominal.declaration,
+                    );
+                    let mut valid = true;
+                    for (name, value) in resolved_bindings {
+                        let id = crate::types::associated_type_id(&nominal.declaration, &name);
+                        valid &= members.contains(&name)
+                            && nominal.associated_types.insert(id, value).is_none();
+                    }
+                    if valid {
+                        TypeId::Trait(nominal)
+                    } else {
+                        TypeId::Error
+                    }
                 }
-                _ if prelude => surface::standard_generic_type(name, args).unwrap_or(TypeId::Error),
+                _ if prelude && bindings.is_empty() => {
+                    surface::standard_generic_type(name, args).unwrap_or(TypeId::Error)
+                }
                 _ => TypeId::Error,
             }
+        }
+        hir::TypeKind::Projection {
+            receiver,
+            trait_ref,
+            member,
+        } => {
+            let receiver = resolve_type_in(module, *receiver, context, table, cancel);
+            let interface = resolve_type_in(module, *trait_ref, context, table, cancel);
+            super::associated::qualified_projection(
+                module, receiver, interface, member, context, table, cancel,
+            )
         }
         hir::TypeKind::Tuple(elements) => {
             let elements = elements
@@ -197,6 +293,7 @@ pub(super) fn resolve_type_in(
             result: Box::new(resolve_type_in(module, *result, context, table, cancel)),
         },
     };
+    table.resolving_types.remove(&ty);
     table.insert_type_ref(
         ty,
         ResolvedTypeRef {
@@ -209,14 +306,33 @@ pub(super) fn resolve_type_in(
 pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
     match &module.type_ref(ty).kind {
         hir::TypeKind::Named(name) => name.clone(),
-        hir::TypeKind::Generic { name, args } => {
+        hir::TypeKind::Generic {
+            name,
+            args,
+            bindings,
+            ..
+        } => {
             let inner = args
                 .iter()
                 .map(|arg| display_type(module, *arg))
+                .chain(
+                    bindings
+                        .iter()
+                        .map(|(name, ty)| format!("{name} = {}", display_type(module, *ty))),
+                )
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{name}<{inner}>")
         }
+        hir::TypeKind::Projection {
+            receiver,
+            trait_ref,
+            member,
+        } => format!(
+            "<{} as {}>::{member}",
+            display_type(module, *receiver),
+            display_type(module, *trait_ref)
+        ),
         hir::TypeKind::Tuple(elements) => {
             let inner = elements
                 .iter()

@@ -41,7 +41,7 @@ KbcArtifact {
 }
 ```
 
-Format version 42 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 43 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
 virtual segment fingerprints from resolved contract fields. Versions 1 through 41 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
@@ -439,3 +439,14 @@ Loading checks the derived fingerprint and resolves every required declaration
 against the actual runtime registry by nominal identity. Signature, borrow,
 effect, permission and cost differences reject the module before publication or
 initialization. Unrelated installed host functions do not affect compatibility.
+
+## Associated type metadata
+
+Format 43 (language v3, runtime ABI v43) records trait-owned associated member
+identities, declaration bounds, impl output definitions, interface equality
+bindings and projection templates. Generic bound targets are structural ABI
+types, so projections have the same canonical identity as parameter bounds.
+Associated binding maps are ordered by declaration identity; decoding rejects
+duplicate or noncanonical keys and applies the existing bounded type node,
+depth, identity and record budgets. Linking verifies the complete output schema
+and bounds even when no trait method is executed. Earlier formats are rejected.

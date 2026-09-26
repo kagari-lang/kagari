@@ -360,7 +360,7 @@ impl<'a> Executor<'a> {
                 }
                 Ok(())
             }
-            CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(callee)),
+            CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(Box::new(callee))),
             CallTarget::ClosureRegister {
                 register,
                 params,

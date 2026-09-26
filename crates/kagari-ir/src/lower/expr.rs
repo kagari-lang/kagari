@@ -720,6 +720,7 @@ impl FunctionLowerer<'_, '_> {
                     ));
                 }
                 let concrete = kagari_hir::types::NominalType {
+                    associated_types: Default::default(),
                     declaration: owner.declaration.clone(),
                     arguments: self.planner.arguments(
                         &owner.arguments,
@@ -1035,6 +1036,18 @@ impl FunctionLowerer<'_, '_> {
                     .arguments(&[ty], &self.instance.substitution, span)?;
                 let ty = types.pop().expect("receiver type");
                 let interface = kagari_hir::types::NominalType {
+                    associated_types: interface
+                        .associated_types
+                        .iter()
+                        .map(|(id, ty)| {
+                            let mut types = self.planner.arguments(
+                                std::slice::from_ref(ty),
+                                &self.instance.substitution,
+                                span,
+                            )?;
+                            Ok((id.clone(), types.pop().expect("associated type")))
+                        })
+                        .collect::<Result<_, IrLoweringError>>()?,
                     declaration: interface.declaration,
                     arguments: self.planner.arguments(
                         &interface.arguments,

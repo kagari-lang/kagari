@@ -50,7 +50,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     .typed
                     .consts
                     .get(&id)
-                    .map(AbiType::from_checked_type)
+                    .map(|ty| abi_type(module, ty))
                     .expect("checked const fact must exist");
                 let value = module
                     .typed
@@ -80,7 +80,8 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         .iter()
                         .map(|field| FieldAbi {
                             name: field.name.clone(),
-                            ty: AbiType::from_checked_type(
+                            ty: abi_type(
+                                module,
                                 &module
                                     .typed
                                     .type_table
@@ -114,7 +115,8 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                                 .payload
                                 .iter()
                                 .map(|ty| {
-                                    crate::module::abi::AbiType::from_checked_type(
+                                    abi_type(
+                                        module,
                                         &module
                                             .typed
                                             .type_table
@@ -137,6 +139,40 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     continue;
                 };
                 let abi = TraitAbi {
+                    associated_types: trait_item
+                        .associated_types
+                        .iter()
+                        .map(|member| {
+                            let kagari_hir::declarations::DeclarationId::Definition(owner) =
+                                &module
+                                    .declarations
+                                    .target(kagari_hir::resolver::ResolvedName::Trait(id))
+                                    .expect("trait identity")
+                                    .id
+                            else {
+                                unreachable!("nominal trait")
+                            };
+                            crate::module::abi::AssociatedTypeAbi {
+                                declaration: kagari_hir::types::associated_type_id(
+                                    owner,
+                                    &member.name,
+                                ),
+                                bounds: {
+                                    let mut bounds = member
+                                        .bounds
+                                        .iter()
+                                        .filter_map(|bound| {
+                                            module.typed.type_table.constraint(bound.ty)
+                                        })
+                                        .map(constraint_abi)
+                                        .collect::<Vec<_>>();
+                                    bounds.sort();
+                                    bounds.dedup();
+                                    bounds
+                                },
+                            }
+                        })
+                        .collect(),
                     name: trait_item.name.clone(),
                     generic_params: generic_param_abi(module, &trait_item.generic_params),
                     bounds: parameter_bounds(module, &trait_item.generic_params),
@@ -179,12 +215,15 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
         let Some(reference) = &impl_block.trait_ref else {
             continue;
         };
-        let trait_type = &module
+        let trait_type = match module
             .typed
             .type_table
-            .type_ref(reference.ty)
-            .expect("checked impl trait reference")
-            .ty;
+            .constraint(reference.ty)
+            .expect("checked impl trait")
+        {
+            kagari_hir::typeck::ConstraintTarget::Trait(ty) => kagari_hir::types::TypeId::Trait(ty),
+            _ => unreachable!("user trait impl"),
+        };
         let for_type = &impl_block
             .for_type
             .and_then(|ty| module.typed.type_table.type_ref(ty))
@@ -203,40 +242,19 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 .clone(),
             name,
             generic_params: generic_param_abi(module, &impl_block.generic_params),
-            bounds: canonical_bounds(
-                parameter_bounds(module, &impl_block.generic_params)
-                    .into_iter()
-                    .chain(impl_block.bounds.iter().map(|bound| {
-                        let kagari_hir::types::TypeId::Generic(parameter) = &module
-                            .typed
-                            .type_table
-                            .type_ref(bound.target_ref)
-                            .expect("checked impl bound target")
-                            .ty
-                        else {
-                            unreachable!("checked generic bound target")
-                        };
-                        GenericBoundAbi {
-                            owner: parameter.owner.clone(),
-                            position: parameter.position,
-                            constraints: bound
-                                .traits
-                                .iter()
-                                .map(|reference| {
-                                    constraint_abi(
-                                        module
-                                            .typed
-                                            .type_table
-                                            .constraint(reference.ty)
-                                            .expect("checked impl bound"),
-                                    )
-                                })
-                                .collect(),
-                        }
-                    }))
-                    .collect(),
+            bounds: checked_bounds(
+                &module
+                    .aggregates
+                    .implementation_signature(
+                        module
+                            .declarations
+                            .impl_identity(impl_block.id)
+                            .expect("impl identity"),
+                    )
+                    .expect("checked implementation")
+                    .bounds,
             ),
-            trait_type: AbiType::from_checked_type(trait_type),
+            trait_type: AbiType::from_checked_type(&trait_type),
             for_type: AbiType::from_checked_type(for_type),
             methods: impl_block
                 .methods
@@ -275,12 +293,16 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
             .iter()
             .map(|param| ParameterAbi {
                 name: param.name.clone(),
-                ty: AbiType::from_checked_type(&param.ty),
+                ty: abi_type(module, &param.ty),
                 mutable: param.writeability.is_var(),
             })
             .collect(),
-        return_type: AbiType::from_checked_type(&typed.return_type),
+        return_type: abi_type(module, &typed.return_type),
     })
+}
+
+fn abi_type(module: &AnalyzedModule, ty: &kagari_hir::types::TypeId) -> AbiType {
+    AbiType::from_checked_type(&module.aggregates.normalize_type(ty))
 }
 
 fn method_abi(
@@ -294,9 +316,13 @@ fn method_abi(
         .generic_params
         .retain(|parameter| !inherited.contains(parameter));
     method.bounds.retain(|bound| {
-        !inherited
-            .iter()
-            .any(|parameter| parameter.owner == bound.owner && parameter.position == bound.position)
+        !inherited.iter().any(|parameter| {
+            bound.ty
+                == AbiType::Parameter {
+                    owner: parameter.owner.clone(),
+                    position: parameter.position,
+                }
+        })
     });
     Some(method)
 }
@@ -342,8 +368,10 @@ fn parameter_bounds(module: &AnalyzedModule, params: &[hir::GenericParam]) -> Ve
         .iter()
         .zip(identities)
         .map(|(param, id)| GenericBoundAbi {
-            owner: id.owner,
-            position: id.position,
+            ty: AbiType::Parameter {
+                owner: id.owner,
+                position: id.position,
+            },
             constraints: param
                 .bounds
                 .iter()
@@ -367,8 +395,7 @@ fn checked_bounds(bounds: &kagari_hir::typeck::GenericBounds) -> Vec<GenericBoun
         bounds
             .iter()
             .map(|(param, targets)| GenericBoundAbi {
-                owner: param.owner.clone(),
-                position: param.position,
+                ty: AbiType::from_checked_type(param),
                 constraints: targets.iter().cloned().map(constraint_abi).collect(),
             })
             .collect(),
@@ -376,12 +403,11 @@ fn checked_bounds(bounds: &kagari_hir::typeck::GenericBounds) -> Vec<GenericBoun
 }
 
 fn canonical_bounds(mut bounds: Vec<GenericBoundAbi>) -> Vec<GenericBoundAbi> {
-    bounds.sort_by(|a, b| (&a.owner, a.position).cmp(&(&b.owner, b.position)));
+    bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
     let mut merged: Vec<GenericBoundAbi> = Vec::new();
     for bound in bounds {
         if let Some(previous) = merged.last_mut()
-            && previous.owner == bound.owner
-            && previous.position == bound.position
+            && previous.ty == bound.ty
         {
             previous.constraints.extend(bound.constraints);
         } else {
@@ -394,6 +420,6 @@ fn canonical_bounds(mut bounds: Vec<GenericBoundAbi>) -> Vec<GenericBoundAbi> {
         bound.constraints.dedup();
     }
     bounds.retain(|bound| !bound.constraints.is_empty());
-    bounds.sort_by(|a, b| (&a.owner, a.position).cmp(&(&b.owner, b.position)));
+    bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
     bounds
 }

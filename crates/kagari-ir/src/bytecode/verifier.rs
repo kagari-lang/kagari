@@ -263,9 +263,9 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
     verify_module_with_program(module, None)?;
-    if !super::trait_bounds::host_bounds_match(module, &[module]) {
+    if !super::trait_bounds::trait_bounds_match(module, &[module]) {
         return Err(BytecodeVerificationError::InvalidHostInterface(
-            "host trait bound has no unique implementation".into(),
+            "trait output or host bound has no unique valid implementation".into(),
         ));
     }
     Ok(())
@@ -528,6 +528,11 @@ fn instantiate_method_type(
     };
     let nominal = |ty: &NominalAbiType| {
         Some(NominalAbiType {
+            associated_types: ty
+                .associated_types
+                .iter()
+                .map(|(id, ty)| Some((id.clone(), child(ty)?)))
+                .collect::<Option<_>>()?,
             declaration: ty.declaration.clone(),
             arguments: ty.arguments.iter().map(&child).collect::<Option<_>>()?,
         })
@@ -539,7 +544,9 @@ fn instantiate_method_type(
         AbiType::Parameter { owner, position } if owner == method_owner => {
             method_arguments.get(*position)?.clone()
         }
-        AbiType::Parameter { .. } | AbiType::SelfType(_) => return None,
+        AbiType::Projection { .. } | AbiType::Parameter { .. } | AbiType::SelfType(_) => {
+            return None;
+        }
         AbiType::Builtin(_) | AbiType::Host(_) => ty.clone(),
         AbiType::Tuple(types) => AbiType::Tuple(types.iter().map(child).collect::<Option<_>>()?),
         AbiType::Function { params, result } => AbiType::Function {

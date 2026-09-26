@@ -305,6 +305,7 @@ fn main(point: Point) -> Point {
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
         Some(TypeId::Struct(crate::types::NominalType {
+            associated_types: Default::default(),
             declaration: common::definition(
                 &lowered,
                 kagari_common::identity::DefinitionKind::Struct,
@@ -1467,6 +1468,7 @@ where T: Display
     assert_eq!(
         show_interface.params[0].ty,
         TypeId::Trait(crate::types::NominalType {
+            associated_types: Default::default(),
             declaration: common::definition(
                 &lowered,
                 kagari_common::identity::DefinitionKind::Trait,

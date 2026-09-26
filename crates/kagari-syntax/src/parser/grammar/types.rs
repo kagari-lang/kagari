@@ -25,8 +25,25 @@ impl<'a> Parser<'a> {
             Some(TokenKind::LParen) => self.parse_paren_or_tuple_type(),
             Some(TokenKind::LBracket) => self.parse_array_type(),
             Some(TokenKind::FnKw) => self.parse_function_type(),
+            Some(TokenKind::Lt) => self.parse_qualified_type(),
             _ => self.error_here(DiagnosticKind::ExpectedType),
         }
+        self.finish_node();
+    }
+
+    fn parse_qualified_type(&mut self) {
+        self.start_node(SyntaxKind::QualifiedType);
+        self.bump();
+        self.parse_type_ref();
+        self.bump_trivia();
+        self.expect(TokenKind::AsKw, DiagnosticKind::ExpectedType);
+        self.parse_trait_ref();
+        self.bump_trivia();
+        self.expect(TokenKind::Gt, DiagnosticKind::ExpectedType);
+        self.bump_trivia();
+        self.expect(TokenKind::ColonColon, DiagnosticKind::ExpectedType);
+        self.bump_trivia();
+        self.parse_name();
         self.finish_node();
     }
 
@@ -108,7 +125,18 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
 
         while !self.at_any(&[TokenKind::Gt, TokenKind::Eof]) {
-            self.parse_type_ref();
+            if self.nth_nontrivia_kind(0) == Some(TokenKind::Ident)
+                && self.nth_nontrivia_kind(1) == Some(TokenKind::Eq)
+            {
+                self.start_node(SyntaxKind::AssociatedTypeBinding);
+                self.parse_name();
+                self.bump_trivia();
+                self.bump();
+                self.parse_type_ref();
+                self.finish_node();
+            } else {
+                self.parse_type_ref();
+            }
             self.bump_trivia();
             if self.at(TokenKind::Comma) {
                 self.bump();

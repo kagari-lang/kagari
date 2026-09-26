@@ -73,11 +73,13 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     let mut module = raw(source);
     let declaration = module.structures[0].declaration.clone();
     let nominal = NominalType {
+        associated_types: Default::default(),
         declaration: declaration.clone(),
         arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
     };
     let encoded = AbiType::from_checked_type(&TypeId::Struct(nominal));
     let expected = AbiType::Struct(NominalAbiType {
+        associated_types: Default::default(),
         declaration,
         arguments: vec![AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::I32)))],
     });
@@ -119,6 +121,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     absent.path[0].name = "Absent".into();
     module.enumerations[0].variants[0].payload[0] =
         crate::module::abi::AbiType::Enum(crate::module::abi::NominalAbiType {
+            associated_types: Default::default(),
             declaration: absent,
             arguments: Vec::new(),
         });

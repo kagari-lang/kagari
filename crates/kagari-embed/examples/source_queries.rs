@@ -63,7 +63,11 @@ fn main() -> kagari_embed::CompileResult<()> {
         "checked generic bounds before body analysis: {:?}",
         inspect.bounds
     );
-    assert_eq!(inspect.bounds[&inspect.generic_params[0]].len(), 1);
+    assert_eq!(
+        inspect.bounds[&kagari_hir::types::TypeId::Generic(inspect.generic_params[0].clone())]
+            .len(),
+        1
+    );
     let payload_point = text.find("Running(Point").expect("payload") + "Running(".len();
     assert_eq!(
         signature

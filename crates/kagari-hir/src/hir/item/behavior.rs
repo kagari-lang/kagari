@@ -30,6 +30,15 @@ pub struct TraitDef {
     pub name: String,
     pub generic_params: GenericParamBuffer,
     pub methods: TraitMethodBuffer,
+    pub associated_types: Vec<AssociatedType>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssociatedType {
+    pub name: String,
+    pub name_ref: TypeRefId,
+    pub ty: Option<TypeRefId>,
+    pub bounds: TraitRefBuffer,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +57,7 @@ pub struct Impl {
     pub for_type: Option<TypeRefId>,
     pub bounds: TraitBoundBuffer,
     pub methods: ImplMethodBuffer,
+    pub associated_types: Vec<AssociatedType>,
 }
 
 #[derive(Debug, Clone)]

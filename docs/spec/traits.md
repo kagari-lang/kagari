@@ -21,20 +21,19 @@ Runtime model rules are defined separately in [runtime.md](runtime.md).
 ## Scope Exclusions
 
 Kagari traits do not reproduce all of Rust's trait features.
-The initial trait scope excludes:
+The current trait scope excludes:
 
 - script-level `dyn` trait-object syntax
 - Rust-style trait object syntax such as borrowed or boxed `dyn` trait objects
 - lifetime-parameterized traits
-- generalized associated types
-- associated types
+- generic associated types (GAT), including lifetime-parameterized forms
 - associated consts
 - specialization
 - negative impls
 - auto traits
 - full Rust-style coherence and orphan behavior
 - higher-rank bounds
-- projection-heavy associated type constraints
+- higher-kinded type parameters and projection-heavy solving beyond ordinary associated types
 
 ## Core Model
 
@@ -83,7 +82,8 @@ The important properties are:
 - no downcast is involved
 
 Bounds resolve in their declaring generic scope. A `where` predicate must name
-a generic parameter; an unknown name or a concrete type is an invalid target.
+a generic parameter or an associated projection rooted in a generic parameter;
+an unknown name or an unrelated concrete type is an invalid target.
 Methods inherit their impl's inline and `where` constraints. A method's own
 constraints apply only within that method. If a method declares a parameter with
 the same name as an inherited parameter, its uses and bounds refer to the method
@@ -137,6 +137,67 @@ constructor arguments and contextual inference for parameters absent from a
 constructor's fields/payloads are not implemented yet; missing inferred arguments
 produce a diagnostic. Public generic type templates are permitted, while public
 function entries still require concrete signatures.
+
+## Ordinary Associated Types
+
+An associated type is an output of a trait implementation. It is identified by
+its owning trait declaration and member, separately from the trait's input type
+arguments. Two implementations with the same receiver and trait inputs cannot be
+distinguished by assigning different associated outputs.
+
+```kagari
+trait Reader {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+struct Number { val value: i32 }
+impl Reader for Number {
+    type Item = i32;
+    fn read(self) -> Self::Item { self.value }
+}
+
+fn read<R: Reader>(reader: R) -> R::Item { reader.read() }
+fn read_integer<R: Reader<Item = i32>>(reader: R) -> i32 { reader.read() }
+fn read_qualified<R: Reader>(reader: R) -> <R as Reader>::Item { reader.read() }
+fn read_interface(reader: Reader<Item = i32>) -> i32 { reader.read() }
+```
+
+`Self::Item` refers to the current trait's associated member. `R::Item` requires
+one applicable trait bound declaring that name. If multiple bounds declare it,
+use `<R as Reader>::Item`. A qualified projection must be justified by the
+receiver's bounds or a valid concrete implementation; spelling a binding in the
+qualified trait does not create a new equality proof.
+
+Trait references accept associated equality bindings after positional arguments,
+for example `Reader<i32, Item = String>`. Unknown, duplicate, or out-of-order
+bindings are errors. A bound may leave outputs unspecified. A trait used as a
+value type must bind every associated type; its method parameters and results
+are checked after replacing those projections. Different output bindings denote
+different interface types and cannot be exchanged implicitly.
+
+Declarations can constrain outputs, as in `type Item: Display;`. Generic functions
+can add projection constraints, as in `where R::Item: Display`. These constraints
+are checked against implementation definitions and concrete call arguments, and
+are available for static method lookup on the projected value. Generic impls may
+define outputs in terms of their own type parameters.
+
+Projection templates remain in checked signatures and canonical ABI metadata.
+Reachable static calls normalize them to concrete types during monomorphization;
+no runtime generic specialization or runtime projection lookup is introduced.
+Cross-module analysis and artifact loading use declaration identity, including
+for same-spelled members on unrelated traits. Loading rechecks associated schemas,
+method contracts and output bounds before execution.
+
+Every trait impl must define each declared output exactly once. Defaults,
+recursive definitions, associated types in inherent impls, GAT and associated
+consts are outside this checkpoint. Host trait registration currently has no
+associated-output declaration payload; registrations for traits declaring
+associated types are rejected explicitly. Script implementations and interface
+values support ordinary associated types without changing the host value model.
+
+See [associated-types.kgr](../../examples/syntax/associated-types.kgr) for a
+runnable example returning `42`.
 
 ## Interface Value Types
 
@@ -199,16 +260,18 @@ trait_item       ::= visibility? trait_decl ;
 
 trait_decl       ::= "trait" IDENT generic_param_clause? "{" trait_member* "}" ;
 
-trait_member     ::= method_sig ";" ;
+trait_member     ::= attribute* trait_method | associated_type_decl ;
+trait_method     ::= method_sig (";" | block) ;
+associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
 
 method_sig       ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
 
 Trait members are limited to:
 
-- methods only
-- no associated consts
-- no associated types
+- methods, including checked default method bodies
+- ordinary associated types, optionally constrained by trait or standard bounds
+- no associated consts or generic associated types
 
 ## Trait Implementation
 
@@ -425,7 +488,6 @@ The initial trait system includes:
 The initial trait system excludes:
 
 - script-level `dyn` trait-object syntax
-- associated types
 - associated consts
 - trait inheritance with complex conflict rules
 - trait upcasting

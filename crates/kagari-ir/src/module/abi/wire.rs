@@ -26,7 +26,18 @@ enum Node {
     Set,
     Struct(DefinitionId, u32),
     Enum(DefinitionId, u32),
-    Trait(DefinitionId, u32),
+    Trait(
+        DefinitionId,
+        u32,
+        #[serde(deserialize_with = "crate::decode_limits::nested")] Vec<DefinitionId>,
+    ),
+    Projection {
+        member: DefinitionId,
+        owner: DefinitionId,
+        arguments: u32,
+        #[serde(deserialize_with = "crate::decode_limits::nested")]
+        bindings: Vec<DefinitionId>,
+    },
     StandardEnum(StandardEnum, u32),
 }
 
@@ -94,6 +105,9 @@ impl AbiType {
                     Node::Set
                 }
                 Self::Struct(ty) => {
+                    if !ty.associated_types.is_empty() {
+                        return Err("associated bindings require a trait");
+                    }
                     if !ty.declaration.within_path_limit() {
                         return Err("ABI identity path limit exceeded");
                     }
@@ -104,6 +118,9 @@ impl AbiType {
                     Node::Struct(ty.declaration.clone(), ty.arguments.len() as u32)
                 }
                 Self::Enum(ty) => {
+                    if !ty.associated_types.is_empty() {
+                        return Err("associated bindings require a trait");
+                    }
                     if !ty.declaration.within_path_limit() {
                         return Err("ABI identity path limit exceeded");
                     }
@@ -120,8 +137,49 @@ impl AbiType {
                     if ty.arguments.len() > MAX_NODES {
                         return Err("ABI type node limit exceeded");
                     }
+                    if ty.associated_types.len() > MAX_NODES
+                        || ty.associated_types.keys().any(|id| !id.within_path_limit())
+                    {
+                        return Err("ABI associated type limit exceeded");
+                    }
+                    pending.extend(ty.associated_types.values().rev().map(|ty| (ty, depth + 1)));
                     pending.extend(ty.arguments.iter().rev().map(|ty| (ty, depth + 1)));
-                    Node::Trait(ty.declaration.clone(), ty.arguments.len() as u32)
+                    Node::Trait(
+                        ty.declaration.clone(),
+                        ty.arguments.len() as u32,
+                        ty.associated_types.keys().cloned().collect(),
+                    )
+                }
+                Self::Projection {
+                    receiver,
+                    interface,
+                    member,
+                } => {
+                    if !member.within_path_limit()
+                        || !interface.declaration.within_path_limit()
+                        || interface.arguments.len() + interface.associated_types.len() > MAX_NODES
+                        || interface
+                            .associated_types
+                            .keys()
+                            .any(|id| !id.within_path_limit())
+                    {
+                        return Err("ABI projection limit exceeded");
+                    }
+                    pending.extend(
+                        interface
+                            .associated_types
+                            .values()
+                            .rev()
+                            .map(|ty| (ty, depth + 1)),
+                    );
+                    pending.extend(interface.arguments.iter().rev().map(|ty| (ty, depth + 1)));
+                    pending.push((receiver, depth + 1));
+                    Node::Projection {
+                        member: member.clone(),
+                        owner: interface.declaration.clone(),
+                        arguments: interface.arguments.len() as u32,
+                        bindings: interface.associated_types.keys().cloned().collect(),
+                    }
                 }
                 Self::StandardEnum { kind, args } => {
                     if args.len() > MAX_NODES {
@@ -214,17 +272,61 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
         },
         Node::Set => AbiType::Set(Box::new(build(nodes, depth + 1)?)),
         Node::Struct(id, count) => AbiType::Struct(NominalAbiType {
+            associated_types: Default::default(),
             declaration: id,
             arguments: children(count, nodes)?,
         }),
         Node::Enum(id, count) => AbiType::Enum(NominalAbiType {
+            associated_types: Default::default(),
             declaration: id,
             arguments: children(count, nodes)?,
         }),
-        Node::Trait(id, count) => AbiType::Trait(NominalAbiType {
-            declaration: id,
-            arguments: children(count, nodes)?,
-        }),
+        Node::Trait(id, count, bindings) => {
+            let arguments = children(count, nodes)?;
+            let mut associated_types = std::collections::BTreeMap::new();
+            for id in bindings {
+                if associated_types
+                    .last_key_value()
+                    .is_some_and(|(previous, _)| previous >= &id)
+                {
+                    return Err(E::custom("noncanonical associated type bindings"));
+                }
+                associated_types.insert(id, build(nodes, depth + 1)?);
+            }
+            AbiType::Trait(NominalAbiType {
+                declaration: id,
+                arguments,
+                associated_types,
+            })
+        }
+        Node::Projection {
+            member,
+            owner,
+            arguments,
+            bindings,
+        } => {
+            let receiver = Box::new(build(nodes, depth + 1)?);
+            let arguments = children(arguments, nodes)?;
+            let mut associated_types = std::collections::BTreeMap::new();
+            for id in bindings {
+                if associated_types
+                    .last_key_value()
+                    .is_some_and(|(previous, _)| previous >= &id)
+                {
+                    return Err(E::custom("noncanonical associated type bindings"));
+                }
+                associated_types.insert(id, build(nodes, depth + 1)?);
+            }
+            AbiType::Projection {
+                receiver,
+                interface: Box::new(NominalAbiType {
+                    declaration: owner,
+                    arguments,
+                    associated_types,
+                }),
+                member,
+            }
+        }
         Node::StandardEnum(kind, count) => AbiType::StandardEnum {
             kind,
             args: children(count, nodes)?,
@@ -255,6 +357,7 @@ mod tests {
             }],
         };
         let nominal = NominalAbiType {
+            associated_types: Default::default(),
             declaration: id.clone(),
             arguments: vec![AbiType::Builtin(BuiltinType::I32)],
         };
@@ -289,6 +392,60 @@ mod tests {
             let decoded: AbiType = codec().deserialize(&bytes).unwrap();
             assert_eq!(decoded, ty);
         }
+    }
+
+    #[test]
+    fn associated_type_wire_preserves_identity_and_rejects_noncanonical_bindings() {
+        let trait_id = DefinitionId {
+            module: ModuleIdentity::single_file("associated.kgr"),
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Trait,
+                name: "Read".into(),
+                occurrence: 0,
+            }],
+        };
+        let member = kagari_hir::types::associated_type_id(&trait_id, "Item");
+        let interface = NominalAbiType {
+            declaration: trait_id.clone(),
+            arguments: vec![AbiType::Builtin(BuiltinType::Bool)],
+            associated_types: [(
+                member.clone(),
+                AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::I32))),
+            )]
+            .into(),
+        };
+        for ty in [
+            AbiType::Trait(interface.clone()),
+            AbiType::Projection {
+                receiver: Box::new(AbiType::SelfType(trait_id.clone())),
+                interface: Box::new(interface),
+                member: member.clone(),
+            },
+        ] {
+            let encoded = codec().serialize(&ty).unwrap();
+            assert_eq!(codec().deserialize::<AbiType>(&encoded).unwrap(), ty);
+        }
+        for bindings in [
+            vec![member.clone(), member.clone()],
+            vec![member.clone(); MAX_NODES + 1],
+        ] {
+            let nodes = vec![
+                Node::Trait(trait_id.clone(), 0, bindings),
+                Node::Builtin(BuiltinType::I32),
+                Node::Builtin(BuiltinType::Bool),
+            ];
+            assert!(
+                codec()
+                    .deserialize::<AbiType>(&codec().serialize(&nodes).unwrap())
+                    .is_err()
+            );
+        }
+        let invalid = AbiType::Struct(NominalAbiType {
+            declaration: trait_id,
+            arguments: Vec::new(),
+            associated_types: [(member, AbiType::Builtin(BuiltinType::I32))].into(),
+        });
+        assert!(codec().serialize(&invalid).is_err());
     }
 
     #[test]

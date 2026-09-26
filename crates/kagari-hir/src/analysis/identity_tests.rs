@@ -533,6 +533,7 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
     assert_eq!(
         analysis.type_at(later),
         Some(TypeId::Struct(crate::types::NominalType {
+            associated_types: Default::default(),
             declaration: id.clone(),
             arguments: Vec::new()
         }))
@@ -542,6 +543,7 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
     assert_eq!(
         analysis.type_at(annotation),
         Some(TypeId::Struct(crate::types::NominalType {
+            associated_types: Default::default(),
             declaration: id.clone(),
             arguments: Vec::new()
         }))

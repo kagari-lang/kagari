@@ -34,6 +34,13 @@ pub(crate) fn check_signatures(
         &mut diagnostics,
         cancel,
     );
+    super::associated::prepare(
+        lowered,
+        declarations,
+        &mut type_table,
+        &mut diagnostics,
+        cancel,
+    );
 
     let mut type_bounds = HashMap::new();
     for (target, params) in lowered
@@ -84,6 +91,7 @@ pub(crate) fn check_signatures(
                     declarations,
                     generics: &structure.generic_params,
                     self_type: None,
+                    implementation: None,
                 },
                 &mut type_table,
                 cancel,
@@ -126,6 +134,7 @@ pub(crate) fn check_signatures(
                         declarations,
                         generics: &enumeration.generic_params,
                         self_type: None,
+                        implementation: None,
                     },
                     &mut type_table,
                     cancel,
@@ -170,6 +179,7 @@ pub(crate) fn check_signatures(
                     declarations,
                     generics: &implementation.generic_params,
                     self_type: None,
+                    implementation: None,
                 },
                 &mut type_table,
                 cancel,
@@ -343,7 +353,13 @@ pub(crate) fn check_bodies_controlled(
     } else {
         Default::default()
     };
-    let functions = signatures.facts.functions.clone();
+    let mut functions = signatures.facts.functions.clone();
+    for function in &mut functions {
+        for param in &mut function.params {
+            param.ty = aggregates.normalize_type(&param.ty);
+        }
+        function.return_type = aggregates.normalize_type(&function.return_type);
+    }
     let function_index = FunctionTypeIndex {
         by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
     };
@@ -551,6 +567,15 @@ fn function_type_context<'a>(
     TypeContext {
         declarations,
         generics: &function.generic_params,
+        implementation: module
+            .impls
+            .iter()
+            .find(|item| {
+                item.methods
+                    .iter()
+                    .any(|method| method.function == function.id)
+            })
+            .map(|item| item.id),
         self_type: module
             .traits
             .iter()
@@ -651,7 +676,11 @@ fn validate_trait_surface(
                     continue;
                 };
                 let span = lowered.source_map.type_span(*source_argument);
-                for constraint in required.get(&parameter).into_iter().flatten() {
+                for constraint in required
+                    .get(&TypeId::Generic(parameter))
+                    .into_iter()
+                    .flatten()
+                {
                     match constraint {
                         super::ConstraintTarget::Standard(standard) => {
                             validate_standard_constraint_type(
@@ -665,7 +694,7 @@ fn validate_trait_surface(
                         super::ConstraintTarget::Trait(required_trait) => {
                             let satisfied = match actual {
                                 TypeId::Generic(parameter) => available
-                                    .get(parameter)
+                                    .get(&TypeId::Generic(parameter.clone()))
                                     .is_some_and(|bounds| bounds.contains(constraint)),
                                 _ => table.implements(required_trait, actual),
                             };
@@ -748,10 +777,8 @@ fn validate_trait_surface(
                     declarations
                         .definition(ResolvedName::Trait(trait_def.id))
                         .expect("checked trait declaration"),
-                    match table.type_ref(reference.ty).map(|resolved| &resolved.ty) {
-                        Some(TypeId::Trait(ty)) => ty.arguments.as_slice(),
-                        _ => &[],
-                    },
+                    id.arguments.as_slice(),
+                    &id.associated_types,
                 ),
                 diagnostics,
             );
@@ -835,7 +862,7 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
 
 pub(super) fn validate_standard_type_constraints(
     ty: &TypeId,
-    generic_bounds: &HashMap<crate::types::GenericParameterType, Vec<super::ConstraintTarget>>,
+    generic_bounds: &HashMap<TypeId, Vec<super::ConstraintTarget>>,
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &kagari_common::cancellation::CancellationToken,
@@ -891,7 +918,7 @@ pub(super) fn validate_standard_type_constraints(
 pub(super) fn validate_standard_constraint_type(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
-    generic_bounds: &HashMap<crate::types::GenericParameterType, Vec<super::ConstraintTarget>>,
+    generic_bounds: &HashMap<TypeId, Vec<super::ConstraintTarget>>,
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
@@ -920,6 +947,7 @@ fn trait_method_interface_compatible(
     function_index: &FunctionTypeIndex,
     function_id: crate::hir::FunctionId,
     trait_generic_count: usize,
+    interface: &crate::types::NominalType,
 ) -> bool {
     let Some(hir_function) = lowered
         .module
@@ -939,8 +967,14 @@ fn trait_method_interface_compatible(
             .params
             .first()
             .is_some_and(|param| param.name == "self"),
-        &function.return_type,
-        function.params.iter().skip(1).map(|param| &param.ty),
+        &function.return_type.with_associated_types(interface),
+        function
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| param.ty.with_associated_types(interface))
+            .collect::<Vec<_>>()
+            .iter(),
     )
 }
 
@@ -985,12 +1019,30 @@ fn validate_interface_type(
                 declarations.definition(ResolvedName::Trait(trait_def.id))
                     == Some(&trait_name.declaration)
             }) {
+                if trait_def.associated_types.iter().any(|member| {
+                    !trait_name
+                        .associated_types
+                        .contains_key(&crate::types::associated_type_id(
+                            &trait_name.declaration,
+                            &member.name,
+                        ))
+                }) {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                            trait_name: trait_def.name.clone(),
+                            reason: "interface values require bindings for all associated types"
+                                .into(),
+                        })
+                        .with_span(span),
+                    );
+                }
                 for method in &trait_def.methods {
                     if !trait_method_interface_compatible(
                         lowered,
                         function_index,
                         method.function,
                         trait_def.generic_params.len(),
+                        trait_name,
                     ) {
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
@@ -1097,7 +1149,12 @@ fn validate_impl_methods(
     function_index: &FunctionTypeIndex,
     trait_def: &crate::hir::TraitDef,
     impl_block: &crate::hir::Impl,
-    receiver: (&TypeId, &kagari_common::identity::DefinitionId, &[TypeId]),
+    receiver: (
+        &TypeId,
+        &kagari_common::identity::DefinitionId,
+        &[TypeId],
+        &std::collections::BTreeMap<kagari_common::identity::DefinitionId, TypeId>,
+    ),
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
     for trait_method in &trait_def.methods {
@@ -1126,6 +1183,7 @@ fn validate_impl_methods(
                 receiver.1,
                 receiver.2,
                 impl_block.generic_params.len(),
+                receiver.3,
             ),
             lowered.source_map.impl_span(impl_block.id),
             diagnostics,
@@ -1203,6 +1261,8 @@ pub(super) struct MethodComparison<'a> {
     pub receiver: &'a TypeId,
     pub trait_owner: &'a kagari_common::identity::DefinitionId,
     pub trait_arguments: &'a [TypeId],
+    pub associated_types:
+        &'a std::collections::BTreeMap<kagari_common::identity::DefinitionId, TypeId>,
     pub span: kagari_common::Span,
 }
 
@@ -1251,6 +1311,18 @@ pub(super) fn compare_method_contract(
                 .map(|(expected, actual)| (expected.clone(), TypeId::Generic(actual.clone()))),
         )
         .collect();
+    let normalize = |ty: TypeId| {
+        super::associated::normalize(&ty, &|interface, _, member| {
+            (interface.declaration == *comparison.trait_owner)
+                .then(|| {
+                    comparison
+                        .associated_types
+                        .get(member)
+                        .map(|ty| ty.instantiate(&substitution))
+                })
+                .flatten()
+        })
+    };
     for (expected_param, actual_param) in expected
         .generic_params()
         .iter()
@@ -1264,12 +1336,12 @@ pub(super) fn compare_method_contract(
     {
         let required = expected
             .bounds()
-            .get(expected_param)
+            .get(&TypeId::Generic(expected_param.clone()))
             .map(Vec::as_slice)
             .unwrap_or_default();
         let provided = actual
             .bounds
-            .get(actual_param)
+            .get(&TypeId::Generic(actual_param.clone()))
             .map(Vec::as_slice)
             .unwrap_or_default();
         let substituted = required
@@ -1297,9 +1369,10 @@ pub(super) fn compare_method_contract(
         if writeability != actual_param.writeability {
             diagnostics.push(mismatch(format!("parameter `{name}` mutability differs")));
         }
-        let expected_ty = ty
-            .with_self(comparison.trait_owner, comparison.receiver)
-            .instantiate(&substitution);
+        let expected_ty = normalize(
+            ty.with_self(comparison.trait_owner, comparison.receiver)
+                .instantiate(&substitution),
+        );
         if expected_ty != actual_param.ty {
             diagnostics.push(mismatch(format!(
                 "parameter `{name}` expected `{}`, found `{}`",
@@ -1308,10 +1381,47 @@ pub(super) fn compare_method_contract(
             )));
         }
     }
-    let expected_return = expected
-        .return_type()
-        .with_self(comparison.trait_owner, comparison.receiver)
-        .instantiate(&substitution);
+    let projected_required = expected
+        .bounds()
+        .iter()
+        .filter(|(ty, _)| matches!(ty, TypeId::Projection { .. }))
+        .map(|(ty, constraints)| {
+            (
+                normalize(
+                    ty.with_self(comparison.trait_owner, comparison.receiver)
+                        .instantiate(&substitution),
+                ),
+                constraints
+                    .iter()
+                    .map(|constraint| match constraint {
+                        super::ConstraintTarget::Standard(value) => {
+                            super::ConstraintTarget::Standard(*value)
+                        }
+                        super::ConstraintTarget::Trait(instance) => {
+                            super::ConstraintTarget::Trait(instance.instantiate(&substitution))
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let projected_actual = actual
+        .bounds
+        .iter()
+        .filter(|(ty, _)| {
+            matches!(ty, TypeId::Projection { .. }) || projected_required.contains_key(*ty)
+        })
+        .map(|(ty, constraints)| (normalize(ty.clone()), constraints.clone()))
+        .collect::<HashMap<_, _>>();
+    if projected_required != projected_actual {
+        diagnostics.push(mismatch("associated type bound differs".into()));
+    }
+    let expected_return = normalize(
+        expected
+            .return_type()
+            .with_self(comparison.trait_owner, comparison.receiver)
+            .instantiate(&substitution),
+    );
     if expected_return != actual.return_type {
         diagnostics.push(mismatch(format!(
             "return type expected `{}`, found `{}`",
@@ -1331,6 +1441,7 @@ fn compare_impl_method_signature(
         &kagari_common::identity::DefinitionId,
         &[TypeId],
         usize,
+        &std::collections::BTreeMap<kagari_common::identity::DefinitionId, TypeId>,
     ),
     span: kagari_common::Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
@@ -1352,6 +1463,7 @@ fn compare_impl_method_signature(
             receiver: receiver.0,
             trait_owner: receiver.1,
             trait_arguments: receiver.2,
+            associated_types: receiver.4,
             span,
         },
         diagnostics,

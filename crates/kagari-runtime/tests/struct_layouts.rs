@@ -235,6 +235,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     bytecode.structures.push(leaf.layout().clone());
     bytecode.structures[0].fields[0].ty = AbiType::Array(Box::new(AbiType::Tuple(vec![
         AbiType::Struct(NominalAbiType {
+            associated_types: Default::default(),
             declaration: leaf.layout().declaration.clone(),
             arguments: vec![],
         }),

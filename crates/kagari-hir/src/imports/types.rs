@@ -15,6 +15,7 @@ pub struct ImportedType {
     pub declaration: Declaration,
     pub ty: TypeId,
     pub trait_methods: Vec<ImportedTraitMethod>,
+    pub associated_types: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +141,19 @@ impl<'a> TypeCatalog<'a> {
             return Ok(None);
         };
         Ok(Some(ImportedType {
+            associated_types: match item {
+                ExportItem::Trait(id) => module
+                    .lowered
+                    .module
+                    .traits
+                    .iter()
+                    .find(|item| item.id == id)
+                    .into_iter()
+                    .flat_map(|item| &item.associated_types)
+                    .map(|item| item.name.clone())
+                    .collect(),
+                _ => Vec::new(),
+            },
             id: SourceTypeId {
                 file: target.file,
                 revision: target.revision,
@@ -147,6 +161,7 @@ impl<'a> TypeCatalog<'a> {
             },
             declaration: declaration.clone(),
             ty: make_type(crate::types::NominalType {
+                associated_types: Default::default(),
                 declaration: identity.clone(),
                 arguments: module
                     .declarations

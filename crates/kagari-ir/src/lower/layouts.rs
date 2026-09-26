@@ -23,6 +23,7 @@ pub(super) fn collect(
     {
         pending.push_back((
             TypeId::Struct(NominalType {
+                associated_types: Default::default(),
                 declaration: structure.id.clone(),
                 arguments: Vec::new(),
             }),
@@ -36,6 +37,7 @@ pub(super) fn collect(
     {
         pending.push_back((
             TypeId::Enum(NominalType {
+                associated_types: Default::default(),
                 declaration: enumeration.id.clone(),
                 arguments: Vec::new(),
             }),
@@ -179,7 +181,8 @@ pub(super) fn collect(
                 pending.push_back((*value, span));
             }
             TypeId::Trait(nominal) => {
-                pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)))
+                pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
+                pending.extend(nominal.associated_types.into_values().map(|ty| (ty, span)));
             }
             _ => {}
         }

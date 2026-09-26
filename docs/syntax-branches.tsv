@@ -20,21 +20,26 @@ field_binding	1	witnessed	examples/syntax/data-model.kgr	-	"val"
 field_binding	2	witnessed	examples/syntax/data-model.kgr	-	"var"
 variant	1	witnessed	examples/syntax/data-model.kgr	-	IDENT
 variant	2	witnessed	examples/syntax/data-model.kgr	-	IDENT "(" type_list? ")"
+trait_member	1	witnessed	examples/syntax/associated-types.kgr	-	attribute* trait_method
+trait_member	2	witnessed	examples/syntax/associated-types.kgr	-	associated_type_decl
 type	1	witnessed	examples/syntax/data-model.kgr	-	path generic_args?
 type	2	witnessed	examples/syntax/closures.kgr	-	array_type
 type	3	witnessed	examples/standard-library.kgr	-	tuple_type
 type	4	witnessed	examples/syntax/closures.kgr	-	function_type
 type	5	witnessed	examples/syntax/tuple-types.kgr	-	parenthesized_type
+type	6	witnessed	examples/syntax/associated-types.kgr	-	qualified_type
 tuple_type	1	witnessed	examples/syntax/tuple-types.kgr	-	"(" ")"
 tuple_type	2	witnessed	examples/syntax/tuple-types.kgr	-	"(" type "," (type ("," type)* (",")?)? ")"
-tuple_pattern	1	witnessed	examples/syntax/grammar-witnesses.kgr	-	"(" ")"
-tuple_pattern	2	witnessed	examples/syntax/match.kgr	-	"(" pattern "," (pattern ("," pattern)* (",")?)? ")"
+generic_arg	1	witnessed	examples/syntax/associated-types.kgr	-	type
+generic_arg	2	witnessed	examples/syntax/associated-types.kgr	-	associated_type_binding
 path_segment	1	witnessed	examples/syntax/expressions.kgr	-	IDENT
 path_segment	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	"crate"
 path_segment	3	witnessed	examples/syntax/grammar-witnesses.kgr	-	"self"
 path_segment	4	witnessed	examples/syntax/grammar-witnesses.kgr	-	"super"
 impl_block	1	witnessed	examples/syntax/data-model.kgr	-	inherent_impl
 impl_block	2	witnessed	examples/syntax/where-bounds.kgr	-	trait_impl
+trait_impl_item	1	witnessed	examples/syntax/associated-types.kgr	-	attribute* method_decl
+trait_impl_item	2	witnessed	examples/syntax/associated-types.kgr	-	associated_type_def
 method_param_list	1	witnessed	examples/syntax/data-model.kgr	-	receiver_param ("," param_list)? (",")?
 method_param_list	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	param_list
 stmt	1	witnessed	examples/syntax/data-model.kgr	-	binding_stmt
@@ -92,6 +97,8 @@ primary_pattern	4	witnessed	examples/syntax/match.kgr	-	tuple_struct_pattern
 primary_pattern	5	witnessed	examples/syntax/match.kgr	-	struct_pattern
 primary_pattern	6	witnessed	examples/syntax/match.kgr	-	tuple_pattern
 primary_pattern	7	witnessed	examples/syntax/match.kgr	-	parenthesized_pattern
+tuple_pattern	1	witnessed	examples/syntax/grammar-witnesses.kgr	-	"(" ")"
+tuple_pattern	2	witnessed	examples/syntax/match.kgr	-	"(" pattern "," (pattern ("," pattern)* (",")?)? ")"
 field_pattern	1	witnessed	examples/syntax/match.kgr	-	IDENT
 field_pattern	2	witnessed	examples/syntax/match.kgr	-	IDENT ":" pattern
 place_expr	1	witnessed	examples/syntax/data-model.kgr	-	path place_suffix*

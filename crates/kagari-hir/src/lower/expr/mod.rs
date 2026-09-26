@@ -52,10 +52,16 @@ impl Lowerer {
                     if let Some(base) = path.path() {
                         span.start = token_span(&base).start;
                     }
+                    let bindings = self.lower_associated_bindings(&arguments);
                     let id = self.alloc_type(
                         span,
                         crate::hir::TypeData {
-                            kind: crate::hir::TypeKind::Generic { name, args },
+                            kind: crate::hir::TypeKind::Generic {
+                                name,
+                                args,
+                                bindings,
+                                positional_after_binding: arguments.positional_after_binding(),
+                            },
                         },
                     );
                     if let Some(base) = path.path().and_then(|path| path.segments().last()) {
@@ -155,10 +161,16 @@ impl Lowerer {
                     if let Some(path) = struct_expr.path() {
                         span.start = syntax_span(&path).start;
                     }
+                    let bindings = self.lower_associated_bindings(&arguments);
                     let id = self.alloc_type(
                         span,
                         crate::hir::TypeData {
-                            kind: crate::hir::TypeKind::Generic { name, args },
+                            kind: crate::hir::TypeKind::Generic {
+                                name,
+                                args,
+                                bindings,
+                                positional_after_binding: arguments.positional_after_binding(),
+                            },
                         },
                     );
                     if let Some(base) = struct_expr

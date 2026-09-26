@@ -1836,6 +1836,7 @@ fn interface_instruction_module() -> BytecodeModule {
     module.identity = identity;
     module.public_items = vec![
         PublicAbiItem::Trait(TraitAbi {
+            associated_types: Vec::new(),
             name: "Tag".into(),
             generic_params: vec![],
             bounds: vec![],
@@ -1847,6 +1848,7 @@ fn interface_instruction_module() -> BytecodeModule {
             generic_params: vec![],
             bounds: vec![],
             trait_type: AbiType::Trait(NominalAbiType {
+                associated_types: Default::default(),
                 declaration: trait_id,
                 arguments: vec![],
             }),

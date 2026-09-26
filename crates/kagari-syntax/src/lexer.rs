@@ -373,6 +373,7 @@ pub fn lex_with_cancellation(
                     "self" => TokenKind::SelfKw,
                     "super" => TokenKind::SuperKw,
                     "trait" => TokenKind::TraitKw,
+                    "type" => TokenKind::TypeKw,
                     "use" => TokenKind::UseKw,
                     "where" => TokenKind::WhereKw,
                     "const" => TokenKind::ConstKw,

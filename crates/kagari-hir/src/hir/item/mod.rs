@@ -6,9 +6,10 @@ mod storage;
 
 pub use adt::{Enum, EnumBuffer, Field, FieldBuffer, Struct, StructBuffer, Variant, VariantBuffer};
 pub use behavior::{
-    GenericParam, GenericParamBuffer, Impl, ImplBuffer, ImplMethod, ImplMethodBuffer, Method,
-    MethodBuffer, MethodOwner, ReceiverKind, TraitBound, TraitBoundBuffer, TraitBuffer, TraitDef,
-    TraitMethod, TraitMethodBuffer, TraitRef, TraitRefBuffer,
+    AssociatedType, GenericParam, GenericParamBuffer, Impl, ImplBuffer, ImplMethod,
+    ImplMethodBuffer, Method, MethodBuffer, MethodOwner, ReceiverKind, TraitBound,
+    TraitBoundBuffer, TraitBuffer, TraitDef, TraitMethod, TraitMethodBuffer, TraitRef,
+    TraitRefBuffer,
 };
 pub use function::{Function, FunctionBuffer, FunctionKind, Param, ParamBuffer};
 pub use module::{Import, ImportBuffer, ModuleDecl, ModuleDeclBuffer};

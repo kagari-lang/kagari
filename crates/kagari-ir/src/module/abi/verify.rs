@@ -202,8 +202,32 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
     let owner = owner(module, &[], DefinitionKind::Trait, &ty.name);
     let mut methods = HashSet::new();
     !ty.name.is_empty()
+        && {
+            let mut members = HashSet::new();
+            ty.associated_types.iter().all(|member| {
+                members.insert(&member.declaration)
+                    && member.declaration
+                        == kagari_hir::types::associated_type_id(
+                            &owner,
+                            member
+                                .declaration
+                                .path
+                                .last()
+                                .map_or("", |part| part.name.as_str()),
+                        )
+                    && member
+                        .declaration
+                        .path
+                        .last()
+                        .is_some_and(|part| !part.name.is_empty())
+            })
+        }
         && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
             bounds_valid(&ty.bounds, &params, cancel)
+                && ty
+                    .associated_types
+                    .iter()
+                    .all(|member| constraints_valid(&member.bounds, &params, Some(&owner), cancel))
                 && ty.methods.iter().all(|method| {
                     methods.insert(&method.name)
                         && function_valid(
@@ -228,6 +252,11 @@ pub(crate) fn interface_contract_matches(
     };
     let mut matched = HashSet::new();
     instance.arguments.len() == interface.generic_params.len()
+        && instance.associated_types.len() == interface.associated_types.len()
+        && interface
+            .associated_types
+            .iter()
+            .all(|member| instance.associated_types.contains_key(&member.declaration))
         && table.methods.len() == interface.methods.len()
         && table.methods.iter().all(|method| {
             cancel.check().is_ok()
@@ -236,8 +265,7 @@ pub(crate) fn interface_contract_matches(
                         && same_method_contract(
                             declared,
                             method,
-                            &instance.declaration,
-                            &instance.arguments,
+                            instance,
                             &table.declaration,
                             &table.for_type,
                             cancel,
@@ -250,12 +278,14 @@ pub(crate) fn interface_contract_matches(
 fn same_method_contract(
     declared: &FunctionAbi,
     implemented: &FunctionAbi,
-    trait_owner: &DefinitionId,
-    trait_arguments: &[AbiType],
+    instance: &NominalAbiType,
     impl_owner: &DefinitionId,
     for_type: &AbiType,
     cancel: &CancellationToken,
 ) -> bool {
+    let trait_owner = &instance.declaration;
+    let trait_arguments = &instance.arguments;
+    let associated_types = &instance.associated_types;
     if declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
         || declared.bounds.len() != implemented.bounds.len()
@@ -281,6 +311,21 @@ fn same_method_contract(
                 return false;
             }
             match (expected, actual) {
+                (
+                    AbiType::Projection {
+                        receiver,
+                        interface,
+                        member,
+                    },
+                    actual,
+                ) if interface.declaration == *trait_owner
+                    && matches!(receiver.as_ref(), AbiType::SelfType(owner) if owner == trait_owner) =>
+                {
+                    let Some(value) = associated_types.get(member) else {
+                        return false;
+                    };
+                    pending.push((value, actual));
+                }
                 (AbiType::SelfType(id), actual) if id == trait_owner => {
                     pending.push((for_type, actual));
                 }
@@ -345,8 +390,11 @@ fn same_method_contract(
                 (AbiType::Struct(a), AbiType::Struct(b))
                 | (AbiType::Enum(a), AbiType::Enum(b))
                 | (AbiType::Trait(a), AbiType::Trait(b))
-                    if a.declaration == b.declaration && a.arguments.len() == b.arguments.len() =>
+                    if a.declaration == b.declaration
+                        && a.arguments.len() == b.arguments.len()
+                        && a.associated_types.keys().eq(b.associated_types.keys()) =>
                 {
+                    pending.extend(a.associated_types.values().zip(b.associated_types.values()));
                     pending.extend(a.arguments.iter().zip(&b.arguments));
                 }
                 (
@@ -363,10 +411,8 @@ fn same_method_contract(
         .iter()
         .zip(&implemented.bounds)
         .all(|(expected, actual)| {
-            expected.position == actual.position
+            matches_type(&expected.ty, &actual.ty)
                 && expected.constraints.len() == actual.constraints.len()
-                && ((expected.owner == trait_method && actual.owner == impl_method)
-                    || (expected.owner == *trait_owner && actual.owner == *impl_owner))
                 && expected
                     .constraints
                     .iter()
@@ -447,25 +493,35 @@ fn bounds_valid(
     params: &Parameters,
     cancel: &CancellationToken,
 ) -> bool {
-    if !bounds
-        .windows(2)
-        .all(|pair| (&pair[0].owner, pair[0].position) < (&pair[1].owner, pair[1].position))
-    {
+    if !bounds.windows(2).all(|pair| pair[0].ty < pair[1].ty) {
         return false;
     }
     let mut seen = HashSet::new();
     bounds.iter().all(|bound| {
-        params.contains(&(bound.owner.clone(), bound.position))
-            && seen.insert((&bound.owner, bound.position))
+        type_valid(&bound.ty, params, None, cancel)
+            && matches!(
+                bound.ty,
+                AbiType::Parameter { .. } | AbiType::Projection { .. }
+            )
+            && seen.insert(&bound.ty)
             && !bound.constraints.is_empty()
-            && bound.constraints.windows(2).all(|pair| pair[0] < pair[1])
-            && bound.constraints.iter().all(|constraint| match constraint {
-                ConstraintAbi::Standard(_) => true,
-                ConstraintAbi::Trait(ty) => {
-                    type_valid(&AbiType::Trait(ty.clone()), params, None, cancel)
-                }
-            })
+            && constraints_valid(&bound.constraints, params, None, cancel)
     })
+}
+
+fn constraints_valid(
+    constraints: &[ConstraintAbi],
+    params: &Parameters,
+    self_owner: Option<&DefinitionId>,
+    cancel: &CancellationToken,
+) -> bool {
+    constraints.windows(2).all(|pair| pair[0] < pair[1])
+        && constraints.iter().all(|constraint| match constraint {
+            ConstraintAbi::Standard(_) => true,
+            ConstraintAbi::Trait(ty) => {
+                type_valid(&AbiType::Trait(ty.clone()), params, self_owner, cancel)
+            }
+        })
 }
 
 fn function_valid(
@@ -521,6 +577,37 @@ fn type_valid(
             return false;
         }
         match ty {
+            AbiType::Projection {
+                receiver,
+                interface,
+                member,
+            } => {
+                if params.is_empty() && self_owner.is_none() {
+                    return false;
+                }
+                if *member
+                    != kagari_hir::types::associated_type_id(
+                        &interface.declaration,
+                        member.path.last().map_or("", |p| p.name.as_str()),
+                    )
+                    || !nominal_valid(&interface.declaration, DefinitionKind::Trait)
+                {
+                    return false;
+                }
+                pending.push(receiver);
+                for (binding, value) in &interface.associated_types {
+                    if *binding
+                        != kagari_hir::types::associated_type_id(
+                            &interface.declaration,
+                            binding.path.last().map_or("", |part| part.name.as_str()),
+                        )
+                    {
+                        return false;
+                    }
+                    pending.push(value);
+                }
+                pending.extend(&interface.arguments);
+            }
             AbiType::Parameter { owner, position } => {
                 if !params.contains(&(owner.clone(), *position)) {
                     return false;
@@ -556,6 +643,24 @@ fn type_valid(
             }
             AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
                 pending.extend(&ty.arguments);
+                if !matches!(
+                    ty.declaration.path.last().map(|part| part.kind),
+                    Some(DefinitionKind::Trait)
+                ) && !ty.associated_types.is_empty()
+                {
+                    return false;
+                }
+                for (member, value) in &ty.associated_types {
+                    if *member
+                        != kagari_hir::types::associated_type_id(
+                            &ty.declaration,
+                            member.path.last().map_or("", |p| p.name.as_str()),
+                        )
+                    {
+                        return false;
+                    }
+                    pending.push(value);
+                }
             }
         }
         let nominal = match ty {
@@ -586,6 +691,7 @@ mod tests {
         let trait_method = owner(&module, &trait_owner.path, DefinitionKind::Method, "read");
         let impl_method = owner(&module, &impl_owner.path, DefinitionKind::Method, "read");
         let for_type = AbiType::Struct(NominalAbiType {
+            associated_types: Default::default(),
             declaration: owner(&module, &[], DefinitionKind::Struct, "Player"),
             arguments: Vec::new(),
         });
@@ -630,11 +736,15 @@ mod tests {
             return_type: AbiType::Builtin(BuiltinType::I32),
         };
         let cancel = CancellationToken::default();
+        let trait_instance = NominalAbiType {
+            declaration: trait_owner.clone(),
+            arguments: Vec::new(),
+            associated_types: Default::default(),
+        };
         assert!(same_method_contract(
             &declared,
             &implemented,
-            &trait_owner,
-            &[],
+            &trait_instance,
             &impl_owner,
             &for_type,
             &cancel,
@@ -647,30 +757,32 @@ mod tests {
         assert!(!same_method_contract(
             &declared,
             &implemented,
-            &trait_owner,
-            &[],
+            &trait_instance,
             &impl_owner,
             &for_type,
             &cancel,
         ));
         implemented.params[0].ty = original_param;
         declared.bounds.push(GenericBoundAbi {
-            owner: trait_method.clone(),
-            position: 0,
+            ty: AbiType::Parameter {
+                owner: trait_method.clone(),
+                position: 0,
+            },
             constraints: vec![ConstraintAbi::Standard(
                 kagari_hir::builtin::surface::StandardTypeConstraint::HashKey,
             )],
         });
         implemented.bounds.push(GenericBoundAbi {
-            owner: impl_method.clone(),
-            position: 0,
+            ty: AbiType::Parameter {
+                owner: impl_method.clone(),
+                position: 0,
+            },
             constraints: declared.bounds[0].constraints.clone(),
         });
         assert!(same_method_contract(
             &declared,
             &implemented,
-            &trait_owner,
-            &[],
+            &trait_instance,
             &impl_owner,
             &for_type,
             &cancel,
@@ -679,8 +791,7 @@ mod tests {
         assert!(!same_method_contract(
             &declared,
             &implemented,
-            &trait_owner,
-            &[],
+            &trait_instance,
             &impl_owner,
             &for_type,
             &cancel,
@@ -688,6 +799,7 @@ mod tests {
         let marker = owner(&module, &[], DefinitionKind::Trait, "Marker");
         let applied = |parameter_owner| {
             ConstraintAbi::Trait(NominalAbiType {
+                associated_types: Default::default(),
                 declaration: marker.clone(),
                 arguments: vec![AbiType::Array(Box::new(AbiType::Parameter {
                     owner: parameter_owner,
@@ -700,8 +812,7 @@ mod tests {
         assert!(same_method_contract(
             &declared,
             &implemented,
-            &trait_owner,
-            &[],
+            &trait_instance,
             &impl_owner,
             &for_type,
             &cancel,
@@ -713,8 +824,7 @@ mod tests {
         assert!(!same_method_contract(
             &declared,
             &implemented,
-            &trait_owner,
-            &[],
+            &trait_instance,
             &impl_owner,
             &for_type,
             &cancel,
@@ -851,6 +961,7 @@ mod tests {
                 }
                 4 => {
                     function.return_type = AbiType::Struct(NominalAbiType {
+                        associated_types: Default::default(),
                         declaration: owner(
                             &module.identity,
                             &[],

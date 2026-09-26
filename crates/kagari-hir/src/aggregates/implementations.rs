@@ -41,6 +41,31 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
+    pub fn implementation_signature(&self, id: &DefinitionId) -> Option<&ImplementationSignature> {
+        self.implementations.get(id).map(AsRef::as_ref)
+    }
+    pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
+        crate::typeck::associated::normalize(ty, &|interface, receiver, member| {
+            let mut matches = self.implementations.values().filter_map(|implementation| {
+                let substitution = crate::typeck::match_implementation(
+                    &implementation.trait_type,
+                    interface,
+                    &implementation.for_type,
+                    receiver,
+                    &implementation.generic_params,
+                )?;
+                Some(
+                    implementation
+                        .trait_type
+                        .associated_types
+                        .get(member)?
+                        .instantiate(&substitution),
+                )
+            });
+            let result = matches.next()?;
+            matches.next().is_none().then_some(result)
+        })
+    }
     /// Build a catalog from already validated executable implementation records.
     /// Duplicate declaration identities are rejected rather than overwritten.
     pub fn from_implementation_signatures(
@@ -269,9 +294,7 @@ impl AggregateCatalog {
         }
         let holds = (|| {
             for (parameter, constraints) in &implementation.bounds {
-                let Some(actual) = matched.get(parameter) else {
-                    return Ok(false);
-                };
+                let actual = self.normalize_type(&parameter.instantiate(&matched));
                 for constraint in constraints {
                     budget
                         .cancel
@@ -280,7 +303,7 @@ impl AggregateCatalog {
                     let satisfied = match constraint {
                         crate::typeck::ConstraintTarget::Standard(standard) => {
                             crate::typeck::type_satisfies_standard_constraint(
-                                actual,
+                                &actual,
                                 *standard,
                                 &Default::default(),
                             )
@@ -295,7 +318,7 @@ impl AggregateCatalog {
                                 for candidate in self.implementations.values() {
                                     if self
                                         .implementation_matches(
-                                            candidate, &required, actual, visiting, budget,
+                                            candidate, &required, &actual, visiting, budget,
                                         )?
                                         .is_some()
                                     {
@@ -355,6 +378,7 @@ mod search_tests {
             name: "T".into(),
         };
         let applied = |argument| NominalType {
+            associated_types: Default::default(),
             declaration: marker.clone(),
             arguments: vec![argument],
         };
@@ -388,8 +412,9 @@ mod search_tests {
         let mut chained = signature;
         let next = definition(DefinitionKind::Trait, "Next");
         chained.bounds.insert(
-            parameter.clone(),
+            TypeId::Generic(parameter.clone()),
             vec![ConstraintTarget::Trait(NominalType {
+                associated_types: Default::default(),
                 declaration: next.clone(),
                 arguments: vec![TypeId::Generic(parameter.clone())],
             })],
@@ -402,6 +427,7 @@ mod search_tests {
         let next_signature = ImplementationSignature {
             id: next_parameter.owner.clone(),
             trait_type: NominalType {
+                associated_types: Default::default(),
                 declaration: next,
                 arguments: vec![TypeId::Generic(next_parameter.clone())],
             },

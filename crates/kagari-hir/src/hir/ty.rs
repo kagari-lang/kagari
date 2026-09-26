@@ -13,6 +13,13 @@ pub enum TypeKind {
     Generic {
         name: String,
         args: TypeBuffer,
+        bindings: Vec<(String, TypeRefId)>,
+        positional_after_binding: bool,
+    },
+    Projection {
+        receiver: TypeRefId,
+        trait_ref: TypeRefId,
+        member: String,
     },
     Tuple(TypeBuffer),
     Array(TypeRefId),

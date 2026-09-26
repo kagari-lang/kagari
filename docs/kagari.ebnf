@@ -100,7 +100,10 @@ trait_decl          ::= "trait" IDENT generic_param_clause? supertrait_clause? "
 
 supertrait_clause   ::= ":" type_bound_list ;
 
-trait_member        ::= attribute* trait_method ;
+trait_member        ::= attribute* trait_method
+                      | associated_type_decl ;
+
+associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
 
 trait_method        ::= method_sig (";" | block) ;
 
@@ -112,7 +115,10 @@ type                ::= path generic_args?
                       | array_type
                       | tuple_type
                       | function_type
-                      | parenthesized_type ;
+                      | parenthesized_type
+                      | qualified_type ;
+
+qualified_type      ::= "<" type "as" trait_ref ">" "::" IDENT ;
 
 function_type       ::= "fn" "(" type_list? ")" "->" type ;
 
@@ -123,7 +129,12 @@ tuple_type          ::= "(" ")"
 
 parenthesized_type  ::= "(" type ")" ;
 
-generic_args        ::= "<" type ("," type)* (",")? ">" ;
+generic_args        ::= "<" generic_arg ("," generic_arg)* (",")? ">" ;
+
+generic_arg         ::= type
+                      | associated_type_binding ;
+
+associated_type_binding ::= IDENT "=" type ;
 
 path                ::= path_segment ("::" path_segment)* ;
 
@@ -134,7 +145,8 @@ path_segment        ::= IDENT
 
 where_clause        ::= "where" where_predicate ("," where_predicate)* (",")? ;
 
-where_predicate     ::= IDENT ":" type_bound_list ;
+(* Semantics restrict where targets to generic parameters and their projections. *)
+where_predicate     ::= type ":" type_bound_list ;
 
 trait_ref           ::= path generic_args? ;
 
@@ -144,7 +156,12 @@ impl_block          ::= inherent_impl
 (* User-written impls may declare type parameters and where predicates. *)
 inherent_impl       ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
 
-trait_impl          ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" impl_item* "}" ;
+trait_impl          ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" trait_impl_item* "}" ;
+
+trait_impl_item     ::= attribute* method_decl
+                      | associated_type_def ;
+
+associated_type_def ::= "type" IDENT "=" type ";" ;
 
 impl_item           ::= attribute* method_decl ;
 

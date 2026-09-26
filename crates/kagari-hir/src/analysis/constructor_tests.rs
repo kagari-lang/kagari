@@ -108,6 +108,7 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     assert_eq!(
         analysis.type_at(good),
         Some(TypeId::Enum(crate::types::NominalType {
+            associated_types: Default::default(),
             declaration: enumeration.id.clone(),
             arguments: Vec::new()
         }))

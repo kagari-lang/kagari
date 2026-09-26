@@ -31,6 +31,22 @@ ast_node!(FnDef, FnDef);
 ast_node!(ConstDef, ConstDef);
 ast_node!(StructDef, StructDef);
 ast_node!(EnumDef, EnumDef);
+ast_node!(AssociatedType, AssociatedType);
+
+impl AssociatedType {
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+    pub fn name_text(&self) -> Option<String> {
+        self.name().and_then(|name| name.text())
+    }
+    pub fn ty(&self) -> Option<TypeRef> {
+        support::child(self.syntax())
+    }
+    pub fn bounds(&self) -> Option<super::misc::TraitBoundList> {
+        support::child(self.syntax())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
@@ -232,6 +248,9 @@ impl UseTreeList {
 }
 
 impl TraitDef {
+    pub fn associated_types(&self) -> impl Iterator<Item = AssociatedType> {
+        support::children(self.syntax())
+    }
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -254,6 +273,9 @@ impl TraitDef {
 }
 
 impl ImplBlock {
+    pub fn associated_types(&self) -> impl Iterator<Item = AssociatedType> {
+        support::children(self.syntax())
+    }
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }

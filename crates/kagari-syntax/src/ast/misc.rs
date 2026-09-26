@@ -14,6 +14,16 @@ ast_node!(Path, Path);
 ast_node!(GenericParamList, GenericParamList);
 ast_node!(GenericParam, GenericParam);
 ast_node!(GenericArgList, GenericArgList);
+ast_node!(AssociatedTypeBinding, AssociatedTypeBinding);
+
+impl AssociatedTypeBinding {
+    pub fn name_text(&self) -> Option<String> {
+        support::child::<Name>(self.syntax()).and_then(|name| name.text())
+    }
+    pub fn ty(&self) -> Option<TypeRef> {
+        support::child(self.syntax())
+    }
+}
 ast_node!(WhereClause, WhereClause);
 ast_node!(WherePredicate, WherePredicate);
 ast_node!(TraitBoundList, TraitBoundList);
@@ -82,6 +92,21 @@ impl GenericParam {
 }
 
 impl GenericArgList {
+    pub fn bindings(&self) -> impl Iterator<Item = AssociatedTypeBinding> {
+        support::children(self.syntax())
+    }
+
+    pub fn positional_after_binding(&self) -> bool {
+        let mut binding_seen = false;
+        for child in self.syntax().children() {
+            if child.kind() == SyntaxKind::AssociatedTypeBinding {
+                binding_seen = true;
+            } else if child.kind() == SyntaxKind::TypeRef && binding_seen {
+                return true;
+            }
+        }
+        false
+    }
     pub fn args(&self) -> impl Iterator<Item = TypeRef> {
         support::children(self.syntax())
     }
@@ -94,12 +119,17 @@ impl WhereClause {
 }
 
 impl WherePredicate {
-    pub fn name(&self) -> Option<Name> {
+    pub fn target_type(&self) -> Option<TypeRef> {
         support::child(self.syntax())
+    }
+    pub fn name(&self) -> Option<Name> {
+        self.target_type()
+            .and_then(|ty| ty.path())
+            .and_then(|path| path.segments().next())
     }
 
     pub fn name_text(&self) -> Option<String> {
-        self.name().and_then(|name| name.text())
+        self.target_type().and_then(|ty| ty.name_text())
     }
 
     pub fn bounds(&self) -> Option<TraitBoundList> {

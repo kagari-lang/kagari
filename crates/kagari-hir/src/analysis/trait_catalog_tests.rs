@@ -50,7 +50,7 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
     assert_eq!(method.bounds.len(), 2);
     for parameter in &method.generic_params {
         assert!(matches!(
-            method.bounds[parameter].as_slice(),
+            method.bounds[&crate::types::TypeId::Generic(parameter.clone())].as_slice(),
             [ConstraintTarget::Standard(_)]
         ));
     }

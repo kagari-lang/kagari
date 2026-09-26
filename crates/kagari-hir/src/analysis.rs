@@ -1053,6 +1053,7 @@ mod tests {
         assert_eq!(
             facts.member_receiver_type(text.find("p. }").unwrap() + 2),
             Some(TypeId::Struct(crate::types::NominalType {
+                associated_types: Default::default(),
                 declaration: facts
                     .result()
                     .facts()

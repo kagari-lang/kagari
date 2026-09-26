@@ -1623,6 +1623,7 @@ pub fn greet(player: Player) -> String {
     );
 
     let player = AbiType::Struct(NominalAbiType {
+        associated_types: Default::default(),
         declaration: module
             .structures
             .iter()
@@ -2807,6 +2808,7 @@ fn executable_struct_fields_require_concrete_resolved_types() {
             position: 0,
         },
         AbiType::Struct(NominalAbiType {
+            associated_types: Default::default(),
             declaration,
             arguments: vec![AbiType::Builtin(BuiltinType::Bool)],
         }),

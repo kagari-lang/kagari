@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 42;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 43;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -48,9 +48,9 @@ pub fn validate_program_resource_limits(
     }
     Ok(())
 }
-pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v2";
+pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v42";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v43";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -591,6 +591,11 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
                 add(item.generic_params.len())
                     && add(item.bounds.len())
                     && add_abi_bounds(&item.bounds, &mut add)
+                    && add(item.associated_types.len())
+                    && item
+                        .associated_types
+                        .iter()
+                        .all(|member| add(member.bounds.len()))
                     && add(item.methods.len())
                     && item.methods.iter().all(|method| {
                         add(method.generic_params.len())
@@ -621,6 +626,11 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
         if !add(item.generic_params.len())
             || !add(item.bounds.len())
             || !add_abi_bounds(&item.bounds, &mut add)
+            || !add(item.associated_types.len())
+            || !item
+                .associated_types
+                .iter()
+                .all(|member| add(member.bounds.len()))
             || !add(item.methods.len())
             || !item.methods.iter().all(|method| {
                 add(method.generic_params.len())
@@ -654,15 +664,30 @@ fn generic_identity_limit(
 ) -> bool {
     params.iter().all(|param| param.owner.within_path_limit())
         && bounds.iter().all(|bound| {
-            bound.owner.within_path_limit()
+            bound.ty.within_wire_limits()
                 && bound.constraints.iter().all(|constraint| match constraint {
                     crate::module::abi::ConstraintAbi::Standard(_) => true,
                     crate::module::abi::ConstraintAbi::Trait(ty) => {
                         ty.declaration.within_path_limit()
                             && ty.arguments.iter().all(|arg| arg.within_wire_limits())
+                            && ty.associated_types.iter().all(|(member, value)| {
+                                member.within_path_limit() && value.within_wire_limits()
+                            })
                     }
                 })
         })
+}
+
+fn associated_identity_limit(members: &[crate::module::abi::AssociatedTypeAbi]) -> bool {
+    members.iter().all(|member| {
+        member.declaration.within_path_limit()
+            && member.bounds.iter().all(|bound| match bound {
+                crate::module::abi::ConstraintAbi::Standard(_) => true,
+                crate::module::abi::ConstraintAbi::Trait(ty) => {
+                    crate::module::abi::AbiType::Trait(ty.clone()).within_wire_limits()
+                }
+            })
+    })
 }
 
 fn function_abi_identity_limit(function: &crate::module::FunctionAbi) -> bool {
@@ -697,6 +722,7 @@ fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     }) && module.trait_contracts.iter().all(|contract| {
         contract.declaration.within_path_limit()
             && generic_identity_limit(&contract.abi.generic_params, &contract.abi.bounds)
+            && associated_identity_limit(&contract.abi.associated_types)
             && contract.abi.methods.iter().all(|method| {
                 function_abi_identity_limit(method)
                     && method.params.iter().all(|param| valid(&param.ty))
@@ -718,7 +744,8 @@ fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                     .all(|variant| variant.payload.iter().all(&valid))
         }
         PublicAbiItem::Trait(item) => {
-            generic_identity_limit(&item.generic_params, &item.bounds)
+            associated_identity_limit(&item.associated_types)
+                && generic_identity_limit(&item.generic_params, &item.bounds)
                 && item.methods.iter().all(|method| {
                     function_abi_identity_limit(method)
                         && method.params.iter().all(|param| valid(&param.ty))

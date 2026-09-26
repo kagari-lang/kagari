@@ -45,6 +45,7 @@ trait_decl	1	?	generic_param_clause
 trait_decl	2	?	supertrait_clause
 trait_decl	3	*	trait_member
 trait_member	1	*	attribute
+associated_type_decl	1	?	(":" type_bound_list)
 method_sig	1	?	generic_param_clause
 method_sig	2	?	method_param_list
 method_sig	3	?	return_type
@@ -56,7 +57,7 @@ function_type	1	?	type_list
 tuple_type	1	*	("," type)
 tuple_type	2	?	(",")
 tuple_type	3	?	(type ("," type)* (",")?)
-generic_args	1	*	("," type)
+generic_args	1	*	("," generic_arg)
 generic_args	2	?	(",")
 path	1	*	("::" path_segment)
 where_clause	1	*	("," where_predicate)
@@ -67,7 +68,8 @@ inherent_impl	2	?	where_clause
 inherent_impl	3	*	impl_item
 trait_impl	1	?	generic_param_clause
 trait_impl	2	?	where_clause
-trait_impl	3	*	impl_item
+trait_impl	3	*	trait_impl_item
+trait_impl_item	1	*	attribute
 impl_item	1	*	attribute
 method_decl	1	?	visibility
 method_decl	2	?	generic_param_clause

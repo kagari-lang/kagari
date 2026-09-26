@@ -41,7 +41,11 @@ impl ValueType {
     pub fn from_type_id(type_id: &TypeId) -> Self {
         match type_id {
             TypeId::Host(_) => Self::HostHandle,
-            TypeId::Unknown | TypeId::Error | TypeId::Generic(_) | TypeId::SelfType(_) => {
+            TypeId::Projection { .. }
+            | TypeId::Unknown
+            | TypeId::Error
+            | TypeId::Generic(_)
+            | TypeId::SelfType(_) => {
                 unreachable!("unchecked type reached code generation")
             }
             TypeId::Builtin(BuiltinType::Unit) => Self::Unit,

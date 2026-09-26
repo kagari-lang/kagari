@@ -413,3 +413,37 @@ fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
         );
     }
 }
+
+#[test]
+fn associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot() {
+    let text = "trait Read { type Item; fn read(self) -> Self::Item; } struct N {} impl Read for N { type Item = i32; fn read(self) -> Self::Item { 42 } } fn read<R: Read>(r: R) -> R::Item { r.read() } fn main() -> i32 { read(N {}) }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("associated-edit.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let main = owner(&mut db, &sources, file, "main");
+    let first = query(&mut db, &sources, &main);
+    assert!(first.diagnostics().is_empty(), "{:?}", first.diagnostics());
+    assert_eq!(
+        first.type_at(text.rfind("read(N").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    let edit = text
+        .replace("type Item = i32", "type Item = bool")
+        .replace("{ 42 }", "{ true }");
+    sources
+        .set("associated-edit.kgr", edit.clone(), SourceLayer::Overlay)
+        .unwrap();
+    let second = query(&mut db, &sources, &main);
+    assert_eq!(second.checked_bodies(), 1);
+    assert_eq!(second.reused_bodies(), 0);
+    assert!(!second.diagnostics().is_empty());
+    assert_eq!(
+        second.type_at(edit.rfind("read(N").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::Bool))
+    );
+    assert!(first.diagnostics().is_empty());
+    let fresh = query(&mut AnalysisDatabase::default(), &sources, &main);
+    assert_eq!(second.diagnostics(), fresh.diagnostics());
+}

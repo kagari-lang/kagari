@@ -51,12 +51,37 @@ pub enum BuiltinType {
 pub struct NominalType {
     pub declaration: DefinitionId,
     pub arguments: Vec<TypeId>,
+    pub associated_types: std::collections::BTreeMap<DefinitionId, TypeId>,
+}
+
+pub fn associated_type_id(owner: &DefinitionId, name: &str) -> DefinitionId {
+    let mut id = owner.clone();
+    id.path
+        .push(kagari_common::identity::DefinitionPathSegment {
+            kind: kagari_common::identity::DefinitionKind::AssociatedType,
+            name: name.to_owned(),
+            occurrence: 0,
+        });
+    id
 }
 
 impl NominalType {
+    pub fn satisfies(&self, required: &Self) -> bool {
+        self.declaration == required.declaration
+            && self.arguments == required.arguments
+            && required
+                .associated_types
+                .iter()
+                .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
+    }
     pub fn instantiate(&self, substitution: &TypeSubstitution) -> Self {
         Self {
             declaration: self.declaration.clone(),
+            associated_types: self
+                .associated_types
+                .iter()
+                .map(|(id, ty)| (id.clone(), ty.instantiate(substitution)))
+                .collect(),
             arguments: self
                 .arguments
                 .iter()
@@ -68,6 +93,11 @@ impl NominalType {
     fn map_arguments(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
         Self {
             declaration: self.declaration.clone(),
+            associated_types: self
+                .associated_types
+                .iter()
+                .map(|(id, ty)| (id.clone(), map(ty)))
+                .collect(),
             arguments: self.arguments.iter().map(&mut map).collect(),
         }
     }
@@ -94,6 +124,11 @@ pub enum TypeId {
     Trait(NominalType),
     Host(DefinitionId),
     Generic(GenericParameterType),
+    Projection {
+        receiver: Box<TypeId>,
+        interface: Box<NominalType>,
+        member: DefinitionId,
+    },
     SelfType(DefinitionId),
     StandardEnum {
         kind: crate::builtin::surface::StandardEnum,
@@ -102,6 +137,36 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    pub fn contains_projection(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Projection { .. } => return true,
+                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values());
+                }
+                Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
+                    pending.extend(types)
+                }
+                Self::Array(ty) | Self::Set(ty) => pending.push(ty),
+                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+    pub fn with_associated_types(&self, interface: &NominalType) -> Self {
+        crate::typeck::associated::normalize(self, &|projected, _, member| {
+            (projected.declaration == interface.declaration)
+                .then(|| interface.associated_types.get(member).cloned())
+                .flatten()
+        })
+    }
     pub fn contains_host_value(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -114,7 +179,8 @@ impl TypeId {
                 Self::Array(item) | Self::Set(item) => pending.push(item),
                 Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
-                    pending.extend(&nominal.arguments)
+                    pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values())
                 }
                 _ => {}
             }
@@ -126,6 +192,15 @@ impl TypeId {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
+                Self::Projection {
+                    receiver,
+                    interface,
+                    ..
+                } => {
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                }
                 Self::SelfType(_) => return true,
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items)
@@ -137,7 +212,8 @@ impl TypeId {
                     pending.push(result);
                 }
                 Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                    pending.extend(&ty.arguments)
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values())
                 }
                 Self::Unknown
                 | Self::Error
@@ -155,6 +231,41 @@ impl TypeId {
             Self::Generic(parameter) => substitution.get(parameter),
             _ => None,
         })
+    }
+
+    /// Visit direct type children. Projection normalization uses a separately
+    /// bounded walk; ordinary substitution remains iterative.
+    pub fn map_children(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
+        match self {
+            Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
+            Self::Array(ty) => Self::Array(Box::new(map(ty))),
+            Self::Set(ty) => Self::Set(Box::new(map(ty))),
+            Self::Map { key, value } => Self::Map {
+                key: Box::new(map(key)),
+                value: Box::new(map(value)),
+            },
+            Self::Function { params, result } => Self::Function {
+                params: params.iter().map(&mut map).collect(),
+                result: Box::new(map(result)),
+            },
+            Self::Struct(ty) => Self::Struct(ty.map_arguments(map)),
+            Self::Enum(ty) => Self::Enum(ty.map_arguments(map)),
+            Self::Trait(ty) => Self::Trait(ty.map_arguments(map)),
+            Self::StandardEnum { kind, args } => Self::StandardEnum {
+                kind: *kind,
+                args: args.iter().map(map).collect(),
+            },
+            Self::Projection {
+                receiver,
+                interface,
+                member,
+            } => Self::Projection {
+                receiver: Box::new(map(receiver)),
+                interface: Box::new(interface.map_arguments(map)),
+                member: member.clone(),
+            },
+            _ => self.clone(),
+        }
     }
 
     /// Preserve known argument context without exposing uninferred callee binders.
@@ -200,6 +311,13 @@ impl TypeId {
                     params: vec![Self::Unknown; params.len()],
                     result: Box::new(Self::Unknown),
                 },
+                Self::Projection {
+                    interface, member, ..
+                } => Self::Projection {
+                    receiver: Box::new(Self::Unknown),
+                    interface: Box::new(interface.map_arguments(|_| Self::Unknown)),
+                    member: member.clone(),
+                },
                 _ => source.clone(),
             };
             match (source, target) {
@@ -208,10 +326,43 @@ impl TypeId {
                 | (Self::Trait(source), Self::Trait(target)) => {
                     pending.extend(
                         source
+                            .associated_types
+                            .values()
+                            .zip(target.associated_types.values_mut())
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                    pending.extend(
+                        source
                             .arguments
                             .iter()
                             .zip(&mut target.arguments)
                             .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (
+                    Self::Projection {
+                        receiver: sr,
+                        interface: si,
+                        ..
+                    },
+                    Self::Projection {
+                        receiver: tr,
+                        interface: ti,
+                        ..
+                    },
+                ) => {
+                    pending.push((sr, tr, substitute));
+                    pending.extend(
+                        si.arguments
+                            .iter()
+                            .zip(&mut ti.arguments)
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                    pending.extend(
+                        si.associated_types
+                            .values()
+                            .zip(ti.associated_types.values_mut())
                             .map(|(source, target)| (source, target, substitute)),
                     );
                 }
@@ -281,6 +432,7 @@ impl TypeId {
             match ty {
                 Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
                     pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values());
                 }
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items);
@@ -292,7 +444,13 @@ impl TypeId {
                     pending.push(result);
                 }
                 Self::Generic(parameter) if parameters.contains(parameter) => {}
-                Self::Generic(_) | Self::Unknown | Self::Error | Self::SelfType(_) => return false,
+                Self::Projection { receiver, .. }
+                    if receiver.is_resolved_in(parameters) && !parameters.is_empty() => {}
+                Self::Projection { .. }
+                | Self::Generic(_)
+                | Self::Unknown
+                | Self::Error
+                | Self::SelfType(_) => return false,
                 Self::Builtin(_) | Self::Host(_) => {}
             }
         }
@@ -333,7 +491,8 @@ impl TypeId {
                 | Self::Trait(_)
                 | Self::Host(_)
                 | Self::Generic(_)
-                | Self::SelfType(_) => return false,
+                | Self::SelfType(_)
+                | Self::Projection { .. } => return false,
                 Self::Function { .. } => return false,
                 // The elements of mutable containers do not participate in identity equality.
                 Self::Builtin(_)
@@ -354,6 +513,7 @@ impl TypeId {
             match ty {
                 Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
                     pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values());
                 }
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items);
@@ -363,6 +523,15 @@ impl TypeId {
                 Self::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
+                }
+                Self::Projection {
+                    receiver,
+                    interface,
+                    ..
+                } => {
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
                 }
                 Self::Unknown | Self::Error => return true,
                 Self::Builtin(_) | Self::Host(_) | Self::Generic(_) | Self::SelfType(_) => {}
@@ -386,7 +555,8 @@ impl TypeId {
                     pending.extend(items)
                 }
                 Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                    pending.extend(&ty.arguments)
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values())
                 }
                 Self::Array(element) | Self::Set(element) => pending.push(element),
                 Self::Map { key, value } => {
@@ -441,6 +611,17 @@ impl TypeId {
                     if left.declaration == right.declaration
                         && left.arguments.len() == right.arguments.len() =>
                 {
+                    if left
+                        .associated_types
+                        .keys()
+                        .eq(right.associated_types.keys())
+                    {
+                        pending.extend(
+                            left.associated_types
+                                .values_mut()
+                                .zip(right.associated_types.values()),
+                        );
+                    }
                     pending.extend(left.arguments.iter_mut().zip(&right.arguments).rev());
                 }
                 (
@@ -499,9 +680,18 @@ impl TypeId {
                 | (Self::Trait(left), Self::Trait(right)) => {
                     if left.declaration != right.declaration
                         || left.arguments.len() != right.arguments.len()
+                        || !left
+                            .associated_types
+                            .keys()
+                            .eq(right.associated_types.keys())
                     {
                         return true;
                     }
+                    pending.extend(
+                        left.associated_types
+                            .values()
+                            .zip(right.associated_types.values()),
+                    );
                     pending.extend(left.arguments.iter().zip(&right.arguments).rev());
                 }
                 (
@@ -584,8 +774,27 @@ impl TypeId {
                         pending.push(Part::Text("Set<"));
                     }
                     Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
-                        if !nominal.arguments.is_empty() {
-                            sequence(&mut pending, &nominal.arguments, "<", ">");
+                        if !nominal.arguments.is_empty() || !nominal.associated_types.is_empty() {
+                            pending.push(Part::Text(">"));
+                            for (index, (member, ty)) in
+                                nominal.associated_types.iter().enumerate().rev()
+                            {
+                                pending.push(Part::Type(ty));
+                                pending.push(Part::Text(" = "));
+                                pending.push(Part::Text(
+                                    &member.path.last().expect("associated member").name,
+                                ));
+                                if index > 0 || !nominal.arguments.is_empty() {
+                                    pending.push(Part::Text(", "));
+                                }
+                            }
+                            for (index, ty) in nominal.arguments.iter().enumerate().rev() {
+                                pending.push(Part::Type(ty));
+                                if index > 0 {
+                                    pending.push(Part::Text(", "));
+                                }
+                            }
+                            pending.push(Part::Text("<"));
                         }
                         pending.push(Part::Text(
                             &nominal
@@ -598,6 +807,22 @@ impl TypeId {
                     }
                     Self::Generic(parameter) => output.push_str(&parameter.name),
                     Self::SelfType(_) => output.push_str("Self"),
+                    Self::Projection {
+                        receiver,
+                        interface,
+                        member,
+                    } => {
+                        output.push_str(&format!(
+                            "<{} as {}>::{}",
+                            receiver.display_name(),
+                            interface
+                                .declaration
+                                .path
+                                .last()
+                                .map_or("", |p| p.name.as_str()),
+                            member.path.last().map_or("", |p| p.name.as_str())
+                        ));
+                    }
                     Self::StandardEnum { kind, args } => {
                         sequence(&mut pending, args, "<", ">");
                         pending.push(Part::Text(kind.spec().name));
@@ -625,6 +850,7 @@ impl TypeId {
             | Self::Host(_)
             | Self::Generic(_)
             | Self::SelfType(_)
+            | Self::Projection { .. }
             | Self::StandardEnum { .. } => true,
         }
     }

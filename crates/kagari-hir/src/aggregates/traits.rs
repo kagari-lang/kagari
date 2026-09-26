@@ -15,7 +15,7 @@ pub struct MethodSignature {
     pub slot: usize,
     pub name: String,
     pub generic_params: Vec<GenericParameterType>,
-    pub bounds: std::collections::HashMap<GenericParameterType, Vec<ConstraintTarget>>,
+    pub bounds: crate::typeck::GenericBounds,
     pub params: Vec<MethodParameter>,
     pub return_type: TypeId,
     pub declaration: Declaration,
@@ -41,6 +41,7 @@ pub struct TraitSignature {
     pub bounds: crate::typeck::GenericBounds,
     pub methods: Vec<MethodSignature>,
     pub declaration: Declaration,
+    pub associated_types: BTreeMap<DefinitionId, Vec<ConstraintTarget>>,
 }
 
 impl AggregateCatalog {
@@ -90,7 +91,7 @@ impl AggregateCatalog {
                     .filter_map(|reference| signatures.type_table().constraint(reference.ty))
                     .collect::<Vec<_>>();
                 if !constraints.is_empty() {
-                    bounds.insert(identity.clone(), constraints);
+                    bounds.insert(TypeId::Generic(identity.clone()), constraints);
                 }
                 generic_params.push(identity);
             }
@@ -132,6 +133,20 @@ impl AggregateCatalog {
             self.traits.insert(
                 id.clone(),
                 Arc::new(TraitSignature {
+                    associated_types: item
+                        .associated_types
+                        .iter()
+                        .map(|member| {
+                            let member = crate::types::associated_type_id(id, &member.name);
+                            let bounds = signatures
+                                .type_table()
+                                .associated_bounds
+                                .get(&member)
+                                .cloned()
+                                .unwrap_or_default();
+                            (member, bounds)
+                        })
+                        .collect(),
                     id: id.clone(),
                     generic_params,
                     bounds,
@@ -175,6 +190,7 @@ impl AggregateCatalog {
             && self.traits.iter().all(|(id, a)| {
                 other.trait_(id).is_some_and(|b| {
                     a.generic_params == b.generic_params
+                        && a.associated_types == b.associated_types
                         && a.bounds == b.bounds
                         && a.methods.len() == b.methods.len()
                         && a.methods

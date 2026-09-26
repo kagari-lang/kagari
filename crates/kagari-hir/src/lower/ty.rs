@@ -9,7 +9,22 @@ impl Lowerer {
         if let Some(inner) = ty.grouped_type() {
             return self.lower_type(&inner);
         }
-        let kind = if let Some(name) = ty.name_text() {
+        let kind = if let Some(qualified) = ty.qualified_type() {
+            TypeKind::Projection {
+                receiver: qualified
+                    .receiver()
+                    .map(|ty| self.lower_type(&ty))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                trait_ref: qualified
+                    .trait_ref()
+                    .map(|ty| self.lower_trait_ref(&ty).ty)
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                member: qualified
+                    .member()
+                    .and_then(|name| name.text())
+                    .unwrap_or_default(),
+            }
+        } else if let Some(name) = ty.name_text() {
             let args = ty
                 .generic_args()
                 .map(|args| {
@@ -21,7 +36,14 @@ impl Lowerer {
             if ty.generic_args().is_none() {
                 TypeKind::Named(name)
             } else {
-                TypeKind::Generic { name, args }
+                let list = ty.generic_args().expect("generic argument list");
+                let bindings = self.lower_associated_bindings(&list);
+                TypeKind::Generic {
+                    name,
+                    args,
+                    bindings,
+                    positional_after_binding: list.positional_after_binding(),
+                }
             }
         } else if let Some(tuple) = ty.tuple_type() {
             TypeKind::Tuple(
@@ -61,5 +83,21 @@ impl Lowerer {
             self.source_map.insert_type_name(id, token_span(&name));
         }
         id
+    }
+
+    pub(crate) fn lower_associated_bindings(
+        &mut self,
+        list: &ast::GenericArgList,
+    ) -> Vec<(String, TypeRefId)> {
+        list.bindings()
+            .map(|binding| {
+                let name = binding.name_text().unwrap_or_default();
+                let ty = binding
+                    .ty()
+                    .map(|ty| self.lower_type(&ty))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>"));
+                (name, ty)
+            })
+            .collect()
     }
 }
