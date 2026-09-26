@@ -466,6 +466,9 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             let Some(function) = module.functions.get(slot.function.index()) else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
+            if abi.host_bridge && !host_bridge_method_matches(abi, slot, function, module) {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
             let Some(identity) = &function.identity else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
@@ -537,6 +540,56 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
         }
     }
     Ok(())
+}
+
+fn host_bridge_method_matches(
+    table: &crate::module::InterfaceTableAbi,
+    slot: &super::InterfaceMethodSlot,
+    function: &BytecodeFunction,
+    module: &BytecodeModule,
+) -> bool {
+    let Some((_, implementation)) =
+        crate::module::host::host_bridge_implementation(table, &module.host_interface)
+    else {
+        return false;
+    };
+    let Some(mapping) = implementation
+        .methods
+        .iter()
+        .find(|mapping| mapping.trait_method == slot.method)
+    else {
+        return false;
+    };
+    let params = function.metadata.params.len();
+    if function.instructions.len() != params + 2 {
+        return false;
+    }
+    let BytecodeInstruction::Call {
+        dst: Some(result),
+        callee: CallTarget::HostFunction(import),
+        args,
+    } = &function.instructions[params]
+    else {
+        return false;
+    };
+    if args.len() != params
+        || !module
+            .host_interface
+            .functions
+            .get(import.index())
+            .is_some_and(|contract| contract.id == mapping.host_method)
+    {
+        return false;
+    }
+    function.instructions[..params]
+        .iter()
+        .zip(args)
+        .enumerate()
+        .all(|(index, (instruction, arg))| {
+            matches!(instruction, BytecodeInstruction::LoadLocal { dst, local }
+                if dst == arg && local.index() == index)
+        })
+        && matches!(&function.instructions[params + 1], BytecodeInstruction::Return(Some(value)) if value == result)
 }
 
 fn instantiate_method_type(

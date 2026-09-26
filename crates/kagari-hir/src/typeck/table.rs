@@ -104,10 +104,18 @@ pub struct TypeTable {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedInterfaceCoercion {
-    pub implementation: DefinitionId,
-    pub arguments: Vec<TypeId>,
+    pub implementation: ResolvedInterfaceImplementation,
     pub concrete_type: TypeId,
     pub interface_type: NominalType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedInterfaceImplementation {
+    Script {
+        declaration: DefinitionId,
+        arguments: Vec<TypeId>,
+    },
+    Host,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -580,6 +588,10 @@ impl TypeTable {
             }
         }
         for (a, b) in exprs {
+            if let Some(coercion) = old.interface_coercions.get(&old_map.expr_id(a)) {
+                self.interface_coercions
+                    .insert(new_map.expr_id(b), coercion.clone());
+            }
             if let Some(field) = old.expr_fields.get(&old_map.expr_id(a)) {
                 self.expr_fields.insert(new_map.expr_id(b), field.clone());
             }

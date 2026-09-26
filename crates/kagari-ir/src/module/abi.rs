@@ -16,7 +16,7 @@ pub enum PublicAbiItem {
     Const(ConstAbi),
     Type(TypeAbi),
     Trait(TraitAbi),
-    InterfaceTable(InterfaceTableAbi),
+    InterfaceTable(Box<InterfaceTableAbi>),
 }
 
 impl PublicAbiItem {
@@ -437,6 +437,7 @@ pub struct AssociatedTypeAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceTableAbi {
+    pub host_bridge: bool,
     pub declaration: kagari_common::identity::DefinitionId,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -483,6 +484,7 @@ impl InterfaceTableAbi {
             })
             .collect::<Option<Vec<_>>>()?;
         Some(Self {
+            host_bridge: self.host_bridge,
             declaration: self.declaration.clone(),
             name: self.name.clone(),
             generic_params: Vec::new(),

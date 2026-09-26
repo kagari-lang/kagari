@@ -19,8 +19,15 @@ cross-module method reachability. See the [trait contract](spec/traits.md#generi
 and [runnable example](../examples/syntax/generic-interfaces.kgr). Artifact format
 44 and runtime ABI v44 reject prior formats without migration.
 
-The next trait checkpoints are host associated-output declarations and dynamic
-interface integration; trait inheritance and default method fallback; associated
+Completed language extension: host associated-output declarations and dynamic
+interfaces, using offline contracts and verified IR forwarding functions through
+the existing host boundary. See the [trait contract](spec/traits.md#host-associated-outputs-and-interfaces)
+and [embedding example](../crates/kagari-embed/examples/host_interfaces.rs).
+Integration tests cover source/artifact execution, JIT-enabled execution,
+cross-module generic inputs, GC, reentry, traps and retained reload versions.
+Artifact format 45, runtime ABI v45 and KHI v10 reject previous products.
+
+The next trait checkpoints are trait inheritance and default method fallback; associated
 consts; then type-parameterized GAT. Each checkpoint updates executable examples,
 semantic and artifact validation, and commits separately. Lifetimes, script-level
 `dyn`, higher-kinded type parameters, specialization, negative impls, auto traits

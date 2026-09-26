@@ -42,6 +42,13 @@ and artifacts. [host-trait-bound.kgr](host-trait-bound.kgr) likewise requires th
 host declarations installed by the `offline_nominal` integration test. They are
 not standalone CLI programs.
 
+[host-interfaces.kgr](host-interfaces.kgr) demonstrates associated outputs on a
+host type, qualified projections and static/dynamic interface calls returning
+`42`. Run `cargo run -p kagari-embed --example host_interfaces` to install its
+offline declarations, compile without callbacks, then bind and execute. The
+`host_interfaces` integration test also covers encoded artifacts, JIT-enabled
+execution, GC, reentry, permissions and hot reload.
+
 The examples cover executable forms; parser-only recovery cases remain in the
 syntax crate tests. The [grammar-witnesses.kgr](syntax/grammar-witnesses.kgr)
 file combines grammar branches for the syntax audit and is not a standalone

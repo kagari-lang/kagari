@@ -1,0 +1,20 @@
+// Requires the offline declarations and runtime bindings in the host_interfaces
+// embedding example. Importing declarations does not invoke host callbacks.
+use demo::{Counter, make};
+
+trait Reader {
+    type Item: HashKey;
+    fn read(self, amount: i32) -> Self::Item;
+}
+
+fn read<R: Reader<Item = i32>>(value: R) -> R::Item {
+    value.read(20)
+}
+
+fn projected(value: Counter) -> <Counter as Reader>::Item {
+    value.read(0)
+}
+
+pub fn boxed() -> Reader<Item = i32> { make() }
+
+fn main() -> i32 { read(make()) + boxed().read(22) }

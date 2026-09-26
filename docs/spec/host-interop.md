@@ -164,7 +164,7 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 9, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 10, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. The decoder
 checks declaration-list lengths before reading elements (at most 1,000,000 each),
@@ -242,12 +242,12 @@ contracts before publication, even if there are no host calls in the program.
 `HostHandle` is a separate execution representation; script heap objects cannot
 satisfy an opaque host parameter's representation. Runtime nominal identity,
 ownership, borrow and escape checks still apply. This does not authorize host
-handles or borrows as default script heap payloads. Host field/path binding,
-executable host trait dispatch and generated typed paths remain R06/R07 work.
+handles or borrows as default script heap payloads. The checked durable-root
+exception for interface payloads is defined under [Interaction with Traits](#interaction-with-traits).
 An offline host trait table maps each script trait method identity to a host
 method identity. When the script trait's defining module is analyzed, its
-non-generic signature must have an exact method roster and matching receiver,
-parameter and return types. Mismatches are source diagnostics before code
+concrete applied signature must have an exact method roster and matching receiver,
+parameter and return types after associated-output substitution. Mismatches are source diagnostics before code
 generation. Host passing styles and effects remain part of the host ABI.
 Host methods are callable through their receiver: `player.read_score()`.
 `HostTypeDeclaration::method_contract` derives the executable contract from the
@@ -775,34 +775,40 @@ Reflection is defined in [reflection.md](reflection.md).
 
 Host types may implement script-visible traits.
 
-An offline host type may declare a trait identity, ordered concrete trait type
-arguments, and a mapping from each trait method identity to a declared host method.
-KHI v9 validates identities, argument types and unique applied mappings, and
-includes this table in the type ABI fingerprint. Type arguments use the portable
-`HostValueType` vocabulary, including nested values and opaque host types; script
-nominal types are not host declaration arguments. Linking
-requires an identical registered table and bound callbacks for all mapped host
-methods before publication. Signature analysis checks the script trait's method
-roster, receiver, parameters, result and applied trait-parameter bounds against
-each bound host method. IR and bytecode verification repeat the trait roster and
-signature checks, including nested host types and applied arguments, against
-the defining module's public ABI record or its private executable trait
-contract. The latter is not exported as public API. Standard trait-parameter
-bounds are checked again at this boundary using the same language predicate;
-applied bounds requiring another trait implementation still need execution-layer
-verification. Dynamic
-interface dispatch remains pending R08 work.
-For a concrete host receiver, an applied trait table satisfies the exact static
-trait bound. Reachable generic calls select the mapped host method by declaration
-identity and execute it with the normal host capability, effect and borrow checks.
-A script implementation of the same applied trait for that host type is an overlap.
+An offline host type declares a trait identity, ordered concrete input types,
+associated outputs keyed by trait-owned member identities, and a complete mapping
+from trait methods to declared host methods. KHI v10 validates ownership,
+uniqueness and bounded portable types; all these records participate in the host
+type ABI fingerprint. Inputs and outputs use `HostValueType`, including nested
+values and opaque host types. Script nominal types are not portable host types.
+Associated output references participate in the required host-type closure.
 
-Behavior:
+```rust,ignore
+implementation.associated_types.push(HostAssociatedTypeBinding {
+    declaration: item_member_id, // the trait's `type Item` identity
+    ty: HostValueType::I32,
+});
+```
 
-- trait metadata may be attached during type registration
-- host values may be viewed through trait/interface value types after runtime
-  interface dispatch is implemented
-- `is<T>` and `downcast<T>` rely on concrete type identity
+Signature analysis and artifact verification check the complete output schema,
+input/output bounds, receiver and substituted method signatures against the
+owning trait's public ABI or private execution contract, even without calls.
+Linking requires an identical registered table and bound callbacks for mapped
+methods. A script implementation of the same applied trait for that host type
+is an overlap; associated outputs do not distinguish implementations.
+
+A concrete host receiver satisfies static bounds and may convert to a fully bound
+dynamic interface. Generated IR forwarding functions call the mapped host method
+through the ordinary capability, exposure, effect, budget and borrow checks.
+Artifact verification checks the exact forwarding call and method mapping.
+The interface retains only a checked durable `HostRoot`; temporary borrow tokens
+and path views cannot be boxed. It keeps its linked execution version across
+reentry and hot reload. Hosts must explicitly root retained interface objects;
+this keeps the interface alive, without transferring host object ownership to GC.
+Runtime downcast syntax remains future work.
+
+Run `cargo run -p kagari-embed --example host_interfaces` for
+[the complete binding example](../../crates/kagari-embed/examples/host_interfaces.rs).
 
 Trait-system behavior is defined in [traits.md](traits.md).
 

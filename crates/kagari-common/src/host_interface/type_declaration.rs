@@ -89,10 +89,18 @@ pub struct HostTraitMethodBinding {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostAssociatedTypeBinding {
+    pub declaration: DefinitionId,
+    pub ty: HostValueType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostTraitImplementationDeclaration {
     pub trait_id: DefinitionId,
     #[serde(deserialize_with = "super::decode_limits::members")]
     pub trait_arguments: Vec<HostValueType>,
+    #[serde(deserialize_with = "super::decode_limits::members")]
+    pub associated_types: Vec<HostAssociatedTypeBinding>,
     #[serde(deserialize_with = "super::decode_limits::members")]
     pub methods: Vec<HostTraitMethodBinding>,
     pub documentation: String,
@@ -107,6 +115,7 @@ impl HostTraitImplementationDeclaration {
         Self {
             trait_id,
             trait_arguments,
+            associated_types: Vec::new(),
             methods,
             documentation: String::new(),
         }
@@ -272,6 +281,27 @@ impl HostTypeDeclaration {
             for argument in &implementation.trait_arguments {
                 argument.validate()?;
             }
+            trait_arguments = trait_arguments.saturating_add(implementation.associated_types.len());
+            if trait_arguments > super::decode_limits::MAX_MEMBERS {
+                return Err(HostInterfaceError::TooLarge);
+            }
+            let mut outputs = std::collections::HashSet::new();
+            for output in &implementation.associated_types {
+                if !output.declaration.within_path_limit() {
+                    return Err(HostInterfaceError::TooLarge);
+                }
+                let mut owner = output.declaration.clone();
+                if owner.path.pop().is_none_or(|segment| {
+                    segment.kind != DefinitionKind::AssociatedType
+                        || segment.name.is_empty()
+                        || segment.occurrence != 0
+                }) || owner != *trait_id
+                    || !outputs.insert(&output.declaration)
+                {
+                    return Err(HostInterfaceError::InvalidDeclaration);
+                }
+                output.ty.validate()?;
+            }
             if !implemented_traits.insert((trait_id, &implementation.trait_arguments)) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
@@ -315,6 +345,16 @@ impl HostTypeDeclaration {
                 self.trait_implementations
                     .iter()
                     .flat_map(|implementation| &implementation.trait_arguments),
+            )
+            .chain(
+                self.trait_implementations
+                    .iter()
+                    .flat_map(|implementation| {
+                        implementation
+                            .associated_types
+                            .iter()
+                            .map(|output| &output.ty)
+                    }),
             )
     }
     pub fn clear_documentation(&mut self) {
@@ -487,6 +527,61 @@ mod tests {
             .validate(),
             Err(HostInterfaceError::InvalidDeclaration)
         );
+    }
+
+    #[test]
+    fn associated_outputs_are_bounded_owned_and_fingerprinted() {
+        let mut owner = HostTypeDeclaration::new("demo.Counter");
+        let trait_id = script_trait("Reader");
+        let mut output = trait_id.clone();
+        output.path.push(DefinitionPathSegment {
+            kind: DefinitionKind::AssociatedType,
+            name: "Item".into(),
+            occurrence: 0,
+        });
+        let mut implementation = HostTraitImplementationDeclaration::new(trait_id, vec![], vec![]);
+        implementation
+            .associated_types
+            .push(HostAssociatedTypeBinding {
+                declaration: output,
+                ty: HostValueType::I32,
+            });
+        owner.trait_implementations.push(implementation);
+        let interface = HostInterface {
+            types: vec![owner.clone()],
+            ..Default::default()
+        };
+        let mut bytes = interface.to_bytes().unwrap();
+        assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), interface);
+        bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
+        assert!(HostInterface::from_bytes(&bytes).is_err());
+        let fingerprint = owner.fingerprint().unwrap();
+        let mut changed = owner.clone();
+        changed.trait_implementations[0].associated_types[0].ty = HostValueType::I64;
+        assert_ne!(changed.fingerprint().unwrap(), fingerprint);
+        for mutation in 0..4 {
+            let mut invalid = owner.clone();
+            let implementation = &mut invalid.trait_implementations[0];
+            match mutation {
+                0 => implementation
+                    .associated_types
+                    .push(implementation.associated_types[0].clone()),
+                1 => implementation.associated_types[0].declaration.path[0].name = "Other".into(),
+                2 => {
+                    implementation.associated_types[0]
+                        .declaration
+                        .path
+                        .last_mut()
+                        .unwrap()
+                        .kind = DefinitionKind::Method
+                }
+                _ => implementation.associated_types.resize(
+                    super::super::decode_limits::MAX_MEMBERS + 1,
+                    implementation.associated_types[0].clone(),
+                ),
+            }
+            assert!(invalid.validate().is_err(), "accepted mutation {mutation}");
+        }
     }
 
     #[test]

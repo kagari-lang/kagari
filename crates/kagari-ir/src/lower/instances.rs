@@ -48,6 +48,12 @@ pub(super) struct InstancePlanner<'a> {
     pub instances: Vec<Instance>,
     pub layout_roots: Vec<(TypeId, Span)>,
     pub host_types: std::collections::BTreeSet<kagari_common::identity::DefinitionId>,
+    pub host_interfaces: Vec<(
+        kagari_common::identity::DefinitionId,
+        TypeId,
+        kagari_hir::types::NominalType,
+        Span,
+    )>,
     keys: HashMap<FunctionInstance, InstanceId>,
     generic_count: usize,
     interfaces: std::collections::HashSet<(kagari_common::identity::DefinitionId, Vec<TypeId>)>,
@@ -63,6 +69,7 @@ impl<'a> InstancePlanner<'a> {
             instances: Vec::new(),
             layout_roots: Vec::new(),
             host_types: Default::default(),
+            host_interfaces: Vec::new(),
             keys: HashMap::new(),
             generic_count: 0,
             interfaces: Default::default(),
@@ -80,6 +87,37 @@ impl<'a> InstancePlanner<'a> {
             return Err(IrLoweringError::diagnostic(error.clone()));
         }
         Ok(())
+    }
+
+    pub fn host_interface(
+        &mut self,
+        receiver: &TypeId,
+        interface: &kagari_hir::types::NominalType,
+        span: Span,
+    ) -> Result<kagari_common::identity::DefinitionId, IrLoweringError> {
+        self.check()?;
+        if let Some((id, ..)) = self
+            .host_interfaces
+            .iter()
+            .find(|(_, ty, applied, _)| ty == receiver && applied == interface)
+        {
+            return Ok(id.clone());
+        }
+        use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+        let base = self.module.lowered.module.impls.len();
+        let occurrence = u32::try_from(base + self.host_interfaces.len())
+            .map_err(|_| IrLoweringError::MissingBinding("host interface identity limit"))?;
+        let id = DefinitionId {
+            module: self.module.lowered.source.module_identity().clone(),
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Impl,
+                name: String::new(),
+                occurrence,
+            }],
+        };
+        self.host_interfaces
+            .push((id.clone(), receiver.clone(), interface.clone(), span));
+        Ok(id)
     }
 
     pub fn charge_instruction(&mut self, span: Span) {

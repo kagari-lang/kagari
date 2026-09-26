@@ -190,10 +190,9 @@ method contracts and output bounds before execution.
 
 Every trait impl must define each declared output exactly once. Defaults,
 recursive definitions, associated types in inherent impls, GAT and associated
-consts are outside this checkpoint. Host trait registration currently has no
-associated-output declaration payload; registrations for traits declaring
-associated types are rejected explicitly. Script implementations and interface
-values support ordinary associated types without changing the host value model.
+consts are outside this checkpoint. Host implementations declare their ordinary
+associated outputs in the same offline interface used for runtime registration;
+see [Host Associated Outputs and Interfaces](#host-associated-outputs-and-interfaces).
 
 See [associated-types.kgr](../../examples/syntax/associated-types.kgr) for a
 runnable example returning `42`.
@@ -465,8 +464,8 @@ Concrete host types with a checked applied trait table satisfy matching static
 trait bounds. Ordered arguments distinguish `Readable<i32>` from
 `Readable<bool>` on the same host type. A specialized bound call selects the
 mapped host method by declaration identity and uses the normal host call
-contract. Host declaration arguments use `HostValueType`; dynamic interface
-values remain future work.
+contract. Host declaration arguments and associated outputs use `HostValueType`.
+Durable host root handles can also be converted to concrete interface values.
 
 ## Implemented Feature Set
 
@@ -543,7 +542,7 @@ source order, and ordinal lookup checks the exact applied interface identity.
 Source calls on interface values use a verified trait method slot and enter the
 receiver's pinned implementation version through the explicit frame stack.
 The construction entry accepts verified concrete script table instances,
-including instances of generic impls. Host-backed interface values remain pending.
+including instances of generic impls and checked host bridge tables.
 
 Verified bytecode can now allocate the same interface object with
 `MakeInterface`, using an implementation table slot resolved from the typed IR
@@ -617,8 +616,37 @@ version using the existing interface object ownership model.
 See [generic-interfaces.kgr](../../examples/syntax/generic-interfaces.kgr), which
 returns `42` from both numeric and string interface instances.
 
+### Host Associated Outputs and Interfaces
+
+An offline `HostTraitImplementationDeclaration` contains the trait identity,
+ordered concrete inputs, an `associated_types` list of `HostAssociatedTypeBinding`
+records, and the method mapping. Each output is keyed by its trait-owned member
+identity and has a portable `HostValueType`. Every declared output must appear
+exactly once, even when no method is called. Signature analysis and artifact
+verification check output bounds and substitute outputs, trait inputs and `Self`
+into the full method contract. Host projections normalize at compile time.
+
+A host receiver can satisfy a static generic bound or be converted to a fully
+bound interface such as `Reader<Item = i32>`. The compiler emits a concrete
+interface table and ordinary IR forwarding functions. Each forwarding function
+calls the mapped host method through the normal verified host boundary; there is
+no separate runtime dispatcher or runtime generic specialization. Loading checks
+the mapping and forwarding code before execution. Host effects, exposure,
+capabilities, budget and call-scoped receiver borrowing remain enforced.
+
+The interface payload may retain a registered durable `HostRoot`, whose registry
+ownership, concrete type and schema are checked. Borrow tokens and path views
+cannot be retained in an interface. Boxing does not transfer ownership of the
+underlying host object to the script GC. An embedding must explicitly root the
+interface while retaining it. Interface objects and their calls pin the linked
+execution version, including across synchronous host reentry and hot reload.
+Tuple method parameters and results validate any nested host roots as well.
+
+See [host-interfaces.kgr](../../examples/host-interfaces.kgr) and run
+`cargo run -p kagari-embed --example host_interfaces` for offline compilation
+followed by runtime binding and static/dynamic calls returning `42`.
+
 ### Remaining Execution Work
 
-Host-backed interface values, host associated-output declarations and runtime
-downcasting remain separate work. Trait inheritance, default method fallback,
+Runtime downcasting remains separate work. Trait inheritance, default method fallback,
 associated consts and type-parameterized GAT follow as individual checkpoints.

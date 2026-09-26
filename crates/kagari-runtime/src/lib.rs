@@ -461,7 +461,7 @@ impl Runtime {
         self.gc.alloc_enum(tag, fields)
     }
 
-    /// Box a concrete script value behind a verified implementation table.
+    /// Box a concrete script value or durable host root behind a verified table.
     /// The resulting heap object retains the table's entire execution version.
     pub fn make_interface(
         &self,
@@ -576,7 +576,15 @@ impl Runtime {
                 return_type: method.return_type.clone(),
             });
         }
-        self.validate_heap_payloads(std::slice::from_ref(&data))?;
+        if !matches!(data, Value::HostRoot(_)) {
+            self.validate_heap_payloads(std::slice::from_ref(&data))?;
+        }
+        if !self.matches_interface_method_abi(&data, &concrete_type, implementation) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid interface receiver",
+            ));
+        }
         let retention = self
             .modules
             .retain_runtime_program(implementation)
@@ -808,6 +816,12 @@ impl Runtime {
             return false;
         }
         match (value, ty) {
+            (value::Value::Tuple(values), kagari_ir::module::abi::AbiType::Tuple(types)) => {
+                values.len() == types.len()
+                    && values.iter().zip(types).all(|(value, ty)| {
+                        self.matches_interface_method_abi(value, ty, implementation)
+                    })
+            }
             (value::Value::HostRoot(root), kagari_ir::module::abi::AbiType::Host(id)) => {
                 self.host.matches_root(*root)
                     && self

@@ -2,6 +2,7 @@ mod abi;
 mod expr;
 mod function;
 mod host;
+mod host_interfaces;
 mod instances;
 mod layouts;
 mod place;
@@ -106,7 +107,8 @@ pub(crate) fn lower_to_ir_with_requests(
     }
 
     let (structures, enumerations) = layouts::collect(module, &mut planner)?;
-    let abi = abi::collect_module_abi(module);
+    let mut abi = abi::collect_module_abi(module);
+    host_interfaces::collect(&mut planner, module, &mut abi, &mut functions)?;
     planner.host_types.extend(
         crate::module::host::references(
             &abi.public_items,

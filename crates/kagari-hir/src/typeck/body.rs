@@ -1267,9 +1267,21 @@ impl<'a> BodyChecker<'a> {
                     .filter_map(|param| self.declarations.generic_type(param.id))
                     .collect::<Vec<_>>(),
             )
-            || matches!(&source, TypeId::Host(_))
         {
             return source;
+        }
+        if matches!(&source, TypeId::Host(_))
+            && self.declarations.hosts.implements(interface, &source)
+        {
+            self.type_table.insert_interface_coercion(
+                expr_id,
+                super::ResolvedInterfaceCoercion {
+                    implementation: super::ResolvedInterfaceImplementation::Host,
+                    concrete_type: source,
+                    interface_type: interface.clone(),
+                },
+            );
+            return target.clone();
         }
         match self.aggregates.concrete_interface_implementation(
             interface,
@@ -1283,8 +1295,10 @@ impl<'a> BodyChecker<'a> {
                 self.type_table.insert_interface_coercion(
                     expr_id,
                     super::ResolvedInterfaceCoercion {
-                        implementation,
-                        arguments,
+                        implementation: super::ResolvedInterfaceImplementation::Script {
+                            declaration: implementation,
+                            arguments,
+                        },
                         concrete_type: source,
                         interface_type: interface.clone(),
                     },

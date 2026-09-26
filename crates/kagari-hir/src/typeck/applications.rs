@@ -24,7 +24,10 @@ pub(super) fn validate(
                 interface,
                 member,
             } => {
-                if receiver.is_concrete() && catalog.implementation_count(interface, receiver) != 1
+                if receiver.is_concrete()
+                    && catalog.implementation_count(interface, receiver)
+                        + usize::from(hosts.implements(interface, receiver))
+                        != 1
                 {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {

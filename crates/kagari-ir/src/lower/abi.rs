@@ -234,7 +234,8 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             for_type.display_name(),
             trait_type.display_name()
         );
-        public_items.push(PublicAbiItem::InterfaceTable(InterfaceTableAbi {
+        public_items.push(PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+            host_bridge: false,
             declaration: module
                 .declarations
                 .impl_identity(impl_block.id)
@@ -269,7 +270,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         })
                 })
                 .collect(),
-        }));
+        })));
     }
 
     ModuleAbi {

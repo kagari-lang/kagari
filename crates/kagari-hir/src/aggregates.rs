@@ -73,6 +73,7 @@ pub struct EnumSignature {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AggregateCatalog {
+    host_implementations: Vec<(crate::types::NominalType, TypeId)>,
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
     implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
     methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
@@ -219,6 +220,17 @@ impl AggregateCatalog {
         }
         self.add_traits(lowered, declarations, signatures, cancel)?;
         self.add_implementations(declarations, signatures, cancel)?;
+        for host in declarations.hosts.type_declarations() {
+            for implementation in &host.trait_implementations {
+                cancel.check()?;
+                if implementation.trait_id.module == *lowered.source.module_identity() {
+                    self.host_implementations.push((
+                        crate::host::HostDeclarations::trait_type(implementation),
+                        TypeId::Host(host.id.clone()),
+                    ));
+                }
+            }
+        }
         for implementation in &lowered.module.impls {
             cancel.check()?;
             if implementation.trait_ref.is_some() {
@@ -347,11 +359,18 @@ impl AggregateCatalog {
                 result.enumerations.insert(id.clone(), enumeration.clone());
             }
         }
+        result.host_implementations = self
+            .host_implementations
+            .iter()
+            .filter(|(interface, _)| result.traits.contains_key(&interface.declaration))
+            .cloned()
+            .collect();
         Ok(result)
     }
 
     pub(crate) fn same_contracts(&self, other: &Self) -> bool {
         self.same_trait_contracts(other)
+            && self.host_implementations == other.host_implementations
             && self.implementations == other.implementations
             && self.inherent_methods == other.inherent_methods
             && self.enumerations.len() == other.enumerations.len()

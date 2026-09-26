@@ -15,6 +15,10 @@ argument passing, and returns share their identity. `val` prevents rebinding a
 slot, not mutation of the referenced object. Container copy operations are
 shallow. There is no generic deep-copy or deep-freeze operation in v1.
 
+An interface may retain a checked durable host root as its concrete payload;
+this does not make host borrow tokens or path views valid heap payloads. See the
+[host interface contract](traits.md#host-associated-outputs-and-interfaces).
+
 Equality compares scalars and strings by value, tuples by corresponding members,
 and enums by nominal type, variant, and corresponding members. Mutable objects
 compare by identity. Interface values and host handles/path views do not support

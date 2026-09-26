@@ -33,8 +33,8 @@ pub use constraints::type_satisfies_standard_constraint;
 pub(crate) use table::match_implementation;
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
-    ResolvedHostPlacePath, ResolvedInterfaceCoercion, ResolvedStructInit, ResolvedTypeRef,
-    TypeTable, TypeTarget,
+    ResolvedHostPlacePath, ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
+    ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,
 };
 
 #[derive(Debug, Clone)]

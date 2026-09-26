@@ -99,38 +99,74 @@ impl FunctionLowerer<'_, '_> {
                 .cloned()
             {
                 let span = self.analyzed.lowered.source_map.expr_span(expr_id);
-                let arguments = self.planner.arguments(
-                    &coercion.arguments,
-                    &self.instance.substitution,
-                    span,
-                )?;
-                self.planner
-                    .record_interface(&coercion.implementation, &arguments, span)?;
-                if coercion.implementation.module == *self.analyzed.lowered.source.module_identity()
-                {
-                    let signature = self
-                        .analyzed
-                        .aggregates
-                        .implementation_signature(&coercion.implementation)
-                        .ok_or(IrLoweringError::MissingBinding("interface implementation"))?;
-                    for method in signature.methods.values() {
-                        let Some(kagari_hir::resolver::ResolvedName::Function(function)) =
-                            self.analyzed.declarations.definition_target(method)
-                        else {
-                            return Err(IrLoweringError::MissingBinding("interface method"));
+                use kagari_hir::typeck::ResolvedInterfaceImplementation;
+                let (implementation, arguments) = match coercion.implementation {
+                    ResolvedInterfaceImplementation::Host => {
+                        let mut types = self
+                            .planner
+                            .arguments(
+                                &[
+                                    coercion.concrete_type,
+                                    kagari_hir::types::TypeId::Trait(coercion.interface_type),
+                                ],
+                                &self.instance.substitution,
+                                span,
+                            )?
+                            .into_iter();
+                        let receiver = types.next().expect("receiver argument");
+                        let applied = types.next().expect("interface argument");
+                        let kagari_hir::types::TypeId::Trait(interface) = applied else {
+                            return Err(IrLoweringError::MissingBinding("host interface type"));
                         };
-                        self.planner.enqueue(function, arguments.clone(), span)?;
+                        (
+                            self.planner.host_interface(&receiver, &interface, span)?,
+                            Vec::new(),
+                        )
                     }
-                }
-                let arguments = arguments
-                    .iter()
-                    .map(crate::module::abi::AbiType::from_checked_type)
-                    .collect();
+                    ResolvedInterfaceImplementation::Script {
+                        declaration,
+                        arguments,
+                    } => {
+                        let arguments = self.planner.arguments(
+                            &arguments,
+                            &self.instance.substitution,
+                            span,
+                        )?;
+                        self.planner
+                            .record_interface(&declaration, &arguments, span)?;
+                        if declaration.module == *self.analyzed.lowered.source.module_identity() {
+                            let signature = self
+                                .analyzed
+                                .aggregates
+                                .implementation_signature(&declaration)
+                                .ok_or(IrLoweringError::MissingBinding(
+                                    "interface implementation",
+                                ))?;
+                            for method in signature.methods.values() {
+                                let Some(kagari_hir::resolver::ResolvedName::Function(function)) =
+                                    self.analyzed.declarations.definition_target(method)
+                                else {
+                                    return Err(IrLoweringError::MissingBinding(
+                                        "interface method",
+                                    ));
+                                };
+                                self.planner.enqueue(function, arguments.clone(), span)?;
+                            }
+                        }
+                        (
+                            declaration,
+                            arguments
+                                .iter()
+                                .map(crate::module::abi::AbiType::from_checked_type)
+                                .collect(),
+                        )
+                    }
+                };
                 let dst = self.alloc_temp(ValueType::HeapObject);
                 self.emit(Instruction::MakeInterface {
                     dst,
                     value,
-                    implementation: coercion.implementation,
+                    implementation,
                     arguments,
                 });
                 value = dst;

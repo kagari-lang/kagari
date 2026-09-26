@@ -56,7 +56,9 @@ pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMo
     let mut signatures = Vec::new();
     for dependency in closure {
         for item in &dependency.public_items {
-            if let PublicAbiItem::InterfaceTable(table) = item {
+            if let PublicAbiItem::InterfaceTable(table) = item
+                && !table.host_bridge
+            {
                 if signatures.len() == MAX_IMPLEMENTATIONS {
                     return false;
                 }
@@ -65,6 +67,35 @@ pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMo
                 };
                 signatures.push(converted);
             }
+        }
+    }
+    let mut host_ids = std::collections::HashSet::new();
+    for host in closure
+        .iter()
+        .flat_map(|dependency| &dependency.host_interface.types)
+    {
+        if !host_ids.insert(&host.id) {
+            continue;
+        }
+        for (index, implementation) in host.trait_implementations.iter().enumerate() {
+            if signatures.len() == MAX_IMPLEMENTATIONS {
+                return false;
+            }
+            let mut id = host.id.clone();
+            id.path
+                .push(kagari_common::identity::DefinitionPathSegment {
+                    kind: kagari_common::identity::DefinitionKind::Impl,
+                    name: String::new(),
+                    occurrence: index as u32,
+                });
+            signatures.push(ImplementationSignature {
+                id,
+                trait_type: kagari_hir::host::HostDeclarations::trait_type(implementation),
+                for_type: TypeId::Host(host.id.clone()),
+                generic_params: Vec::new(),
+                bounds: Default::default(),
+                methods: Default::default(),
+            });
         }
     }
     let Some(catalog) = AggregateCatalog::from_implementation_signatures(signatures) else {
@@ -112,6 +143,21 @@ pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMo
         if interface.associated_types.len() != contract.associated_types.len() {
             return false;
         }
+        if !table.host_bridge
+            && matches!(table.for_type, AbiType::Host(_))
+            && !matches!(
+                catalog.implementation_count_bounded(
+                    &interface.to_checked_type(),
+                    &table.for_type.to_checked_type(),
+                    MAX_MATCH_CHECKS,
+                    MAX_PROOF_DEPTH,
+                    &cancel
+                ),
+                Ok(1)
+            )
+        {
+            return false;
+        }
         let checked = interface.to_checked_type();
         let substitution = contract
             .generic_params
@@ -123,7 +169,15 @@ pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMo
             })
             .zip(checked.arguments.iter().cloned())
             .collect();
-        let Some(implementation) = catalog.implementation_signature(&table.declaration) else {
+        let bridge = if table.host_bridge {
+            signature(table)
+        } else {
+            None
+        };
+        let Some(implementation) = catalog
+            .implementation_signature(&table.declaration)
+            .or(bridge.as_ref())
+        else {
             return false;
         };
         for member in &contract.associated_types {
@@ -208,54 +262,72 @@ pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMo
             let Some(trait_abi) = trait_abi else {
                 return false;
             };
-            let arguments = implementation
-                .trait_arguments
+            let applied = kagari_hir::host::HostDeclarations::trait_type(implementation);
+            let substitution = trait_abi
+                .generic_params
                 .iter()
-                .map(AbiType::from_host_type)
-                .collect::<Vec<_>>();
-            for bound in &trait_abi.bounds {
-                let Some(argument) = bound.ty.instantiate(&implementation.trait_id, &arguments)
-                else {
-                    return false;
-                };
-                let actual = argument.to_checked_type();
-                for constraint in &bound.constraints {
-                    let ConstraintAbi::Trait(required) = constraint else {
-                        continue;
-                    };
-                    let Some(required) = AbiType::Trait(required.clone())
-                        .instantiate(&implementation.trait_id, &arguments)
-                    else {
-                        return false;
-                    };
-                    let TypeId::Trait(required) = required.to_checked_type() else {
-                        return false;
-                    };
-                    let script = catalog.implementation_count_bounded(
-                        &required,
-                        &actual,
-                        MAX_MATCH_CHECKS,
-                        MAX_PROOF_DEPTH,
-                        &cancel,
-                    );
-                    let host_count = usize::from(matches!(&actual, TypeId::Host(id)
-                    if closure
-                        .iter()
-                        .flat_map(|dependency| &dependency.host_interface.types)
-                        .filter(|candidate| &candidate.id == id)
-                        .flat_map(|candidate| &candidate.trait_implementations)
-                        .any(|table| {
-                            table.trait_id == required.declaration
-                                && table
-                                    .trait_arguments
-                                    .iter()
-                                    .map(AbiType::from_host_type)
-                                    .map(|argument| argument.to_checked_type())
-                                    .collect::<Vec<_>>()
-                                    == required.arguments
-                        })));
-                    if !matches!(script, Ok(count) if count + host_count == 1) {
-                        return false;
+                .map(|param| GenericParameterType {
+                    owner: param.owner.clone(),
+                    position: param.position,
+                    name: String::new(),
+                })
+                .zip(applied.arguments.iter().cloned())
+                .collect();
+            let ordinary = trait_abi
+                .bounds
+                .iter()
+                .map(|bound| (bound.ty.to_checked_type(), &bound.constraints));
+            let outputs = trait_abi.associated_types.iter().map(|member| {
+                (
+                    applied
+                        .associated_types
+                        .get(&member.declaration)
+                        .cloned()
+                        .unwrap_or(TypeId::Error),
+                    &member.bounds,
+                )
+            });
+            for (target, constraints) in ordinary.chain(outputs) {
+                let actual = catalog.normalize_type(
+                    &target
+                        .with_associated_types(&applied)
+                        .with_self(&applied.declaration, &TypeId::Host(host.id.clone()))
+                        .instantiate(&substitution),
+                );
+                for constraint in constraints {
+                    match constraint {
+                        ConstraintAbi::Standard(standard) => {
+                            if !kagari_hir::typeck::type_satisfies_standard_constraint(
+                                &actual,
+                                *standard,
+                                &Default::default(),
+                            ) {
+                                return false;
+                            }
+                        }
+                        ConstraintAbi::Trait(required) => {
+                            let required = catalog.normalize_type(
+                                &TypeId::Trait(required.to_checked_type())
+                                    .with_associated_types(&applied)
+                                    .with_self(&applied.declaration, &TypeId::Host(host.id.clone()))
+                                    .instantiate(&substitution),
+                            );
+                            let TypeId::Trait(required) = required else {
+                                return false;
+                            };
+                            if !matches!(
+                                catalog.implementation_count_bounded(
+                                    &required,
+                                    &actual,
+                                    MAX_MATCH_CHECKS,
+                                    MAX_PROOF_DEPTH,
+                                    &cancel
+                                ),
+                                Ok(1)
+                            ) {
+                                return false;
+                            }
+                        }
                     }
                 }
             }

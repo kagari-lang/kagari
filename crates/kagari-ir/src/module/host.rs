@@ -59,11 +59,39 @@ fn host_trait_matches(
         .iter()
         .map(AbiType::from_host_type)
         .collect::<Vec<_>>();
+    let outputs: std::collections::BTreeMap<_, _> = implementation
+        .associated_types
+        .iter()
+        .map(|output| {
+            (
+                output.declaration.clone(),
+                AbiType::from_host_type(&output.ty),
+            )
+        })
+        .collect();
     if args.len() != trait_abi.generic_params.len()
-        || !trait_abi.associated_types.is_empty()
+        || outputs.len() != trait_abi.associated_types.len()
+        || trait_abi
+            .associated_types
+            .iter()
+            .any(|member| !outputs.contains_key(&member.declaration))
         || implementation.methods.len() != trait_abi.methods.len()
     {
         return Ok(false);
+    }
+    for member in &trait_abi.associated_types {
+        let output = implementation
+            .associated_types
+            .iter()
+            .find(|output| output.declaration == member.declaration)
+            .expect("validated output schema");
+        for constraint in &member.bounds {
+            if let super::abi::ConstraintAbi::Standard(standard) = constraint
+                && !kagari_hir::host::satisfies_standard_constraint(&output.ty, *standard)
+            {
+                return Ok(false);
+            }
+        }
     }
     for bound in &trait_abi.bounds {
         cancel.check()?;
@@ -113,6 +141,7 @@ fn host_trait_matches(
                 &receiver,
                 &implementation.trait_id,
                 &args,
+                &outputs,
                 &receiver,
                 cancel,
             )?
@@ -126,6 +155,7 @@ fn host_trait_matches(
                 &AbiType::from_host_type(&actual.ty),
                 &implementation.trait_id,
                 &args,
+                &outputs,
                 &receiver,
                 cancel,
             )? {
@@ -137,6 +167,7 @@ fn host_trait_matches(
             &AbiType::from_host_type(&host_method.return_type),
             &implementation.trait_id,
             &args,
+            &outputs,
             &receiver,
             cancel,
         )? {
@@ -151,6 +182,7 @@ fn matches_host_type(
     actual: &AbiType,
     owner: &DefinitionId,
     arguments: &[AbiType],
+    outputs: &std::collections::BTreeMap<DefinitionId, AbiType>,
     receiver: &AbiType,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
@@ -158,6 +190,21 @@ fn matches_host_type(
     while let Some((expected, actual)) = pending.pop() {
         cancel.check()?;
         match (expected, actual) {
+            (
+                AbiType::Projection {
+                    receiver: source,
+                    interface,
+                    member,
+                },
+                actual,
+            ) if interface.declaration == *owner
+                && matches!(source.as_ref(), AbiType::SelfType(id) if id == owner) =>
+            {
+                let Some(output) = outputs.get(member) else {
+                    return Ok(false);
+                };
+                pending.push((output, actual));
+            }
             (AbiType::SelfType(id), actual) if id == owner => pending.push((receiver, actual)),
             (
                 AbiType::Parameter {
@@ -261,7 +308,8 @@ pub(crate) fn references(
             AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
             AbiType::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
-                pending.extend(&ty.arguments)
+                pending.extend(&ty.arguments);
+                pending.extend(ty.associated_types.values());
             }
             _ => {}
         }
@@ -279,6 +327,12 @@ pub(crate) fn validate(
     use super::layout::LayoutValidationError as Error;
     cancel.check().map_err(|_| Error::Cancelled)?;
     interface.validate().map_err(|_| Error::Invalid)?;
+    if items.iter().any(|item| {
+        matches!(item, PublicAbiItem::InterfaceTable(table)
+            if table.host_bridge && host_bridge_implementation(table, interface).is_none())
+    }) {
+        return Err(Error::Invalid);
+    }
     let ids: BTreeSet<_> = interface.types.iter().map(|ty| &ty.id).collect();
     if references(items, structures, enums, cancel)
         .map_err(|_| Error::Cancelled)?
@@ -289,4 +343,24 @@ pub(crate) fn validate(
     } else {
         Err(Error::Invalid)
     }
+}
+
+pub(crate) fn host_bridge_implementation<'a>(
+    table: &super::InterfaceTableAbi,
+    interface: &'a kagari_common::host_interface::HostInterface,
+) -> Option<(
+    &'a kagari_common::host_interface::HostTypeDeclaration,
+    &'a kagari_common::host_interface::HostTraitImplementationDeclaration,
+)> {
+    let AbiType::Host(id) = &table.for_type else {
+        return None;
+    };
+    let AbiType::Trait(applied) = &table.trait_type else {
+        return None;
+    };
+    let host = interface.types.iter().find(|host| &host.id == id)?;
+    let implementation = host.trait_implementations.iter().find(|implementation| {
+        kagari_hir::host::HostDeclarations::trait_type(implementation) == applied.to_checked_type()
+    })?;
+    Some((host, implementation))
 }

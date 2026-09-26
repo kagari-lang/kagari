@@ -1842,7 +1842,8 @@ fn interface_instruction_module() -> BytecodeModule {
             bounds: vec![],
             methods: vec![],
         }),
-        PublicAbiItem::InterfaceTable(InterfaceTableAbi {
+        PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+            host_bridge: false,
             declaration: impl_id.clone(),
             name: String::new(),
             generic_params: vec![],
@@ -1854,7 +1855,7 @@ fn interface_instruction_module() -> BytecodeModule {
             }),
             for_type: AbiType::Builtin(BuiltinType::I32),
             methods: vec![],
-        }),
+        })),
     ];
     module.interface_tables = vec![InterfaceTableRecord {
         arguments: Vec::new(),

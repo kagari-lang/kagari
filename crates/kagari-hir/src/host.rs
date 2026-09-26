@@ -56,17 +56,43 @@ pub struct HostDeclarations {
 }
 
 impl HostDeclarations {
+    pub(crate) fn type_declarations(&self) -> &[HostTypeDeclaration] {
+        &self.interface.types
+    }
+    pub fn trait_type(implementation: &HostTraitImplementationDeclaration) -> NominalType {
+        NominalType {
+            declaration: implementation.trait_id.clone(),
+            arguments: implementation
+                .trait_arguments
+                .iter()
+                .map(signature_type)
+                .collect(),
+            associated_types: implementation
+                .associated_types
+                .iter()
+                .map(|output| (output.declaration.clone(), signature_type(&output.ty)))
+                .collect(),
+        }
+    }
+
+    pub fn interface_implementation(
+        &self,
+        trait_type: &NominalType,
+        receiver: &TypeId,
+    ) -> Option<&HostTraitImplementationDeclaration> {
+        let TypeId::Host(id) = receiver else {
+            return None;
+        };
+        let host = self.type_declaration(self.nominal_type(id)?)?;
+        host.trait_implementations
+            .iter()
+            .find(|implementation| Self::matches_trait_application(implementation, trait_type))
+    }
     fn matches_trait_application(
         implementation: &HostTraitImplementationDeclaration,
         trait_type: &NominalType,
     ) -> bool {
-        implementation.trait_id == trait_type.declaration
-            && implementation.trait_arguments.len() == trait_type.arguments.len()
-            && implementation
-                .trait_arguments
-                .iter()
-                .zip(&trait_type.arguments)
-                .all(|(declared, required)| signature_type(declared) == *required)
+        Self::trait_type(implementation).satisfies(trait_type)
     }
 
     pub fn implements(&self, trait_type: &NominalType, receiver: &TypeId) -> bool {
@@ -153,8 +179,17 @@ impl HostDeclarations {
                     ));
                     continue;
                 }
-                if !trait_signature.associated_types.is_empty() {
-                    report("host trait registrations cannot define associated types".into());
+                let interface = Self::trait_type(implementation);
+                if interface.associated_types.len() != trait_signature.associated_types.len()
+                    || trait_signature
+                        .associated_types
+                        .keys()
+                        .any(|member| !interface.associated_types.contains_key(member))
+                {
+                    report(
+                        "associated type definitions must match the complete trait output schema"
+                            .into(),
+                    );
                     continue;
                 }
                 let substitution: crate::types::TypeSubstitution = trait_signature
@@ -163,6 +198,39 @@ impl HostDeclarations {
                     .cloned()
                     .zip(implementation.trait_arguments.iter().map(signature_type))
                     .collect();
+                let receiver = TypeId::Host(host.id.clone());
+                for (member, constraints) in &trait_signature.associated_types {
+                    let actual = &interface.associated_types[member];
+                    for constraint in constraints {
+                        let satisfied = match constraint {
+                            crate::typeck::ConstraintTarget::Standard(standard) => {
+                                crate::typeck::type_satisfies_standard_constraint(
+                                    actual,
+                                    *standard,
+                                    &Default::default(),
+                                )
+                            }
+                            crate::typeck::ConstraintTarget::Trait(required) => {
+                                let TypeId::Trait(required) = TypeId::Trait(required.clone())
+                                    .with_associated_types(&interface)
+                                    .with_self(&trait_signature.id, &receiver)
+                                    .instantiate(&substitution)
+                                else {
+                                    unreachable!("trait bound")
+                                };
+                                aggregates.implementation_count(&required, actual)
+                                    + usize::from(self.implements(&required, actual))
+                                    == 1
+                            }
+                        };
+                        if !satisfied {
+                            report(format!(
+                                "associated type `{}` does not satisfy its bound",
+                                member.path.last().unwrap().name
+                            ));
+                        }
+                    }
+                }
                 for (parameter, argument) in trait_signature
                     .generic_params
                     .iter()
@@ -181,7 +249,13 @@ impl HostDeclarations {
                                 satisfies_standard_constraint(argument, *standard)
                             }
                             crate::typeck::ConstraintTarget::Trait(required) => {
-                                let required = required.instantiate(&substitution);
+                                let TypeId::Trait(required) = TypeId::Trait(required.clone())
+                                    .with_associated_types(&interface)
+                                    .with_self(&trait_signature.id, &receiver)
+                                    .instantiate(&substitution)
+                                else {
+                                    unreachable!("trait bound")
+                                };
                                 aggregates.implementation_count(&required, &actual)
                                     + usize::from(self.implements(&required, &actual))
                                     == 1
@@ -224,6 +298,7 @@ impl HostDeclarations {
                         .map(|parameter| {
                             parameter
                                 .ty
+                                .with_associated_types(&interface)
                                 .with_self(&trait_signature.id, &receiver)
                                 .instantiate(&substitution)
                         })
@@ -252,6 +327,7 @@ impl HostDeclarations {
                     }
                     let expected_return = method
                         .return_type
+                        .with_associated_types(&interface)
                         .with_self(&trait_signature.id, &receiver)
                         .instantiate(&substitution);
                     let actual_return = signature_type(&host_method.return_type);

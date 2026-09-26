@@ -48,7 +48,8 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                             bounds: vec![],
                             methods: vec![],
                         }),
-                        PublicAbiItem::InterfaceTable(InterfaceTableAbi {
+                        PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+                            host_bridge: false,
                             declaration: impl_id.clone(),
                             name: String::new(),
                             generic_params: vec![],
@@ -60,7 +61,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                             }),
                             for_type: concrete_type,
                             methods: vec![],
-                        }),
+                        })),
                     ],
                     interface_tables: vec![InterfaceTableRecord {
                         arguments: Vec::new(),

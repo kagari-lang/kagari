@@ -41,15 +41,22 @@ KbcArtifact {
 }
 ```
 
-Format version 44 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 45 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 43 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 44 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
 
-Version 44 adds ordered concrete impl arguments to linked interface table
+Version 45 and runtime ABI v45 add explicitly marked concrete host bridge tables
+and KHI v10 associated-output declarations. Output identities, bounds, signatures
+and the exact forwarding host call are verified before execution. Host bridge
+tables do not introduce additional language implementations. Host declarations
+include associated output types in their fingerprint and required type closure.
+Standalone KHI versions before 10 are rejected without migration.
+
+Version 44 added ordered concrete impl arguments to linked interface table
 records. Generic tables are deduplicated by declaration and arguments; each
 executable instance contains all its concrete method slots. Loading validates
 argument arity, concreteness, bounds, uniqueness and exact method instance keys
@@ -457,5 +464,5 @@ types, so projections have the same canonical identity as parameter bounds.
 Associated binding maps are ordered by declaration identity; decoding rejects
 duplicate or noncanonical keys and applies the existing bounded type node,
 depth, identity and record budgets. Linking verifies the complete output schema
-and bounds even when no trait method is executed. Format 44 retains this metadata;
+and bounds even when no trait method is executed. Format 45 retains this metadata;
 all prior formats are rejected.

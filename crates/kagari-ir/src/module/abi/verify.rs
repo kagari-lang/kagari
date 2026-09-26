@@ -72,6 +72,11 @@ pub(crate) fn validate(
                 params.is_some_and(|params| {
                     let mut methods = HashSet::new();
                     bounds_valid(&table.bounds, &params, cancel)
+                        && (!table.host_bridge
+                            || (table.generic_params.is_empty()
+                                && table.bounds.is_empty()
+                                && matches!(table.for_type, AbiType::Host(_))
+                                && table.trait_type.is_concrete()))
                         && matches!(table.trait_type, AbiType::Trait(_))
                         && type_valid(&table.trait_type, &params, None, cancel)
                         && type_valid(&table.for_type, &params, None, cancel)

@@ -881,13 +881,13 @@ impl GcHeap {
         retention: crate::module::RetainedRuntimeProgram,
     ) -> Result<InterfaceObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        if !self.valid_payload(&snapshot.data)
-            || !self.matches_abi(
-                &snapshot.data,
-                &snapshot.concrete_type,
-                &snapshot.implementation,
-            )
-        {
+        // Runtime::make_interface checks the full receiver ABI, including host
+        // registry ownership/schema, before entering this allocation boundary.
+        let durable_host = matches!(
+            (&snapshot.data, &snapshot.concrete_type),
+            (Value::HostRoot(_), kagari_ir::module::abi::AbiType::Host(_))
+        );
+        if !durable_host && !self.valid_payload(&snapshot.data) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "invalid interface receiver",
