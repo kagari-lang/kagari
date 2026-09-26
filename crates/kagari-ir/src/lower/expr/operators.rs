@@ -54,6 +54,23 @@ impl FunctionLowerer<'_, '_> {
         else {
             unreachable!()
         };
+
+        if let Some((required, target)) =
+            kagari_hir::builtin::traits::conversion_requirement(&interface, &ty)
+        {
+            let kind = StandardTrait::from_id(&required.declaration).expect("forward conversion");
+            return self.lower_applied_operator(
+                required,
+                target,
+                &kind.contract().methods[0].id,
+                args,
+            );
+        }
+        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::From)
+            && interface.arguments.as_slice() == [ty.clone()]
+        {
+            return Ok(args[0]);
+        }
         let contract = self
             .planner
             .catalog

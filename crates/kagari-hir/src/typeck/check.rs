@@ -841,10 +841,11 @@ fn validate_trait_surface(
         let standard = crate::builtin::traits::StandardTrait::from_id(&id.declaration);
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
-                || !matches!(
-                    for_ty,
-                    TypeId::Struct(_) | TypeId::Enum(_) | TypeId::Host(_)
-                )
+                || !kind.conversion()
+                    && !matches!(
+                        for_ty,
+                        TypeId::Struct(_) | TypeId::Enum(_) | TypeId::Host(_)
+                    )
         }) {
             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidTraitImpl { trait_name: trait_name.clone(), type_name: type_name.clone(), reason: "standard operator/equality impls require a script Struct or enum; formatting requires a nominal receiver".into() }).with_span(lowered.source_map.impl_span(impl_block.id)));
             continue;

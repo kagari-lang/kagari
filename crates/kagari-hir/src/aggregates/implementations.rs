@@ -52,6 +52,41 @@ impl AggregateCatalog {
     ) -> Option<&'static str> {
         use crate::builtin::traits::StandardTrait;
         let protocol = StandardTrait::from_id(&implementation.trait_type.declaration)?;
+        if protocol.reverse_conversion() {
+            return Some(
+                "Into/TryInto are derived from From/TryFrom and cannot be implemented directly",
+            );
+        }
+        if protocol == StandardTrait::From
+            && implementation
+                .trait_type
+                .arguments
+                .first()
+                .is_some_and(|input| {
+                    matches!(input, TypeId::Generic(_))
+                        || crate::typeck::possibly_overlapping_impls(
+                            input,
+                            &implementation.for_type,
+                        )
+                })
+        {
+            return Some("identity From<T> for T is supplied by the language");
+        }
+        if protocol.conversion() {
+            if matches!(implementation.for_type, TypeId::Host(_))
+                || implementation
+                    .trait_type
+                    .arguments
+                    .iter()
+                    .any(|ty| matches!(ty, TypeId::Host(_)))
+            {
+                return Some("host conversion implementations are not supported");
+            }
+            let owned=std::iter::once(&implementation.for_type).chain(&implementation.trait_type.arguments).any(|ty| {
+                matches!(ty,TypeId::Struct(n)|TypeId::Enum(n) if n.declaration.module==implementation.id.module)
+            });
+            return (!owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
+        }
         if protocol.host_implementable() {
             return None;
         }
@@ -242,6 +277,18 @@ impl AggregateCatalog {
     }
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         crate::typeck::associated::normalize(ty, &|interface, receiver, member, arguments| {
+            if arguments.is_empty()
+                && *member == crate::types::associated_type_id(&interface.declaration, "Error")
+                && let Some((required, target)) =
+                    crate::builtin::traits::conversion_requirement(interface, receiver)
+            {
+                return Some(TypeId::Projection {
+                    receiver: Box::new(target),
+                    member: crate::types::associated_type_id(&required.declaration, "Error"),
+                    interface: Box::new(required),
+                    arguments: vec![],
+                });
+            }
             if arguments.is_empty()
                 && *member == crate::types::associated_type_id(&interface.declaration, "Output")
                 && let Some(output) = crate::builtin::traits::intrinsic_output(interface, receiver)
@@ -549,6 +596,12 @@ impl AggregateCatalog {
         max_depth: usize,
         cancel: &CancellationToken,
     ) -> Result<usize, ImplementationSearchError> {
+        if let Some((required, target)) =
+            crate::builtin::traits::conversion_requirement(trait_type, receiver)
+        {
+            return self
+                .implementation_count_bounded(&required, &target, max_checks, max_depth, cancel);
+        }
         let mut budget = SearchBudget {
             checks_left: max_checks,
             depth: 0,
@@ -639,6 +692,9 @@ impl AggregateCatalog {
                             }) {
                                 continue;
                             }
+                            let (required, actual) =
+                                crate::builtin::traits::conversion_requirement(&required, &actual)
+                                    .unwrap_or((required, actual.clone()));
                             if crate::builtin::traits::intrinsic_applies(
                                 &required,
                                 &actual,

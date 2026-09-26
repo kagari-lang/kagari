@@ -49,6 +49,10 @@ stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
 
+Version 58 and runtime ABI v58 register explicit conversion contracts, derived
+reverse conversion proofs and static associated conversion calls. Prior products
+are rejected without migration; KHI remains v11.
+
 Version 57 and runtime ABI v57 register read-only Index. Custom reads are ordinary
 linked calls; builtin Array reads retain aggregate-index instructions. KHI remains v11.
 

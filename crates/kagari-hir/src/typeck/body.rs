@@ -1,3 +1,4 @@
+mod conversions;
 mod operators;
 mod standard;
 
@@ -791,7 +792,11 @@ impl<'a> BodyChecker<'a> {
                 self.infer_binary_operator(expr_id, lhs, op, rhs, env)
             }
             ExprKind::Call { callee, args } => {
-                if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env, expected)
+                if let Some(ty) = self.infer_conversion_call(expr_id, *callee, args, env, expected)
+                {
+                    ty
+                } else if let Some(ty) =
+                    self.infer_enum_constructor(expr_id, *callee, args, env, expected)
                 {
                     ty
                 } else if let Some(ty) = self.infer_host_call_type(expr_id, *callee, args, env) {
@@ -2935,6 +2940,10 @@ impl<'a> BodyChecker<'a> {
             if let Some(contract) = self.aggregates.trait_(&interface.declaration) {
                 for method in &contract.methods {
                     if method.name == *name
+                        && method
+                            .params
+                            .first()
+                            .is_some_and(|parameter| parameter.name == "self")
                         && !candidates.contains(&(method.id.clone(), interface.clone()))
                     {
                         candidates.push((method.id.clone(), interface.clone()));

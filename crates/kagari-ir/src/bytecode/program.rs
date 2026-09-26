@@ -177,12 +177,13 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                         .expect("standard contract");
                 if !kind.host_implementable()
                     && matches!(table.for_type, crate::module::abi::AbiType::Host(_))
-                    || !matches!(
-                        table.for_type,
-                        crate::module::abi::AbiType::Struct(_)
-                            | crate::module::abi::AbiType::Enum(_)
-                            | crate::module::abi::AbiType::Host(_)
-                    )
+                    || !kind.conversion()
+                        && !matches!(
+                            table.for_type,
+                            crate::module::abi::AbiType::Struct(_)
+                                | crate::module::abi::AbiType::Enum(_)
+                                | crate::module::abi::AbiType::Host(_)
+                        )
                     || !crate::module::abi::verify::interface_contract_matches(
                         table,
                         contract,

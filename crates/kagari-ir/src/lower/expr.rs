@@ -1333,6 +1333,31 @@ impl FunctionLowerer<'_, '_> {
             .call_resolution(expr)
             .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
         let span = self.analyzed.lowered.source_map.expr_span(expr);
+        if let Some(receiver_type) = self
+            .analyzed
+            .typed
+            .type_table
+            .protocol_receiver(expr)
+            .cloned()
+        {
+            let SemanticCallTarget::TraitMethod { method, interface } = call.target else {
+                return Err(IrLoweringError::MissingBinding("conversion target"));
+            };
+            let mut values = Vec::new();
+            if let Some(receiver) = call.receiver {
+                let value = self.lower_expr(receiver)?;
+                if self.current_block_terminated() {
+                    return Ok(value);
+                }
+                values.push(value);
+            }
+            match self.lower_values(args)? {
+                ControlFlow::Continue(args) => values.extend(args),
+                ControlFlow::Break(value) => return Ok(value),
+            }
+            return self.lower_applied_operator(interface, receiver_type, &method, &values);
+        }
+
         if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
             && kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
                 .is_some_and(|kind| kind.operator())

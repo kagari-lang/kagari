@@ -29,9 +29,13 @@ pub enum StandardTrait {
     Neg,
     Not,
     Index,
+    From,
+    Into,
+    TryFrom,
+    TryInto,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 19] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -47,6 +51,10 @@ impl StandardTrait {
         Self::Neg,
         Self::Not,
         Self::Index,
+        Self::From,
+        Self::Into,
+        Self::TryFrom,
+        Self::TryInto,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -65,6 +73,10 @@ impl StandardTrait {
             Self::Neg => "Neg",
             Self::Not => "Not",
             Self::Index => "Index",
+            Self::From => "From",
+            Self::Into => "Into",
+            Self::TryFrom => "TryFrom",
+            Self::TryInto => "TryInto",
         }
     }
     pub fn namespace(self) -> &'static str {
@@ -78,6 +90,7 @@ impl StandardTrait {
             | Self::Neg
             | Self::Not
             | Self::Index => "ops",
+            Self::From | Self::Into | Self::TryFrom | Self::TryInto => "convert",
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -108,6 +121,18 @@ impl StandardTrait {
             .map(TypeId::Generic)
             .collect();
         ty
+    }
+    pub fn conversion(self) -> bool {
+        matches!(
+            self,
+            Self::From | Self::Into | Self::TryFrom | Self::TryInto
+        )
+    }
+    pub fn reverse_conversion(self) -> bool {
+        matches!(self, Self::Into | Self::TryInto)
+    }
+    pub fn fallible_conversion(self) -> bool {
+        matches!(self, Self::TryFrom | Self::TryInto)
     }
     pub fn binary_operator(self) -> bool {
         matches!(
@@ -160,6 +185,9 @@ fn identity(kind: StandardTrait) -> DefinitionId {
     }
 }
 fn build_contract(kind: StandardTrait) -> TraitSignature {
+    if kind.conversion() {
+        return build_conversion_contract(kind);
+    }
     if kind.operator() {
         return build_operator_contract(kind);
     }
@@ -379,6 +407,11 @@ pub fn intrinsic_applies(
     let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
         return false;
     };
+    if kind.conversion() {
+        return kind == StandardTrait::From
+            && interface.arguments.as_slice() == [receiver.clone()]
+            && interface.associated_types.is_empty();
+    }
     if kind.operator() {
         let Some(output) = intrinsic_output(interface, receiver) else {
             return false;
@@ -417,6 +450,9 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
+    if protocol.conversion() {
+        return false;
+    }
     if protocol.operator() {
         return intrinsic_output(&protocol.intrinsic_view(ty), ty).is_some();
     }
@@ -522,4 +558,134 @@ pub fn in_module(module: super::surface::StandardModule, name: &str) -> Option<S
                 spec.kind == module && spec.path == format!("std::{}", kind.namespace())
             })
     })
+}
+
+fn build_conversion_contract(kind: StandardTrait) -> TraitSignature {
+    static SOURCE: OnceLock<SourceFile> = OnceLock::new();
+    let source = SOURCE.get_or_init(|| SourceFile::new("kagari://std/conversions", ""));
+    let declaration = |id: DefinitionId, name: &str| Declaration {
+        id: DeclarationId::Definition(id),
+        name: name.into(),
+        location: source.span(Span::new(0, 0)).unwrap(),
+    };
+    let id = identity(kind);
+    let input = crate::types::GenericParameterType {
+        owner: id.clone(),
+        position: 0,
+        name: if kind.reverse_conversion() {
+            "Target"
+        } else {
+            "Source"
+        }
+        .into(),
+    };
+    let interface = NominalType {
+        declaration: id.clone(),
+        arguments: vec![TypeId::Generic(input.clone())],
+        associated_types: Default::default(),
+    };
+    let member = crate::types::associated_type_id(&id, "Error");
+    let output = if kind.reverse_conversion() {
+        TypeId::Generic(input.clone())
+    } else {
+        TypeId::SelfType(id.clone())
+    };
+    let output = if kind.fallible_conversion() {
+        TypeId::StandardEnum {
+            kind: super::surface::StandardEnum::Result,
+            args: vec![
+                output,
+                TypeId::Projection {
+                    receiver: Box::new(TypeId::SelfType(id.clone())),
+                    interface: Box::new(interface),
+                    member: member.clone(),
+                    arguments: vec![],
+                },
+            ],
+        }
+    } else {
+        output
+    };
+    let name = match kind {
+        StandardTrait::From => "from",
+        StandardTrait::Into => "into",
+        StandardTrait::TryFrom => "try_from",
+        StandardTrait::TryInto => "try_into",
+        _ => unreachable!(),
+    };
+    let mut method_id = id.clone();
+    method_id.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: name.into(),
+        occurrence: 0,
+    });
+    TraitSignature {
+        declaration: declaration(id.clone(), kind.name()),
+        id: id.clone(),
+        generic_params: vec![input.clone()],
+        bounds: Default::default(),
+        supertraits: vec![],
+        associated_types: if kind.fallible_conversion() {
+            [(member, vec![])].into_iter().collect()
+        } else {
+            Default::default()
+        },
+        associated_type_parameters: Default::default(),
+        associated_consts: Default::default(),
+        methods: vec![MethodSignature {
+            has_default: false,
+            declaration: declaration(method_id.clone(), name),
+            id: method_id,
+            owner: id.clone(),
+            slot: 0,
+            name: name.into(),
+            generic_params: vec![input.clone()],
+            bounds: Default::default(),
+            params: vec![MethodParameter {
+                name: if kind.reverse_conversion() {
+                    "self"
+                } else {
+                    "value"
+                }
+                .into(),
+                writeability: Writeability::Val,
+                ty: if kind.reverse_conversion() {
+                    TypeId::SelfType(id)
+                } else {
+                    TypeId::Generic(input)
+                },
+            }],
+            return_type: output,
+        }],
+    }
+}
+
+/// The reverse protocol is a proof of the corresponding destination conversion.
+pub fn conversion_requirement(
+    interface: &NominalType,
+    receiver: &TypeId,
+) -> Option<(NominalType, TypeId)> {
+    let kind = StandardTrait::from_id(&interface.declaration)?;
+    if !kind.reverse_conversion() || interface.arguments.len() != 1 {
+        return None;
+    }
+    let forward = if kind == StandardTrait::Into {
+        StandardTrait::From
+    } else {
+        StandardTrait::TryFrom
+    };
+    let mut required = forward.nominal();
+    required.arguments.push(receiver.clone());
+    for (member, ty) in &interface.associated_types {
+        if *member != crate::types::associated_type_id(&interface.declaration, "Error")
+            || !kind.fallible_conversion()
+        {
+            return None;
+        }
+        required.associated_types.insert(
+            crate::types::associated_type_id(&required.declaration, "Error"),
+            ty.clone(),
+        );
+    }
+    Some((required, interface.arguments[0].clone()))
 }

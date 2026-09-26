@@ -128,3 +128,14 @@ B06 validation: 1,116 workspace tests passed (including 17 operator integration
 cases); `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --
 -D warnings` and `git diff --check` passed. Integration cases also cover applied
 RHS overload selection and resource cleanup after operator traps/budget exhaustion.
+
+## Conversion and iteration protocols
+
+- [x] B07: explicit From/Into and TryFrom/TryInto, static conversion calls, derived reverse bounds and associated errors.
+- [ ] B08: Iterator/IntoIterator contracts, custom for loops and native collection integration.
+- [ ] B09: conformance, examples, resource cleanup and workspace validation.
+
+Each checkpoint uses a Conventional Commit. Conversions are explicit; reverse
+protocols are derived and cannot be implemented independently. Iteration preserves
+native structural-mutation guards; custom iterators own their consistency rules.
+Error origins, general propagation, Clone and writable indexing remain separate.

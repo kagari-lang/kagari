@@ -605,3 +605,32 @@ These operator/ordering traits use the standard protocol identities described in
 [traits](traits.md#standard-protocol-identities). Implementations must belong to
 the script type's defining module. Standard traits and their descendants remain
 static-only; this does not change ordinary user-defined dynamic interfaces.
+
+## Conversion protocols
+
+`std::convert::{From, Into, TryFrom, TryInto}` are static-only prelude traits:
+
+```kagari
+trait From<S> { fn from(value: S) -> Self; }
+trait Into<D> { fn into(self) -> D; }
+trait TryFrom<S> { type Error; fn try_from(value: S) -> Result<Self, Self::Error>; }
+trait TryInto<D> { type Error; fn try_into(self) -> Result<D, Self::Error>; }
+```
+
+Implement From/TryFrom on the destination. `D::from(source)` and
+`D::try_from(source)` are associated calls with no receiver. Qualified paths
+select the applied trait. `source.into()` and `source.try_into()` derive from the
+same destination implementation; explicit Into/TryInto impls are rejected.
+The target comes from the result annotation/return context or a unique generic
+bound. Ambiguous targets need an annotation. Generic bounds and Error projections
+use the same derivation as calls. Operands evaluate once; no implicit conversion,
+error conversion during `?`, exception handling or error stack is introduced.
+
+Identity `From<T> for T` preserves ordinary value/reference semantics and cannot
+be overridden. Custom conversions must belong to the defining module of a script
+nominal source or destination. Host conversions and overlapping identity impls
+are rejected. No blanket From-to-TryFrom conversion or numeric conversion matrix
+is introduced: fallible conversions explicitly return Result and may use any
+error type. A From method may still trap like any script function; its contract
+is that expected conversion failures do not use a business error result.
+See [conversions.kgr](../../examples/syntax/conversions.kgr).
