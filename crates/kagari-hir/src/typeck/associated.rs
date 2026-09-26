@@ -195,7 +195,34 @@ pub(super) fn resolve_projection_name(
             return TypeId::Error;
         };
         let receiver = resolve_type_in(module, receiver, context, table, cancel);
-        return qualified_projection(module, receiver, interface, member, context, table, cancel);
+        let TypeId::Trait(interface) = interface else {
+            return TypeId::Error;
+        };
+        let mut owners = inherited_traits(
+            module,
+            context.declarations,
+            &interface,
+            &receiver,
+            table,
+            cancel,
+        );
+        owners.retain(|owner| {
+            members(module, context.declarations, &owner.declaration)
+                .iter()
+                .any(|name| name == member)
+        });
+        if owners.len() != 1 {
+            return TypeId::Error;
+        }
+        return qualified_projection(
+            module,
+            receiver,
+            TypeId::Trait(owners.remove(0)),
+            member,
+            context,
+            table,
+            cancel,
+        );
     }
     let receiver = resolve_named_type(base, context).ty;
     let mut candidates = Vec::new();
@@ -245,15 +272,36 @@ pub(super) fn resolve_projection_name(
                     },
                 );
             if let Some(interface) = resolved
-                && members(module, context.declarations, &interface.declaration)
-                    .iter()
-                    .any(|name| name == member)
                 && !candidates.contains(&interface)
             {
                 candidates.push(interface);
             }
         }
     }
+    candidates = candidates
+        .into_iter()
+        .flat_map(|interface| {
+            inherited_traits(
+                module,
+                context.declarations,
+                &interface,
+                &receiver,
+                table,
+                cancel,
+            )
+        })
+        .collect();
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        if members(module, context.declarations, &candidate.declaration)
+            .iter()
+            .any(|name| name == member)
+            && !unique.contains(&candidate)
+        {
+            unique.push(candidate);
+        }
+    }
+    let mut candidates = unique;
     if candidates.len() != 1 {
         return TypeId::Error;
     }
@@ -277,7 +325,7 @@ pub(super) fn qualified_projection(
     table: &mut TypeTable,
     cancel: &CancellationToken,
 ) -> TypeId {
-    let TypeId::Trait(interface) = interface else {
+    let TypeId::Trait(mut interface) = interface else {
         return TypeId::Error;
     };
     if !members(module, context.declarations, &interface.declaration)
@@ -289,7 +337,7 @@ pub(super) fn qualified_projection(
     let id = associated_type_id(&interface.declaration, member);
     if let TypeId::Generic(parameter) = &receiver {
         // A qualified projection must be justified by a bound on its receiver.
-        let justified = context
+        let references = context
             .generics
             .iter()
             .filter(|param| context.declarations.generic_type(param.id).as_ref() == Some(parameter))
@@ -303,13 +351,35 @@ pub(super) fn qualified_projection(
                     .filter(|bound| bound.target == parameter.name)
                     .flat_map(|bound| &bound.traits),
             )
-            .any(|bound| match table.constraint(bound.ty) {
-                Some(ConstraintTarget::Trait(bound)) => bound.satisfies(&interface),
-                _ => false,
-            });
-        if !justified {
-            return TypeId::Error;
+            .collect::<Vec<_>>();
+        let mut justified = None;
+        for reference in references {
+            let bound = match table.constraint(reference.ty) {
+                Some(ConstraintTarget::Trait(bound)) => Some(bound),
+                _ => match resolve_type_in(module, reference.ty, context, table, cancel) {
+                    TypeId::Trait(bound) => Some(bound),
+                    _ => None,
+                },
+            };
+            if let Some(bound) = bound {
+                for parent in inherited_traits(
+                    module,
+                    context.declarations,
+                    &bound,
+                    &receiver,
+                    table,
+                    cancel,
+                ) {
+                    if parent.satisfies(&interface) {
+                        justified = Some(parent);
+                    }
+                }
+            }
         }
+        let Some(bound) = justified else {
+            return TypeId::Error;
+        };
+        interface = bound;
     }
     if matches!(receiver, TypeId::Generic(_))
         && let Some(ty) = interface.associated_types.get(&id)
@@ -395,6 +465,72 @@ pub(super) fn qualified_projection(
     }
 }
 
+/// Declaration surfaces are sufficient to resolve projections before function
+/// signatures and the complete implementation catalog have been assembled.
+fn inherited_traits(
+    module: &hir::Module,
+    declarations: &crate::declarations::Declarations,
+    interface: &NominalType,
+    receiver: &TypeId,
+    table: &mut TypeTable,
+    cancel: &CancellationToken,
+) -> Vec<NominalType> {
+    let table = std::cell::RefCell::new(table);
+    crate::aggregates::trait_inheritance_closure(interface, receiver, cancel, &|owner| {
+        if let Some(item) = module.traits.iter().find(|item| {
+            declarations.definition(crate::resolver::ResolvedName::Trait(item.id)) == Some(owner)
+        }) {
+            let params = item
+                .generic_params
+                .iter()
+                .filter_map(|param| declarations.generic_type(param.id))
+                .collect();
+            let parents = item
+                .supertraits
+                .iter()
+                .filter_map(|reference| {
+                    let mut table = table.borrow_mut();
+                    match table.constraint(reference.ty) {
+                        Some(ConstraintTarget::Trait(parent)) => Some(parent),
+                        _ => match resolve_type_in(
+                            module,
+                            reference.ty,
+                            TypeContext {
+                                declarations,
+                                generics: &item.generic_params,
+                                self_type: Some(item.id),
+                                implementation: None,
+                            },
+                            &mut table,
+                            cancel,
+                        ) {
+                            TypeId::Trait(parent) => Some(parent),
+                            _ => None,
+                        },
+                    }
+                })
+                .collect();
+            Some((params, parents))
+        } else {
+            let imported = declarations.imported_types().by_declaration(owner)?;
+            let TypeId::Trait(ty) = &imported.ty else {
+                return None;
+            };
+            Some((
+                ty.arguments
+                    .iter()
+                    .filter_map(|ty| match ty {
+                        TypeId::Generic(param) => Some(param.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+                imported.supertraits.clone(),
+            ))
+        }
+    })
+    .unwrap_or_default()
+}
+
 /// Normalize projections using already checked associated bindings. Recursive
 /// projections stop at an explicit budget rather than recursing indefinitely.
 pub(crate) fn normalize(
@@ -423,7 +559,11 @@ pub(crate) fn normalize(
         {
             let replacement = interface.associated_types.get(member).cloned().or_else(|| {
                 if let TypeId::Trait(actual) = receiver.as_ref() {
-                    actual.associated_types.get(member).cloned()
+                    actual
+                        .associated_types
+                        .get(member)
+                        .cloned()
+                        .or_else(|| lookup(interface, receiver, member))
                 } else {
                     lookup(interface, receiver, member)
                 }

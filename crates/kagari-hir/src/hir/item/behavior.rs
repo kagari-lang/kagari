@@ -29,6 +29,7 @@ pub struct TraitDef {
     pub visibility: Visibility,
     pub name: String,
     pub generic_params: GenericParamBuffer,
+    pub supertraits: TraitRefBuffer,
     pub methods: TraitMethodBuffer,
     pub associated_types: Vec<AssociatedType>,
 }

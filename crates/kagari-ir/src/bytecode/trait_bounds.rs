@@ -14,6 +14,129 @@ const MAX_IMPLEMENTATIONS: usize = 4096;
 const MAX_MATCH_CHECKS: usize = 100_000;
 const MAX_PROOF_DEPTH: usize = 64;
 
+fn contract<'a>(
+    id: &kagari_common::identity::DefinitionId,
+    closure: &[&'a BytecodeModule],
+) -> Option<&'a crate::module::abi::TraitAbi> {
+    let owner = closure.iter().find(|module| module.identity == id.module)?;
+    owner
+        .trait_contracts
+        .iter()
+        .find(|record| &record.declaration == id)
+        .map(|record| &record.abi)
+        .or_else(|| {
+            owner.public_items.iter().find_map(|item| match item {
+                PublicAbiItem::Trait(record)
+                    if id.path.len() == 1
+                        && id.path[0].name == record.name
+                        && id.path[0].kind == kagari_common::identity::DefinitionKind::Trait
+                        && id.path[0].occurrence == 0 =>
+                {
+                    Some(record)
+                }
+                _ => None,
+            })
+        })
+}
+
+fn inheritance(
+    interface: &kagari_hir::types::NominalType,
+    receiver: &TypeId,
+    closure: &[&BytecodeModule],
+) -> Option<Vec<kagari_hir::types::NominalType>> {
+    kagari_hir::aggregates::trait_inheritance_closure(
+        interface,
+        receiver,
+        &Default::default(),
+        &|id| {
+            let record = contract(id, closure)?;
+            Some((
+                record
+                    .generic_params
+                    .iter()
+                    .map(|parameter| GenericParameterType {
+                        owner: parameter.owner.clone(),
+                        position: parameter.position,
+                        name: String::new(),
+                    })
+                    .collect(),
+                record
+                    .supertraits
+                    .iter()
+                    .map(|parent| parent.to_checked_type())
+                    .collect(),
+            ))
+        },
+    )
+    .ok()
+}
+
+/// Read the bounded applied parent closure from portable trait contracts.
+pub fn interface_ancestors(
+    interface: &crate::module::abi::NominalAbiType,
+    receiver: &crate::module::abi::AbiType,
+    closure: &[&BytecodeModule],
+) -> Option<Vec<crate::module::abi::NominalAbiType>> {
+    inheritance(
+        &interface.to_checked_type(),
+        &receiver.to_checked_type(),
+        closure,
+    )
+    .map(|parents| {
+        parents
+            .iter()
+            .map(crate::module::abi::NominalAbiType::from_checked_type)
+            .collect()
+    })
+}
+
+fn executable_interface(
+    applied: &crate::module::abi::NominalAbiType,
+    receiver: &AbiType,
+    closure: &[&BytecodeModule],
+) -> bool {
+    let Some(views) = interface_ancestors(applied, &AbiType::Trait(applied.clone()), closure)
+    else {
+        return false;
+    };
+    if interface_ancestors(applied, receiver, closure).as_ref() != Some(&views) {
+        return false;
+    }
+    for view in views {
+        let Some(record) = contract(&view.declaration, closure) else {
+            return false;
+        };
+        if view.associated_types.len() != record.associated_types.len()
+            || record
+                .associated_types
+                .iter()
+                .any(|member| !view.associated_types.contains_key(&member.declaration))
+        {
+            return false;
+        }
+        let Some(owner) = closure
+            .iter()
+            .find(|module| module.identity == view.declaration.module)
+        else {
+            return false;
+        };
+        for slot in 0..record.methods.len() {
+            if crate::module::abi::interface_method_types(
+                &owner.identity,
+                &owner.public_items,
+                &owner.trait_contracts,
+                &view,
+                slot,
+            )
+            .is_none()
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn signature(table: &InterfaceTableAbi) -> Option<ImplementationSignature> {
     let AbiType::Trait(trait_type) = &table.trait_type else {
         return None;
@@ -52,7 +175,11 @@ fn signature(table: &InterfaceTableAbi) -> Option<ImplementationSignature> {
     })
 }
 
-pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeModule]) -> bool {
+pub(super) fn trait_bounds_match(
+    module: &BytecodeModule,
+    closure: &[&BytecodeModule],
+    program: Option<&super::BytecodeProgram>,
+) -> bool {
     let mut signatures = Vec::new();
     for dependency in closure {
         for item in &dependency.public_items {
@@ -102,6 +229,169 @@ pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMo
         return false;
     };
     let cancel = kagari_common::cancellation::CancellationToken::default();
+    for instruction in module
+        .functions
+        .iter()
+        .flat_map(|function| &function.instructions)
+    {
+        if let super::BytecodeInstruction::UpcastInterface { source, target, .. } = instruction {
+            let Some(parents) =
+                interface_ancestors(source, &AbiType::Trait(source.clone()), closure)
+            else {
+                return false;
+            };
+            if !parents.contains(target) {
+                return false;
+            }
+        }
+        if let super::BytecodeInstruction::MakeInterface {
+            module: owner,
+            implementation,
+            ..
+        } = instruction
+        {
+            let target = program
+                .and_then(|program| program.modules.get(owner.index()))
+                .or_else(|| (program.is_none() && owner.index() == 0).then_some(module));
+            let Some(target) = target else {
+                return false;
+            };
+            let Some(linked) = target.interface_tables.get(implementation.index()) else {
+                return false;
+            };
+            let Some(table) = target.public_items.iter().find_map(|item| match item {
+                PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+                    table.instantiate(&linked.arguments)
+                }
+                _ => None,
+            }) else {
+                return false;
+            };
+            let AbiType::Trait(applied) = &table.trait_type else {
+                return false;
+            };
+            if !executable_interface(applied, &table.for_type, closure) {
+                return false;
+            }
+            let Some(parents) = interface_ancestors(applied, &table.for_type, closure) else {
+                return false;
+            };
+            for parent in parents.into_iter().skip(1) {
+                let exists = closure.iter().any(|owner| {
+                    owner.interface_tables.iter().any(|linked| {
+                        owner.public_items.iter().any(|item| {
+                            let PublicAbiItem::InterfaceTable(template) = item else {
+                                return false;
+                            };
+                            template.declaration == linked.declaration
+                                && template.instantiate(&linked.arguments).is_some_and(
+                                    |candidate| {
+                                        candidate.for_type == table.for_type
+                                            && candidate.trait_type
+                                                == AbiType::Trait(parent.clone())
+                                    },
+                                )
+                        })
+                    })
+                });
+                if !exists {
+                    return false;
+                }
+            }
+        }
+    }
+    // Validate unused declarations too; cyclic inheritance cannot hide behind
+    // the absence of a conversion or method call.
+    for member in closure {
+        let public = member.public_items.iter().filter_map(|item| {
+            let PublicAbiItem::Trait(record) = item else {
+                return None;
+            };
+            Some((
+                kagari_common::identity::DefinitionId {
+                    module: member.identity.clone(),
+                    path: vec![kagari_common::identity::DefinitionPathSegment {
+                        kind: kagari_common::identity::DefinitionKind::Trait,
+                        name: record.name.clone(),
+                        occurrence: 0,
+                    }],
+                },
+                record,
+            ))
+        });
+        let private = member
+            .trait_contracts
+            .iter()
+            .map(|record| (record.declaration.clone(), &record.abi));
+        for (id, record) in public.chain(private) {
+            let applied = kagari_hir::types::NominalType {
+                declaration: id.clone(),
+                associated_types: Default::default(),
+                arguments: record
+                    .generic_params
+                    .iter()
+                    .map(|parameter| {
+                        TypeId::Generic(GenericParameterType {
+                            owner: parameter.owner.clone(),
+                            position: parameter.position,
+                            name: String::new(),
+                        })
+                    })
+                    .collect(),
+            };
+            if inheritance(&applied, &TypeId::SelfType(id), closure).is_none() {
+                return false;
+            }
+        }
+    }
+    for implementation in catalog.implementations() {
+        // An offline host declaration can advertise traits outside this program.
+        // Those tables become usable only when their declaring module is linked.
+        if matches!(implementation.for_type, TypeId::Host(_))
+            && contract(&implementation.trait_type.declaration, closure).is_none()
+        {
+            continue;
+        }
+        let mut bounds = implementation.bounds.clone();
+        for (receiver, constraints) in &implementation.bounds {
+            for constraint in constraints {
+                if let ConstraintTarget::Trait(applied) = constraint {
+                    let Some(parents) = inheritance(applied, receiver, closure) else {
+                        return false;
+                    };
+                    let expanded = bounds.entry(receiver.clone()).or_default();
+                    for parent in parents {
+                        let constraint = ConstraintTarget::Trait(parent);
+                        if !expanded.contains(&constraint) {
+                            expanded.push(constraint);
+                        }
+                    }
+                }
+            }
+        }
+        let Some(parents) = inheritance(
+            &implementation.trait_type,
+            &implementation.for_type,
+            closure,
+        ) else {
+            return false;
+        };
+        for parent in parents.into_iter().skip(1) {
+            if !matches!(
+                catalog.concrete_interface_implementation(
+                    &parent,
+                    &implementation.for_type,
+                    &bounds,
+                    MAX_MATCH_CHECKS,
+                    MAX_PROOF_DEPTH,
+                    &cancel
+                ),
+                Ok(Some(_))
+            ) {
+                return false;
+            }
+        }
+    }
     for item in &module.public_items {
         let PublicAbiItem::InterfaceTable(table) = item else {
             continue;

@@ -702,12 +702,98 @@ impl Runtime {
         value: &value::Value,
         method: &kagari_common::identity::DefinitionId,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        if let value::Value::Interface(id) = value
+            && let Some(snapshot) = self.gc.interface_snapshot(*id)
+            && !snapshot
+                .methods
+                .iter()
+                .any(|binding| &binding.method == method)
+        {
+            let versions = snapshot.implementation.members().collect::<Vec<_>>();
+            let modules = versions
+                .iter()
+                .map(|version| version.bytecode.as_ref())
+                .collect::<Vec<_>>();
+            if let Some(parents) = kagari_ir::bytecode::interface_ancestors(
+                &snapshot.interface_type,
+                &snapshot.concrete_type,
+                &modules,
+            ) {
+                for parent in parents.into_iter().skip(1) {
+                    let mut owner = method.clone();
+                    owner.path.pop();
+                    if owner == parent.declaration {
+                        let view =
+                            self.upcast_interface(value, &snapshot.interface_type, &parent)?;
+                        return self.resolve_interface_method(&view, method);
+                    }
+                }
+            }
+        }
         self.resolve_interface_method_inner(value, None, |snapshot| {
             snapshot
                 .methods
                 .iter()
                 .find(|binding| &binding.method == method)
         })
+    }
+
+    /// Creates a parent interface view using already compiled tables from the
+    /// receiver's retained execution version. It never specializes at runtime.
+    pub fn upcast_interface(
+        &self,
+        value: &value::Value,
+        source: &kagari_ir::module::abi::NominalAbiType,
+        target: &kagari_ir::module::abi::NominalAbiType,
+    ) -> Result<value::Value, RuntimeError> {
+        use kagari_ir::module::{PublicAbiItem, abi::AbiType};
+        let invalid =
+            || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
+        let value::Value::Interface(id) = value else {
+            return Err(invalid());
+        };
+        let _root = self.root_value(value.clone()).ok_or_else(invalid)?;
+        let snapshot = self.gc.interface_snapshot(*id).ok_or_else(invalid)?;
+        if snapshot.interface_type != *source {
+            return Err(invalid());
+        }
+        if source == target {
+            return Ok(value.clone());
+        }
+        let versions = snapshot.implementation.members().collect::<Vec<_>>();
+        let modules = versions
+            .iter()
+            .map(|version| version.bytecode.as_ref())
+            .collect::<Vec<_>>();
+        let parents =
+            kagari_ir::bytecode::interface_ancestors(source, &snapshot.concrete_type, &modules)
+                .ok_or_else(invalid)?;
+        if !parents.iter().any(|parent| parent == target) {
+            return Err(invalid());
+        }
+        for owner in &versions {
+            for (index, linked) in owner.bytecode.interface_tables.iter().enumerate() {
+                let table = owner
+                    .bytecode
+                    .public_items
+                    .iter()
+                    .find_map(|item| match item {
+                        PublicAbiItem::InterfaceTable(table)
+                            if table.declaration == linked.declaration =>
+                        {
+                            table.instantiate(&linked.arguments)
+                        }
+                        _ => None,
+                    });
+                if table.is_some_and(|table| {
+                    table.for_type == snapshot.concrete_type
+                        && table.trait_type == AbiType::Trait(target.clone())
+                }) {
+                    return self.make_interface(owner, index, snapshot.data.clone());
+                }
+            }
+        }
+        Err(invalid())
     }
 
     /// Resolves a trait declaration's verified method ordinal without a
@@ -718,6 +804,13 @@ impl Runtime {
         interface: &kagari_ir::module::abi::NominalAbiType,
         slot: usize,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        if let value::Value::Interface(id) = value
+            && let Some(snapshot) = self.gc.interface_snapshot(*id)
+            && snapshot.interface_type != *interface
+        {
+            let view = self.upcast_interface(value, &snapshot.interface_type, interface)?;
+            return self.resolve_interface_method_slot(&view, interface, slot);
+        }
         self.resolve_interface_method_inner(value, Some(interface), |snapshot| {
             snapshot.methods.get(slot)
         })

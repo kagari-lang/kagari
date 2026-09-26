@@ -154,6 +154,26 @@ pub fn verify_ir(
     context.check_cancel()?;
     layout::verify(&module, context)?;
     context.limit(
+        module.interface_instances.len(),
+        4096,
+        "interface instances",
+    )?;
+    let mut interfaces = HashSet::new();
+    for instance in &module.interface_instances {
+        context.check_cancel()?;
+        if !interfaces.insert(instance)
+            || !instance.arguments.iter().all(|ty| ty.is_concrete())
+            || !instance.declaration.within_path_limit()
+            || instance
+                .declaration
+                .path
+                .last()
+                .is_none_or(|part| part.kind != kagari_common::identity::DefinitionKind::Impl)
+        {
+            return Err(context.error(IrVerificationErrorKind::InvalidInterfaceTable));
+        }
+    }
+    context.limit(
         module.functions.len(),
         u32::MAX as usize,
         "function instances",
@@ -460,7 +480,7 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
         ReadCell { cell, .. } => smallvec::smallvec![*cell],
         WriteCell { cell, value } => smallvec::smallvec![*cell, *value],
         MakeStruct { fields, .. } => fields.iter().map(|f| f.value).collect(),
-        MakeInterface { value, .. } => smallvec::smallvec![*value],
+        MakeInterface { value, .. } | UpcastInterface { value, .. } => smallvec::smallvec![*value],
         TestEnumVariant { value, .. } | ReadEnumPayload { value, .. } => {
             smallvec::smallvec![*value]
         }
@@ -521,6 +541,7 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | MakeStruct { dst, .. }
         | MakeEnum { dst, .. }
         | MakeInterface { dst, .. }
+        | UpcastInterface { dst, .. }
         | TestEnumVariant { dst, .. }
         | ReadEnumPayload { dst, .. }
         | ReadAggregateField { dst, .. }

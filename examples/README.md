@@ -32,6 +32,7 @@ cargo test -p kagari-embed --test syntax_examples
 | Concrete interface value and dynamic method dispatch | [interface-dispatch.kgr](interface-dispatch.kgr) | `42` |
 | Associated types, equality bindings, projection bounds and static/dynamic calls | [associated-types.kgr](syntax/associated-types.kgr) | `42` |
 | Generic impls converted to concrete dynamic interfaces and table reuse | [generic-interfaces.kgr](syntax/generic-interfaces.kgr) | `42` |
+| Supertraits, inherited projections, diamond deduplication and interface upcasting | [trait-inheritance.kgr](syntax/trait-inheritance.kgr) | `42` |
 | Generic trait method | [generic-trait-methods.kgr](generic-trait-methods.kgr) | `42` |
 | Functions, `const`, generics, structs, enums, arrays, tuples, fields, indexes, assignment and core standard modules | [standard-library.kgr](standard-library.kgr) | `(3, true, 2, true, 2, true, 12)` |
 

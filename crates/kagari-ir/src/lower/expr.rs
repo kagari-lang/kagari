@@ -100,7 +100,49 @@ impl FunctionLowerer<'_, '_> {
             {
                 let span = self.analyzed.lowered.source_map.expr_span(expr_id);
                 use kagari_hir::typeck::ResolvedInterfaceImplementation;
+                if matches!(
+                    coercion.implementation,
+                    ResolvedInterfaceImplementation::Upcast
+                ) {
+                    let types = self.planner.arguments(
+                        &[
+                            coercion.concrete_type,
+                            kagari_hir::types::TypeId::Trait(coercion.interface_type),
+                        ],
+                        &self.instance.substitution,
+                        span,
+                    )?;
+                    let [
+                        kagari_hir::types::TypeId::Trait(source),
+                        kagari_hir::types::TypeId::Trait(target),
+                    ] = types.as_slice()
+                    else {
+                        return Err(IrLoweringError::MissingBinding("interface upcast types"));
+                    };
+                    let dst = self.alloc_temp(ValueType::HeapObject);
+                    self.emit(Instruction::UpcastInterface {
+                        dst,
+                        value,
+                        source: crate::module::abi::NominalAbiType::from_checked_type(source),
+                        target: crate::module::abi::NominalAbiType::from_checked_type(target),
+                    });
+                    return Ok(dst);
+                }
+                let types = self.planner.arguments(
+                    &[
+                        coercion.concrete_type.clone(),
+                        kagari_hir::types::TypeId::Trait(coercion.interface_type.clone()),
+                    ],
+                    &self.instance.substitution,
+                    span,
+                )?;
+                let kagari_hir::types::TypeId::Trait(interface) = &types[1] else {
+                    return Err(IrLoweringError::MissingBinding("interface demand type"));
+                };
+                self.planner
+                    .require_parent_interfaces(&types[0], interface, span)?;
                 let (implementation, arguments) = match coercion.implementation {
+                    ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
                     ResolvedInterfaceImplementation::Host => {
                         let mut types = self
                             .planner
@@ -1120,7 +1162,10 @@ impl FunctionLowerer<'_, '_> {
                         span,
                     )?,
                 };
-                if ty == kagari_hir::types::TypeId::Trait(interface.clone()) {
+                if matches!(&ty, kagari_hir::types::TypeId::Trait(child)
+                    if self.analyzed.aggregates.trait_closure(child, &ty, &self.planner.options.cancel)
+                        .is_ok_and(|parents| parents.contains(&interface)))
+                {
                     let trait_contract = self
                         .analyzed
                         .aggregates

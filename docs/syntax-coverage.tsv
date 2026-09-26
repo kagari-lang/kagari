@@ -35,7 +35,7 @@ enum_decl	covered	examples/syntax/data-model.kgr	-
 variant_list	covered	examples/syntax/data-model.kgr	-
 variant	covered	examples/syntax/data-model.kgr	-
 trait_decl	covered	examples/syntax/where-bounds.kgr	-
-supertrait_clause	covered	examples/syntax/where-bounds.kgr	-
+supertrait_clause	covered	examples/syntax/trait-inheritance.kgr	-
 trait_member	covered	examples/syntax/attributes.kgr	-
 associated_type_decl	covered	examples/syntax/associated-types.kgr	-
 trait_method	covered	examples/syntax/where-bounds.kgr	-

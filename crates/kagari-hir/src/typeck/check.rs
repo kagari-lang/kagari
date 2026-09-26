@@ -501,7 +501,9 @@ pub(crate) fn check_bodies_controlled(
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
                 env.generics = function.generic_params.clone();
-                env.generic_bounds = typed_function.bounds.clone();
+                env.generic_bounds = aggregates
+                    .expanded_bounds(&typed_function.bounds, cancel)
+                    .unwrap_or_else(|_| typed_function.bounds.clone());
                 for param in &typed_function.params {
                     env.params.insert(param.id, param.ty.clone());
                 }

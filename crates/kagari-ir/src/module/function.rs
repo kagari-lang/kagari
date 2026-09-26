@@ -9,6 +9,9 @@ use crate::module::{
 
 #[derive(Debug, Clone)]
 pub struct IrModule {
+    /// Concrete interface demands, including inherited views that need no
+    /// source allocation instruction of their own.
+    pub interface_instances: Vec<FunctionInstance>,
     pub host_types: Vec<kagari_common::host_interface::HostTypeDeclaration>,
     pub dependencies: Vec<kagari_common::identity::ModuleIdentity>,
     pub structures: Vec<super::StructLayout>,

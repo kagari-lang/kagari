@@ -257,7 +257,8 @@ Grammar shape:
 ```ebnf
 trait_item       ::= visibility? trait_decl ;
 
-trait_decl       ::= "trait" IDENT generic_param_clause? "{" trait_member* "}" ;
+trait_decl       ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" trait_member* "}" ;
+supertrait_clause ::= ":" type_bound_list ;
 
 trait_member     ::= attribute* trait_method | associated_type_decl ;
 trait_method     ::= method_sig (";" | block) ;
@@ -268,7 +269,7 @@ method_sig       ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")"
 
 Trait members are limited to:
 
-- methods; bodies are parsed and checked, but do not yet supply omitted impl methods
+- methods; bodies are parsed, but do not yet supply omitted impl methods
 - ordinary associated types, optionally constrained by trait or standard bounds
 - no associated consts or generic associated types
 
@@ -486,8 +487,6 @@ The current trait system excludes:
 
 - script-level `dyn` trait-object syntax
 - associated consts
-- trait inheritance with complex conflict rules
-- trait upcasting
 - specialization
 - default trait methods
 - interface dispatch for non-interface-compatible methods
@@ -648,5 +647,38 @@ followed by runtime binding and static/dynamic calls returning `42`.
 
 ### Remaining Execution Work
 
-Runtime downcasting remains separate work. Trait inheritance, default method fallback,
+Runtime downcasting remains separate work. Default method fallback,
 associated consts and type-parameterized GAT follow as individual checkpoints.
+
+### Trait Inheritance and Upcasting
+
+`trait Child<T>: Parent<T> + Other` declares required parent contracts. Implementing
+`Child` requires a separate implementation of each parent under the implementation's
+bounds. It does not generate parent implementations or merge their declarations.
+The import graph and the inheritance graph remain separate; cycles in inheritance
+are rejected even when no method is called. Traversal is cancellable and bounded
+to 64 declaration levels and 4,096 applied nodes.
+
+Child bounds expose transitive parent methods and associated projections.
+For example, `trait Child: Reader<Item = i32>` permits `T::Item` and
+`<T as Reader>::Item` under `T: Child`, and permits `Self::Item` in child methods.
+The same applied parent reached through a diamond is deduplicated by declaration
+and arguments. Distinct declarations with the same member name remain ambiguous.
+An implementation defines only its own trait's associated outputs and methods.
+
+A dynamic child interface must satisfy the interface compatibility rules for
+every parent, including complete associated output bindings. Parent arguments
+cannot depend on erased `Self`. A child whose parent has an unbound output can
+still be used as a static bound; it cannot be used as an interface value.
+Inherited output equality bindings currently belong in the parent clause;
+binding an inherited output directly on a child type is not yet supported.
+
+An expected parent type converts a child interface to a parent view. Calls to
+inherited parent methods use that same view. Both views retain the same concrete
+payload and original execution family. Parent method tables, including generic
+instances and host bridges, are compiled and verified before execution. There
+is no runtime generic specialization. GC, rooted host retention, host permissions
+and old-version calls use the existing interface ownership contracts.
+
+See [trait-inheritance.kgr](../../examples/syntax/trait-inheritance.kgr), which
+returns `42` through static calls, inherited projections and dynamic parent views.

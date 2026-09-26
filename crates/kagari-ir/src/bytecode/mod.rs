@@ -6,6 +6,7 @@ mod lower;
 mod module;
 mod program;
 mod trait_bounds;
+pub use trait_bounds::interface_ancestors;
 mod verifier;
 
 pub use artifact::{

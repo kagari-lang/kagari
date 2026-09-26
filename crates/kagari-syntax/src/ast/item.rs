@@ -3,7 +3,8 @@ use crate::{
         expr::{BlockExpr, Expr},
         macros::ast_node,
         misc::{
-            FieldList, GenericParamList, Name, ParamList, Path, TraitRef, VariantList, WhereClause,
+            FieldList, GenericParamList, Name, ParamList, Path, TraitBoundList, TraitRef,
+            VariantList, WhereClause,
         },
         support,
         traits::AstNode,
@@ -248,6 +249,9 @@ impl UseTreeList {
 }
 
 impl TraitDef {
+    pub fn supertraits(&self) -> Option<TraitBoundList> {
+        support::child(self.syntax())
+    }
     pub fn associated_types(&self) -> impl Iterator<Item = AssociatedType> {
         support::children(self.syntax())
     }

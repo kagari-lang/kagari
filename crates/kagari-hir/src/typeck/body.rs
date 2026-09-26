@@ -182,6 +182,14 @@ impl<'a> BodyChecker<'a> {
                 let initializer_ty =
                     self.infer_expr_with_coercion(*initializer, env, annotation.as_ref());
                 let local_ty = annotation.unwrap_or_else(|| initializer_ty.clone());
+                super::applications::validate_imported_interface_type(
+                    &local_ty,
+                    self.aggregates,
+                    self.lowered.source.module_identity(),
+                    self.lowered.source_map.stmt_span(stmt_id),
+                    self.diagnostics,
+                    self.cancel,
+                );
                 super::applications::validate(
                     &local_ty,
                     &env.generic_bounds,
@@ -1269,6 +1277,22 @@ impl<'a> BodyChecker<'a> {
             )
         {
             return source;
+        }
+        if let TypeId::Trait(child) = &source
+            && self
+                .aggregates
+                .trait_closure(child, &source, self.cancel)
+                .is_ok_and(|parents| parents.iter().any(|parent| parent.satisfies(interface)))
+        {
+            self.type_table.insert_interface_coercion(
+                expr_id,
+                super::ResolvedInterfaceCoercion {
+                    implementation: super::ResolvedInterfaceImplementation::Upcast,
+                    concrete_type: source,
+                    interface_type: interface.clone(),
+                },
+            );
+            return target.clone();
         }
         if matches!(&source, TypeId::Host(_))
             && self.declarations.hosts.implements(interface, &source)
@@ -2582,7 +2606,10 @@ impl<'a> BodyChecker<'a> {
 
     fn trait_bounds_for(&self, ty: &TypeId, env: &BodyTypeEnv) -> Vec<crate::types::NominalType> {
         if let TypeId::Trait(interface) = ty {
-            return vec![interface.clone()];
+            return self
+                .aggregates
+                .trait_closure(interface, ty, self.cancel)
+                .unwrap_or_default();
         }
         let mut bounds = env
             .generic_bounds
@@ -2620,13 +2647,26 @@ impl<'a> BodyChecker<'a> {
                     }),
             );
         }
-        bounds
+        let direct = bounds
             .into_iter()
             .filter_map(|bound| match bound {
                 super::ConstraintTarget::Trait(ty) => Some(ty),
                 _ => None,
             })
-            .collect()
+            .collect::<Vec<_>>();
+        let mut expanded = Vec::new();
+        for interface in direct {
+            for parent in self
+                .aggregates
+                .trait_closure(&interface, ty, self.cancel)
+                .unwrap_or_default()
+            {
+                if !expanded.contains(&parent) {
+                    expanded.push(parent);
+                }
+            }
+        }
+        expanded
     }
 
     fn infer_trait_method_call_type(

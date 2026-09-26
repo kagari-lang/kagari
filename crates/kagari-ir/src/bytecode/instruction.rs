@@ -276,6 +276,12 @@ pub enum BytecodeInstruction {
         cell: Register,
         value: Register,
     },
+    UpcastInterface {
+        dst: Register,
+        value: Register,
+        source: crate::module::abi::NominalAbiType,
+        target: crate::module::abi::NominalAbiType,
+    },
     MakeInterface {
         dst: Register,
         value: Register,

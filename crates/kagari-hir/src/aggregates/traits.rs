@@ -39,12 +39,53 @@ pub struct TraitSignature {
     pub id: DefinitionId,
     pub generic_params: Vec<GenericParameterType>,
     pub bounds: crate::typeck::GenericBounds,
+    pub supertraits: Vec<crate::types::NominalType>,
     pub methods: Vec<MethodSignature>,
     pub declaration: Declaration,
     pub associated_types: BTreeMap<DefinitionId, Vec<ConstraintTarget>>,
 }
 
 impl AggregateCatalog {
+    /// Applied inheritance closure, preserving declaration identities and substitutions.
+    /// Repeated paths to the same applied trait are deduplicated; declaration
+    /// cycles and expanding paths fail before reaching a body or backend.
+    pub fn trait_closure(
+        &self,
+        interface: &crate::types::NominalType,
+        receiver: &TypeId,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<crate::types::NominalType>, super::ImplementationSearchError> {
+        trait_inheritance_closure(interface, receiver, cancel, &|id| {
+            self.trait_(id).map(|contract| {
+                (
+                    contract.generic_params.clone(),
+                    contract.supertraits.clone(),
+                )
+            })
+        })
+    }
+
+    pub fn expanded_bounds(
+        &self,
+        bounds: &crate::typeck::GenericBounds,
+        cancel: &CancellationToken,
+    ) -> Result<crate::typeck::GenericBounds, super::ImplementationSearchError> {
+        let mut result = bounds.clone();
+        for (receiver, constraints) in bounds {
+            for constraint in constraints {
+                if let ConstraintTarget::Trait(interface) = constraint {
+                    for parent in self.trait_closure(interface, receiver, cancel)? {
+                        let bound = ConstraintTarget::Trait(parent);
+                        let available = result.entry(receiver.clone()).or_default();
+                        if !available.contains(&bound) {
+                            available.push(bound);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(result)
+    }
     pub fn traits(&self) -> impl Iterator<Item = &TraitSignature> {
         self.traits.values().map(AsRef::as_ref)
     }
@@ -133,6 +174,16 @@ impl AggregateCatalog {
             self.traits.insert(
                 id.clone(),
                 Arc::new(TraitSignature {
+                    supertraits: item
+                        .supertraits
+                        .iter()
+                        .filter_map(|reference| {
+                            match signatures.type_table().constraint(reference.ty)? {
+                                ConstraintTarget::Trait(interface) => Some(interface),
+                                _ => None,
+                            }
+                        })
+                        .collect(),
                     associated_types: item
                         .associated_types
                         .iter()
@@ -190,6 +241,7 @@ impl AggregateCatalog {
             && self.traits.iter().all(|(id, a)| {
                 other.trait_(id).is_some_and(|b| {
                     a.generic_params == b.generic_params
+                        && a.supertraits == b.supertraits
                         && a.associated_types == b.associated_types
                         && a.bounds == b.bounds
                         && a.methods.len() == b.methods.len()
@@ -200,4 +252,48 @@ impl AggregateCatalog {
                 })
             })
     }
+}
+
+pub fn trait_inheritance_closure(
+    interface: &crate::types::NominalType,
+    receiver: &TypeId,
+    cancel: &CancellationToken,
+    lookup: &impl Fn(
+        &DefinitionId,
+    ) -> Option<(Vec<GenericParameterType>, Vec<crate::types::NominalType>)>,
+) -> Result<Vec<crate::types::NominalType>, super::ImplementationSearchError> {
+    use super::ImplementationSearchError as Error;
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut pending = vec![(interface.clone(), Vec::<DefinitionId>::new())];
+    while let Some((applied, mut path)) = pending.pop() {
+        cancel.check().map_err(|_| Error::Cancelled)?;
+        if path.contains(&applied.declaration) || path.len() >= 64 || result.len() >= 4096 {
+            return Err(Error::LimitExceeded);
+        }
+        if !seen.insert(applied.clone()) {
+            continue;
+        }
+        let (parameters, supertraits) = lookup(&applied.declaration).ok_or(Error::LimitExceeded)?;
+        if parameters.len() != applied.arguments.len() {
+            return Err(Error::LimitExceeded);
+        }
+        let substitution = parameters
+            .into_iter()
+            .zip(applied.arguments.iter().cloned())
+            .collect();
+        path.push(applied.declaration.clone());
+        for parent in supertraits.iter().rev() {
+            let TypeId::Trait(parent) = TypeId::Trait(parent.clone())
+                .with_associated_types(&applied)
+                .with_self(&applied.declaration, receiver)
+                .instantiate(&substitution)
+            else {
+                unreachable!("trait parent")
+            };
+            pending.push((parent, path.clone()));
+        }
+        result.push(applied);
+    }
+    Ok(result)
 }

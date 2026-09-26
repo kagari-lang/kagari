@@ -13,6 +13,10 @@ pub(super) fn validate(
     cancel: &CancellationToken,
 ) {
     let (catalog, hosts) = sources;
+    let expanded = catalog
+        .expanded_bounds(bounds, cancel)
+        .unwrap_or_else(|_| bounds.clone());
+    let bounds = &expanded;
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         if cancel.check().is_err() {
@@ -92,7 +96,7 @@ pub(super) fn validate(
                                 }
                                 ConstraintTarget::Trait(id) => {
                                     let applied = id.instantiate(&substitution);
-                                    let satisfied = match actual {
+                                    let satisfied = bounds.get(actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&applied)))) || match actual {
                                         TypeId::Generic(parameter) => bounds
                                             .get(&TypeId::Generic(parameter.clone()))
                                             .is_some_and(|bounds| {
@@ -372,7 +376,7 @@ pub(crate) fn validate_signatures(
     }
 }
 
-fn validate_imported_interface_type(
+pub(super) fn validate_imported_interface_type(
     ty: &TypeId,
     catalog: &AggregateCatalog,
     module: &kagari_common::identity::ModuleIdentity,
@@ -387,51 +391,72 @@ fn validate_imported_interface_type(
         }
         match ty {
             TypeId::Trait(instance) => {
-                if &instance.declaration.module != module
-                    && let Some(contract) = catalog.trait_(&instance.declaration)
-                {
-                    if contract
-                        .associated_types
-                        .keys()
-                        .any(|member| !instance.associated_types.contains_key(member))
-                    {
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                                trait_name: contract.declaration.name.clone(),
-                                reason:
-                                    "interface values require bindings for all associated types"
-                                        .into(),
-                            })
-                            .with_span(span),
-                        );
-                    }
-                    for method in &contract.methods {
-                        if !super::check::interface_method_compatible(
-                            method.generic_params.len(),
-                            contract.generic_params.len(),
-                            method
-                                .params
-                                .first()
-                                .is_some_and(|param| param.name == "self"),
-                            &method.return_type.with_associated_types(instance),
-                            method
-                                .params
-                                .iter()
-                                .skip(1)
-                                .map(|param| param.ty.with_associated_types(instance))
-                                .collect::<Vec<_>>()
-                                .iter(),
-                        ) {
+                let erased = catalog.trait_closure(instance, ty, cancel);
+                let preserved = catalog.trait_closure(
+                    instance,
+                    &TypeId::SelfType(instance.declaration.clone()),
+                    cancel,
+                );
+                if erased != preserved {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                            trait_name: ty.display_name(),
+                            reason: "supertrait arguments cannot depend on erased Self".into(),
+                        })
+                        .with_span(span),
+                    );
+                }
+                if let Ok(parents) = catalog.trait_closure(instance, ty, cancel) {
+                    for (index, parent) in parents.into_iter().enumerate() {
+                        if index == 0 && &instance.declaration.module == module {
+                            continue;
+                        }
+                        let Some(contract) = catalog.trait_(&parent.declaration) else {
+                            continue;
+                        };
+                        if contract
+                            .associated_types
+                            .keys()
+                            .any(|member| !parent.associated_types.contains_key(member))
+                        {
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
                                     trait_name: contract.declaration.name.clone(),
-                                    reason: format!(
-                                        "method `{}` is not interface-compatible",
-                                        method.name
-                                    ),
+                                    reason:
+                                        "interface values require bindings for all associated types"
+                                            .into(),
                                 })
                                 .with_span(span),
                             );
+                        }
+                        for method in &contract.methods {
+                            if !super::check::interface_method_compatible(
+                                method.generic_params.len(),
+                                contract.generic_params.len(),
+                                method
+                                    .params
+                                    .first()
+                                    .is_some_and(|param| param.name == "self"),
+                                &method.return_type.with_associated_types(&parent),
+                                method
+                                    .params
+                                    .iter()
+                                    .skip(1)
+                                    .map(|param| param.ty.with_associated_types(&parent))
+                                    .collect::<Vec<_>>()
+                                    .iter(),
+                            ) {
+                                diagnostics.push(
+                                    Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                                        trait_name: contract.declaration.name.clone(),
+                                        reason: format!(
+                                            "method `{}` is not interface-compatible",
+                                            method.name
+                                        ),
+                                    })
+                                    .with_span(span),
+                                );
+                            }
                         }
                     }
                 }

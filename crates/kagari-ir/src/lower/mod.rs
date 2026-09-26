@@ -127,6 +127,7 @@ pub(crate) fn lower_to_ir_with_requests(
 
     verify_ir(
         IrModule {
+            interface_instances: planner.interface_instances,
             host_types,
             dependencies: module
                 .names

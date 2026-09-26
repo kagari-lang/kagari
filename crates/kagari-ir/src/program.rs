@@ -121,20 +121,10 @@ pub fn lower_program_to_ir(
                     .filter(|e| !e.arguments.is_empty())
                     .count()
                 + lowered
-                    .functions
+                    .interface_instances
                     .iter()
-                    .flat_map(|function| &function.blocks)
-                    .flat_map(|block| &block.instructions)
-                    .filter_map(|instruction| match instruction {
-                        Instruction::MakeInterface {
-                            implementation,
-                            arguments,
-                            ..
-                        } if !arguments.is_empty() => Some((implementation, arguments)),
-                        _ => None,
-                    })
-                    .collect::<HashSet<_>>()
-                    .len();
+                    .filter(|instance| !instance.arguments.is_empty())
+                    .count();
             remaining.max_instructions -= lowered
                 .functions
                 .iter()
@@ -173,22 +163,40 @@ pub fn lower_program_to_ir(
                 changed = true;
             }
         }
-        for (caller, instruction) in modules.iter().flat_map(|module| {
+        let allocations = modules.iter().flat_map(|module| {
             module
                 .functions
                 .iter()
                 .flat_map(|function| &function.blocks)
                 .flat_map(|block| &block.instructions)
-                .map(|instruction| (&module.identity, instruction))
-        }) {
-            let Instruction::MakeInterface {
-                implementation,
-                arguments,
-                ..
-            } = instruction
-            else {
-                continue;
-            };
+                .filter_map(|instruction| match instruction {
+                    Instruction::MakeInterface {
+                        implementation,
+                        arguments,
+                        ..
+                    } => Some((
+                        &module.identity,
+                        FunctionInstance {
+                            declaration: implementation.clone(),
+                            arguments: arguments
+                                .iter()
+                                .map(crate::module::abi::AbiType::to_checked_type)
+                                .collect(),
+                        },
+                    )),
+                    _ => None,
+                })
+        });
+        let demands = modules.iter().flat_map(|module| {
+            module
+                .interface_instances
+                .iter()
+                .cloned()
+                .map(|instance| (&module.identity, instance))
+        });
+        for (caller, instance) in allocations.chain(demands) {
+            let implementation = &instance.declaration;
+            let arguments = &instance.arguments;
             if arguments.is_empty() || implementation.module == *caller {
                 continue;
             }
@@ -214,10 +222,7 @@ pub fn lower_program_to_ir(
             for method in signature.methods.values() {
                 let instance = FunctionInstance {
                     declaration: method.clone(),
-                    arguments: arguments
-                        .iter()
-                        .map(crate::module::abi::AbiType::to_checked_type)
-                        .collect(),
+                    arguments: arguments.clone(),
                 };
                 if seen.insert(instance.clone()) {
                     requests
@@ -361,6 +366,34 @@ pub fn verify_program(
                 );
             }
         }
+        for request in &module.interface_instances {
+            let valid = indices
+                .get(&request.declaration.module)
+                .filter(|owner| **owner == index || dependencies.contains(owner))
+                .is_some_and(|owner| {
+                    modules[*owner].abi.public_items.iter().any(|item| {
+                        let crate::module::PublicAbiItem::InterfaceTable(table) = item else {
+                            return false;
+                        };
+                        table.declaration == request.declaration
+                            && table
+                                .instantiate(
+                                    &request
+                                        .arguments
+                                        .iter()
+                                        .map(crate::module::abi::AbiType::from_checked_type)
+                                        .collect::<Vec<_>>(),
+                                )
+                                .is_some()
+                    })
+                });
+            if !valid {
+                return Err(error(
+                    &module.identity,
+                    ProgramErrorKind::InterfaceContract(request.declaration.clone()),
+                ));
+            }
+        }
         for instruction in module
             .functions
             .iter()
@@ -370,6 +403,62 @@ pub fn verify_program(
             cancel
                 .check()
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
+            if let Instruction::UpcastInterface { source, target, .. } = instruction {
+                let ancestry = kagari_hir::aggregates::trait_inheritance_closure(
+                    &source.to_checked_type(),
+                    &kagari_hir::types::TypeId::Trait(source.to_checked_type()),
+                    cancel,
+                    &|id| {
+                        let owner = *indices.get(&id.module)?;
+                        if owner != index && !dependencies.contains(&owner) {
+                            return None;
+                        }
+                        let abi = &modules[owner].abi;
+                        let record = abi
+                            .trait_contracts
+                            .iter()
+                            .find(|record| record.declaration == *id)
+                            .map(|record| &record.abi)
+                            .or_else(|| {
+                                abi.public_items.iter().find_map(|item| match item {
+                                    crate::module::PublicAbiItem::Trait(record)
+                                        if id.path.len() == 1
+                                            && id.path[0].name == record.name
+                                            && id.path[0].kind
+                                                == kagari_common::identity::DefinitionKind::Trait
+                                            && id.path[0].occurrence == 0 =>
+                                    {
+                                        Some(record)
+                                    }
+                                    _ => None,
+                                })
+                            })?;
+                        Some((
+                            record
+                                .generic_params
+                                .iter()
+                                .map(|param| kagari_hir::types::GenericParameterType {
+                                    owner: param.owner.clone(),
+                                    position: param.position,
+                                    name: String::new(),
+                                })
+                                .collect(),
+                            record
+                                .supertraits
+                                .iter()
+                                .map(|parent| parent.to_checked_type())
+                                .collect(),
+                        ))
+                    },
+                );
+                if !ancestry.is_ok_and(|parents| parents.contains(&target.to_checked_type())) {
+                    return Err(error(
+                        &module.identity,
+                        ProgramErrorKind::InterfaceContract(target.declaration.clone()),
+                    ));
+                }
+                continue;
+            }
             if let Instruction::Call {
                 dst,
                 callee: CallTarget::InterfaceMethod(contract),

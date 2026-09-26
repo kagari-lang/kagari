@@ -191,6 +191,10 @@ impl Lowerer {
             .collect::<Vec<_>>();
         TraitDef {
             id,
+            supertraits: trait_def
+                .supertraits()
+                .map(|bounds| self.lower_trait_refs(bounds.bounds()))
+                .unwrap_or_default(),
             visibility: lower_visibility(trait_def.visibility()),
             name: trait_def.name_text().unwrap_or_default(),
             generic_params,

@@ -41,15 +41,21 @@ KbcArtifact {
 }
 ```
 
-Format version 45 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 46 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 44 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 45 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
 
-Version 45 and runtime ABI v45 add explicitly marked concrete host bridge tables
+Version 46 and runtime ABI v46 retain applied supertrait contracts and the explicit
+`UpcastInterface` operation. Loading checks bounded acyclic inheritance, required
+parent implementations, concrete parent dispatch tables and upcast ancestry
+before execution. Parent tables are compiled ahead of time and retain the same
+execution family as the original interface.
+
+Version 45 and runtime ABI v45 added explicitly marked concrete host bridge tables
 and KHI v10 associated-output declarations. Output identities, bounds, signatures
 and the exact forwarding host call are verified before execution. Host bridge
 tables do not introduce additional language implementations. Host declarations

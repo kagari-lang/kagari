@@ -98,6 +98,14 @@ impl PreparedAnalysis {
         kagari_common::cancellation::Cancelled,
     > {
         let mut diagnostics = DiagnosticBuffer::new();
+        typeck::validate_supertraits(
+            &self.lowered,
+            &self.declarations,
+            aggregates,
+            self.signatures.facts().type_table(),
+            &mut diagnostics,
+            cancel,
+        );
         typeck::validate_signature_applications(
             &self.lowered,
             &self.declarations,

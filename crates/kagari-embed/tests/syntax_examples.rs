@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 23] = [
+    let cases: [(&str, &str, Value); 24] = [
+        (
+            "examples/syntax/trait-inheritance.kgr",
+            include_str!("../../../examples/syntax/trait-inheritance.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/generic-interfaces.kgr",
             include_str!("../../../examples/syntax/generic-interfaces.kgr"),

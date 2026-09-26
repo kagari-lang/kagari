@@ -27,8 +27,18 @@ Integration tests cover source/artifact execution, JIT-enabled execution,
 cross-module generic inputs, GC, reentry, traps and retained reload versions.
 Artifact format 45, runtime ABI v45 and KHI v10 reject previous products.
 
-The next trait checkpoints are trait inheritance and default method fallback; associated
-consts; then type-parameterized GAT. Each checkpoint updates executable examples,
+Completed language extension: bounded, acyclic trait inheritance, transitive
+static bounds, inherited associated projections and dynamic interface upcasting.
+Diamond paths deduplicate the same applied declaration; unrelated same-named
+methods are ambiguous. Source, artifact and JIT fallback tests cover cross-module
+generic parents, invalid graphs, GC and retained reload versions. See the
+[trait contract](spec/traits.md#trait-inheritance-and-upcasting) and
+[runnable example](../examples/syntax/trait-inheritance.kgr). Artifact format 46
+and runtime ABI v46 reject previous products; KHI remains v10.
+
+The next trait checkpoints are default method fallback; associated consts;
+then type-parameterized GAT. A trait declaring associated consts or GAT, and every
+trait inheriting it, will be usable only for static dispatch. Each checkpoint updates executable examples,
 semantic and artifact validation, and commits separately. Lifetimes, script-level
 `dyn`, higher-kinded type parameters, specialization, negative impls, auto traits
 and advanced coherence/solver behavior are outside this sequence.

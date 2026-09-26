@@ -47,6 +47,16 @@ impl AggregateCatalog {
     }
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         crate::typeck::associated::normalize(ty, &|interface, receiver, member| {
+            if let TypeId::Trait(actual) = receiver {
+                return self
+                    .trait_closure(actual, receiver, &Default::default())
+                    .ok()?
+                    .into_iter()
+                    .find(|parent| parent.satisfies(interface))?
+                    .associated_types
+                    .get(member)
+                    .cloned();
+            }
             let script = self.implementations.values().filter_map(|implementation| {
                 let substitution = crate::typeck::match_implementation(
                     &implementation.trait_type,
@@ -94,7 +104,7 @@ impl AggregateCatalog {
         Some(catalog)
     }
 
-    pub(crate) fn implementations(&self) -> impl Iterator<Item = &ImplementationSignature> {
+    pub fn implementations(&self) -> impl Iterator<Item = &ImplementationSignature> {
         self.implementations.values().map(AsRef::as_ref)
     }
 

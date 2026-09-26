@@ -16,6 +16,7 @@ pub struct ImportedType {
     pub ty: TypeId,
     pub trait_methods: Vec<ImportedTraitMethod>,
     pub associated_types: Vec<String>,
+    pub supertraits: Vec<crate::types::NominalType>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +29,7 @@ pub struct ImportedTraitMethod {
 pub struct ImportedTypes {
     types: HashMap<String, ImportedType>,
     resolutions: HashMap<ResolvedName, String>,
+    nominal_types: HashMap<kagari_common::identity::DefinitionId, ImportedType>,
 }
 
 impl ImportedTypes {
@@ -46,20 +48,26 @@ impl ImportedTypes {
         &self,
         id: &kagari_common::identity::DefinitionId,
     ) -> Option<&ImportedType> {
-        self.types.values().find(|ty| match &ty.ty {
-            TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty) => &ty.declaration == id,
-            _ => false,
-        })
+        self.types
+            .values()
+            .chain(self.nominal_types.values())
+            .find(|ty| match &ty.ty {
+                TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty) => &ty.declaration == id,
+                _ => false,
+            })
     }
 }
 
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
+    surfaces:
+        std::cell::RefCell<Option<HashMap<kagari_common::identity::DefinitionId, ImportedType>>>,
 }
 
 impl<'a> TypeCatalog<'a> {
     pub(crate) fn new(modules: impl IntoIterator<Item = &'a DeclaredAnalysis>) -> Self {
         Self {
+            surfaces: Default::default(),
             modules: modules
                 .into_iter()
                 .map(|m| (m.lowered.source.id(), m))
@@ -72,6 +80,7 @@ impl<'a> TypeCatalog<'a> {
         imports: &ModuleImports,
         cancel: &CancellationToken,
     ) -> Result<ImportedTypes, Cancelled> {
+        self.prepare_surfaces(cancel)?;
         let mut result = ImportedTypes::default();
         for (index, import) in imports.entries.iter().enumerate() {
             cancel.check()?;
@@ -113,6 +122,30 @@ impl<'a> TypeCatalog<'a> {
                 }
             }
         }
+        let cache = self.surfaces.borrow();
+        let mut pending = result
+            .types
+            .values()
+            .filter_map(|item| match &item.ty {
+                TypeId::Trait(ty) => Some(ty.declaration.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        while let Some(id) = pending.pop() {
+            cancel.check()?;
+            if result.nominal_types.contains_key(&id) {
+                continue;
+            }
+            let Some(item) = cache.as_ref().and_then(|cache| cache.get(&id)) else {
+                continue;
+            };
+            pending.extend(
+                item.supertraits
+                    .iter()
+                    .map(|parent| parent.declaration.clone()),
+            );
+            result.nominal_types.insert(id, item.clone());
+        }
         Ok(result)
     }
 
@@ -128,19 +161,42 @@ impl<'a> TypeCatalog<'a> {
         let Some(item) = target.item else {
             return Ok(None);
         };
+        let source = SourceTypeId {
+            file: target.file,
+            revision: target.revision,
+            item,
+        };
+        let Some(surface) = Self::surface(module, source) else {
+            return Ok(None);
+        };
+        let imported = self
+            .surfaces
+            .borrow()
+            .as_ref()
+            .and_then(|cache| {
+                cache.get(module.declarations.definition(match item {
+                    ExportItem::Struct(id) => ResolvedName::Struct(id),
+                    ExportItem::Enum(id) => ResolvedName::Enum(id),
+                    ExportItem::Trait(id) => ResolvedName::Trait(id),
+                    _ => return None,
+                })?)
+            })
+            .cloned();
+        Ok(Some(imported.unwrap_or(surface)))
+    }
+
+    fn surface(module: &DeclaredAnalysis, source: SourceTypeId) -> Option<ImportedType> {
+        let item = source.item;
         let (resolved, make_type): (_, fn(crate::types::NominalType) -> TypeId) = match item {
             ExportItem::Struct(id) => (ResolvedName::Struct(id), TypeId::Struct),
             ExportItem::Enum(id) => (ResolvedName::Enum(id), TypeId::Enum),
             ExportItem::Trait(id) => (ResolvedName::Trait(id), TypeId::Trait),
-            _ => return Ok(None),
+            _ => return None,
         };
-        let Some(declaration) = module.declarations.target(resolved) else {
-            return Ok(None);
-        };
-        let Some(identity) = module.declarations.definition(resolved) else {
-            return Ok(None);
-        };
-        Ok(Some(ImportedType {
+        let declaration = module.declarations.target(resolved)?;
+        let identity = module.declarations.definition(resolved)?;
+        Some(ImportedType {
+            supertraits: Vec::new(),
             associated_types: match item {
                 ExportItem::Trait(id) => module
                     .lowered
@@ -155,8 +211,8 @@ impl<'a> TypeCatalog<'a> {
                 _ => Vec::new(),
             },
             id: SourceTypeId {
-                file: target.file,
-                revision: target.revision,
+                file: source.file,
+                revision: source.revision,
                 item,
             },
             declaration: declaration.clone(),
@@ -191,6 +247,61 @@ impl<'a> TypeCatalog<'a> {
                     .collect(),
                 _ => Vec::new(),
             },
-        }))
+        })
+    }
+
+    fn prepare_surfaces(&self, cancel: &CancellationToken) -> Result<(), Cancelled> {
+        if self.surfaces.borrow().is_some() {
+            return Ok(());
+        }
+        let mut initial = HashMap::new();
+        for module in self.modules.values() {
+            for item in &module.lowered.module.traits {
+                cancel.check()?;
+                let source = SourceTypeId {
+                    file: module.lowered.source.id(),
+                    revision: module.lowered.source.revision(),
+                    item: ExportItem::Trait(item.id),
+                };
+                if let Some(surface) = Self::surface(module, source) {
+                    let TypeId::Trait(ty) = &surface.ty else {
+                        unreachable!("trait surface");
+                    };
+                    initial.insert(ty.declaration.clone(), surface);
+                }
+            }
+        }
+        *self.surfaces.borrow_mut() = Some(initial);
+        // Parents can use projections justified by another imported parent chain.
+        // Refine declaration surfaces before function signature resolution.
+        for _ in 0..64 {
+            let previous = self.surfaces.borrow().as_ref().unwrap().clone();
+            let mut next = previous.clone();
+            for module in self.modules.values() {
+                cancel.check()?;
+                let mut declarations = module.declarations.clone();
+                declarations.imported_types =
+                    self.bindings(&module.names.facts().imports, cancel)?;
+                for item in &module.lowered.module.traits {
+                    let Some(id) = declarations.definition(ResolvedName::Trait(item.id)) else {
+                        continue;
+                    };
+                    if let Some(surface) = next.get_mut(id) {
+                        surface.supertraits = crate::typeck::trait_supertrait_surface(
+                            &module.lowered.module,
+                            item,
+                            &declarations,
+                            cancel,
+                        );
+                    }
+                }
+            }
+            let unchanged = next == previous;
+            *self.surfaces.borrow_mut() = Some(next);
+            if unchanged {
+                break;
+            }
+        }
+        Ok(())
     }
 }

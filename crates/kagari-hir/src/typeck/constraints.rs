@@ -39,6 +39,21 @@ pub(super) fn resolve_constraints(
         );
     }
     for item in &lowered.module.traits {
+        for reference in &item.supertraits {
+            resolve_constraint(
+                lowered,
+                reference,
+                TypeContext {
+                    declarations,
+                    generics: &item.generic_params,
+                    self_type: Some(item.id),
+                    implementation: None,
+                },
+                table,
+                diagnostics,
+                cancel,
+            );
+        }
         resolve_owner(
             lowered,
             &item.generic_params,

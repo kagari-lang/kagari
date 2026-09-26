@@ -1,4 +1,7 @@
 mod applications;
+mod supertraits;
+pub(crate) use supertraits::trait_supertrait_surface;
+pub(crate) use supertraits::validate as validate_supertraits;
 pub(crate) mod associated;
 pub(crate) use applications::validate_signatures as validate_signature_applications;
 mod body;

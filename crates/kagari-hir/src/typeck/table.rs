@@ -111,6 +111,7 @@ pub struct ResolvedInterfaceCoercion {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedInterfaceImplementation {
+    Upcast,
     Script {
         declaration: DefinitionId,
         arguments: Vec<TypeId>,

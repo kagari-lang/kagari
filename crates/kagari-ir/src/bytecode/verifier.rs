@@ -263,7 +263,7 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
     verify_module_with_program(module, None)?;
-    if !super::trait_bounds::trait_bounds_match(module, &[module]) {
+    if !super::trait_bounds::trait_bounds_match(module, &[module], None) {
         return Err(BytecodeVerificationError::InvalidHostInterface(
             "trait output or host bound has no unique valid implementation".into(),
         ));
@@ -914,6 +914,30 @@ fn verify_instruction(
         BytecodeInstruction::WriteCell { cell, value } => {
             expect_register_ty(function, *cell, ValueType::HeapObject, "cell handle")?;
             let _ = register_ty(function, *value)?;
+        }
+        BytecodeInstruction::UpcastInterface {
+            dst,
+            value,
+            source,
+            target,
+        } => {
+            expect_register_ty(
+                function,
+                *dst,
+                ValueType::HeapObject,
+                "interface destination",
+            )?;
+            expect_register_ty(
+                function,
+                *value,
+                ValueType::HeapObject,
+                "interface receiver",
+            )?;
+            if !crate::module::abi::AbiType::Trait(source.clone()).is_concrete()
+                || !crate::module::abi::AbiType::Trait(target.clone()).is_concrete()
+            {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
         }
         BytecodeInstruction::MakeInterface {
             dst,

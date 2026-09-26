@@ -164,6 +164,19 @@ impl<'a> Executor<'a> {
                     .write_capture_cell(&cell, ty, value)
                     .map_err(VmError::RuntimeError)?;
             }
+            BytecodeInstruction::UpcastInterface {
+                dst,
+                value,
+                source,
+                target,
+            } => {
+                let value = self.current_frame()?.read_register(value)?;
+                let view = self
+                    .runtime
+                    .upcast_interface(&value, &source, &target)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?.write_register(dst, view)?;
+            }
             BytecodeInstruction::MakeInterface {
                 dst,
                 value,

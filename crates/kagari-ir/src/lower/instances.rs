@@ -54,6 +54,7 @@ pub(super) struct InstancePlanner<'a> {
         kagari_hir::types::NominalType,
         Span,
     )>,
+    pub interface_instances: Vec<FunctionInstance>,
     keys: HashMap<FunctionInstance, InstanceId>,
     generic_count: usize,
     interfaces: std::collections::HashSet<(kagari_common::identity::DefinitionId, Vec<TypeId>)>,
@@ -70,6 +71,7 @@ impl<'a> InstancePlanner<'a> {
             layout_roots: Vec::new(),
             host_types: Default::default(),
             host_interfaces: Vec::new(),
+            interface_instances: Vec::new(),
             keys: HashMap::new(),
             generic_count: 0,
             interfaces: Default::default(),
@@ -153,12 +155,78 @@ impl<'a> InstancePlanner<'a> {
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), IrLoweringError> {
-        if !arguments.is_empty()
-            && self
-                .interfaces
-                .insert((declaration.clone(), arguments.to_vec()))
+        if self
+            .interfaces
+            .insert((declaration.clone(), arguments.to_vec()))
         {
-            self.charge_layout_instance(span)?;
+            if !arguments.is_empty() {
+                self.charge_layout_instance(span)?;
+            }
+            self.interface_instances.push(FunctionInstance {
+                declaration: declaration.clone(),
+                arguments: arguments.to_vec(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn require_parent_interfaces(
+        &mut self,
+        receiver: &TypeId,
+        interface: &kagari_hir::types::NominalType,
+        span: Span,
+    ) -> Result<(), IrLoweringError> {
+        let parents = self
+            .module
+            .aggregates
+            .trait_closure(interface, receiver, &self.options.cancel)
+            .map_err(|_| IrLoweringError::MissingBinding("checked inheritance closure"))?;
+        for parent in parents.into_iter().skip(1) {
+            if self
+                .module
+                .names
+                .hosts
+                .interface_implementation(&parent, receiver)
+                .is_some()
+            {
+                self.host_interface(receiver, &parent, span)?;
+                continue;
+            }
+            let (declaration, arguments) = self
+                .module
+                .aggregates
+                .concrete_interface_implementation(
+                    &parent,
+                    receiver,
+                    &Default::default(),
+                    100_000,
+                    64,
+                    &self.options.cancel,
+                )
+                .map_err(|_| IrLoweringError::MissingBinding("parent interface search"))?
+                .ok_or(IrLoweringError::MissingBinding(
+                    "parent interface implementation",
+                ))?;
+            self.record_interface(&declaration, &arguments, span)?;
+            if declaration.module == *self.module.lowered.source.module_identity() {
+                let methods = self
+                    .module
+                    .aggregates
+                    .implementation_signature(&declaration)
+                    .ok_or(IrLoweringError::MissingBinding("parent interface contract"))?
+                    .methods
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for method in methods {
+                    let Some(ResolvedName::Function(function)) =
+                        self.module.declarations.definition_target(&method)
+                    else {
+                        return Err(IrLoweringError::MissingBinding("parent interface method"));
+                    };
+                    self.enqueue(function, arguments.clone(), span)?;
+                }
+            }
         }
         Ok(())
     }

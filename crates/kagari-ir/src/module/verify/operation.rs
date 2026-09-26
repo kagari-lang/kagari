@@ -219,6 +219,20 @@ pub(super) fn verify(
         ReadCell { cell, .. } | WriteCell { cell, .. } => {
             context.expect(cell.ty, ValueType::HeapObject, "cell handle")?
         }
+        UpcastInterface {
+            dst,
+            value,
+            source,
+            target,
+        } => {
+            context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
+            context.expect(value.ty, ValueType::HeapObject, "interface receiver")?;
+            if !super::super::abi::AbiType::Trait(source.clone()).is_concrete()
+                || !super::super::abi::AbiType::Trait(target.clone()).is_concrete()
+            {
+                return Err(context.error(Error::InvalidInterfaceTable));
+            }
+        }
         MakeInterface {
             dst,
             value,

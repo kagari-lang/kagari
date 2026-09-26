@@ -201,6 +201,70 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
 }
 
 #[test]
+fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
+    let (engine, _, mut host, make) = fixture();
+    let mut child = host.trait_implementations[0].trait_id.clone();
+    child.path[0].name = "Child".into();
+    host.trait_implementations
+        .push(HostTraitImplementationDeclaration::new(
+            child,
+            vec![],
+            vec![],
+        ));
+    let interface = HostInterface {
+        types: vec![host.clone()],
+        functions: vec![make.clone()],
+        paths: vec![],
+    };
+    engine.set_host_interface(interface).unwrap();
+    let source = SOURCE.replace("pub fn boxed() -> Reader<Item = i32>", "trait Child: Reader<Item = i32> {}\npub fn boxed() -> Child")
+        .replace("fn main() -> i32 { read(make()) + boxed().read(22) }", "fn main() -> i32 { val child = boxed(); val parent: Reader<Item = i32> = child; parent.read(20) + child.read(22) }");
+    let file = engine
+        .set_source("mem://host-interface", source, SourceLayer::Base)
+        .unwrap();
+    let context = context(false);
+    let checked = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            file,
+            CompileOptions {
+                language_profile: context.language_profile,
+            },
+            &Default::default(),
+        )
+        .unwrap();
+    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let mut runtime = engine.runtime(context.clone());
+    let ty = runtime
+        .register_host_type(HostTypeRegistration::new(host.clone(), "Counter"))
+        .unwrap();
+    let root = runtime
+        .runtime_mut()
+        .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
+        .unwrap();
+    runtime
+        .register_host_function(HostFunction::new(make, move |_, _| {
+            Ok(Value::HostRoot(root))
+        }))
+        .unwrap();
+    runtime
+        .register_host_function(
+            HostFunction::method(&host, &host.methods[0].id, |_, args| Ok(args[1].clone()))
+                .unwrap(),
+        )
+        .unwrap();
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
+#[test]
 fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
     use kagari_ir::{
         bytecode::{BytecodeInstruction, CallTarget, HostImportId},

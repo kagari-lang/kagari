@@ -98,6 +98,12 @@ pub enum Instruction {
         cell: IrValue,
         value: IrValue,
     },
+    UpcastInterface {
+        dst: IrValue,
+        value: IrValue,
+        source: super::abi::NominalAbiType,
+        target: super::abi::NominalAbiType,
+    },
     MakeInterface {
         dst: IrValue,
         value: IrValue,
@@ -383,6 +389,7 @@ impl Instruction {
             | Self::MakeClosure { .. }
             | Self::MakeCell { .. }
             | Self::MakeInterface { .. }
+            | Self::UpcastInterface { .. }
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
             Self::ReadAggregateField { .. }

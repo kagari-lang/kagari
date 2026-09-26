@@ -139,6 +139,20 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     continue;
                 };
                 let abi = TraitAbi {
+                    supertraits: trait_item
+                        .supertraits
+                        .iter()
+                        .filter_map(|reference| {
+                            let kagari_hir::typeck::ConstraintTarget::Trait(parent) =
+                                module.typed.type_table.constraint(reference.ty)?
+                            else {
+                                return None;
+                            };
+                            Some(crate::module::abi::NominalAbiType::from_checked_type(
+                                &parent,
+                            ))
+                        })
+                        .collect(),
                     associated_types: trait_item
                         .associated_types
                         .iter()

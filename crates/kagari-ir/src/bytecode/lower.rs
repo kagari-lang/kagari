@@ -174,25 +174,40 @@ fn collect_interface_tables(
     let owners = program
         .map(|program| program.modules())
         .unwrap_or(std::slice::from_ref(ir));
-    for instruction in owners
+    let allocations = owners
         .iter()
         .flat_map(|owner| &owner.functions)
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
-    {
-        let Instruction::MakeInterface {
-            implementation,
-            arguments,
-            ..
-        } = instruction
-        else {
-            continue;
-        };
+        .filter_map(|instruction| match instruction {
+            Instruction::MakeInterface {
+                implementation,
+                arguments,
+                ..
+            } => Some(crate::module::function::FunctionInstance {
+                declaration: implementation.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(crate::module::abi::AbiType::to_checked_type)
+                    .collect(),
+            }),
+            _ => None,
+        });
+    let demands = owners
+        .iter()
+        .flat_map(|owner| owner.interface_instances.iter().cloned());
+    for instance in allocations.chain(demands) {
+        let implementation = &instance.declaration;
+        let arguments = instance
+            .arguments
+            .iter()
+            .map(crate::module::abi::AbiType::from_checked_type)
+            .collect::<Vec<_>>();
         if implementation.module != ir.identity
             || arguments.is_empty()
             || tables
                 .iter()
-                .any(|table| table.declaration == *implementation && table.arguments == *arguments)
+                .any(|table| table.declaration == *implementation && table.arguments == arguments)
         {
             continue;
         }
@@ -874,6 +889,17 @@ fn lower_instruction(
         Instruction::WriteCell { cell, value } => BytecodeInstruction::WriteCell {
             cell: lower_value(*cell),
             value: lower_value(*value),
+        },
+        Instruction::UpcastInterface {
+            dst,
+            value,
+            source,
+            target,
+        } => BytecodeInstruction::UpcastInterface {
+            dst: lower_value(*dst),
+            value: lower_value(*value),
+            source: source.clone(),
+            target: target.clone(),
         },
         Instruction::MakeInterface {
             dst,

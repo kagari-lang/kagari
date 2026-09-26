@@ -885,7 +885,8 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             values.extend(elements.iter().copied());
             values
         }
-        Instruction::MakeInterface { dst, value, .. } => vec![*dst, *value],
+        Instruction::MakeInterface { dst, value, .. }
+        | Instruction::UpcastInterface { dst, value, .. } => vec![*dst, *value],
         Instruction::TestEnumVariant { dst, value, .. }
         | Instruction::ReadEnumPayload { dst, value, .. } => vec![*dst, *value],
         Instruction::MakeStruct { dst, fields, .. } => {

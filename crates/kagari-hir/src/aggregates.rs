@@ -19,7 +19,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-pub use traits::{MethodParameter, MethodSignature, TraitSignature};
+pub use traits::{MethodParameter, MethodSignature, TraitSignature, trait_inheritance_closure};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldSignature {

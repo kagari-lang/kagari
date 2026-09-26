@@ -229,6 +229,14 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
         }
         && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
             bounds_valid(&ty.bounds, &params, cancel)
+                && ty.supertraits.iter().all(|parent| {
+                    type_valid(
+                        &AbiType::Trait(parent.clone()),
+                        &params,
+                        Some(&owner),
+                        cancel,
+                    )
+                })
                 && ty
                     .associated_types
                     .iter()
