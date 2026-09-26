@@ -571,3 +571,8 @@ Matching builtin numeric types use their existing checked instructions. User
 Struct/enum implementations run ordinary methods; their effects are not rolled
 back on failure. These traits do not enable compound-assignment overloads.
 See [operators.kgr](../../examples/syntax/operators.kgr).
+
+`std::ops::{Neg, Not}` declare `type Output` and `fn neg(self) -> Self::Output`
+(respectively `not`). They control unary `-` and `!`; signed builtin numeric
+negation and bool negation keep direct instructions. Custom outputs may differ
+from the receiver. `&&`/`||` remain bool-only short-circuit operators.

@@ -122,3 +122,17 @@ fn main()->i32 {(Wrap{item:20}+Wrap{item:22}).item}
 "#,
     );
 }
+
+#[test]
+fn unary_protocols_support_generic_and_different_output_types() {
+    execute(
+        r#"
+struct Signed {val value:i32}
+impl Neg for Signed {type Output=Signed;fn neg(self)->Signed {Signed{value:-self.value}}}
+impl Not for Signed {type Output=bool;fn not(self)->bool {self.value==0}}
+fn negative<T:Neg>(x:T)->T::Output {-x}
+fn invert<T:Not>(x:T)->T::Output {!x}
+fn main()->i32 {val x=Signed{value:-42};val zero=Signed{value:0};if invert(zero) && !invert(x) && negative(1)== -1 && invert(false) && (-x).value==x.neg().value {negative(x).value}else{0}}
+"#,
+    );
+}

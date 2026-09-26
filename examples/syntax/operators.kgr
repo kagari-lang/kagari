@@ -8,5 +8,9 @@ impl Mul<i32> for Vector {
     type Output = Vector;
     fn mul(self, rhs: i32) -> Vector { Vector { x: self.x * rhs } }
 }
+impl Neg for Vector {
+    type Output = Vector;
+    fn neg(self) -> Vector { Vector { x: -self.x } }
+}
 fn plus<T: Add<T>>(left: T, right: T) -> T::Output { left + right }
-fn main() -> i32 { (plus(Vector { x: 10 }, Vector { x: 11 }) * 2).x }
+fn main() -> i32 { (-(-plus(Vector { x: 10 }, Vector { x: 11 })) * 2).x }

@@ -771,6 +771,17 @@ impl<'a> BodyChecker<'a> {
                 else {
                     return TypeId::Unknown;
                 };
+                if completes {
+                    let protocol = match op {
+                        PrefixOp::Neg => crate::builtin::traits::StandardTrait::Neg,
+                        PrefixOp::Not => crate::builtin::traits::StandardTrait::Not,
+                    };
+                    if let Some(result) =
+                        self.record_operator(expr_id, *expr, &inner, protocol.nominal(), env)
+                    {
+                        return self.finish_operator_type(expr_id, result, env);
+                    }
+                }
                 match op {
                     PrefixOp::Neg => {
                         if completes

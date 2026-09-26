@@ -367,6 +367,15 @@ impl FunctionLowerer<'_, '_> {
                 if self.current_block_terminated() {
                     return Ok(operand);
                 }
+                if self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .call_resolution(expr_id)
+                    .is_some()
+                {
+                    return self.lower_selected_operator(expr_id, &[operand]);
+                }
                 let dst = self.alloc_temp(self.expr_type(expr_id)?);
                 self.emit(Instruction::Unary {
                     dst,

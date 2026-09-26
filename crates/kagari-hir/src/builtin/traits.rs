@@ -26,9 +26,11 @@ pub enum StandardTrait {
     Mul,
     Div,
     Rem,
+    Neg,
+    Not,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -41,6 +43,8 @@ impl StandardTrait {
         Self::Mul,
         Self::Div,
         Self::Rem,
+        Self::Neg,
+        Self::Not,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -56,12 +60,16 @@ impl StandardTrait {
             Self::Mul => "Mul",
             Self::Div => "Div",
             Self::Rem => "Rem",
+            Self::Neg => "Neg",
+            Self::Not => "Not",
         }
     }
     pub fn namespace(self) -> &'static str {
         match self {
             Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord => "cmp",
-            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Rem => "ops",
+            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Rem | Self::Neg | Self::Not => {
+                "ops"
+            }
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -100,7 +108,7 @@ impl StandardTrait {
         )
     }
     pub fn operator(self) -> bool {
-        self.binary_operator()
+        self.binary_operator() || matches!(self, Self::Neg | Self::Not)
     }
     pub fn intrinsic_view(self, receiver: &TypeId) -> NominalType {
         let mut view = self.nominal();
@@ -226,11 +234,15 @@ fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
         name: name.into(),
         location: source.span(Span::new(0, 0)).unwrap(),
     };
-    let generics = vec![crate::types::GenericParameterType {
-        owner: id.clone(),
-        position: 0,
-        name: "Rhs".into(),
-    }];
+    let generics = if kind.binary_operator() {
+        vec![crate::types::GenericParameterType {
+            owner: id.clone(),
+            position: 0,
+            name: "Rhs".into(),
+        }]
+    } else {
+        vec![]
+    };
     let interface = NominalType {
         declaration: id.clone(),
         arguments: generics.iter().cloned().map(TypeId::Generic).collect(),
@@ -243,6 +255,8 @@ fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
         StandardTrait::Mul => "mul",
         StandardTrait::Div => "div",
         StandardTrait::Rem => "rem",
+        StandardTrait::Neg => "neg",
+        StandardTrait::Not => "not",
         _ => unreachable!(),
     };
     let mut method_id = id.clone();
@@ -266,18 +280,17 @@ fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
             generic_params: generics.clone(),
             bounds: Default::default(),
             declaration: declaration(method_id, name),
-            params: vec![
-                MethodParameter {
-                    name: "self".into(),
-                    writeability: Writeability::Val,
-                    ty: TypeId::SelfType(id.clone()),
-                },
-                MethodParameter {
-                    name: "rhs".into(),
-                    writeability: Writeability::Val,
-                    ty: TypeId::Generic(generics[0].clone()),
-                },
-            ],
+            params: std::iter::once(MethodParameter {
+                name: "self".into(),
+                writeability: Writeability::Val,
+                ty: TypeId::SelfType(id.clone()),
+            })
+            .chain(generics.first().map(|p| MethodParameter {
+                name: "rhs".into(),
+                writeability: Writeability::Val,
+                ty: TypeId::Generic(p.clone()),
+            }))
+            .collect(),
             return_type: TypeId::Projection {
                 receiver: Box::new(TypeId::SelfType(id.clone())),
                 interface: Box::new(interface),
@@ -294,6 +307,24 @@ fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
 /// Builtin associated outputs are computed from the applied protocol, not its spelling.
 pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<TypeId> {
     let kind = StandardTrait::from_id(&interface.declaration)?;
+    if interface.arguments.is_empty()
+        && (kind == StandardTrait::Not && *receiver == TypeId::Builtin(BuiltinType::Bool)
+            || kind == StandardTrait::Neg
+                && matches!(
+                    receiver,
+                    TypeId::Builtin(
+                        BuiltinType::I8
+                            | BuiltinType::I16
+                            | BuiltinType::I32
+                            | BuiltinType::I64
+                            | BuiltinType::ISize
+                            | BuiltinType::F32
+                            | BuiltinType::F64
+                    )
+                ))
+    {
+        return Some(receiver.clone());
+    }
     if kind.binary_operator()
         && interface.arguments.as_slice() == [receiver.clone()]
         && super::surface::supports_arithmetic(receiver, receiver)

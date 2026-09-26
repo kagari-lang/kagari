@@ -111,6 +111,21 @@ impl FunctionLowerer<'_, '_> {
                 });
                 return Ok(dst);
             }
+            if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
+                && matches!(protocol, StandardTrait::Neg | StandardTrait::Not)
+            {
+                let dst = self.alloc_temp(result_ty);
+                self.emit(Instruction::Unary {
+                    dst,
+                    op: if protocol == StandardTrait::Neg {
+                        crate::module::instruction::UnaryOp::Neg
+                    } else {
+                        crate::module::instruction::UnaryOp::Not
+                    },
+                    operand: args[0],
+                });
+                return Ok(dst);
+            }
             let intrinsic = match StandardTrait::from_id(&interface.declaration) {
                 Some(StandardTrait::PartialOrd) => StandardIntrinsic::ValuePartialCmp,
                 Some(StandardTrait::Ord) => StandardIntrinsic::ValueCmp,
