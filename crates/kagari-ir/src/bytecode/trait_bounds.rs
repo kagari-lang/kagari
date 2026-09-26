@@ -656,7 +656,8 @@ pub(super) fn trait_bounds_match(
                     ConstraintAbi::Trait(value) => {
                         let required = TypeId::Trait(value.to_checked_type())
                             .with_self(&checked.declaration, &implementation.for_type)
-                            .instantiate(&substitution);
+                            .instantiate(&substitution)
+                            .with_associated_types(&checked);
                         let TypeId::Trait(required) = required else {
                             return false;
                         };

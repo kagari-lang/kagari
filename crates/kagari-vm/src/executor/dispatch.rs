@@ -10,6 +10,18 @@ impl<'a> Executor<'a> {
         instruction: BytecodeInstruction,
     ) -> Result<(), VmError> {
         match instruction {
+            BytecodeInstruction::Cursor { dst, value, ty, op } => {
+                let source = self
+                    .current_frame()?
+                    .read_register(value.ok_or(VmError::TypeMismatch("cursor source"))?)?;
+                let result = self.runtime.cursor_operation(
+                    self.current_frame()?.loaded(),
+                    &source,
+                    &ty,
+                    op,
+                )?;
+                self.current_frame_mut()?.write_register(dst, result)?;
+            }
             BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
                 let result = self.standard_enum_operation(value, &ty, op)?;
                 self.current_frame_mut()?.write_register(dst, result)?;

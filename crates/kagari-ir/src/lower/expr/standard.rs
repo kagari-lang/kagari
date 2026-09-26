@@ -1,7 +1,7 @@
 use super::*;
 
 impl FunctionLowerer<'_, '_> {
-    pub(super) fn standard_enum_op(
+    pub(crate) fn standard_enum_op(
         &mut self,
         ty: &kagari_hir::types::TypeId,
         op: crate::module::instruction::StandardEnumOp,

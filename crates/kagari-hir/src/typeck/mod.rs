@@ -39,7 +39,8 @@ pub(crate) use table::match_implementation;
 pub use table::{
     CallTarget, ConstraintTarget, ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor,
     ResolvedHostPath, ResolvedHostPlacePath, ResolvedInterfaceCoercion,
-    ResolvedInterfaceImplementation, ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,
+    ResolvedInterfaceImplementation, ResolvedIteration, ResolvedStructInit, ResolvedTypeRef,
+    TypeTable, TypeTarget,
 };
 
 #[derive(Debug, Clone)]

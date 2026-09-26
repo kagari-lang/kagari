@@ -922,6 +922,12 @@ fn lower_instruction(
                 implementation,
             }
         }
+        Instruction::Cursor { dst, value, ty, op } => BytecodeInstruction::Cursor {
+            dst: lower_value(*dst),
+            value: value.map(lower_value),
+            ty: ty.clone(),
+            op: *op,
+        },
         Instruction::StandardEnum { dst, value, ty, op } => BytecodeInstruction::StandardEnum {
             dst: lower_value(*dst),
             value: value.map(lower_value),

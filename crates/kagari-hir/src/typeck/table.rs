@@ -77,8 +77,17 @@ struct TraitImplementation {
     methods: HashMap<DefinitionId, FunctionId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedIteration {
+    pub into_interface: NominalType,
+    pub iterator: TypeId,
+    pub next_interface: NominalType,
+    pub item: TypeId,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
+    iterations: HashMap<ExprId, ResolvedIteration>,
     protocol_receivers: HashMap<ExprId, TypeId>,
     standard_constructors: HashMap<ExprId, crate::builtin::surface::StandardVariant>,
     standard_patterns: HashMap<PatternId, crate::builtin::surface::StandardVariant>,
@@ -153,6 +162,13 @@ pub struct ResolvedHostPlacePath {
 }
 
 impl TypeTable {
+    pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration> {
+        self.iterations.get(&id)
+    }
+    pub fn insert_iteration(&mut self, id: ExprId, fact: ResolvedIteration) {
+        self.iterations.insert(id, fact);
+    }
+
     pub fn protocol_receiver(&self, id: ExprId) -> Option<&TypeId> {
         self.protocol_receivers.get(&id)
     }
@@ -258,7 +274,7 @@ impl TypeTable {
                     }).collect();
                 )+};
             }
-            keys!(protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
+            keys!(iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, place_indexes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, standard_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, standard_patterns: PatternId, pattern_ranges: PatternId,
                 interface_coercions: ExprId, associated_consts: ExprId);
@@ -675,6 +691,9 @@ impl TypeTable {
             }
         }
         for (a, b) in exprs {
+            if let Some(fact) = old.iterations.get(&old_map.expr_id(a)) {
+                self.iterations.insert(new_map.expr_id(b), fact.clone());
+            }
             if let Some(fact) = old.protocol_receivers.get(&old_map.expr_id(a)) {
                 self.protocol_receivers
                     .insert(new_map.expr_id(b), fact.clone());

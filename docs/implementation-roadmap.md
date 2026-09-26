@@ -132,10 +132,16 @@ RHS overload selection and resource cleanup after operator traps/budget exhausti
 ## Conversion and iteration protocols
 
 - [x] B07: explicit From/Into and TryFrom/TryInto, static conversion calls, derived reverse bounds and associated errors.
-- [ ] B08: Iterator/IntoIterator contracts, custom for loops and native collection integration.
+- [x] B08: Iterator/IntoIterator contracts, custom for loops and native collection integration.
 - [ ] B09: conformance, examples, resource cleanup and workspace validation.
 
 Each checkpoint uses a Conventional Commit. Conversions are explicit; reverse
 protocols are derived and cannot be implemented independently. Iteration preserves
 native structural-mutation guards; custom iterators own their consistency rules.
 Error origins, general propagation, Clone and writable indexing remain separate.
+
+B08 uses artifact format 59 and runtime ABI v59. Custom iterators and native
+cursors share protocol-based for lowering. Native cursors retain source guards,
+GC roots and code versions; loop/session cleanup and structural revision checks
+cover early exit and resumed cursors. See the authoritative iteration contract in
+[the builtins specification](spec/builtins.md#iteration-protocols).

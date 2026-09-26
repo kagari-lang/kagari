@@ -325,7 +325,7 @@ pub(crate) fn references(
                 pending.extend(params);
                 pending.push(result);
             }
-            AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
+            AbiType::Array(ty) | AbiType::Set(ty) | AbiType::Cursor(ty) => pending.push(ty),
             AbiType::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
                 pending.extend(&ty.arguments);

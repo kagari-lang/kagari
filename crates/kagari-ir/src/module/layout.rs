@@ -214,7 +214,7 @@ pub(crate) fn validate_enum_layouts(
                 pending.extend(params);
                 pending.push(result);
             }
-            AbiType::Array(ty) | AbiType::Set(ty) => pending.push(ty),
+            AbiType::Array(ty) | AbiType::Set(ty) | AbiType::Cursor(ty) => pending.push(ty),
             AbiType::Map { key, value } => {
                 pending.push(key);
                 pending.push(value);

@@ -52,6 +52,20 @@ impl AggregateCatalog {
     ) -> Option<&'static str> {
         use crate::builtin::traits::StandardTrait;
         let protocol = StandardTrait::from_id(&implementation.trait_type.declaration)?;
+        if protocol == StandardTrait::IntoIterator
+            && self
+                .concrete_interface_implementation(
+                    &StandardTrait::Iterator.nominal(),
+                    &implementation.for_type,
+                    &implementation.bounds,
+                    4096,
+                    64,
+                    &Default::default(),
+                )
+                .is_ok_and(|i| i.is_some())
+        {
+            return Some("Iterator already supplies identity IntoIterator");
+        }
         if protocol.reverse_conversion() {
             return Some(
                 "Into/TryInto are derived from From/TryFrom and cannot be implemented directly",
@@ -277,6 +291,20 @@ impl AggregateCatalog {
     }
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         crate::typeck::associated::normalize(ty, &|interface, receiver, member, arguments| {
+            if arguments.is_empty()
+                && let Some(kind) =
+                    crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
+                && kind.iteration()
+                && let Some(outputs) = crate::builtin::traits::iteration_outputs(
+                    kind,
+                    receiver,
+                    Some(self),
+                    &Default::default(),
+                )
+                && let Some(output) = outputs.get(member)
+            {
+                return Some(output.clone());
+            }
             if arguments.is_empty()
                 && *member == crate::types::associated_type_id(&interface.declaration, "Error")
                 && let Some((required, target)) =

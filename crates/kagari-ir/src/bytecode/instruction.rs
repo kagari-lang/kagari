@@ -205,6 +205,12 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BytecodeInstruction {
+    Cursor {
+        dst: Register,
+        value: Option<Register>,
+        ty: crate::module::abi::AbiType,
+        op: crate::module::instruction::CursorOp,
+    },
     StandardEnum {
         dst: Register,
         value: Option<Register>,

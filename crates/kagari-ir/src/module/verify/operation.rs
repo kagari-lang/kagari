@@ -273,6 +273,15 @@ pub(super) fn verify(
                 "interface receiver",
             )?;
         }
+        Cursor { dst, value, ty, op } => {
+            let (input, output) = op
+                .contract(ty)
+                .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
+            if input != value.map(|v| v.ty) {
+                return Err(context.error(Error::InvalidEnumInitializer));
+            }
+            context.expect(dst.ty, output, "cursor result")?;
+        }
         StandardEnum { dst, value, ty, op } => {
             let (input, output) = op
                 .contract(ty)

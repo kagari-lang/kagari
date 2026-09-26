@@ -228,7 +228,12 @@ pub(super) fn validate(
                                     )
                                 }
                                 ConstraintTarget::Trait(required) => {
-                                    let required = required.instantiate(&substitution);
+                                    let TypeId::Trait(required) =
+                                        TypeId::Trait(required.instantiate(&substitution))
+                                            .with_associated_types(instance)
+                                    else {
+                                        unreachable!()
+                                    };
                                     bounds.get(actual).is_some_and(|constraints| constraints.iter().any(|constraint| matches!(constraint, ConstraintTarget::Trait(available) if available.satisfies(&required))))
                                         || catalog.intrinsic_implementation(&required, actual, bounds) || catalog.implementation_count(&required, actual) == 1
                                         || hosts.implements(&required, actual)
@@ -264,7 +269,7 @@ pub(super) fn validate(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(ty) | TypeId::Set(ty) => pending.push(ty),
+            TypeId::Array(ty) | TypeId::Set(ty) | TypeId::Cursor(ty) => pending.push(ty),
             TypeId::Map { key, value } => {
                 pending.push(key);
                 pending.push(value);
@@ -578,7 +583,7 @@ pub(super) fn validate_imported_interface_type(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(item) | TypeId::Set(item) => pending.push(item),
+            TypeId::Array(item) | TypeId::Set(item) | TypeId::Cursor(item) => pending.push(item),
             TypeId::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
             _ => {}
         }

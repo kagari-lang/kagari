@@ -634,3 +634,56 @@ is introduced: fallible conversions explicitly return Result and may use any
 error type. A From method may still trap like any script function; its contract
 is that expected conversion failures do not use a business error result.
 See [conversions.kgr](../../examples/syntax/conversions.kgr).
+
+
+## Iteration protocols
+
+`std::iter::{Iterator, IntoIterator}` are static-only prelude traits:
+
+```kagari
+trait Iterator {
+    type Item;
+    fn next(self) -> Option<Self::Item>;
+}
+trait IntoIterator {
+    type Item;
+    type IntoIter: Iterator<Item = Self::Item>;
+    fn into_iter(self) -> Self::IntoIter;
+}
+```
+
+`for pattern in expression` evaluates the expression once, calls `into_iter`
+once, and repeatedly calls `next`. Some supplies the next item; None ends the
+loop. Continue proceeds to the next call; break and return perform normal resource
+cleanup. The next call is an ordinary script call for custom iterators, with the
+same budget, GC roots, trap behavior and pinned code versions as other methods.
+An Iterator automatically implements identity IntoIterator, including under generic
+bounds. It cannot also declare a conflicting IntoIterator implementation.
+Custom iterables return an iterator whose Item agrees with their own Item.
+
+Arrays, Map, Set and String implement IntoIterator using the opaque shared
+`Cursor<Item>` type. Cursor implements Iterator and identity IntoIterator.
+Array/Set items are elements, Map items are `(key, value)` tuples in insertion
+order, and String items are single Unicode scalars represented as String.
+Cursor construction takes a shallow snapshot, preserving existing native for-loop
+semantics: contained objects retain their identity. Copying a Cursor shares its
+position; converting a collection again creates a new position and snapshot.
+A custom iterator owns its state and consistency rules; no automatic clone,
+reset, exact-length or fused-iterator promise is imposed on its implementation.
+
+Native cursors reject structural modification of their source while actively
+iterating. For-loop guards end on exhaustion, break, return or failed execution;
+nested loops retain independent guards. Direct into_iter/next use keeps its guard
+until None or the end of the root execution session. Root-session cleanup also
+runs after trap, cancellation and budget exhaustion, independently of GC timing.
+A rooted Cursor can survive between calls and resume. Resuming after its source
+was structurally changed traps; nonstructural updates preserve the snapshot.
+For loops suspend a native cursor on exit, so the same cursor may resume later
+if the source structure is unchanged. Custom iterators have no implicit native
+source guard: wrappers that acquire native cursors follow the direct-call rules.
+
+Host retention uses the normal rooted-value API. Cursor handles are runtime-owned,
+generation checked, and trace both their source and snapshot. They retain their
+execution version; they are not transferable across runtimes. They provide no
+Eq/Hash, serialization of execution state, or script constructor.
+See [iterators.kgr](../../examples/syntax/iterators.kgr).

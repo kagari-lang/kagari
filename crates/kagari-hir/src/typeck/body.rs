@@ -1,4 +1,5 @@
 mod conversions;
+mod iteration;
 mod operators;
 mod standard;
 
@@ -334,7 +335,7 @@ impl<'a> BodyChecker<'a> {
                 body,
             } => {
                 let iterable_ty = self.infer_expr_type(*iterable, env);
-                let Some(element_ty) = iterable_item_type(&Some(iterable_ty.clone())) else {
+                let Some(element_ty) = self.infer_iteration(*iterable, &iterable_ty, env) else {
                     if !iterable_ty.is_unresolved() {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidForIterable {
@@ -2838,6 +2839,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             if !implemented.is_empty() {
+                self.add_iterator_view(ty, &mut implemented);
                 return implemented;
             }
         }
@@ -2849,7 +2851,7 @@ impl<'a> BodyChecker<'a> {
             .cloned()
             .collect::<Vec<_>>();
         if let TypeId::Projection {
-            receiver: _,
+            receiver,
             interface,
             member,
             arguments,
@@ -2862,6 +2864,7 @@ impl<'a> BodyChecker<'a> {
                 .cloned()
                 .zip(interface.arguments.iter().cloned())
                 .collect();
+            substitution.insert_receiver(interface.declaration.clone(), (**receiver).clone());
             if let Some(inputs) = contract.associated_type_parameters.get(member) {
                 substitution.extend(
                     inputs
@@ -2906,6 +2909,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
+        self.add_iterator_view(ty, &mut expanded);
         expanded
     }
 
@@ -3937,6 +3941,18 @@ impl<'a> BodyChecker<'a> {
             &env.generic_bounds,
         ) {
             let mut interface = requested;
+            if let Some(kind) =
+                crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
+                && kind.iteration()
+                && let Some(outputs) = crate::builtin::traits::iteration_outputs(
+                    kind,
+                    ty,
+                    Some(self.aggregates),
+                    &env.generic_bounds,
+                )
+            {
+                interface.associated_types.extend(outputs);
+            }
             if let Some(output) = crate::builtin::traits::intrinsic_output(&interface, ty) {
                 interface.associated_types.insert(
                     crate::types::associated_type_id(&interface.declaration, "Output"),

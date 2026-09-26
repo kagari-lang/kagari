@@ -844,7 +844,7 @@ fn assert_value_matches_temp_layout(function: &IrFunction, value: IrValue) {
 
 fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
     match instruction {
-        Instruction::StandardEnum { dst, value, .. } => {
+        Instruction::Cursor { dst, value, .. } | Instruction::StandardEnum { dst, value, .. } => {
             std::iter::once(*dst).chain(value.iter().copied()).collect()
         }
         Instruction::LoadConst { dst, .. }

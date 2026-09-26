@@ -65,6 +65,7 @@ impl ValueType {
             TypeId::Builtin(BuiltinType::String) => Self::Str,
             TypeId::Tuple(_)
             | TypeId::Function { .. }
+            | TypeId::Cursor(_)
             | TypeId::Array(_)
             | TypeId::Map { .. }
             | TypeId::Set(_)

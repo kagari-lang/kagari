@@ -33,9 +33,11 @@ pub enum StandardTrait {
     Into,
     TryFrom,
     TryInto,
+    Iterator,
+    IntoIterator,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 21] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -55,6 +57,8 @@ impl StandardTrait {
         Self::Into,
         Self::TryFrom,
         Self::TryInto,
+        Self::Iterator,
+        Self::IntoIterator,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -77,6 +81,8 @@ impl StandardTrait {
             Self::Into => "Into",
             Self::TryFrom => "TryFrom",
             Self::TryInto => "TryInto",
+            Self::Iterator => "Iterator",
+            Self::IntoIterator => "IntoIterator",
         }
     }
     pub fn namespace(self) -> &'static str {
@@ -91,6 +97,7 @@ impl StandardTrait {
             | Self::Not
             | Self::Index => "ops",
             Self::From | Self::Into | Self::TryFrom | Self::TryInto => "convert",
+            Self::Iterator | Self::IntoIterator => "iter",
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -121,6 +128,9 @@ impl StandardTrait {
             .map(TypeId::Generic)
             .collect();
         ty
+    }
+    pub fn iteration(self) -> bool {
+        matches!(self, Self::Iterator | Self::IntoIterator)
     }
     pub fn conversion(self) -> bool {
         matches!(
@@ -185,6 +195,9 @@ fn identity(kind: StandardTrait) -> DefinitionId {
     }
 }
 fn build_contract(kind: StandardTrait) -> TraitSignature {
+    if kind.iteration() {
+        return build_iteration_contract(kind);
+    }
     if kind.conversion() {
         return build_conversion_contract(kind);
     }
@@ -407,6 +420,15 @@ pub fn intrinsic_applies(
     let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
         return false;
     };
+    if kind.iteration() {
+        return iteration_outputs(kind, receiver, catalog, bounds).is_some_and(|outputs| {
+            interface.arguments.is_empty()
+                && interface
+                    .associated_types
+                    .iter()
+                    .all(|(member, ty)| outputs.get(member) == Some(ty))
+        });
+    }
     if kind.conversion() {
         return kind == StandardTrait::From
             && interface.arguments.as_slice() == [receiver.clone()]
@@ -450,6 +472,9 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
+    if protocol.iteration() {
+        return iteration_outputs(protocol, ty, catalog, bounds).is_some();
+    }
     if protocol.conversion() {
         return false;
     }
@@ -688,4 +713,175 @@ pub fn conversion_requirement(
         );
     }
     Some((required, interface.arguments[0].clone()))
+}
+
+fn build_iteration_contract(kind: StandardTrait) -> TraitSignature {
+    static SOURCE: OnceLock<SourceFile> = OnceLock::new();
+    let source = SOURCE.get_or_init(|| SourceFile::new("kagari://std/iteration", ""));
+    let declaration = |id: DefinitionId, name: &str| Declaration {
+        id: DeclarationId::Definition(id),
+        name: name.into(),
+        location: source.span(Span::new(0, 0)).unwrap(),
+    };
+    let id = identity(kind);
+    let project = |name: &str| TypeId::Projection {
+        receiver: Box::new(TypeId::SelfType(id.clone())),
+        interface: Box::new(NominalType {
+            declaration: id.clone(),
+            arguments: vec![],
+            associated_types: Default::default(),
+        }),
+        member: crate::types::associated_type_id(&id, name),
+        arguments: vec![],
+    };
+    let mut associated_types =
+        std::collections::BTreeMap::from([(crate::types::associated_type_id(&id, "Item"), vec![])]);
+    let (name, output) = if kind == StandardTrait::Iterator {
+        (
+            "next",
+            TypeId::StandardEnum {
+                kind: super::surface::StandardEnum::Option,
+                args: vec![project("Item")],
+            },
+        )
+    } else {
+        let iterator_id = identity(StandardTrait::Iterator);
+        let bound = NominalType {
+            declaration: iterator_id.clone(),
+            arguments: vec![],
+            associated_types: [(
+                crate::types::associated_type_id(&iterator_id, "Item"),
+                project("Item"),
+            )]
+            .into_iter()
+            .collect(),
+        };
+        associated_types.insert(
+            crate::types::associated_type_id(&id, "IntoIter"),
+            vec![ConstraintTarget::Trait(bound)],
+        );
+        ("into_iter", project("IntoIter"))
+    };
+    let mut method = id.clone();
+    method.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: name.into(),
+        occurrence: 0,
+    });
+    TraitSignature {
+        declaration: declaration(id.clone(), kind.name()),
+        id: id.clone(),
+        generic_params: vec![],
+        bounds: Default::default(),
+        supertraits: vec![],
+        associated_types,
+        associated_type_parameters: Default::default(),
+        associated_consts: Default::default(),
+        methods: vec![MethodSignature {
+            has_default: false,
+            declaration: declaration(method.clone(), name),
+            id: method,
+            owner: id.clone(),
+            slot: 0,
+            name: name.into(),
+            generic_params: vec![],
+            bounds: Default::default(),
+            params: vec![MethodParameter {
+                name: "self".into(),
+                writeability: Writeability::Val,
+                ty: TypeId::SelfType(id),
+            }],
+            return_type: output,
+        }],
+    }
+}
+
+pub fn iteration_outputs(
+    kind: StandardTrait,
+    receiver: &TypeId,
+    catalog: Option<&AggregateCatalog>,
+    bounds: &GenericBounds,
+) -> Option<std::collections::BTreeMap<DefinitionId, TypeId>> {
+    let native_item = match receiver {
+        TypeId::Cursor(item) => Some((**item).clone()),
+        TypeId::Array(item) | TypeId::Set(item) if kind == StandardTrait::IntoIterator => {
+            Some((**item).clone())
+        }
+        TypeId::Map { key, value } if kind == StandardTrait::IntoIterator => {
+            Some(TypeId::Tuple(vec![(**key).clone(), (**value).clone()]))
+        }
+        TypeId::Builtin(BuiltinType::String) if kind == StandardTrait::IntoIterator => {
+            Some(receiver.clone())
+        }
+        _ => None,
+    };
+    if let Some(item) = native_item {
+        let id = identity(kind);
+        let mut outputs = std::collections::BTreeMap::from([(
+            crate::types::associated_type_id(&id, "Item"),
+            item.clone(),
+        )]);
+        if kind == StandardTrait::IntoIterator {
+            outputs.insert(
+                crate::types::associated_type_id(&id, "IntoIter"),
+                TypeId::Cursor(Box::new(item)),
+            );
+        }
+        return Some(outputs);
+    }
+    if kind != StandardTrait::IntoIterator {
+        return None;
+    }
+    let iterator = StandardTrait::Iterator.nominal();
+    let available = bounds
+        .get(receiver)
+        .into_iter()
+        .flatten()
+        .any(|b| matches!(b,ConstraintTarget::Trait(n) if n.declaration==iterator.declaration))
+        || catalog.is_some_and(|c| {
+            c.concrete_interface_implementation(
+                &iterator,
+                receiver,
+                bounds,
+                4096,
+                64,
+                &Default::default(),
+            )
+            .is_ok_and(|i| i.is_some())
+        });
+    if !available {
+        return None;
+    }
+    let member = crate::types::associated_type_id(&iterator.declaration, "Item");
+    let item = bounds
+        .get(receiver)
+        .into_iter()
+        .flatten()
+        .find_map(|b| match b {
+            ConstraintTarget::Trait(n) if n.declaration == iterator.declaration => {
+                n.associated_types.get(&member).cloned()
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            let projection = TypeId::Projection {
+                receiver: Box::new(receiver.clone()),
+                interface: Box::new(iterator),
+                member,
+                arguments: vec![],
+            };
+            catalog.map_or(projection.clone(), |c| c.normalize_type(&projection))
+        });
+    let id = identity(kind);
+    Some(
+        [
+            (crate::types::associated_type_id(&id, "Item"), item),
+            (
+                crate::types::associated_type_id(&id, "IntoIter"),
+                receiver.clone(),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    )
 }

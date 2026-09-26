@@ -1,0 +1,33 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/iterators.kgr
+// Result: main returns 42.
+struct Counter {
+    var current: i32,
+    val end: i32,
+}
+impl Iterator for Counter {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        if self.current >= self.end { return None; }
+        val value = self.current;
+        self.current += 1;
+        Some(value)
+    }
+}
+struct Range { val start: i32, val end: i32 }
+impl IntoIterator for Range {
+    type Item = i32;
+    type IntoIter = Counter;
+    fn into_iter(self) -> Counter {
+        Counter { current: self.start, end: self.end }
+    }
+}
+fn sum<C: IntoIterator<Item = i32>>(values: C) -> i32 {
+    var total = 0;
+    for value in values { total += value; }
+    total
+}
+fn main() -> i32 {
+    val range = Range { start: 0, end: 7 };
+    val cursor: Cursor<i32> = [20, 1].into_iter();
+    sum(range) + sum(cursor)
+}

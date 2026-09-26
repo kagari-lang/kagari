@@ -29,6 +29,12 @@ pub struct PathRef {
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
+    Cursor {
+        dst: IrValue,
+        value: Option<IrValue>,
+        ty: super::abi::AbiType,
+        op: CursorOp,
+    },
     StandardEnum {
         dst: IrValue,
         value: Option<IrValue>,
@@ -404,6 +410,7 @@ impl Instruction {
                 op: StandardEnumOp::Make(_),
                 ..
             } => EffectSet::allocation(),
+            Self::Cursor { .. } => EffectSet::allocation().union(EffectSet::aggregate_write()),
             Self::StandardEnum { .. } => EffectSet::aggregate_read(),
             Self::ReadAggregateField { .. }
             | Self::ReadCell { .. }
@@ -629,5 +636,46 @@ impl StandardEnumOp {
             Self::Test(_) => Some((Some(ValueType::HeapObject), ValueType::Bool)),
             Self::Read(_) => Some((Some(ValueType::HeapObject), payload?)),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CursorOp {
+    New,
+    Next,
+    Close,
+}
+impl CursorOp {
+    pub fn contract(
+        self,
+        ty: &super::abi::AbiType,
+    ) -> Option<(Option<super::ValueType>, super::ValueType)> {
+        use super::{ValueType, abi::AbiType};
+        if !ty.within_wire_limits()
+            || !super::abi::verify::concrete_type_valid(ty, &Default::default())
+        {
+            return None;
+        }
+        let input = match self {
+            Self::New => match ty {
+                AbiType::Array(_) | AbiType::Map { .. } | AbiType::Set(_) => ValueType::HeapObject,
+                AbiType::Builtin(kagari_hir::types::BuiltinType::String) => ValueType::Str,
+                _ => return None,
+            },
+            Self::Next | Self::Close => {
+                if !matches!(ty, AbiType::Cursor(_)) {
+                    return None;
+                }
+                ValueType::HeapObject
+            }
+        };
+        Some((
+            Some(input),
+            if self == Self::Close {
+                ValueType::Unit
+            } else {
+                ValueType::HeapObject
+            },
+        ))
     }
 }

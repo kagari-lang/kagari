@@ -71,6 +71,34 @@ impl FunctionLowerer<'_, '_> {
         {
             return Ok(args[0]);
         }
+        use crate::module::{abi::AbiType, instruction::CursorOp};
+        let cursor_op = match StandardTrait::from_id(&interface.declaration) {
+            Some(StandardTrait::IntoIterator)
+                if matches!(
+                    ty,
+                    TypeId::Array(_)
+                        | TypeId::Set(_)
+                        | TypeId::Map { .. }
+                        | TypeId::Builtin(kagari_hir::types::BuiltinType::String)
+                ) =>
+            {
+                Some(CursorOp::New)
+            }
+            Some(StandardTrait::Iterator) if matches!(ty, TypeId::Cursor(_)) => {
+                Some(CursorOp::Next)
+            }
+            _ => None,
+        };
+        if let Some(op) = cursor_op {
+            let dst = self.alloc_temp(ValueType::HeapObject);
+            self.emit(Instruction::Cursor {
+                dst,
+                value: Some(args[0]),
+                ty: AbiType::from_checked_type(&ty),
+                op,
+            });
+            return Ok(dst);
+        }
         let contract = self
             .planner
             .catalog
@@ -118,6 +146,9 @@ impl FunctionLowerer<'_, '_> {
                 ))
             }
         } else {
+            if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::IntoIterator) {
+                return Ok(args[0]);
+            }
             if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
                 && protocol.binary_operator()
             {

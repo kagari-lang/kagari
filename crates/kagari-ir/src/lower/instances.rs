@@ -624,6 +624,7 @@ fn instantiate(
             params: params.iter().map(&mut child).collect::<Result<_, _>>()?,
             result: Box::new(child(result)?),
         },
+        TypeId::Cursor(element) => TypeId::Cursor(Box::new(child(element)?)),
         TypeId::Array(element) => TypeId::Array(Box::new(child(element)?)),
         TypeId::Set(element) => TypeId::Set(Box::new(child(element)?)),
         TypeId::Map { key, value } => TypeId::Map {

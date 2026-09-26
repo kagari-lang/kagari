@@ -2,11 +2,8 @@ use kagari_hir::hir;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::{FunctionLowerer, LoopScope};
-use crate::module::instruction::{
-    BinaryOp, CallTarget, Constant, Instruction, IrValue, Terminator,
-};
+use crate::module::instruction::{Instruction, IrValue, Terminator};
 use crate::module::types::ValueType;
-use kagari_hir::builtin::surface::StandardIntrinsic;
 
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_block(
@@ -235,107 +232,109 @@ impl FunctionLowerer<'_, '_> {
         iterable: hir::ExprId,
         body: hir::BlockId,
     ) -> Result<(), IrLoweringError> {
-        let collection = self.lower_expr(iterable)?;
-        if self.current_block_terminated() {
-            return Ok(());
-        }
-        let iterable_ty = self
+        let fact = self
+            .analyzed
+            .typed
+            .type_table
+            .iteration(iterable)
+            .cloned()
+            .ok_or(IrLoweringError::MissingBinding("checked for protocol"))?;
+        self.lower_protocol_for(pattern, iterable, body, fact)
+    }
+}
+
+impl FunctionLowerer<'_, '_> {
+    fn lower_protocol_for(
+        &mut self,
+        pattern: hir::PatternId,
+        iterable: hir::ExprId,
+        body: hir::BlockId,
+        fact: kagari_hir::typeck::ResolvedIteration,
+    ) -> Result<(), IrLoweringError> {
+        use crate::module::instruction::StandardEnumOp;
+        use kagari_hir::builtin::traits::StandardTrait;
+        let receiver = self
             .analyzed
             .typed
             .type_table
             .expr_type(iterable)
             .ok_or(IrLoweringError::MissingExprType(iterable))?;
-        let item_ty = match kagari_hir::builtin::surface::iterable_protocol(&iterable_ty) {
-            Some(kagari_hir::builtin::surface::IterableProtocol::Array { item })
-            | Some(kagari_hir::builtin::surface::IterableProtocol::Set { item }) => item,
-            Some(kagari_hir::builtin::surface::IterableProtocol::Map { key, value }) => {
-                kagari_hir::types::TypeId::Tuple(vec![key, value])
-            }
-            Some(kagari_hir::builtin::surface::IterableProtocol::String { .. }) => {
-                kagari_hir::types::TypeId::Builtin(kagari_hir::types::BuiltinType::String)
-            }
-            None => return Err(IrLoweringError::MissingBinding("checked for iterable")),
-        };
-        let guarded = collection.ty == ValueType::HeapObject;
-        if guarded {
-            self.emit(Instruction::BeginIteration { collection });
+        let source = self.lower_expr(iterable)?;
+        if self.current_block_terminated() {
+            return Ok(());
         }
-        let items = self.alloc_temp(ValueType::HeapObject);
-        self.emit(Instruction::Call {
-            dst: Some(items),
-            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::IterToArray),
-            args: smallvec::smallvec![collection],
-        });
-        let index = self.alloc_temp(ValueType::I64);
-        let zero = self.lower_constant(Constant::I64(0), ValueType::I64);
-        self.emit(Instruction::Move {
-            dst: index,
-            src: zero,
-        });
-        let cond_block = self.new_block();
-        let element_block = self.new_block();
+        let iterator = self.lower_applied_operator(
+            fact.into_interface,
+            receiver,
+            &StandardTrait::IntoIterator.contract().methods[0].id,
+            &[source],
+        )?;
+        let concrete_iterator = self
+            .planner
+            .arguments(
+                &[fact.iterator.clone()],
+                &self.instance.substitution,
+                self.function.debug.source_span,
+            )?
+            .remove(0);
+        let cursor_abi = if matches!(concrete_iterator, kagari_hir::types::TypeId::Cursor(_)) {
+            Some(crate::module::abi::AbiType::from_checked_type(
+                &concrete_iterator,
+            ))
+        } else {
+            None
+        };
+        if cursor_abi.is_some() {
+            self.emit(Instruction::BeginIteration {
+                collection: iterator,
+            });
+        }
+        let next_block = self.new_block();
         let body_block = self.new_block();
-        let step_block = self.new_block();
-        let exit_block = self.new_block();
-        self.ensure_jump(cond_block);
-        self.switch_to_block(cond_block);
-        let len = self.alloc_temp(ValueType::I64);
-        self.emit(Instruction::Call {
-            dst: Some(len),
-            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayLen),
-            args: smallvec::smallvec![items],
-        });
-        let cond = self.alloc_temp(ValueType::Bool);
-        self.emit(Instruction::Binary {
-            dst: cond,
-            op: BinaryOp::Lt,
-            lhs: index,
-            rhs: len,
-        });
+        let exit = self.new_block();
+        self.ensure_jump(next_block);
+        self.switch_to_block(next_block);
+        let value = self.lower_applied_operator(
+            fact.next_interface,
+            fact.iterator,
+            &StandardTrait::Iterator.contract().methods[0].id,
+            &[iterator],
+        )?;
+        let optional = kagari_hir::types::TypeId::StandardEnum {
+            kind: kagari_hir::builtin::surface::StandardEnum::Option,
+            args: vec![fact.item.clone()],
+        };
+        let some = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(value))?;
         self.set_terminator(Terminator::Branch {
-            cond,
-            then_block: element_block,
-            else_block: exit_block,
-        });
-        self.switch_to_block(element_block);
-        let item = self.alloc_temp(self.value_type(&item_ty)?);
-        self.emit(Instruction::ReadAggregateIndex {
-            dst: item,
-            base: items,
-            index,
-        });
-        let mut bindings = Vec::new();
-        self.lower_pattern_decision(pattern, item, &item_ty, exit_block, &mut bindings)?;
-        self.set_terminator(Terminator::Jump(body_block));
-        self.loops.push(LoopScope {
-            break_block: exit_block,
-            continue_block: step_block,
-            break_value: None,
+            cond: some,
+            then_block: body_block,
+            else_block: exit,
         });
         self.switch_to_block(body_block);
+        let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(value))?;
+        let mut bindings = Vec::new();
+        self.lower_pattern_decision(pattern, item, &fact.item, exit, &mut bindings)?;
         for (local, value) in bindings {
             self.emit(Instruction::StoreLocal { local, src: value });
             self.introduce_debug_local(local);
         }
+        self.loops.push(LoopScope {
+            break_block: exit,
+            continue_block: next_block,
+            break_value: None,
+        });
         let _ = self.lower_block(body)?;
-        self.ensure_jump(step_block);
+        self.ensure_jump(next_block);
         self.loops.pop();
-        self.switch_to_block(step_block);
-        let one = self.lower_constant(Constant::I64(1), ValueType::I64);
-        let next = self.alloc_temp(ValueType::I64);
-        self.emit(Instruction::Binary {
-            dst: next,
-            op: BinaryOp::Add,
-            lhs: index,
-            rhs: one,
-        });
-        self.emit(Instruction::Move {
-            dst: index,
-            src: next,
-        });
-        self.set_terminator(Terminator::Jump(cond_block));
-        self.switch_to_block(exit_block);
-        if guarded {
+        self.switch_to_block(exit);
+        if let Some(ty) = cursor_abi {
+            let dst = self.alloc_temp(ValueType::Unit);
+            self.emit(Instruction::Cursor {
+                dst,
+                value: Some(iterator),
+                ty,
+                op: crate::module::instruction::CursorOp::Close,
+            });
             self.emit(Instruction::EndIteration);
         }
         Ok(())

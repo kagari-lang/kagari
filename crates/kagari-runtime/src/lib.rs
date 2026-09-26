@@ -399,6 +399,7 @@ impl Runtime {
             .ok_or_else(|| self.resources.quarantine("execution scope count overflow"))?;
         state.scopes.set(scopes);
         let guard = ExecutionSession {
+            gc: self.gc.clone(),
             state,
             resources: self.resources.clone(),
             modules: self.modules.clone(),
@@ -640,6 +641,25 @@ impl Runtime {
                 retention,
             )
             .map(value::Value::Closure)
+    }
+
+    pub fn cursor_operation(
+        &self,
+        owner: &LoadedModule,
+        value: &value::Value,
+        ty: &kagari_ir::module::abi::AbiType,
+        op: kagari_ir::module::instruction::CursorOp,
+    ) -> Result<value::Value, RuntimeError> {
+        self.validate_loaded_module(owner)?;
+        if op == kagari_ir::module::instruction::CursorOp::New {
+            let retention = self
+                .modules
+                .retain_runtime_program(owner)
+                .ok_or_else(|| RuntimeError::module_validation("iterator version unavailable"))?;
+            self.gc.new_cursor(value, ty, owner, retention)
+        } else {
+            self.gc.advance_cursor(value, ty, op)
+        }
     }
 
     pub fn make_capture_cell(

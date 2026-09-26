@@ -88,6 +88,7 @@ pub fn standard_variant(path: &str) -> Option<StandardVariant> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardTypeConstructor {
+    Cursor,
     Option,
     Result,
     Map,
@@ -454,6 +455,13 @@ const STANDARD_ENUMS: &[StandardEnumSpec] = &[
 ];
 
 const STANDARD_TYPE_CONSTRUCTORS: &[StandardTypeConstructorSpec] = &[
+    StandardTypeConstructorSpec {
+        kind: StandardTypeConstructor::Cursor,
+        name: "Cursor",
+        arity: 1,
+        heap_backed: true,
+        const_safe: false,
+    },
     StandardTypeConstructorSpec {
         kind: StandardTypeConstructor::Option,
         name: "Option",
@@ -901,6 +909,10 @@ pub fn standard_generic_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {
                 key: Box::new(key),
                 value: Box::new(value),
             })
+        }
+        StandardTypeConstructor::Cursor => {
+            let [item] = args.try_into().ok()?;
+            Some(TypeId::Cursor(Box::new(item)))
         }
         StandardTypeConstructor::Set => {
             let [item] = args.try_into().ok()?;

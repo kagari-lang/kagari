@@ -792,7 +792,8 @@ See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which retu
 ## Standard protocol identities
 
 The standard PartialEq, Eq, Hash, Debug, Display, PartialOrd, Ord, Add, Sub, Mul,
-Div, Rem, Neg, Not and Index contracts are described in
+Div, Rem, Neg, Not, Index, From, Into, TryFrom, TryInto, Iterator and IntoIterator
+contracts are described in
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;
 user definitions named Eq or Debug do not gain intrinsic behavior. Script Structs
@@ -811,5 +812,5 @@ when loading portable implementation metadata.
 Standard protocols and their subtraits currently cannot be erased into interface
 values. Ordinary user trait interfaces retain their existing dynamic behavior.
 Clone, writable indexing, compound-assignment overrides, generic propagation,
-Error context and Iterator protocols are later
+and Error context are later
 extensions over this shared identity and bound infrastructure.

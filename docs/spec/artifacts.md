@@ -41,13 +41,17 @@ KbcArtifact {
 }
 ```
 
-Format version 57 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 59 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 56 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 58 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 59 and runtime ABI v59 add iteration contracts, Cursor ABI types and
+verified native cursor instructions. Script iterators use ordinary linked calls.
+Prior products are rejected; KHI remains v11.
 
 Version 58 and runtime ABI v58 register explicit conversion contracts, derived
 reverse conversion proofs and static associated conversion calls. Prior products

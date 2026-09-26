@@ -58,8 +58,9 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("key lookup registry"))?;
         active.insert(id, count);
         Ok(CollectionIteration {
+            cursor_loops: None,
             active: self.key_lookups.clone(),
-            id,
+            id: Some(id),
             _root: root,
         })
     }

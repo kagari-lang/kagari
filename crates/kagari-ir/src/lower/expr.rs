@@ -1360,7 +1360,7 @@ impl FunctionLowerer<'_, '_> {
 
         if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
             && kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
-                .is_some_and(|kind| kind.operator())
+                .is_some_and(|kind| kind.operator() || kind.iteration())
         {
             let receiver = call
                 .receiver

@@ -636,6 +636,7 @@ fn instantiate_method_type(
             params: params.iter().map(child).collect::<Option<_>>()?,
             result: Box::new(child(result)?),
         },
+        AbiType::Cursor(element) => AbiType::Cursor(Box::new(child(element)?)),
         AbiType::Array(element) => AbiType::Array(Box::new(child(element)?)),
         AbiType::Set(element) => AbiType::Set(Box::new(child(element)?)),
         AbiType::Map { key, value } => AbiType::Map {
@@ -989,6 +990,21 @@ fn verify_instruction(
                 table.for_type.representation(),
                 "interface receiver",
             )?;
+        }
+        BytecodeInstruction::Cursor { dst, value, ty, op } => {
+            let invalid = || BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "invalid cursor contract",
+            };
+            let (input, output) = op.contract(ty).ok_or_else(invalid)?;
+            match (input, value) {
+                (Some(ty), Some(value)) => {
+                    expect_register_ty(function, *value, ty, "cursor input")?
+                }
+                (None, None) => {}
+                _ => return Err(invalid()),
+            }
+            expect_register_ty(function, *dst, output, "cursor result")?;
         }
         BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
             let invalid = || BytecodeVerificationError::InvalidOperation {

@@ -452,7 +452,7 @@ fn successors(terminator: &Terminator) -> smallvec::SmallVec<[BlockId; 2]> {
 fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
     use Instruction::*;
     match instruction {
-        StandardEnum { value, .. } => value.iter().copied().collect(),
+        Cursor { value, .. } | StandardEnum { value, .. } => value.iter().copied().collect(),
         LoadConst { .. } | LoadLocal { .. } | LoadModule { .. } => smallvec::smallvec![],
         StoreLocal { src, .. } | StoreModule { src, .. } | Move { src, .. } => {
             smallvec::smallvec![*src]
@@ -540,6 +540,7 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | MakeCell { dst, .. }
         | ReadCell { dst, .. }
         | MakeStruct { dst, .. }
+        | Cursor { dst, .. }
         | StandardEnum { dst, .. }
         | MakeEnum { dst, .. }
         | MakeInterface { dst, .. }

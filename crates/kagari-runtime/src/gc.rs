@@ -7,6 +7,7 @@ use std::{
 };
 
 use indexmap::IndexMap;
+mod cursor;
 mod custom_keys;
 
 use crate::error::{RuntimeError, RuntimeErrorKind};
@@ -131,6 +132,7 @@ pub struct GcCollection {
 
 #[derive(Debug)]
 struct ObjectSlot {
+    revision: u64,
     generation: u64,
     initialization_owner: Option<crate::ModuleKey>,
     object: Option<HeapObject>,
@@ -138,6 +140,7 @@ struct ObjectSlot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcObjectKind {
+    Cursor,
     Array,
     Map,
     Set,
@@ -157,6 +160,7 @@ pub struct ClosureValueSnapshot {
 
 #[derive(Debug)]
 enum HeapObject {
+    Cursor(Box<cursor::NativeCursor>),
     Array(Vec<Value>),
     Map(IndexMap<MapKey, Value>),
     Set(IndexMap<MapKey, ()>),
@@ -182,6 +186,7 @@ enum HeapObject {
 impl HeapObject {
     fn units(&self) -> usize {
         1 + match self {
+            Self::Cursor(cursor) => 1 + cursor.items.len(),
             Self::Array(values) => values.len(),
             Self::Map(values) => values.len(),
             Self::Set(values) => values.len(),
@@ -198,17 +203,24 @@ impl HeapObject {
 #[must_use = "retain the guard until iteration finishes"]
 #[derive(Debug)]
 pub struct CollectionIteration {
+    cursor_loops: Option<Rc<Cell<usize>>>,
     active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
-    id: HeapObjectId,
+    id: Option<HeapObjectId>,
     _root: RootedValue,
 }
 impl Drop for CollectionIteration {
     fn drop(&mut self) {
+        if let Some(loops) = &self.cursor_loops {
+            loops.set(loops.get() - 1);
+        }
+        let Some(id) = self.id else {
+            return;
+        };
         let mut active = self.active.borrow_mut();
-        let count = active.get_mut(&self.id).expect("registered iteration");
+        let count = active.get_mut(&id).expect("registered iteration");
         *count -= 1;
         if *count == 0 {
-            active.remove(&self.id);
+            active.remove(&id);
         }
     }
 }
@@ -412,6 +424,10 @@ impl GcHeap {
                 (Value::Interface(id), AbiType::Trait(expected)) => {
                     if !self.interface_snapshot(id).is_some_and(|value| value.interface_type == *expected) { return false; }
                 },
+                (Value::GcHandle(id), AbiType::Cursor(element)) => {
+                    let objects=self.objects.borrow();
+                    if !matches!(self.readable_object(&objects,id),Some(HeapObject::Cursor(cursor)) if cursor.item_type == **element) {return false;}
+                },
                 (Value::Array(id), AbiType::Array(element)) => {
                     let Some(values) = self.array_snapshot(id) else { return false; };
                     pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
@@ -448,6 +464,45 @@ impl GcHeap {
         value: &Value,
     ) -> Result<CollectionIteration, RuntimeError> {
         self.ensure_execution_allowed()?;
+        if let Value::GcHandle(id) = value {
+            let source = {
+                let objects = self.objects.borrow();
+                match self.readable_object(&objects, *id) {
+                    Some(HeapObject::Cursor(cursor)) => cursor.source.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            RuntimeErrorKind::ScriptTrap,
+                            "invalid cursor",
+                        ));
+                    }
+                }
+            };
+            let mut guard = self.begin_collection_iteration(&source)?;
+            let mut objects = self.objects.borrow_mut();
+            let Some(HeapObject::Cursor(cursor)) = self.object_mut(&mut objects, *id) else {
+                return Err(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "invalid cursor",
+                ));
+            };
+            let count = cursor
+                .loops
+                .get()
+                .checked_add(1)
+                .ok_or_else(|| self.resource_limit("iterator loop depth"))?;
+            cursor.loops.set(count);
+            guard.cursor_loops = Some(cursor.loops.clone());
+            cursor.guard = None;
+            return Ok(guard);
+        }
+        if matches!(value, Value::Str(_)) {
+            return Ok(CollectionIteration {
+                cursor_loops: None,
+                active: self.iterations.clone(),
+                id: None,
+                _root: self.root_value(value.clone()).expect("string root"),
+            });
+        }
         let id = match value {
             Value::Array(id) | Value::Map(id) | Value::Set(id) => *id,
             _ => {
@@ -483,8 +538,9 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("iteration registry"))?;
         active.insert(id, count);
         Ok(CollectionIteration {
+            cursor_loops: None,
             active: self.iterations.clone(),
-            id,
+            id: Some(id),
             _root: root,
         })
     }
@@ -891,6 +947,7 @@ impl GcHeap {
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
+            HeapObject::Cursor(_) => Some(GcObjectKind::Cursor),
             HeapObject::Array(_) => Some(GcObjectKind::Array),
             HeapObject::Map(_) => Some(GcObjectKind::Map),
             HeapObject::Set(_) => Some(GcObjectKind::Set),
@@ -1223,6 +1280,7 @@ impl GcHeap {
             .map(|session| session.root.program_root().key());
         let mut objects = self.objects.borrow_mut();
         let slot = if let Some(index) = self.free.borrow_mut().pop() {
+            objects[index].revision = 0;
             objects[index].object = Some(object);
             objects[index].initialization_owner = initialization_owner;
             index
@@ -1232,6 +1290,7 @@ impl GcHeap {
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
             let index = objects.len();
             objects.push(ObjectSlot {
+                revision: 0,
                 generation: 0,
                 initialization_owner,
                 object: Some(object),
@@ -1343,6 +1402,10 @@ impl GcHeap {
             }
             traced.push(id);
             match object {
+                HeapObject::Cursor(cursor) => {
+                    pending.push(&cursor.source);
+                    pending.extend(cursor.items.iter().rev());
+                }
                 HeapObject::Array(elements) => pending.extend(elements.iter().rev()),
                 HeapObject::Map(entries) => {
                     for (key, value) in entries.iter().rev() {
@@ -1371,7 +1434,8 @@ impl GcHeap {
             HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 
@@ -1381,13 +1445,22 @@ impl GcHeap {
         f: impl FnOnce(&mut Vec<Value>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
+        let revision = objects.get(id.slot)?.revision.checked_add(1)?;
         match self.object_mut(&mut objects, id)? {
-            HeapObject::Array(elements) => Some(f(elements)),
+            HeapObject::Array(elements) => {
+                let old_len = elements.len();
+                let result = f(elements);
+                if elements.len() != old_len {
+                    objects[id.slot].revision = revision;
+                }
+                Some(result)
+            }
             HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
             HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 
@@ -1405,7 +1478,8 @@ impl GcHeap {
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 
@@ -1415,15 +1489,24 @@ impl GcHeap {
         f: impl FnOnce(&mut IndexMap<MapKey, Value>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
+        let revision = objects.get(id.slot)?.revision.checked_add(1)?;
         match self.object_mut(&mut objects, id)? {
-            HeapObject::Map(entries) => Some(f(entries)),
+            HeapObject::Map(entries) => {
+                let old_len = entries.len();
+                let result = f(entries);
+                if entries.len() != old_len {
+                    objects[id.slot].revision = revision;
+                }
+                Some(result)
+            }
             HeapObject::Array(_)
             | HeapObject::Set(_)
             | HeapObject::Enum(_)
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 
@@ -1441,7 +1524,8 @@ impl GcHeap {
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 
@@ -1451,15 +1535,24 @@ impl GcHeap {
         f: impl FnOnce(&mut IndexMap<MapKey, ()>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
+        let revision = objects.get(id.slot)?.revision.checked_add(1)?;
         match self.object_mut(&mut objects, id)? {
-            HeapObject::Set(values) => Some(f(values)),
+            HeapObject::Set(values) => {
+                let old_len = values.len();
+                let result = f(values);
+                if values.len() != old_len {
+                    objects[id.slot].revision = revision;
+                }
+                Some(result)
+            }
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Enum(_)
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 
@@ -1473,7 +1566,8 @@ impl GcHeap {
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 
@@ -1491,7 +1585,8 @@ impl GcHeap {
             | HeapObject::Enum(_)
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 
@@ -1509,7 +1604,8 @@ impl GcHeap {
             | HeapObject::Enum(_)
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
+            | HeapObject::Cell { .. }
+            | HeapObject::Cursor(_) => None,
         }
     }
 }

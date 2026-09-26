@@ -188,6 +188,7 @@ pub enum AbiType {
         params: Vec<AbiType>,
         result: Box<AbiType>,
     },
+    Cursor(Box<AbiType>),
     Array(Box<AbiType>),
     Map {
         key: Box<AbiType>,
@@ -231,6 +232,7 @@ impl AbiType {
                 params: params.iter().map(Self::to_checked_type).collect(),
                 result: Box::new(result.to_checked_type()),
             },
+            Self::Cursor(ty) => TypeId::Cursor(Box::new(ty.to_checked_type())),
             Self::Array(ty) => TypeId::Array(Box::new(ty.to_checked_type())),
             Self::Map { key, value } => TypeId::Map {
                 key: Box::new(key.to_checked_type()),
@@ -309,6 +311,7 @@ impl AbiType {
                 params: params.iter().map(Self::from_checked_type).collect(),
                 result: Box::new(Self::from_checked_type(result)),
             },
+            TypeId::Cursor(element) => Self::Cursor(Box::new(Self::from_checked_type(element))),
             TypeId::Array(element) => Self::Array(Box::new(Self::from_checked_type(element))),
             TypeId::Map { key, value } => Self::Map {
                 key: Box::new(Self::from_checked_type(key)),
@@ -347,7 +350,7 @@ impl AbiType {
                     pending.extend(params);
                     pending.push(result);
                 }
-                Self::Array(ty) | Self::Set(ty) => pending.push(ty),
+                Self::Array(ty) | Self::Set(ty) | Self::Cursor(ty) => pending.push(ty),
                 Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
@@ -400,6 +403,7 @@ impl AbiType {
                     .collect::<Option<_>>()?,
                 result: Box::new(result.instantiate(owner, arguments)?),
             },
+            Self::Cursor(ty) => Self::Cursor(Box::new(ty.instantiate(owner, arguments)?)),
             Self::Array(ty) => Self::Array(Box::new(ty.instantiate(owner, arguments)?)),
             Self::Set(ty) => Self::Set(Box::new(ty.instantiate(owner, arguments)?)),
             Self::Map { key, value } => Self::Map {
