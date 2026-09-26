@@ -19,6 +19,10 @@ An interface may retain a checked durable host root as its concrete payload;
 this does not make host borrow tokens or path views valid heap payloads. See the
 [host interface contract](traits.md#host-associated-outputs-and-interfaces).
 
+The current implementation uses the equality rules below. The accepted extension
+in [Equality and hashing](#equality-and-hashing) defines custom comparison and
+identity operators; those features are not implemented yet.
+
 Equality compares scalars and strings by value, tuples by corresponding members,
 and enums by nominal type, variant, and corresponding members. Mutable objects
 compare by identity. Interface values and host handles/path views do not support
@@ -50,6 +54,97 @@ Negating that value again traps. Float literal conversion must produce a finite
 f32; runtime floating-point operations retain their IEEE behavior. Invalid
 literal ranges are diagnosed during analysis, including in const initializers
 and match patterns. A literal pattern must have the scrutinee's type.
+
+## Equality and hashing
+
+Status: accepted target contract, pending implementation. The current compiler
+still seals PartialEq/Eq/Hash and does not support `===` or `!==`. Examples in
+this section describe the target behavior, not runnable coverage. Other current
+implementation descriptions above remain accurate until this extension lands.
+
+### Operators and defaults
+
+`==` calls the type's PartialEq comparison; `!=` negates that result. Eq extends
+PartialEq without adding a method: it promises an equivalence relation, including
+reflexivity, symmetry and transitivity. Eq does not mean field equality or
+immutability. `.eq()` and generic comparisons use the same implementation as `==`.
+
+`===` and `!==` compare object identity and cannot be overridden. They apply to
+Struct, Array, Map and Set, using stable runtime-owned identity rather than a
+physical address. Scalar, String, Tuple and enum values do not acquire identity
+operators merely because their implementation allocates storage. Interface and
+host identity comparisons are outside this extension.
+
+An ordinary Struct with no explicit equality/hash implementations receives
+identity-based PartialEq, Eq and Hash. Both `==` and `===` are therefore available
+and agree by default. Custom implementations do not change assignment, aliasing,
+GC ownership or shallow-copy behavior.
+
+| Explicit Struct implementations | `==` / `.eq()` | `===` | Hash and key eligibility |
+| --- | --- | --- | --- |
+| None | Identity | Identity | Identity Hash; satisfies Eq + Hash |
+| PartialEq only | Custom comparison | Identity | No implicit Eq or Hash; not a key |
+| PartialEq and Eq | Custom comparison | Identity | No implicit Hash; not a key |
+| PartialEq, Eq and Hash | Custom comparison | Identity | Custom Hash; satisfies Eq + Hash |
+
+An explicit PartialEq replaces the default comparison and removes the implicit
+Eq and Hash implementations. Eq must then be declared explicitly and Hash must
+be implemented explicitly when needed. Hash-only overrides retaining default
+identity comparison are rejected; custom key protocols use the complete
+PartialEq/Eq/Hash set. Comparison alone does not require a Hash implementation.
+
+This override policy concerns user Structs. Builtin Array, Map and Set retain
+identity semantics; scalar and String comparisons retain value semantics.
+Tuple, enum, Option and Result compose their members' applicable protocols,
+including custom Struct comparisons, and qualify for Eq/Hash only when all
+members qualify. Float retains IEEE PartialEq without Eq or Hash. This extension
+does not open custom enum or host equality implementations.
+
+### Hash containers and user obligations
+
+Map keys and Set elements continue to require `Eq + Hash`, including in generic
+code. A Map's values do not need those bounds. Lookup hashes the key, then uses
+the same equality implementation as `==` to distinguish candidate keys.
+
+Users implementing these protocols must ensure:
+
+- Equal values have equal hashes: `a == b` implies `a.hash() == b.hash()`.
+  The converse is not required; hash collisions are valid.
+- Eq comparison is an equivalence relation. Comparison and hashing are
+  consistent while the state they depend on is unchanged.
+- While a key belongs to a container, the state determining its equality and
+  hash remains stable, including state reached through aliases or external
+  dependencies. Unrelated fields may still change.
+- Comparison/hash callbacks do not mutate the participating key state or the
+  container currently performing the operation.
+
+The language does not prove these semantic properties, freeze keys, deep-copy
+keys, observe all mutations or automatically reindex containers. Violations are
+user logic errors: lookups/removals may miss entries and logical duplicates may
+appear. They must not compromise memory safety, GC or runtime integrity. No
+guarantee is made that every violation is detected or produces a diagnostic.
+Dangerous mutation reentry into the active container must be rejected with a
+trap; this is an engine integrity check, not general key-stability enforcement.
+
+To change equality-relevant state, remove the key from every affected container
+before changing it, then reinsert it. This also applies to composite keys that
+refer to that object. Hash codes are runtime lookup aids, not unique IDs,
+cryptographic hashes or persistent fingerprints.
+
+For example, a default `User { var id: i32 }` compares and hashes by identity:
+changing `id` does not affect membership and a different User with the same id
+is a different key. With custom equality and hashing based on `id`, separately
+allocated Users with the same id are equal keys; changing id while stored
+violates the container contract. In either case `===` distinguishes the objects.
+
+### Callback failure boundary
+
+Custom equality/hash calls execute before the container commits its modification.
+A failed callback does not commit the pending insertion, update or removal.
+Earlier callback effects elsewhere are not rolled back. Execution must preserve
+GC roots and release guards on failure; no mutable storage borrow may span
+arbitrary script callbacks. These are implementation requirements, separate from
+the user's responsibility for valid equality and stable keys.
 
 ## Evaluation and assignment
 

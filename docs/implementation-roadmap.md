@@ -82,3 +82,11 @@ and GC tracing of keys. See [contracts](spec/builtins.md) and
 runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing,
 Iterator/ordering, generalized propagation and Error origin/stack modeling remain
 separate later checkpoints.
+
+Accepted, not implemented: [custom Struct equality and hashing](spec/value-semantics.md#equality-and-hashing).
+Retain default identity PartialEq/Eq/Hash, add non-overridable `===`/`!==`, allow
+explicit comparison and matching hash implementations, and keep container bounds
+as Eq + Hash. Key stability is a documented user obligation, not a freeze or
+automatic reindexing mechanism. Implementation must cover override eligibility,
+composite keys, callback execution/GC/failure/reentry boundaries and consistent
+source, artifact and JIT behavior before marking this extension complete.

@@ -110,6 +110,11 @@ The compiler, IR, bytecode verifier, runtime, GC, reload validation, reflection 
 `Map` and `Set` are deterministic insertion-ordered collections.
 The Rust runtime implementation should use `indexmap` for their backing storage unless a future implementation proves an equivalent deterministic order, hash behavior, and performance profile.
 
+The following describes the current implementation. The accepted
+[equality and hashing extension](value-semantics.md#equality-and-hashing) defines
+custom Struct implementations, identity operators and user obligations for
+mutable keys; it is pending implementation.
+
 Map and Set keys require the canonical standard `Eq + Hash` protocols:
 
 - unit, bool, integers and String use value equality and hashing;
@@ -139,7 +144,7 @@ trait Display { fn display(self) -> String; }
 ```
 
 These signatures illustrate the canonical contracts; redeclaring them creates
-new traits. The equality and hashing protocols are sealed to preserve the
+new traits. The equality and hashing protocols are currently sealed to preserve the
 [value contract](value-semantics.md). Floats implement PartialEq, but not Eq or
 Hash. Hash values are runtime hash codes, not persistent fingerprints, and have
 no cross-version or cross-runtime stability promise. Equal keys in one runtime

@@ -795,7 +795,11 @@ The standard PartialEq, Eq, Hash, Debug and Display contracts are described in
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;
 user definitions named Eq or Debug do not gain intrinsic behavior. Equality and
-hashing cannot be overridden. Formatting impls for nominal types are checked,
+hashing currently cannot be overridden. The accepted
+[equality and hashing extension](value-semantics.md#equality-and-hashing) specifies
+default identity implementations, explicit Struct overrides and the user-owned
+hash-key stability contract; implementation is pending.
+Formatting impls for nominal types are checked,
 specialized and called through the existing trait implementation path.
 Standard protocols and their subtraits currently cannot be erased into interface
 values. Ordinary user trait interfaces retain their existing dynamic behavior.
