@@ -487,7 +487,14 @@ pub(crate) fn check_bodies_controlled(
             if cancel.check().is_err() {
                 break;
             }
-            if matches!(function.kind, FunctionKind::TraitMethod) {
+            if matches!(function.kind, FunctionKind::TraitMethod)
+                && !lowered
+                    .module
+                    .traits
+                    .iter()
+                    .flat_map(|item| &item.methods)
+                    .any(|method| method.function == function.id && method.has_default)
+            {
                 continue;
             }
             if !selection.includes(function.id) {
@@ -504,6 +511,36 @@ pub(crate) fn check_bodies_controlled(
                 env.generic_bounds = aggregates
                     .expanded_bounds(&typed_function.bounds, cancel)
                     .unwrap_or_else(|_| typed_function.bounds.clone());
+                if let Some(contract) = lowered
+                    .module
+                    .traits
+                    .iter()
+                    .find(|item| {
+                        item.methods
+                            .iter()
+                            .any(|method| method.function == function.id)
+                    })
+                    .and_then(|item| declarations.definition(ResolvedName::Trait(item.id)))
+                    .and_then(|id| aggregates.trait_(id))
+                {
+                    let receiver = TypeId::SelfType(contract.id.clone());
+                    let applied = crate::types::NominalType {
+                        declaration: contract.id.clone(),
+                        arguments: contract
+                            .generic_params
+                            .iter()
+                            .cloned()
+                            .map(TypeId::Generic)
+                            .collect(),
+                        associated_types: Default::default(),
+                    };
+                    if let Ok(parents) = aggregates.trait_closure(&applied, &receiver, cancel) {
+                        env.generic_bounds
+                            .entry(receiver)
+                            .or_default()
+                            .extend(parents.into_iter().map(super::ConstraintTarget::Trait));
+                    }
+                }
                 for param in &typed_function.params {
                     env.params.insert(param.id, param.ty.clone());
                 }
@@ -1165,6 +1202,9 @@ fn validate_impl_methods(
             .iter()
             .find(|method| method.name == trait_method.name)
         else {
+            if trait_method.has_default {
+                continue;
+            }
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
                     trait_name: trait_def.name.clone(),

@@ -404,6 +404,11 @@ fn lower_function(
             &instructions,
             &instruction_spans,
             &instruction_scopes,
+            function
+                .debug
+                .source_module
+                .as_ref()
+                .map(|owner| context.owner_ref(owner)),
         ),
     };
 
@@ -515,6 +520,7 @@ fn collect_debug_metadata(
     instructions: &[BytecodeInstruction],
     instruction_spans: &[Span],
     instruction_scopes: &[usize],
+    source_module: Option<super::ModuleRef>,
 ) -> BytecodeDebugMetadata {
     let source_spans = instruction_spans
         .iter()
@@ -600,6 +606,7 @@ fn collect_debug_metadata(
         .collect();
 
     BytecodeDebugMetadata {
+        source_module,
         function_span: function.debug.source_span,
         source_spans,
         line_table,

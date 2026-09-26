@@ -1,7 +1,5 @@
 use kagari_common::Span;
-use kagari_ir::bytecode::{
-    BytecodeFunction, BytecodeModule, DebugPointId, FunctionRef, LocalSlot, SafeDebugPoint,
-};
+use kagari_ir::bytecode::{BytecodeFunction, DebugPointId, FunctionRef, LocalSlot, SafeDebugPoint};
 use kagari_runtime::{
     DebugVisibilityPolicy, ModuleId, Runtime, RuntimeError, SecurityContext, value::Value,
 };
@@ -118,6 +116,7 @@ pub struct DebugFrame {
     pub function_name: String,
     pub instruction_offset: usize,
     pub source_span: Span,
+    pub source_uri: String,
     pub bindings: Vec<DebugBinding>,
 }
 
@@ -246,12 +245,13 @@ impl DebugSession {
 
     pub(crate) fn resolve_module(
         &mut self,
-        module_id: ModuleId,
-        module_name: &str,
-        epoch: u64,
-        module: &BytecodeModule,
+        member: &kagari_runtime::module::LoadedModule,
         runtime: &Runtime,
     ) -> Result<(), VmError> {
+        let module_id = member.id;
+        let module_name = &member.name;
+        let epoch = member.epoch.0;
+        let module = &member.bytecode;
         self.resolved
             .retain(|resolved| resolved.module_id != module_id || resolved.epoch != epoch);
         if self.breakpoints.is_empty() {
@@ -264,9 +264,18 @@ impl DebugSession {
             .validate_debug_breakpoint_boundary()
             .map_err(VmError::RuntimeError)?;
         for function in &module.functions {
+            let origin = function
+                .metadata
+                .debug
+                .source_module
+                .and_then(|slot| member.member(slot));
+            let source_name = origin.as_ref().map_or(module_name, |origin| &origin.name);
+            if runtime.validate_debug_module_visible(source_name).is_err() {
+                continue;
+            }
             for point in &function.metadata.debug.safe_debug_points {
                 for breakpoint in &self.breakpoints {
-                    if breakpoint.breakpoint.source_uri == module_name
+                    if breakpoint.breakpoint.source_uri == *source_name
                         && breakpoint_matches(function, &breakpoint.breakpoint, point)
                     {
                         self.resolved.push(ResolvedBreakpoint {
@@ -410,6 +419,20 @@ impl DebugSession {
         self.next_frame_id += 1;
         let instruction_offset = frame.instruction_offset();
         let source_span = source_span_for(frame.function(), instruction_offset);
+        let member = frame.loaded();
+        let origin = frame
+            .function()
+            .metadata
+            .debug
+            .source_module
+            .and_then(|slot| member.member(slot));
+        let source_uri = origin
+            .as_ref()
+            .map_or(&member.name, |origin| &origin.name)
+            .clone();
+        runtime
+            .validate_debug_module_visible(&source_uri)
+            .map_err(VmError::RuntimeError)?;
         let bindings = frame
             .function()
             .metadata
@@ -445,6 +468,7 @@ impl DebugSession {
             function_name: frame.function().name.clone(),
             instruction_offset,
             source_span,
+            source_uri,
             bindings,
         })
     }

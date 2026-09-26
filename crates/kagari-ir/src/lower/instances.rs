@@ -35,6 +35,7 @@ impl Default for IrLoweringOptions {
 
 #[derive(Debug, Clone)]
 pub(super) struct Instance {
+    pub origin: kagari_common::identity::ModuleIdentity,
     pub id: InstanceId,
     pub function: hir::FunctionId,
     pub key: FunctionInstance,
@@ -44,6 +45,8 @@ pub(super) struct Instance {
 
 pub(super) struct InstancePlanner<'a> {
     module: &'a AnalyzedModule,
+    pub catalog: &'a kagari_hir::aggregates::AggregateCatalog,
+    modules: HashMap<kagari_common::identity::ModuleIdentity, &'a AnalyzedModule>,
     pub options: &'a IrLoweringOptions,
     pub instances: Vec<Instance>,
     pub layout_roots: Vec<(TypeId, Span)>,
@@ -63,8 +66,17 @@ pub(super) struct InstancePlanner<'a> {
 }
 
 impl<'a> InstancePlanner<'a> {
-    pub fn new(module: &'a AnalyzedModule, options: &'a IrLoweringOptions) -> Self {
+    pub fn new(
+        module: &'a AnalyzedModule,
+        options: &'a IrLoweringOptions,
+        modules: &'a [kagari_hir::CheckedAnalysis],
+    ) -> Self {
         Self {
+            catalog: &module.aggregates,
+            modules: modules
+                .iter()
+                .map(|module| (module.lowered.source.module_identity().clone(), &**module))
+                .collect(),
             module,
             options,
             instances: Vec::new(),
@@ -78,6 +90,99 @@ impl<'a> InstancePlanner<'a> {
             instruction_count: 0,
             failure: None,
         }
+    }
+
+    pub fn origin(&self, instance: &Instance) -> &'a AnalyzedModule {
+        self.modules[&instance.origin]
+    }
+    pub fn owner(&self) -> &'a AnalyzedModule {
+        self.module
+    }
+
+    pub fn enqueue_declaration(
+        &mut self,
+        declaration: &kagari_common::identity::DefinitionId,
+        arguments: Vec<TypeId>,
+        span: Span,
+    ) -> Result<InstanceId, IrLoweringError> {
+        if let Some(ResolvedName::Function(function)) =
+            self.module.declarations.definition_target(declaration)
+        {
+            return self.enqueue(function, arguments, span);
+        }
+        let (implementation, method) =
+            self.catalog
+                .default_method(declaration)
+                .ok_or(IrLoweringError::MissingBinding(
+                    "default method declaration",
+                ))?;
+        let contract = self
+            .catalog
+            .trait_(&method.owner)
+            .ok_or(IrLoweringError::MissingBinding("default trait contract"))?;
+        let count = implementation.generic_params.len();
+        let method_params = &method.generic_params[contract.generic_params.len()..];
+        if arguments.len() != count + method_params.len()
+            || arguments.iter().any(|ty| !ty.is_concrete())
+        {
+            return Err(IrLoweringError::MissingBinding("default method arguments"));
+        }
+        let key = FunctionInstance {
+            declaration: declaration.clone(),
+            arguments,
+        };
+        if let Some(id) = self.keys.get(&key) {
+            return Ok(*id);
+        }
+        let impl_substitution = implementation
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(key.arguments[..count].iter().cloned())
+            .collect();
+        let receiver = implementation.for_type.instantiate(&impl_substitution);
+        let applied = implementation.trait_type.instantiate(&impl_substitution);
+        let mut substitution: TypeSubstitution = contract
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(applied.arguments)
+            .chain(
+                method_params
+                    .iter()
+                    .cloned()
+                    .zip(key.arguments[count..].iter().cloned()),
+            )
+            .collect();
+        substitution.insert_receiver(contract.id.clone(), receiver);
+        let origin = self
+            .modules
+            .get(&method.id.module)
+            .ok_or(IrLoweringError::MissingBinding(
+                "default body source module",
+            ))?;
+        let Some(ResolvedName::Function(function)) =
+            origin.declarations.definition_target(&method.id)
+        else {
+            return Err(IrLoweringError::MissingBinding(
+                "default body source function",
+            ));
+        };
+        let origin = method.id.module.clone();
+        if !key.arguments.is_empty() {
+            self.charge_layout_instance(span)?;
+        }
+        let id = InstanceId::new(self.instances.len());
+        self.keys.insert(key.clone(), id);
+        self.instances.push(Instance {
+            origin,
+            id,
+            function,
+            key,
+            substitution,
+            closure: None,
+        });
+        Ok(id)
     }
 
     pub fn check(&self) -> Result<(), IrLoweringError> {
@@ -209,22 +314,14 @@ impl<'a> InstancePlanner<'a> {
                 ))?;
             self.record_interface(&declaration, &arguments, span)?;
             if declaration.module == *self.module.lowered.source.module_identity() {
-                let methods = self
+                let signature = self
                     .module
                     .aggregates
                     .implementation_signature(&declaration)
-                    .ok_or(IrLoweringError::MissingBinding("parent interface contract"))?
-                    .methods
-                    .values()
-                    .cloned()
-                    .collect::<Vec<_>>();
+                    .ok_or(IrLoweringError::MissingBinding("parent interface contract"))?;
+                let methods = self.catalog.implementation_methods(signature);
                 for method in methods {
-                    let Some(ResolvedName::Function(function)) =
-                        self.module.declarations.definition_target(&method)
-                    else {
-                        return Err(IrLoweringError::MissingBinding("parent interface method"));
-                    };
-                    self.enqueue(function, arguments.clone(), span)?;
+                    self.enqueue_declaration(&method, arguments.clone(), span)?;
                 }
             }
         }
@@ -307,6 +404,7 @@ impl<'a> InstancePlanner<'a> {
             .collect();
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            origin: self.module.lowered.source.module_identity().clone(),
             id,
             function,
             key,
@@ -348,6 +446,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            origin: parent.origin.clone(),
             id,
             function: parent.function,
             key,
@@ -440,6 +539,12 @@ fn instantiate(
     }
     if let TypeId::Generic(parameter) = ty
         && let Some(replacement) = substitution.and_then(|substitution| substitution.get(parameter))
+    {
+        return instantiate(replacement, None, options, remaining, depth, span);
+    }
+    if let TypeId::SelfType(owner) = ty
+        && let Some(replacement) =
+            substitution.and_then(|substitution| substitution.receiver(owner))
     {
         return instantiate(replacement, None, options, remaining, depth, span);
     }

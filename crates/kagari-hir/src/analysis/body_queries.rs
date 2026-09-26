@@ -91,12 +91,18 @@ impl AnalysisDatabase {
             else {
                 return None;
             };
-            file.prepared
-                .lowered
-                .module
-                .functions
-                .iter()
-                .find(|f| f.id == function && f.kind != FunctionKind::TraitMethod)?;
+            file.prepared.lowered.module.functions.iter().find(|f| {
+                f.id == function
+                    && (f.kind != FunctionKind::TraitMethod
+                        || file
+                            .prepared
+                            .lowered
+                            .module
+                            .traits
+                            .iter()
+                            .flat_map(|item| &item.methods)
+                            .any(|method| method.function == function && method.has_default))
+            })?;
             Some((file.clone(), function))
         });
         let Some((file, function)) = target else {

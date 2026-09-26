@@ -295,6 +295,9 @@ pub(crate) fn validate_signatures(
                 .iter()
                 .find(|candidate| candidate.name == method.name)
             else {
+                if method.has_default {
+                    continue;
+                }
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
                         trait_name: contract.declaration.name.clone(),

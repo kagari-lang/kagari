@@ -1,6 +1,38 @@
 use kagari_common::identity::DefinitionId;
 
-pub type TypeSubstitution = std::collections::HashMap<GenericParameterType, TypeId>;
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TypeSubstitution {
+    parameters: std::collections::HashMap<GenericParameterType, TypeId>,
+    receivers: std::collections::HashMap<DefinitionId, TypeId>,
+}
+
+impl TypeSubstitution {
+    pub fn insert_receiver(&mut self, owner: DefinitionId, receiver: TypeId) {
+        self.receivers.insert(owner, receiver);
+    }
+    pub fn receiver(&self, owner: &DefinitionId) -> Option<&TypeId> {
+        self.receivers.get(owner)
+    }
+}
+impl std::ops::Deref for TypeSubstitution {
+    type Target = std::collections::HashMap<GenericParameterType, TypeId>;
+    fn deref(&self) -> &Self::Target {
+        &self.parameters
+    }
+}
+impl std::ops::DerefMut for TypeSubstitution {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.parameters
+    }
+}
+impl FromIterator<(GenericParameterType, TypeId)> for TypeSubstitution {
+    fn from_iter<T: IntoIterator<Item = (GenericParameterType, TypeId)>>(iter: T) -> Self {
+        Self {
+            parameters: iter.into_iter().collect(),
+            receivers: Default::default(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod nominal_tests;
@@ -229,6 +261,7 @@ impl TypeId {
     pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
         self.substitute_once(|ty| match ty {
             Self::Generic(parameter) => substitution.get(parameter),
+            Self::SelfType(owner) => substitution.receiver(owner),
             _ => None,
         })
     }

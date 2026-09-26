@@ -105,7 +105,7 @@ mod tests {
             expected = TypeId::Array(Box::new(expected));
             actual = TypeId::Array(Box::new(actual));
         }
-        let mut substitution = TypeSubstitution::new();
+        let mut substitution = TypeSubstitution::default();
         let cancelled = kagari_common::cancellation::CancellationToken::default();
         cancelled.cancel();
         infer(
@@ -253,7 +253,7 @@ mod tests {
                 declaration: declaration.clone(),
                 arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
             });
-            let mut substitution = TypeSubstitution::new();
+            let mut substitution = TypeSubstitution::default();
             infer(
                 &template,
                 &actual,

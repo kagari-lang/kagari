@@ -184,15 +184,13 @@ impl FunctionLowerer<'_, '_> {
                                 .ok_or(IrLoweringError::MissingBinding(
                                     "interface implementation",
                                 ))?;
-                            for method in signature.methods.values() {
-                                let Some(kagari_hir::resolver::ResolvedName::Function(function)) =
-                                    self.analyzed.declarations.definition_target(method)
-                                else {
-                                    return Err(IrLoweringError::MissingBinding(
-                                        "interface method",
-                                    ));
-                                };
-                                self.planner.enqueue(function, arguments.clone(), span)?;
+                            let methods = self.planner.catalog.implementation_methods(signature);
+                            for method in methods {
+                                self.planner.enqueue_declaration(
+                                    &method,
+                                    arguments.clone(),
+                                    span,
+                                )?;
                             }
                         }
                         (
@@ -768,8 +766,8 @@ impl FunctionLowerer<'_, '_> {
                         ));
                     };
                     let structure = self
-                        .analyzed
-                        .aggregates
+                        .planner
+                        .catalog
                         .structure(&owner.declaration)
                         .ok_or(IrLoweringError::MissingBinding("struct pattern layout"))?;
                     let substitution = structure
@@ -800,13 +798,13 @@ impl FunctionLowerer<'_, '_> {
                     .pattern_variant(pattern)
                     .ok_or(IrLoweringError::MissingBinding("checked enum variant"))?;
                 let signature = self
-                    .analyzed
-                    .aggregates
+                    .planner
+                    .catalog
                     .variant(variant)
                     .ok_or(IrLoweringError::MissingBinding("enum variant signature"))?;
                 let enumeration = self
-                    .analyzed
-                    .aggregates
+                    .planner
+                    .catalog
                     .enumeration(&owner.declaration)
                     .ok_or(IrLoweringError::MissingBinding("enum pattern layout"))?;
                 let substitution = enumeration
@@ -1011,8 +1009,8 @@ impl FunctionLowerer<'_, '_> {
             }
             lowered_fields.push(StructFieldInit {
                 slot: self
-                    .analyzed
-                    .aggregates
+                    .planner
+                    .catalog
                     .field(&target)
                     .ok_or(IrLoweringError::MissingBinding("checked field contract"))?
                     .slot,
@@ -1167,13 +1165,13 @@ impl FunctionLowerer<'_, '_> {
                         .is_ok_and(|parents| parents.contains(&interface)))
                 {
                     let trait_contract = self
-                        .analyzed
-                        .aggregates
+                        .planner
+                        .catalog
                         .trait_(&interface.declaration)
                         .ok_or(IrLoweringError::MissingBinding("trait contract"))?;
                     let method_contract = self
-                        .analyzed
-                        .aggregates
+                        .planner
+                        .catalog
                         .trait_method(&method)
                         .ok_or(IrLoweringError::MissingBinding("trait method contract"))?;
                     if method_contract.generic_params.len() != trait_contract.generic_params.len()
@@ -1226,20 +1224,20 @@ impl FunctionLowerer<'_, '_> {
                     )
                 } else {
                     let (implementation, impl_arguments) = self
-                        .analyzed
-                        .aggregates
+                        .planner
+                        .catalog
                         .implementation_method(&method, &interface, &ty)
                         .ok_or(IrLoweringError::UnsupportedExpr(
                             "interface dispatch requires linked implementation tables",
                         ))?;
                     let trait_contract = self
-                        .analyzed
-                        .aggregates
+                        .planner
+                        .catalog
                         .trait_(&interface.declaration)
                         .ok_or(IrLoweringError::MissingBinding("trait contract"))?;
                     let method_contract = self
-                        .analyzed
-                        .aggregates
+                        .planner
+                        .catalog
                         .trait_method(&method)
                         .ok_or(IrLoweringError::MissingBinding("trait method contract"))?;
                     let method_params =
@@ -1285,20 +1283,32 @@ impl FunctionLowerer<'_, '_> {
                         &Default::default(),
                         span,
                     )?;
-                    (
-                        SemanticCallTarget::TraitMethod { method, interface },
-                        Vec::new(),
-                        Some(CallTarget::SourceFunction(Box::new(
+                    let arguments = impl_arguments
+                        .into_iter()
+                        .chain(method_arguments)
+                        .collect::<Vec<_>>();
+                    let linked = if implementation.module
+                        == *self.planner.owner().lowered.source.module_identity()
+                    {
+                        CallTarget::Function(self.planner.enqueue_declaration(
+                            &implementation,
+                            arguments.clone(),
+                            span,
+                        )?)
+                    } else {
+                        CallTarget::SourceFunction(Box::new(
                             crate::module::instruction::SourceFunctionContract {
                                 declaration: implementation.clone(),
-                                arguments: impl_arguments
-                                    .into_iter()
-                                    .chain(method_arguments)
-                                    .collect(),
+                                arguments,
                                 params,
                                 return_type,
                             },
-                        ))),
+                        ))
+                    };
+                    (
+                        SemanticCallTarget::TraitMethod { method, interface },
+                        Vec::new(),
+                        Some(linked),
                     )
                 }
             } else {
@@ -1382,7 +1392,53 @@ impl FunctionLowerer<'_, '_> {
                             &self.instance.substitution,
                             span,
                         )?;
-                        CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
+                        let declaration = self
+                            .analyzed
+                            .declarations
+                            .target(kagari_hir::resolver::ResolvedName::Function(id))
+                            .ok_or(IrLoweringError::MissingBinding("call declaration"))?;
+                        let kagari_hir::declarations::DeclarationId::Definition(declaration) =
+                            &declaration.id
+                        else {
+                            return Err(IrLoweringError::MissingBinding("call identity"));
+                        };
+                        if declaration.module
+                            == *self.planner.owner().lowered.source.module_identity()
+                        {
+                            CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
+                        } else {
+                            let typed = self
+                                .analyzed
+                                .typed
+                                .functions
+                                .iter()
+                                .find(|function| function.id == id)
+                                .ok_or(IrLoweringError::MissingTypedFunction(id))?;
+                            let substitution = typed
+                                .generic_params
+                                .iter()
+                                .cloned()
+                                .zip(arguments.iter().cloned())
+                                .collect();
+                            let params = typed
+                                .params
+                                .iter()
+                                .map(|param| {
+                                    self.planner.value_type(&param.ty, &substitution, span)
+                                })
+                                .collect::<Result<_, _>>()?;
+                            let return_type =
+                                self.planner
+                                    .value_type(&typed.return_type, &substitution, span)?;
+                            CallTarget::SourceFunction(Box::new(
+                                crate::module::instruction::SourceFunctionContract {
+                                    declaration: declaration.clone(),
+                                    arguments,
+                                    params,
+                                    return_type,
+                                },
+                            ))
+                        }
                     }
                     SemanticCallTarget::SourceFunction(id) => {
                         let imported =

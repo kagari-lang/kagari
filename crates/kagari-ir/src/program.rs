@@ -85,25 +85,28 @@ pub fn lower_program_to_ir(
                 .get(identity)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let lowered = crate::lower::lower_to_ir_with_requests(module, &remaining, demanded)
-                .map_err(|mut error| {
-                    if let IrLoweringError::Diagnostic(diagnostic) = &mut error
-                        && let kagari_common::DiagnosticKind::CompileLimitExceeded {
-                            resource,
-                            limit,
-                        } = &mut diagnostic.kind
-                    {
-                        match *resource {
-                            "generated instructions" => *limit = options.max_instructions,
-                            "generic instances" => *limit = options.max_generic_instances,
-                            _ => {}
-                        }
+            let lowered = crate::lower::lower_to_ir_with_requests(
+                module,
+                &remaining,
+                demanded,
+                program.modules(),
+            )
+            .map_err(|mut error| {
+                if let IrLoweringError::Diagnostic(diagnostic) = &mut error
+                    && let kagari_common::DiagnosticKind::CompileLimitExceeded { resource, limit } =
+                        &mut diagnostic.kind
+                {
+                    match *resource {
+                        "generated instructions" => *limit = options.max_instructions,
+                        "generic instances" => *limit = options.max_generic_instances,
+                        _ => {}
                     }
-                    ProgramError {
-                        module: Box::new(identity.clone()),
-                        kind: ProgramErrorKind::Lowering(error),
-                    }
-                })?;
+                }
+                ProgramError {
+                    module: Box::new(identity.clone()),
+                    kind: ProgramErrorKind::Lowering(error),
+                }
+            })?;
             // These budgets apply to the whole source closure, not once per module.
             remaining.max_generic_instances -= lowered
                 .functions
@@ -219,7 +222,7 @@ pub fn lower_program_to_ir(
                     module: Box::new(root.clone()),
                     kind: ProgramErrorKind::InterfaceContract(implementation.clone()),
                 })?;
-            for method in signature.methods.values() {
+            for method in owner.aggregates.implementation_methods(signature) {
                 let instance = FunctionInstance {
                     declaration: method.clone(),
                     arguments: arguments.clone(),
@@ -392,6 +395,15 @@ pub fn verify_program(
                     &module.identity,
                     ProgramErrorKind::InterfaceContract(request.declaration.clone()),
                 ));
+            }
+        }
+        for function in &module.functions {
+            if function.debug.source_module.as_ref().is_some_and(|origin| {
+                !indices
+                    .get(origin)
+                    .is_some_and(|owner| *owner == index || dependencies.contains(owner))
+            }) {
+                return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
             }
         }
         for instruction in module

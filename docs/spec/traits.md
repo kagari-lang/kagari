@@ -269,7 +269,7 @@ method_sig       ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")"
 
 Trait members are limited to:
 
-- methods; bodies are parsed, but do not yet supply omitted impl methods
+- methods, optionally with checked default bodies that supply omitted script impl methods
 - ordinary associated types, optionally constrained by trait or standard bounds
 - no associated consts or generic associated types
 
@@ -488,7 +488,6 @@ The current trait system excludes:
 - script-level `dyn` trait-object syntax
 - associated consts
 - specialization
-- default trait methods
 - interface dispatch for non-interface-compatible methods
 
 ## Checked and Executable Contracts
@@ -647,8 +646,8 @@ followed by runtime binding and static/dynamic calls returning `42`.
 
 ### Remaining Execution Work
 
-Runtime downcasting remains separate work. Default method fallback,
-associated consts and type-parameterized GAT follow as individual checkpoints.
+Runtime downcasting remains separate work. Associated consts and
+type-parameterized GAT follow as individual checkpoints.
 
 ### Trait Inheritance and Upcasting
 
@@ -682,3 +681,31 @@ and old-version calls use the existing interface ownership contracts.
 
 See [trait-inheritance.kgr](../../examples/syntax/trait-inheritance.kgr), which
 returns `42` through static calls, inherited projections and dynamic parent views.
+
+### Default Methods
+
+A trait method with a body supplies a default implementation for script impls
+that omit that method. An explicit implementation takes precedence. Every
+default body is checked in the trait's own declaration context, including when
+no implementation uses it. Required methods without bodies remain mandatory.
+
+`self.method()` in a default body selects the concrete receiver's implementation,
+including explicit overrides and parent implementations. Static calls,
+concrete method calls and dynamic interface slots use the same selected body.
+Generic impls and method-local generic defaults are specialized at compile time;
+method-local generics and `Self` in results remain incompatible with interfaces.
+Ordinary associated outputs and lexical closures follow the usual type and
+ownership rules.
+
+The compiler reads the trait module's checked body and emits a concrete method
+instance in the implementation module. Calls to private helpers keep their
+original declaration identity; an identically named helper in the implementation
+module does not change the default body. Debug locations and breakpoints retain
+the original source module and span. No runtime default-method search, name
+resolution or generic specialization is performed.
+
+Offline host trait tables continue to map every declared method explicitly;
+omitted host mappings do not invoke script defaults in this checkpoint.
+
+See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which returns
+`42` through default and overridden static/dynamic calls.

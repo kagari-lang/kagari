@@ -141,7 +141,8 @@ fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recurs
         template = TypeId::Array(Box::new(template));
         replacement = TypeId::Array(Box::new(replacement));
     }
-    let substitution = [(parameter.clone(), replacement)].into_iter().collect();
+    let mut substitution: TypeSubstitution =
+        [(parameter.clone(), replacement)].into_iter().collect();
     let result = template.instantiate(&substitution);
     // Consume iteratively too: this test exercises substitution, not Rust's
     // recursive derived Clone, equality, or destructor for arbitrary TypeIds.
@@ -156,7 +157,7 @@ fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recurs
     }
     consume(result, 20_000, &parameter);
     consume(template, 10_000, &parameter);
-    for (_, replacement) in substitution {
+    for (_, replacement) in substitution.drain() {
         consume(replacement, 10_000, &parameter);
     }
 }

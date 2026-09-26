@@ -1836,6 +1836,7 @@ fn interface_instruction_module() -> BytecodeModule {
     module.identity = identity;
     module.public_items = vec![
         PublicAbiItem::Trait(TraitAbi {
+            default_methods: Vec::new(),
             supertraits: Vec::new(),
             associated_types: Vec::new(),
             name: "Tag".into(),

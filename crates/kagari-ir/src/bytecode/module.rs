@@ -142,6 +142,7 @@ pub struct InterfaceMethodSlot {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BytecodeDebugMetadata {
+    pub source_module: Option<super::ModuleRef>,
     pub function_span: Span,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub source_spans: InstructionSourceSpanBuffer,

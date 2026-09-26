@@ -1,0 +1,26 @@
+trait Reader<T> {
+    fn read(self) -> T;
+    fn again(self) -> T { helper(self.read()) }
+}
+
+fn helper<T>(value: T) -> T { value }
+
+struct Holder<T> { val value: T }
+impl<T> Reader<T> for Holder<T> {
+    fn read(self) -> T { self.value }
+}
+
+struct Fixed {}
+impl Reader<i32> for Fixed {
+    fn read(self) -> i32 { 0 }
+    fn again(self) -> i32 { 14 }
+}
+
+fn static_read<T: Reader<i32>>(value: T) -> i32 { value.again() }
+fn boxed<T>(value: Holder<T>) -> Reader<T> { value }
+
+fn main() -> i32 {
+    // The default calls each receiver's implementation of read().
+    val dynamic: Reader<i32> = Fixed {};
+    static_read(Holder { value: 14 }) + boxed(Holder { value: 14 }).again() + dynamic.again()
+}

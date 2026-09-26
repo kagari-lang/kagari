@@ -40,15 +40,16 @@ pub fn lower_to_ir(
     module: &kagari_hir::CheckedAnalysis,
     options: &IrLoweringOptions,
 ) -> Result<VerifiedIrModule, IrLoweringError> {
-    lower_to_ir_with_requests(module, options, &[])
+    lower_to_ir_with_requests(module, options, &[], std::slice::from_ref(module))
 }
 
-pub(crate) fn lower_to_ir_with_requests(
-    module: &kagari_hir::CheckedAnalysis,
-    options: &IrLoweringOptions,
+pub(crate) fn lower_to_ir_with_requests<'a>(
+    module: &'a kagari_hir::CheckedAnalysis,
+    options: &'a IrLoweringOptions,
     requests: &[crate::module::function::FunctionInstance],
+    modules: &'a [kagari_hir::CheckedAnalysis],
 ) -> Result<VerifiedIrModule, IrLoweringError> {
-    let mut planner = instances::InstancePlanner::new(module, options);
+    let mut planner = instances::InstancePlanner::new(module, options, modules);
     planner.check()?;
     let callable_methods = module
         .lowered
@@ -71,28 +72,38 @@ pub(crate) fn lower_to_ir_with_requests(
             )?;
         }
     }
+    for implementation in module.aggregates.implementations().filter(|item| {
+        item.id.module == *module.lowered.source.module_identity() && item.generic_params.is_empty()
+    }) {
+        for target in module.aggregates.implementation_methods(implementation) {
+            if let Some((_, method)) = module.aggregates.default_method(&target)
+                && module
+                    .aggregates
+                    .trait_(&method.owner)
+                    .is_some_and(|contract| {
+                        method.generic_params.len() == contract.generic_params.len()
+                    })
+            {
+                planner.enqueue_declaration(&target, Vec::new(), Default::default())?;
+            }
+        }
+    }
     for request in requests {
         planner.check()?;
         if request.declaration.module != *module.lowered.source.module_identity() {
             return Err(IrLoweringError::MissingBinding("requested instance owner"));
         }
-        let Some(kagari_hir::resolver::ResolvedName::Function(function)) =
-            module.declarations.definition_target(&request.declaration)
-        else {
-            return Err(IrLoweringError::MissingBinding(
-                "requested function instance",
-            ));
-        };
-        planner.enqueue(
-            function,
+        planner.enqueue_declaration(
+            &request.declaration,
             request.arguments.clone(),
-            module.lowered.source_map.function_span(function),
+            Default::default(),
         )?;
     }
     let mut functions = Vec::new();
     while let Some(instance) = planner.instances.get(functions.len()).cloned() {
         planner.check()?;
-        let function = module
+        let origin = planner.origin(&instance);
+        let function = origin
             .lowered
             .module
             .functions
@@ -100,9 +111,9 @@ pub(crate) fn lower_to_ir_with_requests(
             .find(|function| function.id == instance.function)
             .ok_or(IrLoweringError::MissingTypedFunction(instance.function))?;
         functions.push(if let Some(closure) = instance.closure {
-            function::lower_closure(module, function, closure, instance, &mut planner)?
+            function::lower_closure(origin, function, closure, instance, &mut planner)?
         } else {
-            function::lower_function(module, function, instance, &mut planner)?
+            function::lower_function(origin, function, instance, &mut planner)?
         });
     }
 

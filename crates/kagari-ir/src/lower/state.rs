@@ -71,6 +71,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             entry,
             effects: EffectSet::default(),
             debug: IrFunctionDebugMetadata {
+                source_module: Some(analyzed.lowered.source.module_identity().clone()),
                 source_span: analyzed.lowered.source_map.function_span(hir_function.id),
                 locals: Vec::new(),
                 captured_bindings: Vec::new(),

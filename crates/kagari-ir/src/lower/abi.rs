@@ -139,6 +139,12 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     continue;
                 };
                 let abi = TraitAbi {
+                    default_methods: trait_item
+                        .methods
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(slot, method)| method.has_default.then_some(slot))
+                        .collect(),
                     supertraits: trait_item
                         .supertraits
                         .iter()
@@ -271,19 +277,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             ),
             trait_type: AbiType::from_checked_type(&trait_type),
             for_type: AbiType::from_checked_type(for_type),
-            methods: impl_block
-                .methods
-                .iter()
-                .filter_map(|method| {
-                    hir_module
-                        .functions
-                        .iter()
-                        .find(|function| function.id == method.function)
-                        .and_then(|function| {
-                            method_abi(module, function, &impl_block.generic_params)
-                        })
-                })
-                .collect(),
+            methods: implementation_methods_abi(module, impl_block),
         })));
     }
 
@@ -291,6 +285,118 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
         public_items,
         trait_contracts,
     }
+}
+
+fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<FunctionAbi> {
+    let mut result = item
+        .methods
+        .iter()
+        .filter_map(|method| {
+            module
+                .lowered
+                .module
+                .functions
+                .iter()
+                .find(|function| function.id == method.function)
+                .and_then(|function| method_abi(module, function, &item.generic_params))
+        })
+        .collect::<Vec<_>>();
+    let implementation = module
+        .aggregates
+        .implementation_signature(
+            module
+                .declarations
+                .impl_identity(item.id)
+                .expect("impl identity"),
+        )
+        .expect("impl signature");
+    for target in module.aggregates.implementation_methods(implementation) {
+        let Some((implementation, method)) = module.aggregates.default_method(&target) else {
+            continue;
+        };
+        let contract = module
+            .aggregates
+            .trait_(&method.owner)
+            .expect("default trait contract");
+        let method_params = &method.generic_params[contract.generic_params.len()..];
+        let own = method_params.iter().enumerate().map(|(position, param)| {
+            (
+                param.clone(),
+                kagari_hir::types::TypeId::Generic(kagari_hir::types::GenericParameterType {
+                    owner: target.clone(),
+                    position,
+                    name: param.name.clone(),
+                }),
+            )
+        });
+        let substitution = contract
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(implementation.trait_type.arguments.iter().cloned())
+            .chain(own)
+            .collect();
+        let normalize = |ty: &kagari_hir::types::TypeId| {
+            abi_type(
+                module,
+                &ty.with_associated_types(&implementation.trait_type)
+                    .with_self(&method.owner, &implementation.for_type)
+                    .instantiate(&substitution),
+            )
+        };
+        let bounds = method
+            .bounds
+            .iter()
+            .filter(|(ty, _)| {
+                !contract
+                    .generic_params
+                    .iter()
+                    .any(|param| **ty == kagari_hir::types::TypeId::Generic(param.clone()))
+            })
+            .map(|(ty, constraints)| GenericBoundAbi {
+                ty: normalize(ty),
+                constraints: constraints
+                    .iter()
+                    .map(|constraint| match constraint {
+                        kagari_hir::typeck::ConstraintTarget::Standard(value) => {
+                            ConstraintAbi::Standard(*value)
+                        }
+                        kagari_hir::typeck::ConstraintTarget::Trait(ty) => {
+                            let AbiType::Trait(ty) =
+                                normalize(&kagari_hir::types::TypeId::Trait(ty.clone()))
+                            else {
+                                unreachable!("trait bound");
+                            };
+                            ConstraintAbi::Trait(ty)
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+        result.push(FunctionAbi {
+            name: method.name.clone(),
+            generic_params: method_params
+                .iter()
+                .enumerate()
+                .map(|(position, _)| GenericParameterAbi {
+                    owner: target.clone(),
+                    position,
+                })
+                .collect(),
+            bounds: canonical_bounds(bounds),
+            params: method
+                .params
+                .iter()
+                .map(|param| ParameterAbi {
+                    name: param.name.clone(),
+                    ty: normalize(&param.ty),
+                    mutable: param.writeability.is_var(),
+                })
+                .collect(),
+            return_type: normalize(&method.return_type),
+        });
+    }
+    result
 }
 
 fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<FunctionAbi> {

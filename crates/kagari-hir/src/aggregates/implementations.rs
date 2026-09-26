@@ -180,7 +180,7 @@ impl AggregateCatalog {
         method: &DefinitionId,
         trait_type: &NominalType,
         receiver: &TypeId,
-    ) -> Option<(&DefinitionId, Vec<TypeId>)> {
+    ) -> Option<(DefinitionId, Vec<TypeId>)> {
         let cancel = CancellationToken::default();
         let mut budget = SearchBudget {
             checks_left: usize::MAX,
@@ -204,10 +204,60 @@ impl AggregateCatalog {
                 .iter()
                 .map(|parameter| matched.get(parameter).cloned())
                 .collect::<Option<Vec<_>>>()?;
-            Some((implementation.methods.get(method)?, arguments))
+            let target = implementation.methods.get(method).cloned().or_else(|| {
+                self.trait_method(method)
+                    .filter(|method| method.has_default)
+                    .map(|_| {
+                        let mut target = implementation.id.clone();
+                        target
+                            .path
+                            .push(method.path.last().expect("method identity").clone());
+                        target
+                    })
+            })?;
+            Some((target, arguments))
         });
         let result = matches.next()?;
         matches.next().is_none().then_some(result)
+    }
+
+    /// An omitted method has the same impl-owned identity as an explicit method;
+    /// its checked body and name resolution remain owned by the trait module.
+    pub fn default_method(
+        &self,
+        target: &DefinitionId,
+    ) -> Option<(&ImplementationSignature, &super::MethodSignature)> {
+        let mut owner = target.clone();
+        let name = owner.path.pop()?;
+        let implementation = self.implementation_signature(&owner)?;
+        let method = self
+            .trait_(&implementation.trait_type.declaration)?
+            .methods
+            .iter()
+            .find(|method| method.id.path.last() == Some(&name))?;
+        (method.has_default && !implementation.methods.contains_key(&method.id))
+            .then_some((implementation, method))
+    }
+
+    pub fn implementation_methods(
+        &self,
+        implementation: &ImplementationSignature,
+    ) -> Vec<DefinitionId> {
+        self.trait_(&implementation.trait_type.declaration)
+            .into_iter()
+            .flat_map(|contract| &contract.methods)
+            .filter_map(|method| {
+                implementation.methods.get(&method.id).cloned().or_else(|| {
+                    method.has_default.then(|| {
+                        let mut target = implementation.id.clone();
+                        target
+                            .path
+                            .push(method.id.path.last().expect("method identity").clone());
+                        target
+                    })
+                })
+            })
+            .collect()
     }
 
     pub fn implementation_count(&self, trait_type: &NominalType, receiver: &TypeId) -> usize {

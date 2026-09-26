@@ -41,15 +41,22 @@ KbcArtifact {
 }
 ```
 
-Format version 46 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 47 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 45 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 46 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
 
-Version 46 and runtime ABI v46 retain applied supertrait contracts and the explicit
+Version 47 and runtime ABI v47 retain trait default-method ordinals and each
+function's original source-module slot. Script default bodies are specialized
+into impl-owned method instances with ordinary verified call slots. Source-module
+slots must be local or reachable through the retained dependency closure; method
+ordinals must be unique and refer to existing declarations. This adds no runtime
+fallback lookup or runtime specialization.
+
+Version 46 and runtime ABI v46 retained applied supertrait contracts and the explicit
 `UpcastInterface` operation. Loading checks bounded acyclic inheritance, required
 parent implementations, concrete parent dispatch tables and upcast ancestry
 before execution. Parent tables are compiled ahead of time and retain the same

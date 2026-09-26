@@ -237,6 +237,13 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 return Err(invalid());
             }
         }
+        if module.functions.iter().any(|function| {
+            function.metadata.debug.source_module.is_some_and(|origin| {
+                origin != ModuleRef::new(index) && !reachable.contains(&origin)
+            })
+        }) {
+            return Err(invalid());
+        }
     }
     let mut reachable = HashSet::new();
     let mut pending = vec![program.root];

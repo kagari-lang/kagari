@@ -2506,7 +2506,7 @@ impl<'a> BodyChecker<'a> {
             })
             .filter_map(|method| {
                 let function = method.function.clone();
-                let mut substitution = crate::types::TypeSubstitution::new();
+                let mut substitution = crate::types::TypeSubstitution::default();
                 let generics = function.generic_params.as_slice();
                 if super::inference::infer(
                     &method.owner,
@@ -2610,6 +2610,43 @@ impl<'a> BodyChecker<'a> {
                 .aggregates
                 .trait_closure(interface, ty, self.cancel)
                 .unwrap_or_default();
+        }
+        if !matches!(
+            ty,
+            TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. }
+        ) {
+            let mut implemented = Vec::new();
+            for implementation in self.aggregates.implementations() {
+                let mut substitution = crate::types::TypeSubstitution::default();
+                if super::inference::infer(
+                    &implementation.for_type,
+                    ty,
+                    &implementation.generic_params,
+                    &mut substitution,
+                    self.cancel,
+                )
+                .is_ok()
+                {
+                    let applied = implementation.trait_type.instantiate(&substitution);
+                    if matches!(
+                        self.aggregates.concrete_interface_implementation(
+                            &applied,
+                            ty,
+                            &env.generic_bounds,
+                            100_000,
+                            64,
+                            self.cancel
+                        ),
+                        Ok(Some(_))
+                    ) && !implemented.contains(&applied)
+                    {
+                        implemented.push(applied);
+                    }
+                }
+            }
+            if !implemented.is_empty() {
+                return implemented;
+            }
         }
         let mut bounds = env
             .generic_bounds
@@ -2945,7 +2982,7 @@ impl<'a> BodyChecker<'a> {
         self.type_table.insert_enum_constructor(expression, target);
         // Every argument is checked once, even when the variant is absent or its
         // signature is erroneous. Known target facts survive argument failures.
-        let mut substitution = crate::types::TypeSubstitution::new();
+        let mut substitution = crate::types::TypeSubstitution::default();
         if let Some(TypeId::Enum(nominal)) = expected
             && nominal.declaration == enumeration
             && nominal.arguments.len() == generic_params.len()
@@ -3110,7 +3147,7 @@ impl<'a> BodyChecker<'a> {
         };
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
-        let mut substitution = crate::types::TypeSubstitution::new();
+        let mut substitution = crate::types::TypeSubstitution::default();
         if let Some(expected) = expected
             && super::inference::infer(
                 &function.return_type,
@@ -3184,7 +3221,9 @@ impl<'a> BodyChecker<'a> {
                     super::ConstraintTarget::Trait(trait_type) => {
                         let trait_type = trait_type.instantiate(substitution);
                         let satisfied = match actual {
-                            TypeId::Generic(_) | TypeId::Projection { .. } => self
+                            TypeId::Generic(_)
+                            | TypeId::SelfType(_)
+                            | TypeId::Projection { .. } => self
                                 .trait_bounds_for(actual, env)
                                 .iter()
                                 .any(|bound| bound.satisfies(&trait_type)),
@@ -3795,7 +3834,7 @@ impl<'a> BodyChecker<'a> {
             return TypeId::Error;
         };
 
-        let mut substitution = crate::types::TypeSubstitution::new();
+        let mut substitution = crate::types::TypeSubstitution::default();
         if let Some(TypeId::Struct(nominal)) = expected
             && nominal.declaration == struct_def.id
             && nominal.arguments.len() == struct_def.generic_params.len()

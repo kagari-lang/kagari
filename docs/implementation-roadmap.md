@@ -36,8 +36,17 @@ generic parents, invalid graphs, GC and retained reload versions. See the
 [runnable example](../examples/syntax/trait-inheritance.kgr). Artifact format 46
 and runtime ABI v46 reject previous products; KHI remains v10.
 
-The next trait checkpoints are default method fallback; associated consts;
-then type-parameterized GAT. A trait declaring associated consts or GAT, and every
+Completed language extension: checked default method bodies, explicit override
+precedence and fallback for script impls, including generic impls, method-local
+generics, associated outputs, closures and imported private helpers. Defaults
+are specialized in the impl's module while retaining the trait's checked name
+resolution and original debug source. See the [trait contract](spec/traits.md#default-methods)
+and [runnable example](../examples/syntax/default-methods.kgr). Artifact format 47
+and runtime ABI v47 reject previous products; KHI remains v10. Host mappings
+continue to explicitly provide every declared method.
+
+The next trait checkpoints are associated consts, then type-parameterized GAT.
+A trait declaring associated consts or GAT, and every
 trait inheriting it, will be usable only for static dispatch. Each checkpoint updates executable examples,
 semantic and artifact validation, and commits separately. Lifetimes, script-level
 `dyn`, higher-kinded type parameters, specialization, negative impls, auto traits

@@ -270,6 +270,7 @@ impl Lowerer {
         let function_id = function.id;
         self.module.functions.push(function);
         TraitMethod {
+            has_default: method.body().is_some(),
             id,
             name: method.name_text().unwrap_or_default(),
             receiver: crate::hir::ReceiverKind::Value,

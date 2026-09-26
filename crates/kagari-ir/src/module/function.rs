@@ -112,6 +112,7 @@ pub struct BasicBlock {
 
 #[derive(Debug, Clone, Default)]
 pub struct IrFunctionDebugMetadata {
+    pub source_module: Option<kagari_common::identity::ModuleIdentity>,
     pub source_span: Span,
     pub locals: IrLocalDebugBuffer,
     pub captured_bindings: CapturedBindingDebugBuffer,

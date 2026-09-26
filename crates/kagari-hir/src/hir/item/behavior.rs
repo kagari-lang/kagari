@@ -44,6 +44,7 @@ pub struct AssociatedType {
 
 #[derive(Debug, Clone)]
 pub struct TraitMethod {
+    pub has_default: bool,
     pub id: TraitMethodId,
     pub name: String,
     pub receiver: ReceiverKind,

@@ -10,6 +10,7 @@ pub struct MethodParameter {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodSignature {
+    pub has_default: bool,
     pub id: DefinitionId,
     pub owner: DefinitionId,
     pub slot: usize,
@@ -23,7 +24,8 @@ pub struct MethodSignature {
 
 impl MethodSignature {
     fn same_contract(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.has_default == other.has_default
+            && self.id == other.id
             && self.owner == other.owner
             && self.slot == other.slot
             && self.name == other.name
@@ -160,6 +162,7 @@ impl AggregateCatalog {
                 self.methods
                     .insert(method_id.clone(), (id.clone(), methods.len()));
                 methods.push(MethodSignature {
+                    has_default: method.has_default,
                     id: method_id.clone(),
                     owner: id.clone(),
                     slot,

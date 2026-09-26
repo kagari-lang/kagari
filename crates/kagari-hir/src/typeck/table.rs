@@ -746,7 +746,7 @@ pub(crate) fn match_implementation(
     {
         return None;
     }
-    let mut bindings = TypeSubstitution::new();
+    let mut bindings = TypeSubstitution::default();
     let mut pending = vec![(pattern, actual)];
     pending.extend(
         implemented_trait

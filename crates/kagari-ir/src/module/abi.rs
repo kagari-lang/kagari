@@ -419,6 +419,8 @@ impl AbiType {
 pub struct TraitAbi {
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub default_methods: Vec<usize>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub supertraits: Vec<NominalAbiType>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,

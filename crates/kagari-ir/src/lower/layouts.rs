@@ -115,7 +115,7 @@ pub(super) fn collect(
                     let ty = planner
                         .arguments(std::slice::from_ref(&field.ty), &substitution, span)?
                         .remove(0);
-                    planner.value_type(&ty, &TypeSubstitution::new(), span)?;
+                    planner.value_type(&ty, &TypeSubstitution::default(), span)?;
                     fields.push(StructFieldLayout {
                         declaration: field.id.clone(),
                         name: field.name.clone(),
@@ -155,7 +155,7 @@ pub(super) fn collect(
                 for variant in &template.variants {
                     let types = planner.arguments(&variant.payload, &substitution, span)?;
                     for ty in &types {
-                        planner.value_type(ty, &TypeSubstitution::new(), span)?;
+                        planner.value_type(ty, &TypeSubstitution::default(), span)?;
                     }
                     let payload = types.iter().map(AbiType::from_checked_type).collect();
                     variants.push(EnumVariantLayout {

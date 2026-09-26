@@ -129,13 +129,7 @@ impl Vm {
         {
             let mut debug = debug.0.borrow_mut();
             for member in session.root().members() {
-                debug.resolve_module(
-                    member.id,
-                    &member.name,
-                    member.epoch.0,
-                    &member.bytecode,
-                    &self.runtime,
-                )?;
+                debug.resolve_module(&member, &self.runtime)?;
             }
         }
         Ok(session)

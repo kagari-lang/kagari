@@ -208,6 +208,12 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
     let mut methods = HashSet::new();
     !ty.name.is_empty()
         && {
+            let mut defaults = HashSet::new();
+            ty.default_methods
+                .iter()
+                .all(|slot| *slot < ty.methods.len() && defaults.insert(slot))
+        }
+        && {
             let mut members = HashSet::new();
             ty.associated_types.iter().all(|member| {
                 members.insert(&member.declaration)
