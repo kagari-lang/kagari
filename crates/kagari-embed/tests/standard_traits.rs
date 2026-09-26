@@ -276,3 +276,479 @@ fn identity_operators_reject_value_types_and_mismatched_objects() {
         ));
     }
 }
+
+#[test]
+fn custom_equality_composes_and_enum_overrides_variant_checks() {
+    execute(
+        r#"
+struct Point { val x:i32 }
+impl PartialEq for Point { fn eq(self, other:Self)->bool { self.x == other.x } }
+impl Eq for Point {}
+enum Message { Missing, Here(Point) }
+enum Id { Local(i32), Remote(i32) }
+fn number(v:Id)->i32 { match v { Id::Local(x)=>x, Id::Remote(x)=>x } }
+impl PartialEq for Id { fn eq(self, other:Self)->bool { number(self)==number(other) } }
+impl Eq for Id {}
+impl Hash for Id { fn hash(self)->i64 { number(self).hash() } }
+fn same<T:Eq>(a:T,b:T)->bool { a==b && a.eq(b) }
+fn main()->i32 {
+ val a=Point{x:1}; val b=Point{x:1};
+ if same(a,b) && a !== b && same((a,7),(b,7)) && same(Message::Here(a),Message::Here(b)) && same(Id::Local(42),Id::Remote(42)) && Id::Local(42).hash()==Id::Remote(42).hash() {42} else {0}
+}
+"#,
+    );
+}
+
+#[test]
+fn custom_keys_use_hash_buckets_and_script_equality() {
+    execute(
+        r#"
+struct Key { val id:i32, var ignored:i32 }
+impl PartialEq for Key { fn eq(self, other:Self)->bool { self.id == other.id } }
+impl Eq for Key {}
+impl Hash for Key { fn hash(self)->i64 { 0.hash() } }
+enum Tag { Value(Key), Empty }
+fn store<T:Eq+Hash>(map:Map<T,i32>,key:T,value:i32) { map.insert(key,value); }
+fn main()->i32 {
+ val map:Map<(Tag,i32),i32> = std::map::new();
+ val a=Key{id:1,ignored:0}; val b=Key{id:2,ignored:0};
+ store(map,(Tag::Value(a),7),20); store(map,(Tag::Value(b),7),21);
+ a.ignored=99;
+ store(map,(Tag::Value(Key{id:1,ignored:3}),7),22);
+ val set:Set<Key> = std::set::new();
+ set.insert(a); set.insert(b); set.insert(Key{id:1,ignored:4});
+ std::debug::assert(set.len()==[1,2].len(),"dedup");
+ std::debug::assert(set.contains(Key{id:2,ignored:5}),"collision lookup");
+ std::debug::assert(set.remove(Key{id:2,ignored:5}),"remove");
+ std::debug::assert(!set.contains(b),"removed");
+ std::debug::assert(map.len()==[1,2].len(),"update");
+ std::debug::assert(map.contains_key((Tag::Value(Key{id:2,ignored:0}),7)),"contains");
+ val result=map.get((Tag::Value(Key{id:1,ignored:0}),7)).unwrap_or(0);
+ std::debug::assert(map.remove((Tag::Value(b),7)).unwrap_or(0)==21,"map remove");
+ result+20
+}
+"#,
+    );
+}
+
+#[test]
+fn default_protocols_follow_custom_members_and_recursive_enums() {
+    execute(
+        r#"
+struct Key<T> { val value:T }
+impl<T:PartialEq> PartialEq for Key<T> { fn eq(self, other:Self)->bool { self.value == other.value } }
+impl<T:Eq> Eq for Key<T> {}
+impl<T:Eq+Hash> Hash for Key<T> { fn hash(self)->i64 { self.value.hash() } }
+enum Chain { End, Next(Key<i32>, Chain) }
+fn main()->i32 {
+ val a=Chain::Next(Key{value:42},Chain::End);
+ val b=Chain::Next(Key{value:42},Chain::End);
+ val set:Set<Chain> = std::set::new(); set.insert(a);set.insert(b);
+ std::debug::assert_eq(a,b,"composed comparison");
+ if set.len()==[1].len() && set.contains(b) {42} else {0}
+}
+"#,
+    );
+}
+
+#[test]
+fn custom_enum_keys_ignore_variants_and_uncompared_payload_capabilities() {
+    execute(
+        r#"
+enum Id { Local(i32,f32), Remote(i32) }
+fn number(v:Id)->i32 { match v { Id::Local(id,_)=>id, Id::Remote(id)=>id } }
+impl PartialEq for Id { fn eq(self,other:Self)->bool {number(self)==number(other)} }
+impl Eq for Id {}
+impl Hash for Id {fn hash(self)->i64 {number(self).hash()}}
+fn main()->i32 {
+ val a:Set<Id> = std::set::new(); val b:Set<Id> = std::set::new();
+ a.insert(Id::Local(42,1.5));b.insert(Id::Remote(42));b.insert(Id::Remote(7));
+ val union=a.union(b);val intersection=a.intersection(b);val difference=b.difference(a);
+ std::debug::assert(union.len()==[1,2].len(),"union");
+ std::debug::assert(intersection.contains(Id::Remote(42)),"intersection");
+ std::debug::assert(!difference.contains(Id::Remote(42)) && difference.contains(Id::Remote(7)),"difference");
+ val map:Map<Option<Id>,i32> = std::map::new();
+ map.insert(Some(Id::Local(42,2.5)),42);
+ map.get(Some(Id::Remote(42))).unwrap_or(0)
+}
+"#,
+    );
+}
+
+#[test]
+fn custom_comparisons_short_circuit_without_identity_shortcuts() {
+    execute(
+        r#"
+struct Counter {var count:i32}
+struct Key {val id:i32,val counter:Counter}
+impl PartialEq for Key {fn eq(self,other:Self)->bool {self.counter.count+=1;self.id==other.id}}
+enum Pair {Values(Key,Key), Empty}
+fn main()->i32 {
+ val c=Counter{count:0};val a=Key{id:1,counter:c};val b=Key{id:2,counter:c};
+ std::debug::assert(!(a,a).eq((b,a)),"tuple mismatch");
+ std::debug::assert(c.count==1,"tuple short circuit");
+ std::debug::assert(Pair::Values(a,a)!=Pair::Empty,"variant mismatch");
+ std::debug::assert(c.count==1,"variant skips members");
+ std::debug::assert(Pair::Values(a,a)!=Pair::Values(b,a),"enum mismatch");
+ std::debug::assert(c.count==2,"enum short circuit");
+ std::debug::assert(a==a,"alias comparison");
+ std::debug::assert(c.count==3,"custom implementation still runs for alias");
+ 42
+}
+"#,
+    );
+}
+
+#[test]
+fn comparison_only_types_do_not_inherit_identity_hashing() {
+    for tail in [
+        "fn main(){val set:Set<Key> = std::set::new();}",
+        "fn main(){val set:Set<(Key,i32)> = std::set::new();}",
+        "enum E {Value(Key)} fn main(){val set:Set<E> = std::set::new();}",
+        "fn needs<T:Eq+Hash>(v:T){} fn main(){needs(Key{});}",
+        "fn main(){Key{}.hash();}",
+    ] {
+        let source = format!(
+            "struct Key {{}} impl PartialEq for Key {{fn eq(self,other:Self)->bool {{true}}}} impl Eq for Key {{}} {tail}"
+        );
+        assert!(
+            matches!(
+                KagariEngine::default().compile_to_artifact(
+                    SourceFile::new("bad-key.kgr", source),
+                    Default::default(),
+                    Default::default()
+                ),
+                Err(kagari_embed::EmbeddingError::Diagnostics { .. })
+            ),
+            "{tail}"
+        );
+    }
+}
+
+#[test]
+fn key_callback_traps_and_reentry_release_guards_without_partial_insertion() {
+    let source = r#"
+struct State {var mode:i32,var calls:i32}
+struct Key {val id:i32,val owner:Set<Key>,val state:State}
+impl PartialEq for Key {fn eq(self,other:Self)->bool {
+ self.state.calls+=1;
+ if self.state.mode==1 {self.owner.clear();}
+ if self.state.mode==2 {std::debug::panic("comparison failure");}
+ if self.state.mode==5 {
+  self.state.mode=0;
+  std::debug::assert(!self.owner.contains(self),"nested read of absent query");
+  self.state.mode=5;
+ }
+ self.id==other.id
+}}
+impl Eq for Key {}
+impl Hash for Key {fn hash(self)->i64 {
+ if self.state.mode==3 {self.owner.clear();}
+ if self.state.mode==4 {std::debug::panic("hash failure");}
+ 0.hash()
+}}
+trait Test {fn mode(self,value:i32);fn attempt(self);fn calls(self)->i32;fn clear(self);}
+struct Tester {val set:Set<Key>,val key:Key,val state:State}
+impl Test for Tester {
+ fn mode(self,value:i32){self.state.mode=value;}
+ fn attempt(self){self.set.insert(self.key);}
+ fn calls(self)->i32 {self.state.calls}
+ fn clear(self){self.set.clear();}
+}
+fn make()->(Test,Set<Key>) {
+ val set:Set<Key> = std::set::new();val state=State{mode:0,calls:0};
+ set.insert(Key{id:1,owner:set,state:state});
+ val tester:Test=Tester{set:set,key:Key{id:2,owner:set,state:state},state:state};
+ (tester,set)
+}
+"#;
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("callback-cleanup.kgr", source),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let root_module = &artifact.program.modules[artifact.program.root.index()];
+    let declaration = root_module
+        .trait_contracts
+        .iter()
+        .find(|c| c.abi.name == "Test")
+        .unwrap()
+        .declaration
+        .clone();
+    let method = |name: &str| {
+        let mut id = declaration.clone();
+        id.path
+            .push(kagari_common::identity::DefinitionPathSegment {
+                kind: kagari_common::identity::DefinitionKind::Method,
+                name: name.into(),
+                occurrence: 0,
+            });
+        id
+    };
+    let mut config = kagari_runtime::RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = kagari_runtime::Runtime::new(config);
+    let loaded = runtime
+        .load_program("callback-cleanup", artifact.program)
+        .unwrap();
+    let mut vm = kagari_vm::Vm::new(runtime);
+    for mode in 1..=4 {
+        let value = vm.execute(&loaded, "make").unwrap().return_value;
+        let root = vm.runtime().root_value(value.clone()).unwrap();
+        let Value::Tuple(values) = value else {
+            panic!("tuple")
+        };
+        vm.invoke_interface_method(&values[0], &method("mode"), &[Value::I32(mode)])
+            .unwrap();
+        let error = vm
+            .invoke_interface_method(&values[0], &method("attempt"), &[])
+            .unwrap_err();
+        let message = format!("{error:?}");
+        assert!(
+            message.contains(if mode == 1 || mode == 3 {
+                "container mutation during"
+            } else if mode == 2 {
+                "comparison failure"
+            } else {
+                "hash failure"
+            }),
+            "{message}"
+        );
+        let Value::Set(id) = values[1] else {
+            panic!("set")
+        };
+        assert_eq!(vm.runtime().gc().set_len(id), Some(1));
+        assert_eq!(vm.runtime().gc().active_roots(), 1);
+        if mode <= 2 {
+            assert_eq!(
+                vm.invoke_interface_method(&values[0], &method("calls"), &[])
+                    .unwrap(),
+                Value::I32(1)
+            );
+        }
+        vm.invoke_interface_method(&values[0], &method("clear"), &[])
+            .unwrap();
+        assert_eq!(vm.runtime().gc().set_len(id), Some(0));
+        assert!(!vm.runtime().is_quarantined());
+        drop(root);
+    }
+
+    // Nested reads use a second guard; dropping it must preserve the outer guard.
+    let value = vm.execute(&loaded, "make").unwrap().return_value;
+    let root = vm.runtime().root_value(value.clone()).unwrap();
+    let Value::Tuple(values) = value else {
+        panic!("tuple")
+    };
+    vm.invoke_interface_method(&values[0], &method("mode"), &[Value::I32(5)])
+        .unwrap();
+    vm.invoke_interface_method(&values[0], &method("attempt"), &[])
+        .unwrap();
+    let Value::Set(id) = values[1] else {
+        panic!("set")
+    };
+    assert_eq!(vm.runtime().gc().set_len(id), Some(2));
+    assert_eq!(vm.runtime().gc().active_roots(), 1);
+    // Native helpers cannot silently run identity lookup on stored custom keys.
+    assert!(
+        vm.runtime()
+            .invoke_standard_builtin(
+                kagari_hir::builtin::surface::StandardIntrinsic::SetContains,
+                &[values[1].clone(), values[0].clone()],
+            )
+            .is_err()
+    );
+    drop(root);
+
+    for limit in [2, 12, 24, 40] {
+        let value = vm.execute(&loaded, "make").unwrap().return_value;
+        let root = vm.runtime().root_value(value.clone()).unwrap();
+        let Value::Tuple(values) = value else {
+            panic!("tuple")
+        };
+        let Value::Set(id) = values[1] else {
+            panic!("set")
+        };
+        let mut options = vm.runtime().execution_options();
+        options.resources.max_instruction_steps = Some(limit);
+        let session = vm.runtime().begin_execution(&loaded, options).unwrap();
+        let result = vm.invoke_interface_method(&values[0], &method("attempt"), &[]);
+        drop(session);
+        if result.is_err() {
+            assert_eq!(vm.runtime().gc().set_len(id), Some(1));
+        }
+        assert_eq!(vm.runtime().gc().active_roots(), 1);
+        vm.invoke_interface_method(&values[0], &method("clear"), &[])
+            .unwrap();
+        assert_eq!(vm.runtime().gc().set_len(id), Some(0));
+        drop(root);
+    }
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn imported_equality_and_hash_use_the_defining_modules_implementations() {
+    use kagari_common::{
+        identity::{ModuleIdentity, PackageId},
+        source_database::SourceLayer,
+    };
+    for downstream_override in [false, true] {
+        let engine = KagariEngine::default();
+        let model = r#"
+pub struct Key {pub val id:i32}
+impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}}
+impl Eq for Key {}
+impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}
+pub fn equal(a:Key,b:Key)->bool {a==b}
+pub fn make()->Map<Key,i32> {val m:Map<Key,i32> = std::map::new();m.insert(Key{id:1},42);m}
+"#;
+        let root_source = if downstream_override {
+            "use pkg::model::Key; impl PartialEq for Key {fn eq(self,other:Self)->bool {false}} fn main()->i32 {42}"
+        } else {
+            "use pkg::model::{Key,equal,make}; fn same<T:Eq>(a:T,b:T)->bool {a==b} fn main()->i32 {val a=Key{id:1};val b=Key{id:1};if equal(a,b) && same(a,b) && a !== b {make().get(b).unwrap_or(0)} else {0}}"
+        };
+        let mut root = None;
+        for (name, source) in [("model", model), ("root", root_source)] {
+            let path = format!("mem://{name}");
+            engine
+                .bind_module(
+                    &path,
+                    ModuleIdentity {
+                        package: PackageId("pkg".into()),
+                        path: vec![name.into()],
+                    },
+                )
+                .unwrap();
+            let id = engine
+                .set_source(&path, source.into(), SourceLayer::Base)
+                .unwrap();
+            if name == "root" {
+                root = Some(id);
+            }
+        }
+        let checked = engine.compile_snapshot(
+            engine.source_snapshot(),
+            root.unwrap(),
+            Default::default(),
+            &Default::default(),
+        );
+        if downstream_override {
+            assert!(checked.is_err());
+            continue;
+        }
+        let artifact = engine
+            .emit_bytecode(&checked.unwrap(), Default::default())
+            .unwrap();
+        let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        assert_eq!(
+            runtime
+                .execute(&loaded, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+    }
+}
+
+#[test]
+fn portable_hash_implementations_require_explicit_comparison_contracts() {
+    use kagari_hir::builtin::traits::StandardTrait;
+    use kagari_ir::module::{PublicAbiItem, abi::AbiType};
+    let artifact = KagariEngine::default()
+        .compile_to_artifact(
+            SourceFile::new(
+                "key-wire.kgr",
+                r#"
+struct Key {val id:i32}
+impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}}
+impl Eq for Key {}
+impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}
+fn main()->i64 {Key{id:1}.hash()}
+"#,
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    for missing in [StandardTrait::Eq, StandardTrait::PartialEq] {
+        let mut program = artifact.program.clone();
+        let module = &mut program.modules[program.root.index()];
+        module.public_items.retain(|item| !matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(t) if t.declaration==missing.contract().id)));
+        assert!(
+            kagari_ir::bytecode::verify_program(&program).is_err(),
+            "missing {missing:?}"
+        );
+    }
+}
+
+#[test]
+fn builtin_keys_keep_native_lookup_and_custom_keys_emit_guarded_calls() {
+    use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, StandardIntrinsic};
+    for custom in [false, true] {
+        let implementation = if custom {
+            "impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}} impl Eq for Key {} impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}"
+        } else {
+            ""
+        };
+        let source = format!(
+            "struct Key {{val id:i32}} {implementation} fn main()->i32 {{val m:Map<Key,i32> = std::map::new();val k=Key{{id:1}};m.insert(k,42);m.get(k).unwrap_or(0)}}"
+        );
+        let artifact = KagariEngine::default()
+            .compile_to_artifact(
+                SourceFile::new("fast-key.kgr", source),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        let calls: Vec<_> = artifact
+            .program
+            .modules
+            .iter()
+            .flat_map(|m| &m.functions)
+            .flat_map(|f| &f.instructions)
+            .filter_map(|op| match op {
+                BytecodeInstruction::Call {
+                    callee: CallTarget::StandardIntrinsic(op),
+                    ..
+                } => Some(*op),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls.contains(&StandardIntrinsic::KeyLookupBegin), custom);
+        assert_eq!(calls.contains(&StandardIntrinsic::MapInsert), !custom);
+    }
+}
+
+#[test]
+fn composed_enum_hash_uses_variant_identity_instead_of_version_local_slots() {
+    let mut hashes = Vec::new();
+    for variants in ["Empty, Present(Key)", "Present(Key), Empty"] {
+        let source = format!(
+            "struct Key {{val id:i32}} impl PartialEq for Key {{fn eq(self,other:Self)->bool {{self.id==other.id}}}} impl Eq for Key {{}} impl Hash for Key {{fn hash(self)->i64 {{self.id.hash()}}}} enum Envelope {{{variants}}} fn main()->i64 {{Envelope::Present(Key{{id:1}}).hash()}}"
+        );
+        let engine = KagariEngine::default();
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("stable-variant.kgr", source),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        hashes.push(
+            runtime
+                .execute(&loaded, "main", &[], &context)
+                .unwrap()
+                .return_value,
+        );
+    }
+    assert_eq!(hashes[0], hashes[1]);
+}

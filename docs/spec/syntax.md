@@ -181,7 +181,7 @@ The following token families are part of the source syntax:
 
 - arithmetic operators: `+`, `-`, `*`, `/`, `%`
 - logical operators: `!`, `&&`, `||`
-- comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- comparison operators: `==`, `!=`, `===`, `!==`, `<`, `<=`, `>`, `>=`
 - assignment operators: `=`, `+=`, `-=`, `*=`, `/=`
 - range operators: `..`, `..=`
 - path and member operators: `::`, `.`
@@ -714,7 +714,7 @@ logic_or_expr   ::= logic_and_expr ("||" logic_and_expr)* ;
 
 logic_and_expr  ::= equality_expr ("&&" equality_expr)* ;
 
-equality_expr   ::= compare_expr (("==" | "!=") compare_expr)* ;
+equality_expr   ::= compare_expr (("==" | "!=" | "===" | "!==") compare_expr)* ;
 
 compare_expr    ::= additive_expr (("<" | "<=" | ">" | ">=") additive_expr)* ;
 

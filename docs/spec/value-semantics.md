@@ -19,23 +19,21 @@ An interface may retain a checked durable host root as its concrete payload;
 this does not make host borrow tokens or path views valid heap payloads. See the
 [host interface contract](traits.md#host-associated-outputs-and-interfaces).
 
-The current implementation uses the equality rules below. The accepted extension
-in [Equality and hashing](#equality-and-hashing) defines custom comparison and
-identity operators; those features are not implemented yet.
+[Equality and hashing](#equality-and-hashing) defines explicit protocol selection
+and type-specific defaults. Without overrides, scalars and strings compare by
+value, tuples by corresponding members, enums by nominal type, variant and
+corresponding members, and mutable objects by identity. Composite defaults use
+the selected member implementations. Interface values and host handles/path
+views do not support general equality.
 
-Equality compares scalars and strings by value, tuples by corresponding members,
-and enums by nominal type, variant, and corresponding members. Mutable objects
-compare by identity. Interface values and host handles/path views do not support
-general equality. A tuple/enum supports equality only if its members do.
-Enum comparison uses declaration identity, applied type arguments and variant
-identity; adding or reordering private variants in a later execution version does
-not change equality of an existing variant with the same members.
+Default enum comparison uses declaration identity, applied type arguments and
+variant identity; adding or reordering private variants in a later execution
+version does not change comparison of an existing variant with the same members.
 Floating-point equality follows IEEE comparisons (`NaN != NaN`, `-0 == +0`).
-Map and Set keys require the standard `Eq + Hash` protocols. Unit, bool, integers,
-String, qualifying tuples/enums and mutable identity objects qualify. Float,
-interface and host values do not. Keys preserve the equality rules above; mutable
-object contents never affect key equality or hashing. Containers trace retained
-keys as well as values. See [standard protocols](builtins.md#collection-types).
+Map and Set keys require `Eq + Hash` and trace retained keys as well as values.
+Default object identity is unaffected by content mutation; custom equality/hash
+requires the user to preserve equality-relevant state while keys are stored.
+See [standard protocols](builtins.md#collection-types).
 
 Iteration prevents structural mutation of the iterated collection through any
 alias: insert, remove, clear, reorder, and length-changing operations fail before
@@ -57,11 +55,9 @@ and match patterns. A literal pattern must have the scrutinee's type.
 
 ## Equality and hashing
 
-Status: identity operators `===` and `!==` are implemented. Custom equality and
-hashing remain an accepted target contract pending implementation; the current
-compiler still seals PartialEq/Eq/Hash. Custom-implementation examples below
-describe target behavior, not runnable coverage. Current default comparison
-descriptions above remain accurate.
+The operators, defaults and overrides below are implemented. Runnable coverage
+is provided by [standard-traits.kgr](../../examples/syntax/standard-traits.kgr)
+and the standard-protocol integration tests.
 
 ### One implementation selection rule
 
@@ -104,7 +100,12 @@ this extension does not open host equality implementations.
 
 ### Explicit Struct and enum implementations
 
-Struct and user enum declarations permit the same explicit implementations:
+Struct and user enum declarations permit the same explicit implementations.
+Implementations of these canonical protocols must be in the type's defining
+module. This prevents a downstream import from changing equality for values
+already stored by a dependency. Generic implementations are selected for each
+concrete instantiation under their declared bounds:
+
 
 | Explicit implementations | `==` / `.eq()` | Eq and Hash eligibility |
 | --- | --- | --- |
@@ -116,7 +117,7 @@ Struct and user enum declarations permit the same explicit implementations:
 An explicit PartialEq replaces the default comparison and removes the implicit
 Eq and Hash implementations. Eq must then be declared explicitly and Hash must
 be implemented explicitly when needed. Hash-only overrides retaining default
-comparison are rejected; custom key protocols use the complete
+comparison are rejected, as are Eq-only declarations; custom key protocols use the complete
 PartialEq/Eq/Hash set. Comparison alone does not require a Hash implementation.
 
 An enum's explicit comparison replaces its entire default comparison, including
@@ -250,6 +251,20 @@ Earlier callback effects elsewhere are not rolled back. Execution must preserve
 GC roots and release guards on failure; no mutable storage borrow may span
 arbitrary script callbacks. These are implementation requirements, separate from
 the user's responsibility for valid equality and stable keys.
+
+Container operations hash the query once, then compare it with stored candidates
+in the matching hash bucket, in insertion order. The query is the comparison
+receiver. Comparisons stop at the first match; updates retain the original key.
+There is no identity shortcut around an explicit comparison, even for aliases.
+Reentrant reads are allowed; mutation of the active container traps, including
+updates which would not change its length. Trap and budget termination release
+the lookup guard and temporary roots.
+
+Builtin-only keys retain native hashing and lookup. Composite values containing
+custom members use reusable compiled comparison/hash helpers. These helpers and
+user callbacks run through ordinary linked calls, logical budgets and GC
+safepoints; JIT-ineligible paths use the interpreter.
+
 
 ## Evaluation and assignment
 

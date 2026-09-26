@@ -1859,6 +1859,8 @@ impl<'a> BodyChecker<'a> {
             (None, None) => None,
         };
         match intrinsic {
+            KeyLookupBegin | KeyCandidates | KeyMapGet | KeyMapInsert | KeyMapRemove
+            | KeySetContains | KeySetInsert | KeySetRemove => TypeId::Error,
             ArrayLen | ArrayIsEmpty | ArrayClear | ArrayPop => {
                 let array_ty = base_ty.clone();
                 let Some(TypeId::Array(element)) = array_ty else {
@@ -4709,5 +4711,7 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         ValueHash => "std::hash::Hash::hash",
         ValueDebug => "std::fmt::Debug::debug",
         ValueDisplay => "std::fmt::Display::display",
+        KeyLookupBegin | KeyCandidates | KeyMapGet | KeyMapInsert | KeyMapRemove
+        | KeySetContains | KeySetInsert | KeySetRemove => "internal key operation",
     }
 }

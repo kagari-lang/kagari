@@ -169,7 +169,7 @@ impl HostDeclarations {
                         .with_span(Span::default()),
                     );
                 };
-                if standard.is_some_and(|kind| kind.sealed()) {
+                if standard.is_some_and(|kind| kind.equality_protocol()) {
                     report(
                         "standard equality and hashing cannot be overridden by host bindings"
                             .into(),

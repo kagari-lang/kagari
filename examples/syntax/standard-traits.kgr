@@ -14,7 +14,44 @@ fn hash<T: Eq + Hash>(value: T) -> i64 { value.hash() }
 
 enum Key { Number(i32), Name(String) }
 
+// Value comparison is explicit; === still tests identity.
+struct User { val id: i32, var label: String }
+impl PartialEq for User {
+    fn eq(self, other: Self) -> bool { self.id == other.id }
+}
+impl Eq for User {}
+impl Hash for User {
+    fn hash(self) -> i64 { self.id.hash() }
+}
+
+// Enum defaults compose member protocols, including User's custom methods.
+enum Entry { Empty, Present(User) }
+
+// An explicit enum implementation can equate different variants.
+enum Identifier { Local(i32), Remote(i32) }
+fn number(value: Identifier) -> i32 {
+    match value { Identifier::Local(id) => id, Identifier::Remote(id) => id }
+}
+impl PartialEq for Identifier {
+    fn eq(self, other: Self) -> bool { number(self) == number(other) }
+}
+impl Eq for Identifier {}
+impl Hash for Identifier {
+    fn hash(self) -> i64 { number(self).hash() }
+}
+
 fn main() -> i32 {
+    val first = User { id: 1, label: "before" };
+    val second = User { id: 1, label: "other" };
+    std::debug::assert(first == second && first !== second, "value and identity");
+    val users: Set<(Entry, i32)> = std::set::new();
+    users.insert((Entry::Present(first), 7));
+    // label is excluded from equality/hash; id must remain stable while stored.
+    first.label = "after";
+    std::debug::assert(users.contains((Entry::Present(second), 7)), "nested custom key");
+    val ids: Set<Identifier> = std::set::new();
+    ids.insert(Identifier::Local(42));
+    std::debug::assert(ids.contains(Identifier::Remote(42)), "whole enum override");
     val values: Map<(Key, i32), i32> = std::map::new();
     values.insert((Key::Name("answer"), 1), 20);
     val label = Label { value: 22 };

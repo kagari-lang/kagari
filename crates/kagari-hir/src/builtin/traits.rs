@@ -59,7 +59,7 @@ impl StandardTrait {
             associated_types: Default::default(),
         }
     }
-    pub fn sealed(self) -> bool {
+    pub fn equality_protocol(self) -> bool {
         matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
     }
     pub fn contract(self) -> &'static TraitSignature {
@@ -159,6 +159,11 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
+    if protocol.equality_protocol()
+        && let Some(catalog) = catalog
+    {
+        return catalog.standard_protocol_holds(protocol, ty, bounds);
+    }
     let mut pending = vec![(ty.clone(), 0usize)];
     let mut seen = std::collections::HashSet::new();
     while let Some((ty, depth)) = pending.pop() {

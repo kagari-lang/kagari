@@ -110,23 +110,30 @@ The compiler, IR, bytecode verifier, runtime, GC, reload validation, reflection 
 `Map` and `Set` are deterministic insertion-ordered collections.
 The Rust runtime implementation should use `indexmap` for their backing storage unless a future implementation proves an equivalent deterministic order, hash behavior, and performance profile.
 
-The following describes the current implementation. The accepted
-[equality and hashing extension](value-semantics.md#equality-and-hashing) defines
-custom Struct and enum implementations, member composition, identity operators
-and user obligations for mutable keys; it is pending implementation.
-
-Map and Set keys require the canonical standard `Eq + Hash` protocols:
+The [equality and hashing contract](value-semantics.md#equality-and-hashing)
+defines defaults, custom Struct/enum implementations and user obligations for
+mutable keys. Map and Set keys require the canonical standard `Eq + Hash`:
 
 - unit, bool, integers and String use value equality and hashing;
-- Tuple, enum, Option and Result qualify when all members qualify;
-- Struct, Array, Map and Set use stable object identity, independently of their contents.
+- Tuple, Option and Result compose the protocols of all members;
+- user enums use explicit implementations, or eligible variant/member defaults;
+- Struct uses explicit implementations, or stable object identity;
+- Array, Map and Set use stable object identity, independently of their contents.
 
-Float, interface, host handle/path and function values are not keys. All enum
-variants are checked, including variants not constructed by the current expression.
-Objects referenced by keys remain GC roots while the owning container is reachable.
-Key preparation validates handles and computes a bounded immutable key before
-borrowing the container for modification. No script callback runs during key
-lookup or commit. Mutation of an identity key cannot invalidate its hash.
+Float, interface, host handle/path and function values are not keys themselves.
+Default enum eligibility checks every variant. A complete custom enum protocol
+may ignore payloads which do not themselves implement Eq/Hash.
+Objects referenced by keys are traced while the owning container is reachable.
+Builtin-only keys use a bounded immutable canonical key and native lookup.
+Custom keys hash and compare in ordinary script frames before committing a
+modification; no storage borrow spans a callback. Mutation of the active
+container traps, and failure releases lookup guards and temporary GC roots.
+Mutation of an identity key cannot invalidate its hash; custom key stability is
+the user's responsibility.
+
+Raw `GcHeap` key helpers only execute builtin protocols. Hosts must call script
+entrypoints for custom-key lookup and mutation; raw collection snapshots, length
+queries and clear operations do not invoke equality/hash callbacks.
 
 The standard declarations are `std::cmp::{PartialEq, Eq}`, `std::hash::Hash`, and
 `std::fmt::{Debug, Display}`. Their short names are available in the prelude;
@@ -144,11 +151,12 @@ trait Display { fn display(self) -> String; }
 ```
 
 These signatures illustrate the canonical contracts; redeclaring them creates
-new traits. The equality and hashing protocols are currently sealed to preserve the
-[value contract](value-semantics.md). Floats implement PartialEq, but not Eq or
+new traits. Script Structs and enums can implement PartialEq, Eq and Hash in
+their defining module, following the [value contract](value-semantics.md).
+Floats implement PartialEq, but not Eq or
 Hash. Hash values are runtime hash codes, not persistent fingerprints, and have
-no cross-version or cross-runtime stability promise. Equal keys in one runtime
-always hash equally. `==`, `.eq()` and Map/Set lookup share the same rules.
+no cross-version or cross-runtime stability promise. User implementations must ensure that equal keys in one runtime
+hash equally. `==`, `.eq()` and Map/Set lookup share the same rules.
 
 Scalars implement Debug and Display. Debug additionally formats tuples and enums
 structurally and mutable objects as bounded identity previews (for example,

@@ -7,6 +7,60 @@ use crate::module::function::{IrCapturedBindingDebugInfo, IrParameter};
 use crate::module::{function::IrFunction, instruction::Terminator};
 use kagari_hir::resolver::ResolvedName;
 
+pub(crate) fn lower_protocol<'a>(
+    module: &'a AnalyzedModule,
+    parent: &hir::Function,
+    instance: super::instances::Instance,
+    planner: &mut super::instances::InstancePlanner<'a>,
+) -> Result<IrFunction, IrLoweringError> {
+    use crate::module::instruction::Instruction;
+    let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
+    let equality = protocol == kagari_hir::builtin::traits::StandardTrait::PartialEq;
+    let typed = kagari_hir::typeck::TypedFunction {
+        generic_params: Vec::new(),
+        bounds: Default::default(),
+        id: parent.id,
+        name: String::new(),
+        params: Default::default(),
+        return_type: kagari_hir::types::TypeId::Builtin(if equality {
+            kagari_hir::types::BuiltinType::Bool
+        } else {
+            kagari_hir::types::BuiltinType::I64
+        }),
+    };
+    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
+    lowerer.function.name = format!(
+        "$derived_{}_{}",
+        protocol.name(),
+        lowerer.function.id.index()
+    );
+    let mut args = Vec::new();
+    for index in 0..if equality { 2 } else { 1 } {
+        let physical = lowerer.value_type(&receiver)?;
+        let name = format!("arg_{index}");
+        let local = lowerer.alloc_local(name.clone(), physical, lowerer.function.debug.source_span);
+        lowerer
+            .function
+            .debug
+            .locals
+            .last_mut()
+            .expect("protocol parameter")
+            .is_parameter = true;
+        lowerer.function.params.push(IrParameter {
+            name,
+            ty: physical,
+            local,
+        });
+        let value = lowerer.alloc_temp(physical);
+        lowerer.emit(Instruction::LoadLocal { dst: value, local });
+        args.push(value);
+    }
+    let value = lowerer.lower_protocol_body(protocol, &receiver, &args, 0)?;
+    lowerer.set_terminator(Terminator::Return(Some(value)));
+    lowerer.planner.check()?;
+    Ok(lowerer.finish())
+}
+
 pub(crate) fn lower_function<'a>(
     module: &'a AnalyzedModule,
     function: &hir::Function,

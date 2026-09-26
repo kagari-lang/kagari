@@ -420,6 +420,26 @@ impl<'a> Executor<'a> {
         dst: Option<Register>,
         args: Vec<Value>,
     ) -> Result<(), VmError> {
+        use kagari_ir::bytecode::StandardIntrinsic::*;
+        if intrinsic == KeyLookupBegin {
+            self.current_frame_mut()?.begin_key_lookup(
+                args.first()
+                    .ok_or(VmError::TypeMismatch("key lookup collection"))?,
+            )?;
+            if let Some(dst) = dst {
+                self.current_frame_mut()?.write_register(dst, Value::Unit)?;
+            }
+            return Ok(());
+        }
+        if matches!(
+            intrinsic,
+            KeyMapGet | KeyMapInsert | KeyMapRemove | KeySetContains | KeySetInsert | KeySetRemove
+        ) {
+            self.current_frame_mut()?.end_key_lookup(
+                args.first()
+                    .ok_or(VmError::TypeMismatch("key lookup collection"))?,
+            )?;
+        }
         let value = self
             .runtime
             .invoke_standard_builtin(intrinsic, &args)

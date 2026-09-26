@@ -453,7 +453,11 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
     let runtime_read = EffectSet::runtime_call().union(EffectSet::aggregate_read());
     let mutating = matches!(
         intrinsic,
-        ArrayPush
+        KeyMapInsert
+            | KeyMapRemove
+            | KeySetInsert
+            | KeySetRemove
+            | ArrayPush
             | ArrayPop
             | ArrayInsert
             | ArrayRemove
@@ -467,7 +471,10 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
     );
     let allocating = matches!(
         intrinsic,
-        ArrayGet
+        KeyCandidates
+            | KeyMapGet
+            | KeyMapRemove
+            | ArrayGet
             | ArrayPop
             | ArrayRemove
             | MapNew

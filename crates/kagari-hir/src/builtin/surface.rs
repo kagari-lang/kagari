@@ -130,6 +130,14 @@ pub struct StandardModuleSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StandardIntrinsic {
+    KeyLookupBegin,
+    KeyCandidates,
+    KeyMapGet,
+    KeyMapInsert,
+    KeyMapRemove,
+    KeySetContains,
+    KeySetInsert,
+    KeySetRemove,
     ValueEq,
     ValueHash,
     ValueDebug,

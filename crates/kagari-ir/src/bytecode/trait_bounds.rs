@@ -272,7 +272,7 @@ pub(super) fn trait_bounds_match(
         }
         for (index, implementation) in host.trait_implementations.iter().enumerate() {
             if kagari_hir::builtin::traits::StandardTrait::from_id(&implementation.trait_id)
-                .is_some_and(|kind| kind.sealed())
+                .is_some_and(|kind| kind.equality_protocol())
             {
                 return false;
             }
@@ -300,6 +300,12 @@ pub(super) fn trait_bounds_match(
     let Some(mut catalog) = AggregateCatalog::from_implementation_signatures(signatures) else {
         return false;
     };
+    if catalog
+        .implementations()
+        .any(|implementation| catalog.standard_override_error(implementation).is_some())
+    {
+        return false;
+    }
     for layout in closure.iter().flat_map(|module| &module.enumerations) {
         let ty = kagari_hir::types::NominalType {
             declaration: layout.declaration.clone(),

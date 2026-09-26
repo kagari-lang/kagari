@@ -289,6 +289,7 @@ pub struct ExecutionFrame {
     return_dst: Option<Register>,
     interface_method: Option<RootedInterfaceMethod>,
     iterations: Vec<CollectionIteration>,
+    key_lookups: Vec<(Value, CollectionIteration)>,
 }
 
 impl std::fmt::Debug for ExecutionFrame {
@@ -342,9 +343,29 @@ impl ExecutionFrame {
             return_dst,
             interface_method,
             iterations: Vec::new(),
+            key_lookups: Vec::new(),
         })
     }
 
+    pub fn begin_key_lookup(&mut self, value: &Value) -> Result<(), RuntimeError> {
+        self.key_lookups
+            .push((value.clone(), self.heap.begin_key_lookup(value)?));
+        Ok(())
+    }
+    pub fn end_key_lookup(&mut self, value: &Value) -> Result<(), RuntimeError> {
+        if !self
+            .key_lookups
+            .last()
+            .is_some_and(|(collection, _)| collection == value)
+        {
+            return Err(RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "key lookup guard mismatch",
+            ));
+        }
+        self.key_lookups.pop();
+        Ok(())
+    }
     pub fn begin_iteration(&mut self, collection: Register) -> Result<(), RuntimeError> {
         let value = self.read_register(collection)?;
         self.iterations

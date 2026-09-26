@@ -22,7 +22,7 @@ pub(crate) fn trait_bindings_match(
             cancel.check()?;
             let id = &implementation.trait_id;
             if let Some(kind) = kagari_hir::builtin::traits::StandardTrait::from_id(id) {
-                if kind.sealed()
+                if kind.equality_protocol()
                     || !host_trait_matches(
                         implementation,
                         host,

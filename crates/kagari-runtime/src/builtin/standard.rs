@@ -38,6 +38,29 @@ pub fn invoke_with_callbacks(
     use StandardIntrinsic::*;
 
     match intrinsic {
+        MapContainsKey | MapGet | MapInsert | MapRemove | SetContains | SetInsert | SetRemove => {
+            if let Some(collection) = args.first() {
+                gc.ensure_key_mode(collection, false)?;
+            }
+        }
+        SetUnion | SetIntersection | SetDifference => {
+            for collection in args.iter().take(2) {
+                gc.ensure_key_mode(collection, false)?;
+            }
+        }
+        _ => {}
+    }
+    match intrinsic {
+        KeyLookupBegin => Err(BuiltinError::new("key lookup requires an execution frame")),
+        KeyCandidates => {
+            let [collection, Value::I64(hash)] = args else {
+                return Err(BuiltinError::new("invalid key candidates arguments"));
+            };
+            array_value(gc, gc.custom_candidates(collection, *hash)?)
+        }
+        KeyMapGet | KeyMapInsert | KeyMapRemove | KeySetContains | KeySetInsert | KeySetRemove => {
+            custom_key_operation(gc, intrinsic, args)
+        }
         ValueEq => {
             let [a, b] = args else {
                 return Err(BuiltinError::new("eq expects two operands"));
@@ -429,37 +452,33 @@ fn set_union(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .set_snapshot(rhs)
         .ok_or_else(|| BuiltinError::new("set.union expects valid rhs set"))?
     {
-        if !values.iter().any(|existing| existing == &value) {
-            values.push(value);
-        }
+        values.push(value);
     }
     set_value(gc, values)
 }
 
 fn set_intersection(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let (lhs, rhs) = two_sets(args, "set.intersection")?;
-    let rhs_values = gc
-        .set_snapshot(rhs)
+    gc.set_len(rhs)
         .ok_or_else(|| BuiltinError::new("set.intersection expects valid rhs set"))?;
     let values = gc
         .set_snapshot(lhs)
         .ok_or_else(|| BuiltinError::new("set.intersection expects valid lhs set"))?
         .into_iter()
-        .filter(|value| rhs_values.iter().any(|rhs_value| rhs_value == value))
+        .filter(|value| gc.set_contains(rhs, value) == Some(true))
         .collect();
     set_value(gc, values)
 }
 
 fn set_difference(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let (lhs, rhs) = two_sets(args, "set.difference")?;
-    let rhs_values = gc
-        .set_snapshot(rhs)
+    gc.set_len(rhs)
         .ok_or_else(|| BuiltinError::new("set.difference expects valid rhs set"))?;
     let values = gc
         .set_snapshot(lhs)
         .ok_or_else(|| BuiltinError::new("set.difference expects valid lhs set"))?
         .into_iter()
-        .filter(|value| !rhs_values.iter().any(|rhs_value| rhs_value == value))
+        .filter(|value| gc.set_contains(rhs, value) == Some(false))
         .collect();
     set_value(gc, values)
 }
@@ -1130,6 +1149,65 @@ fn option_ok_or(
                 error.clone()
             };
             result_err(gc, error)
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn custom_key_operation(
+    gc: &GcHeap,
+    op: StandardIntrinsic,
+    args: &[Value],
+) -> Result<Value, BuiltinError> {
+    use StandardIntrinsic::*;
+    let [collection, Value::I64(hash), Value::I64(token), rest @ ..] = args else {
+        return Err(BuiltinError::new("invalid key operation arguments"));
+    };
+    if matches!(op, KeyMapGet | KeyMapInsert | KeyMapRemove) && !matches!(collection, Value::Map(_))
+        || matches!(op, KeySetContains | KeySetInsert | KeySetRemove)
+            && !matches!(collection, Value::Set(_))
+    {
+        return Err(BuiltinError::new("key operation collection category"));
+    }
+    match op {
+        KeyMapGet | KeyMapRemove => {
+            if op == KeyMapRemove
+                && let Value::Map(id) = collection
+            {
+                gc.ensure_structure_mutable(*id)?;
+            }
+            let value = gc.custom_get(collection, *hash, *token)?;
+            let result = match value {
+                Some(value) => option_some(gc, value)?,
+                None => option_none(gc)?,
+            };
+            if op == KeyMapRemove {
+                gc.custom_remove(collection, *hash, *token)?;
+            }
+            Ok(result)
+        }
+        KeySetContains => Ok(Value::Bool(
+            gc.custom_get(collection, *hash, *token)?.is_some(),
+        )),
+        KeyMapInsert | KeySetInsert => {
+            let key = rest
+                .first()
+                .ok_or_else(|| BuiltinError::new("missing custom key"))?
+                .clone();
+            let value = if op == KeyMapInsert {
+                rest.get(1)
+                    .ok_or_else(|| BuiltinError::new("missing map value"))?
+                    .clone()
+            } else {
+                Value::Unit
+            };
+            gc.custom_insert(collection, *hash, *token, key, value)?;
+            Ok(collection.clone())
+        }
+        KeySetRemove => {
+            let exists = gc.custom_get(collection, *hash, *token)?.is_some();
+            gc.custom_remove(collection, *hash, *token)?;
+            Ok(Value::Bool(exists))
         }
         _ => unreachable!(),
     }

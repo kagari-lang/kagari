@@ -41,6 +41,7 @@ pub(super) struct Instance {
     pub key: FunctionInstance,
     pub substitution: TypeSubstitution,
     pub closure: Option<hir::ExprId>,
+    pub protocol: Option<(kagari_hir::builtin::traits::StandardTrait, TypeId)>,
 }
 
 pub(super) struct InstancePlanner<'a> {
@@ -97,6 +98,51 @@ impl<'a> InstancePlanner<'a> {
     }
     pub fn owner(&self) -> &'a AnalyzedModule {
         self.module
+    }
+    pub fn enqueue_protocol(
+        &mut self,
+        parent: &Instance,
+        protocol: kagari_hir::builtin::traits::StandardTrait,
+        ty: &TypeId,
+        span: Span,
+    ) -> Result<InstanceId, IrLoweringError> {
+        self.check()?;
+        let declaration = kagari_common::identity::DefinitionId {
+            module: self.module.lowered.source.module_identity().clone(),
+            path: vec![kagari_common::identity::DefinitionPathSegment {
+                kind: kagari_common::identity::DefinitionKind::Function,
+                name: format!("$derived_{}", protocol.name()),
+                occurrence: 0,
+            }],
+        };
+        let key = FunctionInstance {
+            declaration,
+            arguments: vec![ty.clone()],
+        };
+        if let Some(id) = self.keys.get(&key) {
+            return Ok(*id);
+        }
+        if self.generic_count >= self.options.max_generic_instances {
+            return Err(IrLoweringError::diagnostic(limit_diagnostic(
+                "generic instances",
+                self.options.max_generic_instances,
+                span,
+            )));
+        }
+        self.generic_count += 1;
+        let id = InstanceId::new(self.instances.len());
+        self.keys.insert(key.clone(), id);
+        self.instances.push(Instance {
+            origin: parent.origin.clone(),
+            id,
+            function: parent.function,
+            key,
+            substitution: parent.substitution.clone(),
+            closure: None,
+            protocol: Some((protocol, ty.clone())),
+        });
+        self.record_layout_root(ty, &Default::default(), span)?;
+        Ok(id)
     }
     pub fn constant(
         &self,
@@ -191,6 +237,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
+            protocol: None,
         });
         Ok(id)
     }
@@ -420,6 +467,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
+            protocol: None,
         });
         Ok(id)
     }
@@ -462,6 +510,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution: parent.substitution.clone(),
             closure: Some(closure),
+            protocol: None,
         });
         Ok(id)
     }

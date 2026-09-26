@@ -794,13 +794,15 @@ See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which retu
 The standard PartialEq, Eq, Hash, Debug and Display contracts are described in
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;
-user definitions named Eq or Debug do not gain intrinsic behavior. Equality and
-hashing currently cannot be overridden. The accepted
-[equality and hashing extension](value-semantics.md#equality-and-hashing) specifies
-type-specific defaults, explicit Struct and enum overrides, member composition
-and the user-owned hash-key stability contract; implementation is pending.
-Formatting impls for nominal types are checked,
-specialized and called through the existing trait implementation path.
+user definitions named Eq or Debug do not gain intrinsic behavior. Script Structs
+and enums may override PartialEq/Eq/Hash in their defining module. Explicit
+PartialEq removes automatic Eq/Hash; explicit Eq requires PartialEq, and custom
+Hash requires both. Generic impl bounds must establish those requirements.
+The [equality and hashing contract](value-semantics.md#equality-and-hashing)
+defines defaults, member composition, custom key callbacks and key stability.
+Explicit equality, hashing and nominal formatting methods are checked,
+specialized and linked through the ordinary static implementation path.
+Host equality/hash overrides remain unsupported.
 Standard protocols and their subtraits currently cannot be erased into interface
 values. Ordinary user trait interfaces retain their existing dynamic behavior.
 Generic propagation, Error context, Iterator and ordering protocols are later

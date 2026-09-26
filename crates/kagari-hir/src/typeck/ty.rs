@@ -168,6 +168,13 @@ pub(super) fn resolve_type_in(
     };
     let mut target = None;
     let resolved = match &module.type_ref(ty).kind {
+        hir::TypeKind::Named(name) if name == "Self" && context.implementation.is_some() => module
+            .impls
+            .iter()
+            .find(|item| Some(item.id) == context.implementation)
+            .and_then(|item| item.for_type)
+            .map(|receiver| resolve_type_in(module, receiver, context, table, cancel))
+            .unwrap_or(TypeId::Error),
         hir::TypeKind::Named(name) => {
             let reference = resolve_named_type(name, context);
             target = reference.target;

@@ -1,8 +1,8 @@
 # Kagari Implementation Roadmap
 
-[Foundation refactor](foundation-refactor.md) is the sole active R01鈥揜18 execution plan. Its three semantic contracts and checkpoint status define the behavior to implement and verify. Each completed checkpoint requires a Conventional Commit with a `Roadmap-Step: Rxx` trailer. The [performance baseline](performance-baseline.md) records R18 measurements.
+[Foundation refactor](foundation-refactor.md) is the sole active R01–R18 execution plan. Its three semantic contracts and checkpoint status define the behavior to implement and verify. Each completed checkpoint requires a Conventional Commit with a `Roadmap-Step: Rxx` trailer. The [performance baseline](performance-baseline.md) records R18 measurements.
 
-The former M1鈥揗11 milestone queue is historical and has been removed from this document. Git history retains its original scope and commits; those milestones do not prescribe current APIs, compatibility branches, artifact formats, or acceptance criteria.
+The former M1–M11 milestone queue is historical and has been removed from this document. Git history retains its original scope and commits; those milestones do not prescribe current APIs, compatibility branches, artifact formats, or acceptance criteria.
 
 After the foundation track, plan separate work for complete LSP/editor integration, a full incremental dependency database, async and cross-thread execution policy, incremental or generational GC, complete event replay and persistent state migration, advanced JIT optimization, and further standard-library coverage. These tracks reuse the foundation contracts without reopening their semantics.
 
@@ -83,20 +83,18 @@ runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing,
 Iterator/ordering, generalized propagation and Error origin/stack modeling remain
 separate later checkpoints.
 
-Accepted, not implemented: [custom equality and hashing](spec/value-semantics.md#equality-and-hashing).
-Use explicit implementations when provided and eligible type defaults otherwise.
-Struct defaults use identity; enum and Tuple defaults compose member protocols,
-with enum defaults also checking the variant. Allow Struct and enum comparison
-and matching hash overrides, add non-overridable object `===`/`!==`, and keep
-container bounds as Eq + Hash. Key stability is a documented user obligation,
-not a freeze or automatic reindexing mechanism. Implementation must cover override eligibility,
-composite keys, callback execution/GC/failure/reentry boundaries and consistent
-source, artifact and JIT behavior before marking this extension complete. Include
-cross-variant custom enum equality/hash, nested member overrides, conditional
-default bounds and builtin fast paths in acceptance coverage.
-
 Completed equality checkpoint: object identity operators `===`/`!==`, checked
 from syntax through IR and VM, with artifact format 52 and runtime ABI v52.
 Source/artifact/JIT-fallback tests cover aliases and separate allocations; runtime
-tests reject foreign, stale and mistagged handles. Custom protocol overrides and
-container callbacks in the accepted extension above remain pending.
+tests reject foreign, stale and mistagged handles.
+
+Completed custom equality and hashing checkpoint: explicit Struct and enum
+PartialEq/Eq/Hash implementations, generic bounds, recursive composite helpers,
+and guarded Map/Set callbacks. Native defaults retain their fast path. Type-owned
+implementations keep dependency and caller semantics consistent. Tests cover
+cross-variant enum equality, nested keys, collisions, GC, callback traps, reentry,
+budget cleanup, portable metadata and source/artifact/JIT fallback execution.
+See the [contract](spec/value-semantics.md#equality-and-hashing) and
+[example](../examples/syntax/standard-traits.kgr). Artifact format 53 and runtime
+ABI v53 reject previous products; KHI remains v11. Key stability and equivalence
+laws are user obligations; there is no automatic freezing or reindexing.

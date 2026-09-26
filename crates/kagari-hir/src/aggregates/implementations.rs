@@ -15,6 +15,7 @@ struct SearchBudget<'a> {
     max_depth: usize,
     cancel: &'a CancellationToken,
     assumptions: &'a crate::typeck::GenericBounds,
+    defaults: HashSet<(crate::builtin::traits::StandardTrait, TypeId)>,
 }
 
 impl SearchBudget<'_> {
@@ -43,6 +44,184 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
+    /// Canonical equality is type-owned, so dependency compilation and callers
+    /// cannot disagree because a downstream module adds a different override.
+    pub fn standard_override_error(
+        &self,
+        implementation: &ImplementationSignature,
+    ) -> Option<&'static str> {
+        use crate::builtin::traits::StandardTrait;
+        let protocol = StandardTrait::from_id(&implementation.trait_type.declaration)?;
+        if !protocol.equality_protocol() {
+            return None;
+        }
+        let (TypeId::Struct(nominal) | TypeId::Enum(nominal)) = &implementation.for_type else {
+            return Some("equality/hash implementations require a script Struct or enum");
+        };
+        if nominal.declaration.module != implementation.id.module {
+            return Some("equality/hash implementations must belong to the type's defining module");
+        }
+        for required in [StandardTrait::PartialEq, StandardTrait::Eq] {
+            if protocol == StandardTrait::PartialEq
+                || protocol == StandardTrait::Eq && required == StandardTrait::Eq
+            {
+                continue;
+            }
+            if !matches!(
+                self.concrete_interface_implementation(
+                    &required.nominal(),
+                    &implementation.for_type,
+                    &implementation.bounds,
+                    4096,
+                    64,
+                    &CancellationToken::default()
+                ),
+                Ok(Some(_))
+            ) {
+                return Some(
+                    "custom Eq requires explicit PartialEq; custom Hash requires explicit PartialEq and Eq under the same bounds",
+                );
+            }
+        }
+        None
+    }
+
+    pub fn standard_protocol_holds(
+        &self,
+        protocol: crate::builtin::traits::StandardTrait,
+        ty: &TypeId,
+        assumptions: &crate::typeck::GenericBounds,
+    ) -> bool {
+        let cancel = CancellationToken::default();
+        let mut budget = SearchBudget {
+            checks_left: 4096,
+            depth: 0,
+            max_depth: 64,
+            cancel: &cancel,
+            assumptions,
+            defaults: HashSet::new(),
+        };
+        self.standard_holds(protocol, ty, &mut HashSet::new(), &mut budget)
+            .unwrap_or(false)
+    }
+
+    fn standard_holds(
+        &self,
+        protocol: crate::builtin::traits::StandardTrait,
+        ty: &TypeId,
+        visiting: &mut HashSet<(NominalType, TypeId)>,
+        budget: &mut SearchBudget<'_>,
+    ) -> Result<bool, ImplementationSearchError> {
+        use crate::builtin::traits::StandardTrait;
+        budget.check_candidate()?;
+        if visiting.contains(&(protocol.nominal(), ty.clone())) {
+            return Ok(false);
+        }
+        if budget.defaults.contains(&(protocol, ty.clone())) {
+            return Ok(true);
+        }
+        if budget.depth >= budget.max_depth {
+            return Err(ImplementationSearchError::LimitExceeded);
+        }
+        if let Some(constraints) = budget.assumptions.get(ty) {
+            for constraint in constraints {
+                if let crate::typeck::ConstraintTarget::Trait(nominal) = constraint
+                    && (nominal == &protocol.nominal()
+                        || protocol == StandardTrait::PartialEq
+                            && nominal == &StandardTrait::Eq.nominal())
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        budget.depth += 1;
+        let result = (|| {
+            if matches!(ty, TypeId::Struct(_) | TypeId::Enum(_)) {
+                for implementation in self.implementations.values() {
+                    if self
+                        .implementation_matches(
+                            implementation,
+                            &protocol.nominal(),
+                            ty,
+                            visiting,
+                            budget,
+                        )?
+                        .is_some()
+                    {
+                        return Ok(true);
+                    }
+                }
+                if matches!(protocol, StandardTrait::Eq | StandardTrait::Hash) {
+                    for implementation in self.implementations.values() {
+                        if self
+                            .implementation_matches(
+                                implementation,
+                                &StandardTrait::PartialEq.nominal(),
+                                ty,
+                                visiting,
+                                budget,
+                            )?
+                            .is_some()
+                        {
+                            return Ok(false);
+                        }
+                    }
+                }
+            }
+            let members = match ty {
+                TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. } => {
+                    Some(members.clone())
+                }
+                TypeId::Enum(n) => {
+                    if let Some(declaration) = self.enumeration(&n.declaration) {
+                        let substitution = declaration
+                            .generic_params
+                            .iter()
+                            .cloned()
+                            .zip(n.arguments.iter().cloned())
+                            .collect();
+                        Some(
+                            declaration
+                                .variants
+                                .iter()
+                                .flat_map(|v| {
+                                    v.payload.iter().map(|ty| ty.instantiate(&substitution))
+                                })
+                                .collect(),
+                        )
+                    } else {
+                        match self.concrete_enum_payload(n) {
+                            Some(payload) => Some(payload.to_vec()),
+                            None => return Ok(false),
+                        }
+                    }
+                }
+                _ => None,
+            };
+            if let Some(members) = members {
+                budget.defaults.insert((protocol, ty.clone()));
+                let result = (|| {
+                    for member in members {
+                        if !self.standard_holds(protocol, &member, visiting, budget)? {
+                            return Ok(false);
+                        }
+                    }
+                    Ok(true)
+                })();
+                budget.defaults.remove(&(protocol, ty.clone()));
+                result
+            } else {
+                Ok(crate::builtin::traits::intrinsic_holds(
+                    protocol,
+                    ty,
+                    None,
+                    budget.assumptions,
+                ))
+            }
+        })();
+        budget.depth -= 1;
+        result
+    }
     pub fn implementation_signature(&self, id: &DefinitionId) -> Option<&ImplementationSignature> {
         self.implementations.get(id).map(AsRef::as_ref)
     }
@@ -214,6 +393,7 @@ impl AggregateCatalog {
             max_depth: usize::MAX,
             cancel: &cancel,
             assumptions: &Default::default(),
+            defaults: HashSet::new(),
         };
         let mut matches = self.implementations.values().filter_map(|implementation| {
             let matched = self
@@ -312,6 +492,7 @@ impl AggregateCatalog {
             max_depth,
             cancel,
             assumptions,
+            defaults: HashSet::new(),
         };
         let mut selected = None;
         for implementation in self.implementations.values() {
@@ -353,6 +534,7 @@ impl AggregateCatalog {
             max_depth,
             cancel,
             assumptions: &Default::default(),
+            defaults: HashSet::new(),
         };
         let mut count = 0;
         for implementation in self.implementations.values() {
@@ -446,12 +628,7 @@ impl AggregateCatalog {
                                     crate::builtin::traits::StandardTrait::from_id(
                                         &required.declaration,
                                     )
-                                && crate::builtin::traits::intrinsic_holds(
-                                    protocol,
-                                    &actual,
-                                    Some(self),
-                                    budget.assumptions,
-                                )
+                                && self.standard_holds(protocol, &actual, visiting, budget)?
                             {
                                 continue;
                             }

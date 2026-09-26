@@ -99,6 +99,7 @@ pub enum EphemeralValue {
 pub struct MapKey {
     parts: Vec<KeyPart>,
     value: Value,
+    custom: Option<(i64, i64)>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum KeyPart {
@@ -119,16 +120,31 @@ enum KeyPart {
 }
 impl PartialEq for MapKey {
     fn eq(&self, other: &Self) -> bool {
-        self.parts == other.parts
+        self.custom == other.custom && self.parts == other.parts
     }
 }
 impl Eq for MapKey {}
 impl std::hash::Hash for MapKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::hash::Hash::hash(&self.parts, state);
+        if let Some((hash, _)) = self.custom {
+            std::hash::Hash::hash(&hash, state);
+        } else {
+            std::hash::Hash::hash(&self.parts, state);
+        }
     }
 }
 impl MapKey {
+    pub(crate) fn custom(hash: i64, token: i64, value: Value) -> Self {
+        Self {
+            parts: vec![],
+            value,
+            custom: Some((hash, token)),
+        }
+    }
+    pub(crate) fn custom_parts(&self) -> Option<(i64, i64)> {
+        self.custom
+    }
+
     pub fn from_value(gc: &crate::gc::GcHeap, value: &Value) -> Option<Self> {
         let mut pending = vec![value.clone()];
         let mut parts = Vec::new();
@@ -172,6 +188,7 @@ impl MapKey {
         }
         Some(Self {
             parts,
+            custom: None,
             value: value.clone(),
         })
     }

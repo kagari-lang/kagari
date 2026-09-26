@@ -112,6 +112,33 @@ pub(crate) fn validate(
         .implementations()
         .filter(|item| &item.id.module == identity)
     {
+        if let Some(reason) = catalog.standard_override_error(implementation) {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
+                    trait_name: implementation
+                        .trait_type
+                        .declaration
+                        .path
+                        .last()
+                        .unwrap()
+                        .name
+                        .clone(),
+                    type_name: implementation.for_type.display_name(),
+                    reason: reason.into(),
+                })
+                .with_span(
+                    lowered
+                        .module
+                        .impls
+                        .iter()
+                        .find(|item| {
+                            declarations.impl_identity(item.id) == Some(&implementation.id)
+                        })
+                        .map(|item| lowered.source_map.impl_span(item.id))
+                        .unwrap_or_default(),
+                ),
+            );
+        }
         let Ok(parents) =
             catalog.trait_closure(&implementation.trait_type, &implementation.for_type, cancel)
         else {

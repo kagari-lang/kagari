@@ -163,6 +163,11 @@ pub(crate) fn verify_intrinsic(
     use StandardIntrinsic::*;
 
     let arity = match intrinsic {
+        KeyLookupBegin => 1,
+        KeyCandidates => 2,
+        KeyMapGet | KeyMapRemove | KeySetContains | KeySetRemove => 3,
+        KeySetInsert => 4,
+        KeyMapInsert => 5,
         ValueEq => 2,
         ValueHash | ValueDebug | ValueDisplay => 1,
         _ => {
@@ -182,6 +187,26 @@ pub(crate) fn verify_intrinsic(
     }
 
     match intrinsic {
+        KeyLookupBegin => {
+            expect_arg_ty(args, 0, ValueType::HeapObject, "key lookup collection")?;
+            verify_call_dst(dst, ValueType::Unit)?;
+        }
+        KeyCandidates | KeyMapGet | KeyMapInsert | KeyMapRemove | KeySetContains | KeySetInsert
+        | KeySetRemove => {
+            expect_arg_ty(args, 0, ValueType::HeapObject, "key lookup collection")?;
+            expect_arg_ty(args, 1, ValueType::I64, "key hash")?;
+            if intrinsic != KeyCandidates {
+                expect_arg_ty(args, 2, ValueType::I64, "key token")?;
+            }
+            verify_call_dst(
+                dst,
+                if matches!(intrinsic, KeySetContains | KeySetRemove) {
+                    ValueType::Bool
+                } else {
+                    ValueType::HeapObject
+                },
+            )?;
+        }
         ValueEq => {
             if args[0] != args[1] {
                 return Err(ContractError::Intrinsic {

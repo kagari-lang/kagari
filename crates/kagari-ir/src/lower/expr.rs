@@ -1,3 +1,5 @@
+mod equality;
+mod keys;
 mod standard;
 
 use kagari_hir::builtin::surface::StandardIntrinsic;
@@ -376,6 +378,12 @@ impl FunctionLowerer<'_, '_> {
                 if matches!(op, hir::BinaryOp::AndAnd | hir::BinaryOp::OrOr) {
                     return self.lower_short_circuit(expr_id, lhs, op, rhs);
                 }
+                let operand_ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(lhs)
+                    .ok_or(IrLoweringError::MissingExprType(lhs))?;
                 let lhs = self.lower_expr(lhs)?;
                 if self.current_block_terminated() {
                     return Ok(lhs);
@@ -383,6 +391,32 @@ impl FunctionLowerer<'_, '_> {
                 let rhs = self.lower_expr(rhs)?;
                 if self.current_block_terminated() {
                     return Ok(rhs);
+                }
+                if matches!(op, hir::BinaryOp::Eq | hir::BinaryOp::NotEq) {
+                    let ty = self
+                        .planner
+                        .arguments(
+                            &[operand_ty],
+                            &self.instance.substitution,
+                            self.function.debug.source_span,
+                        )?
+                        .remove(0);
+                    let equal = self.lower_protocol(
+                        kagari_hir::builtin::traits::StandardTrait::PartialEq,
+                        &ty,
+                        &[lhs, rhs],
+                        0,
+                    )?;
+                    if op == hir::BinaryOp::Eq {
+                        return Ok(equal);
+                    }
+                    let dst = self.alloc_temp(ValueType::Bool);
+                    self.emit(Instruction::Unary {
+                        dst,
+                        op: crate::module::instruction::UnaryOp::Not,
+                        operand: equal,
+                    });
+                    return Ok(dst);
                 }
                 let dst = self.alloc_temp(self.expr_type(expr_id)?);
                 self.emit(Instruction::Binary {
@@ -1253,6 +1287,35 @@ impl FunctionLowerer<'_, '_> {
             .call_resolution(expr)
             .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
         let span = self.analyzed.lowered.source_map.expr_span(expr);
+        if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
+            && let Some(protocol) =
+                kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
+            && protocol.equality_protocol()
+        {
+            let receiver = call
+                .receiver
+                .ok_or(IrLoweringError::MissingBinding("protocol receiver"))?;
+            let ty = self
+                .analyzed
+                .typed
+                .type_table
+                .expr_type(receiver)
+                .ok_or(IrLoweringError::MissingExprType(receiver))?;
+            let ty = self
+                .planner
+                .arguments(&[ty], &self.instance.substitution, span)?
+                .remove(0);
+            let value = self.lower_expr(receiver)?;
+            if self.current_block_terminated() {
+                return Ok(value);
+            }
+            let mut values = vec![value];
+            match self.lower_values(args)? {
+                ControlFlow::Continue(args) => values.extend(args),
+                ControlFlow::Break(value) => return Ok(value),
+            }
+            return self.lower_protocol(protocol, &ty, &values, 0);
+        }
         let (target, impl_arguments, linked_trait_target) =
             if let SemanticCallTarget::TraitMethod { method, interface } = call.target {
                 let receiver = call
@@ -1625,6 +1688,58 @@ impl FunctionLowerer<'_, '_> {
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         use kagari_hir::builtin::surface::StandardIntrinsic::*;
+                        let base = call.receiver.or_else(|| args.first().copied());
+                        if let Some(base) = base {
+                            let ty = self
+                                .analyzed
+                                .typed
+                                .type_table
+                                .expr_type(base)
+                                .ok_or(IrLoweringError::MissingExprType(base))?;
+                            let ty = self
+                                .planner
+                                .arguments(&[ty], &self.instance.substitution, span)?
+                                .remove(0);
+                            if intrinsic == DebugAssertEq {
+                                let equal = self.lower_protocol(
+                                    kagari_hir::builtin::traits::StandardTrait::PartialEq,
+                                    &ty,
+                                    &lowered[..2],
+                                    0,
+                                )?;
+                                return Ok(self.emit_intrinsic(
+                                    DebugAssert,
+                                    &[equal, lowered[2]],
+                                    ValueType::Unit,
+                                ));
+                            }
+                            let key = match &ty {
+                                kagari_hir::types::TypeId::Map { key, .. }
+                                | kagari_hir::types::TypeId::Set(key) => Some(&**key),
+                                _ => None,
+                            };
+                            if let Some(key) = key
+                                && self.has_custom_protocol(key)
+                                && matches!(intrinsic, SetUnion | SetIntersection | SetDifference)
+                            {
+                                return self.lower_set_algebra(intrinsic, key, &lowered);
+                            }
+                            if let Some(key) = key
+                                && self.has_custom_protocol(key)
+                                && matches!(
+                                    intrinsic,
+                                    MapGet
+                                        | MapContainsKey
+                                        | MapInsert
+                                        | MapRemove
+                                        | SetContains
+                                        | SetInsert
+                                        | SetRemove
+                                )
+                            {
+                                return self.lower_key_operation(intrinsic, key, &lowered);
+                            }
+                        }
                         if matches!(
                             intrinsic,
                             OptionMap

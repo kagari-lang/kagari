@@ -140,5 +140,7 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         ValueHash => "std::hash::Hash::hash",
         ValueDebug => "std::fmt::Debug::debug",
         ValueDisplay => "std::fmt::Display::display",
+        KeyLookupBegin | KeyCandidates | KeyMapGet | KeyMapInsert | KeyMapRemove
+        | KeySetContains | KeySetInsert | KeySetRemove => "internal key operation",
     }
 }
