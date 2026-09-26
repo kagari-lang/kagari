@@ -1663,6 +1663,7 @@ impl<'a> BodyChecker<'a> {
                 Some(receiver),
             );
             return Some(self.infer_standard_intrinsic_type(
+                call_expr,
                 intrinsic,
                 callee,
                 Some(receiver_ty),
@@ -1674,7 +1675,7 @@ impl<'a> BodyChecker<'a> {
         let intrinsic = self.standard_function(callee)?;
         self.type_table
             .insert_call(call_expr, CallTarget::StandardIntrinsic(intrinsic), None);
-        Some(self.infer_standard_intrinsic_type(intrinsic, callee, None, args, env))
+        Some(self.infer_standard_intrinsic_type(call_expr, intrinsic, callee, None, args, env))
     }
 
     fn check_standard_parameter(
@@ -1700,6 +1701,7 @@ impl<'a> BodyChecker<'a> {
 
     fn infer_standard_intrinsic_type(
         &mut self,
+        call_expr: ExprId,
         intrinsic: StandardIntrinsic,
         callee: ExprId,
         receiver_ty: Option<TypeId>,
@@ -1758,6 +1760,13 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
+        self.type_table.insert_type_arguments(
+            call_expr,
+            spec.type_params
+                .iter()
+                .map(|name| bindings[*name].clone())
+                .collect(),
+        );
         api.result.instantiate(&bindings)
     }
 

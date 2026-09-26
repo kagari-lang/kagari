@@ -12,6 +12,8 @@ use crate::{
     types::TypeId,
 };
 
+mod standard_queries;
+pub use standard_queries::StandardSignature;
 mod body_queries;
 pub use body_queries::FunctionAnalysis;
 mod declaration_queries;
@@ -450,6 +452,12 @@ impl FileAnalysis {
                     _ => callee_span,
                 };
                 match call.target {
+                    crate::typeck::CallTarget::StandardIntrinsic(intrinsic) => Some((
+                        callee_span,
+                        crate::builtin::declarations::resolved(
+                            crate::resolver::ResolvedName::StandardFunction(intrinsic),
+                        )?,
+                    )),
                     crate::typeck::CallTarget::Function(function) => Some((
                         callee_span,
                         facts
@@ -484,6 +492,7 @@ impl FileAnalysis {
                 )
                 .flatten()
             })
+            .or_else(|| self.standard_type_definition_at(offset))
     }
 
     pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {
@@ -951,6 +960,19 @@ impl AnalysisSnapshot {
         self.files
             .values()
             .find_map(|file| file.result.facts().declarations.get(id))
+            .or_else(|| crate::builtin::declarations::declaration(id))
+    }
+
+    /// Read an analyzed file or the exact bundled standard declaration source.
+    pub fn source(&self, file: FileId) -> Option<&SourceFile> {
+        self.files
+            .get(&file)
+            .map(|analysis| analysis.source())
+            .or_else(|| {
+                crate::builtin::declarations::sources()
+                    .iter()
+                    .find(|source| source.id() == file)
+            })
     }
 }
 

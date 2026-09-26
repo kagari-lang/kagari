@@ -86,6 +86,83 @@ impl ApiItem {
     }
 }
 
+/// Look up public metadata by semantic identity, including trait members.
+pub fn item(id: &crate::declarations::DeclarationId) -> Option<&'static ApiItem> {
+    let crate::declarations::DeclarationId::Definition(id) = id else {
+        return None;
+    };
+    surface::STANDARD_ITEMS
+        .iter()
+        .find(|item| item.identity() == *id)
+}
+
+pub fn declaration(
+    id: &crate::declarations::DeclarationId,
+) -> Option<&'static crate::declarations::Declaration> {
+    static DECLARATIONS: std::sync::OnceLock<Vec<crate::declarations::Declaration>> =
+        std::sync::OnceLock::new();
+    DECLARATIONS
+        .get_or_init(|| {
+            surface::STANDARD_ITEMS
+                .iter()
+                .map(ApiItem::declaration)
+                .collect()
+        })
+        .iter()
+        .find(|d| d.id == *id)
+}
+
+pub fn function(intrinsic: surface::StandardIntrinsic) -> Option<&'static ApiItem> {
+    let api = surface::standard_function_by_intrinsic(intrinsic)?.api;
+    surface::STANDARD_ITEMS
+        .iter()
+        .find(|item| item.uri == api.uri && item.start == api.start)
+}
+
+pub fn variant(variant: surface::StandardVariant) -> Option<&'static ApiItem> {
+    let spec = variant.kind().spec();
+    surface::STANDARD_ITEMS.iter().find(|item| {
+        item.path.len() == 2
+            && item.path[0].1 == spec.name
+            && item.path[1].1 == spec.variants[variant.index()].name
+    })
+}
+
+pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
+    let name = match ty {
+        TypeId::Projection { member, .. } => {
+            return item(&crate::declarations::DeclarationId::Definition(
+                member.clone(),
+            ));
+        }
+        TypeId::Builtin(BuiltinType::String) => "String",
+        TypeId::Array(_) => "Array",
+        TypeId::Map { .. } => "Map",
+        TypeId::Set(_) => "Set",
+        TypeId::Cursor(_) => "Cursor",
+        TypeId::StandardEnum { kind, .. } => kind.spec().name,
+        _ => return None,
+    };
+    surface::STANDARD_ITEMS
+        .iter()
+        .find(|item| item.path.len() == 1 && item.path[0].1 == name)
+}
+
+pub fn resolved(
+    name: crate::resolver::ResolvedName,
+) -> Option<&'static crate::declarations::Declaration> {
+    use crate::resolver::ResolvedName;
+    let item = match name {
+        ResolvedName::StandardFunction(intrinsic) => function(intrinsic)?,
+        ResolvedName::StandardVariant(kind) => variant(kind)?,
+        ResolvedName::StandardTrait(kind) => return Some(&kind.contract().declaration),
+        _ => return None,
+    };
+    declaration(&crate::declarations::DeclarationId::Definition(
+        item.identity(),
+    ))
+}
+
 pub type Arguments = BTreeMap<&'static str, TypeId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

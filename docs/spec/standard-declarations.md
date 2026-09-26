@@ -60,3 +60,19 @@ Documentation examples for functions, types and traits execute both directly and
 after artifact serialization. Nested members document their role within the enclosing
 protocol; protocol examples demonstrate the complete use rather than duplicating
 the same example on every associated type.
+
+## Tool queries
+
+`AnalysisSnapshot::source` reads ordinary analyzed files and the exact bundled SDK
+sources by file identity. `definition_at` and `declaration` route standard targets
+to their real identifier ranges. `FileAnalysis::standard_api_at` provides the
+written declaration and Markdown, `standard_signature_at` instantiates native
+function signatures from checked call arguments, and `standard_method_completions`
+uses the recovered receiver type even in incomplete code. Method signatures omit
+the receiver parameter. These queries do not register or execute host functions.
+
+Standard trait methods and associated types have ordinary declaration identities.
+The catalog is immutable across snapshots. User declarations take precedence over
+unqualified native names; navigation follows resolution, not a text-name heuristic.
+Native method candidates are one input to completion; lexical trait completion and
+the LSP transport remain separate tool work.

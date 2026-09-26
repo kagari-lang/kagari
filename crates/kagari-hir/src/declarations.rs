@@ -224,10 +224,9 @@ impl Declarations {
     }
 
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
-        if let ResolvedName::StandardTrait(kind) = name {
-            return Some(&kind.contract().declaration);
-        }
-        self.targets.get(&DeclarationKey::Name(name))
+        self.targets
+            .get(&DeclarationKey::Name(name))
+            .or_else(|| crate::builtin::declarations::resolved(name))
     }
 
     pub fn field(&self, field: crate::hir::FieldId) -> Option<&Declaration> {

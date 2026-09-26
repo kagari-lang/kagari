@@ -189,7 +189,7 @@ Source comments and API documentation are written in English.
 - [x] S01: declaration parsing, documentation and source-location foundation.
 - [x] S02: source-owned standard function signatures and method bindings.
 - [x] S03: standard enum/type declarations and the 21 standard trait contracts.
-- [ ] S04: shared semantic queries for navigation, documentation and signatures.
+- [x] S04: shared semantic queries for navigation, documentation and signatures.
 - [ ] S05: executable documentation, binding validation, removal of duplicate definitions and workspace acceptance.
 
 This sequence migrates all 71 existing public standard functions and 54 method
