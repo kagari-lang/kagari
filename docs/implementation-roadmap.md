@@ -252,3 +252,27 @@ Acceptance: 1,173 workspace tests passed, including source/artifact/JIT-path
 interpolation tests, 101 standard API documentation examples, Unicode/source-query
 rebasing, parser limits and native argument validation. Formatting, workspace
 clippy with warnings denied and `git diff --check` passed.
+
+## Collection access and construction
+
+The [collection access proposal](spec/collection-access.md) records the proposed
+read-only/writable Array, Map and Set types, associated constructors and acceptance
+cases. It is not implemented. Current standard declarations and value semantics
+continue to describe the executable language. The proposed array spelling is
+`[T]` for read-only `Array<T>`, with literals producing `MutableArray<T>`.
+
+- [x] C00: document access boundaries, constructor shape and implementation plan.
+- [ ] C01: source-owned native access types and associated constructors; HIR
+  assignability, generic invariance, branch joins and complete write-access checks.
+- [ ] C02: verified IR, artifact encoding/version rejection, host declaration
+  contracts and runtime/backend integration without duplicating collection storage.
+- [ ] C03: migrate standard declarations, CLI/embedding examples and executable
+  documentation; remove old constructors and update authoritative specifications.
+- [ ] C04: navigation/completion and source/artifact/backend conformance, negative
+  access tests, GC/alias/iteration coverage and final workspace validation.
+
+C01 and C02 must land together if publishing C01 alone would erase access before
+verification or leave an executable write bypass. Each coherent checkpoint uses
+a Conventional Commit. No compatibility constructors or dual mutability model
+are planned. General variance, frozen/persistent collections, deep immutability
+and additional copy/capacity/from APIs remain separate work.
