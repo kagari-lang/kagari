@@ -190,7 +190,7 @@ Source comments and API documentation are written in English.
 - [x] S02: source-owned standard function signatures and method bindings.
 - [x] S03: standard enum/type declarations and the 21 standard trait contracts.
 - [x] S04: shared semantic queries for navigation, documentation and signatures.
-- [ ] S05: executable documentation, binding validation, removal of duplicate definitions and workspace acceptance.
+- [x] S05: executable documentation, binding validation, removal of duplicate definitions and workspace acceptance.
 
 This sequence migrates all 71 existing public standard functions and 54 method
 views without expanding their runtime semantics. Host API declaration generation
@@ -202,3 +202,21 @@ sources with executable examples. It removed duplicated intrinsic call typing an
 connected native for_each to ordinary script closure frames and cursor cleanup.
 Validation includes 327 HIR tests, 146 IR tests and source/artifact documentation
 execution. Rustdoc-style API documentation is required for subsequent declarations.
+
+S03 replaced handwritten standard enum, type-constructor and 21 trait signature
+builders with source-derived metadata. S04 connected native function and method
+navigation, type/variant definitions, trait members, Markdown, instantiated native
+signatures and incomplete native-member candidates to the bundled source catalog.
+
+S05 provides 100 executable English examples across 71 functions, eight native
+types/enums and 21 traits. Documentation follows Rust's summary, behavior,
+applicable Panics and Examples structure while describing Kagari semantics.
+Native enum discriminants and payload types are validated as runtime ABI bindings;
+public signatures must instantiate without unknown/error types. The standard API
+index is [stdlib/README.md](../stdlib/README.md). Full LSP transport, lexical trait
+completion, scalar reference pages and host declaration generation remain future
+work. This batch does not implement those separate features.
+
+Acceptance: 1,159 workspace tests passed. All 100 documentation examples passed
+source and artifact execution; formatting, workspace clippy with warnings denied
+and `git diff --check` passed.

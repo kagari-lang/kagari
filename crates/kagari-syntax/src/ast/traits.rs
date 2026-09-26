@@ -15,13 +15,13 @@ pub trait AstNode: Sized {
         };
         let mut lines = prefix.lines().rev();
         let mut docs = Vec::new();
-        if let Some(last) = lines.next() {
-            if !last.trim().is_empty() {
-                if let Some(doc) = last.trim_start().strip_prefix("///") {
-                    docs.push(doc.strip_prefix(' ').unwrap_or(doc));
-                } else {
-                    return String::new();
-                }
+        if let Some(last) = lines.next()
+            && !last.trim().is_empty()
+        {
+            if let Some(doc) = last.trim_start().strip_prefix("///") {
+                docs.push(doc.strip_prefix(' ').unwrap_or(doc));
+            } else {
+                return String::new();
             }
         }
         for line in lines {

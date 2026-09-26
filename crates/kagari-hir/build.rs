@@ -94,10 +94,7 @@ fn main() {
             &module.to_lowercase(),
             &uri,
             &text,
-            &mut items,
-            &mut traits,
-            &mut enums,
-            &mut constructors,
+            (&mut items, &mut traits, &mut enums, &mut constructors),
         );
         let mut exports = BTreeSet::new();
         for item in parsed.syntax().items() {

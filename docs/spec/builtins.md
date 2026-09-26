@@ -1,6 +1,10 @@
 # Kagari Builtins and Standard Library Specification
 
-This document defines the builtin and standard library surface required for a production-ready Kagari runtime.
+This document defines the builtin runtime semantics and standard-library design.
+The implemented public signatures, method views, API documentation and examples
+are owned by the [bundled declaration sources](../../stdlib/README.md), which the
+compiler reads at build time. The [declaration architecture](standard-declarations.md)
+describes their binding and tool-query boundaries.
 
 Unqualified helper names such as `print` and `type_of` are consulted only after
 lexical and declared names. A same-named user function is an ordinary script call;

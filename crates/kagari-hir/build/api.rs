@@ -61,16 +61,61 @@ fn bounds(list: Option<ast::TraitBoundList>) -> String {
         .join(",")
 }
 
+/// Native enum layout is an engine ABI, not an editable declaration convention.
+fn validate_native_enum(def: &ast::EnumDef, binding: &str) {
+    let (arity, layout): (usize, &[(&str, Option<usize>)]) = match binding {
+        "Option" => (1, &[("Some", Some(0)), ("None", None)]),
+        "Result" => (2, &[("Ok", Some(0)), ("Err", Some(1))]),
+        "Ordering" => (0, &[("Less", None), ("Equal", None), ("Greater", None)]),
+        _ => panic!("unknown native enum binding {binding}"),
+    };
+    let parameters = def
+        .generic_params()
+        .into_iter()
+        .flat_map(|p| p.params().collect::<Vec<_>>())
+        .map(|p| p.name_text().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(parameters.len(), arity, "{binding} ABI generic arity");
+    let variants = def.variant_list().unwrap().variants().collect::<Vec<_>>();
+    assert_eq!(variants.len(), layout.len(), "{binding} ABI variants");
+    for (variant, (name, payload)) in variants.iter().zip(layout) {
+        assert_eq!(
+            variant.name_text().as_deref(),
+            Some(*name),
+            "{binding} ABI discriminant"
+        );
+        let types = variant
+            .payload_types()
+            .into_iter()
+            .flat_map(|p| p.types().collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            types.len(),
+            usize::from(payload.is_some()),
+            "{binding}::{name} ABI payload arity"
+        );
+        if let Some(index) = payload {
+            assert_eq!(
+                types[0].name_text().as_deref(),
+                Some(parameters[*index].as_str()),
+                "{binding}::{name} ABI payload type"
+            );
+            assert!(
+                types[0].generic_args().is_none(),
+                "native payload is a generic parameter"
+            );
+        }
+    }
+}
+
 pub fn declarations(
     parsed: &kagari_syntax::Parse,
     module: &str,
     uri: &str,
     text: &str,
-    items: &mut String,
-    traits: &mut String,
-    enums: &mut String,
-    constructors: &mut String,
+    outputs: (&mut String, &mut String, &mut String, &mut String),
 ) {
+    let (items, traits, enums, constructors) = outputs;
     for node in parsed.syntax().syntax().children() {
         if let Some(def) = ast::TraitDef::cast(node.clone()) {
             let name = def.name_text().unwrap();
@@ -145,6 +190,7 @@ pub fn declarations(
             let name = def.name_text().unwrap();
             let binding = attribute(&def, "builtin_enum").expect("native enum binding");
             assert_eq!(binding, name, "native enum declaration name");
+            validate_native_enum(&def, &binding);
             writeln!(
                 items,
                 "{},",

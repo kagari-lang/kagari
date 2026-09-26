@@ -193,7 +193,7 @@ impl ApiType {
     pub fn instantiate(&self, arguments: &Arguments) -> TypeId {
         match self {
             Self::Array(element) => TypeId::Array(Box::new(element.instantiate(arguments))),
-            Self::Tuple(items) if items.is_empty() => TypeId::Builtin(BuiltinType::Unit),
+            Self::Tuple([]) => TypeId::Builtin(BuiltinType::Unit),
             Self::Tuple(items) => {
                 TypeId::Tuple(items.iter().map(|t| t.instantiate(arguments)).collect())
             }
@@ -424,6 +424,38 @@ impl ApiTrait {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_native_signature_instantiates_without_unresolved_public_types() {
+        for spec in surface::standard_functions() {
+            let arguments: Arguments = spec
+                .type_params
+                .iter()
+                .map(|name| {
+                    let ty = if *name == "I" {
+                        TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))
+                    } else {
+                        TypeId::Builtin(BuiltinType::I32)
+                    };
+                    (*name, ty)
+                })
+                .collect();
+            assert_eq!(spec.arity, spec.api.params.len());
+            for parameter in spec.api.params {
+                assert!(
+                    !parameter.ty.instantiate(&arguments).is_unresolved(),
+                    "{}::{}",
+                    spec.api.qualified_name,
+                    parameter.name
+                );
+            }
+            assert!(
+                !spec.api.result.instantiate(&arguments).is_unresolved(),
+                "{}",
+                spec.api.qualified_name
+            );
+        }
+    }
+
     #[test]
     fn native_enum_declarations_match_runtime_discriminants_and_payloads() {
         for (name, arity, expected) in [

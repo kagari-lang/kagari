@@ -184,8 +184,8 @@ pub fn clear<T>(value: [T]) -> [T];
 /// same object; mutations through either binding are visible through the other.
 /// `val` prevents rebinding, not mutation of the array. `==` compares array identity.
 ///
-/// Indices and lengths use `usize`. `get` returns `None` for an invalid index;
-/// `set`, `insert`, and `remove` trap when their index is invalid. Failed standard
+/// Indices and lengths use `usize`. `get` and `remove` return `None` for an invalid
+/// index. Indexed assignment and `insert` trap on invalid indices. Failed standard
 /// mutations leave the target unchanged. Structural changes are forbidden while an
 /// active iteration guard exists. Earlier successful mutations are not rolled back.
 ///
@@ -197,6 +197,7 @@ pub fn clear<T>(value: [T]) -> [T];
 /// alias.push(30);
 /// std::debug::assert(values.len() == [0, 0, 0].len(), "shared array");
 /// std::debug::assert(values.get(values.len()) == None, "past the end");
+/// std::debug::assert(values.remove(values.len()) == None, "nothing removed");
 /// ```
 @builtin_type(Array)
 pub type Array<T>;

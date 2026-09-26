@@ -28,6 +28,7 @@ This currently means:
 - [Syntax grammar](docs/kagari.ebnf)
 - [Embedding API specification](docs/spec/embedding-api.md)
 - [Module loading specification](docs/spec/module-loading.md)
+- [Standard library API declarations and examples](stdlib/README.md)
 - [Builtins and standard library specification](docs/spec/builtins.md)
 - [Bytecode artifact specification](docs/spec/artifacts.md)
 - [Debugger specification](docs/spec/debugger.md)
