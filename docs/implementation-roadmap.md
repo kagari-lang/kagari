@@ -83,10 +83,14 @@ runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing,
 Iterator/ordering, generalized propagation and Error origin/stack modeling remain
 separate later checkpoints.
 
-Accepted, not implemented: [custom Struct equality and hashing](spec/value-semantics.md#equality-and-hashing).
-Retain default identity PartialEq/Eq/Hash, add non-overridable `===`/`!==`, allow
-explicit comparison and matching hash implementations, and keep container bounds
-as Eq + Hash. Key stability is a documented user obligation, not a freeze or
-automatic reindexing mechanism. Implementation must cover override eligibility,
+Accepted, not implemented: [custom equality and hashing](spec/value-semantics.md#equality-and-hashing).
+Use explicit implementations when provided and eligible type defaults otherwise.
+Struct defaults use identity; enum and Tuple defaults compose member protocols,
+with enum defaults also checking the variant. Allow Struct and enum comparison
+and matching hash overrides, add non-overridable object `===`/`!==`, and keep
+container bounds as Eq + Hash. Key stability is a documented user obligation,
+not a freeze or automatic reindexing mechanism. Implementation must cover override eligibility,
 composite keys, callback execution/GC/failure/reentry boundaries and consistent
-source, artifact and JIT behavior before marking this extension complete.
+source, artifact and JIT behavior before marking this extension complete. Include
+cross-variant custom enum equality/hash, nested member overrides, conditional
+default bounds and builtin fast paths in acceptance coverage.

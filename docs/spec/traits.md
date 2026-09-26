@@ -797,8 +797,8 @@ static method resolution. Intrinsic implementations are compiler/runtime owned;
 user definitions named Eq or Debug do not gain intrinsic behavior. Equality and
 hashing currently cannot be overridden. The accepted
 [equality and hashing extension](value-semantics.md#equality-and-hashing) specifies
-default identity implementations, explicit Struct overrides and the user-owned
-hash-key stability contract; implementation is pending.
+type-specific defaults, explicit Struct and enum overrides, member composition
+and the user-owned hash-key stability contract; implementation is pending.
 Formatting impls for nominal types are checked,
 specialized and called through the existing trait implementation path.
 Standard protocols and their subtraits currently cannot be erased into interface

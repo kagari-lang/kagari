@@ -62,6 +62,15 @@ still seals PartialEq/Eq/Hash and does not support `===` or `!==`. Examples in
 this section describe the target behavior, not runnable coverage. Other current
 implementation descriptions above remain accurate until this extension lands.
 
+### One implementation selection rule
+
+For a given concrete type, use its explicit protocol implementation when one
+exists; otherwise use the type's eligible builtin default. This rule applies
+equally to user Structs and enums. The selected implementation is the same in
+operators, method calls, generic code and containers; imports or call sites must
+not silently select a different comparison. Assignment and copying retain their
+existing semantics regardless of custom equality.
+
 ### Operators and defaults
 
 `==` calls the type's PartialEq comparison; `!=` negates that result. Eq extends
@@ -75,30 +84,125 @@ physical address. Scalar, String, Tuple and enum values do not acquire identity
 operators merely because their implementation allocates storage. Interface and
 host identity comparisons are outside this extension.
 
-An ordinary Struct with no explicit equality/hash implementations receives
-identity-based PartialEq, Eq and Hash. Both `==` and `===` are therefore available
-and agree by default. Custom implementations do not change assignment, aliasing,
-GC ownership or shallow-copy behavior.
+The defaults differ by type, but follow the same selection rule:
 
-| Explicit Struct implementations | `==` / `.eq()` | `===` | Hash and key eligibility |
+| Type | Default comparison | Default hash | User override |
 | --- | --- | --- | --- |
-| None | Identity | Identity | Identity Hash; satisfies Eq + Hash |
-| PartialEq only | Custom comparison | Identity | No implicit Eq or Hash; not a key |
-| PartialEq and Eq | Custom comparison | Identity | No implicit Hash; not a key |
-| PartialEq, Eq and Hash | Custom comparison | Identity | Custom Hash; satisfies Eq + Hash |
+| Struct | Object identity | Stable object identity | Allowed |
+| User enum | Same concrete enum type and variant, then corresponding members | Combine enum/variant identity and member hashes | Allowed |
+| Tuple | Corresponding members in position order | Combine member hashes in position order | No independent override |
+| Option / Result | Standard enum variant and member comparison | Standard enum variant and member hashes | No independent override |
+| Array / Map / Set | Object identity | Stable object identity | No override |
+| Unit / bool / integers / String | Value | Value | No override |
+| Float | IEEE comparison | None | No override |
+
+Struct defaults supply PartialEq, Eq and Hash regardless of field types. Default
+Tuple and enum protocols are conditional, as described below. Interfaces, host
+handles/paths and function values remain outside general equality and hashing;
+this extension does not open host equality implementations.
+
+### Explicit Struct and enum implementations
+
+Struct and user enum declarations permit the same explicit implementations:
+
+| Explicit implementations | `==` / `.eq()` | Eq and Hash eligibility |
+| --- | --- | --- |
+| None | Eligible type default | Eligible type defaults |
+| PartialEq only | Custom comparison | No implicit Eq or Hash; not a key |
+| PartialEq and Eq | Custom comparison | Explicit Eq, no implicit Hash; not a key |
+| PartialEq, Eq and Hash | Custom comparison | Explicit Eq and custom Hash; key eligible |
 
 An explicit PartialEq replaces the default comparison and removes the implicit
 Eq and Hash implementations. Eq must then be declared explicitly and Hash must
 be implemented explicitly when needed. Hash-only overrides retaining default
-identity comparison are rejected; custom key protocols use the complete
+comparison are rejected; custom key protocols use the complete
 PartialEq/Eq/Hash set. Comparison alone does not require a Hash implementation.
 
-This override policy concerns user Structs. Builtin Array, Map and Set retain
-identity semantics; scalar and String comparisons retain value semantics.
-Tuple, enum, Option and Result compose their members' applicable protocols,
-including custom Struct comparisons, and qualify for Eq/Hash only when all
-members qualify. Float retains IEEE PartialEq without Eq or Hash. This extension
-does not open custom enum or host equality implementations.
+An enum's explicit comparison replaces its entire default comparison, including
+the variant check. It may consider different variants equal. Its custom hash
+must then agree with that decision; the runtime must not prepend a variant tag
+or perform a variant inequality check before the user implementation. An explicit
+enum implementation is checked under its declared bounds, not an automatic
+requirement that every payload implement the same protocol.
+
+Custom comparison does not change GC ownership, shallow copies or identity
+operators. Struct `===` remains identity comparison even when `==` is customized;
+enum values do not gain `===` by implementing comparison.
+
+### Member composition
+
+Default Tuple comparison applies `==` to corresponding members, left to right,
+stopping at the first unequal member. Default enum comparison first checks the
+variant, then compares that variant's payload members in declaration order in
+the same way. A payload-free variant equals the same variant of the same
+concrete enum type. Different concrete types are not made comparable by this
+rule. The members' selected implementations may be builtin or user-defined;
+there is no separate equality rule for composites containing custom members.
+
+Default hashing combines member hashes in the same member order, and enum
+hashing also includes enum and variant identity. A Tuple or default enum
+implements PartialEq, Eq or Hash only when all member types support the
+corresponding protocol. This checks every enum variant, not only the currently
+constructed variant. Option and Result follow these same default enum rules.
+The all-members rule applies to default implementations, not explicit enum
+overrides. Floats retain PartialEq without Eq or Hash when nested in a composite.
+
+For example, under the target contract:
+
+```kagari
+struct Point { val x: i32, val y: i32 }
+impl PartialEq for Point {
+    fn eq(self, other: Self) -> bool {
+        self.x == other.x && self.y == other.y
+    }
+}
+impl Eq for Point {}
+enum Message { Empty, Position(Point) }
+
+fn compare() -> bool {
+    val a = Point { x: 1, y: 2 };
+    val b = Point { x: 1, y: 2 };
+    // Both composite comparisons use Point's custom comparison.
+    (a, 7) == (b, 7) && Message::Position(a) == Message::Position(b)
+}
+```
+
+`compare()` returns true; `a === b` would be false. Point has no Hash here, so
+neither `(Point, i32)` nor Message is eligible as a hash key. Adding a matching
+Point Hash implementation makes both eligible through default composition.
+
+An explicit enum override can instead ignore its variants:
+
+```kagari
+enum Identifier { Local(i32), Remote(i32) }
+fn number(value: Identifier) -> i32 {
+    match value {
+        Identifier::Local(id) => id,
+        Identifier::Remote(id) => id,
+    }
+}
+impl PartialEq for Identifier {
+    fn eq(self, other: Self) -> bool { number(self) == number(other) }
+}
+impl Eq for Identifier {}
+impl Hash for Identifier {
+    fn hash(self) -> i64 { number(self).hash() }
+}
+```
+
+Local(42) and Remote(42) now compare equal and hash equally, including inside a
+Tuple, another enum or a Set. Without these overrides, the default variant
+comparison makes them unequal. The custom hash does not include the variant.
+
+### Execution paths
+
+Builtin identity and scalar operations retain direct execution paths; String
+uses builtin content operations. Composites use their members' selected paths,
+calling user implementations only where required. Compilation/linking can select
+these paths for concrete instances, including monomorphized generic code. These
+are execution choices, not different observable equality contracts. A fast path
+must not bypass a selected user implementation or change comparison order and
+failure behavior. `===` never invokes a user callback.
 
 ### Hash containers and user obligations
 

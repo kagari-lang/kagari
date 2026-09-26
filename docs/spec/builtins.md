@@ -112,8 +112,8 @@ The Rust runtime implementation should use `indexmap` for their backing storage 
 
 The following describes the current implementation. The accepted
 [equality and hashing extension](value-semantics.md#equality-and-hashing) defines
-custom Struct implementations, identity operators and user obligations for
-mutable keys; it is pending implementation.
+custom Struct and enum implementations, member composition, identity operators
+and user obligations for mutable keys; it is pending implementation.
 
 Map and Set keys require the canonical standard `Eq + Hash` protocols:
 
