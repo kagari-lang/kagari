@@ -3,7 +3,7 @@
 use demo::{Counter, make};
 
 trait Reader {
-    type Item: HashKey;
+    type Item: Eq + Hash;
     fn read(self, amount: i32) -> Self::Item;
 }
 

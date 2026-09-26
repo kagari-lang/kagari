@@ -12,9 +12,9 @@ fn generic_trait_methods_infer_concrete_arguments_across_execution_routes() {
 #[test]
 fn generic_trait_method_bounds_reject_invalid_arguments() {
     let source = include_str!("../../../examples/generic-trait-methods.kgr")
-        .replace("fn echo<U>(", "fn echo<U: HashKey>(")
-        .replace("fn echo<V>(", "fn echo<V: HashKey>(")
-        .replace("value.echo(42)", "value.echo([42]); 42");
+        .replace("fn echo<U>(", "fn echo<U: Eq + Hash>(")
+        .replace("fn echo<V>(", "fn echo<V: Eq + Hash>(")
+        .replace("value.echo(42)", "value.echo(1.5); 42");
     let error = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new("generic-method-bound.kgr", source),
@@ -28,7 +28,7 @@ fn generic_trait_method_bounds_reject_invalid_arguments() {
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| { diagnostic.code == "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED" }),
+            .any(|diagnostic| { diagnostic.code == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED" }),
         "{diagnostics:?}"
     );
 }
@@ -44,7 +44,7 @@ fn explicit_enum_arguments_execute_with_distinct_concrete_layouts() {
 #[test]
 fn recursive_comparable_bounds_execute_for_nominal_and_call_arguments() {
     execute_contextual_source(
-        "struct Key<T: Comparable> { val value: i32 } fn consume<T: Comparable>(value: T) {} fn make<T: Comparable>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } } fn main() -> i32 { make(true).value }",
+        "struct Key<T: PartialEq> { val value: i32 } fn consume<T: PartialEq>(value: T) {} fn make<T: PartialEq>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } } fn main() -> i32 { make(true).value }",
         42,
     );
 }

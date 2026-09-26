@@ -48,7 +48,7 @@ fn broken_signatures_preserve_parameter_slots_without_cascading_arity_errors() {
 fn where_targets_must_resolve_to_a_generic_parameter() {
     for target in ["Absent", "i32", "P"] {
         let text = format!(
-            "struct P {{ val n: i32 }} fn bad<T>(value: T) where {target}: Comparable {{}} fn good() -> i32 {{ 7 }}"
+            "struct P {{ val n: i32 }} fn bad<T>(value: T) where {target}: PartialEq {{}} fn good() -> i32 {{ 7 }}"
         );
         let analysis = analyze_source(&SourceFile::new("where.kgr", text), Default::default());
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidBoundTarget { name } if name == target)), "{:?}", analysis.diagnostics());
@@ -59,8 +59,8 @@ fn where_targets_must_resolve_to_a_generic_parameter() {
 #[test]
 fn impl_where_constraints_are_inherited_without_leaking_through_shadowing() {
     for source in [
-        "struct P { val n: i32 } impl<T: HashKey> P { fn count(self, items: Set<T>) -> usize { items.len() } }",
-        "struct P { val n: i32 } impl<T> P where T: HashKey { fn count(self, items: Set<T>) -> usize { items.len() } }",
+        "struct P { val n: i32 } impl<T: Eq + Hash> P { fn count(self, items: Set<T>) -> usize { items.len() } }",
+        "struct P { val n: i32 } impl<T> P where T: Eq + Hash { fn count(self, items: Set<T>) -> usize { items.len() } }",
     ] {
         let analysis = analyze_source(&SourceFile::new("bounds.kgr", source), Default::default());
         assert!(
@@ -70,7 +70,7 @@ fn impl_where_constraints_are_inherited_without_leaking_through_shadowing() {
         );
         let shadowed = source.replace("fn count(self", "fn count<T>(self");
         let analysis = analyze_source(&SourceFile::new("shadow.kgr", shadowed), Default::default());
-        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::StandardConstraintNotSatisfied { constraint, .. } if constraint == "HashKey")), "{:?}", analysis.diagnostics());
+        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::StandardConstraintNotSatisfied { constraint, .. } if constraint == "Eq + Hash")), "{:?}", analysis.diagnostics());
         assert!(analysis.into_codegen().is_err());
     }
 }
@@ -112,7 +112,7 @@ fn shadowed_generic_parameters_cannot_exchange_values_by_spelling() {
 
 #[test]
 fn implicit_receiver_constraints_survive_method_parameter_shadowing() {
-    let source = "impl<T: HashKey> Set<T> { fn size<T>(self, value: T) -> usize { self.len() } }";
+    let source = "impl<T: Eq + Hash> Set<T> { fn size<T>(self, value: T) -> usize { self.len() } }";
     let analysis = analyze_source(
         &SourceFile::new("receiver-bounds.kgr", source),
         Default::default(),
@@ -126,7 +126,7 @@ fn implicit_receiver_constraints_survive_method_parameter_shadowing() {
 
 #[test]
 fn method_where_constraints_do_not_leak_to_sibling_methods() {
-    let source = "struct P { val n: i32 } impl<T> P { fn allowed(self, values: Set<T>) -> usize where T: HashKey { values.len() } fn rejected(self, values: Set<T>) -> usize { values.len() } }";
+    let source = "struct P { val n: i32 } impl<T> P { fn allowed(self, values: Set<T>) -> usize where T: Eq + Hash { values.len() } fn rejected(self, values: Set<T>) -> usize { values.len() } }";
     let analysis = analyze_source(&SourceFile::new("siblings.kgr", source), Default::default());
     let errors = analysis
         .diagnostics()

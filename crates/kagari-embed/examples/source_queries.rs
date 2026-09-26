@@ -399,7 +399,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     );
     println!("invalid type application retains its binder target for navigation");
     let bounded = format!(
-        "{text}\r\nstruct Key<T: HashKey> {{ val value: T }}\r\nfn invalid_key(value: Key<f32>) {{}}"
+        "{text}\r\nstruct Key<T: Eq + Hash> {{ val value: T }}\r\nfn invalid_key(value: Key<f32>) {{}}"
     );
     engine.set_source(source_name, bounded, SourceLayer::Overlay)?;
     let bounded = engine.signatures(engine.source_snapshot(), &Default::default())?;

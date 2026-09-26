@@ -41,13 +41,19 @@ KbcArtifact {
 }
 ```
 
-Format version 50 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 51 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 49 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 50 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 51 and runtime ABI v51 add standard protocol intrinsic calls and the
+canonical standard declaration registry. Artifacts cannot redefine the reserved
+`kagari-std` package or supply sealed equality/hash implementations. The verifier
+checks formatting impl contracts and applied bounds using the same canonical
+protocols. KHI v11 rejects previous declaration products.
 
 Version 50 and runtime ABI v50 add concrete typed standard-enum construction,
 variant tests and payload reads, plus Option conversion intrinsic identities.
@@ -83,7 +89,7 @@ and KHI v10 associated-output declarations. Output identities, bounds, signature
 and the exact forwarding host call are verified before execution. Host bridge
 tables do not introduce additional language implementations. Host declarations
 include associated output types in their fingerprint and required type closure.
-Standalone KHI versions before 10 are rejected without migration.
+Standalone KHI versions before 11 are rejected without migration.
 
 Version 44 added ordered concrete impl arguments to linked interface table
 records. Generic tables are deduplicated by declaration and arguments; each

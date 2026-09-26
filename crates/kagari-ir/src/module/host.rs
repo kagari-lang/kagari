@@ -21,6 +21,19 @@ pub(crate) fn trait_bindings_match(
         for implementation in &host.trait_implementations {
             cancel.check()?;
             let id = &implementation.trait_id;
+            if let Some(kind) = kagari_hir::builtin::traits::StandardTrait::from_id(id) {
+                if kind.sealed()
+                    || !host_trait_matches(
+                        implementation,
+                        host,
+                        super::abi::standard_trait_contract(id).expect("standard contract"),
+                        cancel,
+                    )?
+                {
+                    return Ok(false);
+                }
+                continue;
+            }
             if &id.module != module {
                 continue;
             }

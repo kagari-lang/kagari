@@ -209,8 +209,8 @@ fn public_generic_abi_ignores_binder_spelling_and_constraint_source_order() {
     let mut db = SourceDatabase::default();
     let mut items = Vec::new();
     for source in [
-        "pub struct Box<T> { val value: T } pub trait Factory { fn id<T: HashKey + Comparable>(self, value: T) -> T; }",
-        "pub struct Box<U> { val value: U } pub trait Factory { fn id<U>(self, value: U) -> U where U: Comparable + HashKey; }",
+        "pub struct Box<T> { val value: T } pub trait Factory { fn id<T: Eq + Hash + PartialEq>(self, value: T) -> T; }",
+        "pub struct Box<U> { val value: U } pub trait Factory { fn id<U>(self, value: U) -> U where U: PartialEq + Eq + Hash; }",
     ] {
         let root = insert(&mut db, "generic", source);
         let ir = lower_program_to_ir(&checked(&db, root), &Default::default()).unwrap();

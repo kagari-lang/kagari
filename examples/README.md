@@ -12,6 +12,7 @@ cargo test -p kagari-embed --test syntax_examples
 
 | Executable feature | Small example or existing showcase | Expected result |
 | --- | --- | --- |
+| Standard `PartialEq/Eq/Hash`, `Debug/Display`, generic bounds and structural/identity keys | [standard-traits.kgr](syntax/standard-traits.kgr) | `42` |
 | `Option`/`Result` constructors, patterns, `?`, explicit conversion and error mapping | [result-option.kgr](syntax/result-option.kgr) | `42` |
 | `val`, `var`, `while`, `loop`, `if`, `continue`, `break` and loop values | [control-flow.kgr](syntax/control-flow.kgr) | `42` |
 | Block expressions, independent block statements, and block `match` arms | [blocks.kgr](syntax/blocks.kgr) | `42` |

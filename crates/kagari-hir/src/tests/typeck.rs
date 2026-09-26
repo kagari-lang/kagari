@@ -791,11 +791,11 @@ fn popped(values: [i32]) -> Option<i32> {
 fn enforces_standard_hash_key_constraints_for_collections_and_generic_calls() {
     let lowered = common::lower_ok(
         r#"
-fn contains<K: HashKey, V>(values: Map<K, V>, key: K) -> bool {
+fn contains<K: Eq + Hash, V>(values: Map<K, V>, key: K) -> bool {
     std::map::contains_key(values, key)
 }
 
-fn unique<T: HashKey>(values: Set<T>) -> usize {
+fn unique<T: Eq + Hash>(values: Set<T>) -> usize {
     std::set::len(values)
 }
 "#,
@@ -819,7 +819,7 @@ fn unique<T: HashKey>(values: Set<T>) -> usize {
         matches!(
             &diagnostic.kind,
             DiagnosticKind::StandardConstraintNotSatisfied { constraint, .. }
-                if constraint == "HashKey"
+                if constraint == "Eq + Hash"
         )
     }));
 
@@ -835,7 +835,7 @@ fn unique<T: HashKey>(values: Set<T>) -> usize {
         matches!(
             &diagnostic.kind,
             DiagnosticKind::StandardConstraintNotSatisfied { type_name, constraint, .. }
-                if type_name == "K" && constraint == "HashKey"
+                if type_name == "K" && constraint == "Eq + Hash"
         )
     }));
 }

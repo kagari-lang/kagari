@@ -425,6 +425,10 @@ impl<'a> BodyResolver<'a> {
                     .or_else(|| {
                         surface::standard_variant_in_module(module, member)
                             .map(ResolvedName::StandardVariant)
+                    })
+                    .or_else(|| {
+                        crate::builtin::traits::in_module(module, member)
+                            .map(ResolvedName::StandardTrait)
                     }),
                 _ => None,
             };
@@ -437,6 +441,9 @@ impl<'a> BodyResolver<'a> {
         }
         if let Some(helper) = crate::builtin::BuiltinFunction::from_name(name) {
             return Some(ResolvedName::RuntimeHelper(helper));
+        }
+        if let Some(kind) = crate::builtin::traits::StandardTrait::from_name(name) {
+            return Some(ResolvedName::StandardTrait(kind));
         }
         if let Some(variant) = surface::standard_variant(name) {
             return Some(ResolvedName::StandardVariant(variant));

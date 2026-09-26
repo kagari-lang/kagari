@@ -71,6 +71,118 @@ fn members_equal(gc: &GcHeap, lhs: &[Value], rhs: &[Value]) -> Result<bool, Runt
     Ok(true)
 }
 
+/// Bounded standard formatting. Mutable objects are identity previews; this
+/// never calls script code while traversing the heap.
+pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, RuntimeError> {
+    #[derive(Default)]
+    struct Output {
+        text: String,
+        failed: bool,
+    }
+    impl Output {
+        fn push_str(&mut self, text: &str) {
+            if text.len() > 1_048_576usize.saturating_sub(self.text.len()) {
+                self.failed = true;
+            } else if !self.failed {
+                self.text.push_str(text);
+            }
+        }
+        fn push(&mut self, ch: char) {
+            self.push_str(ch.encode_utf8(&mut [0; 4]));
+        }
+    }
+    impl std::fmt::Write for Output {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            self.push_str(text);
+            if self.failed {
+                Err(std::fmt::Error)
+            } else {
+                Ok(())
+            }
+        }
+    }
+    fn render(
+        gc: &GcHeap,
+        value: &Value,
+        debug: bool,
+        depth: usize,
+        out: &mut Output,
+    ) -> Option<()> {
+        use Value::*;
+        use std::fmt::Write;
+        if depth > 64 || out.failed || !gc.validate_value(value) {
+            return None;
+        }
+        match value {
+            Unit => out.push_str("()"),
+            Bool(v) => write!(out, "{v}").ok()?,
+            I32(v) => write!(out, "{v}").ok()?,
+            I64(v) => write!(out, "{v}").ok()?,
+            F32(v) => write!(out, "{v}").ok()?,
+            F64(v) => write!(out, "{v}").ok()?,
+            Str(v) if debug => write!(out, "{v:?}").ok()?,
+            Str(v) => out.push_str(v),
+            Tuple(values) if debug => {
+                out.push('(');
+                for (i, value) in values.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    render(gc, value, true, depth + 1, out)?;
+                }
+                if values.len() == 1 {
+                    out.push(',');
+                }
+                out.push(')');
+            }
+            Enum(id) if debug => {
+                let value = gc.enum_snapshot(*id)?;
+                write!(
+                    out,
+                    "{}::{}",
+                    value.tag.type_name(),
+                    value.tag.variant_name()
+                )
+                .ok()?;
+                if !value.fields.is_empty() {
+                    out.push('(');
+                    for (i, value) in value.fields.iter().enumerate() {
+                        if i > 0 {
+                            out.push_str(", ");
+                        }
+                        render(gc, value, true, depth + 1, out)?;
+                    }
+                    out.push(')');
+                }
+            }
+            Struct(id) | Array(id) | Map(id) | Set(id) if debug => {
+                let name = match value {
+                    Struct(_) => "Struct",
+                    Array(_) => "Array",
+                    Map(_) => "Map",
+                    _ => "Set",
+                };
+                write!(out, "{name}@{}:{}", id.index(), id.generation()).ok()?;
+            }
+            HostRoot(_) if debug => out.push_str("<host>"),
+            Interface(_) if debug => out.push_str("<interface>"),
+            Closure(_) if debug => out.push_str("<function>"),
+            HostPathView(_) if debug => out.push_str("<host path>"),
+            Ephemeral(_) if debug => out.push_str("<borrow>"),
+            _ => return None,
+        }
+        (!out.failed).then_some(())
+    }
+    let mut result = Output::default();
+    render(gc, value, debug, 0, &mut result).ok_or_else(|| {
+        RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "unsupported format value, invalid handle, or formatting limit exceeded",
+        )
+    })?;
+    Ok(result.text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

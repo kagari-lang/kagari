@@ -73,3 +73,12 @@ including GC and iteration cleanup. See [builtins](spec/builtins.md#option-and-r
 and [result-option.kgr](../examples/syntax/result-option.kgr). Artifact format 50
 and runtime ABI v50 reject previous products; KHI remains v10. General built-in
 propagation traits and Error origin/stack modeling are a later design checkpoint.
+
+Completed standard-protocol checkpoint: declaration-owned PartialEq/Eq/Hash and
+Debug/Display, ordinary generic and associated bounds, sealed intrinsic equality
+and hashing, explicit nominal formatting impls, structural and identity keys,
+and GC tracing of keys. See [contracts](spec/builtins.md) and
+[standard-traits.kgr](../examples/syntax/standard-traits.kgr). Artifact format 51,
+runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing,
+Iterator/ordering, generalized propagation and Error origin/stack modeling remain
+separate later checkpoints.

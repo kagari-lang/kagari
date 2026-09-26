@@ -41,6 +41,7 @@ pub struct SourceImport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportTarget {
+    StandardTrait(crate::builtin::traits::StandardTrait),
     StandardModule(surface::StandardModule),
     StandardFunction(surface::StandardIntrinsic),
     StandardVariant(surface::StandardVariant),
@@ -450,6 +451,15 @@ fn resolve_imports(
                             ImportTarget::StandardFunction(function.intrinsic),
                         )
                     })
+                    .chain(
+                        crate::builtin::traits::StandardTrait::ALL
+                            .into_iter()
+                            .filter(|kind| {
+                                crate::builtin::traits::in_module(*module, kind.name())
+                                    == Some(*kind)
+                            })
+                            .map(|kind| (kind.name().into(), ImportTarget::StandardTrait(kind))),
+                    )
                     .chain(surface::standard_variants_in_module(*module).iter().map(
                         |(name, variant)| {
                             (name.to_string(), ImportTarget::StandardVariant(*variant))
@@ -705,6 +715,9 @@ fn resolve_path(
             .and_then(|module| surface::standard_variant_in_module(module.kind, name))
     }) {
         candidates.push(ImportTarget::StandardVariant(variant));
+    }
+    if let Some(kind) = crate::builtin::traits::StandardTrait::from_name(path) {
+        candidates.push(ImportTarget::StandardTrait(kind));
     }
     if let Some(function) = hosts.resolve(path) {
         candidates.push(ImportTarget::HostFunction(function));

@@ -18,6 +18,9 @@ fn contract<'a>(
     id: &kagari_common::identity::DefinitionId,
     closure: &[&'a BytecodeModule],
 ) -> Option<&'a crate::module::abi::TraitAbi> {
+    if let Some(contract) = crate::module::abi::standard_trait_contract(id) {
+        return Some(contract);
+    }
     let owner = closure.iter().find(|module| module.identity == id.module)?;
     owner
         .trait_contracts
@@ -103,6 +106,9 @@ fn executable_interface(
         return false;
     }
     for view in views {
+        if kagari_hir::builtin::traits::StandardTrait::from_id(&view.declaration).is_some() {
+            return false;
+        }
         let Some(record) = contract(&view.declaration, closure) else {
             return false;
         };
@@ -265,6 +271,11 @@ pub(super) fn trait_bounds_match(
             continue;
         }
         for (index, implementation) in host.trait_implementations.iter().enumerate() {
+            if kagari_hir::builtin::traits::StandardTrait::from_id(&implementation.trait_id)
+                .is_some_and(|kind| kind.sealed())
+            {
+                return false;
+            }
             if signatures.len() == MAX_IMPLEMENTATIONS {
                 return false;
             }
@@ -286,9 +297,28 @@ pub(super) fn trait_bounds_match(
             });
         }
     }
-    let Some(catalog) = AggregateCatalog::from_implementation_signatures(signatures) else {
+    let Some(mut catalog) = AggregateCatalog::from_implementation_signatures(signatures) else {
         return false;
     };
+    for layout in closure.iter().flat_map(|module| &module.enumerations) {
+        let ty = kagari_hir::types::NominalType {
+            declaration: layout.declaration.clone(),
+            arguments: layout
+                .arguments
+                .iter()
+                .map(AbiType::to_checked_type)
+                .collect(),
+            associated_types: Default::default(),
+        };
+        let payload = layout
+            .variants
+            .iter()
+            .flat_map(|v| v.payload.iter().map(AbiType::to_checked_type))
+            .collect();
+        if !catalog.add_concrete_enum_payload(ty, payload) {
+            return false;
+        }
+    }
     let cancel = kagari_common::cancellation::CancellationToken::default();
     for instruction in module
         .functions
@@ -457,17 +487,19 @@ pub(super) fn trait_bounds_match(
             return false;
         };
         for parent in parents.into_iter().skip(1) {
-            if !matches!(
-                catalog.concrete_interface_implementation(
-                    &parent,
-                    &implementation.for_type,
-                    &bounds,
-                    MAX_MATCH_CHECKS,
-                    MAX_PROOF_DEPTH,
-                    &cancel
-                ),
-                Ok(Some(_))
-            ) {
+            if !catalog.intrinsic_implementation(&parent, &implementation.for_type, &bounds)
+                && !matches!(
+                    catalog.concrete_interface_implementation(
+                        &parent,
+                        &implementation.for_type,
+                        &bounds,
+                        MAX_MATCH_CHECKS,
+                        MAX_PROOF_DEPTH,
+                        &cancel
+                    ),
+                    Ok(Some(_))
+                )
+            {
                 return false;
             }
         }
@@ -479,35 +511,7 @@ pub(super) fn trait_bounds_match(
         let AbiType::Trait(interface) = &table.trait_type else {
             return false;
         };
-        let Some(owner) = closure
-            .iter()
-            .find(|member| member.identity == interface.declaration.module)
-        else {
-            return false;
-        };
-        let contract = owner
-            .public_items
-            .iter()
-            .find_map(|item| match item {
-                PublicAbiItem::Trait(contract)
-                    if interface
-                        .declaration
-                        .path
-                        .last()
-                        .is_some_and(|part| part.name == contract.name) =>
-                {
-                    Some(contract)
-                }
-                _ => None,
-            })
-            .or_else(|| {
-                owner
-                    .trait_contracts
-                    .iter()
-                    .find(|contract| contract.declaration == interface.declaration)
-                    .map(|contract| &contract.abi)
-            });
-        let Some(contract) = contract else {
+        let Some(contract) = contract(&interface.declaration, closure) else {
             return false;
         };
         if interface.associated_types.len()
@@ -656,7 +660,7 @@ pub(super) fn trait_bounds_match(
                 let proven = match &required {
                     ConstraintTarget::Standard(value) => kagari_hir::typeck::type_satisfies_standard_constraint(&actual, *value, &available),
                     ConstraintTarget::Trait(required) => available.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(required))))
-                        || matches!(catalog.concrete_interface_implementation(required, &actual, &available, MAX_MATCH_CHECKS, MAX_PROOF_DEPTH, &cancel), Ok(Some(_))),
+                        || catalog.intrinsic_implementation(required, &actual, &available) || matches!(catalog.concrete_interface_implementation(required, &actual, &available, MAX_MATCH_CHECKS, MAX_PROOF_DEPTH, &cancel), Ok(Some(_))),
                 };
                 if !proven {
                     return false;

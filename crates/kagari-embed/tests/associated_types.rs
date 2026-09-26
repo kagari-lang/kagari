@@ -230,7 +230,7 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
         abi::{AbiType, ConstraintAbi},
     };
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "pub trait Read { type Item: HashKey; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "pub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..3 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -313,8 +313,8 @@ fn generic_interface_conversion_checks_implementation_bounds() {
         r#"
         trait Reader { type Item; fn read(self) -> Self::Item; }
         struct Holder<T> { val value: T }
-        impl<T: HashKey> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } }
-        fn boxed<T: HashKey>(value: Holder<T>) -> Reader<Item = T> { value }
+        impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } }
+        fn boxed<T: Eq + Hash>(value: Holder<T>) -> Reader<Item = T> { value }
         fn main() -> i32 { boxed(Holder { value: 42 }).read() }
     "#,
     );
@@ -332,8 +332,8 @@ fn generic_interface_conversion_checks_implementation_bounds() {
     );
     let engine = KagariEngine::default();
     for source in [
-        "trait Read {} struct Holder<T> { val value: T } impl<T: HashKey> Read for Holder<T> {} fn main() { val reader: Read = Holder { value: 1.5 }; }",
-        "trait Read {} struct Holder<T> { val value: T } impl<T: HashKey> Read for Holder<T> {} fn boxed<T>(value: Holder<T>) -> Read { value } fn main() {}",
+        "trait Read {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Read for Holder<T> {} fn main() { val reader: Read = Holder { value: 1.5 }; }",
+        "trait Read {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Read for Holder<T> {} fn boxed<T>(value: Holder<T>) -> Read { value } fn main() {}",
     ] {
         assert!(
             engine
@@ -353,7 +353,7 @@ fn interface_instance_bounds_are_checked_without_method_slots() {
     use kagari_hir::types::BuiltinType;
     use kagari_ir::module::abi::AbiType;
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: HashKey> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"), Default::default(), Default::default()).unwrap();
     let mut program = artifact.program.clone();
     let table = program.modules[program.root.index()]
         .interface_tables
@@ -427,7 +427,7 @@ fn malformed_generic_interface_instances_are_rejected_before_execution() {
     use kagari_hir::types::BuiltinType;
     use kagari_ir::module::abi::AbiType;
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: HashKey> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
         let tables = &mut program.modules[program.root.index()].interface_tables;

@@ -54,7 +54,7 @@ where-clause and forwarded bounds. `OrderedNumber` alone does not suffice becaus
 it also permits unsigned numbers. Concrete instantiations retain ordinary checked
 negation semantics.
 `min`, `max`, and `clamp` check the OrderedNumber requirement on each operand.
-`assert_eq` checks Comparable on both operands. Known mismatches remain errors
+`assert_eq` checks PartialEq on both operands. Known mismatches remain errors
 when another operand is erroneous; the first operand also supplies context to
 subsequent matching operands. During error recovery, known numeric operands can
 restore the result type of a min/max/clamp call without permitting codegen.
@@ -110,23 +110,58 @@ The compiler, IR, bytecode verifier, runtime, GC, reload validation, reflection 
 `Map` and `Set` are deterministic insertion-ordered collections.
 The Rust runtime implementation should use `indexmap` for their backing storage unless a future implementation proves an equivalent deterministic order, hash behavior, and performance profile.
 
-Map and set keys are restricted to standard hash-key types in the initial production surface:
+Map and Set keys require the canonical standard `Eq + Hash` protocols:
 
-- `bool`
-- signed and unsigned integer types
-- `String`
+- unit, bool, integers and String use value equality and hashing;
+- Tuple, enum, Option and Result qualify when all members qualify;
+- Struct, Array, Map and Set use stable object identity, independently of their contents.
 
-Floating-point keys are not part of the production baseline.
-Struct, enum, tuple, array, map, set, host value, and interface value keys require a later explicit hash/equality specification before they can be accepted.
+Float, interface, host handle/path and function values are not keys. All enum
+variants are checked, including variants not constructed by the current expression.
+Objects referenced by keys remain GC roots while the owning container is reachable.
+Key preparation validates handles and computes a bounded immutable key before
+borrowing the container for modification. No script callback runs during key
+lookup or commit. Mutation of an identity key cannot invalidate its hash.
 
-The standard library may use builtin type constraints in signatures:
+The standard declarations are `std::cmp::{PartialEq, Eq}`, `std::hash::Hash`, and
+`std::fmt::{Debug, Display}`. Their short names are available in the prelude;
+normal declarations and imports shadow them. Aliases and wildcard imports retain
+the declaration identity. `Eq` extends `PartialEq`. These are ordinary trait
+bounds, including on associated outputs and GAT parameters. A user trait with
+the same spelling receives no intrinsic implementation.
 
-- `HashKey`: values accepted as `Map` keys and `Set` members
-- `Iterable`: values accepted by the iterable protocol
-- `Item<I>`: the element type yielded by an iterable value
-- `OrderedNumber`: numeric values accepted by ordering helpers and generic arithmetic/comparison operators
-- `SignedNumber`: signed integer and floating-point numeric values
-- `Comparable`: values with standard equality semantics
+```kagari
+trait PartialEq { fn eq(self, other: Self) -> bool; }
+trait Eq: PartialEq {}
+trait Hash { fn hash(self) -> i64; }
+trait Debug { fn debug(self) -> String; }
+trait Display { fn display(self) -> String; }
+```
+
+These signatures illustrate the canonical contracts; redeclaring them creates
+new traits. The equality and hashing protocols are sealed to preserve the
+[value contract](value-semantics.md). Floats implement PartialEq, but not Eq or
+Hash. Hash values are runtime hash codes, not persistent fingerprints, and have
+no cross-version or cross-runtime stability promise. Equal keys in one runtime
+always hash equally. `==`, `.eq()` and Map/Set lookup share the same rules.
+
+Scalars implement Debug and Display. Debug additionally formats tuples and enums
+structurally and mutable objects as bounded identity previews (for example,
+`Array@4:0`). Strings are escaped and quoted in Debug and returned as text in
+Display. Nominal Struct, enum and host types can explicitly implement Debug or
+Display using normal trait methods; explicit implementations take precedence over
+intrinsic defaults. Automatic aggregate Debug uses intrinsic member formatting,
+not nested script callbacks. Host values and opaque enum payload categories use
+category placeholders, such as `<host>` and `<function>`, without reading host
+state. It is not a serialization format or a derived impl.
+The initial protocols support static bounds and calls; using them or their
+subtraits as erased interface value types is rejected with a source diagnostic.
+
+Key preparation is limited to 65,536 canonical components; automatic formatting
+to depth 64 and 1 MiB of output. Exceeding these limits traps before any mutation.
+`HashKey` and `Comparable` are removed source-level pseudo-bounds. Use `Eq + Hash`
+and `PartialEq`. `Iterable`, `Item<I>`, `OrderedNumber`, and `SignedNumber` remain
+intrinsic capabilities until their corresponding protocols are designed.
 
 Array operations include:
 
@@ -406,7 +441,7 @@ Float helpers must define deterministic trap or result behavior for invalid inpu
 
 - `print(message: String) -> ()`
 - `assert(condition: bool, message: String) -> ()`
-- `assert_eq<T>(lhs: T, rhs: T, message: String) -> () where T: Comparable`
+- `assert_eq<T>(lhs: T, rhs: T, message: String) -> () where T: PartialEq`
 - `panic(message: String) -> ()`
 
 Debug helpers may trap, emit debugger events, or call host-provided debug sinks according to the active runtime profile.

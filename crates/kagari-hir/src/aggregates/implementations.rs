@@ -372,6 +372,20 @@ impl AggregateCatalog {
                 }
             }
         }
+        if count == 0
+            && trait_type.arguments.is_empty()
+            && trait_type.associated_types.is_empty()
+            && let Some(protocol) =
+                crate::builtin::traits::StandardTrait::from_id(&trait_type.declaration)
+            && crate::builtin::traits::intrinsic_holds(
+                protocol,
+                receiver,
+                Some(self),
+                &Default::default(),
+            )
+        {
+            count = 1;
+        }
         Ok(count)
     }
 
@@ -424,6 +438,21 @@ impl AggregateCatalog {
                                         if available.satisfies(&required))
                                 })
                             }) {
+                                continue;
+                            }
+                            if required.arguments.is_empty()
+                                && required.associated_types.is_empty()
+                                && let Some(protocol) =
+                                    crate::builtin::traits::StandardTrait::from_id(
+                                        &required.declaration,
+                                    )
+                                && crate::builtin::traits::intrinsic_holds(
+                                    protocol,
+                                    &actual,
+                                    Some(self),
+                                    budget.assumptions,
+                                )
+                            {
                                 continue;
                             }
                             budget.depth += 1;

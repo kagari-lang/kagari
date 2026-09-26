@@ -35,8 +35,7 @@ fn query(
 
 #[test]
 fn unrelated_applied_bound_errors_stay_in_the_signature_snapshot() {
-    let text =
-        "struct Key<T: HashKey> { val value: T } fn bad(x: Key<f32>) {} fn good() -> i32 { 7 }";
+    let text = "struct Key<T: Hash> { val value: T } fn bad(x: Key<f32>) {} fn good() -> i32 { 7 }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("application.kgr", text.into(), SourceLayer::Base)

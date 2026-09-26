@@ -68,7 +68,7 @@ fn signature_navigation_uses_checked_type_targets_before_body_analysis() {
 
 #[test]
 fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
-    let text = "fn before() {} struct Key<T: HashKey> { val value: T } struct Holder { val key: Key<f32> } enum Packet { Data(Key<f32>) } fn bad(x: Key<f32>) {} fn unresolved(x: Absent) {} fn good() -> i32 { 7 }";
+    let text = "fn before() {} struct Key<T: Hash> { val value: T } struct Holder { val key: Key<f32> } enum Packet { Data(Key<f32>) } fn bad(x: Key<f32>) {} fn unresolved(x: Absent) {} fn good() -> i32 { 7 }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("applications.kgr", text.into(), SourceLayer::Base)
@@ -81,7 +81,7 @@ fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
     assert_eq!(
         file.diagnostics()
             .iter()
-            .filter(|d| d.kind.code() == "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED")
+            .filter(|d| d.kind.code() == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")
             .count(),
         3
     );
@@ -176,7 +176,7 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
     sources
         .set(
             "mem://types",
-            "pub struct Key<T: HashKey> { val value: T }".into(),
+            "pub struct Key<T: Hash> { val value: T }".into(),
             SourceLayer::Overlay,
         )
         .unwrap();
@@ -194,7 +194,7 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
     );
     assert_eq!(
         changed.file(id).unwrap().diagnostics()[0].kind.code(),
-        "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"
+        "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"
     );
     assert!(original.file(id).unwrap().diagnostics().is_empty());
     let fresh = query(&mut AnalysisDatabase::default(), &sources);
@@ -222,7 +222,10 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
 #[test]
 fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
     use crate::typeck::ConstraintTarget;
-    for header in ["impl<T: HashKey> Set<T>", "impl<T> Set<T> where T: HashKey"] {
+    for header in [
+        "impl<T: Eq + Hash> Set<T>",
+        "impl<T> Set<T> where T: Eq + Hash",
+    ] {
         let text = format!(
             "trait Get {{ fn get(self) -> i32; }} {header} {{ fn size<T: Get>(self, value: T) -> i32 {{ value.get() }} }} fn bad() {{ missing }}"
         );
@@ -251,7 +254,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
         assert_ne!(outer, inner);
         assert!(matches!(
             method.bounds[&crate::types::TypeId::Generic(outer.clone())].as_slice(),
-            [ConstraintTarget::Standard(_)]
+            [ConstraintTarget::Trait(_), ConstraintTarget::Trait(_)]
         ));
         assert!(matches!(
             method.bounds[&crate::types::TypeId::Generic(inner.clone())].as_slice(),
@@ -282,7 +285,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
 
 #[test]
 fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls() {
-    let text = "trait Get { fn get(self) -> i32; } fn pass<T: HashKey>(x: T) -> T { x } fn main() -> i32 { pass(7) }";
+    let text = "trait Get { fn get(self) -> i32; } fn pass<T: Eq + Hash>(x: T) -> T { x } fn main() -> i32 { pass(7) }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("bound-edit.kgr", text.into(), SourceLayer::Base)
@@ -324,7 +327,7 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
     sources
         .set(
             "bound-edit.kgr",
-            text.replace("T: HashKey", "T: Get"),
+            text.replace("T: Eq + Hash", "T: Get"),
             SourceLayer::Overlay,
         )
         .unwrap();

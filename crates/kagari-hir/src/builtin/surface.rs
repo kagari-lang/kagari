@@ -85,6 +85,9 @@ pub enum StandardTypeConstructor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardModule {
+    Cmp,
+    Hash,
+    Fmt,
     Debug,
     Math,
     Array,
@@ -127,6 +130,10 @@ pub struct StandardModuleSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StandardIntrinsic {
+    ValueEq,
+    ValueHash,
+    ValueDebug,
+    ValueDisplay,
     ArrayLen,
     ArrayIsEmpty,
     ArrayGet,
@@ -203,6 +210,8 @@ pub enum StandardIntrinsic {
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
+// Operation predicates for intrinsic signatures. HashKey and Comparable delegate
+// to canonical standard traits and are not source-level bound names.
 pub enum StandardTypeConstraint {
     HashKey,
     Iterable,
@@ -433,6 +442,18 @@ const STANDARD_TYPE_CONSTRUCTORS: &[StandardTypeConstructorSpec] = &[
 ];
 
 const STANDARD_MODULES: &[StandardModuleSpec] = &[
+    StandardModuleSpec {
+        kind: StandardModule::Cmp,
+        path: "std::cmp",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::Hash,
+        path: "std::hash",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::Fmt,
+        path: "std::fmt",
+    },
     StandardModuleSpec {
         kind: StandardModule::Debug,
         path: "std::debug",
@@ -784,22 +805,20 @@ pub fn standard_method(
 
 pub fn standard_constraint(name: &str) -> Option<StandardTypeConstraint> {
     match name {
-        "HashKey" => Some(StandardTypeConstraint::HashKey),
         "Iterable" => Some(StandardTypeConstraint::Iterable),
         "OrderedNumber" => Some(StandardTypeConstraint::OrderedNumber),
         "SignedNumber" => Some(StandardTypeConstraint::SignedNumber),
-        "Comparable" => Some(StandardTypeConstraint::Comparable),
         _ => None,
     }
 }
 
 pub fn standard_constraint_name(constraint: StandardTypeConstraint) -> &'static str {
     match constraint {
-        StandardTypeConstraint::HashKey => "HashKey",
+        StandardTypeConstraint::HashKey => "Eq + Hash",
         StandardTypeConstraint::Iterable => "Iterable",
         StandardTypeConstraint::OrderedNumber => "OrderedNumber",
         StandardTypeConstraint::SignedNumber => "SignedNumber",
-        StandardTypeConstraint::Comparable => "Comparable",
+        StandardTypeConstraint::Comparable => "PartialEq",
     }
 }
 
@@ -873,22 +892,16 @@ pub fn supports_const_type(ty: &TypeId) -> bool {
 }
 
 pub fn supports_hash_key(ty: &TypeId) -> bool {
-    matches!(
+    super::traits::intrinsic_holds(
+        super::traits::StandardTrait::Eq,
         ty,
-        TypeId::Builtin(
-            BuiltinType::Bool
-                | BuiltinType::I8
-                | BuiltinType::I16
-                | BuiltinType::I32
-                | BuiltinType::I64
-                | BuiltinType::ISize
-                | BuiltinType::U8
-                | BuiltinType::U16
-                | BuiltinType::U32
-                | BuiltinType::U64
-                | BuiltinType::USize
-                | BuiltinType::String
-        )
+        None,
+        &Default::default(),
+    ) && super::traits::intrinsic_holds(
+        super::traits::StandardTrait::Hash,
+        ty,
+        None,
+        &Default::default(),
     )
 }
 

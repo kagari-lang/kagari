@@ -72,13 +72,13 @@ Traits may declare a type constructor whose inputs are type parameters:
 
 ```kagari
 trait Family {
-    type Item<T: Comparable>: Comparable;
-    fn make<T: Comparable>(self, value: T) -> Self::Item<T>;
+    type Item<T: PartialEq>: PartialEq;
+    fn make<T: PartialEq>(self, value: T) -> Self::Item<T>;
 }
 struct Identity {}
 impl Family for Identity {
-    type Item<U> = U where U: Comparable;
-    fn make<V: Comparable>(self, value: V) -> V { value }
+    type Item<U> = U where U: PartialEq;
+    fn make<V: PartialEq>(self, value: V) -> V { value }
 }
 fn make<F: Family>(family: F) -> F::Item<i32> { family.make(42) }
 fn main() -> i32 {
@@ -788,3 +788,16 @@ omitted host mappings do not invoke script defaults in this checkpoint.
 
 See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which returns
 `42` through default and overridden static/dynamic calls.
+
+## Standard protocol identities
+
+The standard PartialEq, Eq, Hash, Debug and Display contracts are described in
+[builtins](builtins.md). They use ordinary declaration identities, bounds and
+static method resolution. Intrinsic implementations are compiler/runtime owned;
+user definitions named Eq or Debug do not gain intrinsic behavior. Equality and
+hashing cannot be overridden. Formatting impls for nominal types are checked,
+specialized and called through the existing trait implementation path.
+Standard protocols and their subtraits currently cannot be erased into interface
+values. Ordinary user trait interfaces retain their existing dynamic behavior.
+Generic propagation, Error context, Iterator and ordering protocols are later
+extensions over this shared identity and bound infrastructure.

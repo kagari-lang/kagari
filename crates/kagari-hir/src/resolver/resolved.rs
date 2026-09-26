@@ -26,6 +26,7 @@ pub struct LexicalScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
+    StandardTrait(crate::builtin::traits::StandardTrait),
     SourceImport(usize),
     SourceItem {
         import: usize,

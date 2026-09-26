@@ -568,7 +568,7 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
             paths: vec![],
         })
         .unwrap();
-    engine.set_source("mem://host-interface", "pub trait Reader<T: HashKey> { type Item: HashKey; fn read(self, amount: T) -> Self::Item; }".into(), SourceLayer::Base).unwrap();
+    engine.set_source("mem://host-interface", "pub trait Reader<T: Eq + Hash> { type Item: Eq + Hash; fn read(self, amount: T) -> Self::Item; }".into(), SourceLayer::Base).unwrap();
     engine
         .bind_module(
             "mem://consumer",
@@ -728,7 +728,7 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
 fn interface_method_results_validate_nested_host_roots() {
     let (engine, _, mut host, make) = fixture();
     let source = SOURCE
-        .replace("type Item: HashKey;", "type Item;")
+        .replace("type Item: Eq + Hash;", "type Item;")
         .replace("Item = i32", "Item = (Counter, i32)")
         .replace(
             "read(make()) + boxed().read(22)",

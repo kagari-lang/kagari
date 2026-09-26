@@ -1,17 +1,17 @@
 // Run: cargo run -p kagari-cli -- run examples/syntax/generic-associated-types.kgr
 // Result: main returns 42. Type families use static dispatch.
 trait Family {
-    type Item<T: Comparable>: Comparable;
-    fn make<T: Comparable>(self, value: T) -> Self::Item<T>;
-    fn again<T: Comparable>(self, value: T) -> Self::Item<T> {
+    type Item<T: PartialEq>: PartialEq;
+    fn make<T: PartialEq>(self, value: T) -> Self::Item<T>;
+    fn again<T: PartialEq>(self, value: T) -> Self::Item<T> {
         self.make(value)
     }
 }
 
 struct Identity {}
 impl Family for Identity {
-    type Item<U> = U where U: Comparable;
-    fn make<V: Comparable>(self, value: V) -> V { value }
+    type Item<U> = U where U: PartialEq;
+    fn make<V: PartialEq>(self, value: V) -> V { value }
 }
 
 trait Child: Family {}

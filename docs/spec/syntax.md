@@ -466,7 +466,7 @@ annotated local types remain available to semantic queries.
 Empty Array literals and the resolved standard Map/Set constructors consume the
 same expected-type context in every expression position. Constructor arity and
 container kind must still match; context does not coerce incompatible elements.
-Local container annotations enforce the same `HashKey` requirements as function
+Local container annotations enforce the same `Eq + Hash` requirements as function
 signatures, including nested containers and forwarded generic constraints.
 Struct fields and enum payloads also update inference in source order: an earlier
 member can supply context to a later nested constructor. A member whose type is
@@ -836,14 +836,15 @@ literal         ::= INTEGER
 
 Unknown annotation members retain error types without suppressing independent
 constraints on known members. For example, `Map<f32, Missing>` reports the invalid
-HashKey as well as the unknown type. An unknown key by itself does not establish
-a HashKey violation; nested known key and element applications are still checked.
+Eq + Hash as well as the unknown type. An unknown key by itself does not establish
+an Eq + Hash violation; nested known key and element applications are still checked.
 User-type bounds follow the same rule when the outer type determines the result:
-`[Missing]` cannot satisfy HashKey or numeric bounds but is Iterable. Checks that
-need complete member types, including trait implementation lookup and recursive
-Comparable checks, wait for those members to resolve.
+`[Missing]` satisfies identity-based Eq + Hash and Iterable, but not numeric
+bounds. Recovery holes do not disprove a structural protocol; known siblings
+still enforce their requirements. General trait implementation lookup waits for
+the member types it needs to resolve.
 Standard bounds use the same rules in function calls and user-type applications.
-For example, a caller's `T: Comparable` also satisfies Comparable for `(T, i32)`;
+For example, a caller's `T: PartialEq` also satisfies PartialEq for `(T, i32)`;
 an unconstrained `T` does not establish that recursive requirement.
 
 ### Patterns

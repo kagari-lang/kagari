@@ -148,7 +148,9 @@ impl HostDeclarations {
             cancel.check()?;
             for implementation in &host.trait_implementations {
                 cancel.check()?;
-                if &implementation.trait_id.module != module {
+                let standard =
+                    crate::builtin::traits::StandardTrait::from_id(&implementation.trait_id);
+                if &implementation.trait_id.module != module && standard.is_none() {
                     continue;
                 }
                 let trait_signature = aggregates.trait_(&implementation.trait_id);
@@ -167,6 +169,13 @@ impl HostDeclarations {
                         .with_span(Span::default()),
                     );
                 };
+                if standard.is_some_and(|kind| kind.sealed()) {
+                    report(
+                        "standard equality and hashing cannot be overridden by host bindings"
+                            .into(),
+                    );
+                    continue;
+                }
                 let Some(trait_signature) = trait_signature else {
                     report("trait declaration is missing from its source module".into());
                     continue;

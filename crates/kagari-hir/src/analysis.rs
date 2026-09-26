@@ -525,6 +525,7 @@ fn type_reference_at<'a>(
 ) -> Option<Option<&'a crate::declarations::Declaration>> {
     type_reference_target_at(lowered, table, offset).map(|target| {
         target.and_then(|target| match target {
+            crate::typeck::TypeTarget::StandardTrait(kind) => Some(&kind.contract().declaration),
             crate::typeck::TypeTarget::Host(_) => None,
             crate::typeck::TypeTarget::Source(id) => declarations
                 .imported_types()

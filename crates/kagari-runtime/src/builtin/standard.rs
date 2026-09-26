@@ -38,6 +38,32 @@ pub fn invoke_with_callbacks(
     use StandardIntrinsic::*;
 
     match intrinsic {
+        ValueEq => {
+            let [a, b] = args else {
+                return Err(BuiltinError::new("eq expects two operands"));
+            };
+            crate::value_semantics::script_equal(gc, a, b)
+                .map(Value::Bool)
+                .map_err(BuiltinError::from)
+        }
+        ValueHash => {
+            let [value] = args else {
+                return Err(BuiltinError::new("hash expects one operand"));
+            };
+            MapKey::from_value(gc, value)
+                .map(|key| Value::I64(key.script_hash()))
+                .ok_or_else(|| {
+                    BuiltinError::new("value has no hash semantics or exceeds key size limit")
+                })
+        }
+        ValueDebug | ValueDisplay => {
+            let [value] = args else {
+                return Err(BuiltinError::new("format expects one operand"));
+            };
+            crate::value_semantics::format_value(gc, value, intrinsic == ValueDebug)
+                .map(Value::Str)
+                .map_err(BuiltinError::from)
+        }
         ArrayLen => array_len(gc, args),
         ArrayIsEmpty => array_is_empty(gc, args),
         ArrayGet => array_get(gc, args),
@@ -234,7 +260,7 @@ fn map_contains_key(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> 
     let [Value::Map(handle), key] = args else {
         return Err(BuiltinError::new("map.contains_key expects map and key"));
     };
-    require_hash_key(key, "map.contains_key")?;
+    require_hash_key(gc, key, "map.contains_key")?;
     gc.map_len(*handle)
         .ok_or_else(|| BuiltinError::new("map.contains_key expects valid map handle"))?;
     Ok(Value::Bool(gc.map_get(*handle, key).is_some()))
@@ -244,7 +270,7 @@ fn map_get(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Map(handle), key] = args else {
         return Err(BuiltinError::new("map.get expects map and key"));
     };
-    require_hash_key(key, "map.get")?;
+    require_hash_key(gc, key, "map.get")?;
     match gc.map_get(*handle, key) {
         Some(value) => option_some(gc, value),
         None => option_none(gc),
@@ -255,7 +281,7 @@ fn map_insert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Map(handle), key, item] = args else {
         return Err(BuiltinError::new("map.insert expects map, key, and item"));
     };
-    require_hash_key(key, "map.insert")?;
+    require_hash_key(gc, key, "map.insert")?;
     gc.map_insert(*handle, key.clone(), item.clone())
         .map(|_| Value::Map(*handle))
         .map_err(BuiltinError::from)
@@ -265,7 +291,7 @@ fn map_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Map(handle), key] = args else {
         return Err(BuiltinError::new("map.remove expects map and key"));
     };
-    require_hash_key(key, "map.remove")?;
+    require_hash_key(gc, key, "map.remove")?;
     gc.ensure_structure_mutable(*handle)
         .map_err(BuiltinError::from)?;
     gc.map_len(*handle)
@@ -349,7 +375,7 @@ fn set_contains(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Set(handle), item] = args else {
         return Err(BuiltinError::new("set.contains expects set and item"));
     };
-    require_hash_key(item, "set.contains")?;
+    require_hash_key(gc, item, "set.contains")?;
     gc.set_contains(*handle, item)
         .map(Value::Bool)
         .ok_or_else(|| BuiltinError::new("set.contains expects valid set handle"))
@@ -359,7 +385,7 @@ fn set_insert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Set(handle), item] = args else {
         return Err(BuiltinError::new("set.insert expects set and item"));
     };
-    require_hash_key(item, "set.insert")?;
+    require_hash_key(gc, item, "set.insert")?;
     gc.set_insert(*handle, item.clone())
         .map(|_| Value::Set(*handle))
         .map_err(BuiltinError::from)
@@ -369,7 +395,7 @@ fn set_remove(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Set(handle), item] = args else {
         return Err(BuiltinError::new("set.remove expects set and item"));
     };
-    require_hash_key(item, "set.remove")?;
+    require_hash_key(gc, item, "set.remove")?;
     gc.ensure_structure_mutable(*handle)
         .map_err(BuiltinError::from)?;
     gc.set_remove(*handle, item)
@@ -886,10 +912,12 @@ fn usize_value(value: usize) -> Value {
     Value::I64(value as i64)
 }
 
-fn require_hash_key(value: &Value, name: &'static str) -> Result<(), BuiltinError> {
-    MapKey::from_value(value)
-        .map(|_| ())
-        .ok_or_else(|| BuiltinError::new(format!("{name} expects bool, integer, or string key")))
+fn require_hash_key(gc: &GcHeap, value: &Value, name: &'static str) -> Result<(), BuiltinError> {
+    MapKey::from_value(gc, value).map(|_| ()).ok_or_else(|| {
+        BuiltinError::new(format!(
+            "{name} expects a valid Eq + Hash key within the key size limit"
+        ))
+    })
 }
 
 fn array_value(gc: &GcHeap, values: Vec<Value>) -> Result<Value, BuiltinError> {

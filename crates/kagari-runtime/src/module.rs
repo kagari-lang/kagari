@@ -248,6 +248,9 @@ pub struct EnumVariantRef {
 }
 
 impl EnumVariantRef {
+    pub(crate) fn registry_owner(&self) -> crate::host::HostRegistryId {
+        self.module.registry_owner
+    }
     pub fn layout(&self) -> &kagari_ir::module::EnumLayout {
         &self.module.bytecode.enumerations[self.id.index()]
     }

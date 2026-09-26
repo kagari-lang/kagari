@@ -1,7 +1,7 @@
 // Run: cargo run -p kagari-cli -- run examples/syntax/associated-types.kgr
 // Result: main returns 42.
 trait Reader {
-    type Item: HashKey;
+    type Item: Eq + Hash;
     fn read(self) -> Self::Item;
 }
 
@@ -19,7 +19,7 @@ impl Reader for Number {
 fn read_generic<R: Reader>(reader: R) -> R::Item { reader.read() }
 fn read_integer<R: Reader<Item = i32,>>(reader: R) -> i32 { reader.read() }
 fn read_qualified<R: Reader>(reader: R) -> <R as Reader>::Item
-where R::Item: HashKey { reader.read() }
+where R::Item: Eq + Hash { reader.read() }
 fn read_interface(reader: Reader<Item = i32>) -> i32 { reader.read() }
 
 fn main() -> i32 {

@@ -311,7 +311,7 @@ impl GcHeap {
                     "invalid heap target, index, or payload",
                 ));
             }
-            let key = MapKey::from_value(&key).ok_or_else(|| {
+            let key = MapKey::from_value(self, &key).ok_or_else(|| {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key")
             })?;
             map.try_reserve(usize::from(!map.contains_key(&key)))
@@ -325,7 +325,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         let mut set = IndexSet::new();
         for value in values {
-            let key = MapKey::from_value(&value).ok_or_else(|| {
+            let key = MapKey::from_value(self, &value).ok_or_else(|| {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key")
             })?;
             set.try_reserve(usize::from(!set.contains(&key)))
@@ -649,7 +649,7 @@ impl GcHeap {
     }
 
     pub fn map_get(&self, id: HeapObjectId, key: &Value) -> Option<Value> {
-        let key = MapKey::from_value(key)?;
+        let key = MapKey::from_value(self, key)?;
         self.with_map(id, |entries| entries.get(&key).cloned())
             .flatten()
     }
@@ -667,7 +667,7 @@ impl GcHeap {
                 "invalid heap target, index, or payload",
             ));
         }
-        let key = MapKey::from_value(&key)
+        let key = MapKey::from_value(self, &key)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         self.with_map_mut(id, |entries| {
             let units = usize::from(!entries.contains_key(&key));
@@ -688,7 +688,7 @@ impl GcHeap {
     pub fn map_remove(&self, id: HeapObjectId, key: &Value) -> Result<Option<Value>, RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
-        let key = MapKey::from_value(key)
+        let key = MapKey::from_value(self, key)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         let value = self
             .with_map_mut(id, |entries| entries.shift_remove(&key))
@@ -726,13 +726,13 @@ impl GcHeap {
     }
 
     pub fn set_contains(&self, id: HeapObjectId, value: &Value) -> Option<bool> {
-        let key = MapKey::from_value(value)?;
+        let key = MapKey::from_value(self, value)?;
         self.with_set(id, |values| values.contains(&key))
     }
 
     pub fn set_insert(&self, id: HeapObjectId, value: Value) -> Result<bool, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let key = MapKey::from_value(&value)
+        let key = MapKey::from_value(self, &value)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         self.with_set_mut(id, |values| {
             let units = usize::from(!values.contains(&key));
@@ -753,7 +753,7 @@ impl GcHeap {
     pub fn set_remove(&self, id: HeapObjectId, value: &Value) -> Result<bool, RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
-        let key = MapKey::from_value(value)
+        let key = MapKey::from_value(self, value)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         let removed = self
             .with_set_mut(id, |values| values.shift_remove(&key))
@@ -1317,7 +1317,12 @@ impl GcHeap {
             traced.push(id);
             match object {
                 HeapObject::Array(elements) => pending.extend(elements.iter().rev()),
-                HeapObject::Map(entries) => pending.extend(entries.values().rev()),
+                HeapObject::Map(entries) => {
+                    for (key, value) in entries.iter().rev() {
+                        pending.push(key.value());
+                        pending.push(value);
+                    }
+                }
                 HeapObject::Enum(snapshot) => pending.extend(snapshot.fields.iter().rev()),
                 HeapObject::Struct { fields, .. } => pending.extend(fields.iter().rev()),
                 HeapObject::Interface { snapshot, .. } => pending.push(&snapshot.data),
@@ -1325,7 +1330,7 @@ impl GcHeap {
                     pending.extend(snapshot.captures.iter().rev())
                 }
                 HeapObject::Cell { value, .. } => pending.push(value),
-                HeapObject::Set(_) => {}
+                HeapObject::Set(keys) => pending.extend(keys.iter().rev().map(MapKey::value)),
             }
         }
         Some(traced)
@@ -1950,8 +1955,8 @@ mod tests {
         assert_eq!(heap.array_remove(array, 0).unwrap(), None);
         assert_eq!(heap.map_remove(map, &Value::I32(1)).unwrap(), None);
         assert!(!heap.set_remove(set, &Value::I32(1)).unwrap());
-        assert!(heap.map_remove(map, &Value::Tuple(vec![])).is_err());
-        assert!(heap.set_remove(set, &Value::Tuple(vec![])).is_err());
+        assert!(heap.map_remove(map, &Value::F64(1.0)).is_err());
+        assert!(heap.set_remove(set, &Value::F64(1.0)).is_err());
         let guards = [Value::Array(array), Value::Map(map), Value::Set(set)]
             .map(|value| heap.begin_collection_iteration(&value).unwrap());
         let before = heap.stats().current_heap_units;

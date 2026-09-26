@@ -88,8 +88,8 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
     for text in [
         "trait View {} struct Point {} impl<View> View for Point {}",
         "trait View {} fn bad<View, T: View>(x: T) {}",
-        "fn bad<HashKey, T: HashKey>(x: T) {}",
-        "struct Point {} impl HashKey for Point {}",
+        "fn bad<Eq, T: Eq>(x: T) {}",
+        "struct Point {} impl Eq for Point {}",
         "trait View {} struct Point {} impl View<> for Point {}",
         "trait View<T> {} struct Point {} impl View for Point {}",
     ] {
@@ -100,18 +100,17 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
         let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
         let analysis = snapshot.file(file).unwrap();
         assert!(
-            analysis
-                .result()
-                .diagnostics()
-                .iter()
-                .any(|d| d.kind.code() == "KG_TYPE_INVALID_TRAIT_REFERENCE"),
+            analysis.result().diagnostics().iter().any(|d| matches!(
+                d.kind.code(),
+                "KG_TYPE_INVALID_TRAIT_REFERENCE" | "KG_TYPE_INVALID_TRAIT_IMPL"
+            )),
             "{text}: {:?}",
             analysis.result().diagnostics()
         );
         assert!(analysis.result().clone().into_codegen().is_err());
     }
     let mut sources = SourceDatabase::default();
-    let text = "trait HashKey {} struct Point {} impl HashKey for Point {} fn pass<T: HashKey>(x: T) -> T { x }";
+    let text = "trait Eq {} struct Point {} impl Eq for Point {} fn pass<T: Eq>(x: T) -> T { x }";
     let file = sources
         .set("valid.kgr", text.into(), SourceLayer::Base)
         .unwrap();
@@ -291,10 +290,13 @@ fn imported_trait_parameter_bounds_reject_invalid_implementations() {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, text) in [
-        ("api", "pub trait Echo<T: HashKey> { fn get(self) -> i32; }"),
+        (
+            "api",
+            "pub trait Echo<T: Eq + Hash> { fn get(self) -> i32; }",
+        ),
         (
             "root",
-            "use pkg::api::Echo; struct Holder {} impl Echo<Holder> for Holder { fn get(self) -> i32 { 1 } } fn main() {}",
+            "use pkg::api::Echo; struct Holder {} impl Echo<f32> for Holder { fn get(self) -> i32 { 1 } } fn main() {}",
         ),
     ] {
         sources
@@ -314,9 +316,13 @@ fn imported_trait_parameter_bounds_reject_invalid_implementations() {
     let mut db = AnalysisDatabase::default();
     let snapshot = analyze(&mut db, &sources);
     let analysis = snapshot.file(root.unwrap()).unwrap();
-    assert!(analysis.result().diagnostics().iter().any(|diagnostic| {
-        diagnostic.kind.code() == "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"
-    }));
+    assert!(
+        analysis
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.kind.code() == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED" })
+    );
     assert!(analysis.result().clone().into_codegen().is_err());
 }
 

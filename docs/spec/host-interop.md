@@ -164,7 +164,7 @@ identity/signature/borrow/effect/capability/cost mismatches. Documentation chang
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 10, fixed-width little-endian
+Interface encoding uses the `KHI\0` magic and version 11, fixed-width little-endian
 fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
 rejects other versions, malformed input, duplicates and trailing data. The decoder
 checks declaration-list lengths before reading elements (at most 1,000,000 each),

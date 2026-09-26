@@ -567,7 +567,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     }
     let checked_where_bounds = Case::new(
         "checked-where-bounds-through-forwarding",
-        "trait Get { fn get(self) -> i32; } struct P {} impl Get for P { fn get(self) -> i32 { 42 } } fn read<T>(value: T) -> i32 where T: Get { value.get() } fn wrap<U>(value: U) -> i32 where U: Get { read(value) } fn pass<T>(value: T) -> T where T: HashKey { value } fn main() -> (i32, i32) { (wrap(P {}), pass(7)) }",
+        "trait Get { fn get(self) -> i32; } struct P {} impl Get for P { fn get(self) -> i32 { 42 } } fn read<T>(value: T) -> i32 where T: Get { value.get() } fn wrap<U>(value: U) -> i32 where U: Get { read(value) } fn pass<T>(value: T) -> T where T: Eq + Hash { value } fn main() -> (i32, i32) { (wrap(P {}), pass(7)) }",
         Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(7)])),
     );
     for route in Route::ALL {
@@ -624,8 +624,8 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         ),
         Case::new(
             "standard-constraint-cannot-be-implemented",
-            "struct Point {} impl HashKey for Point {} fn main() {}",
-            Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE"),
+            "struct Point {} impl Eq for Point {} fn main() {}",
+            Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_IMPL"),
         ),
     ] {
         for route in Route::ALL {
@@ -790,12 +790,12 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     }
     let cases = [
         Case::new("unknown-inherent-impl-target", "impl Missing {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
-        Case::new("unknown-where-target", "fn bad<T>(value: T) where Missing: Comparable {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_BOUND_TARGET")),
+        Case::new("unknown-where-target", "fn bad<T>(value: T) where Missing: PartialEq {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_BOUND_TARGET")),
         Case::new("shadowed-generic-return", "impl<T> [T] { fn wrong<T>(self, value: T) -> T { self[0] } } fn main() {}", Expected::Diagnostic("KG_TYPE_RETURN_TYPE_MISMATCH")),
         Case::new("generic-values", "fn echo<T>(x: T) -> T { x } fn pass<U>(x: U) -> U { echo(x) } fn main() -> (i32, bool, String) { (pass(7), pass(true), echo(\"ok\")) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::Str("ok".into())]))),
         Case::new("generic-recursion", "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }", Expected::Value(Value::I32(7))),
         Case::new("generic-array-elements", "fn first<T>(xs: [T]) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Str("ok".into())]))),
-        Case::new("generic-equality", "fn same<T: Comparable>(a: T, b: T) -> bool { a == b } fn main() -> (bool, bool) { (same(1, 1), same(\"a\", \"b\")) }", Expected::Value(Value::Tuple(vec![Value::Bool(true), Value::Bool(false)]))),
+        Case::new("generic-equality", "fn same<T: PartialEq>(a: T, b: T) -> bool { a == b } fn main() -> (bool, bool) { (same(1, 1), same(\"a\", \"b\")) }", Expected::Value(Value::Tuple(vec![Value::Bool(true), Value::Bool(false)]))),
         Case::new("generic-static-trait", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } fn read<T: Get>(value: T) -> i32 { value.get() } fn wrap<U: Get>(value: U) -> i32 { read(value) } fn main() -> i32 { wrap(P { n: 42 }) }", Expected::Value(Value::I32(42))),
         Case::new("interface-dynamic-call", "trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } } fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }", Expected::Value(Value::I32(42))),
         Case::new("interface-dynamic-argument", "trait Add { fn add(self, value: i32) -> i32; } impl Add for i32 { fn add(self, value: i32) -> i32 { self + value } } fn read(value: Add) -> i32 { value.add(2) } fn main() -> i32 { read(40) }", Expected::Value(Value::I32(42))),
@@ -803,8 +803,8 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("interface-method-declaration-order", "trait Get { fn one(self) -> i32; fn two(self) -> i32; } impl Get for i32 { fn two(self) -> i32 { 2 } fn one(self) -> i32 { 40 } } fn read(value: Get) -> i32 { value.one() + value.two() } fn main() -> i32 { read(0) }", Expected::Value(Value::I32(42))),
         Case::new("imported-interface-dynamic-call", "use contract::dependency::Get; fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }", Expected::Value(Value::I32(42))).modules(&[("dependency", "pub trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } }")]),
         Case::new("generic-impl-specialization", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }", Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(42)]))),
-        Case::new("generic-impl-bound", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: HashKey> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1 }) }", Expected::Value(Value::I32(42))),
-        Case::new("generic-impl-bound-rejected", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: HashKey> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1.5 }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
+        Case::new("generic-impl-bound", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1 }) }", Expected::Value(Value::I32(42))),
+        Case::new("generic-impl-bound-rejected", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1.5 }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("generic-impl-trait-bound", "trait Key {} impl Key for i32 {} trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Key> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1 }) }", Expected::Value(Value::I32(42))),
         Case::new("generic-impl-trait-bound-rejected", "trait Key {} impl Key for i32 {} trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Key> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: \"a\" }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("generic-impl-repeated-binder-rejected", "trait Get { fn get(self) -> i32; } struct Pair<T, U> { val left: T, val right: U } impl<T> Get for Pair<T, T> { fn get(self) -> i32 { 1 } } fn read<V: Get>(x: V) -> i32 { x.get() } fn main() -> i32 { read(Pair { left: 1, right: true }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
@@ -812,8 +812,8 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("applied-trait-impl-signature-rejected", "trait Echo<T> { fn get(self) -> T; } struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> String { \"bad\" } } fn main() {}", Expected::Diagnostic("KG_TYPE_TRAIT_METHOD_MISMATCH")),
         Case::new("applied-trait-impl-arity-rejected", "trait Echo<T> {} struct Pair {} impl Echo<i32, bool> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE")),
         Case::new("applied-trait-impl-unknown-argument", "trait Echo<T> {} struct Pair {} impl Echo<Missing> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
-        Case::new("applied-trait-impl-bound-rejected", "trait Echo<T: HashKey> {} struct Pair {} impl Echo<f32> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED")),
-        Case::new("applied-trait-impl-bound-accepted", "trait Echo<T: HashKey> {} struct Pair {} impl Echo<i32> for Pair {} fn main() {}", Expected::Value(Value::Unit)),
+        Case::new("applied-trait-impl-bound-rejected", "trait Echo<T: Eq + Hash> {} struct Pair {} impl Echo<f32> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
+        Case::new("applied-trait-impl-bound-accepted", "trait Echo<T: Eq + Hash> {} struct Pair {} impl Echo<i32> for Pair {} fn main() {}", Expected::Value(Value::Unit)),
         Case::new("applied-trait-bound-dispatch", "trait Echo<T> { fn get(self) -> T; } struct Holder { val n: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.n } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { n: 42 }) }", Expected::Value(Value::I32(42))),
         Case::new("applied-trait-where-bound-dispatch", "trait Echo<T> { fn get(self) -> T; } struct Holder { val n: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.n } } fn read<U>(x: U) -> i32 where U: Echo<i32> { x.get() } fn main() -> i32 { read(Holder { n: 42 }) }", Expected::Value(Value::I32(42))),
         Case::new("applied-trait-bound-distinguishes-arguments", "trait Echo<T> { fn get(self) -> T; } struct Holder { val n: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.n } } fn read<U: Echo<String>>(x: U) -> String { x.get() } fn main() -> String { read(Holder { n: 42 }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),

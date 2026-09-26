@@ -27,7 +27,11 @@ Enum comparison uses declaration identity, applied type arguments and variant
 identity; adding or reordering private variants in a later execution version does
 not change equality of an existing variant with the same members.
 Floating-point equality follows IEEE comparisons (`NaN != NaN`, `-0 == +0`).
-Only bool, integer, and String keys are admitted to maps and sets in v1.
+Map and Set keys require the standard `Eq + Hash` protocols. Unit, bool, integers,
+String, qualifying tuples/enums and mutable identity objects qualify. Float,
+interface and host values do not. Keys preserve the equality rules above; mutable
+object contents never affect key equality or hashing. Containers trace retained
+keys as well as values. See [standard protocols](builtins.md#collection-types).
 
 Iteration prevents structural mutation of the iterated collection through any
 alias: insert, remove, clear, reorder, and length-changing operations fail before

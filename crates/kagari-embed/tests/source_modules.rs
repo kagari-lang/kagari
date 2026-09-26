@@ -845,7 +845,7 @@ fn dependency_generic_implementation_checks_specialized_bounds() {
     insert(
         &engine,
         "model",
-        "use pkg::api::Echo; pub struct Holder<T> { val value: T } impl<T: HashKey> Echo<i32> for Holder<T> { fn get(self) -> i32 { 9 } } pub fn good() -> Holder<i32> { Holder { value: 1 } } pub fn bad() -> Holder<f32> { Holder { value: 1.5 } }",
+        "use pkg::api::Echo; pub struct Holder<T> { val value: T } impl<T: Eq + Hash> Echo<i32> for Holder<T> { fn get(self) -> i32 { 9 } } pub fn good() -> Holder<i32> { Holder { value: 1 } } pub fn bad() -> Holder<f32> { Holder { value: 1.5 } }",
     );
     let root = insert(
         &engine,

@@ -918,6 +918,14 @@ fn type_valid(
                 pending.extend(args);
             }
             AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
+                if ty.declaration.module.package.0 == "kagari-std"
+                    && (kagari_hir::builtin::traits::StandardTrait::from_id(&ty.declaration)
+                        .is_none()
+                        || !ty.arguments.is_empty()
+                        || !ty.associated_types.is_empty())
+                {
+                    return false;
+                }
                 pending.extend(&ty.arguments);
                 if !matches!(
                     ty.declaration.path.last().map(|part| part.kind),
@@ -1201,7 +1209,7 @@ mod tests {
     #[test]
     fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() {
         let original = crate::tests::common::bytecode_ok(
-            "pub fn plain() -> i32 { 1 } pub trait Identity { fn same<T: HashKey + Comparable>(self, value: T) -> T; }",
+            "pub fn plain() -> i32 { 1 } pub trait Identity { fn same<T: Eq + Hash + PartialEq>(self, value: T) -> T; }",
         );
         for corruption in 0..8 {
             let mut module = original.clone();

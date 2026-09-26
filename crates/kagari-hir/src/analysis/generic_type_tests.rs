@@ -21,7 +21,7 @@ fn explicit_enum_arguments_check_units_payloads_and_constraints() {
         let source = SourceFile::new(
             "explicit-enum.kgr",
             format!(
-                "enum Token<T> {{ Empty, Data(T) }} enum Key<T: HashKey> {{ Empty }} fn main() {{ {body} }}"
+                "enum Token<T> {{ Empty, Data(T) }} enum Key<T: Eq + Hash> {{ Empty }} fn main() {{ {body} }}"
             ),
         );
         let analysis = crate::analyze_source(&source, Default::default());
@@ -39,7 +39,7 @@ fn explicit_enum_arguments_check_units_payloads_and_constraints() {
 fn nominal_and_call_constraints_share_recursive_comparable_binders() {
     let source = SourceFile::new(
         "shared-bounds.kgr",
-        "struct Key<T: Comparable> { val value: i32 } fn consume<T: Comparable>(value: T) {} fn make<T: Comparable>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } } fn main() -> i32 { make(true).value }",
+        "struct Key<T: PartialEq> { val value: i32 } fn consume<T: PartialEq>(value: T) {} fn make<T: PartialEq>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } } fn main() -> i32 { make(true).value }",
     );
     let analysis = crate::analyze_source(&source, Default::default());
     assert!(
@@ -50,12 +50,12 @@ fn nominal_and_call_constraints_share_recursive_comparable_binders() {
     assert!(analysis.into_codegen().is_ok());
     let unconstrained = SourceFile::new(
         "missing-bound.kgr",
-        "struct Key<T: Comparable> { val value: i32 } fn consume<T: Comparable>(value: T) {} fn make<T>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } }",
+        "struct Key<T: PartialEq> { val value: i32 } fn consume<T: PartialEq>(value: T) {} fn make<T>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } }",
     );
     let analysis = crate::analyze_source(&unconstrained, Default::default());
     assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.kind,
-        kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
+        kagari_common::DiagnosticKind::GenericBoundNotSatisfied { .. }
     )));
     assert!(analysis.into_codegen().is_err());
 }
@@ -63,13 +63,13 @@ fn nominal_and_call_constraints_share_recursive_comparable_binders() {
 #[test]
 fn partial_nominal_arguments_check_known_outer_standard_constraints() {
     for (bound, argument, expected_constraints) in [
-        ("HashKey", "[Missing]", 1),
-        ("HashKey", "Missing", 0),
+        ("Eq + Hash", "[Missing]", 0),
+        ("Eq + Hash", "Missing", 0),
         ("OrderedNumber", "[Missing]", 1),
         ("SignedNumber", "Map<i32, Missing>", 1),
         ("Iterable", "[Missing]", 0),
         ("Iterable", "(Missing, i32)", 1),
-        ("Comparable", "(Missing, i32)", 0),
+        ("PartialEq", "(Missing, i32)", 0),
     ] {
         let source = SourceFile::new(
             "partial-bound.kgr",
@@ -113,7 +113,7 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
             ("Map<f32, Missing>", 1),
             ("Map<Missing, i32>", 0),
             ("Map<i32, (Missing, Set<f32>)>", 1),
-            ("Map<Map<f32, Missing>, i32>", 2),
+            ("Map<Map<f32, Missing>, i32>", 1),
         ] {
             let text = template.replace("TYPE", annotation);
             let source = SourceFile::new("partial-constraints.kgr", text.clone());
@@ -189,7 +189,7 @@ fn explicit_struct_arguments_check_identity_arity_bounds_and_fields() {
         let source = SourceFile::new(
             "explicit-constructor.kgr",
             format!(
-                "struct Marker<T> {{ val value: i32 }} struct Key<T: HashKey> {{ val value: i32 }} fn main() {{ {body} }}"
+                "struct Marker<T> {{ val value: i32 }} struct Key<T: Eq + Hash> {{ val value: i32 }} fn main() {{ {body} }}"
             ),
         );
         let analysis = crate::analyze_source(&source, Default::default());
@@ -265,7 +265,7 @@ fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
             false,
         ),
         (
-            "fn make<T: HashKey>() { val value: Set<T> = std::set::new(); }",
+            "fn make<T: Eq + Hash>() { val value: Set<T> = std::set::new(); }",
             true,
         ),
         (
@@ -961,10 +961,10 @@ fn repeated_generic_arguments_merge_partial_types_without_hiding_conflicts() {
 #[test]
 fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_parameters() {
     for text in [
-        "struct Key<T: HashKey> { val value: T } fn bad(x: Key<f32>) {}",
-        "struct Key<T: HashKey> { val value: T } fn bad() { Key { value: 1.5 }; }",
-        "enum Key<T: HashKey> { Value(T) } fn bad() { Key::Value(1.5); }",
-        "struct Key<T: HashKey> { val value: T } fn bad<T>(value: T) { Key { value: value }; }",
+        "struct Key<T: Eq + Hash> { val value: T } fn bad(x: Key<f32>) {}",
+        "struct Key<T: Eq + Hash> { val value: T } fn bad() { Key { value: 1.5 }; }",
+        "enum Key<T: Eq + Hash> { Value(T) } fn bad() { Key::Value(1.5); }",
+        "struct Key<T: Eq + Hash> { val value: T } fn bad<T>(value: T) { Key { value: value }; }",
     ] {
         let source = SourceFile::new("bounds.kgr", text);
         let analysis = crate::analyze_source(&source, Default::default());
@@ -972,7 +972,7 @@ fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_param
             analysis
                 .diagnostics()
                 .iter()
-                .any(|d| d.kind.code() == "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"),
+                .any(|d| d.kind.code() == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"),
             "{text}: {:?}",
             analysis.diagnostics()
         );
@@ -980,7 +980,7 @@ fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_param
     }
     let source = SourceFile::new(
         "bounds.kgr",
-        "struct Key<T: HashKey> { val value: T } enum Items<T: HashKey> { Values(Set<T>) } fn pass<T: HashKey>(value: T) -> Key<T> { Key { value: value } }",
+        "struct Key<T: Eq + Hash> { val value: T } enum Items<T: Eq + Hash> { Values(Set<T>) } fn pass<T: Eq + Hash>(value: T) -> Key<T> { Key { value: value } }",
     );
     let analysis = crate::analyze_source(&source, Default::default());
     assert!(

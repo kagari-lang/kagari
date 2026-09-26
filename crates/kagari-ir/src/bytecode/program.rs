@@ -43,7 +43,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
     let mut host_types = HashMap::new();
     let mut host_type_symbols = HashMap::new();
     for (index, module) in program.modules.iter().enumerate() {
-        if !identities.insert(&module.identity) {
+        if module.identity.package.0 == "kagari-std" || !identities.insert(&module.identity) {
             return Err(invalid());
         }
         for layout in &module.structures {
@@ -169,6 +169,29 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let crate::module::abi::AbiType::Trait(instance) = &table.trait_type else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
+            if let Some(contract) =
+                crate::module::abi::standard_trait_contract(&instance.declaration)
+            {
+                let kind =
+                    kagari_hir::builtin::traits::StandardTrait::from_id(&instance.declaration)
+                        .expect("standard contract");
+                if kind.sealed()
+                    || !matches!(
+                        table.for_type,
+                        crate::module::abi::AbiType::Struct(_)
+                            | crate::module::abi::AbiType::Enum(_)
+                            | crate::module::abi::AbiType::Host(_)
+                    )
+                    || !crate::module::abi::verify::interface_contract_matches(
+                        table,
+                        contract,
+                        &Default::default(),
+                    )
+                {
+                    return Err(BytecodeVerificationError::InvalidInterfaceTable);
+                }
+                continue;
+            }
             if instance.declaration.module == module.identity {
                 continue;
             }

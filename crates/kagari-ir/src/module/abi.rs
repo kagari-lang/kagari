@@ -785,3 +785,54 @@ pub enum ConstraintAbi {
 pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;
 
 pub(crate) mod verify;
+
+/// Canonical standard contracts are engine-owned, never supplied by an artifact.
+pub(crate) fn standard_trait_contract(
+    id: &kagari_common::identity::DefinitionId,
+) -> Option<&'static TraitAbi> {
+    use kagari_hir::builtin::traits::StandardTrait;
+    static CONTRACTS: std::sync::OnceLock<Vec<TraitAbi>> = std::sync::OnceLock::new();
+    let kind = StandardTrait::from_id(id)?;
+    Some(
+        &CONTRACTS.get_or_init(|| {
+            StandardTrait::ALL
+                .into_iter()
+                .map(|kind| {
+                    let contract = kind.contract();
+                    TraitAbi {
+                        name: kind.name().into(),
+                        associated_consts: vec![],
+                        associated_types: vec![],
+                        default_methods: vec![],
+                        generic_params: vec![],
+                        bounds: vec![],
+                        supertraits: contract
+                            .supertraits
+                            .iter()
+                            .map(NominalAbiType::from_checked_type)
+                            .collect(),
+                        methods: contract
+                            .methods
+                            .iter()
+                            .map(|method| FunctionAbi {
+                                name: method.name.clone(),
+                                generic_params: vec![],
+                                bounds: vec![],
+                                params: method
+                                    .params
+                                    .iter()
+                                    .map(|param| ParameterAbi {
+                                        name: param.name.clone(),
+                                        ty: AbiType::from_checked_type(&param.ty),
+                                        mutable: false,
+                                    })
+                                    .collect(),
+                                return_type: AbiType::from_checked_type(&method.return_type),
+                            })
+                            .collect(),
+                    }
+                })
+                .collect()
+        })[kind as usize],
+    )
+}

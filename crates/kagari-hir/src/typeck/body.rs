@@ -519,6 +519,7 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::HostType(_)
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
+                        | ResolvedName::StandardTrait(_)
                         | ResolvedName::StandardVariant(_)
                         | ResolvedName::StandardModule(_)
                         | ResolvedName::HostFunction(_)
@@ -585,7 +586,9 @@ impl<'a> BodyChecker<'a> {
                     }
                     ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
                     ResolvedName::Enum(_) => "enum type is not assignable".to_string(),
-                    ResolvedName::Trait(_) => "trait type is not assignable".to_string(),
+                    ResolvedName::Trait(_) | ResolvedName::StandardTrait(_) => {
+                        "trait type is not assignable".to_string()
+                    }
                 })
                 .unwrap_or_else(|| "unresolved assignment target".to_string()),
             PlaceKind::Field { base, name } => {
@@ -709,6 +712,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)
+                    | ResolvedName::StandardTrait(_)
                     | ResolvedName::StandardVariant(_)
                     | ResolvedName::StandardModule(_)
                     | ResolvedName::HostFunction(_)
@@ -2254,6 +2258,9 @@ impl<'a> BodyChecker<'a> {
                 );
                 TypeId::Builtin(BuiltinType::F64)
             }
+            ValueEq | ValueHash | ValueDebug | ValueDisplay => {
+                unreachable!("protocol intrinsics are selected after type checking")
+            }
             DebugPrint | DebugPanic => {
                 self.check_arg_type(
                     name,
@@ -2848,6 +2855,18 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            for kind in crate::builtin::traits::StandardTrait::ALL {
+                let interface = kind.nominal();
+                if crate::builtin::traits::intrinsic_holds(
+                    kind,
+                    ty,
+                    Some(self.aggregates),
+                    &env.generic_bounds,
+                ) && !implemented.contains(&interface)
+                {
+                    implemented.push(interface);
+                }
+            }
             if !implemented.is_empty() {
                 return implemented;
             }
@@ -3435,7 +3454,11 @@ impl<'a> BodyChecker<'a> {
                     }
                     super::ConstraintTarget::Trait(trait_type) => {
                         let trait_type = trait_type.instantiate(substitution);
-                        let satisfied = match actual {
+                        let satisfied = self.aggregates.intrinsic_implementation(
+                            &trait_type,
+                            actual,
+                            &env.generic_bounds,
+                        ) || match actual {
                             TypeId::Generic(_)
                             | TypeId::SelfType(_)
                             | TypeId::Projection { .. } => self
@@ -3446,7 +3469,13 @@ impl<'a> BodyChecker<'a> {
                                 + usize::from(
                                     self.declarations.hosts.implements(&trait_type, actual),
                                 ) {
-                                0 => self.type_table.implements(&trait_type, actual),
+                                0 => {
+                                    crate::builtin::traits::StandardTrait::from_id(
+                                        &trait_type.declaration,
+                                    )
+                                    .is_none()
+                                        && self.type_table.implements(&trait_type, actual)
+                                }
                                 1 => true,
                                 _ => false,
                             },
@@ -3907,11 +3936,13 @@ impl<'a> BodyChecker<'a> {
             BinaryOp::Eq | BinaryOp::NotEq => {
                 if lhs_ty.conflicts_with(&rhs_ty)
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
-                        super::constraints::known_type_violates_constraint(
-                            ty,
-                            StandardTypeConstraint::Comparable,
-                            &env.generic_bounds,
-                        )
+                        !matches!(ty, TypeId::Unknown | TypeId::Error)
+                            && !crate::builtin::traits::intrinsic_holds(
+                                crate::builtin::traits::StandardTrait::PartialEq,
+                                ty,
+                                Some(self.aggregates),
+                                &env.generic_bounds,
+                            )
                     })
                 {
                     self.emit_binary_operand_type_mismatch(
@@ -4367,13 +4398,39 @@ impl<'a> BodyChecker<'a> {
         env: &BodyTypeEnv,
         span_expr: ExprId,
     ) {
-        super::check::validate_standard_constraint_type(
-            ty,
+        if matches!(
             constraint,
-            &env.generic_bounds,
-            self.lowered.source_map.expr_span(span_expr),
-            self.diagnostics,
-        );
+            StandardTypeConstraint::HashKey | StandardTypeConstraint::Comparable
+        ) {
+            use crate::builtin::traits::{StandardTrait, intrinsic_holds};
+            let protocols: &[StandardTrait] = if constraint == StandardTypeConstraint::HashKey {
+                &[StandardTrait::Eq, StandardTrait::Hash]
+            } else {
+                &[StandardTrait::PartialEq]
+            };
+            if !ty.is_unresolved()
+                && protocols
+                    .iter()
+                    .any(|p| !intrinsic_holds(*p, ty, Some(self.aggregates), &env.generic_bounds))
+            {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                        type_name: ty.display_name(),
+                        constraint: surface::standard_constraint_name(constraint).into(),
+                        reason: super::constraints::standard_constraint_reason(constraint).into(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(span_expr)),
+                );
+            }
+        } else {
+            super::check::validate_standard_constraint_type(
+                ty,
+                constraint,
+                &env.generic_bounds,
+                self.lowered.source_map.expr_span(span_expr),
+                self.diagnostics,
+            );
+        }
     }
 
     fn string_literal_value(&self, expr_id: ExprId) -> Option<String> {
@@ -4622,5 +4679,9 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         DebugAssert => "std::debug::assert",
         DebugAssertEq => "std::debug::assert_eq",
         DebugPanic => "std::debug::panic",
+        ValueEq => "std::cmp::PartialEq::eq",
+        ValueHash => "std::hash::Hash::hash",
+        ValueDebug => "std::fmt::Debug::debug",
+        ValueDisplay => "std::fmt::Display::display",
     }
 }

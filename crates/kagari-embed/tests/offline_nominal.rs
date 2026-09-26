@@ -132,7 +132,7 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
 fn host_trait_table_is_checked_against_script_trait_signatures() {
     let engine = KagariEngine::default();
     let path = "mem://host-trait-contract";
-    let source = "trait Readable<T: HashKey> { fn get(self, amount: T) -> T; } use demo::Counter; fn accept(value: Counter) {}";
+    let source = "trait Readable<T: Eq + Hash> { fn get(self, amount: T) -> T; } use demo::Counter; fn accept(value: Counter) {}";
     let file = engine
         .set_source(path, source.into(), SourceLayer::Base)
         .unwrap();

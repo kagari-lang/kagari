@@ -752,7 +752,16 @@ fn validate_trait_surface(
                             );
                         }
                         super::ConstraintTarget::Trait(required_trait) => {
-                            let satisfied = match actual {
+                            let satisfied = crate::builtin::traits::StandardTrait::from_id(
+                                &required_trait.declaration,
+                            )
+                            .is_some_and(|kind| {
+                                required_trait.arguments.is_empty()
+                                    && required_trait.associated_types.is_empty()
+                                    && crate::builtin::traits::intrinsic_holds(
+                                        kind, actual, None, &available,
+                                    )
+                            }) || match actual {
                                 TypeId::Generic(parameter) => available
                                     .get(&TypeId::Generic(parameter.clone()))
                                     .is_some_and(|bounds| bounds.contains(constraint)),
@@ -826,7 +835,30 @@ fn validate_trait_surface(
         }
         seen_impls.push((id.clone(), for_ty.clone()));
 
-        let methods = if let Some(trait_def) = trait_def {
+        let standard = crate::builtin::traits::StandardTrait::from_id(&id.declaration);
+        if standard.is_some_and(|kind| {
+            kind.sealed()
+                || !matches!(
+                    for_ty,
+                    TypeId::Struct(_) | TypeId::Enum(_) | TypeId::Host(_)
+                )
+        }) {
+            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidTraitImpl { trait_name: trait_name.clone(), type_name: type_name.clone(), reason: "standard equality and hashing are sealed; formatting impls require a nominal receiver".into() }).with_span(lowered.source_map.impl_span(impl_block.id)));
+            continue;
+        }
+        let methods = if let Some(kind) = standard {
+            kind.contract()
+                .methods
+                .iter()
+                .filter_map(|method| {
+                    impl_block
+                        .methods
+                        .iter()
+                        .find(|m| m.name == method.name)
+                        .map(|m| (method.id.clone(), m.function))
+                })
+                .collect()
+        } else if let Some(trait_def) = trait_def {
             trait_def
                 .methods
                 .iter()

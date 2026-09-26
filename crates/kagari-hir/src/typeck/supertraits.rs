@@ -121,20 +121,22 @@ pub(crate) fn validate(
             continue;
         };
         for parent in parents.into_iter().skip(1) {
-            let available = declarations
-                .hosts
-                .implements(&parent, &implementation.for_type)
-                || matches!(
-                    catalog.concrete_interface_implementation(
-                        &parent,
-                        &implementation.for_type,
-                        &bounds,
-                        100_000,
-                        64,
-                        cancel
-                    ),
-                    Ok(Some(_))
-                );
+            let available =
+                catalog.intrinsic_implementation(&parent, &implementation.for_type, &bounds)
+                    || declarations
+                        .hosts
+                        .implements(&parent, &implementation.for_type)
+                    || matches!(
+                        catalog.concrete_interface_implementation(
+                            &parent,
+                            &implementation.for_type,
+                            &bounds,
+                            100_000,
+                            64,
+                            cancel
+                        ),
+                        Ok(Some(_))
+                    );
             if !available {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidTraitImpl {

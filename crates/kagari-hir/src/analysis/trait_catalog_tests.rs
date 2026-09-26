@@ -29,7 +29,7 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
     let root = insert(
         &mut sources,
         "root",
-        "trait Reader<T: HashKey> { fn read<U>(self, value: U) -> U where U: Missing + HashKey; }",
+        "trait Reader<T: Eq + Hash> { fn read<U>(self, value: U) -> U where U: Missing + Eq + Hash; }",
     );
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let file = snapshot.file(root).unwrap();
@@ -39,7 +39,12 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
         "KG_TYPE_UNKNOWN_TRAIT"
     );
     let facts = file.result().facts();
-    let method = &facts.aggregates.traits().next().unwrap().methods[0];
+    let method = &facts
+        .aggregates
+        .traits()
+        .find(|t| t.id.module.package.0 != "kagari-std")
+        .unwrap()
+        .methods[0];
     let signature = facts
         .typed
         .functions
@@ -51,7 +56,7 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
     for parameter in &method.generic_params {
         assert!(matches!(
             method.bounds[&crate::types::TypeId::Generic(parameter.clone())].as_slice(),
-            [ConstraintTarget::Standard(_)]
+            [ConstraintTarget::Trait(_), ConstraintTarget::Trait(_)]
         ));
     }
     assert_ne!(
@@ -85,7 +90,14 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let analysis = snapshot.file(root).unwrap();
     let facts = analysis.result().facts();
-    assert_eq!(facts.aggregates.traits().count(), 2);
+    assert_eq!(
+        facts
+            .aggregates
+            .traits()
+            .filter(|t| t.id.module.package.0 != "kagari-std")
+            .count(),
+        2
+    );
     assert!(
         facts
             .aggregates
@@ -170,7 +182,7 @@ fn invalid_method_parameter_does_not_discard_later_parameters_or_cascade_errors(
         .facts()
         .aggregates
         .traits()
-        .next()
+        .find(|t| t.id.module.package.0 != "kagari-std")
         .unwrap()
         .methods[0];
     assert_eq!(method.params.len(), 3);

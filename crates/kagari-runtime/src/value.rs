@@ -94,32 +94,98 @@ pub enum EphemeralValue {
     Runtime(EphemeralValueId),
 }
 
+/// Prepared, immutable key. The original value is retained and traced by the heap.
+#[derive(Debug, Clone)]
+pub struct MapKey {
+    parts: Vec<KeyPart>,
+    value: Value,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum MapKey {
+enum KeyPart {
+    Unit,
     Bool(bool),
     I32(i32),
     I64(i64),
     Str(String),
+    Tuple(usize),
+    StandardEnum(u8),
+    DeclaredEnum(
+        crate::host::HostRegistryId,
+        kagari_common::identity::DefinitionId,
+        Vec<kagari_ir::module::abi::AbiType>,
+        kagari_common::identity::DefinitionId,
+    ),
+    Identity(u8, HeapObjectId),
 }
-
-impl MapKey {
-    pub fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Bool(value) => Some(Self::Bool(*value)),
-            Value::I32(value) => Some(Self::I32(*value)),
-            Value::I64(value) => Some(Self::I64(*value)),
-            Value::Str(value) => Some(Self::Str(value.clone())),
-            _ => None,
-        }
+impl PartialEq for MapKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.parts == other.parts
     }
-
-    pub fn to_value(&self) -> Value {
-        match self {
-            Self::Bool(value) => Value::Bool(*value),
-            Self::I32(value) => Value::I32(*value),
-            Self::I64(value) => Value::I64(*value),
-            Self::Str(value) => Value::Str(value.clone()),
+}
+impl Eq for MapKey {}
+impl std::hash::Hash for MapKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.parts, state);
+    }
+}
+impl MapKey {
+    pub fn from_value(gc: &crate::gc::GcHeap, value: &Value) -> Option<Self> {
+        let mut pending = vec![value.clone()];
+        let mut parts = Vec::new();
+        while let Some(value) = pending.pop() {
+            if parts.len() >= 65536 || !gc.validate_value(&value) {
+                return None;
+            }
+            match value {
+                Value::Unit => parts.push(KeyPart::Unit),
+                Value::Bool(v) => parts.push(KeyPart::Bool(v)),
+                Value::I32(v) => parts.push(KeyPart::I32(v)),
+                Value::I64(v) => parts.push(KeyPart::I64(v)),
+                Value::Str(v) => parts.push(KeyPart::Str(v)),
+                Value::Tuple(values) => {
+                    parts.push(KeyPart::Tuple(values.len()));
+                    pending.extend(values.into_iter().rev());
+                }
+                Value::Enum(id) => {
+                    let snapshot = gc.enum_snapshot(id)?;
+                    parts.push(match snapshot.tag {
+                        EnumTag::OptionNone => KeyPart::StandardEnum(0),
+                        EnumTag::OptionSome => KeyPart::StandardEnum(1),
+                        EnumTag::ResultOk => KeyPart::StandardEnum(2),
+                        EnumTag::ResultErr => KeyPart::StandardEnum(3),
+                        EnumTag::Declared(ref r) => KeyPart::DeclaredEnum(
+                            r.registry_owner(),
+                            r.layout().declaration.clone(),
+                            r.layout().arguments.clone(),
+                            r.variant().declaration.clone(),
+                        ),
+                    });
+                    parts.push(KeyPart::Tuple(snapshot.fields.len()));
+                    pending.extend(snapshot.fields.into_iter().rev());
+                }
+                Value::Struct(id) => parts.push(KeyPart::Identity(0, id)),
+                Value::Array(id) => parts.push(KeyPart::Identity(1, id)),
+                Value::Map(id) => parts.push(KeyPart::Identity(2, id)),
+                Value::Set(id) => parts.push(KeyPart::Identity(3, id)),
+                _ => return None,
+            }
         }
+        Some(Self {
+            parts,
+            value: value.clone(),
+        })
+    }
+    pub fn to_value(&self) -> Value {
+        self.value.clone()
+    }
+    pub(crate) fn value(&self) -> &Value {
+        &self.value
+    }
+    pub fn script_hash(&self) -> i64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish() as i64
     }
 }
 
@@ -439,22 +505,22 @@ mod tests {
     }
 
     #[test]
-    fn maps_standard_hash_key_values() {
-        assert_eq!(
-            MapKey::from_value(&Value::Bool(true)),
-            Some(MapKey::Bool(true))
-        );
-        assert_eq!(MapKey::from_value(&Value::I32(7)), Some(MapKey::I32(7)));
-        assert_eq!(MapKey::from_value(&Value::I64(9)), Some(MapKey::I64(9)));
-        assert_eq!(
-            MapKey::from_value(&Value::Str("hp".to_owned())),
-            Some(MapKey::Str("hp".to_owned()))
-        );
-        assert_eq!(
-            MapKey::Str("name".to_owned()).to_value(),
-            Value::Str("name".to_owned())
-        );
-        assert!(MapKey::from_value(&Value::F64(1.0)).is_none());
-        assert!(MapKey::from_value(&Value::Tuple(vec![])).is_none());
+    fn keys_share_value_equality_and_preserve_original_values() {
+        let gc = crate::gc::GcHeap::new(Default::default(), Default::default());
+        for value in [
+            Value::Unit,
+            Value::Bool(true),
+            Value::I32(7),
+            Value::I64(9),
+            Value::Str("hp".into()),
+            Value::Tuple(vec![Value::I32(1)]),
+        ] {
+            let a = MapKey::from_value(&gc, &value).unwrap();
+            let b = MapKey::from_value(&gc, &value).unwrap();
+            assert_eq!(a, b);
+            assert_eq!(a.script_hash(), b.script_hash());
+            assert_eq!(a.to_value(), value);
+        }
+        assert!(MapKey::from_value(&gc, &Value::F64(1.0)).is_none());
     }
 }

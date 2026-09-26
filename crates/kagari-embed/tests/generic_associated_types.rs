@@ -84,9 +84,9 @@ fn main() -> i32 { val pair = make(Number {}); match pair { (a, b) => a + b, } }
 fn family_input_and_output_bounds_follow_the_trait_contract() {
     execute(
         r#"
-trait Family { type Item<T: Comparable>: Comparable; fn make<T: Comparable>(self, value: T) -> Self::Item<T>; }
+trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value: T) -> Self::Item<T>; }
 struct Number {}
-impl Family for Number { type Item<U> = U; fn make<V: Comparable>(self, value: V) -> V { value } }
+impl Family for Number { type Item<U> = U; fn make<V: PartialEq>(self, value: V) -> V { value } }
 fn make<T: Family>(x: T) -> T::Item<i32> { x.make(42) }
 fn main() -> i32 { make(Number {}) }
 "#,
@@ -100,8 +100,8 @@ fn generic_impl_families_where_bounds_and_nested_outputs_execute() {
 trait Read { fn read(self) -> i32; }
 struct Holder<T> { val value: T }
 impl Read for Holder<i32> { fn read(self) -> i32 { self.value } }
-trait Family<A> { type Item<T> where T: Comparable; fn make<T: Comparable>(self, value: T) -> Self::Item<T>; }
-impl<A> Family<A> for Holder<A> { type Item<U> = [(A, U)] where U: Comparable; fn make<V: Comparable>(self, value: V) -> [(A, V)] { [(self.value, value)] } }
+trait Family<A> { type Item<T> where T: PartialEq; fn make<T: PartialEq>(self, value: T) -> Self::Item<T>; }
+impl<A> Family<A> for Holder<A> { type Item<U> = [(A, U)] where U: PartialEq; fn make<V: PartialEq>(self, value: V) -> [(A, V)] { [(self.value, value)] } }
 fn make<A, F: Family<A>>(f: F, first: A) -> F::Item<i32> { f.make(22) }
 fn main() -> i32 { val value = make(Holder { value: 20 }, 20); value[0][0] + value[0][1] }
 "#,
@@ -138,11 +138,11 @@ fn invalid_family_declarations_projections_and_dynamic_interfaces_are_rejected()
         "trait Family { type Item<T>; } fn f(x: Family) {}",
         "trait Family { type Item<T>; } trait Child: Family {} fn f(x: Child) {}",
         "trait Family { type Item<T>; } fn f<T: Family<Item=i32>>(x: T) {}",
-        "trait Family { type Item<T: Comparable>; } struct N {} impl Family for N { type Item<U: Comparable + HashKey> = U; }",
-        "trait Family { type Item<T>: Comparable; } struct N {} impl Family for N { type Item<U> = U; }",
-        "trait Family { type Item<T: HashKey>; } struct N {} impl Family for N { type Item<U> = U; } fn f(x: <N as Family>::Item<f32>) {}",
+        "trait Family { type Item<T: PartialEq>; } struct N {} impl Family for N { type Item<U: PartialEq + Eq + Hash> = U; }",
+        "trait Family { type Item<T>: PartialEq; } struct N {} impl Family for N { type Item<U> = U; }",
+        "trait Family { type Item<T: Eq + Hash>; } struct N {} impl Family for N { type Item<U> = U; } fn f(x: <N as Family>::Item<f32>) {}",
         "trait Family { type Item<T> = T; }",
-        "trait Family { type Item<T: HashKey>; } struct N {} impl Family for N { type Item<U> = i32; } fn main()->i32 { val x: <N as Family>::Item<f32> = 42; x }",
+        "trait Family { type Item<T: Eq + Hash>; } struct N {} impl Family for N { type Item<U> = i32; } fn main()->i32 { val x: <N as Family>::Item<f32> = 42; x }",
         "trait Family { type A<T>; type B<T>; } struct N {} impl Family for N { type A<U> = Self::B<U>; type B<U> = Self::A<U>; }",
         "trait Family { type Item<'a>; }",
         "trait Family { type Item<const N: i32>; }",
@@ -232,7 +232,7 @@ fn unused_family_metadata_is_verified_before_loading() {
         abi::{AbiType, ConstraintAbi, GenericBoundAbi},
     };
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: Comparable>: Comparable; fn make<T: Comparable>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: Comparable>(self, value:V)->V { value } } fn main()->i32 { 42 }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..10 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];

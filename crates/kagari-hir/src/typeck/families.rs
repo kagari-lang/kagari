@@ -117,7 +117,7 @@ pub(super) fn validate(
                     ConstraintTarget::Standard(required) => super::type_satisfies_standard_constraint(&output, required, &available),
                     ConstraintTarget::Trait(required) => {
                         available.get(&output).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(&required))))
-                            || catalog.concrete_interface_implementation(&required, &output, &available, 100_000, 64, cancel).ok().flatten().is_some()
+                            || catalog.intrinsic_implementation(&required, &output, &available) || catalog.concrete_interface_implementation(&required, &output, &available, 100_000, 64, cancel).ok().flatten().is_some()
                     }
                 };
                 if !satisfies {

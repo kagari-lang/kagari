@@ -60,6 +60,7 @@ impl ModuleImports {
     pub(crate) fn resolved_name(&self, key: ResolvedName) -> Option<ResolvedName> {
         Some(match self.binding(key)? {
             ImportTarget::Source(_) => key,
+            ImportTarget::StandardTrait(kind) => ResolvedName::StandardTrait(*kind),
             ImportTarget::HostFunction(function) => ResolvedName::HostFunction(*function),
             ImportTarget::HostType(ty) => ResolvedName::HostType(*ty),
             ImportTarget::HostModule(module) => ResolvedName::HostModule(*module),
@@ -111,6 +112,10 @@ impl ModuleImports {
                     .or_else(|| {
                         surface::standard_variant_in_module(module, member)
                             .map(ResolvedName::StandardVariant)
+                    })
+                    .or_else(|| {
+                        crate::builtin::traits::in_module(module, member)
+                            .map(ResolvedName::StandardTrait)
                     }),
                 _ => None,
             },

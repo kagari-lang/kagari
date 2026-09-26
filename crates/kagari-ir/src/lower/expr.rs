@@ -1350,6 +1350,33 @@ impl FunctionLowerer<'_, '_> {
                         impl_arguments,
                         None,
                     )
+                } else if self
+                    .planner
+                    .catalog
+                    .implementation_method(&method, &interface, &ty)
+                    .is_none()
+                    && let Some(protocol) =
+                        kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
+                    && kagari_hir::builtin::traits::intrinsic_holds(
+                        protocol,
+                        &ty,
+                        Some(self.planner.catalog),
+                        &Default::default(),
+                    )
+                {
+                    use kagari_hir::builtin::{surface::StandardIntrinsic, traits::StandardTrait};
+                    let intrinsic = match protocol {
+                        StandardTrait::PartialEq => StandardIntrinsic::ValueEq,
+                        StandardTrait::Hash => StandardIntrinsic::ValueHash,
+                        StandardTrait::Debug => StandardIntrinsic::ValueDebug,
+                        StandardTrait::Display => StandardIntrinsic::ValueDisplay,
+                        StandardTrait::Eq => unreachable!("marker trait has no methods"),
+                    };
+                    (
+                        SemanticCallTarget::TraitMethod { method, interface },
+                        Vec::new(),
+                        Some(CallTarget::StandardIntrinsic(intrinsic)),
+                    )
                 } else {
                     let (implementation, impl_arguments) = self
                         .planner

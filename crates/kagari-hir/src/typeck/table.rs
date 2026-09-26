@@ -14,6 +14,7 @@ pub enum ConstraintTarget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeTarget {
+    StandardTrait(crate::builtin::traits::StandardTrait),
     Host(crate::host::HostTypeId),
     Source(crate::imports::SourceTypeId),
     Struct(crate::hir::StructId),
@@ -378,6 +379,13 @@ impl TypeTable {
         ty: &TypeId,
         visiting: &mut HashSet<(NominalType, TypeId)>,
     ) -> bool {
+        if trait_type.arguments.is_empty()
+            && trait_type.associated_types.is_empty()
+            && let Some(kind) =
+                crate::builtin::traits::StandardTrait::from_id(&trait_type.declaration)
+        {
+            return crate::builtin::traits::intrinsic_holds(kind, ty, None, &Default::default());
+        }
         let key = (trait_type.clone(), ty.clone());
         if !visiting.insert(key.clone()) {
             return false;

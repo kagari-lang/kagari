@@ -99,6 +99,7 @@ impl FunctionLowerer<'_, '_> {
             ResolvedName::Const(_)
             | ResolvedName::Function(_)
             | ResolvedName::Module(_)
+            | ResolvedName::StandardTrait(_)
             | ResolvedName::StandardVariant(_)
             | ResolvedName::StandardModule(_)
             | ResolvedName::HostFunction(_)
@@ -275,6 +276,7 @@ impl FunctionLowerer<'_, '_> {
                 "bare standard functions are not lowered yet",
             )),
             ResolvedName::Module(_)
+            | ResolvedName::StandardTrait(_)
             | ResolvedName::StandardVariant(_)
             | ResolvedName::StandardModule(_)
             | ResolvedName::Struct(_)

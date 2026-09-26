@@ -712,7 +712,7 @@ fn host_trait_standard_bounds_are_rechecked_after_decode() {
     use kagari_common::host_interface::HostValueType;
 
     let module =
-        host_trait_test_module("trait Readable<T: HashKey> { fn get(self) -> T; } fn main() {}");
+        host_trait_test_module("trait Readable<T: Eq + Hash> { fn get(self) -> T; } fn main() {}");
     verify_module(&module).unwrap();
     let valid = KbcArtifact::from_program(
         crate::bytecode::BytecodeProgram {

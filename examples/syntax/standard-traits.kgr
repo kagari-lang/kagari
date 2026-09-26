@@ -1,0 +1,29 @@
+// Standard protocols use declaration identities, including aliased imports.
+use std::fmt::Display as Show;
+
+struct Label { val value: i32 }
+impl Debug for Label {
+    fn debug(self) -> String { "Label(".concat(self.value.display()).concat(")") }
+}
+impl Show for Label {
+    fn display(self) -> String { self.value.display() }
+}
+fn same<T: Eq>(left: T, right: T) -> bool { left.eq(right) && left == right }
+fn show<T: Show>(value: T) -> String { value.display() }
+fn hash<T: Eq + Hash>(value: T) -> i64 { value.hash() }
+
+enum Key { Number(i32), Name(String) }
+
+fn main() -> i32 {
+    val values: Map<(Key, i32), i32> = std::map::new();
+    values.insert((Key::Name("answer"), 1), 20);
+    val label = Label { value: 22 };
+    val identities: Map<Label, i32> = std::map::new();
+    identities.insert(label, 22);
+    std::debug::assert(same(label, label), "aliases share identity");
+    std::debug::assert(!same(label, Label { value: 22 }), "distinct objects");
+    std::debug::assert(hash((42, "x")) == hash((42, "x")), "equal values hash equally");
+    std::debug::assert(label.debug() == "Label(22)", "explicit Debug implementation");
+    std::debug::assert(show(label) == "22", "ordinary static trait dispatch");
+    values.get((Key::Name("answer"), 1)).unwrap_or(0) + identities.get(label).unwrap_or(0)
+}

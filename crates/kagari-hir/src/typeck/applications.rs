@@ -22,6 +22,32 @@ pub(super) fn validate(
         if cancel.check().is_err() {
             return;
         }
+        let key = match ty {
+            TypeId::Map { key, .. } => Some(key.as_ref()),
+            TypeId::Set(key) => Some(key.as_ref()),
+            _ => None,
+        };
+        if let Some(key) = key {
+            use crate::builtin::traits::{StandardTrait, intrinsic_holds};
+            if super::type_satisfies_standard_constraint(
+                key,
+                crate::builtin::surface::StandardTypeConstraint::HashKey,
+                bounds,
+            ) && [StandardTrait::Eq, StandardTrait::Hash]
+                .into_iter()
+                .any(|p| !intrinsic_holds(p, key, Some(catalog), bounds))
+            {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                        type_name: key.display_name(),
+                        constraint: "Eq + Hash".into(),
+                        reason: "every key component must support stable equality and hashing"
+                            .into(),
+                    })
+                    .with_span(span),
+                );
+            }
+        }
         match ty {
             TypeId::Projection {
                 receiver,
@@ -67,7 +93,7 @@ pub(super) fn validate(
                                 ConstraintTarget::Trait(required) => {
                                     let required = required.instantiate(&substitution);
                                     bounds.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&required))))
-                                        || catalog.implementation_count(&required, &actual) + usize::from(hosts.implements(&required, &actual)) == 1
+                                        || catalog.intrinsic_implementation(&required, &actual, bounds) || catalog.implementation_count(&required, &actual) + usize::from(hosts.implements(&required, &actual)) == 1
                                 }
                             };
                             if !satisfied && !actual.is_unresolved() {
@@ -129,7 +155,7 @@ pub(super) fn validate(
                             // Trait implementation identity needs complete members;
                             // standard constraint recovery belongs to the shared checker.
                             if actual.is_unresolved()
-                                && matches!(constraint, ConstraintTarget::Trait(_))
+                                && matches!(constraint, ConstraintTarget::Trait(t) if crate::builtin::traits::StandardTrait::from_id(&t.declaration).is_none())
                             {
                                 continue;
                             }
@@ -145,7 +171,7 @@ pub(super) fn validate(
                                 }
                                 ConstraintTarget::Trait(id) => {
                                     let applied = id.instantiate(&substitution);
-                                    let satisfied = bounds.get(actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&applied)))) || match actual {
+                                    let satisfied = catalog.intrinsic_implementation(&applied, actual, bounds) || bounds.get(actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&applied)))) || match actual {
                                         TypeId::Generic(parameter) => bounds
                                             .get(&TypeId::Generic(parameter.clone()))
                                             .is_some_and(|bounds| {
@@ -156,7 +182,7 @@ pub(super) fn validate(
                                         _ => match catalog.implementation_count(&applied, actual)
                                             + usize::from(hosts.implements(&applied, actual))
                                         {
-                                            0 => table.implements(&applied, actual),
+                                            0 => crate::builtin::traits::StandardTrait::from_id(&applied.declaration).is_none() && table.implements(&applied, actual),
                                             1 => true,
                                             _ => false,
                                         },
@@ -204,7 +230,7 @@ pub(super) fn validate(
                                 ConstraintTarget::Trait(required) => {
                                     let required = required.instantiate(&substitution);
                                     bounds.get(actual).is_some_and(|constraints| constraints.iter().any(|constraint| matches!(constraint, ConstraintTarget::Trait(available) if available.satisfies(&required))))
-                                        || catalog.implementation_count(&required, actual) == 1
+                                        || catalog.intrinsic_implementation(&required, actual, bounds) || catalog.implementation_count(&required, actual) == 1
                                         || hosts.implements(&required, actual)
                                 }
                             };
@@ -448,6 +474,9 @@ pub(super) fn validate_imported_interface_type(
         }
         match ty {
             TypeId::Trait(instance) => {
+                if crate::builtin::traits::StandardTrait::from_id(&instance.declaration).is_some() {
+                    diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
+                }
                 let erased = catalog.trait_closure(instance, ty, cancel);
                 let preserved = catalog.trait_closure(
                     instance,
@@ -471,6 +500,18 @@ pub(super) fn validate_imported_interface_type(
                         let Some(contract) = catalog.trait_(&parent.declaration) else {
                             continue;
                         };
+                        if crate::builtin::traits::StandardTrait::from_id(&parent.declaration)
+                            .is_some()
+                            && index != 0
+                        {
+                            diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                                    trait_name: ty.display_name(),
+                                    reason: "standard supertraits require static dispatch".into(),
+                                })
+                                .with_span(span),
+                            );
+                        }
                         if !contract.associated_consts.is_empty() {
                             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
                                 trait_name: contract.declaration.name.clone(), reason: "traits with associated constants only support static dispatch".into(),

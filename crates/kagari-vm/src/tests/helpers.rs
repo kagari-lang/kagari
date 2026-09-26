@@ -1407,9 +1407,9 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
                 dst: Register::new(1),
                 constant: ConstantOperand::I32(1),
             },
-            BytecodeInstruction::MakeArray {
+            BytecodeInstruction::LoadConst {
                 dst: Register::new(2),
-                elements: vec![Register::new(1)],
+                constant: ConstantOperand::F32(1.0),
             },
             BytecodeInstruction::Call {
                 dst: Some(Register::new(3)),
@@ -1422,7 +1422,7 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
         vec![
             ValueType::HeapObject,
             ValueType::I32,
-            ValueType::HeapObject,
+            ValueType::F32,
             ValueType::HeapObject,
         ],
     );
@@ -1436,7 +1436,7 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
                 modules: vec![bytecode],
             },
         )
-        .expect_err("aggregate map key should reject before publication");
+        .expect_err("float map key should reject before publication");
 
     assert!(matches!(error.kind(), RuntimeErrorKind::ModuleValidation));
     assert!(error.message().contains("hash-key"));

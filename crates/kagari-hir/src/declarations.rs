@@ -73,6 +73,35 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    pub(crate) fn standard_trait(
+        &self,
+        name: &str,
+    ) -> Option<crate::builtin::traits::StandardTrait> {
+        if let Some(binding) = self.names.lookup(name) {
+            return match binding.target()? {
+                ResolvedName::StandardTrait(kind) => Some(kind),
+                _ => None,
+            };
+        }
+        if let Some((alias, member)) = name.split_once("::")
+            && let Some(binding) = self.names.lookup(alias)
+        {
+            return match binding.target()? {
+                ResolvedName::StandardModule(module) => {
+                    crate::builtin::traits::in_module(module, member)
+                }
+                ResolvedName::SourceImport(index) => {
+                    match self.imports.resolve_member(index, member, &self.hosts)? {
+                        ResolvedName::StandardTrait(kind) => Some(kind),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+        }
+        crate::builtin::traits::StandardTrait::from_name(name)
+    }
+
     pub fn impl_identity(&self, id: crate::hir::ImplId) -> Option<&DefinitionId> {
         self.impl_identities.get(&id)
     }
@@ -192,6 +221,9 @@ impl Declarations {
     }
 
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
+        if let ResolvedName::StandardTrait(kind) = name {
+            return Some(&kind.contract().declaration);
+        }
         self.targets.get(&DeclarationKey::Name(name))
     }
 

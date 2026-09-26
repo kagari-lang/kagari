@@ -159,12 +159,18 @@ pub(crate) fn verify_intrinsic(
 ) -> Result<(), ContractError> {
     use StandardIntrinsic::*;
 
-    let arity = kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
-        .ok_or(ContractError::Intrinsic {
-            intrinsic,
-            reason: "missing standard declaration",
-        })?
-        .arity;
+    let arity = match intrinsic {
+        ValueEq => 2,
+        ValueHash | ValueDebug | ValueDisplay => 1,
+        _ => {
+            kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
+                .ok_or(ContractError::Intrinsic {
+                    intrinsic,
+                    reason: "missing standard declaration",
+                })?
+                .arity
+        }
+    };
     if args.len() != arity {
         return Err(ContractError::Intrinsic {
             intrinsic,
@@ -173,6 +179,22 @@ pub(crate) fn verify_intrinsic(
     }
 
     match intrinsic {
+        ValueEq => {
+            if args[0] != args[1] {
+                return Err(ContractError::Intrinsic {
+                    intrinsic,
+                    reason: "equality operands disagree",
+                });
+            }
+            verify_call_dst(dst, ValueType::Bool)?;
+        }
+        ValueHash => {
+            expect_hash_key_arg(args, 0, intrinsic)?;
+            verify_call_dst(dst, ValueType::I64)?;
+        }
+        ValueDebug | ValueDisplay => {
+            verify_call_dst(dst, ValueType::Str)?;
+        }
         ArrayLen => {
             expect_arg_ty(
                 args,
@@ -441,13 +463,18 @@ fn expect_hash_key_arg(
     let found = args[index];
     if matches!(
         found,
-        ValueType::Bool | ValueType::I32 | ValueType::I64 | ValueType::Str
+        ValueType::Unit
+            | ValueType::Bool
+            | ValueType::I32
+            | ValueType::I64
+            | ValueType::Str
+            | ValueType::HeapObject
     ) {
         Ok(())
     } else {
         Err(ContractError::Intrinsic {
             intrinsic,
-            reason: "hash-key argument must be bool, integer, or String",
+            reason: "hash-key representation does not support Eq + Hash",
         })
     }
 }

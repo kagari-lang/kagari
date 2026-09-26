@@ -72,8 +72,9 @@ pub struct EnumSignature {
     pub variants: Vec<VariantSignature>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateCatalog {
+    concrete_enum_payloads: std::collections::HashMap<crate::types::NominalType, Vec<TypeId>>,
     implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
     host_implementations: Vec<(crate::types::NominalType, TypeId)>,
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
@@ -87,6 +88,34 @@ pub struct AggregateCatalog {
 }
 
 impl AggregateCatalog {
+    /// Portable verification knows concrete enum layouts instead of source declarations.
+    pub fn add_concrete_enum_payload(
+        &mut self,
+        ty: crate::types::NominalType,
+        payload: Vec<TypeId>,
+    ) -> bool {
+        if let Some(previous) = self.concrete_enum_payloads.get(&ty) {
+            return *previous == payload;
+        }
+        self.concrete_enum_payloads.insert(ty, payload);
+        true
+    }
+    pub fn concrete_enum_payload(&self, ty: &crate::types::NominalType) -> Option<&[TypeId]> {
+        self.concrete_enum_payloads.get(ty).map(Vec::as_slice)
+    }
+    pub fn intrinsic_implementation(
+        &self,
+        interface: &crate::types::NominalType,
+        ty: &TypeId,
+        bounds: &crate::typeck::GenericBounds,
+    ) -> bool {
+        interface.arguments.is_empty()
+            && interface.associated_types.is_empty()
+            && crate::builtin::traits::StandardTrait::from_id(&interface.declaration).is_some_and(
+                |kind| crate::builtin::traits::intrinsic_holds(kind, ty, Some(self), bounds),
+            )
+    }
+
     pub fn implementation_constant(
         &self,
         implementation: &DefinitionId,
@@ -452,5 +481,35 @@ impl AggregateCatalog {
                         })
                 })
             })
+    }
+}
+
+impl Default for AggregateCatalog {
+    fn default() -> Self {
+        let mut catalog = Self {
+            concrete_enum_payloads: Default::default(),
+            implementation_constants: Default::default(),
+            host_implementations: vec![],
+            traits: Default::default(),
+            implementations: Default::default(),
+            methods: Default::default(),
+            inherent_methods: Default::default(),
+            structures: Default::default(),
+            fields: Default::default(),
+            enumerations: Default::default(),
+            variants: Default::default(),
+        };
+        for kind in crate::builtin::traits::StandardTrait::ALL {
+            let contract = kind.contract();
+            catalog
+                .traits
+                .insert(contract.id.clone(), Arc::new(contract.clone()));
+            for method in &contract.methods {
+                catalog
+                    .methods
+                    .insert(method.id.clone(), (contract.id.clone(), method.slot));
+            }
+        }
+        catalog
     }
 }

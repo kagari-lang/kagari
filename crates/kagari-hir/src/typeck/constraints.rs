@@ -226,10 +226,12 @@ pub(super) fn resolve_constraint(
         .map(ConstraintTarget::Standard)
         .or(match &resolved.ty {
             TypeId::Trait(instance)
-                if context
-                    .declarations
-                    .definition_target(&instance.declaration)
+                if crate::builtin::traits::StandardTrait::from_id(&instance.declaration)
                     .is_some()
+                    || context
+                        .declarations
+                        .definition_target(&instance.declaration)
+                        .is_some()
                     || context
                         .declarations
                         .imported_types()
@@ -366,24 +368,21 @@ pub fn type_satisfies_standard_constraint(
     constraint: StandardTypeConstraint,
     bounds: &super::GenericBounds,
 ) -> bool {
-    match ty {
-        TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. }
-            if constraint == StandardTypeConstraint::Comparable =>
-        {
-            members
-                .iter()
-                .all(|ty| type_satisfies_standard_constraint(ty, constraint, bounds))
+    use crate::builtin::traits::{StandardTrait, intrinsic_holds};
+    match constraint {
+        StandardTypeConstraint::HashKey => {
+            intrinsic_holds(StandardTrait::Eq, ty, None, bounds)
+                && intrinsic_holds(StandardTrait::Hash, ty, None, bounds)
         }
-        TypeId::Generic(_) | TypeId::Projection { .. } => bounds
+        StandardTypeConstraint::Comparable => {
+            intrinsic_holds(StandardTrait::PartialEq, ty, None, bounds)
+        }
+        _ if matches!(ty, TypeId::Generic(_) | TypeId::Projection { .. }) => bounds
             .get(ty)
             .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
-        _ => match constraint {
-            StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
-            StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
-            StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
-            StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
-            StandardTypeConstraint::Comparable => ty.supports_equality(),
-        },
+        StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
+        StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
+        StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
     }
 }
 
@@ -411,9 +410,7 @@ pub(super) fn known_type_violates_constraint(
 
 pub(super) fn standard_constraint_reason(constraint: StandardTypeConstraint) -> &'static str {
     match constraint {
-        StandardTypeConstraint::HashKey => {
-            "only bool, integer, and String keys have specified hash semantics"
-        }
+        StandardTypeConstraint::HashKey => "key type must implement std::cmp::Eq + std::hash::Hash",
         StandardTypeConstraint::Iterable => "type is not part of the standard iterable protocol",
         StandardTypeConstraint::OrderedNumber => "type is not an ordered numeric type",
         StandardTypeConstraint::SignedNumber => "type is not a signed numeric type",

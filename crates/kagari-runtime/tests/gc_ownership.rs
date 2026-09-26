@@ -179,3 +179,119 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 10_000);
 }
+
+#[test]
+fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
+    use kagari_runtime::value::{EnumTag, MapKey};
+    let runtime = Runtime::default();
+    let object = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
+    let value = runtime
+        .alloc_enum(
+            EnumTag::OptionSome,
+            vec![Value::Tuple(vec![
+                Value::Array(object),
+                Value::Str("key".into()),
+            ])],
+        )
+        .unwrap();
+    let key = Value::Enum(value);
+    let hash = MapKey::from_value(runtime.gc(), &key)
+        .unwrap()
+        .script_hash();
+    let map = runtime
+        .alloc_map(vec![(key.clone(), Value::I32(20))])
+        .unwrap();
+    let set = runtime.alloc_set(vec![key.clone()]).unwrap();
+    let root = runtime
+        .root_value(Value::Tuple(vec![Value::Map(map), Value::Set(set)]))
+        .unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 4);
+    runtime.gc().array_push(object, Value::I32(99)).unwrap();
+    assert_eq!(
+        hash,
+        MapKey::from_value(runtime.gc(), &key)
+            .unwrap()
+            .script_hash()
+    );
+    let equal = runtime
+        .alloc_enum(
+            EnumTag::OptionSome,
+            vec![Value::Tuple(vec![
+                Value::Array(object),
+                Value::Str("key".into()),
+            ])],
+        )
+        .unwrap();
+    assert!(script_equal(runtime.gc(), &key, &Value::Enum(equal)).unwrap());
+    assert_eq!(
+        runtime.gc().map_get(map, &Value::Enum(equal)),
+        Some(Value::I32(20))
+    );
+    assert_eq!(
+        runtime.gc().set_contains(set, &Value::Enum(equal)),
+        Some(true)
+    );
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+    runtime.gc().map_clear(map).unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 4);
+    runtime.gc().set_clear(set).unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    assert!(MapKey::from_value(runtime.gc(), &key).is_none());
+    drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn invalid_identity_keys_are_rejected_without_container_modification() {
+    let runtime = Runtime::default();
+    let foreign = Runtime::default();
+    let map = runtime
+        .alloc_map(vec![(Value::I32(1), Value::I32(42))])
+        .unwrap();
+    let set = runtime.alloc_set(vec![Value::I32(1)]).unwrap();
+    let object = foreign.alloc_array(vec![]).unwrap();
+    let before = runtime.resources().counters().allocation_units;
+    assert!(
+        runtime
+            .gc()
+            .map_insert(map, Value::Array(object), Value::I32(0))
+            .is_err()
+    );
+    assert!(runtime.gc().set_insert(set, Value::Array(object)).is_err());
+    assert!(
+        runtime
+            .gc()
+            .map_insert(map, Value::F64(1.0), Value::I32(0))
+            .is_err()
+    );
+    assert_eq!(runtime.resources().counters().allocation_units, before);
+    assert_eq!(
+        runtime.gc().map_snapshot(map),
+        Some(vec![(Value::I32(1), Value::I32(42))])
+    );
+    assert_eq!(runtime.gc().set_snapshot(set), Some(vec![Value::I32(1)]));
+}
+
+#[test]
+fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
+    use kagari_runtime::value_semantics::format_value;
+    let runtime = Runtime::default();
+    let object = runtime.alloc_array(vec![]).unwrap();
+    runtime
+        .gc()
+        .array_push(object, Value::Array(object))
+        .unwrap();
+    let preview = format_value(runtime.gc(), &Value::Array(object), true).unwrap();
+    assert!(preview.starts_with("Array@"));
+    assert_eq!(
+        format_value(runtime.gc(), &Value::Str("a\nb".into()), true).unwrap(),
+        "\"a\\nb\""
+    );
+    assert!(format_value(runtime.gc(), &Value::Str("x".repeat(1_048_577)), false).is_err());
+    let mut value = Value::I32(42);
+    for _ in 0..66 {
+        value = Value::Tuple(vec![value]);
+    }
+    assert!(format_value(runtime.gc(), &value, true).is_err());
+    assert_eq!(runtime.gc().array_len(object), Some(1));
+}
