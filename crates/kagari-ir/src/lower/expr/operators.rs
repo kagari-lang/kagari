@@ -25,6 +25,16 @@ impl FunctionLowerer<'_, '_> {
             .type_table
             .expr_type(receiver)
             .ok_or(IrLoweringError::MissingExprType(receiver))?;
+        self.lower_applied_operator(interface, receiver, &method, args)
+    }
+
+    pub(crate) fn lower_applied_operator(
+        &mut self,
+        interface: kagari_hir::types::NominalType,
+        receiver: TypeId,
+        method: &kagari_common::identity::DefinitionId,
+        args: &[IrValue],
+    ) -> Result<IrValue, IrLoweringError> {
         let ty = self
             .planner
             .arguments(
@@ -52,7 +62,7 @@ impl FunctionLowerer<'_, '_> {
         let signature = self
             .planner
             .catalog
-            .trait_method(&method)
+            .trait_method(method)
             .ok_or(IrLoweringError::MissingBinding("operator signature"))?;
         let mut substitution: kagari_hir::types::TypeSubstitution = contract
             .generic_params
@@ -72,7 +82,7 @@ impl FunctionLowerer<'_, '_> {
         let callee = if let Some((declaration, arguments)) = self
             .planner
             .catalog
-            .implementation_method(&method, &interface, &ty)
+            .implementation_method(method, &interface, &ty)
         {
             if declaration.module == *self.planner.owner().lowered.source.module_identity() {
                 CallTarget::Function(self.planner.enqueue_declaration(
@@ -123,6 +133,15 @@ impl FunctionLowerer<'_, '_> {
                         crate::module::instruction::UnaryOp::Not
                     },
                     operand: args[0],
+                });
+                return Ok(dst);
+            }
+            if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Index) {
+                let dst = self.alloc_temp(result_ty);
+                self.emit(Instruction::ReadAggregateIndex {
+                    dst,
+                    base: args[0],
+                    index: args[1],
                 });
                 return Ok(dst);
             }

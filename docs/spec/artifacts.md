@@ -41,13 +41,16 @@ KbcArtifact {
 }
 ```
 
-Format version 56 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 57 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 55 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 56 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 57 and runtime ABI v57 register read-only Index. Custom reads are ordinary
+linked calls; builtin Array reads retain aggregate-index instructions. KHI remains v11.
 
 Version 56 and runtime ABI v56 register Neg/Not with associated outputs. No
 short-circuit or compound-assignment override is introduced.

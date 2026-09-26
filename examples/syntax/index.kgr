@@ -1,0 +1,15 @@
+struct Item { var value: i32 }
+struct Bag { val items: [Item] }
+impl Index<i32> for Bag {
+    type Output = Item;
+    fn index(self, rhs: i32) -> Item { self.items[rhs] }
+}
+fn read<C: Index<i32>>(container: C, index: i32) -> C::Output { container[index] }
+fn main() -> i32 {
+    val item = Item { value: 0 };
+    val bag = Bag { items: [item] };
+    bag[0].value = 20;
+    bag[0].value += 22;
+    // Index returns the same object. No setter or container writeback occurs.
+    if read(bag, 0) === item { item.value } else { 0 }
+}

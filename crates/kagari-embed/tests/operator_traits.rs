@@ -136,3 +136,39 @@ fn main()->i32 {val x=Signed{value:-42};val zero=Signed{value:0};if invert(zero)
 "#,
     );
 }
+
+#[test]
+fn readonly_index_returns_shared_objects_without_container_writeback() {
+    execute(
+        r#"
+struct Item {var value:i32}
+struct Bag {val items:[Item],var reads:i32}
+impl Index<i32> for Bag {type Output=Item;fn index(self,rhs:i32)->Item {self.reads+=1;self.items[rhs]}}
+fn read<C:Index<i32>>(c:C,i:i32)->C::Output {c[i]}
+fn main()->i32 {
+ val item=Item{value:0};val bag=Bag{items:[item],reads:0};
+ bag[0].value=20;bag[0].value+=22;
+ if item.value==42 && bag.reads==2 && read(bag,0)===item && bag.index(0)===item && read([42],0)==42 {item.value}else{0}
+}
+"#,
+    );
+}
+#[test]
+fn index_does_not_grant_element_replacement_or_immutable_field_writes() {
+    for tail in ["b[0]=Item{value:1};", "b[0].value=1;"] {
+        let source = format!(
+            "struct Item {{val value:i32}} struct Bag {{val item:Item}} impl Index<i32> for Bag {{type Output=Item;fn index(self,rhs:i32)->Item {{self.item}}}} fn main() {{val b=Bag{{item:Item{{value:0}}}};{tail}}}"
+        );
+        assert!(
+            matches!(
+                KagariEngine::default().compile_to_artifact(
+                    SourceFile::new("bad-index.kgr", source),
+                    Default::default(),
+                    Default::default()
+                ),
+                Err(kagari_embed::EmbeddingError::Diagnostics { .. })
+            ),
+            "{tail}"
+        );
+    }
+}

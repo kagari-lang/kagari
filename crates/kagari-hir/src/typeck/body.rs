@@ -541,7 +541,17 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self.resolve_readable_place_type(*base, env);
                 let index_ty = self.infer_expr_type(*index, env);
                 let base_ty = base_ty?;
-                self.checked_index_type(*index, &base_ty, &index_ty, *index)
+                let mut requested = crate::builtin::traits::StandardTrait::Index.nominal();
+                requested.arguments.push(index_ty.clone());
+                if !matches!(base_ty, TypeId::Array(_) | TypeId::Tuple(_))
+                    && let Some((interface, result)) =
+                        self.select_operator(&base_ty, requested, env)
+                {
+                    self.type_table.insert_place_index(place_id, interface);
+                    Some(result)
+                } else {
+                    self.checked_index_type(*index, &base_ty, &index_ty, *index)
+                }
             }
         };
 
@@ -1052,6 +1062,13 @@ impl<'a> BodyChecker<'a> {
                     return TypeId::Unknown;
                 };
                 if completes {
+                    let mut requested = crate::builtin::traits::StandardTrait::Index.nominal();
+                    requested.arguments.push(index_ty.clone());
+                    if let Some(result) =
+                        self.record_operator(expr_id, *receiver, &receiver_ty, requested, env)
+                    {
+                        return self.finish_operator_type(expr_id, result, env);
+                    }
                     self.checked_index_type(*index, &receiver_ty, &index_ty, expr_id)
                         .unwrap_or(TypeId::Error)
                 } else {
@@ -3957,18 +3974,31 @@ impl<'a> BodyChecker<'a> {
         ty
     }
 
-    /// Operator syntax and explicit method calls retain the same trait identity.
-    fn record_operator(
-        &mut self,
-        site: ExprId,
-        receiver: ExprId,
+    fn select_operator(
+        &self,
         ty: &TypeId,
         requested: crate::types::NominalType,
         env: &BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let interface = self.trait_bounds_for(ty, env).into_iter().find(|bound| {
-            bound.declaration == requested.declaration && bound.arguments == requested.arguments
-        })?;
+    ) -> Option<(crate::types::NominalType, TypeId)> {
+        let interface = if crate::builtin::traits::intrinsic_applies(
+            &requested,
+            ty,
+            Some(self.aggregates),
+            &env.generic_bounds,
+        ) {
+            let mut interface = requested;
+            if let Some(output) = crate::builtin::traits::intrinsic_output(&interface, ty) {
+                interface.associated_types.insert(
+                    crate::types::associated_type_id(&interface.declaration, "Output"),
+                    output,
+                );
+            }
+            interface
+        } else {
+            self.trait_bounds_for(ty, env).into_iter().find(|bound| {
+                bound.declaration == requested.declaration && bound.arguments == requested.arguments
+            })?
+        };
         let contract = self.aggregates.trait_(&interface.declaration)?;
         let method = contract.methods.first()?;
         let mut substitution: crate::types::TypeSubstitution = contract
@@ -3985,12 +4015,29 @@ impl<'a> BodyChecker<'a> {
                 .instantiate(&substitution)
                 .with_associated_types(&interface),
         );
+        Some((interface, result))
+    }
+
+    /// Operator syntax and explicit method calls retain the same trait identity.
+    fn record_operator(
+        &mut self,
+        site: ExprId,
+        receiver: ExprId,
+        ty: &TypeId,
+        requested: crate::types::NominalType,
+        env: &BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let (interface, result) = self.select_operator(ty, requested, env)?;
+        let method = self
+            .aggregates
+            .trait_(&interface.declaration)?
+            .methods
+            .first()?
+            .id
+            .clone();
         self.type_table.insert_call(
             site,
-            CallTarget::TraitMethod {
-                method: method.id.clone(),
-                interface,
-            },
+            CallTarget::TraitMethod { method, interface },
             Some(receiver),
         );
         Some(result)

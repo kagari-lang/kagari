@@ -576,3 +576,20 @@ See [operators.kgr](../../examples/syntax/operators.kgr).
 (respectively `not`). They control unary `-` and `!`; signed builtin numeric
 negation and bool negation keep direct instructions. Custom outputs may differ
 from the receiver. `&&`/`||` remain bool-only short-circuit operators.
+
+
+## Read-only indexing protocol
+
+`std::ops::Index<I>` declares `type Output` and `fn index(self, rhs: I) ->
+Self::Output`. `container[i]` and `container.index(i)` use the selected method.
+Arrays supply builtin integer indexing; existing Tuple and host-path syntax
+retain their specialized rules. No Map/String indexing is added by this checkpoint.
+Returned values obey ordinary value semantics. A returned Struct shares its
+object identity: `container[i].field = value` requires a writable field but no
+container setter or writeback. A custom getter runs once during target preparation,
+and its returned object remains the target even if RHS code changes container
+contents. Existing native location revalidation semantics are unchanged.
+Index does not permit replacing `container[i]` or mutating a returned Tuple value
+in place. Methods may trap, and their completed effects are not rolled back.
+Use an explicit Option-returning get method for recoverable lookup failure.
+See [index.kgr](../../examples/syntax/index.kgr).

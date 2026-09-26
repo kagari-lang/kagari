@@ -28,9 +28,10 @@ pub enum StandardTrait {
     Rem,
     Neg,
     Not,
+    Index,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -45,6 +46,7 @@ impl StandardTrait {
         Self::Rem,
         Self::Neg,
         Self::Not,
+        Self::Index,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -62,14 +64,20 @@ impl StandardTrait {
             Self::Rem => "Rem",
             Self::Neg => "Neg",
             Self::Not => "Not",
+            Self::Index => "Index",
         }
     }
     pub fn namespace(self) -> &'static str {
         match self {
             Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord => "cmp",
-            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Rem | Self::Neg | Self::Not => {
-                "ops"
-            }
+            Self::Add
+            | Self::Sub
+            | Self::Mul
+            | Self::Div
+            | Self::Rem
+            | Self::Neg
+            | Self::Not
+            | Self::Index => "ops",
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -108,12 +116,15 @@ impl StandardTrait {
         )
     }
     pub fn operator(self) -> bool {
-        self.binary_operator() || matches!(self, Self::Neg | Self::Not)
+        self.binary_operator() || matches!(self, Self::Neg | Self::Not | Self::Index)
     }
     pub fn intrinsic_view(self, receiver: &TypeId) -> NominalType {
         let mut view = self.nominal();
         if self.binary_operator() {
             view.arguments.push(receiver.clone());
+        }
+        if self == Self::Index {
+            view.arguments.push(TypeId::Builtin(BuiltinType::I32));
         }
         if let Some(output) = intrinsic_output(&view, receiver) {
             view.associated_types.insert(
@@ -234,7 +245,7 @@ fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
         name: name.into(),
         location: source.span(Span::new(0, 0)).unwrap(),
     };
-    let generics = if kind.binary_operator() {
+    let generics = if kind.binary_operator() || kind == StandardTrait::Index {
         vec![crate::types::GenericParameterType {
             owner: id.clone(),
             position: 0,
@@ -257,6 +268,7 @@ fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
         StandardTrait::Rem => "rem",
         StandardTrait::Neg => "neg",
         StandardTrait::Not => "not",
+        StandardTrait::Index => "index",
         _ => unreachable!(),
     };
     let mut method_id = id.clone();
@@ -307,6 +319,26 @@ fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
 /// Builtin associated outputs are computed from the applied protocol, not its spelling.
 pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<TypeId> {
     let kind = StandardTrait::from_id(&interface.declaration)?;
+    if kind == StandardTrait::Index
+        && let TypeId::Array(element) = receiver
+        && matches!(
+            interface.arguments.as_slice(),
+            [TypeId::Builtin(
+                BuiltinType::I8
+                    | BuiltinType::I16
+                    | BuiltinType::I32
+                    | BuiltinType::I64
+                    | BuiltinType::ISize
+                    | BuiltinType::U8
+                    | BuiltinType::U16
+                    | BuiltinType::U32
+                    | BuiltinType::U64
+                    | BuiltinType::USize
+            )]
+        )
+    {
+        return Some((**element).clone());
+    }
     if interface.arguments.is_empty()
         && (kind == StandardTrait::Not && *receiver == TypeId::Builtin(BuiltinType::Bool)
             || kind == StandardTrait::Neg

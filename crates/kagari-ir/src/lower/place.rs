@@ -162,6 +162,53 @@ impl FunctionLowerer<'_, '_> {
                 let Some(mut place) = self.prepare_place_inner(base, true)? else {
                     return Ok(None);
                 };
+                if let Some(interface) = self.analyzed.typed.type_table.place_index(id).cloned() {
+                    let receiver_ty = self
+                        .analyzed
+                        .typed
+                        .type_table
+                        .place_type(base)
+                        .ok_or(IrLoweringError::UnresolvedPlace(base))?;
+                    let mut value = match place.root {
+                        Root::Value(value) => value,
+                        Root::Local { local, ty } => {
+                            let dst = self.alloc_temp(ty);
+                            self.emit(Instruction::LoadLocal { dst, local });
+                            dst
+                        }
+                        Root::Cell { local, ty } => {
+                            let cell = self.alloc_temp(ValueType::HeapObject);
+                            self.emit(Instruction::LoadLocal { dst: cell, local });
+                            let dst = self.alloc_temp(ty);
+                            self.emit(Instruction::ReadCell { dst, cell });
+                            dst
+                        }
+                    };
+                    for projection in &place.projections {
+                        value = self.read_projection(value, projection);
+                    }
+                    let index = self.lower_expr(index)?;
+                    if self.current_block_terminated() {
+                        return Ok(None);
+                    }
+                    let method = kagari_hir::builtin::traits::StandardTrait::Index
+                        .contract()
+                        .methods[0]
+                        .id
+                        .clone();
+                    let value = self.lower_applied_operator(
+                        interface,
+                        receiver_ty,
+                        &method,
+                        &[value, index],
+                    )?;
+                    return Ok(Some(PreparedPlace {
+                        host_path: None,
+                        dynamic_args: Default::default(),
+                        root: Root::Value(value),
+                        projections: vec![],
+                    }));
+                }
                 let index = self.lower_expr(index)?;
                 if self.current_block_terminated() {
                     return Ok(None);

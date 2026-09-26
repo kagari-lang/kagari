@@ -95,6 +95,7 @@ pub struct TypeTable {
     field_types: HashMap<FieldId, TypeId>,
     expr_fields: HashMap<ExprId, DefinitionId>,
     place_fields: HashMap<PlaceId, DefinitionId>,
+    place_indexes: HashMap<PlaceId, NominalType>,
     struct_inits: HashMap<ExprId, ResolvedStructInit>,
     enum_constructors: HashMap<ExprId, ResolvedEnumConstructor>,
     exprs: HashMap<ExprId, TypeId>,
@@ -151,6 +152,13 @@ pub struct ResolvedHostPlacePath {
 }
 
 impl TypeTable {
+    pub fn place_index(&self, id: PlaceId) -> Option<&NominalType> {
+        self.place_indexes.get(&id)
+    }
+    pub(crate) fn insert_place_index(&mut self, id: PlaceId, interface: NominalType) {
+        self.place_indexes.insert(id, interface);
+    }
+
     pub fn standard_constructor(
         &self,
         id: ExprId,
@@ -243,7 +251,7 @@ impl TypeTable {
                 )+};
             }
             keys!(host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
-                place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, standard_constructors: ExprId, exprs: ExprId, locals: LocalId,
+                place_fields: PlaceId, place_indexes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, standard_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, standard_patterns: PatternId, pattern_ranges: PatternId,
                 interface_coercions: ExprId, associated_consts: ExprId);
             for call in result.calls.values_mut() {
@@ -694,6 +702,10 @@ impl TypeTable {
             }
         }
         for (a, b) in places {
+            if let Some(interface) = old.place_indexes.get(&old_map.place_id(a)) {
+                self.place_indexes
+                    .insert(new_map.place_id(b), interface.clone());
+            }
             if let Some(field) = old.place_fields.get(&old_map.place_id(a)) {
                 self.place_fields.insert(new_map.place_id(b), field.clone());
             }

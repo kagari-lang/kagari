@@ -110,7 +110,7 @@ Clone, writable indexing and compound-assignment overrides are separate designs.
 - [x] B02: Ordering, PartialOrd and Ord, including checked comparison dispatch.
 - [x] B03: Add/Sub/Mul/Div/Rem with an explicit RHS type and associated Output.
 - [x] B04: Neg/Not with associated Output.
-- [ ] B05: read-only Index; returned objects retain shared reference semantics.
+- [x] B05: read-only Index; returned objects retain shared reference semantics.
 - [ ] B06: source/artifact/backend conformance, examples, documentation and workspace checks.
 
 Builtin operations retain direct instructions. Custom implementations use ordinary
