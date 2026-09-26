@@ -70,10 +70,16 @@ impl Default for JitValue {
 /// # Safety
 /// A non-null pointer must reference a live Runtime for the duration of this call.
 /// Generated code must obey that runtime's single-threaded execution ownership.
-pub unsafe extern "C" fn jit_consume_instruction_step(runtime: *const Runtime) -> i32 {
+pub unsafe extern "C" fn jit_consume_instruction_step(runtime: *const Runtime, offset: u64) -> i32 {
     let Some(runtime) = (unsafe { runtime.as_ref() }) else {
         return JIT_STATUS_INVALID_RUNTIME;
     };
+    if usize::try_from(offset)
+        .ok()
+        .is_none_or(|offset| runtime.record_native_instruction(offset).is_err())
+    {
+        return JIT_STATUS_ENGINE_FAULT;
+    }
     if let Err(error) = runtime.gc_safepoint() {
         return match error.kind() {
             crate::RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,

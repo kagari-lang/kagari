@@ -46,9 +46,13 @@ impl<'a> Executor<'a> {
     }
 
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
+        self.run_inner()
+            .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))
+    }
+    fn run_inner(&mut self) -> Result<Value, VmError> {
         loop {
-            self.runtime.gc_safepoint().map_err(VmError::RuntimeError)?;
             self.current_frame_mut()?.prepare_instruction();
+            self.runtime.gc_safepoint().map_err(VmError::RuntimeError)?;
             self.runtime
                 .observe_execution(kagari_runtime::ExecutionEvent::BeforeInstruction)?;
 

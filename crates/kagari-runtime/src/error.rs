@@ -47,6 +47,7 @@ impl RuntimeErrorKind {
 pub struct RuntimeError {
     kind: RuntimeErrorKind,
     message: String,
+    trace: Option<std::sync::Arc<crate::ErrorTrace>>,
 }
 
 impl RuntimeError {
@@ -54,6 +55,7 @@ impl RuntimeError {
         Self {
             kind,
             message: message.into(),
+            trace: None,
         }
     }
 
@@ -134,6 +136,15 @@ impl RuntimeError {
         )
     }
 
+    pub fn trace(&self) -> Option<&std::sync::Arc<crate::ErrorTrace>> {
+        self.trace.as_ref()
+    }
+    pub fn with_trace(mut self, trace: std::sync::Arc<crate::ErrorTrace>) -> Self {
+        if self.trace.is_none() {
+            self.trace = Some(trace);
+        }
+        self
+    }
     pub fn kind(&self) -> RuntimeErrorKind {
         self.kind
     }

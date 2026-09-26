@@ -1,3 +1,5 @@
+pub mod error_trace;
+pub use error_trace::{ErrorFrame, ErrorTrace};
 #[cfg(test)]
 extern crate self as kagari_runtime;
 pub mod backend;

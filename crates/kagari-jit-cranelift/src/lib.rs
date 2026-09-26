@@ -63,6 +63,7 @@ impl CraneliftBackend {
         consume_step_sig
             .params
             .push(AbiParam::new(module.target_config().pointer_type()));
+        consume_step_sig.params.push(AbiParam::new(types::I64));
         consume_step_sig.returns.push(AbiParam::new(types::I32));
         let consume_step = module
             .declare_function(
@@ -249,7 +250,13 @@ impl CraneliftBackend {
             let mut returned = false;
 
             for (offset, instruction) in function.instructions.iter().enumerate() {
-                emit_resource_check(&mut builder, consume_step, runtime_ptr, helper_error_block);
+                emit_resource_check(
+                    &mut builder,
+                    consume_step,
+                    runtime_ptr,
+                    helper_error_block,
+                    offset,
+                );
                 match instruction {
                     BytecodeInstruction::LoadConst { dst, constant } => {
                         let value = emit_constant(&mut builder, constant)?;
@@ -481,8 +488,10 @@ fn emit_resource_check(
     consume_step: ir::FuncRef,
     runtime_ptr: ir::Value,
     helper_error_block: ir::Block,
+    offset: usize,
 ) {
-    let call = builder.ins().call(consume_step, &[runtime_ptr]);
+    let offset = builder.ins().iconst(types::I64, offset as i64);
+    let call = builder.ins().call(consume_step, &[runtime_ptr, offset]);
     let status = builder.inst_results(call)[0];
     let ok = builder
         .ins()

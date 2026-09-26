@@ -6,6 +6,10 @@ use kagari_runtime::{
 
 #[derive(Debug, Clone)]
 pub enum VmError {
+    Traced {
+        error: Box<VmError>,
+        trace: std::sync::Arc<kagari_runtime::ErrorTrace>,
+    },
     MissingFunction(String),
     AmbiguousFunction(String),
     MissingField(String),
@@ -44,6 +48,32 @@ impl From<RuntimeError> for VmError {
 }
 
 impl VmError {
+    pub fn cause(&self) -> &Self {
+        match self {
+            Self::Traced { error, .. } => error.cause(),
+            _ => self,
+        }
+    }
+    pub fn trace(&self) -> Option<&std::sync::Arc<kagari_runtime::ErrorTrace>> {
+        match self {
+            Self::Traced { trace, .. } => Some(trace),
+            Self::RuntimeError(error) => error.trace(),
+            _ => None,
+        }
+    }
+    pub(crate) fn with_trace(self, trace: std::sync::Arc<kagari_runtime::ErrorTrace>) -> Self {
+        if self.trace().is_some() {
+            return self;
+        }
+        match self {
+            Self::RuntimeError(error) => Self::RuntimeError(error.with_trace(trace)),
+            error => Self::Traced {
+                error: Box::new(error),
+                trace,
+            },
+        }
+    }
+
     pub(crate) fn invariant_reason(&self) -> Option<&'static str> {
         match self {
             Self::InvalidFunctionRef(_) => Some("verified function reference is missing"),

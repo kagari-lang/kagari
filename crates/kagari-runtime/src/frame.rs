@@ -406,6 +406,15 @@ impl ExecutionFrame {
         self.interface_method.as_ref()
     }
 
+    pub(crate) fn set_native_instruction(&mut self, offset: usize) -> Result<(), RuntimeError> {
+        if offset >= self.function().instructions.len() {
+            return Err(self
+                .resources
+                .quarantine("invalid native instruction offset"));
+        }
+        self.executing = Some(offset);
+        Ok(())
+    }
     pub fn instruction_offset(&self) -> usize {
         self.executing.unwrap_or(self.ip)
     }

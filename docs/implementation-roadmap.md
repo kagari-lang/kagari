@@ -155,3 +155,14 @@ loops, return, trap, cancellation, budgets, rooted cursors across GC, foreign/st
 handles and structure changes between calls. Formatting, workspace clippy with
 warnings denied, and `git diff --check` passed. The former generic Iterator<T>
 proposal now references the implemented associated-Item contract.
+
+
+## Error origins and diagnostic stacks
+
+- [x] E01: bounded source-aware stack snapshots for runtime failures, including native JIT program points and portable source locations.
+- [ ] E02: Result Err origin metadata, preservation through propagation/combinators, host reports and CLI rendering.
+- [ ] E03: source/artifact/backend, lifecycle and diagnostic conformance; documentation and workspace checks.
+
+Errors remain Result values. New Err captures its origin; propagation preserves it.
+Reconstruction creates a new origin. None does not carry an error stack. Error
+traits, cause chains and generalized propagation remain subsequent features.

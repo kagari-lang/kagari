@@ -544,6 +544,18 @@ fn print_embedding_error(error: EmbeddingError) -> CliError {
             print_embedding_diagnostics(&diagnostics);
             CliError::message(1, "diagnostics emitted")
         }
+        EmbeddingError::Runtime {
+            kind,
+            message,
+            trace,
+        } => CliError::message(
+            1,
+            format!(
+                "{}: {message}{}",
+                kind.code(),
+                trace.as_ref().map(ToString::to_string).unwrap_or_default()
+            ),
+        ),
         other => CliError::message(1, format!("{}: {other:?}", other.code())),
     }
 }

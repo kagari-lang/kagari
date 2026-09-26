@@ -775,6 +775,7 @@ pub enum EmbeddingError {
     Runtime {
         kind: RuntimeFailureKind,
         message: String,
+        trace: Option<std::sync::Arc<kagari_runtime::ErrorTrace>>,
     },
     ReloadValidation {
         code: String,
@@ -783,6 +784,14 @@ pub enum EmbeddingError {
 }
 
 impl EmbeddingError {
+    pub fn error_trace(&self) -> Option<&kagari_runtime::ErrorTrace> {
+        match self {
+            Self::Runtime { trace, .. } => trace.as_deref(),
+            Self::Load { error } => error.trace().map(AsRef::as_ref),
+            _ => None,
+        }
+    }
+
     pub fn code(&self) -> String {
         match self {
             Self::Source { .. } => "KG_SOURCE_INPUT".to_owned(),
@@ -844,6 +853,7 @@ impl EmbeddingError {
         Self::Runtime {
             kind,
             message: message.into(),
+            trace: None,
         }
     }
 
@@ -856,7 +866,9 @@ impl EmbeddingError {
     }
 
     fn vm(error: VmError) -> Self {
-        let kind = match &error {
+        let trace = error.trace().cloned();
+        let kind = match error.cause() {
+            VmError::Traced { .. } => unreachable!("unwrapped error"),
             VmError::HostError(_) => RuntimeFailureKind::HostCallFailure,
             VmError::RuntimeError(error) => match error.kind() {
                 RuntimeErrorKind::Cancelled => RuntimeFailureKind::Cancelled,
@@ -896,7 +908,14 @@ impl EmbeddingError {
             | VmError::Trap(_)
             | VmError::TypeMismatch(_) => RuntimeFailureKind::ScriptTrap,
         };
-        Self::runtime(kind, format!("{error:?}"))
+        Self::Runtime {
+            kind,
+            message: match error.cause() {
+                VmError::RuntimeError(e) => e.message().to_owned(),
+                other => format!("{other:?}"),
+            },
+            trace,
+        }
     }
 }
 

@@ -152,6 +152,7 @@ pub(super) fn collect(
                 entry: BlockId::new(0),
                 effects,
                 debug: IrFunctionDebugMetadata {
+                    source: Some(module.lowered.source.clone()),
                     source_module: Some(module.lowered.source.module_identity().clone()),
                     source_span: span,
                     locals: params

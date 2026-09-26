@@ -554,7 +554,7 @@ fn unreachable_instruction_is_a_script_trap() {
         .execute(&loaded, "main")
         .expect_err("unreachable should trap");
 
-    assert!(matches!(error, VmError::Trap("unreachable")));
+    assert!(matches!(error.cause(), VmError::Trap("unreachable")));
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }
 
@@ -810,7 +810,7 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
         .execute(&loaded, "main")
         .expect_err("unreachable should trap");
 
-    assert!(matches!(error, VmError::Trap("unreachable")));
+    assert!(matches!(error.cause(), VmError::Trap("unreachable")));
     let debug = vm
         .debug_session()
         .expect("debug session should be attached");
@@ -1439,7 +1439,7 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
                 if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
                     && error.message() == "struct layout mismatch"));
         } else {
-            assert!(matches!(error, VmError::TypeMismatch(_)));
+            assert!(matches!(error.cause(), VmError::TypeMismatch(_)));
         }
         let instance = vm.runtime().module_instance_snapshot(&loaded).unwrap();
         let Value::Struct(object) = instance.module_slots[0] else {

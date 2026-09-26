@@ -534,11 +534,19 @@ fn collect_debug_metadata(
     let line_table = instruction_spans
         .iter()
         .enumerate()
-        .map(|(instruction_offset, span)| LineTableEntry {
-            instruction_offset,
-            source_offset: span.start,
-            line: None,
-            column: None,
+        .map(|(instruction_offset, span)| {
+            let position = function.debug.source.as_ref().and_then(|source| {
+                source.position(
+                    span.start,
+                    kagari_common::line_index::PositionEncoding::Utf8,
+                )
+            });
+            LineTableEntry {
+                instruction_offset,
+                source_offset: span.start,
+                line: position.and_then(|p| u32::try_from(p.line + 1).ok()),
+                column: position.and_then(|p| u32::try_from(p.character + 1).ok()),
+            }
         })
         .collect::<Vec<_>>();
 
@@ -606,6 +614,11 @@ fn collect_debug_metadata(
         .collect();
 
     BytecodeDebugMetadata {
+        source_uri: function
+            .debug
+            .source
+            .as_ref()
+            .map(|source| source.name().to_owned()),
         source_module,
         function_span: function.debug.source_span,
         source_spans,

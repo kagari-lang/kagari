@@ -300,8 +300,12 @@ impl Vm {
                     diagnostics: vec![BackendDiagnostic::unsupported(message)],
                 }))
             }
-            Err(BackendInvocationError::RuntimeFailure(error)) => Err(VmError::RuntimeError(error)),
-            Err(error) => Err(VmError::JitInvocation(error)),
+            Err(BackendInvocationError::RuntimeFailure(error)) => {
+                Err(VmError::RuntimeError(error).with_trace(self.runtime.capture_error_trace()))
+            }
+            Err(error) => {
+                Err(VmError::JitInvocation(error).with_trace(self.runtime.capture_error_trace()))
+            }
         }
     }
 

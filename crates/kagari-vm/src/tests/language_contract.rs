@@ -255,7 +255,7 @@ fn assert_outcome(
     attempt: usize,
     outcome: Result<crate::ExecutionReport, VmError>,
 ) {
-    match (&case.expected, outcome) {
+    match (&case.expected, outcome.as_ref().map_err(VmError::cause)) {
         (Expected::Value(expected), Ok(report)) => assert_eq!(
             &report.return_value, expected,
             "{} ({route:?}, attempt {attempt})",
