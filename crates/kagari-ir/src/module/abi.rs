@@ -802,9 +802,37 @@ pub(crate) fn standard_trait_contract(
                     TraitAbi {
                         name: kind.name().into(),
                         associated_consts: vec![],
-                        associated_types: vec![],
+                        associated_types: contract
+                            .associated_types
+                            .iter()
+                            .map(|(id, bounds)| AssociatedTypeAbi {
+                                declaration: id.clone(),
+                                generic_params: vec![],
+                                parameter_bounds: vec![],
+                                bounds: bounds
+                                    .iter()
+                                    .map(|bound| match bound {
+                                        kagari_hir::typeck::ConstraintTarget::Standard(s) => {
+                                            ConstraintAbi::Standard(*s)
+                                        }
+                                        kagari_hir::typeck::ConstraintTarget::Trait(t) => {
+                                            ConstraintAbi::Trait(NominalAbiType::from_checked_type(
+                                                t,
+                                            ))
+                                        }
+                                    })
+                                    .collect(),
+                            })
+                            .collect(),
                         default_methods: vec![],
-                        generic_params: vec![],
+                        generic_params: contract
+                            .generic_params
+                            .iter()
+                            .map(|p| GenericParameterAbi {
+                                owner: p.owner.clone(),
+                                position: p.position,
+                            })
+                            .collect(),
                         bounds: vec![],
                         supertraits: contract
                             .supertraits

@@ -265,6 +265,15 @@ pub(super) fn member_arity(
     owner: &DefinitionId,
     name: &str,
 ) -> Option<usize> {
+    if let Some(kind) = crate::builtin::traits::StandardTrait::from_id(owner) {
+        let id = associated_type_id(owner, name);
+        return kind.contract().associated_types.contains_key(&id).then(|| {
+            kind.contract()
+                .associated_type_parameters
+                .get(&id)
+                .map_or(0, |p| p.parameters.len())
+        });
+    }
     if let Some(item) = module.traits.iter().find(|item| {
         declarations.definition(crate::resolver::ResolvedName::Trait(item.id)) == Some(owner)
     }) {
@@ -287,6 +296,14 @@ pub(super) fn members(
     declarations: &crate::declarations::Declarations,
     owner: &DefinitionId,
 ) -> Vec<String> {
+    if let Some(kind) = crate::builtin::traits::StandardTrait::from_id(owner) {
+        return kind
+            .contract()
+            .associated_types
+            .keys()
+            .filter_map(|id| id.path.last().map(|p| p.name.clone()))
+            .collect();
+    }
     if let Some(item) = module.traits.iter().find(|item| {
         declarations.definition(crate::resolver::ResolvedName::Trait(item.id)) == Some(owner)
     }) {
@@ -682,6 +699,12 @@ fn inherited_traits(
                 .collect();
             Some((params, parents))
         } else {
+            if let Some(kind) = crate::builtin::traits::StandardTrait::from_id(owner) {
+                return Some((
+                    kind.contract().generic_params.clone(),
+                    kind.contract().supertraits.clone(),
+                ));
+            }
             let imported = declarations.imported_types().by_declaration(owner)?;
             let TypeId::Trait(ty) = &imported.ty else {
                 return None;

@@ -98,3 +98,22 @@ See the [contract](spec/value-semantics.md#equality-and-hashing) and
 [example](../examples/syntax/standard-traits.kgr). Artifact format 53 and runtime
 ABI v53 reject previous products; KHI remains v11. Key stability and equivalence
 laws are user obligations; there is no automatic freezing or reindexing.
+
+
+## Standard operator protocols
+
+This is the active B01–B06 extension sequence. Each checkpoint updates contracts,
+examples and relevant tests and is committed separately using Conventional Commits.
+Clone, writable indexing and compound-assignment overrides are separate designs.
+
+- [x] B01: declaration-owned standard protocol inputs, associated outputs and parent metadata shared with portable contracts.
+- [ ] B02: Ordering, PartialOrd and Ord, including checked comparison dispatch.
+- [ ] B03: Add/Sub/Mul/Div/Rem with an explicit RHS type and associated Output.
+- [ ] B04: Neg/Not with associated Output.
+- [ ] B05: read-only Index; returned objects retain shared reference semantics.
+- [ ] B06: source/artifact/backend conformance, examples, documentation and workspace checks.
+
+Builtin operations retain direct instructions. Custom implementations use ordinary
+static linked calls. Operands evaluate once from left to right. These protocols
+remain static-only in this sequence. Short-circuit and identity operators cannot
+be overridden. Existing assignment and mutation guarantees are unchanged.

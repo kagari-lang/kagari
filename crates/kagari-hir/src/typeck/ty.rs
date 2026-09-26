@@ -38,7 +38,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                 use crate::resolver::ResolvedName;
                 if let ResolvedName::StandardTrait(kind) = resolved {
                     target = Some(TypeTarget::StandardTrait(kind));
-                    return Some(TypeId::Trait(kind.nominal()));
+                    return Some(TypeId::Trait(kind.declaration_type()));
                 }
                 if let ResolvedName::HostType(id) = resolved {
                     target = Some(TypeTarget::Host(id));
@@ -90,7 +90,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
             Some(imported.ty.clone())
         } else if let Some(kind) = context.declarations.standard_trait(name) {
             target = Some(TypeTarget::StandardTrait(kind));
-            Some(TypeId::Trait(kind.nominal()))
+            Some(TypeId::Trait(kind.declaration_type()))
         } else if let Some(id) = context.declarations.host_type(name) {
             target = Some(TypeTarget::Host(id));
             Some(TypeId::Host(

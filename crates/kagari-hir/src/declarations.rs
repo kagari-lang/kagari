@@ -199,6 +199,9 @@ impl Declarations {
     /// Parameters declared by this owner, in declaration order. Inherited method
     /// binders keep their original owner and are not included here.
     pub fn parameters_of(&self, owner: &DefinitionId) -> Vec<crate::types::GenericParameterType> {
+        if let Some(kind) = crate::builtin::traits::StandardTrait::from_id(owner) {
+            return kind.contract().generic_params.clone();
+        }
         let mut params = self
             .iter()
             .filter_map(|declaration| {

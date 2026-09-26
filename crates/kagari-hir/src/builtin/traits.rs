@@ -59,6 +59,18 @@ impl StandardTrait {
             associated_types: Default::default(),
         }
     }
+    /// Declaration view used by type syntax; callers supply concrete arguments.
+    pub fn declaration_type(self) -> NominalType {
+        let mut ty = self.nominal();
+        ty.arguments = self
+            .contract()
+            .generic_params
+            .iter()
+            .cloned()
+            .map(TypeId::Generic)
+            .collect();
+        ty
+    }
     pub fn equality_protocol(self) -> bool {
         matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
     }
