@@ -668,6 +668,11 @@ impl<'a> BodyChecker<'a> {
             return ty;
         }
         let expr = self.lowered.module.expr(expr_id);
+        if let Some(ty) = self.infer_associated_const(expr_id, env) {
+            env.exprs.insert(expr_id, ty.clone());
+            self.type_table.insert_expr(expr_id, ty.clone());
+            return ty;
+        }
         let mut ty = match &expr.kind {
             ExprKind::Missing => {
                 self.diagnostics.push(
@@ -1133,20 +1138,24 @@ impl<'a> BodyChecker<'a> {
                 )
             }
             ExprKind::Tuple(elements) => {
-                let mut types = Vec::with_capacity(elements.len());
-                for (index, expr) in elements.iter().enumerate() {
-                    if self.cancel.check().is_err() {
-                        return TypeId::Unknown;
-                    }
-                    let member = match expected {
-                        Some(TypeId::Tuple(types)) if types.len() == elements.len() => {
-                            types.get(index)
+                if elements.is_empty() {
+                    TypeId::Builtin(BuiltinType::Unit)
+                } else {
+                    let mut types = Vec::with_capacity(elements.len());
+                    for (index, expr) in elements.iter().enumerate() {
+                        if self.cancel.check().is_err() {
+                            return TypeId::Unknown;
                         }
-                        _ => None,
-                    };
-                    types.push(self.infer_expr_with_coercion(*expr, env, member));
+                        let member = match expected {
+                            Some(TypeId::Tuple(types)) if types.len() == elements.len() => {
+                                types.get(index)
+                            }
+                            _ => None,
+                        };
+                        types.push(self.infer_expr_with_coercion(*expr, env, member));
+                    }
+                    TypeId::Tuple(types)
                 }
-                TypeId::Tuple(types)
             }
             ExprKind::Array(elements) => {
                 let member = match expected {
@@ -2602,6 +2611,105 @@ impl<'a> BodyChecker<'a> {
             self.aggregates
                 .normalize_type(&function.return_type.instantiate(&substitution)),
         )
+    }
+
+    fn infer_associated_const(&mut self, expr: ExprId, env: &BodyTypeEnv) -> Option<TypeId> {
+        let ExprKind::Name {
+            name,
+            explicit_type,
+        } = &self.lowered.module.expr(expr).kind
+        else {
+            return None;
+        };
+        let context = TypeContext {
+            declarations: self.declarations,
+            generics: &env.generics,
+            self_type: None,
+            implementation: None,
+        };
+        let qualified = explicit_type.and_then(|id| match &self.lowered.module.type_ref(id).kind {
+            crate::hir::TypeKind::Projection {
+                receiver,
+                trait_ref,
+                member,
+            } => Some((*receiver, *trait_ref, member.clone())),
+            _ => None,
+        });
+        let (receiver, member, requested) = if let Some((receiver, trait_ref, member)) = qualified {
+            let receiver = if matches!(&self.lowered.module.type_ref(receiver).kind, crate::hir::TypeKind::Named(name) if name == "Self")
+            {
+                env.self_type.clone().unwrap_or(TypeId::Error)
+            } else {
+                resolve_type_in(
+                    &self.lowered.module,
+                    receiver,
+                    context,
+                    self.type_table,
+                    self.cancel,
+                )
+            };
+            let interface = resolve_type_in(
+                &self.lowered.module,
+                trait_ref,
+                context,
+                self.type_table,
+                self.cancel,
+            );
+            (receiver, member, Some(interface))
+        } else {
+            let (owner, member) = name.rsplit_once("::")?;
+            let receiver = if let Some(ty) = explicit_type {
+                resolve_type_in(
+                    &self.lowered.module,
+                    *ty,
+                    context,
+                    self.type_table,
+                    self.cancel,
+                )
+            } else if owner == "Self" {
+                env.self_type.clone().unwrap_or(TypeId::Error)
+            } else {
+                super::ty::resolve_named_type(owner, context).ty
+            };
+            (receiver, member.to_owned(), None)
+        };
+        if receiver.is_unresolved() {
+            return None;
+        }
+        let mut candidates = Vec::new();
+        for interface in self.trait_bounds_for(&receiver, env) {
+            if requested.as_ref().is_some_and(|requested| !matches!(requested, TypeId::Trait(required) if interface.satisfies(required))) { continue; }
+            let id = crate::types::associated_const_id(&interface.declaration, &member);
+            if let Some(signature) = self
+                .aggregates
+                .trait_(&interface.declaration)
+                .and_then(|contract| contract.associated_consts.get(&id))
+                && !candidates
+                    .iter()
+                    .any(|(candidate, _, _)| candidate == &interface)
+            {
+                candidates.push((interface, id, signature.ty.clone()));
+            }
+        }
+        if candidates.len() == 1 {
+            let (interface, member, ty) = candidates.remove(0);
+            self.type_table.insert_associated_const(
+                expr,
+                super::ResolvedAssociatedConst {
+                    receiver,
+                    interface,
+                    member,
+                },
+            );
+            return Some(ty);
+        }
+        if candidates.len() > 1 || requested.is_some() {
+            self.diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidAssociatedConst { name: member,
+                reason: "requires a unique constant from a satisfied trait; use a qualified path to disambiguate".into(),
+            }).with_span(self.lowered.source_map.expr_span(expr)));
+            return Some(TypeId::Error);
+        }
+        None
     }
 
     fn trait_bounds_for(&self, ty: &TypeId, env: &BodyTypeEnv) -> Vec<crate::types::NominalType> {

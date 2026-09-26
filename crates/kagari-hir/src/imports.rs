@@ -298,7 +298,14 @@ fn resolve_imports(
         .iter()
         .filter(|item| item.kind == crate::hir::FunctionKind::User)
         .map(|item| item.name.as_str())
-        .chain(module.module.consts.iter().map(|item| item.name.as_str()))
+        .chain(
+            module
+                .module
+                .consts
+                .iter()
+                .filter(|item| item.owner.is_none())
+                .map(|item| item.name.as_str()),
+        )
         .chain(module.module.modules.iter().map(|item| item.name.as_str()))
         .chain(module.module.structs.iter().map(|item| item.name.as_str()))
         .chain(module.module.enums.iter().map(|item| item.name.as_str()))

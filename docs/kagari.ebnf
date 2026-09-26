@@ -101,7 +101,10 @@ trait_decl          ::= "trait" IDENT generic_param_clause? supertrait_clause? "
 supertrait_clause   ::= ":" type_bound_list ;
 
 trait_member        ::= attribute* trait_method
-                      | associated_type_decl ;
+                      | attribute* associated_type_decl
+                      | attribute* associated_const_decl ;
+
+associated_const_decl ::= "const" IDENT ":" type ("=" expr)? ";" ;
 
 associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
 
@@ -159,7 +162,10 @@ inherent_impl       ::= "impl" generic_param_clause? type where_clause? "{" impl
 trait_impl          ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" trait_impl_item* "}" ;
 
 trait_impl_item     ::= attribute* method_decl
-                      | associated_type_def ;
+                      | attribute* associated_type_def
+                      | attribute* associated_const_def ;
+
+associated_const_def ::= "const" IDENT ":" type "=" expr ";" ;
 
 associated_type_def ::= "type" IDENT "=" type ";" ;
 
@@ -272,7 +278,8 @@ primary_expr        ::= literal
                       | closure_expr
                       | loop_expr
                       | match_expr
-                      | block ;
+                      | block
+                      | qualified_type ;
 
 parenthesized_expr  ::= "(" expr ")" ;
 

@@ -38,6 +38,7 @@ impl MethodSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitSignature {
+    pub associated_consts: BTreeMap<DefinitionId, AssociatedConstSignature>,
     pub id: DefinitionId,
     pub generic_params: Vec<GenericParameterType>,
     pub bounds: crate::typeck::GenericBounds,
@@ -45,6 +46,13 @@ pub struct TraitSignature {
     pub methods: Vec<MethodSignature>,
     pub declaration: Declaration,
     pub associated_types: BTreeMap<DefinitionId, Vec<ConstraintTarget>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedConstSignature {
+    pub declaration: Declaration,
+    pub ty: TypeId,
+    pub initializer: Option<DefinitionId>,
 }
 
 impl AggregateCatalog {
@@ -177,6 +185,32 @@ impl AggregateCatalog {
             self.traits.insert(
                 id.clone(),
                 Arc::new(TraitSignature {
+                    associated_consts: item
+                        .associated_consts
+                        .iter()
+                        .map(|member| {
+                            let identity = crate::types::associated_const_id(id, &member.name);
+                            (
+                                identity.clone(),
+                                AssociatedConstSignature {
+                                    declaration: Declaration {
+                                        id: DeclarationId::Definition(identity.clone()),
+                                        name: member.name.clone(),
+                                        location: kagari_common::identity::FileSpan {
+                                            file: lowered.source.id(),
+                                            revision: lowered.source.revision(),
+                                            range: lowered.source_map.type_span(member.name_ref),
+                                        },
+                                    },
+                                    ty: signatures
+                                        .type_table()
+                                        .type_ref(member.ty)
+                                        .map_or(TypeId::Error, |ty| ty.ty.clone()),
+                                    initializer: member.initializer.map(|_| identity),
+                                },
+                            )
+                        })
+                        .collect(),
                     supertraits: item
                         .supertraits
                         .iter()
@@ -246,6 +280,12 @@ impl AggregateCatalog {
                     a.generic_params == b.generic_params
                         && a.supertraits == b.supertraits
                         && a.associated_types == b.associated_types
+                        && a.associated_consts.len() == b.associated_consts.len()
+                        && a.associated_consts.iter().all(|(id, member)| {
+                            b.associated_consts.get(id).is_some_and(|other| {
+                                member.ty == other.ty && member.initializer == other.initializer
+                            })
+                        })
                         && a.bounds == b.bounds
                         && a.methods.len() == b.methods.len()
                         && a.methods

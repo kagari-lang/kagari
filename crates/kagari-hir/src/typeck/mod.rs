@@ -1,4 +1,5 @@
 mod applications;
+pub(crate) mod associated_consts;
 mod supertraits;
 pub(crate) use supertraits::trait_supertrait_surface;
 pub(crate) use supertraits::validate as validate_supertraits;
@@ -35,9 +36,9 @@ pub(crate) use check::{check_bodies_controlled, check_signatures};
 pub use constraints::type_satisfies_standard_constraint;
 pub(crate) use table::match_implementation;
 pub use table::{
-    CallTarget, ConstraintTarget, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
-    ResolvedHostPlacePath, ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
-    ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,
+    CallTarget, ConstraintTarget, ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor,
+    ResolvedHostPath, ResolvedHostPlacePath, ResolvedInterfaceCoercion,
+    ResolvedInterfaceImplementation, ResolvedStructInit, ResolvedTypeRef, TypeTable, TypeTarget,
 };
 
 #[derive(Debug, Clone)]
@@ -147,6 +148,7 @@ pub(crate) struct BodyInputs<'a> {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct BodyTypeEnv {
+    pub(crate) self_type: Option<TypeId>,
     pub(crate) params: HashMap<ParamId, TypeId>,
     pub(crate) locals: HashMap<LocalId, TypeId>,
     pub(crate) local_writeability: HashMap<LocalId, Writeability>,

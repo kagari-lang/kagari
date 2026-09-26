@@ -139,6 +139,9 @@ impl BlockExpr {
 }
 
 impl PathExpr {
+    pub fn qualified_type(&self) -> Option<super::TypeRef> {
+        self.syntax().children().find_map(super::TypeRef::cast)
+    }
     pub fn generic_args(&self) -> Option<super::GenericArgList> {
         support::child(self.syntax())
     }
@@ -147,6 +150,9 @@ impl PathExpr {
     }
 
     pub fn name_text(&self) -> Option<String> {
+        if let Some(ty) = self.qualified_type() {
+            return ty.qualified_type()?.member()?.text();
+        }
         if self.generic_args().is_some() {
             return Some(format!(
                 "{}::{}",

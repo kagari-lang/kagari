@@ -115,6 +115,10 @@ pub enum DiagnosticKind {
         name: String,
         reason: String,
     },
+    InvalidAssociatedConst {
+        name: String,
+        reason: String,
+    },
     InvalidIndexTarget {
         type_name: String,
     },
@@ -383,6 +387,7 @@ impl DiagnosticKind {
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
             Self::InvalidTraitReference { .. } => "KG_TYPE_INVALID_TRAIT_REFERENCE",
             Self::InvalidAssociatedType { .. } => "KG_TYPE_INVALID_ASSOCIATED_TYPE",
+            Self::InvalidAssociatedConst { .. } => "KG_TYPE_INVALID_ASSOCIATED_CONST",
             Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
             Self::InvalidForIterable { .. } => "KG_TYPE_INVALID_FOR_ITERABLE",
             Self::BreakValueOutsideLoopExpression => "KG_TYPE_BREAK_VALUE_OUTSIDE_LOOP_EXPRESSION",
@@ -545,6 +550,9 @@ impl Display for DiagnosticKind {
             }
             Self::InvalidAssociatedType { name, reason } => {
                 write!(f, "invalid associated type `{name}`: {reason}")
+            }
+            Self::InvalidAssociatedConst { name, reason } => {
+                write!(f, "invalid associated constant `{name}`: {reason}")
             }
             Self::InvalidIndexTarget { type_name } => {
                 write!(f, "invalid index for type `{type_name}`")

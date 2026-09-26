@@ -98,6 +98,16 @@ impl<'a> InstancePlanner<'a> {
     pub fn owner(&self) -> &'a AnalyzedModule {
         self.module
     }
+    pub fn constant(
+        &self,
+        declaration: &kagari_common::identity::DefinitionId,
+    ) -> Option<kagari_hir::typeck::ScalarValue> {
+        let module = self.modules.get(&declaration.module)?;
+        let ResolvedName::Const(id) = module.declarations.definition_target(declaration)? else {
+            return None;
+        };
+        module.typed.const_values.get(&id).cloned()
+    }
 
     pub fn enqueue_declaration(
         &mut self,

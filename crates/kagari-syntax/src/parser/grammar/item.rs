@@ -528,8 +528,10 @@ impl<'a> Parser<'a> {
 
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            if self.nth_nontrivia_kind(0) == Some(TokenKind::TypeKw) {
+            if self.attributed_item_kind() == Some(TokenKind::TypeKw) {
                 self.parse_associated_type();
+            } else if self.attributed_item_kind() == Some(TokenKind::ConstKw) {
+                self.parse_associated_const();
             } else {
                 self.parse_method(false);
             }
@@ -569,8 +571,10 @@ impl<'a> Parser<'a> {
 
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            if self.nth_nontrivia_kind(0) == Some(TokenKind::TypeKw) {
+            if self.attributed_item_kind() == Some(TokenKind::TypeKw) {
                 self.parse_associated_type();
+            } else if self.attributed_item_kind() == Some(TokenKind::ConstKw) {
+                self.parse_associated_const();
             } else {
                 self.parse_method(true);
             }
@@ -694,6 +698,8 @@ impl<'a> Parser<'a> {
 
     fn parse_associated_type(&mut self) {
         self.start_node(SyntaxKind::AssociatedType);
+        self.parse_attributes();
+        self.bump_trivia();
         self.expect(TokenKind::TypeKw, DiagnosticKind::ExpectedType);
         self.bump_trivia();
         self.parse_name();
@@ -706,6 +712,25 @@ impl<'a> Parser<'a> {
         if self.at(TokenKind::Eq) {
             self.bump();
             self.parse_type_ref();
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        self.finish_node();
+    }
+
+    fn parse_associated_const(&mut self) {
+        self.start_node(SyntaxKind::ConstDef);
+        self.parse_attributes();
+        self.bump_trivia();
+        self.expect(TokenKind::ConstKw, DiagnosticKind::ExpectedConstKeyword);
+        self.parse_const_name();
+        self.bump_trivia();
+        self.expect(TokenKind::Colon, DiagnosticKind::ExpectedType);
+        self.parse_type_ref();
+        self.bump_trivia();
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.parse_expr();
         }
         self.bump_trivia();
         self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);

@@ -45,7 +45,13 @@ and [runnable example](../examples/syntax/default-methods.kgr). Artifact format 
 and runtime ABI v47 reject previous products; KHI remains v10. Host mappings
 continue to explicitly provide every declared method.
 
-The next trait checkpoints are associated consts, then type-parameterized GAT.
+Completed language extension: scalar associated constants, required definitions,
+defaults and overrides, inherited access and qualified static paths. Source and
+artifact validation reject constant-bearing dynamic interfaces, including
+subtraits. Artifact format 48 and runtime ABI v48 reject previous products;
+KHI remains v10. Native host tables cannot supply constants; use script impls.
+
+The next trait checkpoint is type-parameterized GAT.
 A trait declaring associated consts or GAT, and every
 trait inheriting it, will be usable only for static dispatch. Each checkpoint updates executable examples,
 semantic and artifact validation, and commits separately. Lifetimes, script-level

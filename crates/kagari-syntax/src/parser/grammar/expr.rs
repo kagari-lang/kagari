@@ -10,6 +10,7 @@ impl<'a> Parser<'a> {
             self.current_kind(),
             Some(
                 TokenKind::Ident
+                    | TokenKind::Lt
                     | TokenKind::CrateKw
                     | TokenKind::SelfKw
                     | TokenKind::SuperKw
@@ -217,6 +218,11 @@ impl<'a> Parser<'a> {
     fn parse_atom(&mut self) {
         self.bump_trivia();
         match self.current_kind() {
+            Some(TokenKind::Lt) => {
+                self.start_node(SyntaxKind::PathExpr);
+                self.parse_type_ref();
+                self.finish_node();
+            }
             Some(
                 TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
             ) => self.parse_path_or_struct_expr(),

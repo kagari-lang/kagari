@@ -41,7 +41,7 @@ KbcArtifact {
 }
 ```
 
-Format version 47 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 48 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
 virtual segment fingerprints from resolved contract fields. Versions 1 through 46 are rejected; no
 migration or compatibility decoder exists. The format stores a complete

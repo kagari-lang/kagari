@@ -78,6 +78,7 @@ struct TraitImplementation {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
+    associated_consts: HashMap<ExprId, ResolvedAssociatedConst>,
     pub(super) resolving_types: HashSet<crate::hir::TypeRefId>,
     pub(crate) associated_bounds: HashMap<DefinitionId, Vec<ConstraintTarget>>,
     host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
@@ -100,6 +101,13 @@ pub struct TypeTable {
     pattern_ranges: HashMap<PatternId, (ScalarValue, ScalarValue)>,
     pattern_fields: HashMap<PatternId, Vec<DefinitionId>>,
     pattern_variants: HashMap<PatternId, DefinitionId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedAssociatedConst {
+    pub receiver: TypeId,
+    pub interface: NominalType,
+    pub member: DefinitionId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +145,12 @@ pub struct ResolvedHostPlacePath {
 }
 
 impl TypeTable {
+    pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst> {
+        self.associated_consts.get(&expr)
+    }
+    pub(crate) fn insert_associated_const(&mut self, expr: ExprId, fact: ResolvedAssociatedConst) {
+        self.associated_consts.insert(expr, fact);
+    }
     pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
         self.host_place_paths.keys().copied()
     }
@@ -186,7 +200,7 @@ impl TypeTable {
             keys!(host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId,
-                interface_coercions: ExprId);
+                interface_coercions: ExprId, associated_consts: ExprId);
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {
                     assert_eq!(receiver.arena(), from);
@@ -589,6 +603,10 @@ impl TypeTable {
             }
         }
         for (a, b) in exprs {
+            if let Some(fact) = old.associated_consts.get(&old_map.expr_id(a)) {
+                self.associated_consts
+                    .insert(new_map.expr_id(b), fact.clone());
+            }
             if let Some(coercion) = old.interface_coercions.get(&old_map.expr_id(a)) {
                 self.interface_coercions
                     .insert(new_map.expr_id(b), coercion.clone());

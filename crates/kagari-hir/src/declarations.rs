@@ -262,6 +262,9 @@ impl Declarations {
             builder.generic_params(&owner, &item.generic_params, map);
         }
         for item in &module.consts {
+            if item.owner.is_some() {
+                continue;
+            }
             if cancel.check().is_err() {
                 return builder.result;
             }
@@ -409,6 +412,25 @@ impl Declarations {
                     .find(|function| function.id == method.function)
                     .expect("impl method function");
                 builder.generic_params(&method_owner, &function.generic_params, map);
+            }
+        }
+        for item in &module.consts {
+            let owner = match item.owner {
+                Some(crate::hir::ConstOwner::Trait(id)) => {
+                    builder.result.definition(ResolvedName::Trait(id)).cloned()
+                }
+                Some(crate::hir::ConstOwner::Impl(id)) => builder.result.impl_identity(id).cloned(),
+                None => continue,
+            };
+            if let Some(owner) = owner {
+                builder.definition(
+                    ResolvedName::Const(item.id),
+                    &owner.path,
+                    DefinitionKind::Const,
+                    &item.name,
+                    map.item_declaration_span(crate::hir::Item::Const(item.id)),
+                    !item.name.is_empty(),
+                );
             }
         }
         builder.result

@@ -9,6 +9,37 @@ use std::collections::HashSet;
 
 type Parameters = HashSet<(DefinitionId, usize)>;
 
+fn scalar_const_type(ty: &AbiType) -> bool {
+    matches!(
+        ty,
+        AbiType::Builtin(
+            BuiltinType::Unit | BuiltinType::Bool | BuiltinType::I32 | BuiltinType::F32
+        )
+    )
+}
+
+fn scalar_const_valid(ty: &AbiType, value: &str) -> bool {
+    match ty {
+        AbiType::Builtin(BuiltinType::Unit) => value == "const-v1:unit",
+        AbiType::Builtin(BuiltinType::Bool) => {
+            matches!(value, "const-v1:bool:0" | "const-v1:bool:1")
+        }
+        AbiType::Builtin(BuiltinType::I32) => value
+            .strip_prefix("const-v1:i32:")
+            .and_then(|value| value.parse::<i32>().ok().map(|n| n.to_string() == value))
+            .unwrap_or(false),
+        AbiType::Builtin(BuiltinType::F32) => value
+            .strip_prefix("const-v1:f32:")
+            .and_then(|value| {
+                u32::from_str_radix(value, 16)
+                    .ok()
+                    .map(|bits| format!("{bits:08x}") == value)
+            })
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
 pub(crate) fn concrete_type_valid(ty: &AbiType, cancel: &CancellationToken) -> bool {
     type_valid(ty, &Parameters::new(), None, cancel)
 }
@@ -71,7 +102,14 @@ pub(crate) fn validate(
                 .flatten();
                 params.is_some_and(|params| {
                     let mut methods = HashSet::new();
-                    bounds_valid(&table.bounds, &params, cancel)
+                    ({
+                        let mut names = HashSet::new();
+                        table.associated_consts.iter().all(|member| {
+                            !member.name.is_empty()
+                                && names.insert(&member.name)
+                                && scalar_const_valid(&member.ty, &member.value)
+                        })
+                    }) && bounds_valid(&table.bounds, &params, cancel)
                         && (!table.host_bridge
                             || (table.generic_params.is_empty()
                                 && table.bounds.is_empty()
@@ -208,6 +246,24 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
     let mut methods = HashSet::new();
     !ty.name.is_empty()
         && {
+            let mut members = HashSet::new();
+            ty.associated_consts.iter().all(|member| {
+                let name = member
+                    .declaration
+                    .path
+                    .last()
+                    .map_or("", |part| part.name.as_str());
+                !name.is_empty()
+                    && members.insert(&member.declaration)
+                    && member.declaration == kagari_hir::types::associated_const_id(&owner, name)
+                    && scalar_const_type(&member.ty)
+                    && member
+                        .default_value
+                        .as_ref()
+                        .is_none_or(|value| scalar_const_valid(&member.ty, value))
+            })
+        }
+        && {
             let mut defaults = HashSet::new();
             ty.default_methods
                 .iter()
@@ -270,7 +326,8 @@ pub(crate) fn interface_contract_matches(
         return false;
     };
     let mut matched = HashSet::new();
-    instance.arguments.len() == interface.generic_params.len()
+    interface_constants_match(table, interface)
+        && instance.arguments.len() == interface.generic_params.len()
         && instance.associated_types.len() == interface.associated_types.len()
         && interface
             .associated_types
@@ -292,6 +349,33 @@ pub(crate) fn interface_contract_matches(
                         && matched.insert(&declared.name)
                 })
         })
+}
+
+pub(crate) fn interface_constants_match(table: &InterfaceTableAbi, interface: &TraitAbi) -> bool {
+    {
+        let mut names = HashSet::new();
+        table.associated_consts.iter().all(|member| {
+            names.insert(&member.name)
+                && interface.associated_consts.iter().any(|declared| {
+                    declared
+                        .declaration
+                        .path
+                        .last()
+                        .is_some_and(|part| part.name == member.name)
+                        && declared.ty == member.ty
+                        && scalar_const_valid(&member.ty, &member.value)
+                })
+        }) && interface.associated_consts.iter().all(|member| {
+            member.default_value.is_some()
+                || table.associated_consts.iter().any(|actual| {
+                    member
+                        .declaration
+                        .path
+                        .last()
+                        .is_some_and(|part| part.name == actual.name)
+                })
+        })
+    }
 }
 
 fn same_method_contract(

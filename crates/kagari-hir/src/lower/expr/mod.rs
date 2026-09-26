@@ -45,30 +45,37 @@ impl Lowerer {
             ast::Expr::BlockExpr(block) => ExprKind::Block(self.lower_block(block)),
             ast::Expr::PathExpr(path) => ExprKind::Name {
                 name: path.name_text().unwrap_or_default(),
-                explicit_type: path.generic_args().map(|arguments| {
-                    let args = arguments.args().map(|arg| self.lower_type(&arg)).collect();
-                    let name = path.path().and_then(|path| path.text()).unwrap_or_default();
-                    let mut span = syntax_span(&arguments);
-                    if let Some(base) = path.path() {
-                        span.start = token_span(&base).start;
-                    }
-                    let bindings = self.lower_associated_bindings(&arguments);
-                    let id = self.alloc_type(
-                        span,
-                        crate::hir::TypeData {
-                            kind: crate::hir::TypeKind::Generic {
-                                name,
-                                args,
-                                bindings,
-                                positional_after_binding: arguments.positional_after_binding(),
-                            },
-                        },
-                    );
-                    if let Some(base) = path.path().and_then(|path| path.segments().last()) {
-                        self.source_map.insert_type_name(id, token_span(&base));
-                    }
-                    id
-                }),
+                explicit_type: path
+                    .qualified_type()
+                    .map(|ty| self.lower_type(&ty))
+                    .or_else(|| {
+                        path.generic_args().map(|arguments| {
+                            let args = arguments.args().map(|arg| self.lower_type(&arg)).collect();
+                            let name = path.path().and_then(|path| path.text()).unwrap_or_default();
+                            let mut span = syntax_span(&arguments);
+                            if let Some(base) = path.path() {
+                                span.start = token_span(&base).start;
+                            }
+                            let bindings = self.lower_associated_bindings(&arguments);
+                            let id = self.alloc_type(
+                                span,
+                                crate::hir::TypeData {
+                                    kind: crate::hir::TypeKind::Generic {
+                                        name,
+                                        args,
+                                        bindings,
+                                        positional_after_binding: arguments
+                                            .positional_after_binding(),
+                                    },
+                                },
+                            );
+                            if let Some(base) = path.path().and_then(|path| path.segments().last())
+                            {
+                                self.source_map.insert_type_name(id, token_span(&base));
+                            }
+                            id
+                        })
+                    }),
             },
             ast::Expr::Literal(literal) => ExprKind::Literal(self.lower_literal(literal)),
             ast::Expr::ParenExpr(paren) => {
@@ -294,7 +301,10 @@ impl Lowerer {
                 }
             }
             ast::Expr::PathExpr(path) => {
-                let name = path.name().or_else(|| path.path()?.segments().last());
+                let name = path
+                    .name()
+                    .or_else(|| path.path()?.segments().last())
+                    .or_else(|| path.qualified_type()?.qualified_type()?.member());
                 if let Some(name) = name {
                     self.source_map.insert_expr_reference(id, token_span(&name));
                 }

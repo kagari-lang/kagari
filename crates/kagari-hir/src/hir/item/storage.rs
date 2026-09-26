@@ -30,11 +30,18 @@ impl Visibility {
 
 #[derive(Debug, Clone)]
 pub struct ConstItem {
+    pub owner: Option<ConstOwner>,
     pub id: ConstId,
     pub visibility: Visibility,
     pub name: String,
     pub ty: Option<TypeRefId>,
     pub initializer: ExprId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstOwner {
+    Trait(TraitId),
+    Impl(crate::hir::ImplId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

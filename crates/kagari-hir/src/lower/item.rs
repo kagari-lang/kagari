@@ -190,6 +190,10 @@ impl Lowerer {
             .map(|method| self.lower_trait_method(&method, &generic_params))
             .collect::<Vec<_>>();
         TraitDef {
+            associated_consts: trait_def
+                .associated_consts()
+                .map(|item| self.lower_associated_const(&item, crate::hir::ConstOwner::Trait(id)))
+                .collect(),
             id,
             supertraits: trait_def
                 .supertraits()
@@ -218,8 +222,13 @@ impl Lowerer {
             .methods()
             .map(|method| self.lower_impl_method(&method, for_type, &generic_params))
             .collect::<Vec<_>>();
+        let id = self.source_map.push_impl(syntax_span(impl_block));
         Impl {
-            id: self.source_map.push_impl(syntax_span(impl_block)),
+            id,
+            associated_consts: impl_block
+                .associated_consts()
+                .map(|item| self.lower_associated_const(&item, crate::hir::ConstOwner::Impl(id)))
+                .collect(),
             generic_params,
             trait_ref: impl_block
                 .trait_ref()
@@ -531,6 +540,7 @@ impl Lowerer {
             .source_map
             .set_owner(HirOwner::Body(BodyOwner::Const(id)));
         let result = ConstItem {
+            owner: None,
             id,
             visibility: lower_visibility(const_def.visibility()),
             name: const_def.name_text().unwrap_or_default(),
@@ -542,6 +552,45 @@ impl Lowerer {
         };
         self.source_map.set_owner(previous_owner);
         result
+    }
+
+    fn lower_associated_const(
+        &mut self,
+        item: &ast::ConstDef,
+        owner: crate::hir::ConstOwner,
+    ) -> crate::hir::AssociatedConst {
+        let name = item.name_text().unwrap_or_default();
+        let name_ref = self.alloc_type(
+            item.name()
+                .map(|name| token_span(&name))
+                .unwrap_or_else(|| syntax_span(item)),
+            crate::hir::TypeData {
+                kind: crate::hir::TypeKind::Named(name.clone()),
+            },
+        );
+        let (ty, initializer) = if item.initializer().is_some() {
+            let mut constant = self.lower_const(item);
+            constant.owner = Some(owner);
+            let ty = constant
+                .ty
+                .unwrap_or_else(|| self.synthetic_named_type("<missing>"));
+            let id = constant.id;
+            self.module.consts.push(constant);
+            (ty, Some(id))
+        } else {
+            (
+                item.ty()
+                    .map(|ty| self.lower_type(&ty))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                None,
+            )
+        };
+        crate::hir::AssociatedConst {
+            name,
+            name_ref,
+            ty,
+            initializer,
+        }
     }
 
     fn lower_struct(&mut self, struct_def: &ast::StructDef) -> Struct {

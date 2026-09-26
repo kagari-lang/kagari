@@ -216,6 +216,52 @@ impl FunctionLowerer<'_, '_> {
     }
 
     fn lower_expr_value(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {
+        if let Some(fact) = self
+            .analyzed
+            .typed
+            .type_table
+            .associated_const(expr_id)
+            .cloned()
+        {
+            let span = self.analyzed.lowered.source_map.expr_span(expr_id);
+            let types = self.planner.arguments(
+                &[
+                    fact.receiver,
+                    kagari_hir::types::TypeId::Trait(fact.interface),
+                ],
+                &self.instance.substitution,
+                span,
+            )?;
+            let kagari_hir::types::TypeId::Trait(interface) = &types[1] else {
+                return Err(IrLoweringError::MissingBinding("constant trait"));
+            };
+            let (implementation, _) = self
+                .planner
+                .catalog
+                .concrete_interface_implementation(
+                    interface,
+                    &types[0],
+                    &Default::default(),
+                    100_000,
+                    64,
+                    &self.planner.options.cancel,
+                )
+                .ok()
+                .flatten()
+                .ok_or(IrLoweringError::MissingBinding("constant implementation"))?;
+            let declaration = self
+                .planner
+                .catalog
+                .implementation_constant(&implementation, &fact.member)
+                .ok_or(IrLoweringError::MissingBinding("constant definition"))?;
+            let value =
+                self.planner
+                    .constant(declaration)
+                    .ok_or(IrLoweringError::MissingBinding(
+                        "checked associated constant",
+                    ))?;
+            return Ok(self.lower_constant(value.into(), self.expr_type(expr_id)?));
+        }
         if let Some(target) = self
             .analyzed
             .typed
@@ -322,6 +368,7 @@ impl FunctionLowerer<'_, '_> {
             hir::ExprKind::Match { scrutinee, arms } => self.lower_match(expr_id, scrutinee, arms),
             hir::ExprKind::Loop { body } => self.lower_loop_expr(expr_id, body),
             hir::ExprKind::StructInit { fields, .. } => self.lower_struct_init(expr_id, fields),
+            hir::ExprKind::Tuple(elements) if elements.is_empty() => Ok(self.lower_unit()),
             hir::ExprKind::Tuple(elements) => self.lower_tuple(expr_id, elements),
             hir::ExprKind::Array(elements) => self.lower_array(expr_id, elements),
             hir::ExprKind::Closure { .. } => self.lower_closure(expr_id),

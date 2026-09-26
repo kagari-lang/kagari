@@ -1,0 +1,14 @@
+// Constants use static dispatch, including when inherited through a child trait.
+const BASE: i32 = 20;
+trait Limit {
+    const VALUE: i32 = BASE + 1;
+    fn limit(self) -> i32 { Self::VALUE }
+}
+trait Child: Limit {}
+struct Number {}
+impl Limit for Number { const VALUE: i32 = 21; }
+impl Child for Number {}
+fn limit<T: Child>(value: T) -> i32 {
+    T::VALUE + <T as Limit>::VALUE
+}
+fn main() -> i32 { limit(Number {}) }

@@ -69,7 +69,8 @@ fn host_trait_matches(
             )
         })
         .collect();
-    if args.len() != trait_abi.generic_params.len()
+    if !trait_abi.associated_consts.is_empty()
+        || args.len() != trait_abi.generic_params.len()
         || outputs.len() != trait_abi.associated_types.len()
         || trait_abi
             .associated_types

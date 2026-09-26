@@ -417,6 +417,11 @@ pub(super) fn validate_imported_interface_type(
                         let Some(contract) = catalog.trait_(&parent.declaration) else {
                             continue;
                         };
+                        if !contract.associated_consts.is_empty() {
+                            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                                trait_name: contract.declaration.name.clone(), reason: "traits with associated constants only support static dispatch".into(),
+                            }).with_span(span));
+                        }
                         if contract
                             .associated_types
                             .keys()

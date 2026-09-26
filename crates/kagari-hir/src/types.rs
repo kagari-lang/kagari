@@ -97,6 +97,17 @@ pub fn associated_type_id(owner: &DefinitionId, name: &str) -> DefinitionId {
     id
 }
 
+pub fn associated_const_id(owner: &DefinitionId, name: &str) -> DefinitionId {
+    let mut id = owner.clone();
+    id.path
+        .push(kagari_common::identity::DefinitionPathSegment {
+            kind: kagari_common::identity::DefinitionKind::Const,
+            name: name.to_owned(),
+            occurrence: 0,
+        });
+    id
+}
+
 impl NominalType {
     pub fn satisfies(&self, required: &Self) -> bool {
         self.declaration == required.declaration

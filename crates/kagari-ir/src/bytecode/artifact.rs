@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 47;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 48;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +50,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v47";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v48";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -588,6 +588,9 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
                         .all(|variant| add(variant.payload.len()))
             }
             PublicAbiItem::Trait(item) => {
+                if !add(item.associated_consts.len()) {
+                    return false;
+                }
                 add(item.generic_params.len())
                     && add(item.bounds.len())
                     && add_abi_bounds(&item.bounds, &mut add)
@@ -605,6 +608,9 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
                     })
             }
             PublicAbiItem::InterfaceTable(item) => {
+                if !add(item.associated_consts.len()) {
+                    return false;
+                }
                 add(item.generic_params.len())
                     && add(item.bounds.len())
                     && add_abi_bounds(&item.bounds, &mut add)
@@ -623,7 +629,8 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
     }
     for contract in &module.trait_contracts {
         let item = &contract.abi;
-        if !add(item.generic_params.len())
+        if !add(item.associated_consts.len())
+            || !add(item.generic_params.len())
             || !add(item.bounds.len())
             || !add_abi_bounds(&item.bounds, &mut add)
             || !add(item.associated_types.len())

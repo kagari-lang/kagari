@@ -171,6 +171,10 @@ impl HostDeclarations {
                     report("trait declaration is missing from its source module".into());
                     continue;
                 };
+                if !trait_signature.associated_consts.is_empty() {
+                    report("native host trait tables cannot supply associated constants; use a script impl".into());
+                    continue;
+                }
                 if trait_signature.generic_params.len() != implementation.trait_arguments.len() {
                     report(format!(
                         "trait type argument count differs: expected {}, found {}",

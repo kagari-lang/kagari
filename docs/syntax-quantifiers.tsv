@@ -125,3 +125,8 @@ field_pattern_list	1	*	("," field_pattern)
 field_pattern_list	2	?	(",")
 place_expr	1	*	place_suffix
 place_expr	2	+	place_suffix
+trait_member	2	*	attribute
+trait_member	3	*	attribute
+trait_impl_item	2	*	attribute
+trait_impl_item	3	*	attribute
+associated_const_decl	1	?	("=" expr)

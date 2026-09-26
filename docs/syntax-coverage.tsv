@@ -162,3 +162,5 @@ LINE_TEXT	covered	examples/syntax/expressions.kgr	-
 BLOCK_COMMENT_CHAR	covered	examples/syntax/literals-and-comments.kgr	-
 STRING_TEXT_CHAR	covered	examples/standard-library.kgr	-
 LINE_END	covered	examples/syntax/expressions.kgr	-
+associated_const_decl	covered	examples/syntax/associated-constants.kgr	-
+associated_const_def	covered	examples/syntax/associated-constants.kgr	-

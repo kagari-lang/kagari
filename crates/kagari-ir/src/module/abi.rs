@@ -417,6 +417,8 @@ impl AbiType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraitAbi {
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub associated_consts: Vec<AssociatedConstAbi>,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub default_methods: Vec<usize>,
@@ -433,6 +435,13 @@ pub struct TraitAbi {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssociatedConstAbi {
+    pub declaration: kagari_common::identity::DefinitionId,
+    pub ty: AbiType,
+    pub default_value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssociatedTypeAbi {
     pub declaration: kagari_common::identity::DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -441,6 +450,8 @@ pub struct AssociatedTypeAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceTableAbi {
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub associated_consts: Vec<ConstAbi>,
     pub host_bridge: bool,
     pub declaration: kagari_common::identity::DefinitionId,
     pub name: String,
@@ -488,6 +499,7 @@ impl InterfaceTableAbi {
             })
             .collect::<Option<Vec<_>>>()?;
         Some(Self {
+            associated_consts: self.associated_consts.clone(),
             host_bridge: self.host_bridge,
             declaration: self.declaration.clone(),
             name: self.name.clone(),
@@ -535,7 +547,8 @@ pub(crate) fn interface_method_types(
     if interface.arguments.len() != trait_abi.generic_params.len() {
         return None;
     }
-    if interface.associated_types.len() != trait_abi.associated_types.len()
+    if !trait_abi.associated_consts.is_empty()
+        || interface.associated_types.len() != trait_abi.associated_types.len()
         || trait_abi.associated_types.iter().any(|member| {
             !interface
                 .associated_types

@@ -6,14 +6,16 @@ mod storage;
 
 pub use adt::{Enum, EnumBuffer, Field, FieldBuffer, Struct, StructBuffer, Variant, VariantBuffer};
 pub use behavior::{
-    AssociatedType, GenericParam, GenericParamBuffer, Impl, ImplBuffer, ImplMethod,
-    ImplMethodBuffer, Method, MethodBuffer, MethodOwner, ReceiverKind, TraitBound,
+    AssociatedConst, AssociatedType, GenericParam, GenericParamBuffer, Impl, ImplBuffer,
+    ImplMethod, ImplMethodBuffer, Method, MethodBuffer, MethodOwner, ReceiverKind, TraitBound,
     TraitBoundBuffer, TraitBuffer, TraitDef, TraitMethod, TraitMethodBuffer, TraitRef,
     TraitRefBuffer,
 };
 pub use function::{Function, FunctionBuffer, FunctionKind, Param, ParamBuffer};
 pub use module::{Import, ImportBuffer, ModuleDecl, ModuleDeclBuffer};
-pub use storage::{ConstBuffer, ConstItem, Export, ExportBuffer, ExportItem, Visibility};
+pub use storage::{
+    ConstBuffer, ConstItem, ConstOwner, Export, ExportBuffer, ExportItem, Visibility,
+};
 
 use crate::hir::{
     BlockData, BlockId, Body, ConstId, EnumId, ExprData, ExprId, FunctionId, ImplId, ModuleId,

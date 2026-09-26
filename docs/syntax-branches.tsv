@@ -21,7 +21,7 @@ field_binding	2	witnessed	examples/syntax/data-model.kgr	-	"var"
 variant	1	witnessed	examples/syntax/data-model.kgr	-	IDENT
 variant	2	witnessed	examples/syntax/data-model.kgr	-	IDENT "(" type_list? ")"
 trait_member	1	witnessed	examples/syntax/associated-types.kgr	-	attribute* trait_method
-trait_member	2	witnessed	examples/syntax/associated-types.kgr	-	associated_type_decl
+trait_member	2	witnessed	examples/syntax/associated-types.kgr	-	attribute* associated_type_decl
 type	1	witnessed	examples/syntax/data-model.kgr	-	path generic_args?
 type	2	witnessed	examples/syntax/closures.kgr	-	array_type
 type	3	witnessed	examples/standard-library.kgr	-	tuple_type
@@ -39,7 +39,7 @@ path_segment	4	witnessed	examples/syntax/grammar-witnesses.kgr	-	"super"
 impl_block	1	witnessed	examples/syntax/data-model.kgr	-	inherent_impl
 impl_block	2	witnessed	examples/syntax/where-bounds.kgr	-	trait_impl
 trait_impl_item	1	witnessed	examples/syntax/associated-types.kgr	-	attribute* method_decl
-trait_impl_item	2	witnessed	examples/syntax/associated-types.kgr	-	associated_type_def
+trait_impl_item	2	witnessed	examples/syntax/associated-types.kgr	-	attribute* associated_type_def
 method_param_list	1	witnessed	examples/syntax/data-model.kgr	-	receiver_param ("," param_list)? (",")?
 method_param_list	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	param_list
 stmt	1	witnessed	examples/syntax/data-model.kgr	-	binding_stmt
@@ -111,3 +111,6 @@ literal	2	witnessed	examples/standard-library.kgr	-	FLOAT
 literal	3	witnessed	examples/syntax/expressions.kgr	-	STRING
 literal	4	witnessed	examples/syntax/expressions.kgr	-	"true"
 literal	5	witnessed	examples/syntax/expressions.kgr	-	"false"
+trait_member	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_decl
+trait_impl_item	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_def
+primary_expr	12	witnessed	examples/syntax/associated-constants.kgr	-	qualified_type

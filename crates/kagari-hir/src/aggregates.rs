@@ -19,6 +19,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+pub use traits::AssociatedConstSignature;
 pub use traits::{MethodParameter, MethodSignature, TraitSignature, trait_inheritance_closure};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +74,7 @@ pub struct EnumSignature {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AggregateCatalog {
+    implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
     host_implementations: Vec<(crate::types::NominalType, TypeId)>,
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
     implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
@@ -85,6 +87,21 @@ pub struct AggregateCatalog {
 }
 
 impl AggregateCatalog {
+    pub fn implementation_constant(
+        &self,
+        implementation: &DefinitionId,
+        member: &DefinitionId,
+    ) -> Option<&DefinitionId> {
+        self.implementation_constants
+            .get(implementation)
+            .and_then(|members| members.get(member))
+            .or_else(|| {
+                self.implementation_signature(implementation)
+                    .and_then(|implementation| self.trait_(&implementation.trait_type.declaration))
+                    .and_then(|contract| contract.associated_consts.get(member))
+                    .and_then(|member| member.initializer.as_ref())
+            })
+    }
     pub fn inherent_methods(&self) -> impl Iterator<Item = &InherentMethodSignature> {
         self.inherent_methods.values().map(AsRef::as_ref)
     }
@@ -220,6 +237,32 @@ impl AggregateCatalog {
         }
         self.add_traits(lowered, declarations, signatures, cancel)?;
         self.add_implementations(declarations, signatures, cancel)?;
+        for implementation in &lowered.module.impls {
+            let Some(owner) = declarations.impl_identity(implementation.id) else {
+                continue;
+            };
+            let Some(contract) = self.implementation_signature(owner) else {
+                continue;
+            };
+            let constants = implementation
+                .associated_consts
+                .iter()
+                .filter_map(|member| {
+                    let initializer = member.initializer?;
+                    Some((
+                        crate::types::associated_const_id(
+                            &contract.trait_type.declaration,
+                            &member.name,
+                        ),
+                        declarations
+                            .definition(ResolvedName::Const(initializer))?
+                            .clone(),
+                    ))
+                })
+                .collect();
+            self.implementation_constants
+                .insert(owner.clone(), constants);
+        }
         for host in declarations.hosts.type_declarations() {
             for implementation in &host.trait_implementations {
                 cancel.check()?;
@@ -323,6 +366,11 @@ impl AggregateCatalog {
                 result
                     .implementations
                     .insert(id.clone(), implementation.clone());
+                if let Some(constants) = self.implementation_constants.get(id) {
+                    result
+                        .implementation_constants
+                        .insert(id.clone(), constants.clone());
+                }
             }
             for (id, method) in self
                 .inherent_methods
@@ -370,6 +418,7 @@ impl AggregateCatalog {
 
     pub(crate) fn same_contracts(&self, other: &Self) -> bool {
         self.same_trait_contracts(other)
+            && self.implementation_constants == other.implementation_constants
             && self.host_implementations == other.host_implementations
             && self.implementations == other.implementations
             && self.inherent_methods == other.inherent_methods

@@ -60,6 +60,9 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
+        if item.owner.is_some() {
+            continue;
+        }
         declarations.push((
             &item.name,
             ResolvedName::Const(item.id),

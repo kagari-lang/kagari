@@ -106,7 +106,8 @@ fn executable_interface(
         let Some(record) = contract(&view.declaration, closure) else {
             return false;
         };
-        if view.associated_types.len() != record.associated_types.len()
+        if !record.associated_consts.is_empty()
+            || view.associated_types.len() != record.associated_types.len()
             || record
                 .associated_types
                 .iter()
@@ -430,7 +431,9 @@ pub(super) fn trait_bounds_match(
         let Some(contract) = contract else {
             return false;
         };
-        if interface.associated_types.len() != contract.associated_types.len() {
+        if interface.associated_types.len() != contract.associated_types.len()
+            || !crate::module::abi::verify::interface_constants_match(table, contract)
+        {
             return false;
         }
         if !table.host_bridge

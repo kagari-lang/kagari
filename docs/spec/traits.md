@@ -27,13 +27,44 @@ The current trait scope excludes:
 - Rust-style trait object syntax such as borrowed or boxed `dyn` trait objects
 - lifetime-parameterized traits
 - generic associated types (GAT), including lifetime-parameterized forms
-- associated consts
 - specialization
 - negative impls
 - auto traits
 - full Rust-style coherence and orphan behavior
 - higher-rank bounds
 - higher-kinded type parameters and projection-heavy solving beyond ordinary associated types
+
+## Associated Constants
+
+Traits may declare scalar associated constants, with an optional default:
+
+```kagari
+trait Limit { const VALUE: i32 = 21; }
+struct Number {}
+impl Limit for Number { const VALUE: i32 = 42; }
+fn limit<T: Limit>(value: T) -> i32 { T::VALUE }
+fn main() -> i32 { <Number as Limit>::VALUE }
+```
+
+The annotation is mandatory. Supported types and initializers use the same v1
+const-safe rules as module constants: `()`, `bool`, `i32`, and `f32`,
+scalar operations and references to module constants. Initializers are checked
+even when unused, using the existing evaluation budget and overflow traps.
+Generic-dependent values, String/object values, script calls and host calls are excluded.
+Required constants must be defined in the impl; an explicit definition overrides
+the default and must have the declared type. Unknown or duplicate definitions
+are errors. Associated constants are not module-scope names or exports.
+
+`T::VALUE`, `Self::VALUE`, and concrete type paths resolve from satisfied trait
+bounds or implementations, including supertraits. Multiple same-named members
+are ambiguous; `<T as Trait>::VALUE` selects the owning trait explicitly. The
+compiler specializes each access into its checked scalar value.
+
+A trait declaring associated constants, and every trait inheriting it, supports
+only static dispatch: it cannot be used as an interface value type. The same
+rule is enforced when verifying artifacts. Native host method tables cannot
+supply associated constants; script impls on host types may supply them.
+
 
 ## Core Model
 

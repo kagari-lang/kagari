@@ -249,6 +249,9 @@ impl UseTreeList {
 }
 
 impl TraitDef {
+    pub fn associated_consts(&self) -> impl Iterator<Item = ConstDef> {
+        support::children(self.syntax())
+    }
     pub fn supertraits(&self) -> Option<TraitBoundList> {
         support::child(self.syntax())
     }
@@ -277,6 +280,9 @@ impl TraitDef {
 }
 
 impl ImplBlock {
+    pub fn associated_consts(&self) -> impl Iterator<Item = ConstDef> {
+        support::children(self.syntax())
+    }
     pub fn associated_types(&self) -> impl Iterator<Item = AssociatedType> {
         support::children(self.syntax())
     }

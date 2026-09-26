@@ -41,6 +41,13 @@ pub(crate) fn check_signatures(
         &mut diagnostics,
         cancel,
     );
+    super::associated_consts::prepare(
+        lowered,
+        declarations,
+        &mut type_table,
+        &mut diagnostics,
+        cancel,
+    );
 
     let mut type_bounds = HashMap::new();
     for (target, params) in lowered
@@ -508,6 +515,20 @@ pub(crate) fn check_bodies_controlled(
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
                 env.generics = function.generic_params.clone();
+                let context = function_type_context(&lowered.module, function, declarations);
+                env.self_type = if let Some(owner) = context.self_type {
+                    declarations
+                        .definition(ResolvedName::Trait(owner))
+                        .cloned()
+                        .map(TypeId::SelfType)
+                } else {
+                    context
+                        .implementation
+                        .and_then(|owner| lowered.module.impls.iter().find(|item| item.id == owner))
+                        .and_then(|item| item.for_type)
+                        .and_then(|ty| type_table.type_ref(ty))
+                        .map(|ty| ty.ty.clone())
+                };
                 env.generic_bounds = aggregates
                     .expanded_bounds(&typed_function.bounds, cancel)
                     .unwrap_or_else(|_| typed_function.bounds.clone());
@@ -1058,6 +1079,16 @@ fn validate_interface_type(
                 declarations.definition(ResolvedName::Trait(trait_def.id))
                     == Some(&trait_name.declaration)
             }) {
+                if !trait_def.associated_consts.is_empty() {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
+                            trait_name: trait_def.name.clone(),
+                            reason: "traits with associated constants only support static dispatch"
+                                .into(),
+                        })
+                        .with_span(span),
+                    );
+                }
                 if trait_def.associated_types.iter().any(|member| {
                     !trait_name
                         .associated_types

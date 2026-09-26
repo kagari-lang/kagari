@@ -139,6 +139,38 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     continue;
                 };
                 let abi = TraitAbi {
+                    associated_consts: trait_item
+                        .associated_consts
+                        .iter()
+                        .map(|member| crate::module::abi::AssociatedConstAbi {
+                            declaration: kagari_hir::types::associated_const_id(
+                                match &module
+                                    .declarations
+                                    .target(kagari_hir::resolver::ResolvedName::Trait(id))
+                                    .expect("trait declaration")
+                                    .id
+                                {
+                                    kagari_hir::declarations::DeclarationId::Definition(owner) => {
+                                        owner
+                                    }
+                                    _ => unreachable!("nominal trait"),
+                                },
+                                &member.name,
+                            ),
+                            ty: AbiType::from_checked_type(
+                                &module
+                                    .typed
+                                    .type_table
+                                    .type_ref(member.ty)
+                                    .expect("constant signature")
+                                    .ty,
+                            ),
+                            default_value: member
+                                .initializer
+                                .and_then(|id| module.typed.const_values.get(&id))
+                                .map(const_abi_value),
+                        })
+                        .collect(),
                     default_methods: trait_item
                         .methods
                         .iter()
@@ -255,6 +287,28 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             trait_type.display_name()
         );
         public_items.push(PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+            associated_consts: impl_block
+                .associated_consts
+                .iter()
+                .map(|member| ConstAbi {
+                    name: member.name.clone(),
+                    ty: AbiType::from_checked_type(
+                        &module
+                            .typed
+                            .type_table
+                            .type_ref(member.ty)
+                            .expect("constant signature")
+                            .ty,
+                    ),
+                    value: const_abi_value(
+                        module
+                            .typed
+                            .const_values
+                            .get(&member.initializer.expect("impl initializer"))
+                            .expect("checked constant"),
+                    ),
+                })
+                .collect(),
             host_bridge: false,
             declaration: module
                 .declarations

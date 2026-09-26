@@ -283,6 +283,18 @@ impl FileAnalysis {
         if let Some(declaration) = facts.declarations.site_at(offset) {
             return Some(declaration);
         }
+        if let Some(member) = facts
+            .aggregates
+            .traits()
+            .flat_map(|contract| contract.associated_consts.values())
+            .find(|member| {
+                member.declaration.location.file == self.source.id()
+                    && member.declaration.location.range.start <= offset
+                    && offset < member.declaration.location.range.end
+            })
+        {
+            return Some(&member.declaration);
+        }
         let expressions = facts
             .lowered
             .module
@@ -302,6 +314,17 @@ impl FileAnalysis {
                     .names
                     .expr_resolution(id)
                     .and_then(|target| facts.declarations.target(target))
+                    .or_else(|| {
+                        let fact = facts.typed.type_table.associated_const(id)?;
+                        Some(
+                            &facts
+                                .aggregates
+                                .trait_(&fact.interface.declaration)?
+                                .associated_consts
+                                .get(&fact.member)?
+                                .declaration,
+                        )
+                    })
                     .or_else(|| {
                         facts.typed.type_table.expr_field(id).and_then(|field| {
                             facts
@@ -444,14 +467,6 @@ impl FileAnalysis {
                     _ => None,
                 }
             });
-        if let Some(target) = type_reference_at(
-            &facts.lowered,
-            &facts.typed.type_table,
-            &facts.declarations,
-            offset,
-        ) {
-            return target;
-        }
         expressions
             .chain(places)
             .chain(initializer_fields)
@@ -460,6 +475,15 @@ impl FileAnalysis {
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .min_by_key(|(span, _)| span.end - span.start)
             .map(|(_, target)| target)
+            .or_else(|| {
+                type_reference_at(
+                    &facts.lowered,
+                    &facts.typed.type_table,
+                    &facts.declarations,
+                    offset,
+                )
+                .flatten()
+            })
     }
 
     pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {
@@ -931,6 +955,8 @@ impl AnalysisSnapshot {
 
 #[cfg(test)]
 mod arena_tests;
+#[cfg(test)]
+mod associated_const_tests;
 #[cfg(test)]
 mod completion_tests;
 #[cfg(test)]

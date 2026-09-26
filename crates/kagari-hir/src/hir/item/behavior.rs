@@ -25,6 +25,7 @@ pub struct Method {
 
 #[derive(Debug, Clone)]
 pub struct TraitDef {
+    pub associated_consts: Vec<AssociatedConst>,
     pub id: TraitId,
     pub visibility: Visibility,
     pub name: String,
@@ -32,6 +33,14 @@ pub struct TraitDef {
     pub supertraits: TraitRefBuffer,
     pub methods: TraitMethodBuffer,
     pub associated_types: Vec<AssociatedType>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssociatedConst {
+    pub name: String,
+    pub name_ref: TypeRefId,
+    pub ty: TypeRefId,
+    pub initializer: Option<crate::hir::ConstId>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +62,7 @@ pub struct TraitMethod {
 
 #[derive(Debug, Clone)]
 pub struct Impl {
+    pub associated_consts: Vec<AssociatedConst>,
     pub id: ImplId,
     pub generic_params: GenericParamBuffer,
     pub trait_ref: Option<TraitRef>,
