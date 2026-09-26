@@ -272,7 +272,7 @@ keeps shared storage and enforces access in HIR and linked bytecode contracts.
   documentation; implement paired populated `Array`/`Map`/`Set` and `Mutable*`
   factories with fresh shallow storage, remove old constructors and update
   authoritative specifications.
-- [ ] C04: navigation/completion and source/artifact/backend conformance, negative
+- [x] C04: navigation/completion and source/artifact/backend conformance, negative
   access tests, GC/alias/iteration coverage and final workspace validation.
 
 C01-C03 land together because the public API, typed execution contracts and
@@ -300,3 +300,13 @@ input/lookup guards on failure. Array/Map/Set factory results never reuse input 
 C01a validation: 1,176 workspace tests passed, including 101 executable standard
 API documentation examples. Workspace clippy with warnings denied, formatting
 and `git diff --check` passed.
+
+C01-C04 validation: 1,188 workspace tests passed, including 114 executable
+standard-library documentation blocks. Collection integration tests exercise
+source/serialized-artifact/JIT-enabled fallback, live views and shallow snapshots,
+custom Eq/Hash, input iteration guards, GC during host reentry, host binding access
+mismatches, malformed executable access contracts and negative writes through
+methods, free functions, indexing, reflection, generics, closures and branch joins.
+Constructor navigation and read-only member completion have query coverage.
+`cargo fmt --all -- --check`, workspace/all-targets clippy with warnings denied,
+`cargo test --workspace --no-fail-fast` and `git diff --check` passed.
