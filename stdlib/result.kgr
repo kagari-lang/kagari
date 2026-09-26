@@ -1,0 +1,146 @@
+//! Success and error values with explicit propagation and preserved diagnostic origins.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Test whether the result is successful.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// Existing `Err` diagnostic metadata is preserved when forwarded, including by `map_err`.
+/// The metadata does not participate in equality or hashing. Manually reconstructing
+/// `Err(e)` records a new origin.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Result<i32, String> = Ok(7);
+/// std::debug::assert(value.is_ok(), "success");
+/// ```
+@intrinsic(ResultIsOk)
+@method(is_ok)
+pub fn is_ok<T, E>(value: Result<T, E>) -> bool;
+
+/// Test whether the result is an error.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// Existing `Err` diagnostic metadata is preserved when forwarded, including by `map_err`.
+/// The metadata does not participate in equality or hashing. Manually reconstructing
+/// `Err(e)` records a new origin.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Result<i32, String> = Err("missing");
+/// std::debug::assert(value.is_err(), "failure");
+/// ```
+@intrinsic(ResultIsErr)
+@method(is_err)
+pub fn is_err<T, E>(value: Result<T, E>) -> bool;
+
+/// Return the success value or the eagerly evaluated fallback.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The fallback argument is evaluated even when it is not selected. Use a conditional
+/// callback API when fallback computation must be lazy.
+///
+/// Existing `Err` diagnostic metadata is preserved when forwarded, including by `map_err`.
+/// The metadata does not participate in equality or hashing. Manually reconstructing
+/// `Err(e)` records a new origin.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Result<i32, String> = Err("missing");
+/// std::debug::assert(value.unwrap_or(7) == 7, "fallback");
+/// ```
+@intrinsic(ResultUnwrapOr)
+@method(unwrap_or)
+pub fn unwrap_or<T, E>(value: Result<T, E>, fallback: T) -> T;
+
+/// Transform Ok with one callback call. Preserve Err and its original stack.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The callback expression is evaluated once, but its body runs at most once and only for
+/// the selected variant. Skipped callbacks have no body side effects.
+///
+/// Existing `Err` diagnostic metadata is preserved when forwarded, including by `map_err`.
+/// The metadata does not participate in equality or hashing. Manually reconstructing
+/// `Err(e)` records a new origin.
+///
+/// # Panics
+///
+/// A trap or termination from a called callback propagates normally; it is not converted
+/// into `None` or `Err`.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Result<i32, String> = Ok(7);
+/// std::debug::assert(value.map(|x| x + 1).unwrap_or(0) == 8, "mapped");
+/// ```
+@intrinsic(ResultMap)
+@method(map)
+pub fn map<T, U, E>(value: Result<T, E>, callback: fn(T) -> U) -> Result<U, E>;
+
+/// Transform Err with one callback call and retain its original source location and stack.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The callback expression is evaluated once, but its body runs at most once and only for
+/// the selected variant. Skipped callbacks have no body side effects.
+///
+/// Existing `Err` diagnostic metadata is preserved when forwarded, including by `map_err`.
+/// The metadata does not participate in equality or hashing. Manually reconstructing
+/// `Err(e)` records a new origin.
+///
+/// # Panics
+///
+/// A trap or termination from a called callback propagates normally; it is not converted
+/// into `None` or `Err`.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Result<i32, String> = Err("missing");
+/// val mapped = value.map_err(|e| e.concat(" configuration"));
+/// std::debug::assert(match mapped { Ok(_) => false, Err(e) => e == "missing configuration" }, "mapped error");
+/// ```
+@intrinsic(ResultMapErr)
+@method(map_err)
+pub fn map_err<T, E, F>(value: Result<T, E>, callback: fn(E) -> F) -> Result<T, F>;
+
+/// Call the callback only for Ok. Preserve an existing Err and its original stack.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The callback expression is evaluated once, but its body runs at most once and only for
+/// the selected variant. Skipped callbacks have no body side effects.
+///
+/// Existing `Err` diagnostic metadata is preserved when forwarded, including by `map_err`.
+/// The metadata does not participate in equality or hashing. Manually reconstructing
+/// `Err(e)` records a new origin.
+///
+/// # Panics
+///
+/// A trap or termination from a called callback propagates normally; it is not converted
+/// into `None` or `Err`.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Result<i32, String> = Ok(7);
+/// val result: Result<i32, String> = value.and_then(|x| Ok(x + 1));
+/// std::debug::assert(result.unwrap_or(0) == 8, "chained");
+/// ```
+@intrinsic(ResultAndThen)
+@method(and_then)
+pub fn and_then<T, U, E>(value: Result<T, E>, callback: fn(T) -> Result<U, E>) -> Result<U, E>;

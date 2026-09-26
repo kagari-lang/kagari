@@ -1,0 +1,78 @@
+//! Assertions, explicit traps and host-routed logging.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Write a message through the configured host log binding and its permissions.
+///
+/// Arguments are evaluated before this operation. A script trap captures the current
+/// diagnostic stack and releases execution resources; it does not roll back completed side
+/// effects.
+///
+/// The host supplies the log sink. No process-global output destination is implied.
+///
+/// # Panics
+///
+/// Traps if host logging is unavailable, denied by permissions, or fails.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::print("hello from Kagari");
+/// ```
+@intrinsic(DebugPrint)
+pub fn print(message: String) -> ();
+
+/// Trap with message if condition is false.
+///
+/// Arguments are evaluated before this operation. A script trap captures the current
+/// diagnostic stack and releases execution resources; it does not roll back completed side
+/// effects.
+///
+/// # Panics
+///
+/// Traps when `condition` is false, using the supplied message.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(2 + 2 == 4, "arithmetic");
+/// ```
+@intrinsic(DebugAssert)
+pub fn assert(condition: bool, message: String) -> ();
+
+/// Compare with PartialEq and trap with message when unequal.
+///
+/// Arguments are evaluated before this operation. A script trap captures the current
+/// diagnostic stack and releases execution resources; it does not roll back completed side
+/// effects.
+///
+/// # Panics
+///
+/// Traps when equality returns false. A user equality implementation may also trap.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert_eq(2 + 2, 4, "arithmetic");
+/// ```
+@intrinsic(DebugAssertEq)
+pub fn assert_eq<T: PartialEq>(lhs: T, rhs: T, message: String) -> ();
+
+/// Stop the current call with a script trap and diagnostic stack.
+///
+/// Arguments are evaluated before this operation. A script trap captures the current
+/// diagnostic stack and releases execution resources; it does not roll back completed side
+/// effects.
+///
+/// # Panics
+///
+/// Always traps with the supplied message. This is not a business `Result::Err` and cannot
+/// be handled with `?`.
+///
+/// # Examples
+///
+/// ```kgr,should_panic
+/// std::debug::panic("configuration cannot be loaded");
+/// ```
+@intrinsic(DebugPanic)
+pub fn panic(message: String) -> ();

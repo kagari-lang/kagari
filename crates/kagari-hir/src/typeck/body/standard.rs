@@ -235,24 +235,3 @@ impl BodyChecker<'_> {
         args[0].clone()
     }
 }
-
-impl BodyChecker<'_> {
-    pub(super) fn standard_callback_result(
-        &mut self,
-        name: &str,
-        params: &[TypeId],
-        result: &TypeId,
-        index: usize,
-        args: &[(ExprId, TypeId)],
-    ) -> TypeId {
-        let expected = TypeId::Function {
-            params: params.to_vec(),
-            result: Box::new(result.clone()),
-        };
-        self.check_arg_type(name, "callback", expected, index, args);
-        match args.get(index) {
-            Some((_, TypeId::Function { result, .. })) => (**result).clone(),
-            _ => TypeId::Error,
-        }
-    }
-}

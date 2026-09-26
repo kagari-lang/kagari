@@ -9,3 +9,7 @@ kagari-common.workspace = true
 kagari-syntax.workspace = true
 serde.workspace = true
 smallvec.workspace = true
+
+[build-dependencies]
+kagari-common.workspace = true
+kagari-syntax.workspace = true

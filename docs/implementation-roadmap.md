@@ -187,7 +187,7 @@ clippy with warnings denied and `git diff --check` passed.
 Source comments and API documentation are written in English.
 
 - [x] S01: declaration parsing, documentation and source-location foundation.
-- [ ] S02: source-owned standard function signatures and method bindings.
+- [x] S02: source-owned standard function signatures and method bindings.
 - [ ] S03: standard enum/type declarations and the 21 standard trait contracts.
 - [ ] S04: shared semantic queries for navigation, documentation and signatures.
 - [ ] S05: executable documentation, binding validation, removal of duplicate definitions and workspace acceptance.
@@ -196,3 +196,9 @@ This sequence migrates all 71 existing public standard functions and 54 method
 views without expanding their runtime semantics. Host API declaration generation
 and the LSP transport remain subsequent checkpoints. Native layout, GC, mutation,
 resource and bytecode-validation contracts remain engine responsibilities.
+
+S02 migrated 71 function signatures and 54 method views into English declaration
+sources with executable examples. It removed duplicated intrinsic call typing and
+connected native for_each to ordinary script closure frames and cursor cleanup.
+Validation includes 327 HIR tests, 146 IR tests and source/artifact documentation
+execution. Rustdoc-style API documentation is required for subsequent declarations.

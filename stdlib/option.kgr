@@ -1,0 +1,143 @@
+//! Optional values, conditional transformations and explicit Result conversion.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Test whether a value is present.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(Some(7).is_some(), "present");
+/// ```
+@intrinsic(OptionIsSome)
+@method(is_some)
+pub fn is_some<T>(value: Option<T>) -> bool;
+
+/// Test whether no value is present.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Option<i32> = None;
+/// std::debug::assert(value.is_none(), "absent");
+/// ```
+@intrinsic(OptionIsNone)
+@method(is_none)
+pub fn is_none<T>(value: Option<T>) -> bool;
+
+/// Return the contained value or the eagerly evaluated fallback.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The fallback argument is evaluated even when it is not selected. Use a conditional
+/// callback API when fallback computation must be lazy.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Option<i32> = None;
+/// std::debug::assert(value.unwrap_or(7) == 7, "fallback");
+/// ```
+@intrinsic(OptionUnwrapOr)
+@method(unwrap_or)
+pub fn unwrap_or<T>(value: Option<T>, fallback: T) -> T;
+
+/// Transform Some with one callback call; preserve None.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The callback expression is evaluated once, but its body runs at most once and only for
+/// the selected variant. Skipped callbacks have no body side effects.
+///
+/// # Panics
+///
+/// A trap or termination from a called callback propagates normally; it is not converted
+/// into `None` or `Err`.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(Some(7).map(|x| x + 1) == Some(8), "mapped");
+/// ```
+@intrinsic(OptionMap)
+@method(map)
+pub fn map<T, U>(value: Option<T>, callback: fn(T) -> U) -> Option<U>;
+
+/// Call the callback only for Some and return its Option.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The callback expression is evaluated once, but its body runs at most once and only for
+/// the selected variant. Skipped callbacks have no body side effects.
+///
+/// # Panics
+///
+/// A trap or termination from a called callback propagates normally; it is not converted
+/// into `None` or `Err`.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(Some(7).and_then(|x| Some(x + 1)) == Some(8), "chained");
+/// ```
+@intrinsic(OptionAndThen)
+@method(and_then)
+pub fn and_then<T, U>(value: Option<T>, callback: fn(T) -> Option<U>) -> Option<U>;
+
+/// Convert None into Err at this call site. The error argument is evaluated eagerly.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The fallback argument is evaluated even when it is not selected. Use a conditional
+/// callback API when fallback computation must be lazy.
+///
+/// Converting `None` constructs a new `Err` whose origin is this conversion site. `None`
+/// itself has no error stack.
+///
+/// # Examples
+///
+/// ```kgr
+/// val value: Option<i32> = None;
+/// val result: Result<i32, String> = value.ok_or("missing");
+/// std::debug::assert(result.is_err(), "converted");
+/// ```
+@intrinsic(OptionOkOr)
+@method(ok_or)
+pub fn ok_or<T, E>(value: Option<T>, error: E) -> Result<T, E>;
+
+/// Call the callback only for None and capture the new Err origin at this conversion.
+///
+/// Arguments are evaluated from left to right. Payload objects retain their identity;
+/// passing or returning them does not deep-copy them.
+///
+/// The callback expression is evaluated once, but its body runs at most once and only for
+/// the selected variant. Skipped callbacks have no body side effects.
+///
+/// Converting `None` constructs a new `Err` whose origin is this conversion site. `None`
+/// itself has no error stack.
+///
+/// # Panics
+///
+/// A trap or termination from a called callback propagates normally; it is not converted
+/// into `None` or `Err`.
+///
+/// # Examples
+///
+/// ```kgr
+/// var calls = 0;
+/// val result: Result<i32, String> = Some(7).ok_or_else(|| { calls += 1; "missing" });
+/// std::debug::assert(result.is_ok() && calls == 0, "lazy fallback");
+/// ```
+@intrinsic(OptionOkOrElse)
+@method(ok_or_else)
+pub fn ok_or_else<T, E>(value: Option<T>, callback: fn() -> E) -> Result<T, E>;

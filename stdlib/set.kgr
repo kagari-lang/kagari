@@ -1,0 +1,281 @@
+//! Hash sets using Eq and Hash. Equal values occupy one membership entry.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Create an empty set.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// std::debug::assert(values.is_empty(), "new set");
+/// ```
+@intrinsic(SetNew)
+pub fn new<T: Eq + Hash>() -> Set<T>;
+
+/// Return the number of elements.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(7);
+/// std::debug::assert(values.len() == [0].len(), "length");
+/// ```
+@intrinsic(SetLen)
+@method(len)
+pub fn len<T: Eq + Hash>(value: Set<T>) -> usize;
+
+/// Return whether the set is empty.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// std::debug::assert(values.is_empty(), "empty");
+/// ```
+@intrinsic(SetIsEmpty)
+@method(is_empty)
+pub fn is_empty<T: Eq + Hash>(value: Set<T>) -> bool;
+
+/// Test membership using Eq and Hash.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(7);
+/// std::debug::assert(values.contains(7), "member");
+/// ```
+@intrinsic(SetContains)
+@method(contains)
+pub fn contains<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
+
+/// Insert an element and return the same set. An equal element is not duplicated.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Mutations affect the same container and are visible through aliases. Failed preparation
+/// does not commit the target modification.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(7);
+/// values.insert(7);
+/// std::debug::assert(values.len() == [0].len(), "deduplicated");
+/// ```
+@intrinsic(SetInsert)
+@method(insert)
+pub fn insert<T: Eq + Hash>(value: Set<T>, item: T) -> Set<T>;
+
+/// Remove an equal element and report whether one existed.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Mutations affect the same container and are visible through aliases. Failed preparation
+/// does not commit the target modification.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(7);
+/// std::debug::assert(values.remove(7), "removed");
+/// std::debug::assert(!values.remove(7), "absent");
+/// ```
+@intrinsic(SetRemove)
+@method(remove)
+pub fn remove<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
+
+/// Remove all elements and return the same set.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Mutations affect the same container and are visible through aliases. Failed preparation
+/// does not commit the target modification.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(7);
+/// values.clear();
+/// std::debug::assert(values.is_empty(), "cleared");
+/// ```
+@intrinsic(SetClear)
+@method(clear)
+pub fn clear<T: Eq + Hash>(value: Set<T>) -> Set<T>;
+
+/// Return a shallow array of elements.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// The returned array has independent container storage. Do not rely on a particular
+/// enumeration order.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(7);
+/// std::debug::assert(values.to_array().get("".len_bytes()) == Some(7), "snapshot");
+/// ```
+@intrinsic(SetToArray)
+@method(to_array)
+pub fn to_array<T: Eq + Hash>(value: Set<T>) -> [T];
+
+/// Create a set of elements in either set. Referenced objects remain shared.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Neither input container is modified. Do not rely on a particular enumeration order.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(1);
+/// val other: Set<i32> = std::set::new();
+/// other.insert(2);
+/// val combined = values.union(other);
+/// std::debug::assert(combined.contains(1) && combined.contains(2), "union");
+/// ```
+@intrinsic(SetUnion)
+@method(union)
+pub fn union<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
+
+/// Create a set of elements in both sets. Referenced objects remain shared.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Neither input container is modified. Do not rely on a particular enumeration order.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(1);
+/// values.insert(2);
+/// val other: Set<i32> = std::set::new();
+/// other.insert(2);
+/// val common = values.intersection(other);
+/// std::debug::assert(common.len() == [0].len() && common.contains(2), "intersection");
+/// ```
+@intrinsic(SetIntersection)
+@method(intersection)
+pub fn intersection<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
+
+/// Create a set of elements in the first set but not the second. Referenced objects remain
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Neither input container is modified. Do not rely on a particular enumeration order.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(1);
+/// values.insert(2);
+/// val other: Set<i32> = std::set::new();
+/// other.insert(2);
+/// val remaining = values.difference(other);
+/// std::debug::assert(remaining.len() == [0].len() && remaining.contains(1), "difference");
+/// ```
+@intrinsic(SetDifference)
+@method(difference)
+pub fn difference<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;

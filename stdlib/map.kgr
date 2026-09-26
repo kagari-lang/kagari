@@ -1,0 +1,271 @@
+//! Hash maps using Eq and Hash. Keys must keep stable equality and hash behavior while stored.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Create an empty map.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// std::debug::assert(values.is_empty(), "new map");
+/// ```
+@intrinsic(MapNew)
+pub fn new<K: Eq + Hash, V>() -> Map<K, V>;
+
+/// Return the number of entries.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "one");
+/// std::debug::assert(values.len() == [0].len(), "length");
+/// ```
+@intrinsic(MapLen)
+@method(len)
+pub fn len<K: Eq + Hash, V>(value: Map<K, V>) -> usize;
+
+/// Return whether the map is empty.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// std::debug::assert(values.is_empty(), "empty");
+/// ```
+@intrinsic(MapIsEmpty)
+@method(is_empty)
+pub fn is_empty<K: Eq + Hash, V>(value: Map<K, V>) -> bool;
+
+/// Test membership using Eq and Hash.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "one");
+/// std::debug::assert(values.contains_key(1), "key");
+/// ```
+@intrinsic(MapContainsKey)
+@method(contains_key)
+pub fn contains_key<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> bool;
+
+/// Return the associated value, or None if the key is absent.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "one");
+/// std::debug::assert(values.get(1) == Some("one"), "value");
+/// std::debug::assert(values.get(2) == None, "absent");
+/// ```
+@intrinsic(MapGet)
+@method(get)
+pub fn get<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
+
+/// Insert or replace an entry and return the same map.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Mutations affect the same container and are visible through aliases. Failed preparation
+/// does not commit the target modification.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "old");
+/// values.insert(1, "new");
+/// std::debug::assert(values.get(1) == Some("new") && values.len() == [0].len(), "replaced");
+/// ```
+@intrinsic(MapInsert)
+@method(insert)
+pub fn insert<K: Eq + Hash, V>(value: Map<K, V>, key: K, item: V) -> Map<K, V>;
+
+/// Remove the entry and return its value, or None if absent.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Mutations affect the same container and are visible through aliases. Failed preparation
+/// does not commit the target modification.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "one");
+/// std::debug::assert(values.remove(1) == Some("one"), "removed");
+/// std::debug::assert(values.remove(1) == None, "absent");
+/// ```
+@intrinsic(MapRemove)
+@method(remove)
+pub fn remove<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
+
+/// Remove all entries and return the same map.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// Mutations affect the same container and are visible through aliases. Failed preparation
+/// does not commit the target modification.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "one");
+/// values.clear();
+/// std::debug::assert(values.is_empty(), "cleared");
+/// ```
+@intrinsic(MapClear)
+@method(clear)
+pub fn clear<K: Eq + Hash, V>(value: Map<K, V>) -> Map<K, V>;
+
+/// Return a shallow array of keys.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// The returned array has independent container storage. Do not rely on a particular
+/// enumeration order.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "one");
+/// std::debug::assert(values.keys().get("".len_bytes()) == Some(1), "key snapshot");
+/// ```
+@intrinsic(MapKeys)
+@method(keys)
+pub fn keys<K: Eq + Hash, V>(value: Map<K, V>) -> [K];
+
+/// Return a shallow array of values.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// The returned array has independent container storage. Do not rely on a particular
+/// enumeration order.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "one");
+/// std::debug::assert(values.values().get("".len_bytes()) == Some("one"), "value snapshot");
+/// ```
+@intrinsic(MapValues)
+@method(values)
+pub fn values<K: Eq + Hash, V>(value: Map<K, V>) -> [V];
+
+/// Return a shallow array of key/value tuples.
+///
+/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
+/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
+///
+/// Do not change fields used by equality or hashing while a key is stored. Keys and values
+/// containing objects share those objects; this operation does not perform a deep copy.
+///
+/// The returned array has independent container storage. Do not rely on a particular
+/// enumeration order.
+///
+/// # Panics
+///
+/// User equality or hashing may trap where invoked. Mutation guards and execution resource
+/// limits still apply where the operation modifies or allocates storage.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Map<i32, String> = std::map::new();
+/// values.insert(1, "one");
+/// std::debug::assert(values.entries().get("".len_bytes()) == Some((1, "one")), "entry snapshot");
+/// ```
+@intrinsic(MapEntries)
+@method(entries)
+pub fn entries<K: Eq + Hash, V>(value: Map<K, V>) -> [(K, V)];

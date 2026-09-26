@@ -1,3 +1,4 @@
+pub mod declarations;
 pub mod surface;
 pub mod traits;
 

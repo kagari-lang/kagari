@@ -1,0 +1,102 @@
+//! Helpers for native Array, Map, Set and String iteration. These are not arbitrary Iterator operations.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Return the size of a native iterable collection.
+///
+/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
+/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
+///
+/// Map and set enumeration order is not a public ordering guarantee. This helper does not
+/// consume a custom Iterator.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(std::iter::len("é!") == [0, 0].len(), "scalar count");
+/// ```
+@intrinsic(IterLen)
+@method(len)
+pub fn len<I: Iterable>(value: I) -> usize;
+
+/// Test whether a native iterable collection is empty.
+///
+/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
+/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
+///
+/// Map and set enumeration order is not a public ordering guarantee. This helper does not
+/// consume a custom Iterator.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(std::iter::is_empty(""), "empty");
+/// ```
+@intrinsic(IterIsEmpty)
+@method(is_empty)
+pub fn is_empty<I: Iterable>(value: I) -> bool;
+
+/// Return the indexed native iteration item, or None if out of bounds.
+///
+/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
+/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
+///
+/// Map and set enumeration order is not a public ordering guarantee. This helper does not
+/// consume a custom Iterator.
+///
+/// Indices are zero-based positions in native enumeration. An out-of-range index returns
+/// `None`.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(std::iter::get("é!", "".len_bytes()) == Some("é"), "scalar");
+/// ```
+@intrinsic(IterGet)
+@method(get)
+pub fn get<I: Iterable>(value: I, index: usize) -> Option<I::Item>;
+
+/// Collect native iteration items into a shallow array.
+///
+/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
+/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
+///
+/// Map and set enumeration order is not a public ordering guarantee. This helper does not
+/// consume a custom Iterator.
+///
+/// # Examples
+///
+/// ```kgr
+/// val items = std::iter::to_array("hi");
+/// std::debug::assert(items.get("".len_bytes()) == Some("h"), "collected");
+/// ```
+@intrinsic(IterToArray)
+@method(to_array)
+pub fn to_array<I: Iterable>(value: I) -> [I::Item];
+
+/// Call the callback for each native iteration item. Structural mutation during iteration
+///
+/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
+/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
+///
+/// Map and set enumeration order is not a public ordering guarantee. This helper does not
+/// consume a custom Iterator.
+///
+/// The callback returns unit. Earlier callback side effects remain if a later callback
+/// fails.
+///
+/// # Panics
+///
+/// Structural modification of a guarded source traps. Callback traps and execution
+/// termination propagate to the caller.
+///
+/// # Examples
+///
+/// ```kgr
+/// var total = 0;
+/// std::iter::for_each([1, 2, 3], |item| { total += item; });
+/// std::debug::assert(total == 6, "visited");
+/// ```
+@intrinsic(IterForEach)
+@method(for_each)
+pub fn for_each<I: Iterable>(value: I, callback: fn(I::Item) -> ()) -> ();

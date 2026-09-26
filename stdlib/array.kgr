@@ -1,0 +1,179 @@
+//! Resizable arrays with shared object identity. Element reads and copies are shallow.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Return the number of elements.
+///
+/// The array is a shared object. Reading an element does not copy an object graph; object
+/// elements keep their identity.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert([10, 20].len() == [0, 0].len(), "length");
+/// ```
+@intrinsic(ArrayLen)
+@method(len)
+pub fn len<T>(value: [T]) -> usize;
+
+/// Return whether the array is empty.
+///
+/// The array is a shared object. Reading an element does not copy an object graph; object
+/// elements keep their identity.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: [i32] = [];
+/// std::debug::assert(values.is_empty(), "empty");
+/// ```
+@intrinsic(ArrayIsEmpty)
+@method(is_empty)
+pub fn is_empty<T>(value: [T]) -> bool;
+
+/// Return the element at index, or None when out of bounds. Object elements retain their
+///
+/// The array is a shared object. Reading an element does not copy an object graph; object
+/// elements keep their identity.
+///
+/// An index at or beyond the length returns `None`. Indices are zero-based.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = [10, 20];
+/// std::debug::assert(values.get([0].len()) == Some(20), "element");
+/// std::debug::assert(values.get([0, 0, 0, 0, 0].len()) == None, "out of bounds");
+/// ```
+@intrinsic(ArrayGet)
+@method(get)
+pub fn get<T>(value: [T], index: usize) -> Option<T>;
+
+/// Append an element and return the same array. Aliases observe the change.
+///
+/// The array is a shared object. Reading an element does not copy an object graph; object
+/// elements keep their identity.
+///
+/// Aliases observe successful changes. Validation and resource preparation precede the
+/// final modification; a failure does not commit that modification. Earlier script side
+/// effects are not rolled back.
+///
+/// # Panics
+///
+/// Traps when the operation is forbidden by an active structural-iteration guard.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = [10];
+/// val alias = values;
+/// values.push(20);
+/// std::debug::assert(alias.get([0].len()) == Some(20), "shared array");
+/// ```
+@intrinsic(ArrayPush)
+@method(push)
+pub fn push<T>(value: [T], item: T) -> [T];
+
+/// Remove and return the last element, or None when empty.
+///
+/// The array is a shared object. Reading an element does not copy an object graph; object
+/// elements keep their identity.
+///
+/// Aliases observe successful changes. Validation and resource preparation precede the
+/// final modification; a failure does not commit that modification. Earlier script side
+/// effects are not rolled back.
+///
+/// An empty array returns `None`.
+///
+/// # Panics
+///
+/// Traps when the operation is forbidden by an active structural-iteration guard.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = [10];
+/// std::debug::assert(values.pop() == Some(10), "last element");
+/// std::debug::assert(values.pop() == None, "empty array");
+/// ```
+@intrinsic(ArrayPop)
+@method(pop)
+pub fn pop<T>(value: [T]) -> Option<T>;
+
+/// Insert at index and return the same array. An invalid index traps before modification.
+///
+/// The array is a shared object. Reading an element does not copy an object graph; object
+/// elements keep their identity.
+///
+/// Aliases observe successful changes. Validation and resource preparation precede the
+/// final modification; a failure does not commit that modification. Earlier script side
+/// effects are not rolled back.
+///
+/// An index equal to the length appends the element. Later elements move one position to
+/// the right.
+///
+/// # Panics
+///
+/// Traps when the operation is forbidden by an active structural-iteration guard. An index
+/// greater than the length also traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = [10, 30];
+/// values.insert([0].len(), 20);
+/// std::debug::assert(values.get([0].len()) == Some(20), "inserted");
+/// ```
+@intrinsic(ArrayInsert)
+@method(insert)
+pub fn insert<T>(value: [T], index: usize, item: T) -> [T];
+
+/// Remove the element at index, or return None when out of bounds.
+///
+/// The array is a shared object. Reading an element does not copy an object graph; object
+/// elements keep their identity.
+///
+/// Aliases observe successful changes. Validation and resource preparation precede the
+/// final modification; a failure does not commit that modification. Earlier script side
+/// effects are not rolled back.
+///
+/// An index at or beyond the length returns `None`. Indices are zero-based.
+///
+/// # Panics
+///
+/// Traps when the operation is forbidden by an active structural-iteration guard.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = [10, 20];
+/// std::debug::assert(values.remove("".len_bytes()) == Some(10), "removed");
+/// std::debug::assert(values.get("".len_bytes()) == Some(20), "shifted");
+/// ```
+@intrinsic(ArrayRemove)
+@method(remove)
+pub fn remove<T>(value: [T], index: usize) -> Option<T>;
+
+/// Remove all elements and return the same array.
+///
+/// The array is a shared object. Reading an element does not copy an object graph; object
+/// elements keep their identity.
+///
+/// Aliases observe successful changes. Validation and resource preparation precede the
+/// final modification; a failure does not commit that modification. Earlier script side
+/// effects are not rolled back.
+///
+/// # Panics
+///
+/// Traps when the operation is forbidden by an active structural-iteration guard.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = [10, 20];
+/// values.clear();
+/// std::debug::assert(values.is_empty(), "cleared");
+/// ```
+@intrinsic(ArrayClear)
+@method(clear)
+pub fn clear<T>(value: [T]) -> [T];

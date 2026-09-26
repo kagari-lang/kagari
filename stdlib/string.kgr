@@ -1,0 +1,118 @@
+//! Immutable UTF-8 strings. Byte offsets and Unicode scalar counts are distinct.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Return the UTF-8 byte length.
+///
+/// The input string is not modified. String equality compares contents.
+///
+/// The byte length may differ from both the Unicode scalar count and the displayed
+/// character count.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("é".len_bytes() == [0, 0].len(), "UTF-8 bytes");
+/// ```
+@intrinsic(StringLenBytes)
+@method(len_bytes)
+pub fn len_bytes(value: String) -> usize;
+
+/// Return the Unicode scalar count, not the grapheme count.
+///
+/// The input string is not modified. String equality compares contents.
+///
+/// A Unicode scalar value is not necessarily a complete user-perceived character. Combining
+/// sequences can contain multiple scalars.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("é".len_chars() == [0].len(), "Unicode scalars");
+/// ```
+@intrinsic(StringLenChars)
+@method(len_chars)
+pub fn len_chars(value: String) -> usize;
+
+/// Return whether the string is empty.
+///
+/// The input string is not modified. String equality compares contents.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("".is_empty(), "empty");
+/// ```
+@intrinsic(StringIsEmpty)
+@method(is_empty)
+pub fn is_empty(value: String) -> bool;
+
+/// Return the concatenation of two strings.
+///
+/// The input string is not modified. String equality compares contents.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("hello".concat(" world") == "hello world", "concatenated");
+/// ```
+@intrinsic(StringConcat)
+@method(concat)
+pub fn concat(value: String, rhs: String) -> String;
+
+/// Test whether the string contains a substring.
+///
+/// The input string is not modified. String equality compares contents.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("hello".contains("ell"), "substring");
+/// ```
+@intrinsic(StringContains)
+@method(contains)
+pub fn contains(value: String, needle: String) -> bool;
+
+/// Test whether the string starts with a prefix.
+///
+/// The input string is not modified. String equality compares contents.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("hello".starts_with("he"), "prefix");
+/// ```
+@intrinsic(StringStartsWith)
+@method(starts_with)
+pub fn starts_with(value: String, needle: String) -> bool;
+
+/// Test whether the string ends with a suffix.
+///
+/// The input string is not modified. String equality compares contents.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("hello".ends_with("lo"), "suffix");
+/// ```
+@intrinsic(StringEndsWith)
+@method(ends_with)
+pub fn ends_with(value: String, needle: String) -> bool;
+
+/// Return the half-open byte slice, or None for invalid bounds or UTF-8 boundaries.
+///
+/// The input string is not modified. String equality compares contents.
+///
+/// `start` is inclusive and `end` is exclusive, both measured in UTF-8 bytes. Reversed
+/// bounds, out-of-range bounds and positions inside a UTF-8 sequence return `None`. An
+/// empty range at a valid boundary returns `Some("")`.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("é!".slice("".len_bytes(), [0, 0].len()) == Some("é"), "valid boundary");
+/// std::debug::assert("é!".slice("".len_bytes(), [0].len()) == None, "inside scalar");
+/// ```
+@intrinsic(StringSlice)
+@method(slice)
+pub fn slice(value: String, start: usize, end: usize) -> Option<String>;

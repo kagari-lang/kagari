@@ -1,0 +1,212 @@
+//! Checked numeric helpers. Numeric constraints are sealed engine predicates.
+//!
+//! Resource exhaustion and cancellation follow the execution-session contract.
+
+/// Return the smaller numeric operand.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps for non-finite floating-point operands, including infinity and NaN.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(std::math::min(3, 7) == 3, "min");
+/// ```
+@intrinsic(MathMin)
+pub fn min<T: OrderedNumber>(lhs: T, rhs: T) -> T;
+
+/// Return the larger numeric operand.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps for non-finite floating-point operands, including infinity and NaN.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(std::math::max(3, 7) == 7, "max");
+/// ```
+@intrinsic(MathMax)
+pub fn max<T: OrderedNumber>(lhs: T, rhs: T) -> T;
+
+/// Clamp a numeric value between the supplied bounds.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps if the lower bound exceeds the upper bound or a floating-point operand is non-finite.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(std::math::clamp(9, 0, 7) == 7, "clamp");
+/// ```
+@intrinsic(MathClamp)
+pub fn clamp<T: OrderedNumber>(value: T, min: T, max: T) -> T;
+
+/// Return the absolute value. Signed integer overflow traps.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps for the minimum signed integer, whose positive magnitude is not representable, or
+/// a non-finite floating-point input.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(std::math::abs(-7) == 7, "abs");
+/// ```
+@intrinsic(MathAbs)
+pub fn abs<T: SignedNumber>(value: T) -> T;
+
+/// Round toward negative infinity.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps if the input or computed result is non-finite.
+///
+/// # Examples
+///
+/// ```kgr
+/// // The host supplies an f64 argument through a typed binding.
+/// fn example(value: f64) -> f64 {
+///     std::math::floor(value)
+/// }
+/// ```
+@intrinsic(MathFloor)
+pub fn floor(value: f64) -> f64;
+
+/// Round toward positive infinity.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps if the input or computed result is non-finite.
+///
+/// # Examples
+///
+/// ```kgr
+/// // The host supplies an f64 argument through a typed binding.
+/// fn example(value: f64) -> f64 {
+///     std::math::ceil(value)
+/// }
+/// ```
+@intrinsic(MathCeil)
+pub fn ceil(value: f64) -> f64;
+
+/// Round to the nearest integer, with ties away from zero.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps if the input or computed result is non-finite.
+///
+/// # Examples
+///
+/// ```kgr
+/// // The host supplies an f64 argument through a typed binding.
+/// fn example(value: f64) -> f64 {
+///     std::math::round(value)
+/// }
+/// ```
+@intrinsic(MathRound)
+pub fn round(value: f64) -> f64;
+
+/// Return the square root.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps for a negative or non-finite input.
+///
+/// # Examples
+///
+/// ```kgr
+/// // The host supplies an f64 argument through a typed binding.
+/// fn example(value: f64) -> f64 {
+///     std::math::sqrt(value)
+/// }
+/// ```
+@intrinsic(MathSqrt)
+pub fn sqrt(value: f64) -> f64;
+
+/// Return the sine of an angle in radians.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps if the input or computed result is non-finite.
+///
+/// # Examples
+///
+/// ```kgr
+/// // The host supplies an f64 argument through a typed binding.
+/// fn example(value: f64) -> f64 {
+///     std::math::sin(value)
+/// }
+/// ```
+@intrinsic(MathSin)
+pub fn sin(value: f64) -> f64;
+
+/// Return the cosine of an angle in radians.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps if the input or computed result is non-finite.
+///
+/// # Examples
+///
+/// ```kgr
+/// // The host supplies an f64 argument through a typed binding.
+/// fn example(value: f64) -> f64 {
+///     std::math::cos(value)
+/// }
+/// ```
+@intrinsic(MathCos)
+pub fn cos(value: f64) -> f64;
+
+/// Return the tangent of an angle in radians.
+///
+/// All operands must satisfy the declared numeric constraint and have compatible types.
+/// This helper does not invoke user-defined ordering or arithmetic methods.
+///
+/// # Panics
+///
+/// Traps if the input or computed result is non-finite.
+///
+/// # Examples
+///
+/// ```kgr
+/// // The host supplies an f64 argument through a typed binding.
+/// fn example(value: f64) -> f64 {
+///     std::math::tan(value)
+/// }
+/// ```
+@intrinsic(MathTan)
+pub fn tan(value: f64) -> f64;
