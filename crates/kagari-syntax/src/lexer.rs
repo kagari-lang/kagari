@@ -108,7 +108,12 @@ pub fn lex_with_cancellation(
                 match chars.peek().copied() {
                     Some((end, '=')) => {
                         chars.next();
-                        tokens.push(token(TokenKind::EqEq, index, end + 1));
+                        if let Some((last, '=')) = chars.peek().copied() {
+                            chars.next();
+                            tokens.push(token(TokenKind::IdentityEq, index, last + 1));
+                        } else {
+                            tokens.push(token(TokenKind::EqEq, index, end + 1));
+                        }
                     }
                     Some((end, '>')) => {
                         chars.next();
@@ -202,7 +207,12 @@ pub fn lex_with_cancellation(
                 chars.next();
                 if let Some((end, '=')) = chars.peek().copied() {
                     chars.next();
-                    tokens.push(token(TokenKind::NotEq, index, end + 1));
+                    if let Some((last, '=')) = chars.peek().copied() {
+                        chars.next();
+                        tokens.push(token(TokenKind::IdentityNotEq, index, last + 1));
+                    } else {
+                        tokens.push(token(TokenKind::NotEq, index, end + 1));
+                    }
                 } else {
                     tokens.push(token(TokenKind::Bang, index, index + 1));
                 }

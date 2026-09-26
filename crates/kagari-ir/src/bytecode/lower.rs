@@ -1127,6 +1127,8 @@ fn lower_binary_op(op: IrBinaryOp) -> BinaryOp {
         IrBinaryOp::Rem => BinaryOp::Rem,
         IrBinaryOp::Eq => BinaryOp::Eq,
         IrBinaryOp::NotEq => BinaryOp::NotEq,
+        IrBinaryOp::IdentityEq => BinaryOp::IdentityEq,
+        IrBinaryOp::IdentityNotEq => BinaryOp::IdentityNotEq,
         IrBinaryOp::Lt => BinaryOp::Lt,
         IrBinaryOp::Gt => BinaryOp::Gt,
         IrBinaryOp::Le => BinaryOp::Le,

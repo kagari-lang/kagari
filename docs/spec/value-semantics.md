@@ -57,10 +57,11 @@ and match patterns. A literal pattern must have the scrutinee's type.
 
 ## Equality and hashing
 
-Status: accepted target contract, pending implementation. The current compiler
-still seals PartialEq/Eq/Hash and does not support `===` or `!==`. Examples in
-this section describe the target behavior, not runnable coverage. Other current
-implementation descriptions above remain accurate until this extension lands.
+Status: identity operators `===` and `!==` are implemented. Custom equality and
+hashing remain an accepted target contract pending implementation; the current
+compiler still seals PartialEq/Eq/Hash. Custom-implementation examples below
+describe target behavior, not runnable coverage. Current default comparison
+descriptions above remain accurate.
 
 ### One implementation selection rule
 

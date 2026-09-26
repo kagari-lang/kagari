@@ -295,3 +295,18 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     assert!(format_value(runtime.gc(), &value, true).is_err());
     assert_eq!(runtime.gc().array_len(object), Some(1));
 }
+
+#[test]
+fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
+    use kagari_runtime::value_semantics::identity_equal;
+    let first = Runtime::default();
+    let second = Runtime::default();
+    let a = first.alloc_array(vec![]).unwrap();
+    let b = second.alloc_array(vec![]).unwrap();
+    assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).unwrap());
+    assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(b)).is_err());
+    assert!(identity_equal(first.gc(), &Value::Map(a), &Value::Map(a)).is_err());
+    assert!(identity_equal(first.gc(), &Value::I32(1), &Value::I32(1)).is_err());
+    first.collect_garbage().unwrap();
+    assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).is_err());
+}

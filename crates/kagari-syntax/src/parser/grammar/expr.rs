@@ -112,7 +112,12 @@ impl<'a> Parser<'a> {
 
         loop {
             self.bump_trivia();
-            if !self.at_any(&[TokenKind::EqEq, TokenKind::NotEq]) {
+            if !self.at_any(&[
+                TokenKind::EqEq,
+                TokenKind::NotEq,
+                TokenKind::IdentityEq,
+                TokenKind::IdentityNotEq,
+            ]) {
                 break;
             }
             self.bump();

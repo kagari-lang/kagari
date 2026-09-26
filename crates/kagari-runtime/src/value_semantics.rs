@@ -5,6 +5,30 @@ use crate::{
     value::Value,
 };
 
+/// Identity is available only for script object categories, never allocation
+/// details of values such as strings, tuples or enums.
+pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
+    let (a, b, kind) = match (lhs, rhs) {
+        (Value::Struct(a), Value::Struct(b)) => (a, b, GcObjectKind::Struct),
+        (Value::Array(a), Value::Array(b)) => (a, b, GcObjectKind::Array),
+        (Value::Map(a), Value::Map(b)) => (a, b, GcObjectKind::Map),
+        (Value::Set(a), Value::Set(b)) => (a, b, GcObjectKind::Set),
+        _ => {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "identity comparison requires matching object categories",
+            ));
+        }
+    };
+    if gc.object_kind(*a) != Some(kind) || gc.object_kind(*b) != Some(kind) {
+        return Err(RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "invalid heap handle in identity comparison",
+        ));
+    }
+    Ok(a == b)
+}
+
 pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
     use Value::*;
     let invalid = || {

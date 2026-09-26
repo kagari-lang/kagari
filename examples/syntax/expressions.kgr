@@ -1,6 +1,9 @@
 // Run: cargo run -p kagari-cli -- run examples/syntax/expressions.kgr
 // Result: main returns 42.
 fn main() -> i32 {
+    val object = [1];
+    val alias = object;
+    std::debug::assert(object === alias && object !== [1], "object identity");
     val value = (8 + 4) * 4 / 2 % 10;
     val valid = !(value < 4) && value >= 4 || false;
     std::debug::assert_eq(value, 4, "operator precedence");

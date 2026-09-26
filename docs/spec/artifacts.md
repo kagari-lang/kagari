@@ -41,13 +41,17 @@ KbcArtifact {
 }
 ```
 
-Format version 51 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 52 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 50 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 51 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 52 and runtime ABI v52 add checked object identity equality and inequality
+operations. Value categories without identity are rejected by source checking;
+runtime identity operations validate object category and handle ownership.
 
 Version 51 and runtime ABI v51 add standard protocol intrinsic calls and the
 canonical standard declaration registry. Artifacts cannot redefine the reserved

@@ -1602,6 +1602,8 @@ fn ir_binary_op(op: BinaryOp) -> crate::module::BinaryOp {
         BinaryOp::Rem => Ir::Rem,
         BinaryOp::Eq => Ir::Eq,
         BinaryOp::NotEq => Ir::NotEq,
+        BinaryOp::IdentityEq => Ir::IdentityEq,
+        BinaryOp::IdentityNotEq => Ir::IdentityNotEq,
         BinaryOp::Lt => Ir::Lt,
         BinaryOp::Gt => Ir::Gt,
         BinaryOp::Le => Ir::Le,

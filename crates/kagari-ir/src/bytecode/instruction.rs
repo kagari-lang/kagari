@@ -195,6 +195,8 @@ pub enum BinaryOp {
     Rem,
     Eq,
     NotEq,
+    IdentityEq,
+    IdentityNotEq,
     Lt,
     Gt,
     Le,

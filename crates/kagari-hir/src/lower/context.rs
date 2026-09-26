@@ -141,6 +141,8 @@ pub(crate) fn lower_binary_op(kind: Option<SyntaxKind>) -> BinaryOp {
         Some(SyntaxKind::Percent) => BinaryOp::Rem,
         Some(SyntaxKind::EqEq) => BinaryOp::Eq,
         Some(SyntaxKind::NotEq) => BinaryOp::NotEq,
+        Some(SyntaxKind::IdentityEq) => BinaryOp::IdentityEq,
+        Some(SyntaxKind::IdentityNotEq) => BinaryOp::IdentityNotEq,
         Some(SyntaxKind::Lt) => BinaryOp::Lt,
         Some(SyntaxKind::Gt) => BinaryOp::Gt,
         Some(SyntaxKind::Le) => BinaryOp::Le,

@@ -368,8 +368,10 @@ impl Instruction {
                 ..EffectSet::default()
             },
             Self::Binary { op, lhs, .. } => {
-                let heap_comparison =
-                    matches!(op, BinaryOp::Eq | BinaryOp::NotEq) && lhs.ty == ValueType::HeapObject;
+                let heap_comparison = matches!(
+                    op,
+                    BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::IdentityEq | BinaryOp::IdentityNotEq
+                ) && lhs.ty == ValueType::HeapObject;
                 EffectSet {
                     reads_aggregate: heap_comparison,
                     may_trap: heap_comparison
@@ -554,6 +556,8 @@ pub enum BinaryOp {
     Rem,
     Eq,
     NotEq,
+    IdentityEq,
+    IdentityNotEq,
     Lt,
     Gt,
     Le,

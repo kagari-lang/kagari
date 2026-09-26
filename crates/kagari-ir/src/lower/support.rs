@@ -303,6 +303,8 @@ impl FunctionLowerer<'_, '_> {
             hir::BinaryOp::Rem => BinaryOp::Rem,
             hir::BinaryOp::Eq => BinaryOp::Eq,
             hir::BinaryOp::NotEq => BinaryOp::NotEq,
+            hir::BinaryOp::IdentityEq => BinaryOp::IdentityEq,
+            hir::BinaryOp::IdentityNotEq => BinaryOp::IdentityNotEq,
             hir::BinaryOp::Lt => BinaryOp::Lt,
             hir::BinaryOp::Gt => BinaryOp::Gt,
             hir::BinaryOp::Le => BinaryOp::Le,

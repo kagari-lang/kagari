@@ -1,8 +1,8 @@
 # Kagari Implementation Roadmap
 
-[Foundation refactor](foundation-refactor.md) is the sole active R01–R18 execution plan. Its three semantic contracts and checkpoint status define the behavior to implement and verify. Each completed checkpoint requires a Conventional Commit with a `Roadmap-Step: Rxx` trailer. The [performance baseline](performance-baseline.md) records R18 measurements.
+[Foundation refactor](foundation-refactor.md) is the sole active R01鈥揜18 execution plan. Its three semantic contracts and checkpoint status define the behavior to implement and verify. Each completed checkpoint requires a Conventional Commit with a `Roadmap-Step: Rxx` trailer. The [performance baseline](performance-baseline.md) records R18 measurements.
 
-The former M1–M11 milestone queue is historical and has been removed from this document. Git history retains its original scope and commits; those milestones do not prescribe current APIs, compatibility branches, artifact formats, or acceptance criteria.
+The former M1鈥揗11 milestone queue is historical and has been removed from this document. Git history retains its original scope and commits; those milestones do not prescribe current APIs, compatibility branches, artifact formats, or acceptance criteria.
 
 After the foundation track, plan separate work for complete LSP/editor integration, a full incremental dependency database, async and cross-thread execution policy, incremental or generational GC, complete event replay and persistent state migration, advanced JIT optimization, and further standard-library coverage. These tracks reuse the foundation contracts without reopening their semantics.
 
@@ -94,3 +94,9 @@ composite keys, callback execution/GC/failure/reentry boundaries and consistent
 source, artifact and JIT behavior before marking this extension complete. Include
 cross-variant custom enum equality/hash, nested member overrides, conditional
 default bounds and builtin fast paths in acceptance coverage.
+
+Completed equality checkpoint: object identity operators `===`/`!==`, checked
+from syntax through IR and VM, with artifact format 52 and runtime ABI v52.
+Source/artifact/JIT-fallback tests cover aliases and separate allocations; runtime
+tests reject foreign, stale and mistagged handles. Custom protocol overrides and
+container callbacks in the accepted extension above remain pending.

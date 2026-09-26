@@ -137,6 +137,9 @@ pub(crate) fn binary_result(
             Ok(lhs)
         }
         BinaryOp::Eq | BinaryOp::NotEq if lhs != ValueType::HostHandle => Ok(ValueType::Bool),
+        BinaryOp::IdentityEq | BinaryOp::IdentityNotEq if lhs == ValueType::HeapObject => {
+            Ok(ValueType::Bool)
+        }
         BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge if numeric(lhs) => {
             Ok(ValueType::Bool)
         }

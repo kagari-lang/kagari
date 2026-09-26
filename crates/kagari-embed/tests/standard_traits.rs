@@ -236,3 +236,43 @@ fn main()->i32 {
 "#,
     );
 }
+
+#[test]
+fn identity_operators_use_object_handles_across_backends() {
+    execute(
+        r#"
+struct Item { var value: i32 }
+fn main()->i32 {
+    val a = Item { value: 1 }; val alias = a;
+    val b = Item { value: 1 };
+    val values = [1]; val copy = [1];
+    val map: Map<i32, i32> = std::map::new();
+    val set: Set<i32> = std::set::new();
+    a.value = 2;
+    if a === alias && a !== b && values === values && values !== copy && map === map && set === set { 42 } else { 0 }
+}
+"#,
+    );
+}
+
+#[test]
+fn identity_operators_reject_value_types_and_mismatched_objects() {
+    for expression in [
+        "1 === 1",
+        "true !== false",
+        "\"a\" === \"a\"",
+        "(1,2) === (1,2)",
+        "Some(1) === Some(1)",
+        "[1] === [true]",
+    ] {
+        let source = format!("fn main()->bool {{ {expression} }}");
+        assert!(matches!(
+            KagariEngine::default().compile_to_artifact(
+                SourceFile::new("bad-identity.kgr", source),
+                Default::default(),
+                Default::default()
+            ),
+            Err(kagari_embed::EmbeddingError::Diagnostics { .. })
+        ));
+    }
+}

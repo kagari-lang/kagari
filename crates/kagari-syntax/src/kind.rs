@@ -67,6 +67,8 @@ pub enum SyntaxKind {
     Question,
     EqEq,
     NotEq,
+    IdentityEq,
+    IdentityNotEq,
     Lt,
     Gt,
     Le,

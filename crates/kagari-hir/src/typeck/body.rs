@@ -3933,6 +3933,30 @@ impl<'a> BodyChecker<'a> {
                     lhs_ty
                 }
             }
+            BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {
+                if lhs_ty.conflicts_with(&rhs_ty)
+                    || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
+                        !matches!(
+                            ty,
+                            TypeId::Unknown
+                                | TypeId::Error
+                                | TypeId::Struct(_)
+                                | TypeId::Array(_)
+                                | TypeId::Map { .. }
+                                | TypeId::Set(_)
+                        )
+                    })
+                {
+                    self.emit_binary_operand_type_mismatch(
+                        op,
+                        "matching identity-bearing object",
+                        &lhs_ty,
+                        &rhs_ty,
+                        rhs_expr,
+                    );
+                }
+                TypeId::Builtin(BuiltinType::Bool)
+            }
             BinaryOp::Eq | BinaryOp::NotEq => {
                 if lhs_ty.conflicts_with(&rhs_ty)
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
@@ -4024,6 +4048,8 @@ impl<'a> BodyChecker<'a> {
             BinaryOp::Rem => "%",
             BinaryOp::Eq => "==",
             BinaryOp::NotEq => "!=",
+            BinaryOp::IdentityEq => "===",
+            BinaryOp::IdentityNotEq => "!==",
             BinaryOp::Lt => "<",
             BinaryOp::Gt => ">",
             BinaryOp::Le => "<=",

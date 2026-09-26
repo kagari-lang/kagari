@@ -30,6 +30,16 @@ impl Executor<'_> {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 kagari_runtime::numeric::binary(op, lhs, rhs).map_err(VmError::RuntimeError)
             }
+            BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {
+                let equal =
+                    kagari_runtime::value_semantics::identity_equal(self.runtime.gc(), &lhs, &rhs)
+                        .map_err(VmError::RuntimeError)?;
+                Ok(Value::Bool(if op == BinaryOp::IdentityEq {
+                    equal
+                } else {
+                    !equal
+                }))
+            }
             BinaryOp::Eq | BinaryOp::NotEq => {
                 let equal =
                     kagari_runtime::value_semantics::script_equal(self.runtime.gc(), &lhs, &rhs)

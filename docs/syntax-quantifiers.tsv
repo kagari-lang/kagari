@@ -90,7 +90,7 @@ break_stmt	1	?	expr
 range_expr	1	?	(range_op logic_or_expr)
 logic_or_expr	1	*	("||" logic_and_expr)
 logic_and_expr	1	*	("&&" equality_expr)
-equality_expr	1	*	(("==" | "!=") compare_expr)
+equality_expr	1	*	(("==" | "!=" | "===" | "!==") compare_expr)
 compare_expr	1	*	(("<" | "<=" | ">" | ">=") additive_expr)
 additive_expr	1	*	(("+" | "-") multiplicative_expr)
 multiplicative_expr	1	*	(("*" | "/" | "%") unary_expr)
