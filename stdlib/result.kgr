@@ -17,8 +17,8 @@
 /// val value: Result<i32, String> = Ok(7);
 /// std::debug::assert(value.is_ok(), "success");
 /// ```
-@intrinsic(ResultIsOk)
-@method(is_ok)
+#[intrinsic(ResultIsOk)]
+#[method(is_ok)]
 pub fn is_ok<T, E>(value: Result<T, E>) -> bool;
 
 /// Test whether the result is an error.
@@ -36,8 +36,8 @@ pub fn is_ok<T, E>(value: Result<T, E>) -> bool;
 /// val value: Result<i32, String> = Err("missing");
 /// std::debug::assert(value.is_err(), "failure");
 /// ```
-@intrinsic(ResultIsErr)
-@method(is_err)
+#[intrinsic(ResultIsErr)]
+#[method(is_err)]
 pub fn is_err<T, E>(value: Result<T, E>) -> bool;
 
 /// Return the success value or the eagerly evaluated fallback.
@@ -58,8 +58,8 @@ pub fn is_err<T, E>(value: Result<T, E>) -> bool;
 /// val value: Result<i32, String> = Err("missing");
 /// std::debug::assert(value.unwrap_or(7) == 7, "fallback");
 /// ```
-@intrinsic(ResultUnwrapOr)
-@method(unwrap_or)
+#[intrinsic(ResultUnwrapOr)]
+#[method(unwrap_or)]
 pub fn unwrap_or<T, E>(value: Result<T, E>, fallback: T) -> T;
 
 /// Transform Ok with one callback call. Preserve Err and its original stack.
@@ -85,8 +85,8 @@ pub fn unwrap_or<T, E>(value: Result<T, E>, fallback: T) -> T;
 /// val value: Result<i32, String> = Ok(7);
 /// std::debug::assert(value.map(|x| x + 1).unwrap_or(0) == 8, "mapped");
 /// ```
-@intrinsic(ResultMap)
-@method(map)
+#[intrinsic(ResultMap)]
+#[method(map)]
 pub fn map<T, U, E>(value: Result<T, E>, callback: fn(T) -> U) -> Result<U, E>;
 
 /// Transform Err with one callback call and retain its original source location and stack.
@@ -113,8 +113,8 @@ pub fn map<T, U, E>(value: Result<T, E>, callback: fn(T) -> U) -> Result<U, E>;
 /// val mapped = value.map_err(|e| e.concat(" configuration"));
 /// std::debug::assert(match mapped { Ok(_) => false, Err(e) => e == "missing configuration" }, "mapped error");
 /// ```
-@intrinsic(ResultMapErr)
-@method(map_err)
+#[intrinsic(ResultMapErr)]
+#[method(map_err)]
 pub fn map_err<T, E, F>(value: Result<T, E>, callback: fn(E) -> F) -> Result<T, F>;
 
 /// Call the callback only for Ok. Preserve an existing Err and its original stack.
@@ -141,8 +141,8 @@ pub fn map_err<T, E, F>(value: Result<T, E>, callback: fn(E) -> F) -> Result<T, 
 /// val result: Result<i32, String> = value.and_then(|x| Ok(x + 1));
 /// std::debug::assert(result.unwrap_or(0) == 8, "chained");
 /// ```
-@intrinsic(ResultAndThen)
-@method(and_then)
+#[intrinsic(ResultAndThen)]
+#[method(and_then)]
 pub fn and_then<T, U, E>(value: Result<T, E>, callback: fn(T) -> Result<U, E>) -> Result<U, E>;
 
 /// A successful value `Ok(T)` or a recoverable business error `Err(E)`.
@@ -176,7 +176,7 @@ pub fn and_then<T, U, E>(value: Result<T, E>, callback: fn(T) -> Result<U, E>) -
 ///     std::debug::assert(increment(0).is_err(), "propagated error");
 /// }
 /// ```
-@builtin_enum(Result)
+#[builtin_enum(Result)]
 pub enum Result<T, E> {
     /// Contains the successful value.
     Ok(T),

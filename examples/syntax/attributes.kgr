@@ -1,21 +1,21 @@
 // Custom attributes are retained as compile-time metadata.
-@meta(name = "answer", tags = [1, true, sample::tag])
+#[meta(name = "answer", tags = [1, true, sample::tag])]
 fn main() -> i32 { 42 }
 
-@tool::syntax("model")
+#[tool::syntax("model")]
 struct Tagged {
-    @meta(readable = true)
+    #[meta(readable = true)]
     val value: i32,
 }
 
-@meta(kind = sample::method)
+#[meta(kind = sample::method)]
 impl Tagged {
-    @meta("getter")
+    #[meta("getter")]
     fn read(self) -> i32 { self.value }
 }
 
-@meta
+#[meta]
 trait Inspect {
-    @meta("trait member")
+    #[meta("trait member")]
     fn inspect(self) -> i32;
 }

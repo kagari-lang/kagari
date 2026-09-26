@@ -16,7 +16,7 @@
 /// val values: Map<i32, String> = std::map::new();
 /// std::debug::assert(values.is_empty(), "new map");
 /// ```
-@intrinsic(MapNew)
+#[intrinsic(MapNew)]
 pub fn new<K: Eq + Hash, V>() -> Map<K, V>;
 
 /// Return the number of entries.
@@ -34,8 +34,8 @@ pub fn new<K: Eq + Hash, V>() -> Map<K, V>;
 /// values.insert(1, "one");
 /// std::debug::assert(values.len() == [0].len(), "length");
 /// ```
-@intrinsic(MapLen)
-@method(len)
+#[intrinsic(MapLen)]
+#[method(len)]
 pub fn len<K: Eq + Hash, V>(value: Map<K, V>) -> usize;
 
 /// Return whether the map is empty.
@@ -52,8 +52,8 @@ pub fn len<K: Eq + Hash, V>(value: Map<K, V>) -> usize;
 /// val values: Map<i32, String> = std::map::new();
 /// std::debug::assert(values.is_empty(), "empty");
 /// ```
-@intrinsic(MapIsEmpty)
-@method(is_empty)
+#[intrinsic(MapIsEmpty)]
+#[method(is_empty)]
 pub fn is_empty<K: Eq + Hash, V>(value: Map<K, V>) -> bool;
 
 /// Test membership using Eq and Hash.
@@ -76,8 +76,8 @@ pub fn is_empty<K: Eq + Hash, V>(value: Map<K, V>) -> bool;
 /// values.insert(1, "one");
 /// std::debug::assert(values.contains_key(1), "key");
 /// ```
-@intrinsic(MapContainsKey)
-@method(contains_key)
+#[intrinsic(MapContainsKey)]
+#[method(contains_key)]
 pub fn contains_key<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> bool;
 
 /// Return the associated value, or None if the key is absent.
@@ -101,8 +101,8 @@ pub fn contains_key<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> bool;
 /// std::debug::assert(values.get(1) == Some("one"), "value");
 /// std::debug::assert(values.get(2) == None, "absent");
 /// ```
-@intrinsic(MapGet)
-@method(get)
+#[intrinsic(MapGet)]
+#[method(get)]
 pub fn get<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
 
 /// Insert or replace an entry and return the same map.
@@ -129,8 +129,8 @@ pub fn get<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
 /// values.insert(1, "new");
 /// std::debug::assert(values.get(1) == Some("new") && values.len() == [0].len(), "replaced");
 /// ```
-@intrinsic(MapInsert)
-@method(insert)
+#[intrinsic(MapInsert)]
+#[method(insert)]
 pub fn insert<K: Eq + Hash, V>(value: Map<K, V>, key: K, item: V) -> Map<K, V>;
 
 /// Remove the entry and return its value, or None if absent.
@@ -157,8 +157,8 @@ pub fn insert<K: Eq + Hash, V>(value: Map<K, V>, key: K, item: V) -> Map<K, V>;
 /// std::debug::assert(values.remove(1) == Some("one"), "removed");
 /// std::debug::assert(values.remove(1) == None, "absent");
 /// ```
-@intrinsic(MapRemove)
-@method(remove)
+#[intrinsic(MapRemove)]
+#[method(remove)]
 pub fn remove<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
 
 /// Remove all entries and return the same map.
@@ -185,8 +185,8 @@ pub fn remove<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
 /// values.clear();
 /// std::debug::assert(values.is_empty(), "cleared");
 /// ```
-@intrinsic(MapClear)
-@method(clear)
+#[intrinsic(MapClear)]
+#[method(clear)]
 pub fn clear<K: Eq + Hash, V>(value: Map<K, V>) -> Map<K, V>;
 
 /// Return a shallow array of keys.
@@ -212,8 +212,8 @@ pub fn clear<K: Eq + Hash, V>(value: Map<K, V>) -> Map<K, V>;
 /// values.insert(1, "one");
 /// std::debug::assert(values.keys().get("".len_bytes()) == Some(1), "key snapshot");
 /// ```
-@intrinsic(MapKeys)
-@method(keys)
+#[intrinsic(MapKeys)]
+#[method(keys)]
 pub fn keys<K: Eq + Hash, V>(value: Map<K, V>) -> [K];
 
 /// Return a shallow array of values.
@@ -239,8 +239,8 @@ pub fn keys<K: Eq + Hash, V>(value: Map<K, V>) -> [K];
 /// values.insert(1, "one");
 /// std::debug::assert(values.values().get("".len_bytes()) == Some("one"), "value snapshot");
 /// ```
-@intrinsic(MapValues)
-@method(values)
+#[intrinsic(MapValues)]
+#[method(values)]
 pub fn values<K: Eq + Hash, V>(value: Map<K, V>) -> [V];
 
 /// Return a shallow array of key/value tuples.
@@ -266,8 +266,8 @@ pub fn values<K: Eq + Hash, V>(value: Map<K, V>) -> [V];
 /// values.insert(1, "one");
 /// std::debug::assert(values.entries().get("".len_bytes()) == Some((1, "one")), "entry snapshot");
 /// ```
-@intrinsic(MapEntries)
-@method(entries)
+#[intrinsic(MapEntries)]
+#[method(entries)]
 pub fn entries<K: Eq + Hash, V>(value: Map<K, V>) -> [(K, V)];
 
 /// A shared mutable hash map from keys of type `K` to values of type `V`.
@@ -291,5 +291,5 @@ pub fn entries<K: Eq + Hash, V>(value: Map<K, V>) -> [(K, V)];
 /// std::debug::assert(names.get(1) == Some("updated"), "lookup");
 /// std::debug::assert(names.get(2) == None, "absent key");
 /// ```
-@builtin_type(Map)
+#[builtin_type(Map)]
 pub type Map<K, V>;

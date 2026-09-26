@@ -16,7 +16,7 @@
 /// val values: Set<i32> = std::set::new();
 /// std::debug::assert(values.is_empty(), "new set");
 /// ```
-@intrinsic(SetNew)
+#[intrinsic(SetNew)]
 pub fn new<T: Eq + Hash>() -> Set<T>;
 
 /// Return the number of elements.
@@ -34,8 +34,8 @@ pub fn new<T: Eq + Hash>() -> Set<T>;
 /// values.insert(7);
 /// std::debug::assert(values.len() == [0].len(), "length");
 /// ```
-@intrinsic(SetLen)
-@method(len)
+#[intrinsic(SetLen)]
+#[method(len)]
 pub fn len<T: Eq + Hash>(value: Set<T>) -> usize;
 
 /// Return whether the set is empty.
@@ -52,8 +52,8 @@ pub fn len<T: Eq + Hash>(value: Set<T>) -> usize;
 /// val values: Set<i32> = std::set::new();
 /// std::debug::assert(values.is_empty(), "empty");
 /// ```
-@intrinsic(SetIsEmpty)
-@method(is_empty)
+#[intrinsic(SetIsEmpty)]
+#[method(is_empty)]
 pub fn is_empty<T: Eq + Hash>(value: Set<T>) -> bool;
 
 /// Test membership using Eq and Hash.
@@ -76,8 +76,8 @@ pub fn is_empty<T: Eq + Hash>(value: Set<T>) -> bool;
 /// values.insert(7);
 /// std::debug::assert(values.contains(7), "member");
 /// ```
-@intrinsic(SetContains)
-@method(contains)
+#[intrinsic(SetContains)]
+#[method(contains)]
 pub fn contains<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
 
 /// Insert an element and return the same set. An equal element is not duplicated.
@@ -104,8 +104,8 @@ pub fn contains<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
 /// values.insert(7);
 /// std::debug::assert(values.len() == [0].len(), "deduplicated");
 /// ```
-@intrinsic(SetInsert)
-@method(insert)
+#[intrinsic(SetInsert)]
+#[method(insert)]
 pub fn insert<T: Eq + Hash>(value: Set<T>, item: T) -> Set<T>;
 
 /// Remove an equal element and report whether one existed.
@@ -132,8 +132,8 @@ pub fn insert<T: Eq + Hash>(value: Set<T>, item: T) -> Set<T>;
 /// std::debug::assert(values.remove(7), "removed");
 /// std::debug::assert(!values.remove(7), "absent");
 /// ```
-@intrinsic(SetRemove)
-@method(remove)
+#[intrinsic(SetRemove)]
+#[method(remove)]
 pub fn remove<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
 
 /// Remove all elements and return the same set.
@@ -160,8 +160,8 @@ pub fn remove<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
 /// values.clear();
 /// std::debug::assert(values.is_empty(), "cleared");
 /// ```
-@intrinsic(SetClear)
-@method(clear)
+#[intrinsic(SetClear)]
+#[method(clear)]
 pub fn clear<T: Eq + Hash>(value: Set<T>) -> Set<T>;
 
 /// Return a shallow array of elements.
@@ -187,8 +187,8 @@ pub fn clear<T: Eq + Hash>(value: Set<T>) -> Set<T>;
 /// values.insert(7);
 /// std::debug::assert(values.to_array().get("".len_bytes()) == Some(7), "snapshot");
 /// ```
-@intrinsic(SetToArray)
-@method(to_array)
+#[intrinsic(SetToArray)]
+#[method(to_array)]
 pub fn to_array<T: Eq + Hash>(value: Set<T>) -> [T];
 
 /// Create a set of elements in either set. Referenced objects remain shared.
@@ -216,8 +216,8 @@ pub fn to_array<T: Eq + Hash>(value: Set<T>) -> [T];
 /// val combined = values.union(other);
 /// std::debug::assert(combined.contains(1) && combined.contains(2), "union");
 /// ```
-@intrinsic(SetUnion)
-@method(union)
+#[intrinsic(SetUnion)]
+#[method(union)]
 pub fn union<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 
 /// Create a set of elements in both sets. Referenced objects remain shared.
@@ -246,8 +246,8 @@ pub fn union<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 /// val common = values.intersection(other);
 /// std::debug::assert(common.len() == [0].len() && common.contains(2), "intersection");
 /// ```
-@intrinsic(SetIntersection)
-@method(intersection)
+#[intrinsic(SetIntersection)]
+#[method(intersection)]
 pub fn intersection<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 
 /// Create a set of elements in the first set but not the second. Referenced objects remain
@@ -276,8 +276,8 @@ pub fn intersection<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 /// val remaining = values.difference(other);
 /// std::debug::assert(remaining.len() == [0].len() && remaining.contains(1), "difference");
 /// ```
-@intrinsic(SetDifference)
-@method(difference)
+#[intrinsic(SetDifference)]
+#[method(difference)]
 pub fn difference<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 
 /// A shared mutable collection of distinct values of type `T`.
@@ -302,5 +302,5 @@ pub fn difference<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 /// std::debug::assert(values.len() == [0].len(), "one distinct member");
 /// std::debug::assert(values.contains(7), "membership");
 /// ```
-@builtin_type(Set)
+#[builtin_type(Set)]
 pub type Set<T>;

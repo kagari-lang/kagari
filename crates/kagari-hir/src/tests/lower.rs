@@ -8,7 +8,8 @@ use crate::{
 
 #[test]
 fn attributes_preserve_structured_metadata_and_target_ranges() {
-    let source = "@meta(name = \"answer\", tags = [1, true, sample::tag]) fn main() -> i32 { 42 }";
+    let source =
+        "#[meta(name = \"answer\", tags = [1, true, sample::tag])] fn main() -> i32 { 42 }";
     let lowered = common::lower_ok(source);
     let [attribute] = lowered.attributes.as_slice() else {
         panic!("one attribute fact expected");
@@ -16,7 +17,7 @@ fn attributes_preserve_structured_metadata_and_target_ranges() {
     assert_eq!(attribute.name, "meta");
     assert_eq!(
         &source[attribute.span.start..attribute.span.end],
-        "@meta(name = \"answer\", tags = [1, true, sample::tag])"
+        "#[meta(name = \"answer\", tags = [1, true, sample::tag])]"
     );
     assert_eq!(
         &source[attribute.target_span.start..attribute.target_span.end],

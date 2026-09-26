@@ -84,7 +84,7 @@ pub trait Ord: Eq + PartialOrd {
 ///     Ordering::Greater => false,
 /// }, "left precedes right");
 /// ```
-@builtin_enum(Ordering)
+#[builtin_enum(Ordering)]
 pub enum Ordering {
     /// The first value precedes the second.
     Less,

@@ -85,12 +85,12 @@ Compile-time metadata comes from declarations, attributes, and host binding desc
 Examples:
 
 ```kagari
-@handler(LoginRequest)
+#[handler(LoginRequest)]
 pub fn on_login(ctx: GameCtx, req: LoginRequest) -> Result<()> {
     ...
 }
 
-@persist("player")
+#[persist("player")]
 pub struct PlayerState {
     id: PlayerId
     level: i32

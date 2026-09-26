@@ -22,7 +22,7 @@ impl<'a> Parser<'a> {
 
     fn parse_top_level(&mut self) -> bool {
         match self.current_kind() {
-            Some(TokenKind::At) => self.parse_attributed_item(),
+            Some(TokenKind::Hash) => self.parse_attributed_item(),
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
@@ -71,7 +71,7 @@ impl<'a> Parser<'a> {
 
     fn parse_module_item(&mut self) {
         match self.current_kind() {
-            Some(TokenKind::At) => self.parse_attributed_item(),
+            Some(TokenKind::Hash) => self.parse_attributed_item(),
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
@@ -114,7 +114,10 @@ impl<'a> Parser<'a> {
     fn attributed_item_kind(&self) -> Option<TokenKind> {
         let mut cursor = self.cursor();
         let mut kind = self.nth_nontrivia_kind_from(&mut cursor)?;
-        while kind == TokenKind::At {
+        while kind == TokenKind::Hash {
+            if self.nth_nontrivia_kind_from(&mut cursor)? != TokenKind::LBracket {
+                return None;
+            }
             kind = self.nth_nontrivia_kind_from(&mut cursor)?;
             if !matches!(
                 kind,
@@ -146,6 +149,10 @@ impl<'a> Parser<'a> {
                 }
                 kind = self.nth_nontrivia_kind_from(&mut cursor)?;
             }
+            if kind != TokenKind::RBracket {
+                return None;
+            }
+            kind = self.nth_nontrivia_kind_from(&mut cursor)?;
         }
         if kind == TokenKind::PubKw {
             let next = self.nth_nontrivia_kind_from(&mut cursor)?;
@@ -163,7 +170,7 @@ impl<'a> Parser<'a> {
 
     fn parse_attributes(&mut self) {
         self.bump_trivia();
-        while self.at(TokenKind::At) {
+        while self.at(TokenKind::Hash) {
             self.parse_attribute();
             self.bump_trivia();
         }
@@ -172,6 +179,7 @@ impl<'a> Parser<'a> {
     fn parse_attribute(&mut self) {
         self.start_node(SyntaxKind::Attribute);
         self.bump();
+        self.expect(TokenKind::LBracket, DiagnosticKind::UnexpectedToken);
         self.bump_trivia();
         self.parse_path();
         self.bump_trivia();
@@ -185,6 +193,7 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
             self.finish_node();
         }
+        self.expect(TokenKind::RBracket, DiagnosticKind::ExpectedClosingBracket);
         self.finish_node();
     }
 

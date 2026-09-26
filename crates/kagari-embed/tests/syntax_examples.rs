@@ -234,8 +234,8 @@ fn pattern_alternatives_require_the_same_bindings() {
 fn attributes_without_compiler_behavior_are_rejected_before_execution() {
     let engine = KagariEngine::default();
     for (attribute, expected) in [
-        ("@requires(role = \"admin\")", "KG_ATTRIBUTE_UNSUPPORTED"),
-        ("@unregistered", "KG_ATTRIBUTE_UNKNOWN"),
+        ("#[requires(role = \"admin\")]", "KG_ATTRIBUTE_UNSUPPORTED"),
+        ("#[unregistered]", "KG_ATTRIBUTE_UNKNOWN"),
     ] {
         let source = format!("{attribute} fn main() -> i32 {{ 42 }}");
         let error = engine

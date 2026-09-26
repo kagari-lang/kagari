@@ -11,7 +11,7 @@ The syntax follows these design constraints:
 
 Rust is the default reference for punctuation and grouping where Kagari has the
 same source construct. Deliberate differences include `val`/`var` bindings,
-`@` attributes, dynamically sized `[T]` arrays, and the absence of Rust borrow
+dynamically sized `[T]` arrays, and the absence of Rust borrow
 and lifetime syntax. Rust spelling alone does not add an unsupported Kagari type
 or runtime behavior.
 
@@ -186,7 +186,7 @@ The following token families are part of the source syntax:
 - range operators: `..`, `..=`
 - path and member operators: `::`, `.`
 - function and match arrows: `->`, `=>`
-- attribute introducer: `@`
+- outer attributes: `#[...]`
 - delimiters: `(`, `)`, `{`, `}`, `[`, `]`, `,`, `:`, `;`, `|`
 
 ## Grammar
@@ -217,7 +217,7 @@ enum_item       ::= visibility? enum_decl ;
 
 visibility      ::= "pub" ;
 
-attribute       ::= "@" path attribute_args? ;
+attribute       ::= "#" "[" path attribute_args? "]" ;
 
 attribute_args  ::= "(" attribute_arg_list? ")" ;
 
@@ -236,10 +236,12 @@ Notes:
 
 - `const` is the syntax for compile-time immutable values.
 - attributes provide the extensibility point for features such as reflection and security annotations
-- examples of intended uses include `@reflect`, `@requires(...)`, and `@profile(...)`
-- `@meta(...)` and names under `@tool::...` are preserved as structured,
+- Only outer `#[...]` attributes are supported. The legacy `@...` form and
+  inner `#![...]` attributes are rejected. This syntax does not introduce macros.
+- examples of intended uses include `#[reflect]`, `#[requires(...)]`, and `#[profile(...)]`
+- `#[meta(...)]` and names under `#[tool::...]` are preserved as structured,
   source-positioned analysis metadata. They do not change runtime behavior.
-  `@reflect`, `@requires`, and `@profile` are reserved and diagnosed until their
+  `#[reflect]`, `#[requires]`, and `#[profile]` are reserved and diagnosed until their
   behavior is implemented; other unqualified names are diagnosed as unknown.
 - `pub` and `pub(super)` are the explicit visibility markers in the source syntax
 - unmarked declarations are private in their containing scope

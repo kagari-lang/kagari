@@ -29,7 +29,7 @@ Runtime-native functions intentionally have no Kagari body.
 Examples use Kagari syntax. A snippet without `fn main` can be placed inside a
 `main` function. A snippet containing `fn main` is a complete program. Standard
 functions can be called by qualified path, such as `std::array::get(values, index)`;
-functions marked `@method(get)` also support `values.get(index)`.
+functions marked `#[method(get)]` also support `values.get(index)`.
 
 Integer literals currently have type `i32`, while indices and lengths use `usize`.
 Examples obtain `usize` values from collection or string lengths. Functions taking

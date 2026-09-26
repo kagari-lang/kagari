@@ -141,12 +141,12 @@ Kagari supports compiler-visible metadata. This metadata is useful for code gene
 Examples:
 
 ```kagari
-@handler(LoginRequest)
+#[handler(LoginRequest)]
 pub fn on_login(ctx: GameCtx, req: LoginRequest) -> Result<()> {
     ...
 }
 
-@persist("player")
+#[persist("player")]
 pub struct PlayerState {
     id: PlayerId
     level: i32
@@ -883,12 +883,12 @@ This feature exists for cases such as:
 Example:
 
 ```kagari
-@handler(LoginRequest)
+#[handler(LoginRequest)]
 pub fn handle_login(ctx: GameCtx, req: LoginRequest) -> Result<()> {
     ...
 }
 
-@handler(BattleCommand)
+#[handler(BattleCommand)]
 pub fn handle_battle(ctx: GameCtx, cmd: BattleCommand) -> Result<()> {
     ...
 }

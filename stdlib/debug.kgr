@@ -19,7 +19,7 @@
 /// ```kgr
 /// std::debug::print("hello from Kagari");
 /// ```
-@intrinsic(DebugPrint)
+#[intrinsic(DebugPrint)]
 pub fn print(message: String) -> ();
 
 /// Trap with message if condition is false.
@@ -37,7 +37,7 @@ pub fn print(message: String) -> ();
 /// ```kgr
 /// std::debug::assert(2 + 2 == 4, "arithmetic");
 /// ```
-@intrinsic(DebugAssert)
+#[intrinsic(DebugAssert)]
 pub fn assert(condition: bool, message: String) -> ();
 
 /// Compare with PartialEq and trap with message when unequal.
@@ -55,7 +55,7 @@ pub fn assert(condition: bool, message: String) -> ();
 /// ```kgr
 /// std::debug::assert_eq(2 + 2, 4, "arithmetic");
 /// ```
-@intrinsic(DebugAssertEq)
+#[intrinsic(DebugAssertEq)]
 pub fn assert_eq<T: PartialEq>(lhs: T, rhs: T, message: String) -> ();
 
 /// Stop the current call with a script trap and diagnostic stack.
@@ -74,5 +74,5 @@ pub fn assert_eq<T: PartialEq>(lhs: T, rhs: T, message: String) -> ();
 /// ```kgr,should_panic
 /// std::debug::panic("configuration cannot be loaded");
 /// ```
-@intrinsic(DebugPanic)
+#[intrinsic(DebugPanic)]
 pub fn panic(message: String) -> ();

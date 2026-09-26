@@ -12,8 +12,8 @@
 /// ```kgr
 /// std::debug::assert([10, 20].len() == [0, 0].len(), "length");
 /// ```
-@intrinsic(ArrayLen)
-@method(len)
+#[intrinsic(ArrayLen)]
+#[method(len)]
 pub fn len<T>(value: [T]) -> usize;
 
 /// Return whether the array is empty.
@@ -27,8 +27,8 @@ pub fn len<T>(value: [T]) -> usize;
 /// val values: [i32] = [];
 /// std::debug::assert(values.is_empty(), "empty");
 /// ```
-@intrinsic(ArrayIsEmpty)
-@method(is_empty)
+#[intrinsic(ArrayIsEmpty)]
+#[method(is_empty)]
 pub fn is_empty<T>(value: [T]) -> bool;
 
 /// Return the element at index, or None when out of bounds. Object elements retain their
@@ -45,8 +45,8 @@ pub fn is_empty<T>(value: [T]) -> bool;
 /// std::debug::assert(values.get([0].len()) == Some(20), "element");
 /// std::debug::assert(values.get([0, 0, 0, 0, 0].len()) == None, "out of bounds");
 /// ```
-@intrinsic(ArrayGet)
-@method(get)
+#[intrinsic(ArrayGet)]
+#[method(get)]
 pub fn get<T>(value: [T], index: usize) -> Option<T>;
 
 /// Append an element and return the same array. Aliases observe the change.
@@ -70,8 +70,8 @@ pub fn get<T>(value: [T], index: usize) -> Option<T>;
 /// values.push(20);
 /// std::debug::assert(alias.get([0].len()) == Some(20), "shared array");
 /// ```
-@intrinsic(ArrayPush)
-@method(push)
+#[intrinsic(ArrayPush)]
+#[method(push)]
 pub fn push<T>(value: [T], item: T) -> [T];
 
 /// Remove and return the last element, or None when empty.
@@ -96,8 +96,8 @@ pub fn push<T>(value: [T], item: T) -> [T];
 /// std::debug::assert(values.pop() == Some(10), "last element");
 /// std::debug::assert(values.pop() == None, "empty array");
 /// ```
-@intrinsic(ArrayPop)
-@method(pop)
+#[intrinsic(ArrayPop)]
+#[method(pop)]
 pub fn pop<T>(value: [T]) -> Option<T>;
 
 /// Insert at index and return the same array. An invalid index traps before modification.
@@ -124,8 +124,8 @@ pub fn pop<T>(value: [T]) -> Option<T>;
 /// values.insert([0].len(), 20);
 /// std::debug::assert(values.get([0].len()) == Some(20), "inserted");
 /// ```
-@intrinsic(ArrayInsert)
-@method(insert)
+#[intrinsic(ArrayInsert)]
+#[method(insert)]
 pub fn insert<T>(value: [T], index: usize, item: T) -> [T];
 
 /// Remove the element at index, or return None when out of bounds.
@@ -150,8 +150,8 @@ pub fn insert<T>(value: [T], index: usize, item: T) -> [T];
 /// std::debug::assert(values.remove("".len_bytes()) == Some(10), "removed");
 /// std::debug::assert(values.get("".len_bytes()) == Some(20), "shifted");
 /// ```
-@intrinsic(ArrayRemove)
-@method(remove)
+#[intrinsic(ArrayRemove)]
+#[method(remove)]
 pub fn remove<T>(value: [T], index: usize) -> Option<T>;
 
 /// Remove all elements and return the same array.
@@ -174,8 +174,8 @@ pub fn remove<T>(value: [T], index: usize) -> Option<T>;
 /// values.clear();
 /// std::debug::assert(values.is_empty(), "cleared");
 /// ```
-@intrinsic(ArrayClear)
-@method(clear)
+#[intrinsic(ArrayClear)]
+#[method(clear)]
 pub fn clear<T>(value: [T]) -> [T];
 
 /// A resizable sequence of elements, written `[T]` in type annotations.
@@ -199,5 +199,5 @@ pub fn clear<T>(value: [T]) -> [T];
 /// std::debug::assert(values.get(values.len()) == None, "past the end");
 /// std::debug::assert(values.remove(values.len()) == None, "nothing removed");
 /// ```
-@builtin_type(Array)
+#[builtin_type(Array)]
 pub type Array<T>;

@@ -15,7 +15,7 @@ imports or recognized by a user-controlled file extension.
 
 Outer `///` comments belong to the immediately following declaration. They retain
 Markdown including fenced Kagari examples. The CST remains lossless. Existing
-`@intrinsic(...)` and `@method(...)` attribute syntax is used for interface metadata;
+`#[intrinsic(...)]` and `#[method(...)]` attribute syntax is used for interface metadata;
 no second attribute syntax is introduced.
 
 The implementation sequence and acceptance status are tracked in
@@ -30,7 +30,7 @@ build artifact, not a second handwritten API definition. Unknown intrinsic IDs,
 duplicate bindings/exports/method views, missing documentation and function bodies
 fail the standard-library build. The engine bundles the exact parsed source text.
 
-`@method(name)` exposes a view using the first parameter as receiver. Function
+`#[method(name)]` exposes a view using the first parameter as receiver. Function
 and method calls share parameter types, generic constraints and result types.
 Native `Iterable`, `OrderedNumber` and `SignedNumber` constraints retain their
 existing restricted meanings. They do not grant arbitrary Iterator or operator

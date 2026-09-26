@@ -36,7 +36,7 @@ trait_item          ::= visibility? trait_decl ;
 (* Attributes are compile-time metadata for compiler passes, generated code,
    host registration, tooling, and validation. They are not a promise of
    script-visible runtime reflection. *)
-attribute           ::= "@" path attribute_args? ;
+attribute           ::= "#" "[" path attribute_args? "]" ;
 
 attribute_args      ::= "(" attribute_arg_list? ")" ;
 

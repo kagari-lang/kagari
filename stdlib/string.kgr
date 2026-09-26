@@ -14,8 +14,8 @@
 /// ```kgr
 /// std::debug::assert("é".len_bytes() == [0, 0].len(), "UTF-8 bytes");
 /// ```
-@intrinsic(StringLenBytes)
-@method(len_bytes)
+#[intrinsic(StringLenBytes)]
+#[method(len_bytes)]
 pub fn len_bytes(value: String) -> usize;
 
 /// Return the Unicode scalar count, not the grapheme count.
@@ -30,8 +30,8 @@ pub fn len_bytes(value: String) -> usize;
 /// ```kgr
 /// std::debug::assert("é".len_chars() == [0].len(), "Unicode scalars");
 /// ```
-@intrinsic(StringLenChars)
-@method(len_chars)
+#[intrinsic(StringLenChars)]
+#[method(len_chars)]
 pub fn len_chars(value: String) -> usize;
 
 /// Return whether the string is empty.
@@ -43,8 +43,8 @@ pub fn len_chars(value: String) -> usize;
 /// ```kgr
 /// std::debug::assert("".is_empty(), "empty");
 /// ```
-@intrinsic(StringIsEmpty)
-@method(is_empty)
+#[intrinsic(StringIsEmpty)]
+#[method(is_empty)]
 pub fn is_empty(value: String) -> bool;
 
 /// Return the concatenation of two strings.
@@ -56,8 +56,8 @@ pub fn is_empty(value: String) -> bool;
 /// ```kgr
 /// std::debug::assert("hello".concat(" world") == "hello world", "concatenated");
 /// ```
-@intrinsic(StringConcat)
-@method(concat)
+#[intrinsic(StringConcat)]
+#[method(concat)]
 pub fn concat(value: String, rhs: String) -> String;
 
 /// Test whether the string contains a substring.
@@ -69,8 +69,8 @@ pub fn concat(value: String, rhs: String) -> String;
 /// ```kgr
 /// std::debug::assert("hello".contains("ell"), "substring");
 /// ```
-@intrinsic(StringContains)
-@method(contains)
+#[intrinsic(StringContains)]
+#[method(contains)]
 pub fn contains(value: String, needle: String) -> bool;
 
 /// Test whether the string starts with a prefix.
@@ -82,8 +82,8 @@ pub fn contains(value: String, needle: String) -> bool;
 /// ```kgr
 /// std::debug::assert("hello".starts_with("he"), "prefix");
 /// ```
-@intrinsic(StringStartsWith)
-@method(starts_with)
+#[intrinsic(StringStartsWith)]
+#[method(starts_with)]
 pub fn starts_with(value: String, needle: String) -> bool;
 
 /// Test whether the string ends with a suffix.
@@ -95,8 +95,8 @@ pub fn starts_with(value: String, needle: String) -> bool;
 /// ```kgr
 /// std::debug::assert("hello".ends_with("lo"), "suffix");
 /// ```
-@intrinsic(StringEndsWith)
-@method(ends_with)
+#[intrinsic(StringEndsWith)]
+#[method(ends_with)]
 pub fn ends_with(value: String, needle: String) -> bool;
 
 /// Return the half-open byte slice, or None for invalid bounds or UTF-8 boundaries.
@@ -113,8 +113,8 @@ pub fn ends_with(value: String, needle: String) -> bool;
 /// std::debug::assert("é!".slice("".len_bytes(), [0, 0].len()) == Some("é"), "valid boundary");
 /// std::debug::assert("é!".slice("".len_bytes(), [0].len()) == None, "inside scalar");
 /// ```
-@intrinsic(StringSlice)
-@method(slice)
+#[intrinsic(StringSlice)]
+#[method(slice)]
 pub fn slice(value: String, start: usize, end: usize) -> Option<String>;
 
 /// An immutable UTF-8 string with value equality and hashing.
@@ -136,5 +136,5 @@ pub fn slice(value: String, start: usize, end: usize) -> Option<String>;
 /// std::debug::assert(text.concat("?") == "é!?", "new string");
 /// std::debug::assert(text == "é!", "original unchanged");
 /// ```
-@builtin_type(String)
+#[builtin_type(String)]
 pub type String;

@@ -220,3 +220,16 @@ work. This batch does not implement those separate features.
 Acceptance: 1,159 workspace tests passed. All 100 documentation examples passed
 source and artifact execution; formatting, workspace clippy with warnings denied
 and `git diff --check` passed.
+
+## Rust-style outer attributes
+
+The attribute spelling is `#[path(...)]`, including argument-free `#[meta]`.
+The legacy `@...` spelling is removed without a compatibility parser. Attribute
+arguments, semantic validation and native bindings retain their existing behavior.
+Inner `#![...]` attributes and a macro system are not introduced. The grammar,
+standard declarations, examples and tests use the same outer-attribute syntax.
+
+Validation: 1,161 workspace tests passed, including the 100 standard API
+examples. Formatting, workspace clippy with warnings denied and `git diff --check`
+passed. Recovery tests cover malformed delimiters, rejected legacy/inner attributes,
+lossless nested metadata and following declaration recovery.

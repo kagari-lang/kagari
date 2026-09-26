@@ -6,7 +6,7 @@ use kagari_common::{SourceFile, cancellation::CancellationToken};
 
 #[test]
 fn declaration_mode_preserves_signatures_docs_and_source() {
-    let text = "/// Read one element.\r\n/// Returns None outside the array.\r\n@intrinsic(array_get)\r\npub fn get<T>(value:[T], index:usize)->Option<T>;\r\n\r\n/// The next operation.\r\npub fn len<T>(value:[T])->usize;";
+    let text = "/// Read one element.\r\n/// Returns None outside the array.\r\n#[intrinsic(array_get)]\r\npub fn get<T>(value:[T], index:usize)->Option<T>;\r\n\r\n/// The next operation.\r\npub fn len<T>(value:[T])->usize;";
     let source = SourceFile::new("kagari://std/array.kgr", text);
     let parsed = parse_declarations(
         &source,
@@ -51,7 +51,7 @@ fn declaration_parsing_observes_cancellation() {
 fn opaque_native_types_are_restricted_to_declaration_mode() {
     let source = SourceFile::new(
         "native.kgr",
-        "/// A native array.\n@builtin_type(Array) pub type Array<T>;",
+        "/// A native array.\n#[builtin_type(Array)] pub type Array<T>;",
     );
     let parsed =
         parse_declarations(&source, Default::default(), &CancellationToken::default()).unwrap();

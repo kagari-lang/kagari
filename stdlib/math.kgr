@@ -16,7 +16,7 @@
 /// ```kgr
 /// std::debug::assert(std::math::min(3, 7) == 3, "min");
 /// ```
-@intrinsic(MathMin)
+#[intrinsic(MathMin)]
 pub fn min<T: OrderedNumber>(lhs: T, rhs: T) -> T;
 
 /// Return the larger numeric operand.
@@ -33,7 +33,7 @@ pub fn min<T: OrderedNumber>(lhs: T, rhs: T) -> T;
 /// ```kgr
 /// std::debug::assert(std::math::max(3, 7) == 7, "max");
 /// ```
-@intrinsic(MathMax)
+#[intrinsic(MathMax)]
 pub fn max<T: OrderedNumber>(lhs: T, rhs: T) -> T;
 
 /// Clamp a numeric value between the supplied bounds.
@@ -50,7 +50,7 @@ pub fn max<T: OrderedNumber>(lhs: T, rhs: T) -> T;
 /// ```kgr
 /// std::debug::assert(std::math::clamp(9, 0, 7) == 7, "clamp");
 /// ```
-@intrinsic(MathClamp)
+#[intrinsic(MathClamp)]
 pub fn clamp<T: OrderedNumber>(value: T, min: T, max: T) -> T;
 
 /// Return the absolute value. Signed integer overflow traps.
@@ -68,7 +68,7 @@ pub fn clamp<T: OrderedNumber>(value: T, min: T, max: T) -> T;
 /// ```kgr
 /// std::debug::assert(std::math::abs(-7) == 7, "abs");
 /// ```
-@intrinsic(MathAbs)
+#[intrinsic(MathAbs)]
 pub fn abs<T: SignedNumber>(value: T) -> T;
 
 /// Round toward negative infinity.
@@ -88,7 +88,7 @@ pub fn abs<T: SignedNumber>(value: T) -> T;
 ///     std::math::floor(value)
 /// }
 /// ```
-@intrinsic(MathFloor)
+#[intrinsic(MathFloor)]
 pub fn floor(value: f64) -> f64;
 
 /// Round toward positive infinity.
@@ -108,7 +108,7 @@ pub fn floor(value: f64) -> f64;
 ///     std::math::ceil(value)
 /// }
 /// ```
-@intrinsic(MathCeil)
+#[intrinsic(MathCeil)]
 pub fn ceil(value: f64) -> f64;
 
 /// Round to the nearest integer, with ties away from zero.
@@ -128,7 +128,7 @@ pub fn ceil(value: f64) -> f64;
 ///     std::math::round(value)
 /// }
 /// ```
-@intrinsic(MathRound)
+#[intrinsic(MathRound)]
 pub fn round(value: f64) -> f64;
 
 /// Return the square root.
@@ -148,7 +148,7 @@ pub fn round(value: f64) -> f64;
 ///     std::math::sqrt(value)
 /// }
 /// ```
-@intrinsic(MathSqrt)
+#[intrinsic(MathSqrt)]
 pub fn sqrt(value: f64) -> f64;
 
 /// Return the sine of an angle in radians.
@@ -168,7 +168,7 @@ pub fn sqrt(value: f64) -> f64;
 ///     std::math::sin(value)
 /// }
 /// ```
-@intrinsic(MathSin)
+#[intrinsic(MathSin)]
 pub fn sin(value: f64) -> f64;
 
 /// Return the cosine of an angle in radians.
@@ -188,7 +188,7 @@ pub fn sin(value: f64) -> f64;
 ///     std::math::cos(value)
 /// }
 /// ```
-@intrinsic(MathCos)
+#[intrinsic(MathCos)]
 pub fn cos(value: f64) -> f64;
 
 /// Return the tangent of an angle in radians.
@@ -208,5 +208,5 @@ pub fn cos(value: f64) -> f64;
 ///     std::math::tan(value)
 /// }
 /// ```
-@intrinsic(MathTan)
+#[intrinsic(MathTan)]
 pub fn tan(value: f64) -> f64;

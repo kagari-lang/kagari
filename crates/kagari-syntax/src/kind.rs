@@ -52,7 +52,7 @@ pub enum SyntaxKind {
     Dot,
     DotDot,
     DotDotEq,
-    At,
+    Hash,
     Eq,
     Plus,
     PlusEq,
