@@ -29,6 +29,12 @@ pub struct PathRef {
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
+    MapResultError {
+        dst: IrValue,
+        original: IrValue,
+        error: IrValue,
+        ty: super::abi::AbiType,
+    },
     Cursor {
         dst: IrValue,
         value: Option<IrValue>,
@@ -410,6 +416,7 @@ impl Instruction {
                 op: StandardEnumOp::Make(_),
                 ..
             } => EffectSet::allocation(),
+            Self::MapResultError { .. } => EffectSet::allocation(),
             Self::Cursor { .. } => EffectSet::allocation().union(EffectSet::aggregate_write()),
             Self::StandardEnum { .. } => EffectSet::aggregate_read(),
             Self::ReadAggregateField { .. }
@@ -678,4 +685,17 @@ impl CursorOp {
             },
         ))
     }
+}
+
+pub fn mapped_error_payload(ty: &super::abi::AbiType) -> Option<super::ValueType> {
+    if !matches!(
+        ty,
+        super::abi::AbiType::StandardEnum {
+            kind: kagari_hir::builtin::surface::StandardEnum::Result,
+            ..
+        }
+    ) {
+        return None;
+    }
+    StandardEnumOp::Make(1).contract(ty)?.0
 }

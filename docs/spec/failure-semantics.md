@@ -6,11 +6,13 @@ rollback. A failed call stops further execution but preserves completed effects.
 ## Business-value propagation
 
 `?` on built-in Option/Result returns the original None/Err value from the nearest
-function or closure. It does not wrap an error, record a stack, roll back prior
+function or closure. It preserves the origin captured when Err was constructed. It does not capture
+a second stack, wrap the error, roll back prior
 side effects, catch a trap, or reset an execution budget. Normal frame return
 releases that frame's iteration guards, roots and host resources. Constructors,
 explicit conversions and matching are defined in [builtins](builtins.md#option-and-result).
-A general propagation trait and Error origin/stack model are deferred.
+See [error origins and diagnostic stacks](error-reporting.md) for reporting rules.
+A general propagation trait and Error/cause protocol are deferred.
 
 ## Failure classes
 

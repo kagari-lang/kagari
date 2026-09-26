@@ -1115,13 +1115,29 @@ pub struct HostTypeInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostError {
     message: String,
+    trace: Option<std::sync::Arc<crate::ErrorTrace>>,
 }
 
 impl HostError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            trace: None,
         }
+    }
+
+    pub fn trace(&self) -> Option<&std::sync::Arc<crate::ErrorTrace>> {
+        self.trace.as_ref()
+    }
+    pub fn with_trace(mut self, trace: std::sync::Arc<crate::ErrorTrace>) -> Self {
+        if self
+            .trace
+            .as_ref()
+            .is_none_or(|previous| previous.frames.is_empty())
+        {
+            self.trace = Some(trace);
+        }
+        self
     }
 
     pub fn message(&self) -> &str {
@@ -1270,8 +1286,13 @@ impl HostFunction {
                 _ => {}
             }
         }
-        let result = (self.handler)(context, args)
-            .map_err(|error| RuntimeError::host_call_failure(error.message()))?;
+        let result = (self.handler)(context, args).map_err(|error| {
+            let failure = RuntimeError::host_call_failure(error.message());
+            match error.trace() {
+                Some(trace) => failure.with_trace(trace.clone()),
+                None => failure,
+            }
+        })?;
         if !context.runtime().gc().validate_candidate_value(&result) {
             return Err(RuntimeError::capability_denied(
                 "external object in candidate host result",

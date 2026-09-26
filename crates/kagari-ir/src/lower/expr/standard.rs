@@ -106,6 +106,23 @@ impl FunctionLowerer<'_, '_> {
                 });
                 if matches!(intrinsic, OptionAndThen | ResultAndThen) {
                     value
+                } else if intrinsic == ResultMapErr {
+                    let concrete = self
+                        .planner
+                        .arguments(
+                            std::slice::from_ref(&output),
+                            &self.instance.substitution,
+                            span,
+                        )?
+                        .remove(0);
+                    let mapped = self.alloc_temp(ValueType::HeapObject);
+                    self.emit(Instruction::MapResultError {
+                        dst: mapped,
+                        original: args[0],
+                        error: value,
+                        ty: crate::module::abi::AbiType::from_checked_type(&concrete),
+                    });
+                    mapped
                 } else {
                     self.standard_enum_op(&output, StandardEnumOp::Make(variant), Some(value))?
                 }

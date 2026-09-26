@@ -991,6 +991,27 @@ fn verify_instruction(
                 "interface receiver",
             )?;
         }
+        BytecodeInstruction::MapResultError {
+            dst,
+            original,
+            error,
+            ty,
+        } => {
+            let payload = crate::module::instruction::mapped_error_payload(ty).ok_or(
+                BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "invalid mapped Result contract",
+                },
+            )?;
+            expect_register_ty(
+                function,
+                *original,
+                ValueType::HeapObject,
+                "original Result",
+            )?;
+            expect_register_ty(function, *error, payload, "mapped error")?;
+            expect_register_ty(function, *dst, ValueType::HeapObject, "mapped Result")?;
+        }
         BytecodeInstruction::Cursor { dst, value, ty, op } => {
             let invalid = || BytecodeVerificationError::InvalidOperation {
                 function: function.id,

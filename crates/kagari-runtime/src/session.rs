@@ -243,6 +243,7 @@ impl SessionState {
     }
 
     pub(crate) fn terminate(&self, error: RuntimeError) -> RuntimeError {
+        let error = error.with_trace(crate::ErrorTrace::capture_session(self));
         self.termination.borrow_mut().get_or_insert(error).clone()
     }
 

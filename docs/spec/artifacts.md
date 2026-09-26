@@ -41,13 +41,17 @@ KbcArtifact {
 }
 ```
 
-Format version 60 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 61 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 59 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 60 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 61 and runtime ABI v61 add the verified MapResultError operation to
+change an Err payload while preserving its origin. KHI remains v11; helper ABI
+remains v6. Prior products are rejected without migration.
 
 Version 60 and runtime ABI v60 preserve source URIs and one-based line/UTF-8 byte
 columns for failure stacks, even without optional debug metadata. Runtime helper

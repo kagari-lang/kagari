@@ -668,7 +668,7 @@ fn result_map(
             let next = callbacks.call(callback, &[result_payload(gc, value, "result.map")?])?;
             result_ok(gc, next)
         }
-        EnumTag::ResultErr => result_err(gc, result_payload(gc, value, "result.map")?),
+        EnumTag::ResultErr => Ok(value.clone()),
         _ => unreachable!(),
     }
 }
@@ -688,7 +688,9 @@ fn result_map_err(
         EnumTag::ResultOk => result_ok(gc, result_payload(gc, value, "result.map_err")?),
         EnumTag::ResultErr => {
             let next = callbacks.call(callback, &[result_payload(gc, value, "result.map_err")?])?;
-            result_err(gc, next)
+            gc.map_result_error(value, next)
+                .map(Value::Enum)
+                .map_err(Into::into)
         }
         _ => unreachable!(),
     }
@@ -712,7 +714,7 @@ fn result_and_then(
             result_snapshot(gc, &next, "result.and_then mapper result")?;
             Ok(next)
         }
-        EnumTag::ResultErr => result_err(gc, result_payload(gc, value, "result.and_then")?),
+        EnumTag::ResultErr => Ok(value.clone()),
         _ => unreachable!(),
     }
 }

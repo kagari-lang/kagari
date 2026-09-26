@@ -10,6 +10,23 @@ impl<'a> Executor<'a> {
         instruction: BytecodeInstruction,
     ) -> Result<(), VmError> {
         match instruction {
+            BytecodeInstruction::MapResultError {
+                dst,
+                original,
+                error,
+                ty,
+            } => {
+                let frame = self.current_frame()?;
+                let mapped = self.runtime.map_result_error(
+                    frame.loaded(),
+                    &frame.read_register(original)?,
+                    frame.read_register(error)?,
+                    &ty,
+                )?;
+                drop(frame);
+                self.current_frame_mut()?.write_register(dst, mapped)?;
+            }
+
             BytecodeInstruction::Cursor { dst, value, ty, op } => {
                 let source = self
                     .current_frame()?

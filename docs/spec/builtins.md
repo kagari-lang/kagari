@@ -250,7 +250,9 @@ and `map_err(|error| converted)` to change error types before propagation.
 only for None. `map`, `map_err` and `and_then` check callback signatures and call
 script closures only on the selected variant, using ordinary execution frames.
 There is no implicit error conversion, general `Try`/`FromResidual` protocol,
-`throw`/`try`/`catch`, built-in Error value or captured error stack in this version.
+`throw`/`try`/`catch` or built-in Error value in this version. New Err captures
+its source and stack; propagation and map_err preserve it. See
+[error reporting](error-reporting.md).
 See [failure semantics](failure-semantics.md) for traps and termination, which
 `?` cannot intercept, and the [executable example](../../examples/syntax/result-option.kgr).
 
@@ -626,7 +628,8 @@ same destination implementation; explicit Into/TryInto impls are rejected.
 The target comes from the result annotation/return context or a unique generic
 bound. Ambiguous targets need an annotation. Generic bounds and Error projections
 use the same derivation as calls. Operands evaluate once; no implicit conversion,
-error conversion during `?`, exception handling or error stack is introduced.
+error conversion during `?` or exception handling is introduced. Error origin
+metadata follows [error reporting](error-reporting.md).
 
 Identity `From<T> for T` preserves ordinary value/reference semantics and cannot
 be overridden. Custom conversions must belong to the defining module of a script

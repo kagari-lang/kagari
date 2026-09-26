@@ -164,7 +164,7 @@ enum HeapObject {
     Array(Vec<Value>),
     Map(IndexMap<MapKey, Value>),
     Set(IndexMap<MapKey, ()>),
-    Enum(EnumValueSnapshot),
+    Enum(EnumValueSnapshot, Option<std::sync::Arc<crate::ErrorTrace>>),
     Struct {
         layout: crate::module::StructLayoutRef,
         fields: Vec<Value>,
@@ -190,7 +190,7 @@ impl HeapObject {
             Self::Array(values) => values.len(),
             Self::Map(values) => values.len(),
             Self::Set(values) => values.len(),
-            Self::Enum(value) => value.fields.len(),
+            Self::Enum(value, _) => value.fields.len(),
             Self::Struct { fields, .. } => fields.len(),
             Self::Interface { snapshot, .. } => 1 + snapshot.methods.len(),
             Self::Closure { snapshot, .. } => 1 + snapshot.captures.len(),
@@ -390,7 +390,51 @@ impl GcHeap {
                 "invalid heap target, index, or payload",
             ));
         }
-        self.alloc_object(HeapObject::Enum(EnumValueSnapshot { tag, fields }))
+        let trace = matches!(tag, crate::value::EnumTag::ResultErr)
+            .then(|| crate::ErrorTrace::capture(&self.resources));
+        self.alloc_object(HeapObject::Enum(EnumValueSnapshot { tag, fields }, trace))
+    }
+
+    /// Diagnostic-only metadata; never participates in equality or key hashing.
+    pub fn result_error_trace(&self, value: &Value) -> Option<std::sync::Arc<crate::ErrorTrace>> {
+        let Value::Enum(id) = value else {
+            return None;
+        };
+        let objects = self.objects.borrow();
+        match self.object_ref(&objects, *id)? {
+            HeapObject::Enum(snapshot, trace)
+                if snapshot.tag == crate::value::EnumTag::ResultErr =>
+            {
+                trace.clone()
+            }
+            _ => None,
+        }
+    }
+    pub(crate) fn map_result_error(
+        &self,
+        original: &Value,
+        error: Value,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let trace = self.result_error_trace(original).ok_or_else(|| {
+            RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "expected Result Err to preserve its origin",
+            )
+        })?;
+        if !self.valid_payload(&error) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid error payload",
+            ));
+        }
+        self.alloc_object(HeapObject::Enum(
+            EnumValueSnapshot {
+                tag: crate::value::EnumTag::ResultErr,
+                fields: vec![error],
+            },
+            Some(trace),
+        ))
     }
 
     pub(crate) fn matches_abi(
@@ -951,7 +995,7 @@ impl GcHeap {
             HeapObject::Array(_) => Some(GcObjectKind::Array),
             HeapObject::Map(_) => Some(GcObjectKind::Map),
             HeapObject::Set(_) => Some(GcObjectKind::Set),
-            HeapObject::Enum(_) => Some(GcObjectKind::Enum),
+            HeapObject::Enum(..) => Some(GcObjectKind::Enum),
             HeapObject::Struct { .. } => Some(GcObjectKind::Struct),
             HeapObject::Interface { .. } => Some(GcObjectKind::Interface),
             HeapObject::Closure { .. } => Some(GcObjectKind::Closure),
@@ -1260,7 +1304,7 @@ impl GcHeap {
             let Some(object) = self.object_ref(&objects, id) else {
                 return false;
             };
-            matches!(object, HeapObject::Enum(_))
+            matches!(object, HeapObject::Enum(..))
                 || objects[id.slot].initialization_owner == Some(owner)
         })
     }
@@ -1413,7 +1457,7 @@ impl GcHeap {
                         pending.push(value);
                     }
                 }
-                HeapObject::Enum(snapshot) => pending.extend(snapshot.fields.iter().rev()),
+                HeapObject::Enum(snapshot, _) => pending.extend(snapshot.fields.iter().rev()),
                 HeapObject::Struct { fields, .. } => pending.extend(fields.iter().rev()),
                 HeapObject::Interface { snapshot, .. } => pending.push(&snapshot.data),
                 HeapObject::Closure { snapshot, .. } => {
@@ -1430,7 +1474,7 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),
-            HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
+            HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(..) => None,
             HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
@@ -1455,7 +1499,7 @@ impl GcHeap {
                 }
                 Some(result)
             }
-            HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(_) => None,
+            HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(..) => None,
             HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
@@ -1474,7 +1518,7 @@ impl GcHeap {
             HeapObject::Map(entries) => Some(f(entries)),
             HeapObject::Array(_)
             | HeapObject::Set(_)
-            | HeapObject::Enum(_)
+            | HeapObject::Enum(..)
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
@@ -1501,7 +1545,7 @@ impl GcHeap {
             }
             HeapObject::Array(_)
             | HeapObject::Set(_)
-            | HeapObject::Enum(_)
+            | HeapObject::Enum(..)
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
@@ -1520,7 +1564,7 @@ impl GcHeap {
             HeapObject::Set(values) => Some(f(values)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
-            | HeapObject::Enum(_)
+            | HeapObject::Enum(..)
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
@@ -1547,7 +1591,7 @@ impl GcHeap {
             }
             HeapObject::Array(_)
             | HeapObject::Map(_)
-            | HeapObject::Enum(_)
+            | HeapObject::Enum(..)
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
@@ -1559,7 +1603,7 @@ impl GcHeap {
     fn with_enum<R>(&self, id: HeapObjectId, f: impl FnOnce(&EnumValueSnapshot) -> R) -> Option<R> {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
-            HeapObject::Enum(snapshot) => Some(f(snapshot)),
+            HeapObject::Enum(snapshot, _) => Some(f(snapshot)),
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Set(_)
@@ -1582,7 +1626,7 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Set(_)
-            | HeapObject::Enum(_)
+            | HeapObject::Enum(..)
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
@@ -1601,7 +1645,7 @@ impl GcHeap {
             HeapObject::Array(_)
             | HeapObject::Map(_)
             | HeapObject::Set(_)
-            | HeapObject::Enum(_)
+            | HeapObject::Enum(..)
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }

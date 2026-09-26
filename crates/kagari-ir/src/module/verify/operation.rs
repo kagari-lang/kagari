@@ -273,6 +273,18 @@ pub(super) fn verify(
                 "interface receiver",
             )?;
         }
+        MapResultError {
+            dst,
+            original,
+            error,
+            ty,
+        } => {
+            let payload = crate::module::instruction::mapped_error_payload(ty)
+                .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
+            context.expect(original.ty, ValueType::HeapObject, "original Result")?;
+            context.expect(error.ty, payload, "mapped error")?;
+            context.expect(dst.ty, ValueType::HeapObject, "mapped Result")?;
+        }
         Cursor { dst, value, ty, op } => {
             let (input, output) = op
                 .contract(ty)

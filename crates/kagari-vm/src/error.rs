@@ -58,15 +58,20 @@ impl VmError {
         match self {
             Self::Traced { trace, .. } => Some(trace),
             Self::RuntimeError(error) => error.trace(),
+            Self::HostError(error) => error.trace(),
             _ => None,
         }
     }
     pub(crate) fn with_trace(self, trace: std::sync::Arc<kagari_runtime::ErrorTrace>) -> Self {
-        if self.trace().is_some() {
+        if self
+            .trace()
+            .is_some_and(|previous| !previous.frames.is_empty())
+        {
             return self;
         }
         match self {
             Self::RuntimeError(error) => Self::RuntimeError(error.with_trace(trace)),
+            Self::Traced { error, .. } => error.with_trace(trace),
             error => Self::Traced {
                 error: Box::new(error),
                 trace,

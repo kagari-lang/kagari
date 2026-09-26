@@ -140,7 +140,11 @@ impl RuntimeError {
         self.trace.as_ref()
     }
     pub fn with_trace(mut self, trace: std::sync::Arc<crate::ErrorTrace>) -> Self {
-        if self.trace.is_none() {
+        if self
+            .trace
+            .as_ref()
+            .is_none_or(|previous| previous.frames.is_empty())
+        {
             self.trace = Some(trace);
         }
         self

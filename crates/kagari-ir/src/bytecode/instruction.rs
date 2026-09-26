@@ -205,6 +205,12 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BytecodeInstruction {
+    MapResultError {
+        dst: Register,
+        original: Register,
+        error: Register,
+        ty: crate::module::abi::AbiType,
+    },
     Cursor {
         dst: Register,
         value: Option<Register>,

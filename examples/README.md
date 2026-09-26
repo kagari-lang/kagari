@@ -10,6 +10,10 @@ through source and encoded-artifact loading:
 cargo test -p kagari-embed --test syntax_examples
 ```
 
+The [error-stack example](error-stack.kgr) intentionally returns Err: running
+`cargo run -p kagari-cli -- run examples/error-stack.kgr` prints the original
+`read_settings` stack and exits with status 1. See [the reporting contract](../docs/spec/error-reporting.md).
+
 | Executable feature | Small example or existing showcase | Expected result |
 | --- | --- | --- |
 | Standard `PartialEq/Eq/Hash`, `Debug/Display`, generic bounds and structural/identity keys | [standard-traits.kgr](syntax/standard-traits.kgr) | `42` |

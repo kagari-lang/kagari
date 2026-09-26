@@ -446,7 +446,11 @@ fn run_loaded_artifact(
         .load_program(artifact, load_options)
         .map_err(print_embedding_error)?;
 
-    execute_entry(&mut runtime, &loaded, &context, jit).map(|_| ())
+    let report = execute_entry(&mut runtime, &loaded, &context, jit)?;
+    if let Some(failure) = report.failure {
+        return Err(CliError::message(1, format!("Result::Err: {failure}")));
+    }
+    Ok(())
 }
 
 fn execute_entry(

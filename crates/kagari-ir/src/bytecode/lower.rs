@@ -935,6 +935,17 @@ fn lower_instruction(
                 implementation,
             }
         }
+        Instruction::MapResultError {
+            dst,
+            original,
+            error,
+            ty,
+        } => BytecodeInstruction::MapResultError {
+            dst: lower_value(*dst),
+            original: lower_value(*original),
+            error: lower_value(*error),
+            ty: ty.clone(),
+        },
         Instruction::Cursor { dst, value, ty, op } => BytecodeInstruction::Cursor {
             dst: lower_value(*dst),
             value: value.map(lower_value),

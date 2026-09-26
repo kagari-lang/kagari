@@ -35,6 +35,9 @@ impl ErrorTrace {
                 ..Self::default()
             });
         };
+        Self::capture_session(&session)
+    }
+    pub(crate) fn capture_session(session: &crate::session::SessionState) -> Arc<Self> {
         let Ok(frames) = session.frames.try_borrow() else {
             return Arc::new(Self {
                 incomplete: true,
@@ -146,5 +149,68 @@ impl Runtime {
             }
         }
         Ok(())
+    }
+}
+
+/// A detached diagnostic preview, not a script value and not an execution failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResultFailure {
+    pub message: String,
+    pub trace: Arc<ErrorTrace>,
+}
+impl std::fmt::Display for ResultFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.message, self.trace)
+    }
+}
+impl Runtime {
+    pub fn result_failure(&self, value: &crate::value::Value) -> Option<ResultFailure> {
+        let trace = self.gc.result_error_trace(value)?;
+        let crate::value::Value::Enum(id) = value else {
+            return None;
+        };
+        let snapshot = self.gc.enum_snapshot(*id)?;
+        let payload = snapshot.fields.first()?;
+        let preview = crate::value_semantics::format_value(
+            &self.gc,
+            payload,
+            !matches!(payload, crate::value::Value::Str(_)),
+        )
+        .unwrap_or_else(|_| "<error payload unavailable>".into());
+        let mut clipped = false;
+        let message =
+            label(&preview, &mut clipped).unwrap_or_else(|| "<error payload unavailable>".into());
+        let message = if clipped {
+            format!("{message} [truncated]")
+        } else {
+            message
+        };
+        Some(ResultFailure { message, trace })
+    }
+    pub fn map_result_error(
+        &self,
+        owner: &crate::LoadedModule,
+        original: &crate::value::Value,
+        error: crate::value::Value,
+        ty: &kagari_ir::module::abi::AbiType,
+    ) -> Result<crate::value::Value, crate::RuntimeError> {
+        use kagari_ir::module::abi::{AbiType, StandardEnumKind};
+        self.validate_loaded_module(owner)?;
+        if let AbiType::StandardEnum {
+            kind: StandardEnumKind::Result,
+            args,
+        } = ty
+            && args.len() == 2
+            && self.gc.matches_abi(&error, &args[1], owner)
+        {
+            return self
+                .gc
+                .map_result_error(original, error)
+                .map(crate::value::Value::Enum);
+        }
+        Err(crate::RuntimeError::new(
+            crate::RuntimeErrorKind::ScriptTrap,
+            "invalid mapped Result error type",
+        ))
     }
 }
