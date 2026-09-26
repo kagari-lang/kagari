@@ -168,6 +168,14 @@ impl AggregateCatalog {
                     }
                 }
             }
+            if !protocol.equality_protocol() {
+                return Ok(crate::builtin::traits::intrinsic_holds(
+                    protocol,
+                    ty,
+                    None,
+                    budget.assumptions,
+                ));
+            }
             let members = match ty {
                 TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. } => {
                     Some(members.clone())

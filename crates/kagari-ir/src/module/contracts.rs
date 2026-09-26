@@ -168,7 +168,7 @@ pub(crate) fn verify_intrinsic(
         KeyMapGet | KeyMapRemove | KeySetContains | KeySetRemove => 3,
         KeySetInsert => 4,
         KeyMapInsert => 5,
-        ValueEq => 2,
+        ValueEq | ValuePartialCmp | ValueCmp => 2,
         ValueHash | ValueDebug | ValueDisplay => 1,
         _ => {
             kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
@@ -206,6 +206,15 @@ pub(crate) fn verify_intrinsic(
                     ValueType::HeapObject
                 },
             )?;
+        }
+        ValuePartialCmp | ValueCmp => {
+            if args[0] != args[1] {
+                return Err(ContractError::Intrinsic {
+                    intrinsic,
+                    reason: "comparison operands differ",
+                });
+            }
+            verify_call_dst(dst, ValueType::HeapObject)?;
         }
         ValueEq => {
             if args[0] != args[1] {

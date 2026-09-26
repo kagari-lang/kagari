@@ -427,6 +427,7 @@ impl GcHeap {
                 (Value::Enum(id), AbiType::StandardEnum { kind, args }) => {
                     let Some(snapshot) = self.enum_snapshot(id) else { return false; };
                     let index = match (kind, snapshot.tag) {
+                        (kagari_ir::module::abi::StandardEnumKind::Ordering, EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater) => continue,
                         (kagari_ir::module::abi::StandardEnumKind::Option, EnumTag::OptionNone) => continue,
                         (kagari_ir::module::abi::StandardEnumKind::Option, EnumTag::OptionSome)
                         | (kagari_ir::module::abi::StandardEnumKind::Result, EnumTag::ResultOk) => 0,

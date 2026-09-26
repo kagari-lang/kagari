@@ -24,6 +24,7 @@ pub struct BuiltinTypeSpec {
 pub enum StandardEnum {
     Option,
     Result,
+    Ordering,
 }
 
 impl StandardEnum {
@@ -37,6 +38,9 @@ impl StandardEnum {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardVariant {
+    Less,
+    Equal,
+    Greater,
     Some,
     None,
     Ok,
@@ -46,19 +50,23 @@ pub enum StandardVariant {
 impl StandardVariant {
     pub fn kind(self) -> StandardEnum {
         match self {
+            Self::Less | Self::Equal | Self::Greater => StandardEnum::Ordering,
             Self::Some | Self::None => StandardEnum::Option,
             Self::Ok | Self::Err => StandardEnum::Result,
         }
     }
     pub fn index(self) -> usize {
         match self {
+            Self::Less => 0,
+            Self::Equal => 1,
+            Self::Greater => 2,
             Self::Some | Self::Ok => 0,
             Self::None | Self::Err => 1,
         }
     }
     pub fn payload(self) -> Option<usize> {
         match self {
-            Self::None => None,
+            Self::None | Self::Less | Self::Equal | Self::Greater => None,
             Self::Err => Some(1),
             _ => Some(0),
         }
@@ -67,6 +75,9 @@ impl StandardVariant {
 
 pub fn standard_variant(path: &str) -> Option<StandardVariant> {
     Some(match path {
+        "Ordering::Less" | "std::cmp::Ordering::Less" => StandardVariant::Less,
+        "Ordering::Equal" | "std::cmp::Ordering::Equal" => StandardVariant::Equal,
+        "Ordering::Greater" | "std::cmp::Ordering::Greater" => StandardVariant::Greater,
         "Some" | "Option::Some" | "std::option::Some" => StandardVariant::Some,
         "None" | "Option::None" | "std::option::None" => StandardVariant::None,
         "Ok" | "Result::Ok" | "std::result::Ok" => StandardVariant::Ok,
@@ -138,6 +149,8 @@ pub enum StandardIntrinsic {
     KeySetContains,
     KeySetInsert,
     KeySetRemove,
+    ValuePartialCmp,
+    ValueCmp,
     ValueEq,
     ValueHash,
     ValueDebug,
@@ -404,6 +417,25 @@ const RESULT_VARIANTS: &[StandardVariantSpec] = &[
 ];
 
 const STANDARD_ENUMS: &[StandardEnumSpec] = &[
+    StandardEnumSpec {
+        kind: StandardEnum::Ordering,
+        name: "Ordering",
+        arity: 0,
+        variants: &[
+            StandardVariantSpec {
+                name: "Less",
+                payload_arity: 0,
+            },
+            StandardVariantSpec {
+                name: "Equal",
+                payload_arity: 0,
+            },
+            StandardVariantSpec {
+                name: "Greater",
+                payload_arity: 0,
+            },
+        ],
+    },
     StandardEnumSpec {
         kind: StandardEnum::Option,
         name: "Option",

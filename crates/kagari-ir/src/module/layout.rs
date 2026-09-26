@@ -221,6 +221,7 @@ pub(crate) fn validate_enum_layouts(
             }
             AbiType::StandardEnum { kind, args } => {
                 let expected = match kind {
+                    StandardEnumKind::Ordering => 0,
                     StandardEnumKind::Option => 1,
                     StandardEnumKind::Result => 2,
                 };

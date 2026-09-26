@@ -546,3 +546,15 @@ The builtin surface is complete when:
 - `for` loops lower through a defined iterable protocol
 - host-sensitive APIs are not exposed as core standard modules
 - builtin metadata supports diagnostics, reflection profiles, reload validation, and JIT lowering
+
+
+## Ordering protocols
+
+`Ordering` (also `std::cmp::Ordering`) has unit variants `Less`, `Equal`, `Greater`.
+`PartialOrd: PartialEq` declares `partial_cmp(self, other: Self) -> Option<Ordering>`.
+`Ord: Eq + PartialOrd` declares `cmp(self, other: Self) -> Ordering`.
+Comparison operators select PartialOrd; None makes each of `<`, `<=`, `>` and `>=`
+false. Implementations must agree with equality and with each other. Primitive
+integers, bool, unit, String and Ordering supply both; floats only PartialOrd.
+There is no automatic Struct, Tuple or user-enum ordering. Custom Struct/enum
+implementations use static calls and the ordinary failure/effect boundary.

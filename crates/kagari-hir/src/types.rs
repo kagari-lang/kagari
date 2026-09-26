@@ -810,6 +810,12 @@ impl TypeId {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
+        if matches!(name, "Ordering" | "std::cmp::Ordering") {
+            return Some(Self::StandardEnum {
+                kind: crate::builtin::surface::StandardEnum::Ordering,
+                args: vec![],
+            });
+        }
         crate::builtin::surface::builtin_type(name).map(Self::Builtin)
     }
 

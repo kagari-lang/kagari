@@ -265,6 +265,9 @@ impl Executor<'_> {
             StandardEnumOp::Make(v) | StandardEnumOp::Test(v) | StandardEnumOp::Read(v) => v,
         };
         let tag = match (*kind, variant) {
+            (StandardEnumKind::Ordering, 0) => EnumTag::OrderingLess,
+            (StandardEnumKind::Ordering, 1) => EnumTag::OrderingEqual,
+            (StandardEnumKind::Ordering, 2) => EnumTag::OrderingGreater,
             (StandardEnumKind::Option, 0) => EnumTag::OptionSome,
             (StandardEnumKind::Option, 1) => EnumTag::OptionNone,
             (StandardEnumKind::Result, 0) => EnumTag::ResultOk,
@@ -286,6 +289,10 @@ impl Executor<'_> {
                 .enum_snapshot(id)
                 .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
             let payload_count = match (kind, &snapshot.tag) {
+                (
+                    StandardEnumKind::Ordering,
+                    EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater,
+                ) => 0,
                 (StandardEnumKind::Option, EnumTag::OptionNone) => 0,
                 (StandardEnumKind::Option, EnumTag::OptionSome)
                 | (StandardEnumKind::Result, EnumTag::ResultOk | EnumTag::ResultErr) => 1,

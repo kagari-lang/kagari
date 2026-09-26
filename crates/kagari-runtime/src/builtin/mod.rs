@@ -136,6 +136,8 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         DebugAssert => "std::debug::assert",
         DebugAssertEq => "std::debug::assert_eq",
         DebugPanic => "std::debug::panic",
+        ValuePartialCmp => "std::cmp::PartialOrd::partial_cmp",
+        ValueCmp => "std::cmp::Ord::cmp",
         ValueEq => "std::cmp::PartialEq::eq",
         ValueHash => "std::hash::Hash::hash",
         ValueDebug => "std::fmt::Debug::debug",

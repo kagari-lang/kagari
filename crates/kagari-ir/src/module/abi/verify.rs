@@ -909,6 +909,7 @@ fn type_valid(
             AbiType::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::StandardEnum { kind, args } => {
                 let count = match kind {
+                    StandardEnumKind::Ordering => 0,
                     StandardEnumKind::Option => 1,
                     StandardEnumKind::Result => 2,
                 };

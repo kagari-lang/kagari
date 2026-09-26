@@ -19,14 +19,18 @@ pub enum StandardTrait {
     Hash,
     Debug,
     Display,
+    PartialOrd,
+    Ord,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
         Self::Debug,
         Self::Display,
+        Self::PartialOrd,
+        Self::Ord,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -35,11 +39,13 @@ impl StandardTrait {
             Self::Hash => "Hash",
             Self::Debug => "Debug",
             Self::Display => "Display",
+            Self::PartialOrd => "PartialOrd",
+            Self::Ord => "Ord",
         }
     }
     pub fn namespace(self) -> &'static str {
         match self {
-            Self::PartialEq | Self::Eq => "cmp",
+            Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord => "cmp",
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -105,10 +111,12 @@ fn build_contract(kind: StandardTrait) -> TraitSignature {
     let mut methods = vec![];
     if kind != StandardTrait::Eq {
         let (name, result) = match kind {
-            StandardTrait::PartialEq => ("eq", BuiltinType::Bool),
-            StandardTrait::Hash => ("hash", BuiltinType::I64),
-            StandardTrait::Debug => ("debug", BuiltinType::String),
-            StandardTrait::Display => ("display", BuiltinType::String),
+            StandardTrait::PartialOrd => ("partial_cmp", ordering_type(true)),
+            StandardTrait::Ord => ("cmp", ordering_type(false)),
+            StandardTrait::PartialEq => ("eq", TypeId::Builtin(BuiltinType::Bool)),
+            StandardTrait::Hash => ("hash", TypeId::Builtin(BuiltinType::I64)),
+            StandardTrait::Debug => ("debug", TypeId::Builtin(BuiltinType::String)),
+            StandardTrait::Display => ("display", TypeId::Builtin(BuiltinType::String)),
             _ => unreachable!(),
         };
         let mut method_id = id.clone();
@@ -122,7 +130,10 @@ fn build_contract(kind: StandardTrait) -> TraitSignature {
             writeability: Writeability::Val,
             ty: TypeId::SelfType(id.clone()),
         }];
-        if kind == StandardTrait::PartialEq {
+        if matches!(
+            kind,
+            StandardTrait::PartialEq | StandardTrait::PartialOrd | StandardTrait::Ord
+        ) {
             params.push(MethodParameter {
                 name: "other".into(),
                 writeability: Writeability::Val,
@@ -139,7 +150,7 @@ fn build_contract(kind: StandardTrait) -> TraitSignature {
             generic_params: vec![],
             bounds: Default::default(),
             params,
-            return_type: TypeId::Builtin(result),
+            return_type: result,
         });
     }
     TraitSignature {
@@ -147,19 +158,37 @@ fn build_contract(kind: StandardTrait) -> TraitSignature {
         id,
         generic_params: vec![],
         bounds: Default::default(),
-        supertraits: if kind == StandardTrait::Eq {
-            vec![NominalType {
-                declaration: identity(StandardTrait::PartialEq),
-                arguments: vec![],
-                associated_types: Default::default(),
-            }]
-        } else {
-            vec![]
-        },
+        supertraits: match kind {
+            StandardTrait::Eq | StandardTrait::PartialOrd => vec![StandardTrait::PartialEq],
+            StandardTrait::Ord => vec![StandardTrait::Eq, StandardTrait::PartialOrd],
+            _ => vec![],
+        }
+        .into_iter()
+        .map(|kind| NominalType {
+            declaration: identity(kind),
+            arguments: vec![],
+            associated_types: Default::default(),
+        })
+        .collect(),
         methods,
         associated_types: Default::default(),
         associated_type_parameters: Default::default(),
         associated_consts: Default::default(),
+    }
+}
+
+pub fn ordering_type(optional: bool) -> TypeId {
+    let ordering = TypeId::StandardEnum {
+        kind: super::surface::StandardEnum::Ordering,
+        args: vec![],
+    };
+    if optional {
+        TypeId::StandardEnum {
+            kind: super::surface::StandardEnum::Option,
+            args: vec![ordering],
+        }
+    } else {
+        ordering
     }
 }
 
@@ -171,6 +200,36 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
+    if matches!(protocol, StandardTrait::PartialOrd | StandardTrait::Ord) {
+        if bounds.get(ty).is_some_and(|constraints| constraints.iter().any(|c| matches!(c, ConstraintTarget::Trait(n) if n.declaration == protocol.contract().id || protocol == StandardTrait::PartialOrd && n.declaration == StandardTrait::Ord.contract().id))) {return true;}
+        if let Some(catalog) = catalog
+            && matches!(
+                catalog.concrete_interface_implementation(
+                    &protocol.nominal(),
+                    ty,
+                    bounds,
+                    4096,
+                    64,
+                    &Default::default()
+                ),
+                Ok(Some(_))
+            )
+        {
+            return true;
+        }
+        return match ty {
+            TypeId::Unknown | TypeId::Error => true,
+            TypeId::Builtin(BuiltinType::F32 | BuiltinType::F64) => {
+                protocol == StandardTrait::PartialOrd
+            }
+            TypeId::Builtin(_) => true,
+            TypeId::StandardEnum {
+                kind: super::surface::StandardEnum::Ordering,
+                ..
+            } => true,
+            _ => false,
+        };
+    }
     if protocol.equality_protocol()
         && let Some(catalog) = catalog
     {
@@ -244,7 +303,10 @@ pub fn in_module(module: super::surface::StandardModule, name: &str) -> Option<S
                 (module, kind),
                 (
                     StandardModule::Cmp,
-                    StandardTrait::Eq | StandardTrait::PartialEq
+                    StandardTrait::Eq
+                        | StandardTrait::PartialEq
+                        | StandardTrait::PartialOrd
+                        | StandardTrait::Ord
                 ) | (StandardModule::Hash, StandardTrait::Hash)
                     | (
                         StandardModule::Fmt,

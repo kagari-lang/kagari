@@ -219,6 +219,9 @@ impl FunctionLowerer<'_, '_> {
                 args: members,
             } => {
                 let variants = match kind {
+                    kagari_hir::builtin::surface::StandardEnum::Ordering => {
+                        vec![(0, vec![]), (1, vec![]), (2, vec![])]
+                    }
                     kagari_hir::builtin::surface::StandardEnum::Option => {
                         vec![(0, vec![members[0].clone()]), (1, vec![])]
                     }

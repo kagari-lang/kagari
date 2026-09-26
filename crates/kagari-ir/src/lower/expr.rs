@@ -1,5 +1,6 @@
 mod equality;
 mod keys;
+mod operators;
 mod standard;
 
 use kagari_hir::builtin::surface::StandardIntrinsic;
@@ -391,6 +392,18 @@ impl FunctionLowerer<'_, '_> {
                 let rhs = self.lower_expr(rhs)?;
                 if self.current_block_terminated() {
                     return Ok(rhs);
+                }
+                if matches!(
+                    op,
+                    hir::BinaryOp::Lt | hir::BinaryOp::Le | hir::BinaryOp::Gt | hir::BinaryOp::Ge
+                ) && self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .call_resolution(expr_id)
+                    .is_some()
+                {
+                    return self.lower_ordering_operator(expr_id, op, &[lhs, rhs]);
                 }
                 if matches!(op, hir::BinaryOp::Eq | hir::BinaryOp::NotEq) {
                     let ty = self
@@ -1429,6 +1442,8 @@ impl FunctionLowerer<'_, '_> {
                 {
                     use kagari_hir::builtin::{surface::StandardIntrinsic, traits::StandardTrait};
                     let intrinsic = match protocol {
+                        StandardTrait::PartialOrd => StandardIntrinsic::ValuePartialCmp,
+                        StandardTrait::Ord => StandardIntrinsic::ValueCmp,
                         StandardTrait::PartialEq => StandardIntrinsic::ValueEq,
                         StandardTrait::Hash => StandardIntrinsic::ValueHash,
                         StandardTrait::Debug => StandardIntrinsic::ValueDebug,

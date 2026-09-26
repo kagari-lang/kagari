@@ -41,13 +41,16 @@ KbcArtifact {
 }
 ```
 
-Format version 53 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 54 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 52 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 53 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 54 and runtime ABI v54 add Ordering and builtin comparison protocol calls.
+Canonical trait contracts include their declared parameters and associated outputs.
 
 Version 53 and runtime ABI v53 add guarded custom-key preparation and commit
 intrinsics. Custom comparison/hash methods and generated composite helpers use

@@ -207,6 +207,47 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
     Ok(result.text)
 }
 
+/// Builtin ordering leaves user dispatch to the checked call site.
+pub fn builtin_order(
+    gc: &GcHeap,
+    a: &Value,
+    b: &Value,
+) -> Result<Option<std::cmp::Ordering>, RuntimeError> {
+    use Value::*;
+    let invalid = || {
+        RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "invalid builtin ordering operands",
+        )
+    };
+    if !gc.validate_value(a) || !gc.validate_value(b) {
+        return Err(invalid());
+    }
+    Ok(match (a, b) {
+        (Unit, Unit) => Some(std::cmp::Ordering::Equal),
+        (Bool(a), Bool(b)) => a.partial_cmp(b),
+        (I32(a), I32(b)) => a.partial_cmp(b),
+        (I64(a), I64(b)) => a.partial_cmp(b),
+        (F32(a), F32(b)) => a.partial_cmp(b),
+        (F64(a), F64(b)) => a.partial_cmp(b),
+        (Str(a), Str(b)) => a.partial_cmp(b),
+        (Enum(a), Enum(b)) => {
+            let rank = |id| match gc.enum_snapshot(id)?.tag {
+                crate::value::EnumTag::OrderingLess => Some(0),
+                crate::value::EnumTag::OrderingEqual => Some(1),
+                crate::value::EnumTag::OrderingGreater => Some(2),
+                _ => None,
+            };
+            Some(
+                rank(*a)
+                    .ok_or_else(invalid)?
+                    .cmp(&rank(*b).ok_or_else(invalid)?),
+            )
+        }
+        _ => return Err(invalid()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

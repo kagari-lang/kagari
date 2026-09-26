@@ -603,10 +603,7 @@ impl StandardEnumOp {
         self,
         ty: &super::abi::AbiType,
     ) -> Option<(Option<super::ValueType>, super::ValueType)> {
-        use super::{
-            ValueType,
-            abi::{AbiType, StandardEnumKind},
-        };
+        use super::{ValueType, abi::AbiType};
         if !ty.within_wire_limits()
             || !super::abi::verify::concrete_type_valid(ty, &Default::default())
         {
@@ -615,21 +612,14 @@ impl StandardEnumOp {
         let AbiType::StandardEnum { kind, args } = ty else {
             return None;
         };
-        if args.len()
-            != match kind {
-                StandardEnumKind::Option => 1,
-                StandardEnumKind::Result => 2,
-            }
-        {
+        if args.len() != kind.spec().arity {
             return None;
         }
         let variant = match self {
             Self::Make(v) | Self::Test(v) | Self::Read(v) => v,
         };
-        if variant > 1 {
-            return None;
-        }
-        let payload = if *kind == StandardEnumKind::Option && variant == 1 {
+        let spec = kind.spec().variants.get(variant as usize)?;
+        let payload = if spec.payload_arity == 0 {
             None
         } else {
             Some(args[variant as usize].representation())

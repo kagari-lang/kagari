@@ -15,6 +15,9 @@ pub struct EnumValueSnapshot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnumTag {
+    OrderingLess,
+    OrderingEqual,
+    OrderingGreater,
     OptionSome,
     OptionNone,
     ResultOk,
@@ -25,6 +28,7 @@ pub enum EnumTag {
 impl EnumTag {
     pub fn type_name(&self) -> &str {
         match self {
+            Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater => "Ordering",
             Self::OptionSome | Self::OptionNone => "Option",
             Self::ResultOk | Self::ResultErr => "Result",
             Self::Declared(layout) => {
@@ -40,6 +44,9 @@ impl EnumTag {
     }
     pub fn variant_name(&self) -> &str {
         match self {
+            Self::OrderingLess => "Less",
+            Self::OrderingEqual => "Equal",
+            Self::OrderingGreater => "Greater",
             Self::OptionSome => "Some",
             Self::OptionNone => "None",
             Self::ResultOk => "Ok",
@@ -57,7 +64,9 @@ impl EnumTag {
     }
     pub(crate) fn accepts_representations(&self, fields: &[Value]) -> bool {
         match self {
-            Self::OptionNone => fields.is_empty(),
+            Self::OptionNone | Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater => {
+                fields.is_empty()
+            }
             Self::OptionSome | Self::ResultOk | Self::ResultErr => fields.len() == 1,
             Self::Declared(layout) => {
                 fields.len() == layout.variant().payload.len()
@@ -165,6 +174,9 @@ impl MapKey {
                 Value::Enum(id) => {
                     let snapshot = gc.enum_snapshot(id)?;
                     parts.push(match snapshot.tag {
+                        EnumTag::OrderingLess => KeyPart::StandardEnum(4),
+                        EnumTag::OrderingEqual => KeyPart::StandardEnum(5),
+                        EnumTag::OrderingGreater => KeyPart::StandardEnum(6),
                         EnumTag::OptionNone => KeyPart::StandardEnum(0),
                         EnumTag::OptionSome => KeyPart::StandardEnum(1),
                         EnumTag::ResultOk => KeyPart::StandardEnum(2),

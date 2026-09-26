@@ -61,6 +61,29 @@ pub fn invoke_with_callbacks(
         KeyMapGet | KeyMapInsert | KeyMapRemove | KeySetContains | KeySetInsert | KeySetRemove => {
             custom_key_operation(gc, intrinsic, args)
         }
+        ValuePartialCmp | ValueCmp => {
+            let [a, b] = args else {
+                return Err(BuiltinError::new("comparison requires two operands"));
+            };
+            let ordering = crate::value_semantics::builtin_order(gc, a, b)?;
+            let Some(ordering) = ordering else {
+                if intrinsic == ValueCmp {
+                    return Err(BuiltinError::new("total comparison cannot be unordered"));
+                }
+                return option_none(gc);
+            };
+            let tag = match ordering {
+                std::cmp::Ordering::Less => EnumTag::OrderingLess,
+                std::cmp::Ordering::Equal => EnumTag::OrderingEqual,
+                std::cmp::Ordering::Greater => EnumTag::OrderingGreater,
+            };
+            let value = Value::Enum(gc.alloc_enum(tag, vec![])?);
+            if intrinsic == ValuePartialCmp {
+                option_some(gc, value)
+            } else {
+                Ok(value)
+            }
+        }
         ValueEq => {
             let [a, b] = args else {
                 return Err(BuiltinError::new("eq expects two operands"));

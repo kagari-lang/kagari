@@ -184,7 +184,15 @@ impl BodyChecker<'_> {
             }
             return TypeId::Error;
         };
-        if args.len() != kind.spec().arity {
+        if args.len() != kind.spec().arity || *kind == surface::StandardEnum::Ordering {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
+                    function_name: "operator ?".into(),
+                    expected: "Option<T> or Result<T, E>".into(),
+                    found: ty.display_name(),
+                })
+                .with_span(self.lowered.source_map.expr_span(site)),
+            );
             return TypeId::Error;
         }
         let mut residual_args = args.clone();

@@ -842,7 +842,26 @@ impl<'a> BodyChecker<'a> {
                 else {
                     return TypeId::Unknown;
                 };
-                self.infer_binary_type(*op, *rhs, lhs_ty, rhs_completes.then_some(rhs_ty), env)
+                if matches!(
+                    op,
+                    BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
+                ) && let Some(left) = lhs_ty.as_ref()
+                    && rhs_completes
+                    && !left.conflicts_with(&rhs_ty)
+                    && self
+                        .record_operator(
+                            expr_id,
+                            *lhs,
+                            left,
+                            crate::builtin::traits::StandardTrait::PartialOrd.nominal(),
+                            env,
+                        )
+                        .is_some()
+                {
+                    TypeId::Builtin(BuiltinType::Bool)
+                } else {
+                    self.infer_binary_type(*op, *rhs, lhs_ty, rhs_completes.then_some(rhs_ty), env)
+                }
             }
             ExprKind::Call { callee, args } => {
                 if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env, expected)
@@ -1859,8 +1878,10 @@ impl<'a> BodyChecker<'a> {
             (None, None) => None,
         };
         match intrinsic {
-            KeyLookupBegin | KeyCandidates | KeyMapGet | KeyMapInsert | KeyMapRemove
-            | KeySetContains | KeySetInsert | KeySetRemove => TypeId::Error,
+            ValuePartialCmp | ValueCmp | KeyLookupBegin | KeyCandidates | KeyMapGet
+            | KeyMapInsert | KeyMapRemove | KeySetContains | KeySetInsert | KeySetRemove => {
+                TypeId::Error
+            }
             ArrayLen | ArrayIsEmpty | ArrayClear | ArrayPop => {
                 let array_ty = base_ty.clone();
                 let Some(TypeId::Array(element)) = array_ty else {
@@ -3901,6 +3922,45 @@ impl<'a> BodyChecker<'a> {
         Some(id.declaration.clone())
     }
 
+    /// Operator syntax and explicit method calls retain the same trait identity.
+    fn record_operator(
+        &mut self,
+        site: ExprId,
+        receiver: ExprId,
+        ty: &TypeId,
+        requested: crate::types::NominalType,
+        env: &BodyTypeEnv,
+    ) -> Option<TypeId> {
+        let interface = self.trait_bounds_for(ty, env).into_iter().find(|bound| {
+            bound.declaration == requested.declaration && bound.arguments == requested.arguments
+        })?;
+        let contract = self.aggregates.trait_(&interface.declaration)?;
+        let method = contract.methods.first()?;
+        let mut substitution: crate::types::TypeSubstitution = contract
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(interface.arguments.iter().cloned())
+            .collect();
+        substitution.insert_receiver(contract.id.clone(), ty.clone());
+        let result = self.aggregates.normalize_type(
+            &method
+                .return_type
+                .with_self(&contract.id, ty)
+                .instantiate(&substitution)
+                .with_associated_types(&interface),
+        );
+        self.type_table.insert_call(
+            site,
+            CallTarget::TraitMethod {
+                method: method.id.clone(),
+                interface,
+            },
+            Some(receiver),
+        );
+        Some(result)
+    }
+
     fn infer_binary_type(
         &mut self,
         op: BinaryOp,
@@ -4711,7 +4771,7 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         ValueHash => "std::hash::Hash::hash",
         ValueDebug => "std::fmt::Debug::debug",
         ValueDisplay => "std::fmt::Display::display",
-        KeyLookupBegin | KeyCandidates | KeyMapGet | KeyMapInsert | KeyMapRemove
-        | KeySetContains | KeySetInsert | KeySetRemove => "internal key operation",
+        ValuePartialCmp | ValueCmp | KeyLookupBegin | KeyCandidates | KeyMapGet | KeyMapInsert
+        | KeyMapRemove | KeySetContains | KeySetInsert | KeySetRemove => "internal key operation",
     }
 }
