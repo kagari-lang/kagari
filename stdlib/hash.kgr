@@ -1,0 +1,19 @@
+//! Standard hash protocols.
+
+/// Hashing used by map keys and set elements.
+///
+/// Equal values must produce equal hashes. Equal hashes do not imply equal values. Keep
+/// equality and hashing stable while a key is stored. Hash outputs are not persistence
+/// identifiers, cryptographic hashes or a cross-version serialization format.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     std::debug::assert((7, "key").hash() == (7, "key").hash(), "consistent");
+/// }
+/// ```
+pub trait Hash {
+    /// Compute a hash consistent with equality.
+    fn hash(self) -> i64;
+}

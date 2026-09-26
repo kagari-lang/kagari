@@ -1,3 +1,5 @@
+#[path = "build/api.rs"]
+mod api;
 use kagari_common::{SourceFile, cancellation::CancellationToken};
 use kagari_syntax::{
     ast::{self, AstNode},
@@ -56,13 +58,18 @@ fn attribute(node: &impl AstNode, name: &str) -> Option<String> {
 
 fn main() {
     let root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../stdlib");
+    let mut items = String::new();
+    let mut traits = String::new();
+    let mut enums = String::new();
+    let mut constructors = String::new();
     let mut functions = String::new();
     let mut methods = String::new();
     let mut sources = String::new();
     let mut bindings = BTreeSet::new();
     let mut method_bindings = BTreeSet::new();
     for module in [
-        "Array", "Map", "Set", "String", "Option", "Result", "Iter", "Math", "Debug",
+        "Array", "Map", "Set", "String", "Option", "Result", "Iter", "Math", "Debug", "Cmp",
+        "Hash", "Fmt", "Ops", "Convert",
     ] {
         let file = format!("{}.kgr", module.to_lowercase());
         let path = root.join(&file);
@@ -82,12 +89,35 @@ fn main() {
             "{file}: {:?}",
             parsed.diagnostics()
         );
+        api::declarations(
+            &parsed,
+            &module.to_lowercase(),
+            &uri,
+            &text,
+            &mut items,
+            &mut traits,
+            &mut enums,
+            &mut constructors,
+        );
         let mut exports = BTreeSet::new();
         for item in parsed.syntax().items() {
             let ast::Item::FnDef(function) = item else {
                 continue;
             };
             let name = function.name_text().unwrap();
+            writeln!(
+                items,
+                "{},",
+                api::item(
+                    &function,
+                    function.name().unwrap(),
+                    &module.to_lowercase(),
+                    &uri,
+                    &text,
+                    &[("Function", name.clone())]
+                )
+            )
+            .unwrap();
             assert!(
                 exports.insert(name.clone()),
                 "duplicate export {module}::{name}"
@@ -160,9 +190,8 @@ fn main() {
             let signature = &signature[signature.find("pub fn").unwrap()..];
             let doc = function.documentation(&text);
             assert!(!doc.is_empty(), "undocumented {name}");
-            let range = function.name().unwrap().syntax().text_range();
-            let start = usize::from(range.start());
-            let end = usize::from(range.end());
+            let range = api::name_range(&function.name().unwrap());
+            let (start, end) = range;
             let generics = format!("&{:?}", generics);
             let constraints = format!("&[{}]", constraints.join(","));
             let qualified_name = format!("std::{}::{name}", module.to_lowercase());
@@ -179,7 +208,7 @@ fn main() {
         }
     }
     let out = format!(
-        "const STANDARD_FUNCTIONS:&[StandardFunctionSpec]=&[{functions}];\nconst STANDARD_METHODS:&[StandardMethodSpec]=&[{methods}];\npub const STANDARD_SOURCES:&[(&str,&str)]=&[{sources}];"
+        "pub const STANDARD_ITEMS:&[ApiItem]=&[{items}];\npub const STANDARD_TRAITS:&[ApiTrait]=&[{traits}];\nconst STANDARD_ENUMS:&[StandardEnumSpec]=&[{enums}];\nconst STANDARD_TYPE_CONSTRUCTORS:&[StandardTypeConstructorSpec]=&[{constructors}];\nconst STANDARD_FUNCTIONS:&[StandardFunctionSpec]=&[{functions}];\nconst STANDARD_METHODS:&[StandardMethodSpec]=&[{methods}];\npub const STANDARD_SOURCES:&[(&str,&str)]=&[{sources}];"
     );
     std::fs::write(
         PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("standard_api.rs"),

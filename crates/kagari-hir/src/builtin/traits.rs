@@ -1,14 +1,11 @@
 //! Standard protocols have declaration identities and ordinary trait contracts.
 use crate::{
-    aggregates::{AggregateCatalog, MethodParameter, MethodSignature, TraitSignature},
-    declarations::{Declaration, DeclarationId},
-    hir::Writeability,
+    aggregates::{AggregateCatalog, TraitSignature},
     typeck::{ConstraintTarget, GenericBounds},
     types::{BuiltinType, NominalType, TypeId},
 };
-use kagari_common::{
-    SourceFile, Span,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
+use kagari_common::identity::{
+    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
 use std::sync::OnceLock;
 
@@ -181,7 +178,7 @@ impl StandardTrait {
             [self as usize]
     }
 }
-fn identity(kind: StandardTrait) -> DefinitionId {
+pub(crate) fn identity(kind: StandardTrait) -> DefinitionId {
     DefinitionId {
         module: ModuleIdentity {
             package: PackageId("kagari-std".into()),
@@ -195,169 +192,11 @@ fn identity(kind: StandardTrait) -> DefinitionId {
     }
 }
 fn build_contract(kind: StandardTrait) -> TraitSignature {
-    if kind.iteration() {
-        return build_iteration_contract(kind);
-    }
-    if kind.conversion() {
-        return build_conversion_contract(kind);
-    }
-    if kind.operator() {
-        return build_operator_contract(kind);
-    }
-    static SOURCE: OnceLock<SourceFile> = OnceLock::new();
-    let source = SOURCE.get_or_init(|| SourceFile::new("kagari://std/protocols", ""));
-    let id = identity(kind);
-    let declaration = |id: DefinitionId, name: &str| Declaration {
-        id: DeclarationId::Definition(id),
-        name: name.into(),
-        location: source.span(Span::new(0, 0)).expect("standard source"),
-    };
-    let mut methods = vec![];
-    if kind != StandardTrait::Eq {
-        let (name, result) = match kind {
-            StandardTrait::PartialOrd => ("partial_cmp", ordering_type(true)),
-            StandardTrait::Ord => ("cmp", ordering_type(false)),
-            StandardTrait::PartialEq => ("eq", TypeId::Builtin(BuiltinType::Bool)),
-            StandardTrait::Hash => ("hash", TypeId::Builtin(BuiltinType::I64)),
-            StandardTrait::Debug => ("debug", TypeId::Builtin(BuiltinType::String)),
-            StandardTrait::Display => ("display", TypeId::Builtin(BuiltinType::String)),
-            _ => unreachable!(),
-        };
-        let mut method_id = id.clone();
-        method_id.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Method,
-            name: name.into(),
-            occurrence: 0,
-        });
-        let mut params = vec![MethodParameter {
-            name: "self".into(),
-            writeability: Writeability::Val,
-            ty: TypeId::SelfType(id.clone()),
-        }];
-        if matches!(
-            kind,
-            StandardTrait::PartialEq | StandardTrait::PartialOrd | StandardTrait::Ord
-        ) {
-            params.push(MethodParameter {
-                name: "other".into(),
-                writeability: Writeability::Val,
-                ty: TypeId::SelfType(id.clone()),
-            });
-        }
-        methods.push(MethodSignature {
-            has_default: false,
-            declaration: declaration(method_id.clone(), name),
-            id: method_id,
-            owner: id.clone(),
-            slot: 0,
-            name: name.into(),
-            generic_params: vec![],
-            bounds: Default::default(),
-            params,
-            return_type: result,
-        });
-    }
-    TraitSignature {
-        declaration: declaration(id.clone(), kind.name()),
-        id,
-        generic_params: vec![],
-        bounds: Default::default(),
-        supertraits: match kind {
-            StandardTrait::Eq | StandardTrait::PartialOrd => vec![StandardTrait::PartialEq],
-            StandardTrait::Ord => vec![StandardTrait::Eq, StandardTrait::PartialOrd],
-            _ => vec![],
-        }
-        .into_iter()
-        .map(|kind| NominalType {
-            declaration: identity(kind),
-            arguments: vec![],
-            associated_types: Default::default(),
-        })
-        .collect(),
-        methods,
-        associated_types: Default::default(),
-        associated_type_parameters: Default::default(),
-        associated_consts: Default::default(),
-    }
-}
-
-fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
-    let id = identity(kind);
-    let source = SourceFile::new("kagari://std/operators", "");
-    let declaration = |id: DefinitionId, name: &str| Declaration {
-        id: DeclarationId::Definition(id),
-        name: name.into(),
-        location: source.span(Span::new(0, 0)).unwrap(),
-    };
-    let generics = if kind.binary_operator() || kind == StandardTrait::Index {
-        vec![crate::types::GenericParameterType {
-            owner: id.clone(),
-            position: 0,
-            name: "Rhs".into(),
-        }]
-    } else {
-        vec![]
-    };
-    let interface = NominalType {
-        declaration: id.clone(),
-        arguments: generics.iter().cloned().map(TypeId::Generic).collect(),
-        associated_types: Default::default(),
-    };
-    let output = crate::types::associated_type_id(&id, "Output");
-    let name = match kind {
-        StandardTrait::Add => "add",
-        StandardTrait::Sub => "sub",
-        StandardTrait::Mul => "mul",
-        StandardTrait::Div => "div",
-        StandardTrait::Rem => "rem",
-        StandardTrait::Neg => "neg",
-        StandardTrait::Not => "not",
-        StandardTrait::Index => "index",
-        _ => unreachable!(),
-    };
-    let mut method_id = id.clone();
-    method_id.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Method,
-        name: name.into(),
-        occurrence: 0,
-    });
-    TraitSignature {
-        declaration: declaration(id.clone(), kind.name()),
-        id: id.clone(),
-        generic_params: generics.clone(),
-        bounds: Default::default(),
-        supertraits: vec![],
-        methods: vec![MethodSignature {
-            has_default: false,
-            id: method_id.clone(),
-            owner: id.clone(),
-            slot: 0,
-            name: name.into(),
-            generic_params: generics.clone(),
-            bounds: Default::default(),
-            declaration: declaration(method_id, name),
-            params: std::iter::once(MethodParameter {
-                name: "self".into(),
-                writeability: Writeability::Val,
-                ty: TypeId::SelfType(id.clone()),
-            })
-            .chain(generics.first().map(|p| MethodParameter {
-                name: "rhs".into(),
-                writeability: Writeability::Val,
-                ty: TypeId::Generic(p.clone()),
-            }))
-            .collect(),
-            return_type: TypeId::Projection {
-                receiver: Box::new(TypeId::SelfType(id.clone())),
-                interface: Box::new(interface),
-                member: output.clone(),
-                arguments: vec![],
-            },
-        }],
-        associated_types: [(output, vec![])].into_iter().collect(),
-        associated_type_parameters: Default::default(),
-        associated_consts: Default::default(),
-    }
+    super::surface::STANDARD_TRAITS
+        .iter()
+        .find(|spec| spec.item.identity() == identity(kind))
+        .expect("standard trait declaration")
+        .contract()
 }
 
 /// Builtin associated outputs are computed from the applied protocol, not its spelling.
@@ -585,106 +424,6 @@ pub fn in_module(module: super::surface::StandardModule, name: &str) -> Option<S
     })
 }
 
-fn build_conversion_contract(kind: StandardTrait) -> TraitSignature {
-    static SOURCE: OnceLock<SourceFile> = OnceLock::new();
-    let source = SOURCE.get_or_init(|| SourceFile::new("kagari://std/conversions", ""));
-    let declaration = |id: DefinitionId, name: &str| Declaration {
-        id: DeclarationId::Definition(id),
-        name: name.into(),
-        location: source.span(Span::new(0, 0)).unwrap(),
-    };
-    let id = identity(kind);
-    let input = crate::types::GenericParameterType {
-        owner: id.clone(),
-        position: 0,
-        name: if kind.reverse_conversion() {
-            "Target"
-        } else {
-            "Source"
-        }
-        .into(),
-    };
-    let interface = NominalType {
-        declaration: id.clone(),
-        arguments: vec![TypeId::Generic(input.clone())],
-        associated_types: Default::default(),
-    };
-    let member = crate::types::associated_type_id(&id, "Error");
-    let output = if kind.reverse_conversion() {
-        TypeId::Generic(input.clone())
-    } else {
-        TypeId::SelfType(id.clone())
-    };
-    let output = if kind.fallible_conversion() {
-        TypeId::StandardEnum {
-            kind: super::surface::StandardEnum::Result,
-            args: vec![
-                output,
-                TypeId::Projection {
-                    receiver: Box::new(TypeId::SelfType(id.clone())),
-                    interface: Box::new(interface),
-                    member: member.clone(),
-                    arguments: vec![],
-                },
-            ],
-        }
-    } else {
-        output
-    };
-    let name = match kind {
-        StandardTrait::From => "from",
-        StandardTrait::Into => "into",
-        StandardTrait::TryFrom => "try_from",
-        StandardTrait::TryInto => "try_into",
-        _ => unreachable!(),
-    };
-    let mut method_id = id.clone();
-    method_id.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Method,
-        name: name.into(),
-        occurrence: 0,
-    });
-    TraitSignature {
-        declaration: declaration(id.clone(), kind.name()),
-        id: id.clone(),
-        generic_params: vec![input.clone()],
-        bounds: Default::default(),
-        supertraits: vec![],
-        associated_types: if kind.fallible_conversion() {
-            [(member, vec![])].into_iter().collect()
-        } else {
-            Default::default()
-        },
-        associated_type_parameters: Default::default(),
-        associated_consts: Default::default(),
-        methods: vec![MethodSignature {
-            has_default: false,
-            declaration: declaration(method_id.clone(), name),
-            id: method_id,
-            owner: id.clone(),
-            slot: 0,
-            name: name.into(),
-            generic_params: vec![input.clone()],
-            bounds: Default::default(),
-            params: vec![MethodParameter {
-                name: if kind.reverse_conversion() {
-                    "self"
-                } else {
-                    "value"
-                }
-                .into(),
-                writeability: Writeability::Val,
-                ty: if kind.reverse_conversion() {
-                    TypeId::SelfType(id)
-                } else {
-                    TypeId::Generic(input)
-                },
-            }],
-            return_type: output,
-        }],
-    }
-}
-
 /// The reverse protocol is a proof of the corresponding destination conversion.
 pub fn conversion_requirement(
     interface: &NominalType,
@@ -713,87 +452,6 @@ pub fn conversion_requirement(
         );
     }
     Some((required, interface.arguments[0].clone()))
-}
-
-fn build_iteration_contract(kind: StandardTrait) -> TraitSignature {
-    static SOURCE: OnceLock<SourceFile> = OnceLock::new();
-    let source = SOURCE.get_or_init(|| SourceFile::new("kagari://std/iteration", ""));
-    let declaration = |id: DefinitionId, name: &str| Declaration {
-        id: DeclarationId::Definition(id),
-        name: name.into(),
-        location: source.span(Span::new(0, 0)).unwrap(),
-    };
-    let id = identity(kind);
-    let project = |name: &str| TypeId::Projection {
-        receiver: Box::new(TypeId::SelfType(id.clone())),
-        interface: Box::new(NominalType {
-            declaration: id.clone(),
-            arguments: vec![],
-            associated_types: Default::default(),
-        }),
-        member: crate::types::associated_type_id(&id, name),
-        arguments: vec![],
-    };
-    let mut associated_types =
-        std::collections::BTreeMap::from([(crate::types::associated_type_id(&id, "Item"), vec![])]);
-    let (name, output) = if kind == StandardTrait::Iterator {
-        (
-            "next",
-            TypeId::StandardEnum {
-                kind: super::surface::StandardEnum::Option,
-                args: vec![project("Item")],
-            },
-        )
-    } else {
-        let iterator_id = identity(StandardTrait::Iterator);
-        let bound = NominalType {
-            declaration: iterator_id.clone(),
-            arguments: vec![],
-            associated_types: [(
-                crate::types::associated_type_id(&iterator_id, "Item"),
-                project("Item"),
-            )]
-            .into_iter()
-            .collect(),
-        };
-        associated_types.insert(
-            crate::types::associated_type_id(&id, "IntoIter"),
-            vec![ConstraintTarget::Trait(bound)],
-        );
-        ("into_iter", project("IntoIter"))
-    };
-    let mut method = id.clone();
-    method.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Method,
-        name: name.into(),
-        occurrence: 0,
-    });
-    TraitSignature {
-        declaration: declaration(id.clone(), kind.name()),
-        id: id.clone(),
-        generic_params: vec![],
-        bounds: Default::default(),
-        supertraits: vec![],
-        associated_types,
-        associated_type_parameters: Default::default(),
-        associated_consts: Default::default(),
-        methods: vec![MethodSignature {
-            has_default: false,
-            declaration: declaration(method.clone(), name),
-            id: method,
-            owner: id.clone(),
-            slot: 0,
-            name: name.into(),
-            generic_params: vec![],
-            bounds: Default::default(),
-            params: vec![MethodParameter {
-                name: "self".into(),
-                writeability: Writeability::Val,
-                ty: TypeId::SelfType(id),
-            }],
-            return_type: output,
-        }],
-    }
 }
 
 pub fn iteration_outputs(

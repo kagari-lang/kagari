@@ -279,3 +279,28 @@ pub fn intersection<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 @intrinsic(SetDifference)
 @method(difference)
 pub fn difference<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
+
+/// A shared mutable collection of distinct values of type `T`.
+///
+/// Elements require `Eq + Hash`. Equality determines membership; hashing chooses
+/// candidate buckets. Equal elements must have equal hashes, but collisions are
+/// allowed. The caller must not change an element's equality or hash while it is
+/// stored, even through another reference. Remove it before such a change and
+/// insert it again afterwards.
+///
+/// Assignment shares the set. `==` compares set identity, not membership. Set
+/// operations that return a new set copy element references without deep-copying
+/// objects. Iteration order is unspecified. Structural mutation during guarded
+/// iteration traps. Custom equality and hash implementations may also trap.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values: Set<i32> = std::set::new();
+/// values.insert(7);
+/// values.insert(7);
+/// std::debug::assert(values.len() == [0].len(), "one distinct member");
+/// std::debug::assert(values.contains(7), "membership");
+/// ```
+@builtin_type(Set)
+pub type Set<T>;

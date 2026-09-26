@@ -46,3 +46,27 @@ fn declaration_parsing_observes_cancellation() {
         .is_err()
     );
 }
+
+#[test]
+fn opaque_native_types_are_restricted_to_declaration_mode() {
+    let source = SourceFile::new(
+        "native.kgr",
+        "/// A native array.\n@builtin_type(Array) pub type Array<T>;",
+    );
+    let parsed =
+        parse_declarations(&source, Default::default(), &CancellationToken::default()).unwrap();
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+    assert!(
+        parsed
+            .syntax()
+            .syntax()
+            .children()
+            .any(|node| crate::ast::AssociatedType::cast(node).is_some())
+    );
+    assert!(!crate::parse(&source).diagnostics().is_empty());
+}

@@ -269,3 +269,27 @@ pub fn values<K: Eq + Hash, V>(value: Map<K, V>) -> [V];
 @intrinsic(MapEntries)
 @method(entries)
 pub fn entries<K: Eq + Hash, V>(value: Map<K, V>) -> [(K, V)];
+
+/// A shared mutable hash map from keys of type `K` to values of type `V`.
+///
+/// Keys require `Eq + Hash`. Equal keys must produce equal hashes; equal hashes do
+/// not imply equal keys. Inserting an existing key replaces its value. The caller
+/// must keep the equality and hash of a stored key stable, including changes through
+/// aliases. Custom comparison and hashing can execute script code and can trap.
+///
+/// Assignment shares the map. `==` compares map identity. Snapshot operations such
+/// as `keys`, `values`, and `entries` create arrays but keep references to objects
+/// inside them. Iteration order is unspecified. Structural mutation during guarded
+/// iteration traps; completed earlier side effects are preserved.
+///
+/// # Examples
+///
+/// ```kgr
+/// val names: Map<i32, String> = std::map::new();
+/// names.insert(1, "first");
+/// names.insert(1, "updated");
+/// std::debug::assert(names.get(1) == Some("updated"), "lookup");
+/// std::debug::assert(names.get(2) == None, "absent key");
+/// ```
+@builtin_type(Map)
+pub type Map<K, V>;

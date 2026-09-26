@@ -116,3 +116,25 @@ pub fn ends_with(value: String, needle: String) -> bool;
 @intrinsic(StringSlice)
 @method(slice)
 pub fn slice(value: String, start: usize, end: usize) -> Option<String>;
+
+/// An immutable UTF-8 string with value equality and hashing.
+///
+/// `len_bytes` counts UTF-8 bytes, not Unicode scalar values or grapheme clusters.
+/// `slice` uses a half-open byte range and returns `None` for invalid bounds or a
+/// boundary inside a scalar. Iteration produces one-scalar strings; a user-perceived
+/// character can contain several scalars. Operations do not normalize Unicode.
+///
+/// String operations return values and do not modify their receiver. Object identity
+/// is not a portable way to compare strings; use `==` to compare their contents.
+///
+/// # Examples
+///
+/// ```kgr
+/// val text = "é!";
+/// std::debug::assert(text.len_bytes() == [0, 0, 0].len(), "UTF-8 bytes");
+/// std::debug::assert(text.slice("".len_bytes(), [0, 0].len()) == Some("é"), "scalar boundary");
+/// std::debug::assert(text.concat("?") == "é!?", "new string");
+/// std::debug::assert(text == "é!", "original unchanged");
+/// ```
+@builtin_type(String)
+pub type String;

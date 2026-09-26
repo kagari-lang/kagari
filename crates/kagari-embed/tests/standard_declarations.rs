@@ -40,7 +40,7 @@ fn healthy()->i32 {42}
 }
 
 #[test]
-fn every_standard_function_has_an_executable_documentation_example() {
+fn standard_api_documentation_examples_compile_and_execute() {
     let engine = KagariEngine::default();
     use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
     let number = HostFunctionDeclaration::new("doc_test.number", vec![], HostValueType::F64);
@@ -53,20 +53,25 @@ fn every_standard_function_has_an_executable_documentation_example() {
         .unwrap();
     let mut failures = Vec::new();
     let mut checked = 0;
-    for spec in surface::standard_functions() {
-        let doc = spec.api.documentation;
-        assert!(doc.contains("# Examples"), "{}", spec.api.qualified_name);
+    for item in surface::STANDARD_ITEMS {
+        let name = format!("{}::{:?}", item.module, item.path);
+        let doc = item.documentation;
+        if item.path.len() == 1 {
+            assert!(doc.contains("# Examples"), "{name}");
+        }
         for block in doc.split("```kgr").skip(1) {
             let (flags, body) = block.split_once('\n').unwrap();
             let (body, _) = body.split_once("```").unwrap();
             let host_float = body.contains("fn example(value: f64)");
             let text = if host_float {
                 format!("{body}\nfn main()->f64 {{ example(doc_test::number()) }}")
+            } else if body.contains("fn main(") {
+                body.to_owned()
             } else {
                 format!("fn main() {{\n{body}\n}}")
             };
             let artifact = match engine.compile_to_artifact(
-                SourceFile::new(format!("doctest-{:?}.kgr", spec.intrinsic), text),
+                SourceFile::new(format!("doctest-{checked}.kgr"), text),
                 kagari_embed::CompileOptions {
                     language_profile: kagari_runtime::LanguageProfile {
                         allow_host_calls: true,
@@ -77,7 +82,7 @@ fn every_standard_function_has_an_executable_documentation_example() {
             ) {
                 Ok(artifact) => artifact,
                 Err(error) => {
-                    failures.push(format!("{} compile: {error:?}", spec.api.qualified_name));
+                    failures.push(format!("{} compile: {error:?}", name));
                     continue;
                 }
             };
@@ -110,13 +115,10 @@ fn every_standard_function_has_an_executable_documentation_example() {
                         .as_ref()
                         .is_err_and(|e| e.code() == "KG_RUNTIME_SCRIPT_TRAP")
                     {
-                        failures.push(format!(
-                            "{} expected trap: {result:?}",
-                            spec.api.qualified_name
-                        ));
+                        failures.push(format!("{} expected trap: {result:?}", name));
                     }
                 } else if let Err(error) = result {
-                    failures.push(format!("{} execute: {error:?}", spec.api.qualified_name));
+                    failures.push(format!("{} execute: {error:?}", name));
                 }
                 assert_eq!(runtime.runtime().gc().active_roots(), 0);
             }
@@ -124,5 +126,5 @@ fn every_standard_function_has_an_executable_documentation_example() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(checked, surface::standard_functions().len());
+    assert!(checked >= surface::standard_functions().len() + surface::STANDARD_TRAITS.len());
 }

@@ -1,0 +1,165 @@
+//! Standard ops protocols.
+
+/// The binary `+` operation.
+///
+/// Operands are evaluated once, from left to right. Output may differ from the operand
+/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
+/// operations retain checked overflow and division rules.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     val value = 8 + 2;
+///     std::debug::assert(value == 10, "operator");
+/// }
+/// ```
+pub trait Add<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn add(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The binary `-` operation.
+///
+/// Operands are evaluated once, from left to right. Output may differ from the operand
+/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
+/// operations retain checked overflow and division rules.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     val value = 8 - 2;
+///     std::debug::assert(value == 6, "operator");
+/// }
+/// ```
+pub trait Sub<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn sub(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The binary `*` operation.
+///
+/// Operands are evaluated once, from left to right. Output may differ from the operand
+/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
+/// operations retain checked overflow and division rules.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     val value = 8 * 2;
+///     std::debug::assert(value == 16, "operator");
+/// }
+/// ```
+pub trait Mul<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn mul(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The binary `/` operation.
+///
+/// Operands are evaluated once, from left to right. Output may differ from the operand
+/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
+/// operations retain checked overflow and division rules.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     val value = 8 / 2;
+///     std::debug::assert(value == 4, "operator");
+/// }
+/// ```
+pub trait Div<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn div(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The binary `%` operation.
+///
+/// Operands are evaluated once, from left to right. Output may differ from the operand
+/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
+/// operations retain checked overflow and division rules.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     val value = 8 % 2;
+///     std::debug::assert(value == 0, "operator");
+/// }
+/// ```
+pub trait Rem<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn rem(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The unary `-` operation.
+///
+/// The operand is evaluated once. Output may differ from the input type. This does not
+/// override short-circuit operators, assignment or identity comparison.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     std::debug::assert(-7 == 0 - 7, "unary");
+/// }
+/// ```
+pub trait Neg {
+    /// The result type.
+    type Output;
+    /// Apply the unary operation.
+    fn neg(self) -> Self::Output;
+}
+
+/// The unary `!` operation.
+///
+/// The operand is evaluated once. Output may differ from the input type. This does not
+/// override short-circuit operators, assignment or identity comparison.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     std::debug::assert(!false, "unary");
+/// }
+/// ```
+pub trait Not {
+    /// The result type.
+    type Output;
+    /// Apply the unary operation.
+    fn not(self) -> Self::Output;
+}
+
+/// Read access through `container[index]`.
+///
+/// Receiver and index are evaluated once, in that order. The result is an ordinary value;
+/// object results retain their identity. This protocol does not define writable indexing or
+/// container writeback. Bounds failures in native array indexing trap.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     val values = [7];
+///     std::debug::assert(values[0] == 7, "index");
+/// }
+/// ```
+pub trait Index<Rhs> {
+    /// The returned element type.
+    type Output;
+    /// Read the element addressed by the index.
+    fn index(self, rhs: Rhs) -> Self::Output;
+}

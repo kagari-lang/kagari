@@ -144,3 +144,42 @@ pub fn map_err<T, E, F>(value: Result<T, E>, callback: fn(E) -> F) -> Result<T, 
 @intrinsic(ResultAndThen)
 @method(and_then)
 pub fn and_then<T, U, E>(value: Result<T, E>, callback: fn(T) -> Result<U, E>) -> Result<U, E>;
+
+/// A successful value `Ok(T)` or a recoverable business error `Err(E)`.
+///
+/// Use `Result` for failures callers can inspect and handle. It does not turn engine
+/// traps, cancellation, or resource exhaustion into business errors. Pattern matching
+/// handles both alternatives; `?` extracts `Ok` or returns the error early from a
+/// function with a compatible `Result` return type.
+///
+/// Constructing `Err` records its original script location and stack. Forwarding it,
+/// including through `?` or `map_err`, preserves that origin. Constructing a new
+/// `Err(e)` from an extracted payload creates a new origin. Diagnostic metadata does
+/// not participate in equality or hashing.
+///
+/// Default equality compares the variant and then its payload. Copying a result
+/// preserves references to mutable payloads. Completed side effects are not rolled
+/// back when a function returns `Err`.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn require_positive(value: i32) -> Result<i32, String> {
+///     if value > 0 { Ok(value) } else { Err("expected a positive number") }
+/// }
+/// fn increment(value: i32) -> Result<i32, String> {
+///     val number = require_positive(value)?;
+///     Ok(number + 1)
+/// }
+/// fn main() {
+///     std::debug::assert(increment(7) == Ok(8), "success");
+///     std::debug::assert(increment(0).is_err(), "propagated error");
+/// }
+/// ```
+@builtin_enum(Result)
+pub enum Result<T, E> {
+    /// Contains the successful value.
+    Ok(T),
+    /// Contains a business error and captures its original script stack.
+    Err(E),
+}

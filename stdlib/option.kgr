@@ -141,3 +141,35 @@ pub fn ok_or<T, E>(value: Option<T>, error: E) -> Result<T, E>;
 @intrinsic(OptionOkOrElse)
 @method(ok_or_else)
 pub fn ok_or_else<T, E>(value: Option<T>, callback: fn() -> E) -> Result<T, E>;
+
+/// An optional value: either `Some(T)` or `None`.
+///
+/// Use `Option` when absence is expected and needs no error payload. `get` operations
+/// use it to report a missing element. `None` carries no error origin or stack.
+/// Pattern matching handles both alternatives; `?` extracts `Some` or returns
+/// `None` early from a function returning `Option`.
+///
+/// Default equality compares the variant and then its payload using the payload's
+/// comparison rules. Copying an option preserves references to mutable payloads.
+/// `unwrap_or` evaluates its fallback eagerly; `unwrap_or_else` calls a fallback
+/// only when the value is absent.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn increment(value: Option<i32>) -> Option<i32> {
+///     val number = value?;
+///     Some(number + 1)
+/// }
+/// fn main() {
+///     std::debug::assert(increment(Some(7)) == Some(8), "present");
+///     std::debug::assert(increment(None) == None, "propagated absence");
+/// }
+/// ```
+@builtin_enum(Option)
+pub enum Option<T> {
+    /// Contains a value.
+    Some(T),
+    /// Contains no value and carries no error trace.
+    None,
+}

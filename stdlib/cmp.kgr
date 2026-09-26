@@ -1,0 +1,95 @@
+//! Standard cmp protocols.
+
+/// Equality used by `==` and `!=`.
+///
+/// Equality should be symmetric and transitive where comparisons are defined. Mutable
+/// objects default to identity unless custom comparison is supplied. Custom equality on
+/// hash keys must agree with Hash. Tuple and enum defaults compose member protocols; enum
+/// implementations may override the whole comparison.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     std::debug::assert(7 == 7, "equal");
+/// }
+/// ```
+pub trait PartialEq {
+    /// Compare this value with another value of the same type.
+    fn eq(self, other: Self) -> bool;
+}
+
+/// An equality relation suitable for keys.
+///
+/// In addition to PartialEq, implementations promise reflexivity. The engine checks trait
+/// contracts, not the mathematical truth of user implementations. Hash keys require both Eq
+/// and Hash.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn equal<T: Eq>(a: T, b: T) -> bool { a == b }
+/// fn main() { std::debug::assert(equal(7, 7), "equal"); }
+/// ```
+pub trait Eq: PartialEq {
+}
+
+/// Partial ordering used by relational operators.
+///
+/// Return None for unordered pairs. Comparisons should agree with equality and reverse
+/// consistently when operands are exchanged. Floating-point NaN values are unordered.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     std::debug::assert(1.partial_cmp(2) == Some(Ordering::Less), "ordered");
+/// }
+/// ```
+pub trait PartialOrd: PartialEq {
+    /// Compare values, returning None when no ordering exists.
+    fn partial_cmp(self, other: Self) -> Option<Ordering>;
+}
+
+/// A total ordering consistent with equality.
+///
+/// Every pair has an ordering. cmp must agree with partial_cmp and equality. This promise
+/// is not proved by the compiler.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     std::debug::assert(1.cmp(2) == Ordering::Less, "ordered");
+/// }
+/// ```
+pub trait Ord: Eq + PartialOrd {
+    /// Return the ordering of this value relative to another.
+    fn cmp(self, other: Self) -> Ordering;
+}
+
+/// The three possible outcomes of an ordered comparison.
+///
+/// `Less`, `Equal`, and `Greater` describe the left operand relative to the right.
+/// `Ord::cmp` returns an `Ordering`; `PartialOrd::partial_cmp` wraps it in `Some`
+/// or returns `None` for an unordered pair. Equality compares the variants.
+///
+/// # Examples
+///
+/// ```kgr
+/// val order = 1.cmp(2);
+/// std::debug::assert(match order {
+///     Ordering::Less => true,
+///     Ordering::Equal => false,
+///     Ordering::Greater => false,
+/// }, "left precedes right");
+/// ```
+@builtin_enum(Ordering)
+pub enum Ordering {
+    /// The first value precedes the second.
+    Less,
+    /// The compared values are equal.
+    Equal,
+    /// The first value follows the second.
+    Greater,
+}

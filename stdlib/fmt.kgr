@@ -1,0 +1,36 @@
+//! Standard fmt protocols.
+
+/// Diagnostic formatting as a string.
+///
+/// User implementations run ordinary script code and may trap. Builtin diagnostic error
+/// previews do not invoke arbitrary user Debug implementations. No stable serialization
+/// format is promised.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     std::debug::assert(7.debug() == "7", "debug");
+/// }
+/// ```
+pub trait Debug {
+    /// Format this value for diagnostic inspection.
+    fn debug(self) -> String;
+}
+
+/// User-facing formatting as a string.
+///
+/// Choose a representation appropriate for the application. This protocol does not imply
+/// parsing, locale handling or a stable serialization format.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     std::debug::assert(7.display() == "7", "display");
+/// }
+/// ```
+pub trait Display {
+    /// Format this value for display.
+    fn display(self) -> String;
+}

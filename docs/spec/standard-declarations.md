@@ -8,7 +8,7 @@ source locations. Runtime code owns representation and execution contracts.
 ## Declaration mode
 
 `parse_declarations` is an explicit, cancellable parser entry with ordinary parser
-limits. It permits top-level `fn ...;` signatures. Ordinary source parsing still
+limits. It permits top-level `fn ...;` signatures and opaque `pub type Name<T>;` declarations. Ordinary source parsing still
 requires a body. Parsing an interface does not grant code-generation authority.
 Standard library sources are installed by the engine, not discovered from user
 imports or recognized by a user-controlled file extension.
@@ -43,3 +43,20 @@ unwinding. Examples run through source compilation and encoded artifact loading.
 The numeric examples reflect current literal typing: unsuffixed integers are i32,
 unsuffixed floats are f32; usize values may come from lengths and f64 values from
 typed host bindings. Declaration migration does not introduce numeric casts.
+
+## Native types and standard protocols
+
+The same files declare Option, Result, Ordering, Array, Map, Set, String and Cursor.
+Native declarations bind existing engine representations; they do not define empty
+script structs. Enum variant order and payload counts are checked against the
+runtime discriminant contract. Primitive scalar representations remain engine-owned.
+
+All 21 standard traits derive their public contracts from these sources, including
+supertraits, generic parameters, methods, associated types and associated bounds.
+Trait solving and native implementations remain engine code. Declaration identities
+and member locations refer to the bundled source text, not placeholder spans.
+
+Documentation examples for functions, types and traits execute both directly and
+after artifact serialization. Nested members document their role within the enclosing
+protocol; protocol examples demonstrate the complete use rather than duplicating
+the same example on every associated type.

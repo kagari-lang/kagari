@@ -1,0 +1,101 @@
+//! Standard convert protocols.
+
+/// Infallible explicit conversion.
+///
+/// Conversions are explicit; argument matching and `?` do not insert conversion calls.
+/// Implement this protocol on the destination type. The corresponding reverse protocol is
+/// derived automatically.
+///
+/// # Examples
+///
+/// ```kgr
+/// struct Count { val value: i32 }
+/// impl From<i32> for Count {
+///     fn from(value: i32) -> Self { Count { value } }
+/// }
+/// fn main() {
+///     val count: Count = 7.into();
+///     std::debug::assert(count.value == 7, "converted");
+/// }
+/// ```
+pub trait From<Source> {
+    /// Perform the explicit conversion.
+    fn from(value: Source) -> Self;
+}
+
+/// Infallible explicit conversion.
+///
+/// Conversions are explicit; argument matching and `?` do not insert conversion calls. This
+/// reverse protocol is derived from the destination type's forward implementation and
+/// cannot be implemented independently.
+///
+/// # Examples
+///
+/// ```kgr
+/// struct Count { val value: i32 }
+/// impl From<i32> for Count {
+///     fn from(value: i32) -> Self { Count { value } }
+/// }
+/// fn main() {
+///     val count: Count = 7.into();
+///     std::debug::assert(count.value == 7, "converted");
+/// }
+/// ```
+pub trait Into<Target> {
+    /// Perform the explicit conversion.
+    fn into(self) -> Target;
+}
+
+/// Fallible explicit conversion.
+///
+/// Conversions are explicit; argument matching and `?` do not insert conversion calls.
+/// Implement this protocol on the destination type. The corresponding reverse protocol is
+/// derived automatically. Business rejection is represented by Err; traps and termination
+/// remain separate.
+///
+/// # Examples
+///
+/// ```kgr
+/// struct Count { val value: i32 }
+/// impl TryFrom<i32> for Count {
+///     type Error = String;
+///     fn try_from(value: i32) -> Result<Self, String> { Ok(Count { value }) }
+/// }
+/// fn main() {
+///     val count: Result<Count, String> = 7.try_into();
+///     std::debug::assert(count.is_ok(), "converted");
+/// }
+/// ```
+pub trait TryFrom<Source> {
+    /// The business error type.
+    type Error;
+    /// Perform the explicit conversion.
+    fn try_from(value: Source) -> Result<Self, Self::Error>;
+}
+
+/// Fallible explicit conversion.
+///
+/// Conversions are explicit; argument matching and `?` do not insert conversion calls. This
+/// reverse protocol is derived from the destination type's forward implementation and
+/// cannot be implemented independently. Business rejection is represented by Err; traps and
+/// termination remain separate.
+///
+/// # Examples
+///
+/// ```kgr
+/// struct Count { val value: i32 }
+/// impl TryFrom<i32> for Count {
+///     type Error = String;
+///     fn try_from(value: i32) -> Result<Self, String> { Ok(Count { value }) }
+/// }
+/// fn main() {
+///     val count: Result<Count, String> = 7.try_into();
+///     std::debug::assert(count.is_ok(), "converted");
+/// }
+/// ```
+pub trait TryInto<Target> {
+    /// The business error type.
+    type Error;
+    /// Perform the explicit conversion.
+    fn try_into(self) -> Result<Target, Self::Error>;
+}

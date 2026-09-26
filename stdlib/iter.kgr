@@ -74,7 +74,7 @@ pub fn get<I: Iterable>(value: I, index: usize) -> Option<I::Item>;
 @method(to_array)
 pub fn to_array<I: Iterable>(value: I) -> [I::Item];
 
-/// Call the callback for each native iteration item. Structural mutation during iteration
+/// Call the callback once for each native iteration item.
 ///
 /// Accepted native sources are arrays, maps, sets and strings. Array and set items are
 /// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
@@ -100,3 +100,72 @@ pub fn to_array<I: Iterable>(value: I) -> [I::Item];
 @intrinsic(IterForEach)
 @method(for_each)
 pub fn for_each<I: Iterable>(value: I, callback: fn(I::Item) -> ()) -> ();
+
+/// A stateful source of successive items.
+///
+/// next returns Some(item) or None. Do not assume custom iterators remain exhausted after
+/// returning None unless their own contract promises it. A for loop stops at the first
+/// None. Native cursors enforce structural modification guards and release execution
+/// resources on exit.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     val cursor = [7].into_iter();
+///     std::debug::assert(cursor.next() == Some(7), "first");
+///     std::debug::assert(cursor.next() == None, "end");
+/// }
+/// ```
+pub trait Iterator {
+    /// The item returned by each successful step.
+    type Item;
+    /// Advance once and return the next item, or None.
+    fn next(self) -> Option<Self::Item>;
+}
+
+/// Conversion into an iterator for a for loop.
+///
+/// The associated IntoIter must implement Iterator with the same Item. Native collections
+/// produce guarded cursors. An Iterator can itself be used as an iterable under the
+/// standard derived rule. Custom iterators define their own consistency behavior.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() {
+///     var total = 0;
+///     for item in [1, 2, 3] { total += item; }
+///     std::debug::assert(total == 6, "iteration");
+/// }
+/// ```
+pub trait IntoIterator {
+    /// The item yielded by the iterator.
+    type Item;
+    /// The resulting iterator type.
+    type IntoIter: Iterator<Item = Self::Item>;
+    /// Create or obtain the iterator.
+    fn into_iter(self) -> Self::IntoIter;
+}
+
+/// A native iterator retaining its source and current position.
+///
+/// Obtain a cursor through `into_iter` on a native collection or string. It implements
+/// `Iterator` and yields `Some(item)` until exhausted. Array and set items are
+/// elements, map items are `(key, value)` tuples, and string items are one-scalar
+/// strings. Yielded object references keep their identity.
+///
+/// The runtime manages structural iteration guards and releases them when the
+/// cursor is closed or execution is cleaned up. Do not structurally modify a guarded
+/// source. Map and set iteration order is unspecified. The representation is opaque;
+/// there is no empty-struct constructor for a cursor.
+///
+/// # Examples
+///
+/// ```kgr
+/// val cursor = [7].into_iter();
+/// std::debug::assert(cursor.next() == Some(7), "first item");
+/// std::debug::assert(cursor.next() == None, "exhausted");
+/// ```
+@builtin_type(Cursor)
+pub type Cursor<T>;

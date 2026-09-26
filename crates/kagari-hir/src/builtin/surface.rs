@@ -1,4 +1,6 @@
-use super::declarations::{ApiFunction, ApiParameter, ApiType};
+use super::declarations::{
+    ApiAssociatedType, ApiBound, ApiFunction, ApiItem, ApiMethod, ApiParameter, ApiTrait, ApiType,
+};
 use crate::types::{BuiltinType, TypeId};
 use serde::{Deserialize, Serialize};
 
@@ -397,100 +399,6 @@ const BUILTIN_TYPES: &[BuiltinTypeSpec] = &[
         family: BuiltinTypeFamily::String,
         const_safe: false,
         heap_backed: true,
-    },
-];
-
-const OPTION_VARIANTS: &[StandardVariantSpec] = &[
-    StandardVariantSpec {
-        name: "Some",
-        payload_arity: 1,
-    },
-    StandardVariantSpec {
-        name: "None",
-        payload_arity: 0,
-    },
-];
-
-const RESULT_VARIANTS: &[StandardVariantSpec] = &[
-    StandardVariantSpec {
-        name: "Ok",
-        payload_arity: 1,
-    },
-    StandardVariantSpec {
-        name: "Err",
-        payload_arity: 1,
-    },
-];
-
-const STANDARD_ENUMS: &[StandardEnumSpec] = &[
-    StandardEnumSpec {
-        kind: StandardEnum::Ordering,
-        name: "Ordering",
-        arity: 0,
-        variants: &[
-            StandardVariantSpec {
-                name: "Less",
-                payload_arity: 0,
-            },
-            StandardVariantSpec {
-                name: "Equal",
-                payload_arity: 0,
-            },
-            StandardVariantSpec {
-                name: "Greater",
-                payload_arity: 0,
-            },
-        ],
-    },
-    StandardEnumSpec {
-        kind: StandardEnum::Option,
-        name: "Option",
-        arity: 1,
-        variants: OPTION_VARIANTS,
-    },
-    StandardEnumSpec {
-        kind: StandardEnum::Result,
-        name: "Result",
-        arity: 2,
-        variants: RESULT_VARIANTS,
-    },
-];
-
-const STANDARD_TYPE_CONSTRUCTORS: &[StandardTypeConstructorSpec] = &[
-    StandardTypeConstructorSpec {
-        kind: StandardTypeConstructor::Cursor,
-        name: "Cursor",
-        arity: 1,
-        heap_backed: true,
-        const_safe: false,
-    },
-    StandardTypeConstructorSpec {
-        kind: StandardTypeConstructor::Option,
-        name: "Option",
-        arity: 1,
-        heap_backed: true,
-        const_safe: false,
-    },
-    StandardTypeConstructorSpec {
-        kind: StandardTypeConstructor::Result,
-        name: "Result",
-        arity: 2,
-        heap_backed: true,
-        const_safe: false,
-    },
-    StandardTypeConstructorSpec {
-        kind: StandardTypeConstructor::Map,
-        name: "Map",
-        arity: 2,
-        heap_backed: true,
-        const_safe: false,
-    },
-    StandardTypeConstructorSpec {
-        kind: StandardTypeConstructor::Set,
-        name: "Set",
-        arity: 1,
-        heap_backed: true,
-        const_safe: false,
     },
 ];
 

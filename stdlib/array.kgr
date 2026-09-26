@@ -177,3 +177,26 @@ pub fn remove<T>(value: [T], index: usize) -> Option<T>;
 @intrinsic(ArrayClear)
 @method(clear)
 pub fn clear<T>(value: [T]) -> [T];
+
+/// A resizable sequence of elements, written `[T]` in type annotations.
+///
+/// Arrays are shared mutable objects. Assigning an array to another binding keeps the
+/// same object; mutations through either binding are visible through the other.
+/// `val` prevents rebinding, not mutation of the array. `==` compares array identity.
+///
+/// Indices and lengths use `usize`. `get` returns `None` for an invalid index;
+/// `set`, `insert`, and `remove` trap when their index is invalid. Failed standard
+/// mutations leave the target unchanged. Structural changes are forbidden while an
+/// active iteration guard exists. Earlier successful mutations are not rolled back.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = [10, 20];
+/// val alias = values;
+/// alias.push(30);
+/// std::debug::assert(values.len() == [0, 0, 0].len(), "shared array");
+/// std::debug::assert(values.get(values.len()) == None, "past the end");
+/// ```
+@builtin_type(Array)
+pub type Array<T>;

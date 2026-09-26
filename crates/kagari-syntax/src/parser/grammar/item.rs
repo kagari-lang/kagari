@@ -27,6 +27,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
             Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
@@ -53,6 +54,7 @@ impl<'a> Parser<'a> {
             1
         };
         match self.nth_nontrivia_kind(offset) {
+            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
             Some(TokenKind::FnKw) => self.parse_function(),
@@ -93,6 +95,7 @@ impl<'a> Parser<'a> {
 
     fn parse_attributed_item(&mut self) {
         match self.attributed_item_kind() {
+            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
             Some(TokenKind::FnKw) => self.parse_function(),
@@ -704,6 +707,9 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::AssociatedType);
         self.parse_attributes();
         self.bump_trivia();
+        if self.declarations {
+            self.parse_visibility();
+        }
         self.expect(TokenKind::TypeKw, DiagnosticKind::ExpectedType);
         self.bump_trivia();
         self.parse_name();
