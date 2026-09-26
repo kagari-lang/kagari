@@ -175,10 +175,10 @@ pub(super) fn collect(
             TypeId::Tuple(types) | TypeId::StandardEnum { args: types, .. } => {
                 pending.extend(types.into_iter().map(|ty| (ty, span)))
             }
-            TypeId::Array(ty) | TypeId::Set(ty) | TypeId::Cursor(ty) => {
+            TypeId::Array(ty, _) | TypeId::Set(ty, _) | TypeId::Cursor(ty) => {
                 pending.push_back((*ty, span))
             }
-            TypeId::Map { key, value } => {
+            TypeId::Map { key, value, .. } => {
                 pending.push_back((*key, span));
                 pending.push_back((*value, span));
             }

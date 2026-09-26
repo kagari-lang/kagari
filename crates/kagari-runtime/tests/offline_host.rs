@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -373,8 +374,11 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
         Err(HostInterfaceError::Version)
     );
     for result in [
-        HostValueType::Array(Box::new(HostValueType::I32)),
-        HostValueType::Tuple(vec![HostValueType::Set(Box::new(HostValueType::I32))]),
+        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+        HostValueType::Tuple(vec![HostValueType::Set(
+            Box::new(HostValueType::I32),
+            CollectionAccess::Mutable,
+        )]),
         HostValueType::Option(Box::new(HostValueType::opaque("game.Object"))),
     ] {
         let mut invalid = configuration.clone();
@@ -385,7 +389,8 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
         );
     }
     let mut invalid = configuration.clone();
-    invalid.params[0].ty = HostValueType::Array(Box::new(HostValueType::I32));
+    invalid.params[0].ty =
+        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable);
     assert_eq!(
         invalid.validate(),
         Err(HostInterfaceError::InvalidDeclaration)

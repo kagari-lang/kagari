@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::{
     HostFieldDeclaration, HostInterface, HostMethodDeclaration, HostParameter, HostPassingStyle,
     HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
@@ -106,7 +107,10 @@ fn declarations() -> (HostTypeDeclaration, HostTypeDeclaration) {
     b.fields.push(HostFieldDeclaration::new(
         &b.id,
         "members",
-        HostValueType::Array(Box::new(HostValueType::Opaque(a.id.clone()))),
+        HostValueType::Array(
+            Box::new(HostValueType::Opaque(a.id.clone())),
+            CollectionAccess::Mutable,
+        ),
     ));
     let mut score = HostFieldDeclaration::new(&a.id, "score", HostValueType::I32);
     score.writable = true;

@@ -2,6 +2,7 @@ use super::declarations::{
     ApiAssociatedType, ApiBound, ApiFunction, ApiItem, ApiMethod, ApiParameter, ApiTrait, ApiType,
 };
 use crate::types::{BuiltinType, TypeId};
+use kagari_common::collection::CollectionAccess;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -605,6 +606,7 @@ pub fn standard_generic_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {
             Some(TypeId::Map {
                 key: Box::new(key),
                 value: Box::new(value),
+                access: CollectionAccess::Mutable,
             })
         }
         StandardTypeConstructor::Cursor => {
@@ -613,7 +615,7 @@ pub fn standard_generic_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {
         }
         StandardTypeConstructor::Set => {
             let [item] = args.try_into().ok()?;
-            Some(TypeId::Set(Box::new(item)))
+            Some(TypeId::Set(Box::new(item), CollectionAccess::Mutable))
         }
     }
 }
@@ -671,14 +673,14 @@ pub fn supports_hash_key(ty: &TypeId) -> bool {
 
 pub fn iterable_protocol(ty: &TypeId) -> Option<IterableProtocol> {
     match ty {
-        TypeId::Array(element) => Some(IterableProtocol::Array {
+        TypeId::Array(element, _) => Some(IterableProtocol::Array {
             item: (**element).clone(),
         }),
-        TypeId::Map { key, value } => Some(IterableProtocol::Map {
+        TypeId::Map { key, value, .. } => Some(IterableProtocol::Map {
             key: (**key).clone(),
             value: (**value).clone(),
         }),
-        TypeId::Set(element) => Some(IterableProtocol::Set {
+        TypeId::Set(element, _) => Some(IterableProtocol::Set {
             item: (**element).clone(),
         }),
         TypeId::Builtin(BuiltinType::String) => Some(IterableProtocol::String {

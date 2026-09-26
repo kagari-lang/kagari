@@ -1,4 +1,5 @@
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::collection::CollectionAccess;
 
 use crate::{
     bytecode::{BytecodeInstruction, ConstantOperand, lower_to_bytecode},
@@ -75,13 +76,19 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     let nominal = NominalType {
         associated_types: Default::default(),
         declaration: declaration.clone(),
-        arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
+        arguments: vec![TypeId::Array(
+            Box::new(TypeId::Builtin(BuiltinType::I32)),
+            CollectionAccess::Mutable,
+        )],
     };
     let encoded = AbiType::from_checked_type(&TypeId::Struct(nominal));
     let expected = AbiType::Struct(NominalAbiType {
         associated_types: Default::default(),
         declaration,
-        arguments: vec![AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::I32)))],
+        arguments: vec![AbiType::Array(
+            Box::new(AbiType::Builtin(BuiltinType::I32)),
+            CollectionAccess::Mutable,
+        )],
     });
     assert_eq!(encoded, expected);
     let bytes = bincode::serialize(&encoded).unwrap();

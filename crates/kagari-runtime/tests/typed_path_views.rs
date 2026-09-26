@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::{
     HostIndexSegmentDeclaration, HostValueType, HostVirtualSegmentDeclaration,
 };
@@ -711,7 +712,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     let mut hp = HostFieldDeclaration::new(
         &declaration.id,
         "hp",
-        HostValueType::Array(Box::new(HostValueType::I32)),
+        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
     );
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;

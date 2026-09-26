@@ -242,7 +242,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
             .iter()
             .find(|f| f.name == "size")
             .unwrap();
-        let TypeId::Set(element) = &method.params[0].ty else {
+        let TypeId::Set(element, _) = &method.params[0].ty else {
             panic!("receiver");
         };
         let TypeId::Generic(outer) = element.as_ref() else {

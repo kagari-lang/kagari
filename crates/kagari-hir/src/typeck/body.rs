@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 mod conversions;
 mod iteration;
 mod operators;
@@ -486,7 +487,7 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = base_ty?;
                 let ty = self.resolve_index_type(*index, &base_ty);
                 let fact = ty.clone().or_else(|| match &base_ty {
-                    TypeId::Array(element) => Some((**element).clone()),
+                    TypeId::Array(element, _) => Some((**element).clone()),
                     _ => None,
                 });
                 if let Some(fact) = fact {
@@ -554,7 +555,7 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = base_ty?;
                 let mut requested = crate::builtin::traits::StandardTrait::Index.nominal();
                 requested.arguments.push(index_ty.clone());
-                if !matches!(base_ty, TypeId::Array(_) | TypeId::Tuple(_))
+                if !matches!(base_ty, TypeId::Array(_, _) | TypeId::Tuple(_))
                     && let Some((interface, result)) =
                         self.select_operator(&base_ty, requested, env)
                 {
@@ -826,7 +827,7 @@ impl<'a> BodyChecker<'a> {
                         );
                     }
                 }
-                TypeId::Array(Box::new(integer))
+                TypeId::Array(Box::new(integer), CollectionAccess::Mutable)
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 self.infer_binary_operator(expr_id, lhs, op, rhs, env)
@@ -1162,7 +1163,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Array(elements) => {
                 let member = match expected {
-                    Some(TypeId::Array(element)) => Some(element.as_ref()),
+                    Some(TypeId::Array(element, _)) => Some(element.as_ref()),
                     _ => None,
                 };
                 let mut element_ty: Option<TypeId> = None;
@@ -1203,11 +1204,14 @@ impl<'a> BodyChecker<'a> {
                         element_ty = Some(ty);
                     }
                 }
-                TypeId::Array(Box::new(element_ty.unwrap_or_else(|| {
-                    member
-                        .cloned()
-                        .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
-                })))
+                TypeId::Array(
+                    Box::new(element_ty.unwrap_or_else(|| {
+                        member
+                            .cloned()
+                            .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                    })),
+                    CollectionAccess::Mutable,
+                )
             }
             ExprKind::Loop { body } => {
                 self.loop_depth += 1;
@@ -1239,7 +1243,7 @@ impl<'a> BodyChecker<'a> {
                     TypeId::Map { .. }
                 ) | (
                     Some(CallTarget::StandardIntrinsic(StandardIntrinsic::SetNew)),
-                    TypeId::Set(_)
+                    TypeId::Set(_, _)
                 )
             )
         {
@@ -2448,7 +2452,7 @@ impl<'a> BodyChecker<'a> {
         let mut trait_types = self.trait_bounds_for(&receiver_ty, env);
         // Arrays support every builtin integer index type. Method selection must
         // apply Index to the actual argument, just like bracket expressions.
-        if matches!(receiver_ty, TypeId::Array(_)) && name == "index" && args.len() == 1 {
+        if matches!(receiver_ty, TypeId::Array(_, _)) && name == "index" && args.len() == 1 {
             let index_ty = self.infer_expr_type(args[0], env);
             let protocol = crate::builtin::traits::StandardTrait::Index;
             let mut requested = protocol.nominal();
@@ -3221,7 +3225,7 @@ impl<'a> BodyChecker<'a> {
                         }
                         HostPathNode::Index { .. } => {
                             recovered_all_members = false;
-                            if let TypeId::Array(element) = current {
+                            if let TypeId::Array(element, _) = current {
                                 current = *element;
                             } else {
                                 break;
@@ -3357,7 +3361,7 @@ impl<'a> BodyChecker<'a> {
                         }
                         HostPathNode::Index { .. } => {
                             recovered_all_members = false;
-                            if let TypeId::Array(element) = current {
+                            if let TypeId::Array(element, _) = current {
                                 current = *element;
                             } else {
                                 break;
@@ -3570,9 +3574,9 @@ impl<'a> BodyChecker<'a> {
                             TypeId::Unknown
                                 | TypeId::Error
                                 | TypeId::Struct(_)
-                                | TypeId::Array(_)
+                                | TypeId::Array(_, _)
                                 | TypeId::Map { .. }
-                                | TypeId::Set(_)
+                                | TypeId::Set(_, _)
                         )
                     })
                 {
@@ -3924,7 +3928,7 @@ impl<'a> BodyChecker<'a> {
         // Keep the diagnostic above, but let downstream member queries recover.
         // A tuple still needs a valid constant index to select a member.
         result.or_else(|| match receiver {
-            TypeId::Array(element) => Some((**element).clone()),
+            TypeId::Array(element, _) => Some((**element).clone()),
             _ => None,
         })
     }
@@ -3939,7 +3943,7 @@ impl<'a> BodyChecker<'a> {
         .ok()?
         {
             return match receiver {
-                TypeId::Array(element) => Some((**element).clone()),
+                TypeId::Array(element, _) => Some((**element).clone()),
                 // No index value exists to select a particular Tuple member.
                 TypeId::Tuple(_) => Some(TypeId::Unknown),
                 _ => None,
@@ -3949,7 +3953,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         match receiver {
-            TypeId::Array(element) => Some((**element).clone()),
+            TypeId::Array(element, _) => Some((**element).clone()),
             TypeId::Tuple(elements) => self
                 .tuple_index(index_expr)
                 .and_then(|index| elements.get(index).cloned()),
@@ -4197,9 +4201,9 @@ impl<'a> BodyChecker<'a> {
 
 fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
     match ty {
-        TypeId::Array(_) => Some(StandardMethodReceiver::Array),
+        TypeId::Array(_, _) => Some(StandardMethodReceiver::Array),
         TypeId::Map { .. } => Some(StandardMethodReceiver::Map),
-        TypeId::Set(_) => Some(StandardMethodReceiver::Set),
+        TypeId::Set(_, _) => Some(StandardMethodReceiver::Set),
         TypeId::Builtin(BuiltinType::String) => Some(StandardMethodReceiver::String),
         TypeId::StandardEnum {
             kind: surface::StandardEnum::Option,

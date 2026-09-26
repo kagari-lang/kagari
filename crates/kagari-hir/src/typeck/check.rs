@@ -1,3 +1,5 @@
+#[cfg(test)]
+use kagari_common::collection::CollectionAccess;
 use kagari_common::{Diagnostic, DiagnosticKind, TypePosition};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
@@ -933,8 +935,8 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
             left.len() == right.len()
         }
         (TypeId::Cursor(_), TypeId::Cursor(_))
-        | (TypeId::Array(_), TypeId::Array(_))
-        | (TypeId::Set(_), TypeId::Set(_))
+        | (TypeId::Array(_, _), TypeId::Array(_, _))
+        | (TypeId::Set(_, _), TypeId::Set(_, _))
         | (TypeId::Map { .. }, TypeId::Map { .. }) => true,
         _ => false,
     }
@@ -953,7 +955,7 @@ pub(super) fn validate_standard_type_constraints(
             return;
         }
         match ty {
-            TypeId::Map { key, value } => {
+            TypeId::Map { key, value, .. } => {
                 validate_standard_constraint_type(
                     key,
                     StandardTypeConstraint::HashKey,
@@ -964,7 +966,7 @@ pub(super) fn validate_standard_type_constraints(
                 pending.push(value);
                 pending.push(key);
             }
-            TypeId::Set(element) => {
+            TypeId::Set(element, _) => {
                 validate_standard_constraint_type(
                     element,
                     StandardTypeConstraint::HashKey,
@@ -979,7 +981,7 @@ pub(super) fn validate_standard_type_constraints(
                 pending.push(result);
                 pending.extend(params.iter().rev());
             }
-            TypeId::Array(element) | TypeId::Cursor(element) => pending.push(element),
+            TypeId::Array(element, _) | TypeId::Cursor(element) => pending.push(element),
             TypeId::StandardEnum { args, .. }
             | TypeId::Struct(crate::types::NominalType {
                 arguments: args, ..
@@ -1195,7 +1197,7 @@ fn validate_interface_type(
                 diagnostics,
             );
         }
-        TypeId::Array(element) | TypeId::Cursor(element) => {
+        TypeId::Array(element, _) | TypeId::Cursor(element) => {
             validate_interface_type(
                 lowered,
                 declarations,
@@ -1205,7 +1207,7 @@ fn validate_interface_type(
                 diagnostics,
             );
         }
-        TypeId::Map { key, value } => {
+        TypeId::Map { key, value, .. } => {
             validate_interface_type(
                 lowered,
                 declarations,
@@ -1223,7 +1225,7 @@ fn validate_interface_type(
                 diagnostics,
             );
         }
-        TypeId::Set(element) => {
+        TypeId::Set(element, _) => {
             validate_interface_type(
                 lowered,
                 declarations,
@@ -1737,9 +1739,10 @@ mod constraint_traversal_tests {
         let mut ty = TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::F32)),
             value: Box::new(TypeId::Error),
+            access: CollectionAccess::Mutable,
         };
         for _ in 0..10_000 {
-            ty = TypeId::Array(Box::new(ty));
+            ty = TypeId::Array(Box::new(ty), CollectionAccess::Mutable);
         }
         let mut diagnostics = SmallVec::new();
         let cancelled = CancellationToken::default();
@@ -1761,7 +1764,7 @@ mod constraint_traversal_tests {
         );
         // Drop the synthetic deep input iteratively as well: this test exercises
         // validation, not the recursive representation's destructor.
-        while let TypeId::Array(inner) = ty {
+        while let TypeId::Array(inner, _) = ty {
             ty = *inner;
         }
         assert_eq!(cancelled_count, 0);

@@ -7,6 +7,11 @@ functions. The [implementation roadmap](../implementation-roadmap.md#collection-
 tracks the transition; the current [value contract](value-semantics.md) remains
 authoritative until the implementation checkpoints land.
 
+C01a has added access metadata to HIR, ABI and host interface types, with bounded
+encoding and fingerprint coverage. This is a representation foundation, not an
+implemented read-only API or execution guarantee. Instruction-level access
+validation and the public declaration migration remain pending.
+
 ## Type surface
 
 | Collection | Read-only access | Writable access |

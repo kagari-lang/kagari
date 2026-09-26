@@ -8,6 +8,8 @@ use crate::{
     declarations::{Declaration, DeclarationId},
     typeck::CallTarget,
 };
+#[cfg(test)]
+use kagari_common::collection::CollectionAccess;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardSignature {
@@ -104,9 +106,9 @@ impl FileAnalysis {
         surface::standard_methods()
             .iter()
             .filter(|method| match (&ty, method.receiver) {
-                (TypeId::Array(_), Receiver::Array)
+                (TypeId::Array(_, _), Receiver::Array)
                 | (TypeId::Map { .. }, Receiver::Map)
-                | (TypeId::Set(_), Receiver::Set)
+                | (TypeId::Set(_, _), Receiver::Set)
                 | (TypeId::Builtin(crate::types::BuiltinType::String), Receiver::String)
                 | (
                     TypeId::StandardEnum {
@@ -191,7 +193,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             signature.parameters[0].1,
-            TypeId::Array(Box::new(TypeId::Builtin(crate::types::BuiltinType::I32)))
+            TypeId::Array(
+                Box::new(TypeId::Builtin(crate::types::BuiltinType::I32)),
+                CollectionAccess::Mutable
+            )
         );
         let signature = analysis
             .standard_signature_at(text.find("is_ok()").unwrap())

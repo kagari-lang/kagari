@@ -1,4 +1,6 @@
 use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
+#[cfg(test)]
+use kagari_common::collection::CollectionAccess;
 
 /// Infer only the callee's parameters. Repeated occurrences are checked against
 /// the resulting signature by the caller; no source spelling participates.
@@ -51,11 +53,18 @@ pub(super) fn infer(
                 pending.extend(expected.iter().zip(actual).rev());
             }
             (TypeId::Cursor(expected), TypeId::Cursor(actual))
-            | (TypeId::Array(expected), TypeId::Array(actual))
-            | (TypeId::Set(expected), TypeId::Set(actual)) => {
+            | (TypeId::Array(expected, _), TypeId::Array(actual, _))
+            | (TypeId::Set(expected, _), TypeId::Set(actual, _)) => {
                 pending.push((expected, actual));
             }
-            (TypeId::Map { key: ek, value: ev }, TypeId::Map { key: ak, value: av }) => {
+            (
+                TypeId::Map {
+                    key: ek, value: ev, ..
+                },
+                TypeId::Map {
+                    key: ak, value: av, ..
+                },
+            ) => {
                 pending.push((ev, av));
                 pending.push((ek, ak));
             }
@@ -103,8 +112,8 @@ mod tests {
         let mut expected = TypeId::Generic(parameter.clone());
         let mut actual = TypeId::Builtin(BuiltinType::I32);
         for _ in 0..10_000 {
-            expected = TypeId::Array(Box::new(expected));
-            actual = TypeId::Array(Box::new(actual));
+            expected = TypeId::Array(Box::new(expected), CollectionAccess::Mutable);
+            actual = TypeId::Array(Box::new(actual), CollectionAccess::Mutable);
         }
         let mut substitution = TypeSubstitution::default();
         let cancelled = kagari_common::cancellation::CancellationToken::default();
@@ -129,7 +138,7 @@ mod tests {
         assert_eq!(substitution[&parameter], TypeId::Builtin(BuiltinType::I32));
         // Drop the synthetic deep inputs iteratively too; this test isolates traversal.
         for mut ty in [expected, actual] {
-            while let TypeId::Array(element) = ty {
+            while let TypeId::Array(element, _) = ty {
                 ty = *element;
             }
         }
@@ -154,9 +163,9 @@ mod tests {
         let mut integer = TypeId::Builtin(BuiltinType::I32);
         let mut boolean = TypeId::Builtin(BuiltinType::Bool);
         for _ in 0..10_000 {
-            recovering = TypeId::Array(Box::new(recovering));
-            integer = TypeId::Array(Box::new(integer));
-            boolean = TypeId::Array(Box::new(boolean));
+            recovering = TypeId::Array(Box::new(recovering), CollectionAccess::Mutable);
+            integer = TypeId::Array(Box::new(integer), CollectionAccess::Mutable);
+            boolean = TypeId::Array(Box::new(boolean), CollectionAccess::Mutable);
         }
         assert!(!recovering.conflicts_with(&integer));
         recovering.recover_from(&integer);
@@ -165,7 +174,7 @@ mod tests {
         recovering.recover_from(&boolean);
         assert!(!recovering.conflicts_with(&integer));
         for mut ty in [recovering, integer, boolean] {
-            while let TypeId::Array(element) = ty {
+            while let TypeId::Array(element, _) = ty {
                 ty = *element;
             }
         }
@@ -179,6 +188,7 @@ mod tests {
                 TypeId::Error,
                 TypeId::Builtin(BuiltinType::Bool),
             ])),
+            access: CollectionAccess::Mutable,
         };
         let other = TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::Bool)),
@@ -186,6 +196,7 @@ mod tests {
                 TypeId::Builtin(BuiltinType::I32),
                 TypeId::Builtin(BuiltinType::I32),
             ])),
+            access: CollectionAccess::Mutable,
         };
         value.recover_from(&other);
         assert_eq!(
@@ -196,6 +207,7 @@ mod tests {
                     TypeId::Builtin(BuiltinType::I32),
                     TypeId::Builtin(BuiltinType::Bool)
                 ])),
+                access: CollectionAccess::Mutable
             }
         );
         assert!(value.conflicts_with(&other));
@@ -247,12 +259,18 @@ mod tests {
             let template = make(NominalType {
                 associated_types: Default::default(),
                 declaration: declaration.clone(),
-                arguments: vec![TypeId::Array(Box::new(TypeId::Generic(parameter.clone())))],
+                arguments: vec![TypeId::Array(
+                    Box::new(TypeId::Generic(parameter.clone())),
+                    CollectionAccess::Mutable,
+                )],
             });
             let actual = make(NominalType {
                 associated_types: Default::default(),
                 declaration: declaration.clone(),
-                arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
+                arguments: vec![TypeId::Array(
+                    Box::new(TypeId::Builtin(BuiltinType::I32)),
+                    CollectionAccess::Mutable,
+                )],
             });
             let mut substitution = TypeSubstitution::default();
             infer(
@@ -276,7 +294,10 @@ mod tests {
                 make(NominalType {
                     associated_types: Default::default(),
                     declaration: foreign,
-                    arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
+                    arguments: vec![TypeId::Array(
+                        Box::new(TypeId::Builtin(BuiltinType::I32)),
+                        CollectionAccess::Mutable,
+                    )],
                 }),
                 make(NominalType {
                     associated_types: Default::default(),

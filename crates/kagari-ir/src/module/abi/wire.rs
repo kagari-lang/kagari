@@ -1,5 +1,6 @@
 //! Bounded flat encoding keeps untrusted ABI type decoding off the Rust call stack.
 use super::{AbiType, NominalAbiType};
+use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
 use kagari_hir::{builtin::surface::StandardEnum, types::BuiltinType};
 use serde::{
@@ -22,9 +23,9 @@ enum Node {
     Tuple(u32),
     Function(u32),
     Cursor,
-    Array,
-    Map,
-    Set,
+    Array(CollectionAccess),
+    Map(CollectionAccess),
+    Set(CollectionAccess),
     Struct(DefinitionId, u32),
     Enum(DefinitionId, u32),
     Trait(
@@ -97,18 +98,18 @@ impl AbiType {
                     pending.push((element, depth + 1));
                     Node::Cursor
                 }
-                Self::Array(element) => {
+                Self::Array(element, access) => {
                     pending.push((element, depth + 1));
-                    Node::Array
+                    Node::Array(*access)
                 }
-                Self::Map { key, value } => {
+                Self::Map { key, value, access } => {
                     pending.push((value, depth + 1));
                     pending.push((key, depth + 1));
-                    Node::Map
+                    Node::Map(*access)
                 }
-                Self::Set(element) => {
+                Self::Set(element, access) => {
                     pending.push((element, depth + 1));
-                    Node::Set
+                    Node::Set(*access)
                 }
                 Self::Struct(ty) => {
                     if !ty.associated_types.is_empty() {
@@ -278,12 +279,13 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
             result: Box::new(build(nodes, depth + 1)?),
         },
         Node::Cursor => AbiType::Cursor(Box::new(build(nodes, depth + 1)?)),
-        Node::Array => AbiType::Array(Box::new(build(nodes, depth + 1)?)),
-        Node::Map => AbiType::Map {
+        Node::Array(access) => AbiType::Array(Box::new(build(nodes, depth + 1)?), access),
+        Node::Map(access) => AbiType::Map {
             key: Box::new(build(nodes, depth + 1)?),
             value: Box::new(build(nodes, depth + 1)?),
+            access,
         },
-        Node::Set => AbiType::Set(Box::new(build(nodes, depth + 1)?)),
+        Node::Set(access) => AbiType::Set(Box::new(build(nodes, depth + 1)?), access),
         Node::Struct(id, count) => AbiType::Struct(NominalAbiType {
             associated_types: Default::default(),
             declaration: id,
@@ -352,6 +354,52 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collection_access_survives_checked_host_and_wire_conversions() {
+        use CollectionAccess::{Mutable, ReadOnly};
+        use kagari_common::host_interface::HostValueType;
+        let integer = AbiType::Builtin(BuiltinType::I32);
+        for access in [ReadOnly, Mutable] {
+            for ty in [
+                AbiType::Array(Box::new(integer.clone()), access),
+                AbiType::Set(Box::new(integer.clone()), access),
+                AbiType::Map {
+                    key: Box::new(integer.clone()),
+                    value: Box::new(AbiType::Array(Box::new(integer.clone()), ReadOnly)),
+                    access,
+                },
+            ] {
+                let checked = ty.to_checked_type();
+                assert_eq!(checked.collection_access(), Some(access));
+                assert_eq!(AbiType::from_checked_type(&checked), ty);
+                let bytes = codec().serialize(&ty).unwrap();
+                assert_eq!(codec().deserialize::<AbiType>(&bytes).unwrap(), ty);
+            }
+            for host in [
+                HostValueType::Array(Box::new(HostValueType::I32), access),
+                HostValueType::Set(Box::new(HostValueType::String), access),
+                HostValueType::Map {
+                    key: Box::new(HostValueType::String),
+                    value: Box::new(HostValueType::Array(Box::new(HostValueType::I32), ReadOnly)),
+                    access,
+                },
+            ] {
+                assert_eq!(
+                    AbiType::from_host_type(&host)
+                        .to_checked_type()
+                        .collection_access(),
+                    Some(access)
+                );
+            }
+        }
+        let readonly = AbiType::Array(Box::new(integer.clone()), ReadOnly);
+        let mutable = AbiType::Array(Box::new(integer), Mutable);
+        assert_ne!(
+            codec().serialize(&readonly).unwrap(),
+            codec().serialize(&mutable).unwrap()
+        );
+    }
     use bincode::Options;
     use kagari_common::identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity};
 
@@ -384,10 +432,17 @@ mod tests {
                 position: 0,
             },
             AbiType::Tuple(vec![
-                AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::I32))),
+                AbiType::Array(
+                    Box::new(AbiType::Builtin(BuiltinType::I32)),
+                    CollectionAccess::Mutable,
+                ),
                 AbiType::Map {
                     key: Box::new(AbiType::Builtin(BuiltinType::String)),
-                    value: Box::new(AbiType::Set(Box::new(AbiType::Builtin(BuiltinType::I64)))),
+                    value: Box::new(AbiType::Set(
+                        Box::new(AbiType::Builtin(BuiltinType::I64)),
+                        CollectionAccess::Mutable,
+                    )),
+                    access: CollectionAccess::Mutable,
                 },
             ]),
             AbiType::Function {
@@ -425,7 +480,10 @@ mod tests {
             arguments: vec![AbiType::Builtin(BuiltinType::Bool)],
             associated_types: [(
                 member.clone(),
-                AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::I32))),
+                AbiType::Array(
+                    Box::new(AbiType::Builtin(BuiltinType::I32)),
+                    CollectionAccess::Mutable,
+                ),
             )]
             .into(),
         };
@@ -468,7 +526,7 @@ mod tests {
     fn abi_type_wire_rejects_malformed_and_oversized_nodes() {
         for nodes in [
             vec![],
-            vec![Node::Array],
+            vec![Node::Array(CollectionAccess::Mutable)],
             vec![Node::Function(1), Node::Builtin(BuiltinType::I32)],
             vec![Node::Tuple(2), Node::Builtin(BuiltinType::I32)],
             vec![
@@ -489,10 +547,12 @@ mod tests {
 
         let mut deep = AbiType::Builtin(BuiltinType::I32);
         for _ in 0..MAX_DEPTH {
-            deep = AbiType::Array(Box::new(deep));
+            deep = AbiType::Array(Box::new(deep), CollectionAccess::Mutable);
         }
         assert!(codec().serialize(&deep).is_err());
-        let mut nodes = (0..MAX_DEPTH).map(|_| Node::Array).collect::<Vec<_>>();
+        let mut nodes = (0..MAX_DEPTH)
+            .map(|_| Node::Array(CollectionAccess::Mutable))
+            .collect::<Vec<_>>();
         nodes.push(Node::Builtin(BuiltinType::I32));
         let bytes = codec().serialize(&nodes).unwrap();
         assert!(codec().deserialize::<AbiType>(&bytes).is_err());

@@ -1,5 +1,6 @@
 //! Composite declarations use bounded, flat preorder encoding on the wire.
 use super::HostInterfaceError;
+use crate::collection::CollectionAccess;
 use crate::identity::DefinitionId;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
@@ -21,12 +22,13 @@ pub enum HostValueType {
     /// An opaque type is identified by its declaration, never a registry slot.
     Opaque(DefinitionId),
     Tuple(Vec<HostValueType>),
-    Array(Box<HostValueType>),
+    Array(Box<HostValueType>, CollectionAccess),
     Map {
         key: Box<HostValueType>,
         value: Box<HostValueType>,
+        access: CollectionAccess,
     },
-    Set(Box<HostValueType>),
+    Set(Box<HostValueType>, CollectionAccess),
     Option(Box<HostValueType>),
     Result {
         ok: Box<HostValueType>,
@@ -51,10 +53,10 @@ impl HostValueType {
             match ty {
                 Self::Opaque(id) => declarations.push(id),
                 Self::Tuple(elements) => pending.extend(elements),
-                Self::Array(element) | Self::Set(element) | Self::Option(element) => {
+                Self::Array(element, _) | Self::Set(element, _) | Self::Option(element) => {
                     pending.push(element)
                 }
-                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Result { ok, error } => pending.extend([ok.as_ref(), error.as_ref()]),
                 _ => {}
             }
@@ -96,24 +98,24 @@ impl HostValueType {
                     pending.extend(elements.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Tuple(elements.len() as u32)
                 }
-                Self::Array(element) | Self::Set(element) | Self::Option(element) => {
-                    if matches!(ty, Self::Set(_)) && !element.hash_key() {
+                Self::Array(element, _) | Self::Set(element, _) | Self::Option(element) => {
+                    if matches!(ty, Self::Set(_, _)) && !element.hash_key() {
                         return Err(HostInterfaceError::InvalidDeclaration);
                     }
                     pending.push((element, depth + 1));
                     match ty {
-                        Self::Array(_) => Node::Array,
-                        Self::Set(_) => Node::Set,
+                        Self::Array(_, access) => Node::Array(*access),
+                        Self::Set(_, access) => Node::Set(*access),
                         _ => Node::Option,
                     }
                 }
-                Self::Map { key, value } => {
+                Self::Map { key, value, access } => {
                     if !key.hash_key() {
                         return Err(HostInterfaceError::InvalidDeclaration);
                     }
                     pending.push((value, depth + 1));
                     pending.push((key, depth + 1));
-                    Node::Map
+                    Node::Map(*access)
                 }
                 Self::Result { ok, error } => {
                     pending.push((error, depth + 1));
@@ -142,9 +144,9 @@ enum Node {
     String,
     Opaque(DefinitionId),
     Tuple(u32),
-    Array,
-    Map,
-    Set,
+    Array(CollectionAccess),
+    Map(CollectionAccess),
+    Set(CollectionAccess),
     Option,
     Result,
 }
@@ -221,12 +223,13 @@ fn build<E: de::Error>(
                     .collect::<Result<_, E>>()?,
             )
         }
-        Node::Array => HostValueType::Array(Box::new(build(nodes, depth + 1)?)),
-        Node::Set => HostValueType::Set(Box::new(build(nodes, depth + 1)?)),
+        Node::Array(access) => HostValueType::Array(Box::new(build(nodes, depth + 1)?), access),
+        Node::Set(access) => HostValueType::Set(Box::new(build(nodes, depth + 1)?), access),
         Node::Option => HostValueType::Option(Box::new(build(nodes, depth + 1)?)),
-        Node::Map => HostValueType::Map {
+        Node::Map(access) => HostValueType::Map {
             key: Box::new(build(nodes, depth + 1)?),
             value: Box::new(build(nodes, depth + 1)?),
+            access,
         },
         Node::Result => HostValueType::Result {
             ok: Box::new(build(nodes, depth + 1)?),
@@ -242,15 +245,65 @@ mod tests {
     use super::*;
 
     #[test]
+    fn collection_access_round_trips_and_changes_host_binding_fingerprints() {
+        use CollectionAccess::{Mutable, ReadOnly};
+        for (writable, readable) in [
+            (
+                HostValueType::Array(Box::new(HostValueType::I32), Mutable),
+                HostValueType::Array(Box::new(HostValueType::I32), ReadOnly),
+            ),
+            (
+                HostValueType::Set(Box::new(HostValueType::String), Mutable),
+                HostValueType::Set(Box::new(HostValueType::String), ReadOnly),
+            ),
+            (
+                HostValueType::Map {
+                    key: Box::new(HostValueType::String),
+                    value: Box::new(HostValueType::Array(Box::new(HostValueType::I32), ReadOnly)),
+                    access: Mutable,
+                },
+                HostValueType::Map {
+                    key: Box::new(HostValueType::String),
+                    value: Box::new(HostValueType::Array(Box::new(HostValueType::I32), ReadOnly)),
+                    access: ReadOnly,
+                },
+            ),
+        ] {
+            let before = HostFunctionDeclaration::new("host.read", vec![], writable.clone());
+            let after = HostFunctionDeclaration::new("host.read", vec![], readable.clone());
+            assert_ne!(before.fingerprint().unwrap(), after.fingerprint().unwrap());
+            assert!(!before.matches_binding(&after));
+            assert_ne!(
+                writable.fingerprint().unwrap(),
+                readable.fingerprint().unwrap()
+            );
+            for ty in [writable, readable] {
+                let bytes = bincode::serialize(&ty).unwrap();
+                assert_eq!(bincode::deserialize::<HostValueType>(&bytes).unwrap(), ty);
+            }
+        }
+        let mut legacy = HostInterface::default().to_bytes().unwrap();
+        legacy[4..6].copy_from_slice(&11u16.to_le_bytes());
+        assert_eq!(
+            HostInterface::from_bytes(&legacy),
+            Err(HostInterfaceError::Version)
+        );
+    }
+
+    #[test]
     fn composite_types_round_trip_and_change_binding_fingerprints() {
         let ty = HostValueType::Result {
             ok: Box::new(HostValueType::Tuple(vec![
-                HostValueType::Array(Box::new(HostValueType::I32)),
+                HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
                 HostValueType::Option(Box::new(HostValueType::String)),
             ])),
             error: Box::new(HostValueType::Map {
                 key: Box::new(HostValueType::String),
-                value: Box::new(HostValueType::Set(Box::new(HostValueType::I64))),
+                value: Box::new(HostValueType::Set(
+                    Box::new(HostValueType::I64),
+                    CollectionAccess::Mutable,
+                )),
+                access: CollectionAccess::Mutable,
             }),
         };
         let a = HostFunctionDeclaration::new("host.make", vec![], ty);
@@ -276,9 +329,9 @@ mod tests {
             vec![],
             vec![Node::I32, Node::Bool],
             vec![Node::Tuple(u32::MAX)],
-            vec![Node::Map, Node::F32, Node::I32],
+            vec![Node::Map(CollectionAccess::Mutable), Node::F32, Node::I32],
             (0..MAX_DEPTH)
-                .map(|_| Node::Array)
+                .map(|_| Node::Array(CollectionAccess::Mutable))
                 .chain([Node::I32])
                 .collect(),
             (0..=MAX_NODES).map(|_| Node::I32).collect(),
@@ -288,11 +341,15 @@ mod tests {
         }
         let mut ty = HostValueType::I32;
         for _ in 1..MAX_DEPTH {
-            ty = HostValueType::Array(Box::new(ty));
+            ty = HostValueType::Array(Box::new(ty), CollectionAccess::Mutable);
         }
         let bytes = bincode::serialize(&ty).unwrap();
         assert_eq!(bincode::deserialize::<HostValueType>(&bytes).unwrap(), ty);
-        assert!(HostValueType::Array(Box::new(ty)).validate().is_err());
+        assert!(
+            HostValueType::Array(Box::new(ty), CollectionAccess::Mutable)
+                .validate()
+                .is_err()
+        );
         assert!(
             HostValueType::Tuple(vec![HostValueType::I32; MAX_NODES])
                 .validate()

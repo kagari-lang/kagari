@@ -1,6 +1,8 @@
 //! Validate serialized semantic types independently of display strings.
 use super::*;
 use crate::module::layout::LayoutValidationError;
+#[cfg(test)]
+use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
@@ -905,8 +907,8 @@ fn type_valid(
                 pending.extend(params);
                 pending.push(result);
             }
-            AbiType::Array(ty) | AbiType::Set(ty) | AbiType::Cursor(ty) => pending.push(ty),
-            AbiType::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+            AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Cursor(ty) => pending.push(ty),
+            AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::StandardEnum { kind, args } => {
                 let count = match kind {
                     StandardEnumKind::Ordering => 0,
@@ -996,13 +998,16 @@ mod tests {
             bounds: Vec::new(),
             params: vec![ParameterAbi {
                 name: "input".into(),
-                ty: AbiType::Array(Box::new(AbiType::Tuple(vec![
-                    AbiType::SelfType(trait_owner.clone()),
-                    AbiType::Parameter {
-                        owner: trait_method.clone(),
-                        position: 0,
-                    },
-                ]))),
+                ty: AbiType::Array(
+                    Box::new(AbiType::Tuple(vec![
+                        AbiType::SelfType(trait_owner.clone()),
+                        AbiType::Parameter {
+                            owner: trait_method.clone(),
+                            position: 0,
+                        },
+                    ])),
+                    CollectionAccess::Mutable,
+                ),
                 mutable: false,
             }],
             return_type: AbiType::Builtin(BuiltinType::I32),
@@ -1016,13 +1021,16 @@ mod tests {
             bounds: Vec::new(),
             params: vec![ParameterAbi {
                 name: "renamed".into(),
-                ty: AbiType::Array(Box::new(AbiType::Tuple(vec![
-                    for_type.clone(),
-                    AbiType::Parameter {
-                        owner: impl_method.clone(),
-                        position: 0,
-                    },
-                ]))),
+                ty: AbiType::Array(
+                    Box::new(AbiType::Tuple(vec![
+                        for_type.clone(),
+                        AbiType::Parameter {
+                            owner: impl_method.clone(),
+                            position: 0,
+                        },
+                    ])),
+                    CollectionAccess::Mutable,
+                ),
                 mutable: false,
             }],
             return_type: AbiType::Builtin(BuiltinType::I32),
@@ -1053,10 +1061,13 @@ mod tests {
             &cancel,
         ));
         let original_param = implemented.params[0].ty.clone();
-        implemented.params[0].ty = AbiType::Array(Box::new(AbiType::Tuple(vec![
-            for_type.clone(),
-            AbiType::Builtin(BuiltinType::Bool),
-        ])));
+        implemented.params[0].ty = AbiType::Array(
+            Box::new(AbiType::Tuple(vec![
+                for_type.clone(),
+                AbiType::Builtin(BuiltinType::Bool),
+            ])),
+            CollectionAccess::Mutable,
+        );
         assert!(!same_method_contract(
             &declared,
             &implemented,
@@ -1101,10 +1112,13 @@ mod tests {
             ConstraintAbi::Trait(NominalAbiType {
                 associated_types: Default::default(),
                 declaration: marker.clone(),
-                arguments: vec![AbiType::Array(Box::new(AbiType::Parameter {
-                    owner: parameter_owner,
-                    position: 0,
-                }))],
+                arguments: vec![AbiType::Array(
+                    Box::new(AbiType::Parameter {
+                        owner: parameter_owner,
+                        position: 0,
+                    }),
+                    CollectionAccess::Mutable,
+                )],
             })
         };
         declared.bounds[0].constraints = vec![applied(trait_method.clone())];
@@ -1119,7 +1133,10 @@ mod tests {
         let ConstraintAbi::Trait(instance) = &mut implemented.bounds[0].constraints[0] else {
             unreachable!()
         };
-        instance.arguments[0] = AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::Bool)));
+        instance.arguments[0] = AbiType::Array(
+            Box::new(AbiType::Builtin(BuiltinType::Bool)),
+            CollectionAccess::Mutable,
+        );
         assert!(!same_method_contract(
             &declared,
             &implemented,

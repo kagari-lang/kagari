@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -186,12 +187,13 @@ pub enum TypeId {
         result: Box<TypeId>,
     },
     Cursor(Box<TypeId>),
-    Array(Box<TypeId>),
+    Array(Box<TypeId>, CollectionAccess),
     Map {
         key: Box<TypeId>,
         value: Box<TypeId>,
+        access: CollectionAccess,
     },
-    Set(Box<TypeId>),
+    Set(Box<TypeId>, CollectionAccess),
     Struct(NominalType),
     Enum(NominalType),
     Trait(NominalType),
@@ -211,6 +213,40 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    /// Access is part of type identity; it never changes the underlying object.
+    pub fn collection_access(&self) -> Option<CollectionAccess> {
+        match self {
+            Self::Array(_, access) | Self::Set(_, access) | Self::Map { access, .. } => {
+                Some(*access)
+            }
+            _ => None,
+        }
+    }
+
+    /// Only the outer collection access is weakened. Type arguments stay invariant.
+    pub fn read_only_view(&self) -> Option<Self> {
+        use CollectionAccess::ReadOnly;
+        Some(match self {
+            Self::Array(item, _) => Self::Array(item.clone(), ReadOnly),
+            Self::Set(item, _) => Self::Set(item.clone(), ReadOnly),
+            Self::Map { key, value, .. } => Self::Map {
+                key: key.clone(),
+                value: value.clone(),
+                access: ReadOnly,
+            },
+            _ => return None,
+        })
+    }
+
+    pub fn can_weaken_to(&self, target: &Self) -> bool {
+        use CollectionAccess::{Mutable, ReadOnly};
+        self.collection_access() == Some(Mutable)
+            && target.collection_access() == Some(ReadOnly)
+            && self
+                .read_only_view()
+                .is_some_and(|view| !view.conflicts_with(target))
+    }
+
     pub fn contains_projection(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -223,8 +259,8 @@ impl TypeId {
                 Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
                     pending.extend(types)
                 }
-                Self::Array(ty) | Self::Set(ty) | Self::Cursor(ty) => pending.push(ty),
-                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(ty, _) | Self::Set(ty, _) | Self::Cursor(ty) => pending.push(ty),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
@@ -250,8 +286,10 @@ impl TypeId {
                     pending.extend(items)
                 }
                 Self::Function { .. } => {}
-                Self::Array(item) | Self::Set(item) | Self::Cursor(item) => pending.push(item),
-                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(item, _) | Self::Set(item, _) | Self::Cursor(item) => {
+                    pending.push(item)
+                }
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values())
@@ -281,8 +319,10 @@ impl TypeId {
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items)
                 }
-                Self::Array(item) | Self::Set(item) | Self::Cursor(item) => pending.push(item),
-                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(item, _) | Self::Set(item, _) | Self::Cursor(item) => {
+                    pending.push(item)
+                }
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
@@ -316,11 +356,12 @@ impl TypeId {
         match self {
             Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
             Self::Cursor(ty) => Self::Cursor(Box::new(map(ty))),
-            Self::Array(ty) => Self::Array(Box::new(map(ty))),
-            Self::Set(ty) => Self::Set(Box::new(map(ty))),
-            Self::Map { key, value } => Self::Map {
+            Self::Array(ty, access) => Self::Array(Box::new(map(ty)), *access),
+            Self::Set(ty, access) => Self::Set(Box::new(map(ty)), *access),
+            Self::Map { key, value, access } => Self::Map {
                 key: Box::new(map(key)),
                 value: Box::new(map(value)),
+                access: *access,
             },
             Self::Function { params, result } => Self::Function {
                 params: params.iter().map(&mut map).collect(),
@@ -382,11 +423,12 @@ impl TypeId {
                     args: vec![Self::Unknown; args.len()],
                 },
                 Self::Cursor(_) => Self::Cursor(Box::new(Self::Unknown)),
-                Self::Array(_) => Self::Array(Box::new(Self::Unknown)),
-                Self::Set(_) => Self::Set(Box::new(Self::Unknown)),
-                Self::Map { .. } => Self::Map {
+                Self::Array(_, access) => Self::Array(Box::new(Self::Unknown), *access),
+                Self::Set(_, access) => Self::Set(Box::new(Self::Unknown), *access),
+                Self::Map { access, .. } => Self::Map {
                     key: Box::new(Self::Unknown),
                     value: Box::new(Self::Unknown),
+                    access: *access,
                 },
                 Self::Function { params, .. } => Self::Function {
                     params: vec![Self::Unknown; params.len()],
@@ -472,18 +514,20 @@ impl TypeId {
                     );
                 }
                 (Self::Cursor(source), Self::Cursor(target))
-                | (Self::Array(source), Self::Array(target))
-                | (Self::Set(source), Self::Set(target)) => {
+                | (Self::Array(source, _), Self::Array(target, _))
+                | (Self::Set(source, _), Self::Set(target, _)) => {
                     pending.push((source, target, substitute));
                 }
                 (
                     Self::Map {
                         key: source_key,
                         value: source_value,
+                        ..
                     },
                     Self::Map {
                         key: target_key,
                         value: target_value,
+                        ..
                     },
                 ) => {
                     pending.push((source_value, target_value, substitute));
@@ -530,8 +574,10 @@ impl TypeId {
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items);
                 }
-                Self::Array(item) | Self::Set(item) | Self::Cursor(item) => pending.push(item),
-                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(item, _) | Self::Set(item, _) | Self::Cursor(item) => {
+                    pending.push(item)
+                }
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
@@ -599,9 +645,9 @@ impl TypeId {
                 Self::Builtin(_)
                 | Self::Struct(_)
                 | Self::Enum(_)
-                | Self::Array(_)
+                | Self::Array(_, _)
                 | Self::Map { .. }
-                | Self::Set(_) => {}
+                | Self::Set(_, _) => {}
             }
         }
         true
@@ -619,8 +665,10 @@ impl TypeId {
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items);
                 }
-                Self::Array(item) | Self::Set(item) | Self::Cursor(item) => pending.push(item),
-                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(item, _) | Self::Set(item, _) | Self::Cursor(item) => {
+                    pending.push(item)
+                }
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
@@ -661,10 +709,10 @@ impl TypeId {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values())
                 }
-                Self::Array(element) | Self::Set(element) | Self::Cursor(element) => {
+                Self::Array(element, _) | Self::Set(element, _) | Self::Cursor(element) => {
                     pending.push(element)
                 }
-                Self::Map { key, value } => {
+                Self::Map { key, value, .. } => {
                     pending.push(key);
                     pending.push(value);
                 }
@@ -691,11 +739,18 @@ impl TypeId {
                     pending.extend(left.iter_mut().zip(right).rev());
                 }
                 (Self::Cursor(left), Self::Cursor(right))
-                | (Self::Array(left), Self::Array(right))
-                | (Self::Set(left), Self::Set(right)) => {
+                | (Self::Array(left, _), Self::Array(right, _))
+                | (Self::Set(left, _), Self::Set(right, _)) => {
                     pending.push((left, right));
                 }
-                (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
+                (
+                    Self::Map {
+                        key: lk, value: lv, ..
+                    },
+                    Self::Map {
+                        key: rk, value: rv, ..
+                    },
+                ) => {
                     pending.push((lv, rv));
                     pending.push((lk, rk));
                 }
@@ -753,6 +808,13 @@ impl TypeId {
         while let Some((left, right)) = pending.pop() {
             match (left, right) {
                 (Self::Unknown | Self::Error, _) | (_, Self::Unknown | Self::Error) => {}
+                (left, right)
+                    if left.collection_access().is_some()
+                        && right.collection_access().is_some()
+                        && left.collection_access() != right.collection_access() =>
+                {
+                    return true;
+                }
                 (Self::Tuple(left), Self::Tuple(right)) => {
                     if left.len() != right.len() {
                         return true;
@@ -760,11 +822,18 @@ impl TypeId {
                     pending.extend(left.iter().zip(right).rev());
                 }
                 (Self::Cursor(left), Self::Cursor(right))
-                | (Self::Array(left), Self::Array(right))
-                | (Self::Set(left), Self::Set(right)) => {
+                | (Self::Array(left, _), Self::Array(right, _))
+                | (Self::Set(left, _), Self::Set(right, _)) => {
                     pending.push((left, right));
                 }
-                (Self::Map { key: lk, value: lv }, Self::Map { key: rk, value: rv }) => {
+                (
+                    Self::Map {
+                        key: lk, value: lv, ..
+                    },
+                    Self::Map {
+                        key: rk, value: rv, ..
+                    },
+                ) => {
                     pending.push((lv, rv));
                     pending.push((lk, rk));
                 }
@@ -870,19 +939,19 @@ impl TypeId {
                         pending.push(Part::Type(item));
                         pending.push(Part::Text("Cursor<"));
                     }
-                    Self::Array(item) => {
+                    Self::Array(item, _) => {
                         pending.push(Part::Text("]"));
                         pending.push(Part::Type(item));
                         pending.push(Part::Text("["));
                     }
-                    Self::Map { key, value } => {
+                    Self::Map { key, value, .. } => {
                         pending.push(Part::Text(">"));
                         pending.push(Part::Type(value));
                         pending.push(Part::Text(", "));
                         pending.push(Part::Type(key));
                         pending.push(Part::Text("Map<"));
                     }
-                    Self::Set(item) => {
+                    Self::Set(item, _) => {
                         pending.push(Part::Text(">"));
                         pending.push(Part::Type(item));
                         pending.push(Part::Text("Set<"));
@@ -968,9 +1037,9 @@ impl TypeId {
             Self::Tuple(_)
             | Self::Function { .. }
             | Self::Cursor(_)
-            | Self::Array(_)
+            | Self::Array(_, _)
             | Self::Map { .. }
-            | Self::Set(_)
+            | Self::Set(_, _)
             | Self::Struct(_)
             | Self::Enum(_)
             | Self::Trait(_)

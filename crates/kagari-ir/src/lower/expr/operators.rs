@@ -76,8 +76,8 @@ impl FunctionLowerer<'_, '_> {
             Some(StandardTrait::IntoIterator)
                 if matches!(
                     ty,
-                    TypeId::Array(_)
-                        | TypeId::Set(_)
+                    TypeId::Array(_, _)
+                        | TypeId::Set(_, _)
                         | TypeId::Map { .. }
                         | TypeId::Builtin(kagari_hir::types::BuiltinType::String)
                 ) =>

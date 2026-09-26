@@ -203,7 +203,7 @@ fn build_contract(kind: StandardTrait) -> TraitSignature {
 pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<TypeId> {
     let kind = StandardTrait::from_id(&interface.declaration)?;
     if kind == StandardTrait::Index
-        && let TypeId::Array(element) = receiver
+        && let TypeId::Array(element, _) = receiver
         && matches!(
             interface.arguments.as_slice(),
             [TypeId::Builtin(
@@ -376,7 +376,7 @@ pub fn intrinsic_holds(
                 }
             }
             TypeId::Enum(_) | TypeId::Host(_) if protocol == StandardTrait::Debug => {}
-            TypeId::Struct(_) | TypeId::Array(_) | TypeId::Map { .. } | TypeId::Set(_)
+            TypeId::Struct(_) | TypeId::Array(_, _) | TypeId::Map { .. } | TypeId::Set(_, _)
                 if protocol != StandardTrait::Display => {}
             TypeId::Tuple(elements) | TypeId::StandardEnum { args: elements, .. }
                 if protocol != StandardTrait::Display =>
@@ -462,10 +462,10 @@ pub fn iteration_outputs(
 ) -> Option<std::collections::BTreeMap<DefinitionId, TypeId>> {
     let native_item = match receiver {
         TypeId::Cursor(item) => Some((**item).clone()),
-        TypeId::Array(item) | TypeId::Set(item) if kind == StandardTrait::IntoIterator => {
+        TypeId::Array(item, _) | TypeId::Set(item, _) if kind == StandardTrait::IntoIterator => {
             Some((**item).clone())
         }
-        TypeId::Map { key, value } if kind == StandardTrait::IntoIterator => {
+        TypeId::Map { key, value, .. } if kind == StandardTrait::IntoIterator => {
             Some(TypeId::Tuple(vec![(**key).clone(), (**value).clone()]))
         }
         TypeId::Builtin(BuiltinType::String) if kind == StandardTrait::IntoIterator => {

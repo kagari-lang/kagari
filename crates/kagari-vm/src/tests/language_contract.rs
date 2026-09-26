@@ -1,5 +1,6 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
+use kagari_common::collection::CollectionAccess;
 use std::{
     cell::Cell,
     sync::{Arc, Mutex},
@@ -171,9 +172,10 @@ fn compile(case: &Case<'_>, route: Route) -> Option<kagari_ir::bytecode::Bytecod
     let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
         "observe.array",
         vec![],
-        kagari_common::host_interface::HostValueType::Array(Box::new(
-            kagari_common::host_interface::HostValueType::I32,
-        )),
+        kagari_common::host_interface::HostValueType::Array(
+            Box::new(kagari_common::host_interface::HostValueType::I32),
+            CollectionAccess::Mutable,
+        ),
     );
     use kagari_common::{
         identity::{ModuleIdentity, PackageId},
@@ -300,9 +302,10 @@ fn run(case: &Case<'_>, route: Route) {
     let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
         "observe.array",
         vec![],
-        kagari_common::host_interface::HostValueType::Array(Box::new(
-            kagari_common::host_interface::HostValueType::I32,
-        )),
+        kagari_common::host_interface::HostValueType::Array(
+            Box::new(kagari_common::host_interface::HostValueType::I32),
+            CollectionAccess::Mutable,
+        ),
     );
     let mut runtime = Runtime::new(RuntimeConfig {
         resources: kagari_runtime::ResourcePolicy {

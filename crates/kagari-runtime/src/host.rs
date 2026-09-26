@@ -1350,13 +1350,13 @@ fn host_value_matches(
             (Value::Tuple(values), HostValueType::Tuple(types)) if values.len() == types.len() => {
                 pending.extend(values.into_iter().zip(types))
             }
-            (Value::Array(id), HostValueType::Array(element)) => {
+            (Value::Array(id), HostValueType::Array(element, _)) => {
                 let Some(values) = heap.array_snapshot(id) else {
                     return Ok(false);
                 };
                 pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
             }
-            (Value::Map(id), HostValueType::Map { key, value }) => {
+            (Value::Map(id), HostValueType::Map { key, value, .. }) => {
                 let Some(entries) = heap.map_snapshot(id) else {
                     return Ok(false);
                 };
@@ -1365,7 +1365,7 @@ fn host_value_matches(
                     pending.push((v, value.as_ref()));
                 }
             }
-            (Value::Set(id), HostValueType::Set(element)) => {
+            (Value::Set(id), HostValueType::Set(element, _)) => {
                 let Some(values) = heap.set_snapshot(id) else {
                     return Ok(false);
                 };

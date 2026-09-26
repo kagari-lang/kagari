@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 #[path = "support/layouts.rs"]
 mod layouts;
 use kagari_ir::bytecode::BytecodeModule;
@@ -117,9 +118,10 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         "Record",
         &[(
             "leaf",
-            AbiType::Array(Box::new(AbiType::Builtin(
-                kagari_ir::module::abi::BuiltinType::I32,
-            ))),
+            AbiType::Array(
+                Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                CollectionAccess::Mutable,
+            ),
             true,
         )],
     );
@@ -254,9 +256,10 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
         "HostBacked",
         &[(
             "path",
-            AbiType::Array(Box::new(AbiType::Builtin(
-                kagari_ir::module::abi::BuiltinType::I32,
-            ))),
+            AbiType::Array(
+                Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                CollectionAccess::Mutable,
+            ),
             true,
         )],
     );

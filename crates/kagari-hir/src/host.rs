@@ -647,12 +647,17 @@ impl HostDeclarations {
 pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
     match ty {
         HostValueType::Tuple(types) => TypeId::Tuple(types.iter().map(signature_type).collect()),
-        HostValueType::Array(element) => TypeId::Array(Box::new(signature_type(element))),
-        HostValueType::Map { key, value } => TypeId::Map {
+        HostValueType::Array(element, access) => {
+            TypeId::Array(Box::new(signature_type(element)), *access)
+        }
+        HostValueType::Map { key, value, access } => TypeId::Map {
             key: Box::new(signature_type(key)),
             value: Box::new(signature_type(value)),
+            access: *access,
         },
-        HostValueType::Set(element) => TypeId::Set(Box::new(signature_type(element))),
+        HostValueType::Set(element, access) => {
+            TypeId::Set(Box::new(signature_type(element)), *access)
+        }
         HostValueType::Option(element) => TypeId::StandardEnum {
             kind: crate::builtin::surface::StandardEnum::Option,
             args: vec![signature_type(element)],

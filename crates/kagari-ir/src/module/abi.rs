@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 pub use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
 pub use kagari_hir::types::BuiltinType;
 use serde::{Deserialize, Serialize};
@@ -189,12 +190,13 @@ pub enum AbiType {
         result: Box<AbiType>,
     },
     Cursor(Box<AbiType>),
-    Array(Box<AbiType>),
+    Array(Box<AbiType>, CollectionAccess),
     Map {
         key: Box<AbiType>,
         value: Box<AbiType>,
+        access: CollectionAccess,
     },
-    Set(Box<AbiType>),
+    Set(Box<AbiType>, CollectionAccess),
     Struct(NominalAbiType),
     Enum(NominalAbiType),
     Trait(NominalAbiType),
@@ -233,12 +235,13 @@ impl AbiType {
                 result: Box::new(result.to_checked_type()),
             },
             Self::Cursor(ty) => TypeId::Cursor(Box::new(ty.to_checked_type())),
-            Self::Array(ty) => TypeId::Array(Box::new(ty.to_checked_type())),
-            Self::Map { key, value } => TypeId::Map {
+            Self::Array(ty, access) => TypeId::Array(Box::new(ty.to_checked_type()), *access),
+            Self::Map { key, value, access } => TypeId::Map {
                 key: Box::new(key.to_checked_type()),
                 value: Box::new(value.to_checked_type()),
+                access: *access,
             },
-            Self::Set(ty) => TypeId::Set(Box::new(ty.to_checked_type())),
+            Self::Set(ty, access) => TypeId::Set(Box::new(ty.to_checked_type()), *access),
             Self::Struct(ty) => TypeId::Struct(ty.to_checked_type()),
             Self::Enum(ty) => TypeId::Enum(ty.to_checked_type()),
             Self::Trait(ty) => TypeId::Trait(ty.to_checked_type()),
@@ -261,12 +264,13 @@ impl AbiType {
             Host::String => Self::Builtin(BuiltinType::String),
             Host::Opaque(id) => Self::Host(id.clone()),
             Host::Tuple(types) => Self::Tuple(types.iter().map(Self::from_host_type).collect()),
-            Host::Array(ty) => Self::Array(Box::new(Self::from_host_type(ty))),
-            Host::Map { key, value } => Self::Map {
+            Host::Array(ty, access) => Self::Array(Box::new(Self::from_host_type(ty)), *access),
+            Host::Map { key, value, access } => Self::Map {
                 key: Box::new(Self::from_host_type(key)),
                 value: Box::new(Self::from_host_type(value)),
+                access: *access,
             },
-            Host::Set(ty) => Self::Set(Box::new(Self::from_host_type(ty))),
+            Host::Set(ty, access) => Self::Set(Box::new(Self::from_host_type(ty)), *access),
             Host::Option(ty) => Self::StandardEnum {
                 kind: StandardEnumKind::Option,
                 args: vec![Self::from_host_type(ty)],
@@ -312,12 +316,17 @@ impl AbiType {
                 result: Box::new(Self::from_checked_type(result)),
             },
             TypeId::Cursor(element) => Self::Cursor(Box::new(Self::from_checked_type(element))),
-            TypeId::Array(element) => Self::Array(Box::new(Self::from_checked_type(element))),
-            TypeId::Map { key, value } => Self::Map {
+            TypeId::Array(element, access) => {
+                Self::Array(Box::new(Self::from_checked_type(element)), *access)
+            }
+            TypeId::Map { key, value, access } => Self::Map {
                 key: Box::new(Self::from_checked_type(key)),
                 value: Box::new(Self::from_checked_type(value)),
+                access: *access,
             },
-            TypeId::Set(element) => Self::Set(Box::new(Self::from_checked_type(element))),
+            TypeId::Set(element, access) => {
+                Self::Set(Box::new(Self::from_checked_type(element)), *access)
+            }
             TypeId::Struct(ty) => Self::Struct(NominalAbiType::from_checked_type(ty)),
             TypeId::Enum(ty) => Self::Enum(NominalAbiType::from_checked_type(ty)),
             TypeId::Trait(ty) => Self::Trait(NominalAbiType::from_checked_type(ty)),
@@ -350,8 +359,8 @@ impl AbiType {
                     pending.extend(params);
                     pending.push(result);
                 }
-                Self::Array(ty) | Self::Set(ty) | Self::Cursor(ty) => pending.push(ty),
-                Self::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(ty, _) | Self::Set(ty, _) | Self::Cursor(ty) => pending.push(ty),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
@@ -404,11 +413,16 @@ impl AbiType {
                 result: Box::new(result.instantiate(owner, arguments)?),
             },
             Self::Cursor(ty) => Self::Cursor(Box::new(ty.instantiate(owner, arguments)?)),
-            Self::Array(ty) => Self::Array(Box::new(ty.instantiate(owner, arguments)?)),
-            Self::Set(ty) => Self::Set(Box::new(ty.instantiate(owner, arguments)?)),
-            Self::Map { key, value } => Self::Map {
+            Self::Array(ty, access) => {
+                Self::Array(Box::new(ty.instantiate(owner, arguments)?), *access)
+            }
+            Self::Set(ty, access) => {
+                Self::Set(Box::new(ty.instantiate(owner, arguments)?), *access)
+            }
+            Self::Map { key, value, access } => Self::Map {
                 key: Box::new(key.instantiate(owner, arguments)?),
                 value: Box::new(value.instantiate(owner, arguments)?),
+                access: *access,
             },
             Self::StandardEnum { kind, args } => Self::StandardEnum {
                 kind: *kind,

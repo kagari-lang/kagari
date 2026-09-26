@@ -812,8 +812,10 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
             TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
                 pending.extend(items)
             }
-            TypeId::Array(item) | TypeId::Set(item) | TypeId::Cursor(item) => pending.push(item),
-            TypeId::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+            TypeId::Array(item, _) | TypeId::Set(item, _) | TypeId::Cursor(item) => {
+                pending.push(item)
+            }
+            TypeId::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             TypeId::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);

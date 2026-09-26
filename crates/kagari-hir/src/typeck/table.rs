@@ -937,16 +937,18 @@ pub(crate) fn match_implementation(
                 pending.extend(left.iter().zip(right));
             }
             (TypeId::Cursor(left), TypeId::Cursor(right))
-            | (TypeId::Array(left), TypeId::Array(right))
-            | (TypeId::Set(left), TypeId::Set(right)) => pending.push((left, right)),
+            | (TypeId::Array(left, _), TypeId::Array(right, _))
+            | (TypeId::Set(left, _), TypeId::Set(right, _)) => pending.push((left, right)),
             (
                 TypeId::Map {
                     key: left_key,
                     value: left_value,
+                    ..
                 },
                 TypeId::Map {
                     key: right_key,
                     value: right_value,
+                    ..
                 },
             ) => {
                 pending.push((left_key, right_key));

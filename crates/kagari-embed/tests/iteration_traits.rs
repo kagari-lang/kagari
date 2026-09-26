@@ -1,4 +1,5 @@
 use kagari_common::SourceFile;
+use kagari_common::collection::CollectionAccess;
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
@@ -166,7 +167,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         .cursor_operation(
             &loaded,
             &root.value(),
-            &AbiType::Array(Box::new(item)),
+            &AbiType::Array(Box::new(item), CollectionAccess::Mutable),
             CursorOp::New,
         )
         .unwrap();
@@ -311,10 +312,13 @@ fn malformed_native_cursor_operations_are_rejected_before_execution() {
             0 => *ty = AbiType::Builtin(BuiltinType::I32),
             1 => *value = None,
             _ => {
-                *ty = AbiType::Array(Box::new(AbiType::StandardEnum {
-                    kind: kagari_hir::builtin::surface::StandardEnum::Option,
-                    args: vec![],
-                }))
+                *ty = AbiType::Array(
+                    Box::new(AbiType::StandardEnum {
+                        kind: kagari_hir::builtin::surface::StandardEnum::Option,
+                        args: vec![],
+                    }),
+                    CollectionAccess::Mutable,
+                )
             }
         }
         assert!(kagari_ir::bytecode::verify_program(&program).is_err());

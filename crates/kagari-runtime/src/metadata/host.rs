@@ -162,15 +162,15 @@ fn intern(
             }
             TypeKind::Tuple
         }
-        T::Array(element) | T::Set(element) => {
+        T::Array(element, _) | T::Set(element, _) => {
             intern(inner, nominal, element)?;
-            if matches!(ty, T::Array(_)) {
+            if matches!(ty, T::Array(_, _)) {
                 TypeKind::Array
             } else {
                 TypeKind::Set
             }
         }
-        T::Map { key, value } => {
+        T::Map { key, value, .. } => {
             intern(inner, nominal, key)?;
             intern(inner, nominal, value)?;
             TypeKind::Map

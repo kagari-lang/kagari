@@ -1,3 +1,5 @@
+#[cfg(test)]
+use kagari_common::collection::CollectionAccess;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
@@ -472,15 +474,15 @@ impl GcHeap {
                     let objects=self.objects.borrow();
                     if !matches!(self.readable_object(&objects,id),Some(HeapObject::Cursor(cursor)) if cursor.item_type == **element) {return false;}
                 },
-                (Value::Array(id), AbiType::Array(element)) => {
+                (Value::Array(id), AbiType::Array(element, _)) => {
                     let Some(values) = self.array_snapshot(id) else { return false; };
                     pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
                 },
-                (Value::Map(id), AbiType::Map { key, value }) => {
+                (Value::Map(id), AbiType::Map { key, value ,..}) => {
                     let Some(entries) = self.map_snapshot(id) else { return false; };
                     for (k, v) in entries { pending.push((k, key)); pending.push((v, value)); }
                 },
-                (Value::Set(id), AbiType::Set(element)) => {
+                (Value::Set(id), AbiType::Set(element, _)) => {
                     let Some(values) = self.set_snapshot(id) else { return false; };
                     pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
                 },
@@ -1668,9 +1670,10 @@ mod tests {
         let array = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
         let interface = crate::layout_fixtures::interface_value_with(
             &mut runtime,
-            AbiType::Array(Box::new(AbiType::Builtin(
-                kagari_ir::module::abi::BuiltinType::I32,
-            ))),
+            AbiType::Array(
+                Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                CollectionAccess::Mutable,
+            ),
             Value::Array(array),
         );
         let Value::Interface(id) = interface else {
@@ -1848,9 +1851,10 @@ mod tests {
                 layout(
                     "HostBacked",
                     "path",
-                    AbiType::Array(Box::new(AbiType::Builtin(
-                        kagari_ir::module::abi::BuiltinType::I32
-                    )))
+                    AbiType::Array(
+                        Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                        CollectionAccess::Mutable
+                    )
                 ),
                 vec![path_view_value(3)],
             )
@@ -2069,9 +2073,11 @@ mod tests {
                         key: Box::new(AbiType::Builtin(
                             kagari_ir::module::abi::BuiltinType::String,
                         )),
-                        value: Box::new(AbiType::Array(Box::new(AbiType::Builtin(
-                            kagari_ir::module::abi::BuiltinType::I32,
-                        )))),
+                        value: Box::new(AbiType::Array(
+                            Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                            CollectionAccess::Mutable,
+                        )),
+                        access: CollectionAccess::Mutable,
                     },
                 ),
                 vec![Value::Map(map)],
@@ -2108,9 +2114,10 @@ mod tests {
                 layout(
                     "Cycle",
                     "array",
-                    AbiType::Array(Box::new(AbiType::Builtin(
-                        kagari_ir::module::abi::BuiltinType::I32,
-                    ))),
+                    AbiType::Array(
+                        Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                        CollectionAccess::Mutable,
+                    ),
                 ),
                 vec![Value::Array(array)],
             )

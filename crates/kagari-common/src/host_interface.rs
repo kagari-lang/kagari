@@ -8,7 +8,7 @@ use crate::{
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
-const VERSION: u16 = 11;
+const VERSION: u16 = 12;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod decode_limits;
@@ -188,9 +188,9 @@ impl HostFunctionDeclaration {
                         pending.extend([ok.as_ref(), error.as_ref()])
                     }
                     HostValueType::Opaque(_)
-                    | HostValueType::Array(_)
+                    | HostValueType::Array(_, _)
                     | HostValueType::Map { .. }
-                    | HostValueType::Set(_) => {
+                    | HostValueType::Set(_, _) => {
                         return Err(HostInterfaceError::InvalidDeclaration);
                     }
                     _ => {}

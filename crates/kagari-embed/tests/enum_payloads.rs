@@ -1,4 +1,5 @@
 use kagari_common::SourceFile;
+use kagari_common::collection::CollectionAccess;
 use kagari_embed::{BytecodeArtifact, KagariEngine};
 use kagari_hir::types::BuiltinType;
 use kagari_ir::module::{PublicAbiItem, abi::AbiType};
@@ -239,7 +240,10 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         variant.payload[1],
         AbiType::Tuple(vec![
             AbiType::Builtin(BuiltinType::I32),
-            AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::String))),
+            AbiType::Array(
+                Box::new(AbiType::Builtin(BuiltinType::String)),
+                CollectionAccess::Mutable
+            ),
         ])
     );
     let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();

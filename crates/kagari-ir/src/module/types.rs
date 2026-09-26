@@ -31,9 +31,9 @@ impl ValueType {
             Host::String => Self::Str,
             Host::Opaque(_) => Self::HostHandle,
             Host::Tuple(_)
-            | Host::Array(_)
+            | Host::Array(_, _)
             | Host::Map { .. }
-            | Host::Set(_)
+            | Host::Set(_, _)
             | Host::Option(_)
             | Host::Result { .. } => Self::HeapObject,
         }
@@ -66,9 +66,9 @@ impl ValueType {
             TypeId::Tuple(_)
             | TypeId::Function { .. }
             | TypeId::Cursor(_)
-            | TypeId::Array(_)
+            | TypeId::Array(_, _)
             | TypeId::Map { .. }
-            | TypeId::Set(_)
+            | TypeId::Set(_, _)
             | TypeId::Struct(_)
             | TypeId::Enum(_)
             | TypeId::Trait(_)

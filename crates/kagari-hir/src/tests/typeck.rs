@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 use kagari_common::{DiagnosticKind, SourceFile, TypePosition};
 use kagari_syntax::parse_module;
 
@@ -431,7 +432,10 @@ fn main() -> usize {
 
     assert_eq!(
         typed.type_table.expr_type(push_expr),
-        Some(TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32))))
+        Some(TypeId::Array(
+            Box::new(TypeId::Builtin(BuiltinType::I32)),
+            CollectionAccess::Mutable
+        ))
     );
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
@@ -511,7 +515,10 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
         BuiltinType::F64
     )));
     assert!(matches!(
-        surface::iterable_protocol(&TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))),
+        surface::iterable_protocol(&TypeId::Array(
+            Box::new(TypeId::Builtin(BuiltinType::I32)),
+            CollectionAccess::Mutable
+        )),
         Some(IterableProtocol::Array {
             item: TypeId::Builtin(BuiltinType::I32)
         })
@@ -526,6 +533,7 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
         surface::iterable_protocol(&TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::String)),
             value: Box::new(TypeId::Builtin(BuiltinType::I32)),
+            access: CollectionAccess::Mutable
         }),
         Some(IterableProtocol::Map {
             key: TypeId::Builtin(BuiltinType::String),
@@ -533,7 +541,10 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
         })
     ));
     assert!(matches!(
-        surface::iterable_protocol(&TypeId::Set(Box::new(TypeId::Builtin(BuiltinType::String)))),
+        surface::iterable_protocol(&TypeId::Set(
+            Box::new(TypeId::Builtin(BuiltinType::String)),
+            CollectionAccess::Mutable
+        )),
         Some(IterableProtocol::Set {
             item: TypeId::Builtin(BuiltinType::String),
         })
@@ -616,11 +627,15 @@ fn sized(value: usize) -> usize { value }
         TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::String)),
             value: Box::new(TypeId::Builtin(BuiltinType::I32)),
+            access: CollectionAccess::Mutable
         }
     );
     assert_eq!(
         typed.functions[3].return_type,
-        TypeId::Set(Box::new(TypeId::Builtin(BuiltinType::String)))
+        TypeId::Set(
+            Box::new(TypeId::Builtin(BuiltinType::String)),
+            CollectionAccess::Mutable
+        )
     );
     assert_eq!(
         typed.functions[4].return_type,
@@ -753,9 +768,10 @@ fn popped(values: [i32]) -> Option<i32> {
     );
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
-        Some(TypeId::Array(Box::new(TypeId::Builtin(
-            BuiltinType::String
-        ))))
+        Some(TypeId::Array(
+            Box::new(TypeId::Builtin(BuiltinType::String)),
+            CollectionAccess::Mutable
+        ))
     );
 
     let chars_tail = lowered

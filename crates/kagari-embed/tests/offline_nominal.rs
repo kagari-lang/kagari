@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     SourceFile,
     host_interface::{
@@ -1013,7 +1014,7 @@ fn assert_source_index_path(field_prefix: bool) {
     player.ownership = HostTypeOwnership::HostRoot;
     player.path_access = PathAccess::ReadWrite;
     let collection = if field_prefix {
-        let ty = HostValueType::Array(Box::new(HostValueType::I32));
+        let ty = HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable);
         let mut field = HostFieldDeclaration::new(&player.id, "scores", ty.clone());
         field.path_access = PathAccess::ReadWrite;
         field.writable = true;

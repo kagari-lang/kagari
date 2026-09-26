@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 #[path = "support/layouts.rs"]
 mod layouts;
 
@@ -233,14 +234,17 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let wrong_value = Value::Struct(runtime.alloc_struct(wrong, vec![Value::I32(9)]).unwrap());
     let mut bytecode = (*wrapper.module().bytecode).clone();
     bytecode.structures.push(leaf.layout().clone());
-    bytecode.structures[0].fields[0].ty = AbiType::Array(Box::new(AbiType::Tuple(vec![
-        AbiType::Struct(NominalAbiType {
-            associated_types: Default::default(),
-            declaration: leaf.layout().declaration.clone(),
-            arguments: vec![],
-        }),
-        AbiType::Builtin(BuiltinType::Bool),
-    ])));
+    bytecode.structures[0].fields[0].ty = AbiType::Array(
+        Box::new(AbiType::Tuple(vec![
+            AbiType::Struct(NominalAbiType {
+                associated_types: Default::default(),
+                declaration: leaf.layout().declaration.clone(),
+                arguments: vec![],
+            }),
+            AbiType::Builtin(BuiltinType::Bool),
+        ])),
+        CollectionAccess::Mutable,
+    );
     let module = runtime
         .load_program(
             "concrete",

@@ -1842,7 +1842,7 @@ impl FunctionLowerer<'_, '_> {
                             }
                             let key = match &ty {
                                 kagari_hir::types::TypeId::Map { key, .. }
-                                | kagari_hir::types::TypeId::Set(key) => Some(&**key),
+                                | kagari_hir::types::TypeId::Set(key, _) => Some(&**key),
                                 _ => None,
                             };
                             if let Some(key) = key

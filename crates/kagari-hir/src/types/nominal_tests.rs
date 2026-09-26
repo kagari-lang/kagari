@@ -1,4 +1,5 @@
 use super::*;
+use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity};
 
 fn definition(module: &str, kind: DefinitionKind) -> DefinitionId {
@@ -9,6 +10,60 @@ fn definition(module: &str, kind: DefinitionKind) -> DefinitionId {
             name: "Item".into(),
             occurrence: 0,
         }],
+    }
+}
+
+#[test]
+fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
+    use CollectionAccess::{Mutable, ReadOnly};
+    let parameter = GenericParameterType {
+        owner: definition("collection.kgr", DefinitionKind::Function),
+        position: 0,
+        name: "T".into(),
+    };
+    let item = TypeId::Generic(parameter.clone());
+    for writable in [
+        TypeId::Array(Box::new(item.clone()), Mutable),
+        TypeId::Set(Box::new(item.clone()), Mutable),
+        TypeId::Map {
+            key: Box::new(TypeId::Builtin(BuiltinType::String)),
+            value: Box::new(item.clone()),
+            access: Mutable,
+        },
+    ] {
+        let readable = writable.read_only_view().unwrap();
+        assert_eq!(readable.collection_access(), Some(ReadOnly));
+        assert!(writable.can_weaken_to(&readable));
+        assert!(!readable.can_weaken_to(&writable));
+        assert!(writable.conflicts_with(&readable));
+        assert!(readable.conflicts_with(&writable));
+        assert_eq!(
+            [writable.clone(), readable.clone()]
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            2
+        );
+        let nested_writable = TypeId::Array(Box::new(writable.clone()), Mutable);
+        let nested_readable = TypeId::Array(Box::new(readable.clone()), Mutable);
+        assert!(!nested_writable.can_weaken_to(&nested_readable));
+        assert!(!nested_writable.can_weaken_to(&nested_readable.read_only_view().unwrap()));
+        assert!(nested_writable.conflicts_with(&nested_readable));
+        assert!(
+            TypeId::Tuple(vec![writable]).conflicts_with(&TypeId::Tuple(vec![readable.clone()]))
+        );
+
+        let substitution = [(parameter.clone(), TypeId::Builtin(BuiltinType::I32))]
+            .into_iter()
+            .collect();
+        let instantiated = readable.instantiate(&substitution);
+        assert_eq!(instantiated.collection_access(), Some(ReadOnly));
+        assert!(instantiated.is_concrete());
+        assert_eq!(instantiated.map_children(Clone::clone), instantiated);
+        assert_eq!(
+            instantiated.argument_context(&TypeSubstitution::default(), &[]),
+            instantiated
+        );
     }
 }
 
@@ -79,7 +134,10 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
         let template = make(NominalType {
             associated_types: Default::default(),
             declaration: owner.clone(),
-            arguments: vec![TypeId::Array(Box::new(inner.clone()))],
+            arguments: vec![TypeId::Array(
+                Box::new(inner.clone()),
+                CollectionAccess::Mutable,
+            )],
         });
         assert!(!template.is_concrete());
         assert!(!template.is_unresolved());
@@ -138,8 +196,8 @@ fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recurs
     let mut template = TypeId::Generic(parameter.clone());
     let mut replacement = TypeId::Generic(parameter.clone());
     for _ in 0..10_000 {
-        template = TypeId::Array(Box::new(template));
-        replacement = TypeId::Array(Box::new(replacement));
+        template = TypeId::Array(Box::new(template), CollectionAccess::Mutable);
+        replacement = TypeId::Array(Box::new(replacement), CollectionAccess::Mutable);
     }
     let mut substitution: TypeSubstitution =
         [(parameter.clone(), replacement)].into_iter().collect();
@@ -148,7 +206,7 @@ fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recurs
     // recursive derived Clone, equality, or destructor for arbitrary TypeIds.
     fn consume(mut ty: TypeId, depth: usize, parameter: &GenericParameterType) {
         for _ in 0..depth {
-            let TypeId::Array(inner) = ty else {
+            let TypeId::Array(inner, _) = ty else {
                 panic!("missing array layer")
             };
             ty = *inner;
@@ -169,13 +227,13 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
     let mut template = TypeId::SelfType(owner.clone());
     let mut replacement = TypeId::SelfType(owner.clone());
     for _ in 0..10_000 {
-        template = TypeId::Set(Box::new(template));
-        replacement = TypeId::Set(Box::new(replacement));
+        template = TypeId::Set(Box::new(template), CollectionAccess::Mutable);
+        replacement = TypeId::Set(Box::new(replacement), CollectionAccess::Mutable);
     }
     let result = template.with_self(&owner, &replacement);
     fn consume(mut ty: TypeId, depth: usize, owner: &DefinitionId) {
         for _ in 0..depth {
-            let TypeId::Set(inner) = ty else {
+            let TypeId::Set(inner, _) = ty else {
                 panic!("missing set layer")
             };
             ty = *inner;
@@ -196,8 +254,8 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
     let mut comparable = TypeId::Builtin(BuiltinType::I32);
     let mut incomparable = TypeId::Host(definition("host.kgr", DefinitionKind::Struct));
     for _ in 0..10_000 {
-        resolved = TypeId::Array(Box::new(resolved));
-        unresolved = TypeId::Array(Box::new(unresolved));
+        resolved = TypeId::Array(Box::new(resolved), CollectionAccess::Mutable);
+        unresolved = TypeId::Array(Box::new(unresolved), CollectionAccess::Mutable);
         comparable = TypeId::Tuple(vec![comparable]);
         incomparable = TypeId::Tuple(vec![incomparable]);
     }
@@ -218,7 +276,7 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
 
     for mut ty in [resolved, unresolved] {
         for _ in 0..10_000 {
-            let TypeId::Array(inner) = ty else {
+            let TypeId::Array(inner, _) = ty else {
                 panic!("missing array layer")
             };
             ty = *inner;

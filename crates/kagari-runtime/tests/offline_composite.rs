@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostParameter, HostPassingStyle, HostValueType as Type,
 };
@@ -58,19 +59,23 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let result = |tag, value| Value::Enum(runtime.alloc_enum(tag, vec![value]).unwrap());
     let cases = [
         (
-            Type::Tuple(vec![Type::Array(Box::new(Type::I32)), Type::String]),
+            Type::Tuple(vec![
+                Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
+                Type::String,
+            ]),
             Value::Tuple(vec![array.clone(), Value::Str("ok".into())]),
             Value::Tuple(vec![wrong_array.clone(), Value::Str("ok".into())]),
         ),
         (
-            Type::Array(Box::new(Type::I32)),
+            Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
             array.clone(),
             wrong_array.clone(),
         ),
         (
             Type::Map {
+                access: CollectionAccess::Mutable,
                 key: Box::new(Type::String),
-                value: Box::new(Type::Array(Box::new(Type::I32))),
+                value: Box::new(Type::Array(Box::new(Type::I32), CollectionAccess::Mutable)),
             },
             Value::Map(
                 runtime
@@ -84,7 +89,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             ),
         ),
         (
-            Type::Set(Box::new(Type::String)),
+            Type::Set(Box::new(Type::String), CollectionAccess::Mutable),
             Value::Set(runtime.alloc_set(vec![Value::Str("ok".into())]).unwrap()),
             Value::Set(runtime.alloc_set(vec![Value::I32(7)]).unwrap()),
         ),
@@ -163,7 +168,10 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
         .register_host_function(HostFunction::new(
             echo(
                 "host.echo",
-                Type::Tuple(vec![Type::Array(Box::new(Type::I32))]),
+                Type::Tuple(vec![Type::Array(
+                    Box::new(Type::I32),
+                    CollectionAccess::Mutable,
+                )]),
             ),
             move |context, args| {
                 called.fetch_add(1, Ordering::SeqCst);

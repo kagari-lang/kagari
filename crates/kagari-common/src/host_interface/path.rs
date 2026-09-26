@@ -3,6 +3,8 @@ use super::{
     CapabilitySet, DefinitionId, HostInterface, HostInterfaceError, HostTypeOwnership,
     HostValueType, PathAccess, Visibility,
 };
+#[cfg(test)]
+use crate::collection::CollectionAccess;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HostPathDeclaration {
@@ -377,7 +379,8 @@ mod tests {
         let mut root = HostTypeDeclaration::new("game.Inventory");
         root.ownership = HostTypeOwnership::HostRoot;
         root.path_access = PathAccess::ReadWrite;
-        let items_type = HostValueType::Array(Box::new(HostValueType::I32));
+        let items_type =
+            HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable);
         let mut items = HostFieldDeclaration::new(&root.id, "items", items_type.clone());
         items.path_access = PathAccess::ReadWrite;
         items.writable = true;
@@ -441,7 +444,8 @@ mod tests {
             Err(HostInterfaceError::InvalidDeclaration)
         );
         if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
-            index.collection = HostValueType::Array(Box::new(HostValueType::I32));
+            index.collection =
+                HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable);
             index.index = HostValueType::opaque("game.Missing");
         }
         assert_eq!(

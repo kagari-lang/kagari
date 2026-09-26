@@ -1,5 +1,6 @@
 use super::*;
 use crate::types::{BuiltinType, TypeId};
+use kagari_common::collection::CollectionAccess;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
@@ -627,7 +628,7 @@ fn branch_and_array_merges_recover_complementary_member_facts() {
             TypeId::Builtin(BuiltinType::Bool),
         ]);
         let expected = if array {
-            TypeId::Array(Box::new(pair))
+            TypeId::Array(Box::new(pair), CollectionAccess::Mutable)
         } else {
             pair
         };
@@ -1198,7 +1199,8 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
                 TypeId::Builtin(BuiltinType::I32),
                 TypeId::Map {
                     key: Box::new(TypeId::Error),
-                    value: Box::new(TypeId::Error)
+                    value: Box::new(TypeId::Error),
+                    access: CollectionAccess::Mutable
                 },
             ]),
             "{initializer}"

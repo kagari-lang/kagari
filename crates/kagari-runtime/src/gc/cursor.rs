@@ -48,8 +48,10 @@ impl GcHeap {
             return Err(invalid());
         }
         let item_type = match ty {
-            AbiType::Array(item) | AbiType::Set(item) => (**item).clone(),
-            AbiType::Map { key, value } => AbiType::Tuple(vec![(**key).clone(), (**value).clone()]),
+            AbiType::Array(item, _) | AbiType::Set(item, _) => (**item).clone(),
+            AbiType::Map { key, value, .. } => {
+                AbiType::Tuple(vec![(**key).clone(), (**value).clone()])
+            }
             AbiType::Builtin(BuiltinType::String) => ty.clone(),
             _ => return Err(invalid()),
         };

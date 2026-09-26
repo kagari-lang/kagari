@@ -1,6 +1,7 @@
 //! Public signatures compiled from the bundled declaration sources.
 use super::surface::{self, StandardEnum};
 use crate::types::{BuiltinType, TypeId};
+use kagari_common::collection::CollectionAccess;
 use std::collections::BTreeMap;
 
 pub fn sources() -> &'static [kagari_common::SourceFile] {
@@ -136,9 +137,9 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
             ));
         }
         TypeId::Builtin(BuiltinType::String) => "String",
-        TypeId::Array(_) => "Array",
+        TypeId::Array(_, _) => "Array",
         TypeId::Map { .. } => "Map",
-        TypeId::Set(_) => "Set",
+        TypeId::Set(_, _) => "Set",
         TypeId::Cursor(_) => "Cursor",
         TypeId::StandardEnum { kind, .. } => kind.spec().name,
         _ => return None,
@@ -192,7 +193,10 @@ pub struct ApiFunction {
 impl ApiType {
     pub fn instantiate(&self, arguments: &Arguments) -> TypeId {
         match self {
-            Self::Array(element) => TypeId::Array(Box::new(element.instantiate(arguments))),
+            Self::Array(element) => TypeId::Array(
+                Box::new(element.instantiate(arguments)),
+                CollectionAccess::Mutable,
+            ),
             Self::Tuple([]) => TypeId::Builtin(BuiltinType::Unit),
             Self::Tuple(items) => {
                 TypeId::Tuple(items.iter().map(|t| t.instantiate(arguments)).collect())
@@ -240,8 +244,11 @@ impl ApiType {
                     ("Map", [key, value]) => TypeId::Map {
                         key: Box::new(key.clone()),
                         value: Box::new(value.clone()),
+                        access: CollectionAccess::Mutable,
                     },
-                    ("Set", [item]) => TypeId::Set(Box::new(item.clone())),
+                    ("Set", [item]) => {
+                        TypeId::Set(Box::new(item.clone()), CollectionAccess::Mutable)
+                    }
                     ("Cursor", [item]) => TypeId::Cursor(Box::new(item.clone())),
                     ("Option", [_]) => TypeId::StandardEnum {
                         kind: StandardEnum::Option,
@@ -267,7 +274,7 @@ impl ApiType {
             (Self::Named(name, []), actual) if arguments.contains_key(name) => {
                 arguments.get_mut(name).unwrap().recover_from(actual);
             }
-            (Self::Array(element), TypeId::Array(actual)) => element.infer(actual, arguments),
+            (Self::Array(element), TypeId::Array(actual, _)) => element.infer(actual, arguments),
             (Self::Tuple(items), TypeId::Tuple(actual)) if items.len() == actual.len() => {
                 for (item, actual) in items.iter().zip(actual) {
                     item.infer(actual, arguments);
@@ -290,12 +297,13 @@ impl ApiType {
                 TypeId::Map {
                     key: actual,
                     value: output,
+                    ..
                 },
             ) => {
                 key.infer(actual, arguments);
                 value.infer(output, arguments);
             }
-            (Self::Named("Set", [item]), TypeId::Set(actual))
+            (Self::Named("Set", [item]), TypeId::Set(actual, _))
             | (Self::Named("Cursor", [item]), TypeId::Cursor(actual)) => {
                 item.infer(actual, arguments)
             }
@@ -432,7 +440,10 @@ mod tests {
                 .iter()
                 .map(|name| {
                     let ty = if *name == "I" {
-                        TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))
+                        TypeId::Array(
+                            Box::new(TypeId::Builtin(BuiltinType::I32)),
+                            CollectionAccess::Mutable,
+                        )
                     } else {
                         TypeId::Builtin(BuiltinType::I32)
                     };

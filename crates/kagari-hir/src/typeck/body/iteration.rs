@@ -7,9 +7,9 @@ impl BodyChecker<'_> {
             if matches!(
                 receiver,
                 TypeId::Cursor(_)
-                    | TypeId::Array(_)
+                    | TypeId::Array(_, _)
                     | TypeId::Map { .. }
-                    | TypeId::Set(_)
+                    | TypeId::Set(_, _)
                     | TypeId::Builtin(BuiltinType::String)
             ) && let Some(outputs) = crate::builtin::traits::iteration_outputs(
                 kind,

@@ -666,7 +666,9 @@ impl CursorOp {
         }
         let input = match self {
             Self::New => match ty {
-                AbiType::Array(_) | AbiType::Map { .. } | AbiType::Set(_) => ValueType::HeapObject,
+                AbiType::Array(_, _) | AbiType::Map { .. } | AbiType::Set(_, _) => {
+                    ValueType::HeapObject
+                }
                 AbiType::Builtin(kagari_hir::types::BuiltinType::String) => ValueType::Str,
                 _ => return None,
             },

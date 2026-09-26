@@ -262,6 +262,9 @@ continue to describe the executable language. The proposed array spelling is
 `[T]` for read-only `Array<T>`, with literals producing `MutableArray<T>`.
 
 - [x] C00: document access boundaries, constructor shape and implementation plan.
+- [x] C01a: carry collection access through HIR type identity/substitution, ABI
+  types and bounded host/artifact encoding; migrate existing Rust call sites to
+  explicitly request their current mutable access.
 - [ ] C01: source-owned native access types and associated constructors; HIR
   assignability, generic invariance, branch joins and complete write-access checks.
 - [ ] C02: verified IR, artifact encoding/version rejection, host declaration
@@ -276,3 +279,21 @@ verification or leave an executable write bypass. Each coherent checkpoint uses
 a Conventional Commit. No compatibility constructors or dual mutability model
 are planned. General variance, frozen/persistent collections, deep immutability
 and additional copy/capacity/from APIs remain separate work.
+
+C01a introduces `CollectionAccess::{ReadOnly, Mutable}` as semantic type metadata.
+The source language still produces mutable collections with the existing API;
+`MutableArray`, `MutableMap`, `MutableSet` and associated constructors are not yet
+exposed. This checkpoint does not claim enforcement of read-only access during
+execution. Register/call/storage validation must preserve access before C01/C02
+activate the public surface: current instruction registers retain representation
+types such as `HeapObject`, rather than complete semantic types.
+
+The encoded type shape changes artifact format/runtime ABI to v63 and host
+interfaces to KHI v12. Old formats are rejected without compatibility decoding.
+GC object storage and helper ABI v6 remain unchanged. Round-trip tests cover
+both access modes, nested types, directional outer access weakening, invariant
+nested arguments and host binding fingerprint changes.
+
+C01a validation: 1,176 workspace tests passed, including 101 executable standard
+API documentation examples. Workspace clippy with warnings denied, formatting
+and `git diff --check` passed.

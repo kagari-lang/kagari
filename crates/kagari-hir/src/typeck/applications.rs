@@ -24,7 +24,7 @@ pub(super) fn validate(
         }
         let key = match ty {
             TypeId::Map { key, .. } => Some(key.as_ref()),
-            TypeId::Set(key) => Some(key.as_ref()),
+            TypeId::Set(key, _) => Some(key.as_ref()),
             _ => None,
         };
         if let Some(key) = key {
@@ -269,8 +269,8 @@ pub(super) fn validate(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(ty) | TypeId::Set(ty) | TypeId::Cursor(ty) => pending.push(ty),
-            TypeId::Map { key, value } => {
+            TypeId::Array(ty, _) | TypeId::Set(ty, _) | TypeId::Cursor(ty) => pending.push(ty),
+            TypeId::Map { key, value, .. } => {
                 pending.push(key);
                 pending.push(value);
             }
@@ -583,8 +583,10 @@ pub(super) fn validate_imported_interface_type(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(item) | TypeId::Set(item) | TypeId::Cursor(item) => pending.push(item),
-            TypeId::Map { key, value } => pending.extend([key.as_ref(), value.as_ref()]),
+            TypeId::Array(item, _) | TypeId::Set(item, _) | TypeId::Cursor(item) => {
+                pending.push(item)
+            }
+            TypeId::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             _ => {}
         }
     }

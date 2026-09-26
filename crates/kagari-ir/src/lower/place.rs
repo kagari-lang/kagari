@@ -97,9 +97,9 @@ impl FunctionLowerer<'_, '_> {
                         self.analyzed.typed.type_table.place_type(id),
                         Some(
                             TypeId::Struct(_)
-                                | TypeId::Array(_)
+                                | TypeId::Array(_, _)
                                 | TypeId::Map { .. }
-                                | TypeId::Set(_)
+                                | TypeId::Set(_, _)
                         )
                     ) {
                     let dst = self.alloc_temp(ty);

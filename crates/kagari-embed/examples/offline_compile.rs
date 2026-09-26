@@ -1,4 +1,5 @@
 //! Compile against declarations without registering callbacks or starting services.
+use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     host_interface::{
         HostFieldDeclaration, HostFunctionDeclaration, HostIndexSegmentDeclaration, HostInterface,
@@ -27,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scores = HostFieldDeclaration::new(
         &player.id,
         "scores",
-        HostValueType::Array(Box::new(HostValueType::I32)),
+        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
     );
     scores.path_access = PathAccess::ReadOnly;
     player.fields.push(scores);
@@ -75,7 +76,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             HostPathSegmentDeclaration::Field(player.fields[1].id.clone()),
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Array(Box::new(HostValueType::I32)),
+                collection: HostValueType::Array(
+                    Box::new(HostValueType::I32),
+                    CollectionAccess::Mutable,
+                ),
                 index: HostValueType::I32,
                 result: HostValueType::I32,
                 access: PathAccess::ReadOnly,
@@ -125,10 +129,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "demo.echo",
             vec![HostParameter {
                 name: "value".into(),
-                ty: HostValueType::Array(Box::new(HostValueType::I32)),
+                ty: HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
                 passing: HostPassingStyle::Owned,
             }],
-            HostValueType::Array(Box::new(HostValueType::I32)),
+            HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
         )],
     };
     // A build process may read these bytes from the binding provider's interface file.

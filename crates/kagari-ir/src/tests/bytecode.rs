@@ -10,6 +10,7 @@ use crate::{
     module::{PublicAbiItem, TypeAbiKind, ValueType},
     tests::common,
 };
+use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 
 #[test]
@@ -2851,8 +2852,10 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
         let mut invalid = owner.clone();
         match mutation {
             0 => {
-                invalid.structures[0].fields[0].ty =
-                    AbiType::Array(Box::new(AbiType::Builtin(BuiltinType::Bool)))
+                invalid.structures[0].fields[0].ty = AbiType::Array(
+                    Box::new(AbiType::Builtin(BuiltinType::Bool)),
+                    CollectionAccess::Mutable,
+                )
             }
             1 => invalid.structures[0].fields[0].mutable = false,
             2 => {

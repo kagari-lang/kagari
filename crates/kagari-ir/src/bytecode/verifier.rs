@@ -637,11 +637,12 @@ fn instantiate_method_type(
             result: Box::new(child(result)?),
         },
         AbiType::Cursor(element) => AbiType::Cursor(Box::new(child(element)?)),
-        AbiType::Array(element) => AbiType::Array(Box::new(child(element)?)),
-        AbiType::Set(element) => AbiType::Set(Box::new(child(element)?)),
-        AbiType::Map { key, value } => AbiType::Map {
+        AbiType::Array(element, access) => AbiType::Array(Box::new(child(element)?), *access),
+        AbiType::Set(element, access) => AbiType::Set(Box::new(child(element)?), *access),
+        AbiType::Map { key, value, access } => AbiType::Map {
             key: Box::new(child(key)?),
             value: Box::new(child(value)?),
+            access: *access,
         },
         AbiType::StandardEnum { kind, args } => AbiType::StandardEnum {
             kind: *kind,

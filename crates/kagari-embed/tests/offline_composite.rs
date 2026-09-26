@@ -1,3 +1,4 @@
+use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     SourceFile,
     host_interface::{
@@ -18,12 +19,13 @@ use std::sync::{Arc, Mutex};
 
 fn composite() -> Type {
     Type::Tuple(vec![
-        Type::Array(Box::new(Type::I32)),
+        Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
         Type::Map {
+            access: CollectionAccess::Mutable,
             key: Box::new(Type::String),
             value: Box::new(Type::Bool),
         },
-        Type::Set(Box::new(Type::String)),
+        Type::Set(Box::new(Type::String), CollectionAccess::Mutable),
         Type::Option(Box::new(Type::I32)),
         Type::Result {
             ok: Box::new(Type::I32),
@@ -167,7 +169,10 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
                 "demo.take",
                 vec![HostParameter {
                     name: "value".into(),
-                    ty: Type::Tuple(vec![Type::Array(Box::new(Type::I32)), Type::Bool]),
+                    ty: Type::Tuple(vec![
+                        Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
+                        Type::Bool,
+                    ]),
                     passing: HostPassingStyle::Owned,
                 }],
                 Type::Unit,
@@ -194,7 +199,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
         "demo.take",
         vec![HostParameter {
             name: "value".into(),
-            ty: Type::Array(Box::new(Type::I32)),
+            ty: Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
             passing: HostPassingStyle::Owned,
         }],
         Type::I32,

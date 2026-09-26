@@ -1,4 +1,6 @@
 use bincode::Options;
+#[cfg(test)]
+use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::ModuleIdentity;
 use std::fmt::{self, Display, Formatter};
 
@@ -11,7 +13,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 62;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 63;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +52,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v62";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v63";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v6";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1839,7 +1841,7 @@ mod canonical_tests {
         };
         let mut deep = AbiType::Builtin(BuiltinType::I32);
         for _ in 0..64 {
-            deep = AbiType::Array(Box::new(deep));
+            deep = AbiType::Array(Box::new(deep), CollectionAccess::Mutable);
         }
         let mut program = valid.clone();
         program.modules[0]
@@ -2085,9 +2087,12 @@ mod canonical_tests {
         };
         let mut deep = HostValueType::I32;
         for _ in 0..64 {
-            deep = HostValueType::Array(Box::new(deep));
+            deep = HostValueType::Array(Box::new(deep), CollectionAccess::Mutable);
         }
-        for ty in [HostValueType::Set(Box::new(HostValueType::F32)), deep] {
+        for ty in [
+            HostValueType::Set(Box::new(HostValueType::F32), CollectionAccess::Mutable),
+            deep,
+        ] {
             let mut program = valid.clone();
             program.modules[0]
                 .host_interface

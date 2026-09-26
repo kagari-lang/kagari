@@ -1,4 +1,5 @@
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::collection::CollectionAccess;
 use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
 use kagari_runtime::{DeterministicInputs, Runtime, RuntimeErrorKind, value::Value};
 
@@ -401,7 +402,13 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
         let mut declaration = HostFunctionDeclaration::new(
             symbol,
             vec![],
-            HostValueType::Array(Box::new(HostValueType::Array(Box::new(HostValueType::I32)))),
+            HostValueType::Array(
+                Box::new(HostValueType::Array(
+                    Box::new(HostValueType::I32),
+                    CollectionAccess::Mutable,
+                )),
+                CollectionAccess::Mutable,
+            ),
         );
         declaration.effects.may_allocate = true;
         let retained = root.clone();
