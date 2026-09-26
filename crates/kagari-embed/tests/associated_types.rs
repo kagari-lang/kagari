@@ -267,3 +267,194 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
     }
 }
+
+#[test]
+fn generic_implementation_interface_tables_specialize_and_deduplicate() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "generic-interface.kgr",
+                r#"
+        trait Reader { type Item; fn read(self) -> Self::Item; }
+        struct Holder<T> { val value: T }
+        impl<T> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } }
+        fn boxed<T>(value: Holder<T>) -> Reader<Item = T> { value }
+        fn read(value: Reader<Item = i32>) -> i32 { value.read() }
+        fn main() -> i32 {
+            val first: Reader<Item = i32> = Holder { value: 20 };
+            val second: Reader<Item = String> = Holder { value: "text" };
+            val third = boxed(Holder { value: 22 });
+            if second.read() == "text" { read(first) + third.read() } else { 0 }
+        }
+    "#,
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let tables = &artifact.program.modules[artifact.program.root.index()].interface_tables;
+    assert_eq!(
+        tables
+            .iter()
+            .filter(|table| !table.arguments.is_empty())
+            .count(),
+        2
+    );
+    for table in tables.iter().filter(|table| !table.arguments.is_empty()) {
+        assert_eq!(table.methods.len(), 1);
+    }
+    execute_artifact(&engine, artifact);
+}
+
+#[test]
+fn generic_interface_conversion_checks_implementation_bounds() {
+    execute(
+        r#"
+        trait Reader { type Item; fn read(self) -> Self::Item; }
+        struct Holder<T> { val value: T }
+        impl<T: HashKey> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } }
+        fn boxed<T: HashKey>(value: Holder<T>) -> Reader<Item = T> { value }
+        fn main() -> i32 { boxed(Holder { value: 42 }).read() }
+    "#,
+    );
+    execute(
+        r#"
+        trait Describe { fn number(self) -> i32; }
+        struct Number { val value: i32 }
+        impl Describe for Number { fn number(self) -> i32 { self.value } }
+        trait Reader { fn read(self) -> i32; }
+        struct Holder<T> { val value: T }
+        impl<T: Describe> Reader for Holder<T> { fn read(self) -> i32 { self.value.number() } }
+        fn boxed<T: Describe>(value: Holder<T>) -> Reader { value }
+        fn main() -> i32 { boxed(Holder { value: Number { value: 42 } }).read() }
+    "#,
+    );
+    let engine = KagariEngine::default();
+    for source in [
+        "trait Read {} struct Holder<T> { val value: T } impl<T: HashKey> Read for Holder<T> {} fn main() { val reader: Read = Holder { value: 1.5 }; }",
+        "trait Read {} struct Holder<T> { val value: T } impl<T: HashKey> Read for Holder<T> {} fn boxed<T>(value: Holder<T>) -> Read { value } fn main() {}",
+    ] {
+        assert!(
+            engine
+                .compile_to_artifact(
+                    SourceFile::new("invalid-generic-interface.kgr", source),
+                    Default::default(),
+                    Default::default()
+                )
+                .is_err(),
+            "accepted {source}"
+        );
+    }
+}
+
+#[test]
+fn interface_instance_bounds_are_checked_without_method_slots() {
+    use kagari_hir::types::BuiltinType;
+    use kagari_ir::module::abi::AbiType;
+    let engine = KagariEngine::default();
+    let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: HashKey> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"), Default::default(), Default::default()).unwrap();
+    let mut program = artifact.program.clone();
+    let table = program.modules[program.root.index()]
+        .interface_tables
+        .iter_mut()
+        .find(|table| !table.arguments.is_empty())
+        .unwrap();
+    assert!(table.methods.is_empty());
+    table.arguments[0] = AbiType::Builtin(BuiltinType::F32);
+    assert!(kagari_ir::bytecode::verify_program(&program).is_err());
+    execute_artifact(&engine, artifact);
+}
+
+#[test]
+fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
+    let engine = KagariEngine::default();
+    let mut root = None;
+    for (name, source) in [
+        (
+            "model",
+            "pub trait Reader<T> { type Item; fn read(self) -> Self::Item; fn add(self, value: T) -> i32; } pub struct Holder<T> { pub val value: T } impl<T> Reader<i32> for Holder<T> { type Item = T; fn add(self, value: i32) -> i32 { value + 2 } fn read(self) -> T { self.value } }",
+        ),
+        (
+            "root",
+            "use pkg::model::{Reader, Holder}; fn boxed<T>(value: Holder<T>) -> Reader<i32, Item = T> { value } fn main() -> i32 { val number = boxed(Holder { value: 20 }); val text: Reader<i32, Item = String> = Holder { value: \"text\" }; if text.read() == \"text\" { number.read() + number.add(20) } else { 0 } }",
+        ),
+    ] {
+        let path = format!("mem://{name}");
+        engine
+            .bind_module(
+                &path,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+        let id = engine
+            .set_source(&path, source.into(), SourceLayer::Base)
+            .unwrap();
+        if name == "root" {
+            root = Some(id);
+        }
+    }
+    let checked = engine
+        .compile_snapshot(
+            engine.source_snapshot(),
+            root.unwrap(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
+    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let model = artifact
+        .program
+        .modules
+        .iter()
+        .find(|module| module.identity.path == ["model"])
+        .unwrap();
+    let tables: Vec<_> = model
+        .interface_tables
+        .iter()
+        .filter(|table| !table.arguments.is_empty())
+        .collect();
+    assert_eq!(tables.len(), 2);
+    assert!(tables.iter().all(|table| table.methods.len() == 2));
+    execute_artifact(&engine, artifact);
+}
+
+#[test]
+fn malformed_generic_interface_instances_are_rejected_before_execution() {
+    use kagari_hir::types::BuiltinType;
+    use kagari_ir::module::abi::AbiType;
+    let engine = KagariEngine::default();
+    let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: HashKey> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"), Default::default(), Default::default()).unwrap();
+    for mutation in 0..6 {
+        let mut program = artifact.program.clone();
+        let tables = &mut program.modules[program.root.index()].interface_tables;
+        let index = tables
+            .iter()
+            .position(|table| !table.arguments.is_empty())
+            .unwrap();
+        match mutation {
+            0 => tables[index]
+                .arguments
+                .push(AbiType::Builtin(BuiltinType::I32)),
+            1 => tables[index].methods.clear(),
+            2 => {
+                let duplicate = tables[index].clone();
+                tables.push(duplicate);
+            }
+            3 => tables[index].methods = tables[index + 1].methods.clone(),
+            4 => tables[index].arguments[0] = AbiType::Builtin(BuiltinType::F32),
+            5 => {
+                tables.remove(index);
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            kagari_ir::bytecode::verify_program(&program).is_err(),
+            "accepted mutation {mutation}"
+        );
+        assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+    }
+}

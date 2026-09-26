@@ -98,11 +98,40 @@ impl FunctionLowerer<'_, '_> {
                 .interface_coercion(expr_id)
                 .cloned()
             {
+                let span = self.analyzed.lowered.source_map.expr_span(expr_id);
+                let arguments = self.planner.arguments(
+                    &coercion.arguments,
+                    &self.instance.substitution,
+                    span,
+                )?;
+                self.planner
+                    .record_interface(&coercion.implementation, &arguments, span)?;
+                if coercion.implementation.module == *self.analyzed.lowered.source.module_identity()
+                {
+                    let signature = self
+                        .analyzed
+                        .aggregates
+                        .implementation_signature(&coercion.implementation)
+                        .ok_or(IrLoweringError::MissingBinding("interface implementation"))?;
+                    for method in signature.methods.values() {
+                        let Some(kagari_hir::resolver::ResolvedName::Function(function)) =
+                            self.analyzed.declarations.definition_target(method)
+                        else {
+                            return Err(IrLoweringError::MissingBinding("interface method"));
+                        };
+                        self.planner.enqueue(function, arguments.clone(), span)?;
+                    }
+                }
+                let arguments = arguments
+                    .iter()
+                    .map(crate::module::abi::AbiType::from_checked_type)
+                    .collect();
                 let dst = self.alloc_temp(ValueType::HeapObject);
                 self.emit(Instruction::MakeInterface {
                     dst,
                     value,
                     implementation: coercion.implementation,
+                    arguments,
                 });
                 value = dst;
             }

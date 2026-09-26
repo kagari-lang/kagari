@@ -8,6 +8,46 @@ use crate::{
 };
 
 #[test]
+fn generic_interface_instances_share_the_instantiation_budget() {
+    let checked = common::analyze_ok(
+        "trait Read {} struct Holder<T> { val value: T } impl<T> Read for Holder<T> {} fn main() -> i32 { val first: Read = Holder { value: 20 }; val second: Read = Holder { value: 22 }; 42 }",
+    );
+    let ir = lower_to_ir(
+        &checked,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let bytecode = crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    assert_eq!(
+        bytecode
+            .interface_tables
+            .iter()
+            .filter(|table| !table.arguments.is_empty())
+            .count(),
+        1
+    );
+    let Err(crate::IrLoweringError::Diagnostic(d)) = lower_to_ir(
+        &checked,
+        &crate::IrLoweringOptions {
+            max_generic_instances: 1,
+            ..Default::default()
+        },
+    ) else {
+        panic!("layout and interface share the budget")
+    };
+    assert!(matches!(
+        d.kind,
+        kagari_common::DiagnosticKind::CompileLimitExceeded {
+            resource: "generic instances",
+            limit: 1
+        }
+    ));
+}
+
+#[test]
 fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
     let checked = common::analyze_ok(
         "struct Cell<T> { var value: T } enum Packet<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool) { val a = Cell { value: 1 }; val b = Cell { value: 2 }; val c = Cell { value: true }; val p = Packet::Data(a); (get(b), c.value) }",
@@ -946,6 +986,7 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         .temps
         .push(crate::module::function::IrTemp { ty: dst.ty });
     let instruction = Instruction::MakeInterface {
+        arguments: Vec::new(),
         dst,
         value,
         implementation: declaration,

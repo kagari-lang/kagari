@@ -114,17 +114,20 @@ both IR and bytecode layout verification. HIR retains duplicate identities for
 diagnostic recovery, but they cannot reach execution.
 
 Interface allocation uses an explicit `MakeInterface dst, value, module,
-implementation` instruction. Typed IR names the implementation declaration;
+implementation` instruction. Typed IR names the implementation declaration and ordered type arguments;
 bytecode carries a dependency-program module slot and an `InterfaceTableRef`
 into that member's verified table. Program verification requires the target
 member to be reachable from the caller's dependency graph.
-Verification requires a concrete non-generic table, a heap destination and the
+Verification requires a concrete table instance, a heap destination and the
 receiver representation declared by the table. The runtime checks the full
 receiver ABI, allocates a generation-checked interface object and retains its
 linked execution version. For example, a verified `i32` receiver can be boxed
 through its `Tag for i32` table; a bool receiver or out-of-range table slot is
 rejected before execution. Source-level conversion emits this instruction when
-the checked semantic result names a unique concrete implementation.
+the checked semantic result selects a unique implementation template and its
+arguments. Generic instances compile all interface methods ahead of execution
+and reuse one table per declaration/argument key; a generic template record is
+not itself an executable table.
 
 Interface calls use a dedicated `CallTarget::InterfaceMethod` containing the
 trait owner's module slot, applied interface identity and declared method

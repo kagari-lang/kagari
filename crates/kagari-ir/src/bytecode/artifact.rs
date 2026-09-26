@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 43;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 44;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -50,7 +50,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v43";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v44";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -527,7 +527,7 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
         }
     }
     for table in &module.interface_tables {
-        if !add(table.methods.len()) {
+        if !add(table.arguments.len()) || !add(table.methods.len()) {
             return false;
         }
     }
@@ -699,6 +699,7 @@ fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     let valid = |ty: &crate::module::abi::AbiType| ty.within_wire_limits();
     module.interface_tables.iter().all(|table| {
         table.declaration.within_path_limit()
+            && table.arguments.iter().all(&valid)
             && table
                 .methods
                 .iter()

@@ -50,6 +50,7 @@ pub(super) struct InstancePlanner<'a> {
     pub host_types: std::collections::BTreeSet<kagari_common::identity::DefinitionId>,
     keys: HashMap<FunctionInstance, InstanceId>,
     generic_count: usize,
+    interfaces: std::collections::HashSet<(kagari_common::identity::DefinitionId, Vec<TypeId>)>,
     instruction_count: usize,
     failure: Option<Diagnostic>,
 }
@@ -64,6 +65,7 @@ impl<'a> InstancePlanner<'a> {
             host_types: Default::default(),
             keys: HashMap::new(),
             generic_count: 0,
+            interfaces: Default::default(),
             instruction_count: 0,
             failure: None,
         }
@@ -104,6 +106,22 @@ impl<'a> InstancePlanner<'a> {
             )));
         }
         self.generic_count += 1;
+        Ok(())
+    }
+
+    pub(super) fn record_interface(
+        &mut self,
+        declaration: &kagari_common::identity::DefinitionId,
+        arguments: &[TypeId],
+        span: Span,
+    ) -> Result<(), IrLoweringError> {
+        if !arguments.is_empty()
+            && self
+                .interfaces
+                .insert((declaration.clone(), arguments.to_vec()))
+        {
+            self.charge_layout_instance(span)?;
+        }
         Ok(())
     }
 

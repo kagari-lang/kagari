@@ -102,6 +102,7 @@ pub enum Instruction {
         dst: IrValue,
         value: IrValue,
         implementation: kagari_common::identity::DefinitionId,
+        arguments: Vec<super::abi::AbiType>,
     },
     MakeStruct {
         dst: IrValue,

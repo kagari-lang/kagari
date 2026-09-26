@@ -405,10 +405,37 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             _ => None,
         })
         .collect::<Vec<_>>();
-    if declared.len() != module.interface_tables.len() {
+    if declared.iter().any(|abi| {
+        module
+            .interface_tables
+            .iter()
+            .filter(|table| table.declaration == abi.declaration && table.arguments.is_empty())
+            .count()
+            != 1
+    }) {
         return Err(BytecodeVerificationError::InvalidInterfaceTable);
     }
-    for (abi, table) in declared.into_iter().zip(&module.interface_tables) {
+    let mut instances = HashSet::new();
+    for table in &module.interface_tables {
+        if !instances.insert((&table.declaration, &table.arguments)) {
+            return Err(BytecodeVerificationError::InvalidInterfaceTable);
+        }
+        let Some(abi) = declared
+            .iter()
+            .copied()
+            .find(|abi| abi.declaration == table.declaration)
+        else {
+            return Err(BytecodeVerificationError::InvalidInterfaceTable);
+        };
+        if !table.arguments.is_empty()
+            && (abi.instantiate(&table.arguments).is_none()
+                || abi
+                    .methods
+                    .iter()
+                    .any(|method| !method.generic_params.is_empty()))
+        {
+            return Err(BytecodeVerificationError::InvalidInterfaceTable);
+        }
         let AbiType::Trait(trait_type) = &abi.trait_type else {
             return Err(BytecodeVerificationError::InvalidInterfaceTable);
         };
@@ -453,6 +480,9 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             if identity.arguments.len() != abi.generic_params.len() + method.generic_params.len() {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
+            if !table.arguments.is_empty() && identity.arguments != table.arguments {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
             let method_owner = &identity.declaration;
             let (impl_arguments, method_arguments) =
                 identity.arguments.split_at(abi.generic_params.len());
@@ -484,7 +514,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
-        if abi.generic_params.is_empty()
+        if (abi.generic_params.is_empty() || !table.arguments.is_empty())
             && abi
                 .methods
                 .iter()
@@ -850,14 +880,21 @@ fn verify_instruction(
             } else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
+            let linked = target_module
+                .interface_tables
+                .get(implementation.index())
+                .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
             let table = target_module
                 .public_items
                 .iter()
-                .filter_map(|item| match item {
-                    PublicAbiItem::InterfaceTable(table) => Some(table),
+                .find_map(|item| match item {
+                    PublicAbiItem::InterfaceTable(table)
+                        if table.declaration == linked.declaration =>
+                    {
+                        table.instantiate(&linked.arguments)
+                    }
                     _ => None,
                 })
-                .nth(implementation.index())
                 .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
             if !table.generic_params.is_empty()
                 || !table.for_type.is_concrete()

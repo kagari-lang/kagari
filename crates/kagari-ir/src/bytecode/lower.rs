@@ -71,7 +71,7 @@ fn lower_linked_module(
         structures: &ir.structures,
         enumerations: &ir.enumerations,
         identity: Some(&ir.identity),
-        public_items: &ir.abi.public_items,
+        ir: Some(ir),
         host_interface: kagari_common::host_interface::HostInterface {
             paths: vec![],
             types: ir.host_types.clone(),
@@ -102,7 +102,10 @@ fn lower_linked_module(
         types: Vec::new(),
         structures: ir.structures.clone(),
         enumerations: ir.enumerations.clone(),
-        interface_tables: collect_interface_tables(ir),
+        interface_tables: context
+            .interface_tables
+            .remove(&ir.identity)
+            .unwrap_or_else(|| collect_interface_tables(ir, program)),
         paths: context.paths,
         function_table: Vec::new(),
         public_items: ir.abi.public_items.clone(),
@@ -116,10 +119,14 @@ fn lower_linked_module(
     Ok(module)
 }
 
-fn collect_interface_tables(ir: &VerifiedIrModule) -> Vec<InterfaceTableRecord> {
+fn collect_interface_tables(
+    ir: &VerifiedIrModule,
+    program: Option<&crate::program::VerifiedIrProgram>,
+) -> Vec<InterfaceTableRecord> {
     use crate::module::{PublicAbiItem, abi::AbiType};
     use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
-    ir.abi
+    let mut tables: Vec<_> = ir
+        .abi
         .public_items
         .iter()
         .filter_map(|item| {
@@ -158,11 +165,61 @@ fn collect_interface_tables(ir: &VerifiedIrModule) -> Vec<InterfaceTableRecord> 
                 }
             }
             Some(InterfaceTableRecord {
+                arguments: Vec::new(),
                 declaration: table.declaration.clone(),
                 methods,
             })
         })
-        .collect()
+        .collect();
+    let owners = program
+        .map(|program| program.modules())
+        .unwrap_or(std::slice::from_ref(ir));
+    for instruction in owners
+        .iter()
+        .flat_map(|owner| &owner.functions)
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+    {
+        let Instruction::MakeInterface {
+            implementation,
+            arguments,
+            ..
+        } = instruction
+        else {
+            continue;
+        };
+        if implementation.module != ir.identity
+            || arguments.is_empty()
+            || tables
+                .iter()
+                .any(|table| table.declaration == *implementation && table.arguments == *arguments)
+        {
+            continue;
+        }
+        let base = tables
+            .iter()
+            .find(|table| table.declaration == *implementation && table.arguments.is_empty())
+            .expect("verified impl template");
+        let methods = base
+            .methods
+            .iter()
+            .filter(|method| {
+                ir.functions[method.function.index()]
+                    .instance
+                    .arguments
+                    .iter()
+                    .map(crate::module::abi::AbiType::from_checked_type)
+                    .eq(arguments.iter().cloned())
+            })
+            .cloned()
+            .collect();
+        tables.push(InterfaceTableRecord {
+            declaration: implementation.clone(),
+            arguments: arguments.clone(),
+            methods,
+        });
+    }
+    tables
 }
 
 #[derive(Debug, Default)]
@@ -171,7 +228,8 @@ struct BytecodeLoweringContext<'a> {
     structures: &'a [crate::module::StructLayout],
     enumerations: &'a [crate::module::EnumLayout],
     identity: Option<&'a kagari_common::identity::ModuleIdentity>,
-    public_items: &'a [crate::module::PublicAbiItem],
+    ir: Option<&'a VerifiedIrModule>,
+    interface_tables: HashMap<kagari_common::identity::ModuleIdentity, Vec<InterfaceTableRecord>>,
     host_interface: kagari_common::host_interface::HostInterface,
     paths: Vec<PathRecord>,
 }
@@ -192,38 +250,29 @@ impl BytecodeLoweringContext<'_> {
     }
 
     fn interface_ref(
-        &self,
+        &mut self,
         implementation: &kagari_common::identity::DefinitionId,
+        arguments: &[crate::module::abi::AbiType],
     ) -> (super::ModuleRef, InterfaceTableRef) {
-        let (module, items) = if let Some(program) = self.program {
+        let (module, owner) = if let Some(program) = self.program {
             program
                 .modules()
                 .iter()
                 .enumerate()
-                .find(|(_, module)| module.identity == implementation.module)
-                .map(|(index, module)| {
-                    (
-                        super::ModuleRef::new(index),
-                        module.abi.public_items.as_slice(),
-                    )
-                })
-                .expect("verified interface implementation module")
+                .find(|(_, owner)| owner.identity == implementation.module)
+                .map(|(index, owner)| (super::ModuleRef::new(index), owner))
+                .expect("verified interface owner")
         } else {
-            assert_eq!(
-                self.identity.expect("lowering module identity"),
-                &implementation.module,
-                "standalone IR cannot reference a dependency table"
-            );
-            (super::ModuleRef::new(0), self.public_items)
+            (super::ModuleRef::new(0), self.ir.expect("lowering module"))
         };
-        let table = items
+        let tables = self
+            .interface_tables
+            .entry(owner.identity.clone())
+            .or_insert_with(|| collect_interface_tables(owner, self.program));
+        let table = tables
             .iter()
-            .filter_map(|item| match item {
-                crate::module::PublicAbiItem::InterfaceTable(table) => Some(table),
-                _ => None,
-            })
-            .position(|table| table.declaration == *implementation)
-            .expect("verified interface implementation table");
+            .position(|table| table.declaration == *implementation && table.arguments == arguments)
+            .expect("verified interface instance");
         (module, InterfaceTableRef::new(table))
     }
 
@@ -830,8 +879,9 @@ fn lower_instruction(
             dst,
             value,
             implementation,
+            arguments,
         } => {
-            let (module, implementation) = context.interface_ref(implementation);
+            let (module, implementation) = context.interface_ref(implementation, arguments);
             BytecodeInstruction::MakeInterface {
                 dst: lower_value(*dst),
                 value: lower_value(*value),

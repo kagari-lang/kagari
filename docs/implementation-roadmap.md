@@ -12,3 +12,16 @@ dynamic interface model. The [trait contract](spec/traits.md#ordinary-associated
 [runnable example](../examples/syntax/associated-types.kgr) and associated-type
 integration tests define this checkpoint. GAT, associated consts and advanced
 coherence/solver features remain separate future work.
+
+Completed language extension: generic implementation interface tables, keyed by
+impl declaration and concrete arguments, with shared instantiation limits and
+cross-module method reachability. See the [trait contract](spec/traits.md#generic-implementation-interface-instances)
+and [runnable example](../examples/syntax/generic-interfaces.kgr). Artifact format
+44 and runtime ABI v44 reject prior formats without migration.
+
+The next trait checkpoints are host associated-output declarations and dynamic
+interface integration; trait inheritance and default method fallback; associated
+consts; then type-parameterized GAT. Each checkpoint updates executable examples,
+semantic and artifact validation, and commits separately. Lifetimes, script-level
+`dyn`, higher-kinded type parameters, specialization, negative impls, auto traits
+and advanced coherence/solver behavior are outside this sequence.

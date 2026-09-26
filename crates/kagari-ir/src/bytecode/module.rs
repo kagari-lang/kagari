@@ -125,6 +125,10 @@ impl RootSlotLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceTableRecord {
+    /// Ordered impl arguments. An empty record for a generic template retains
+    /// static method instances and cannot be selected by MakeInterface.
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub arguments: Vec<crate::module::abi::AbiType>,
     pub declaration: kagari_common::identity::DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub methods: Vec<InterfaceMethodSlot>,

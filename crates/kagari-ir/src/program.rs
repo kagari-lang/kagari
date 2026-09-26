@@ -119,7 +119,22 @@ pub fn lower_program_to_ir(
                     .enumerations
                     .iter()
                     .filter(|e| !e.arguments.is_empty())
-                    .count();
+                    .count()
+                + lowered
+                    .functions
+                    .iter()
+                    .flat_map(|function| &function.blocks)
+                    .flat_map(|block| &block.instructions)
+                    .filter_map(|instruction| match instruction {
+                        Instruction::MakeInterface {
+                            implementation,
+                            arguments,
+                            ..
+                        } if !arguments.is_empty() => Some((implementation, arguments)),
+                        _ => None,
+                    })
+                    .collect::<HashSet<_>>()
+                    .len();
             remaining.max_instructions -= lowered
                 .functions
                 .iter()
@@ -156,6 +171,61 @@ pub fn lower_program_to_ir(
                     .or_default()
                     .push(instance);
                 changed = true;
+            }
+        }
+        for (caller, instruction) in modules.iter().flat_map(|module| {
+            module
+                .functions
+                .iter()
+                .flat_map(|function| &function.blocks)
+                .flat_map(|block| &block.instructions)
+                .map(|instruction| (&module.identity, instruction))
+        }) {
+            let Instruction::MakeInterface {
+                implementation,
+                arguments,
+                ..
+            } = instruction
+            else {
+                continue;
+            };
+            if arguments.is_empty() || implementation.module == *caller {
+                continue;
+            }
+            options.cancel.check().map_err(|_| ProgramError {
+                module: Box::new(root.clone()),
+                kind: ProgramErrorKind::Cancelled,
+            })?;
+            let owner = program
+                .modules()
+                .iter()
+                .find(|module| *module.lowered.source.module_identity() == implementation.module)
+                .ok_or_else(|| ProgramError {
+                    module: Box::new(root.clone()),
+                    kind: ProgramErrorKind::InterfaceContract(implementation.clone()),
+                })?;
+            let signature = owner
+                .aggregates
+                .implementation_signature(implementation)
+                .ok_or_else(|| ProgramError {
+                    module: Box::new(root.clone()),
+                    kind: ProgramErrorKind::InterfaceContract(implementation.clone()),
+                })?;
+            for method in signature.methods.values() {
+                let instance = FunctionInstance {
+                    declaration: method.clone(),
+                    arguments: arguments
+                        .iter()
+                        .map(crate::module::abi::AbiType::to_checked_type)
+                        .collect(),
+                };
+                if seen.insert(instance.clone()) {
+                    requests
+                        .entry(instance.declaration.module.clone())
+                        .or_default()
+                        .push(instance);
+                    changed = true;
+                }
             }
         }
         if !changed {
@@ -340,6 +410,7 @@ pub fn verify_program(
                 dst,
                 value,
                 implementation,
+                arguments,
             } = instruction
             {
                 let valid = indices
@@ -350,7 +421,7 @@ pub fn verify_program(
                             if let crate::module::PublicAbiItem::InterfaceTable(table) = item
                                 && table.declaration == *implementation
                             {
-                                Some(table)
+                                table.instantiate(arguments)
                             } else {
                                 None
                             }

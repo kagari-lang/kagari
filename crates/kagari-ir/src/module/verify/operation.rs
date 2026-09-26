@@ -223,6 +223,7 @@ pub(super) fn verify(
             dst,
             value,
             implementation,
+            arguments,
         } => {
             use crate::module::PublicAbiItem;
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
@@ -240,8 +241,10 @@ pub(super) fn verify(
                 }
                 return Err(context.error(Error::InvalidInterfaceTable));
             };
-            if !table.generic_params.is_empty()
-                || !table.for_type.is_concrete()
+            let table = table
+                .instantiate(arguments)
+                .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
+            if !table.for_type.is_concrete()
                 || !table.trait_type.is_concrete()
                 || table
                     .methods

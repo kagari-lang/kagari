@@ -475,24 +475,22 @@ impl Runtime {
         if !implementation.belongs_to(self.host.owner()) {
             return Err(invalid());
         }
-        let table = implementation
-            .bytecode
-            .public_items
-            .iter()
-            .filter_map(|item| match item {
-                PublicAbiItem::InterfaceTable(table) => Some(table),
-                _ => None,
-            })
-            .nth(table_index)
-            .ok_or_else(invalid)?;
         let linked = implementation
             .bytecode
             .interface_tables
             .get(table_index)
             .ok_or_else(invalid)?;
-        if linked.declaration != table.declaration || !table.generic_params.is_empty() {
-            return Err(invalid());
-        }
+        let table = implementation
+            .bytecode
+            .public_items
+            .iter()
+            .find_map(|item| match item {
+                PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+                    table.instantiate(&linked.arguments)
+                }
+                _ => None,
+            })
+            .ok_or_else(invalid)?;
         let concrete_type = table.for_type.clone();
         if !concrete_type.is_concrete() {
             return Err(invalid());
@@ -563,7 +561,7 @@ impl Runtime {
                         .functions
                         .get(slot.function.index())
                         .and_then(|function| function.identity.as_ref())
-                        .is_some_and(|identity| identity.arguments.is_empty())
+                        .is_some_and(|identity| identity.arguments == linked.arguments)
             });
             let Some(slot) = candidates.next() else {
                 return Err(invalid());

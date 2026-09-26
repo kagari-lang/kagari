@@ -7,7 +7,9 @@ The module model was subsequently revised: imports link declarations without
 initializing instances, and explicit function calls are the only execution entry.
 The detailed progress log below records earlier implementations; where it mentions
 implicit initialization or cycle rejection, [modules](spec/modules.md) and
-[module activation](spec/module-activation.md) supersede it.
+[module activation](spec/module-activation.md) supersede it. The later
+[generic interface contract](spec/traits.md#generic-implementation-interface-instances)
+supersedes the log's non-generic-only construction restriction.
 
 ## Checkpoints
 

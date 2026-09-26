@@ -14,6 +14,7 @@ struct SearchBudget<'a> {
     depth: usize,
     max_depth: usize,
     cancel: &'a CancellationToken,
+    assumptions: &'a crate::typeck::GenericBounds,
 }
 
 impl SearchBudget<'_> {
@@ -167,6 +168,7 @@ impl AggregateCatalog {
             depth: 0,
             max_depth: usize::MAX,
             cancel: &cancel,
+            assumptions: &Default::default(),
         };
         let mut matches = self.implementations.values().filter_map(|implementation| {
             let matched = self
@@ -204,32 +206,39 @@ impl AggregateCatalog {
         &self,
         trait_type: &NominalType,
         receiver: &TypeId,
+        assumptions: &crate::typeck::GenericBounds,
         max_checks: usize,
         max_depth: usize,
         cancel: &CancellationToken,
-    ) -> Result<Option<DefinitionId>, ImplementationSearchError> {
+    ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
         let mut budget = SearchBudget {
             checks_left: max_checks,
             depth: 0,
             max_depth,
             cancel,
+            assumptions,
         };
         let mut selected = None;
         for implementation in self.implementations.values() {
-            if self
-                .implementation_matches(
-                    implementation,
-                    trait_type,
-                    receiver,
-                    &mut HashSet::new(),
-                    &mut budget,
-                )?
-                .is_some()
-            {
-                if selected.is_some() || !implementation.generic_params.is_empty() {
+            if let Some(matched) = self.implementation_matches(
+                implementation,
+                trait_type,
+                receiver,
+                &mut HashSet::new(),
+                &mut budget,
+            )? {
+                if selected.is_some() {
                     return Ok(None);
                 }
-                selected = Some(implementation.id.clone());
+                let Some(arguments) = implementation
+                    .generic_params
+                    .iter()
+                    .map(|parameter| matched.get(parameter).cloned())
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Ok(None);
+                };
+                selected = Some((implementation.id.clone(), arguments));
             }
         }
         Ok(selected)
@@ -248,6 +257,7 @@ impl AggregateCatalog {
             depth: 0,
             max_depth,
             cancel,
+            assumptions: &Default::default(),
         };
         let mut count = 0;
         for implementation in self.implementations.values() {
@@ -305,7 +315,7 @@ impl AggregateCatalog {
                             crate::typeck::type_satisfies_standard_constraint(
                                 &actual,
                                 *standard,
-                                &Default::default(),
+                                budget.assumptions,
                             )
                         }
                         crate::typeck::ConstraintTarget::Trait(required) => {
@@ -313,6 +323,14 @@ impl AggregateCatalog {
                                 return Err(ImplementationSearchError::LimitExceeded);
                             }
                             let required = required.instantiate(&matched);
+                            if budget.assumptions.get(&actual).is_some_and(|bounds| {
+                                bounds.iter().any(|bound| {
+                                    matches!(bound, crate::typeck::ConstraintTarget::Trait(available)
+                                        if available.satisfies(&required))
+                                })
+                            }) {
+                                continue;
+                            }
                             budget.depth += 1;
                             let found = (|| {
                                 for candidate in self.implementations.values() {

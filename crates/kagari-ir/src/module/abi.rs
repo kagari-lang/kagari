@@ -449,6 +449,51 @@ pub struct InterfaceTableAbi {
     pub methods: Vec<FunctionAbi>,
 }
 
+impl InterfaceTableAbi {
+    /// Substitute a selected impl's concrete arguments into its call contract.
+    /// The verifier separately proves template validity, bounds and method slots.
+    pub fn instantiate(&self, arguments: &[AbiType]) -> Option<Self> {
+        if arguments.len() != self.generic_params.len()
+            || !arguments.iter().all(AbiType::is_concrete)
+        {
+            return None;
+        }
+        let apply = |ty: &AbiType| ty.instantiate(&self.declaration, arguments);
+        let methods = self
+            .methods
+            .iter()
+            .map(|method| {
+                Some(FunctionAbi {
+                    name: method.name.clone(),
+                    generic_params: method.generic_params.clone(),
+                    bounds: method.bounds.clone(),
+                    params: method
+                        .params
+                        .iter()
+                        .map(|param| {
+                            Some(ParameterAbi {
+                                name: param.name.clone(),
+                                mutable: param.mutable,
+                                ty: apply(&param.ty)?,
+                            })
+                        })
+                        .collect::<Option<_>>()?,
+                    return_type: apply(&method.return_type)?,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self {
+            declaration: self.declaration.clone(),
+            name: self.name.clone(),
+            generic_params: Vec::new(),
+            bounds: Vec::new(),
+            trait_type: apply(&self.trait_type)?,
+            for_type: apply(&self.for_type)?,
+            methods,
+        })
+    }
+}
+
 /// The physical call contract of a method on a concrete applied interface.
 /// The first argument is the boxed receiver; the runtime unwraps it only after
 /// checking the interface identity and selected method slot.

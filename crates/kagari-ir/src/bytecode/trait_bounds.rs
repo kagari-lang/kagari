@@ -154,6 +154,34 @@ pub(super) fn trait_bounds_match(module: &BytecodeModule, closure: &[&BytecodeMo
             }
         }
     }
+    for linked in &module.interface_tables {
+        if linked.arguments.is_empty() {
+            continue;
+        }
+        let Some(table) = module.public_items.iter().find_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+                table.instantiate(&linked.arguments)
+            }
+            _ => None,
+        }) else {
+            return false;
+        };
+        let TypeId::Trait(interface) = table.trait_type.to_checked_type() else {
+            return false;
+        };
+        if !matches!(
+            catalog.implementation_count_bounded(
+                &interface,
+                &table.for_type.to_checked_type(),
+                MAX_MATCH_CHECKS,
+                MAX_PROOF_DEPTH,
+                &cancel
+            ),
+            Ok(1)
+        ) {
+            return false;
+        }
+    }
     for host in &module.host_interface.types {
         for implementation in &host.trait_implementations {
             let Some(owner) = closure

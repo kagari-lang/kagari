@@ -106,8 +106,8 @@ functions now infer argument types and compile reachable concrete instances,
 including calls through existing concrete trait implementations. Instances are
 deduplicated by declaration and arguments, with configurable growth limits.
 Public functions require concrete signatures. Generic impl methods specialize
-at reachable concrete receivers. Dynamic interface values use concrete
-non-generic implementation tables; generic table instantiation remains work.
+at reachable concrete receivers. Dynamic interface tables likewise specialize
+reachable impl templates by declaration and concrete type arguments.
 Static trait-method calls infer method-local generic arguments from their
 arguments and expected result, check those arguments against the method's
 bounds, and specialize reachable local or dependency-defined implementations.
@@ -133,9 +133,8 @@ fn main() -> Packet<i32> { Packet::Data(read(Cell { value: 7 })) }
 Reachable aggregate instances use layouts keyed by declaration plus arguments.
 They share the configurable instantiation budget with function instances, including
 across module boundaries. Recursive growth is rejected before execution. Explicit
-constructor arguments and contextual inference for parameters absent from a
-constructor's fields/payloads are not implemented yet; missing inferred arguments
-produce a diagnostic. Public generic type templates are permitted, while public
+constructor arguments and contextual inference can supply parameters absent from
+fields/payloads; arguments that remain unknown produce a diagnostic. Public generic type templates are permitted, while public
 function entries still require concrete signatures.
 
 ## Ordinary Associated Types
@@ -237,8 +236,9 @@ The runtime layout is implementation-defined, but the semantic model preserves:
 
 - dynamic method dispatch
 - concrete runtime type identity
-- safe `is<T>` checks
-- safe `downcast<T>` checks
+- retained identity for future `is<T>` and `downcast<T>` checks
+
+These script-level runtime type tests are planned; they are not executable yet.
 
 This representation is internal.
 This representation does not introduce script-visible `dyn` syntax, lifetime parameters, `Sized` rules, or Rust object-safety terminology.
@@ -269,7 +269,7 @@ method_sig       ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")"
 
 Trait members are limited to:
 
-- methods, including checked default method bodies
+- methods; bodies are parsed and checked, but do not yet supply omitted impl methods
 - ordinary associated types, optionally constrained by trait or standard bounds
 - no associated consts or generic associated types
 
@@ -340,12 +340,9 @@ Bounds are simple trait references:
 where T: Display + Clone
 ```
 
-The initial trait-bound scope excludes:
-
-- higher-rank bounds
-- equality constraints
-- associated type projections
-- implicit type-level computation
+Ordinary associated projections and associated equality bindings are supported.
+Higher-rank bounds, arbitrary type equalities and implicit type-level computation
+remain outside the implemented scope.
 
 ## Interface Compatibility Rules
 
@@ -387,9 +384,10 @@ Receiver semantics:
 
 This is intentionally not Rust borrowing.
 
-## Downcast
+## Planned Downcast
 
-Downcast is defined in terms of concrete runtime type identity, not generic trait reasoning.
+The following syntax and behavior are a design target, not current executable
+features. Downcast is defined in terms of concrete runtime type identity, not generic trait reasoning.
 
 Example:
 
@@ -470,22 +468,22 @@ mapped host method by declaration identity and uses the normal host call
 contract. Host declaration arguments use `HostValueType`; dynamic interface
 values remain future work.
 
-## Initial Feature Set
+## Implemented Feature Set
 
-The initial trait system includes:
+The current trait system includes:
 
 - trait declarations with methods
-- trait impls for concrete types
+- concrete and generic trait impls, specialized at compile time
 - generic trait bounds through `where`
 - static method lookup through bounds
 - trait names usable directly as interface value types
 - interface dispatch through runtime vtables
-- `is<T>`
-- `downcast<T>`
+- ordinary associated types, equality bindings and qualified projections
+- concrete interface instances from generic implementations, including dependencies
 
-## Initial Scope Exclusions
+## Remaining Scope
 
-The initial trait system excludes:
+The current trait system excludes:
 
 - script-level `dyn` trait-object syntax
 - associated consts
@@ -495,7 +493,7 @@ The initial trait system excludes:
 - default trait methods
 - interface dispatch for non-interface-compatible methods
 
-## Implementation Phases
+## Checked and Executable Contracts
 
 ### Checked method contracts
 
@@ -511,7 +509,7 @@ Semantic nominal types pair their declaration identity with ordered type
 arguments; the type kind also participates in identity. Substitution retains the
 declaration and recursively replaces arguments by their parameter owner/position.
 Local impl headers and bounds resolve applied trait types with checked argument
-arity. Executable interface values remain separate work.
+arity. Executable interface values consume these same checked contracts.
 An imported trait can be used in a bound or implemented locally. Its method
 identities come from the defining module; after shared signatures are available,
 the local implementation is checked against that module's trait contract.
@@ -544,15 +542,16 @@ method bindings follow trait declaration order regardless of implementation
 source order, and ordinal lookup checks the exact applied interface identity.
 Source calls on interface values use a verified trait method slot and enter the
 receiver's pinned implementation version through the explicit frame stack.
-The current construction entry accepts concrete non-generic script tables;
-generic table instantiation and host-backed interface values remain pending.
+The construction entry accepts verified concrete script table instances,
+including instances of generic impls. Host-backed interface values remain pending.
 
 Verified bytecode can now allocate the same interface object with
 `MakeInterface`, using an implementation table slot resolved from the typed IR
 declaration identity and a pinned module slot. The source compiler emits this
 instruction when a concrete expression is used where an interface is expected
-and a unique non-generic implementation is available. HIR records the selected
-declaration; IR lowering does not search for it again. Whole-program verification
+and a unique implementation template is available. HIR records the selected
+declaration and inferred arguments; IR lowering specializes that selection rather
+than repeating name or implementation lookup. Whole-program verification
 resolves imported implementations through the dependency graph.
 
 An embedding path that already has a linked implementation can create and
@@ -577,12 +576,49 @@ checking, including when unused. Generic templates use the same conservative
 overlap rule across modules as within one module; distinct concrete trait
 applications stay independent. Reachable methods in generic dependency
 implementations are specialized for the receiver's concrete type arguments and
-linked to the defining module by instance identity. Remaining generic and
-host-backed interface execution work is tracked in the
-[foundation roadmap](../foundation-refactor.md).
+linked to the defining module by instance identity. Further trait extensions are
+tracked in the [implementation roadmap](../implementation-roadmap.md).
 
-### Remaining execution work
+### Generic Implementation Interface Instances
 
-Concrete non-generic script implementations can be boxed and called through
-verified interface method slots. Generic implementation-table instantiation,
-host-backed interface values and runtime downcasting remain separate work.
+A conversion from an applied script type can select a generic impl template,
+including inside a generic function whose receiver shape identifies that template:
+
+```kagari
+trait Reader { type Item; fn read(self) -> Self::Item; }
+struct Holder<T> { val value: T }
+impl<T> Reader for Holder<T> {
+    type Item = T;
+    fn read(self) -> Self::Item { self.value }
+}
+fn boxed<T>(value: Holder<T>) -> Reader<Item = T> { value }
+fn main() -> i32 { boxed(Holder { value: 42 }).read() }
+```
+
+The caller's bounds must justify the selected impl's constraints. Concrete
+instantiation rechecks those constraints; an unconstrained type parameter does
+not prove a required bound. Method-local generics remain incompatible with
+interface values.
+
+The instance key is the impl declaration plus its ordered concrete arguments.
+Repeated conversions reuse one table. Conversion makes all its interface methods
+reachable, even if a particular caller only uses one method. Dependency-defined
+instances and their method slots are emitted in the impl's owning module. Table
+instances share the configurable generic-instantiation budget with functions and
+aggregate layouts; there is no runtime method specialization.
+
+Artifact metadata retains the generic template and the concrete arguments of each
+linked table. Verification rejects duplicate instances, invalid arguments or
+bounds, missing methods and slots pointing at another instance. Generic template
+records with no arguments cannot be used as executable table slots. Runtime
+construction checks the concrete receiver contract and pins the implementation
+version using the existing interface object ownership model.
+
+See [generic-interfaces.kgr](../../examples/syntax/generic-interfaces.kgr), which
+returns `42` from both numeric and string interface instances.
+
+### Remaining Execution Work
+
+Host-backed interface values, host associated-output declarations and runtime
+downcasting remain separate work. Trait inheritance, default method fallback,
+associated consts and type-parameterized GAT follow as individual checkpoints.

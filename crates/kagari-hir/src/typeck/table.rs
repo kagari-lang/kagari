@@ -105,6 +105,7 @@ pub struct TypeTable {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedInterfaceCoercion {
     pub implementation: DefinitionId,
+    pub arguments: Vec<TypeId>,
     pub concrete_type: TypeId,
     pub interface_type: NominalType,
 }

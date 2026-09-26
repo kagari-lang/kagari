@@ -63,6 +63,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                         }),
                     ],
                     interface_tables: vec![InterfaceTableRecord {
+                        arguments: Vec::new(),
                         declaration: impl_id,
                         methods: vec![],
                     }],

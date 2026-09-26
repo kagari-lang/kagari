@@ -41,13 +41,21 @@ KbcArtifact {
 }
 ```
 
-Format version 43 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 44 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 41 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 43 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 44 adds ordered concrete impl arguments to linked interface table
+records. Generic tables are deduplicated by declaration and arguments; each
+executable instance contains all its concrete method slots. Loading validates
+argument arity, concreteness, bounds, uniqueness and exact method instance keys
+against the retained template. A generic template record is not an executable
+instance. Runtime ABI v44 uses these concrete slots; it does not specialize
+methods at execution time.
 
 Version 24 encodes each ABI type as bounded flat preorder nodes. The decoder
 checks at most 4,096 nodes and depth 64 before rebuilding a recursive type, so
@@ -442,11 +450,12 @@ initialization. Unrelated installed host functions do not affect compatibility.
 
 ## Associated type metadata
 
-Format 43 (language v3, runtime ABI v43) records trait-owned associated member
+Format 43 introduced trait-owned associated member
 identities, declaration bounds, impl output definitions, interface equality
 bindings and projection templates. Generic bound targets are structural ABI
 types, so projections have the same canonical identity as parameter bounds.
 Associated binding maps are ordered by declaration identity; decoding rejects
 duplicate or noncanonical keys and applies the existing bounded type node,
 depth, identity and record budgets. Linking verifies the complete output schema
-and bounds even when no trait method is executed. Earlier formats are rejected.
+and bounds even when no trait method is executed. Format 44 retains this metadata;
+all prior formats are rejected.

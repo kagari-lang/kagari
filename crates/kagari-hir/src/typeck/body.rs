@@ -1246,7 +1246,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let source = self.infer_expr_type_expected(expr_id, env, expected);
-        self.apply_interface_coercion(expr_id, source, expected)
+        self.apply_interface_coercion(expr_id, source, expected, env)
     }
 
     fn apply_interface_coercion(
@@ -1254,14 +1254,19 @@ impl<'a> BodyChecker<'a> {
         expr_id: ExprId,
         source: TypeId,
         expected: Option<&TypeId>,
+        env: &BodyTypeEnv,
     ) -> TypeId {
         use crate::aggregates::ImplementationSearchError;
         let Some(target @ TypeId::Trait(interface)) = expected else {
             return source;
         };
         if source == *target
-            || !source.is_concrete()
-            || !interface.arguments.iter().all(TypeId::is_concrete)
+            || !source.is_resolved_in(
+                &env.generics
+                    .iter()
+                    .filter_map(|param| self.declarations.generic_type(param.id))
+                    .collect::<Vec<_>>(),
+            )
             || matches!(&source, TypeId::Host(_))
         {
             return source;
@@ -1269,15 +1274,17 @@ impl<'a> BodyChecker<'a> {
         match self.aggregates.concrete_interface_implementation(
             interface,
             &source,
+            &env.generic_bounds,
             4096,
             64,
             self.cancel,
         ) {
-            Ok(Some(implementation)) => {
+            Ok(Some((implementation, arguments))) => {
                 self.type_table.insert_interface_coercion(
                     expr_id,
                     super::ResolvedInterfaceCoercion {
                         implementation,
+                        arguments,
                         concrete_type: source,
                         interface_type: interface.clone(),
                     },
