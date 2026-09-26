@@ -4,10 +4,10 @@ mod traits;
 use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     hir::{Visibility, Writeability},
-    imports::ModuleGraph,
+    imports::{ModuleGraph, SourceFunctionId},
     lower::LoweredModule,
     resolver::ResolvedName,
-    typeck::ModuleSignatures,
+    typeck::{ModuleSignatures, TypedFunction},
     types::TypeId,
 };
 pub use implementations::{ImplementationSearchError, ImplementationSignature};
@@ -31,6 +31,16 @@ pub struct FieldSignature {
     pub writeability: Writeability,
     pub ty: TypeId,
     pub declaration: Declaration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InherentMethodSignature {
+    pub id: SourceFunctionId,
+    pub declaration: DefinitionId,
+    pub site: Declaration,
+    pub owner: TypeId,
+    pub visibility: Visibility,
+    pub function: TypedFunction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +76,7 @@ pub struct AggregateCatalog {
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
     implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
     methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
+    inherent_methods: BTreeMap<DefinitionId, Arc<InherentMethodSignature>>,
     structures: BTreeMap<DefinitionId, Arc<StructSignature>>,
     fields: BTreeMap<DefinitionId, (DefinitionId, usize)>,
     enumerations: BTreeMap<DefinitionId, Arc<EnumSignature>>,
@@ -73,6 +84,9 @@ pub struct AggregateCatalog {
 }
 
 impl AggregateCatalog {
+    pub fn inherent_methods(&self) -> impl Iterator<Item = &InherentMethodSignature> {
+        self.inherent_methods.values().map(AsRef::as_ref)
+    }
     pub fn enumerations(&self) -> impl Iterator<Item = &EnumSignature> {
         self.enumerations.values().map(AsRef::as_ref)
     }
@@ -205,6 +219,61 @@ impl AggregateCatalog {
         }
         self.add_traits(lowered, declarations, signatures, cancel)?;
         self.add_implementations(declarations, signatures, cancel)?;
+        for implementation in &lowered.module.impls {
+            cancel.check()?;
+            if implementation.trait_ref.is_some() {
+                continue;
+            }
+            let Some(owner) = implementation
+                .for_type
+                .and_then(|ty| signatures.type_table().type_ref(ty))
+                .map(|resolved| resolved.ty.clone())
+            else {
+                continue;
+            };
+            for method in &implementation.methods {
+                cancel.check()?;
+                let Some(function) = signatures
+                    .functions()
+                    .iter()
+                    .find(|item| item.id == method.function)
+                else {
+                    continue;
+                };
+                let Some(declaration) =
+                    declarations.definition(ResolvedName::Function(method.function))
+                else {
+                    continue;
+                };
+                let Some(lowered_function) = lowered
+                    .module
+                    .functions
+                    .iter()
+                    .find(|item| item.id == method.function)
+                else {
+                    continue;
+                };
+                let Some(site) = declarations.target(ResolvedName::Function(method.function))
+                else {
+                    continue;
+                };
+                self.inherent_methods.insert(
+                    declaration.clone(),
+                    Arc::new(InherentMethodSignature {
+                        id: SourceFunctionId {
+                            file: lowered.source.id(),
+                            revision: lowered.source.revision(),
+                            function: method.function,
+                        },
+                        declaration: declaration.clone(),
+                        site: site.clone(),
+                        owner: owner.clone(),
+                        visibility: lowered_function.visibility,
+                        function: function.clone(),
+                    }),
+                );
+            }
+        }
         Ok(())
     }
 
@@ -243,6 +312,14 @@ impl AggregateCatalog {
                     .implementations
                     .insert(id.clone(), implementation.clone());
             }
+            for (id, method) in self
+                .inherent_methods
+                .range(start.clone()..)
+                .take_while(|(id, _)| id.module == module)
+            {
+                cancel.check()?;
+                result.inherent_methods.insert(id.clone(), method.clone());
+            }
             for (id, structure) in self
                 .structures
                 .range(start.clone()..)
@@ -276,6 +353,7 @@ impl AggregateCatalog {
     pub(crate) fn same_contracts(&self, other: &Self) -> bool {
         self.same_trait_contracts(other)
             && self.implementations == other.implementations
+            && self.inherent_methods == other.inherent_methods
             && self.enumerations.len() == other.enumerations.len()
             && self.enumerations.iter().all(|(id, a)| {
                 other.enumeration(id).is_some_and(|b| {

@@ -111,6 +111,28 @@ impl FileAnalysis {
             .map(|(_, function)| function)
             .or_else(|| {
                 facts
+                    .lowered
+                    .module
+                    .body
+                    .expressions()
+                    .filter_map(|(id, expr)| {
+                        let ExprKind::Call { callee, .. } = &expr.kind else {
+                            return None;
+                        };
+                        let crate::typeck::CallTarget::SourceFunction(function) =
+                            facts.typed.type_table.call_resolution(id)?.target
+                        else {
+                            return None;
+                        };
+                        let span = facts.lowered.source_map.expr_reference_span(*callee)?;
+                        (span.start <= offset && offset < span.end)
+                            .then(|| facts.imported_functions.target(function))
+                            .flatten()
+                    })
+                    .next()
+            })
+            .or_else(|| {
+                facts
                     .names
                     .imports
                     .entries
@@ -410,6 +432,10 @@ impl FileAnalysis {
                         facts
                             .declarations
                             .target(crate::resolver::ResolvedName::Function(function))?,
+                    )),
+                    crate::typeck::CallTarget::SourceFunction(function) => Some((
+                        callee_span,
+                        &facts.imported_functions.target(function)?.site,
                     )),
                     crate::typeck::CallTarget::TraitMethod { method, .. } => Some((
                         callee_span,

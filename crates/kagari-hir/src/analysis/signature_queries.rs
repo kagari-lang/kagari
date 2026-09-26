@@ -88,16 +88,19 @@ impl SignatureSnapshot {
         let mut result = HashMap::new();
         for (id, file) in self.files.iter() {
             cancel.check()?;
+            let aggregates = self.aggregates.for_module(
+                file.source().module_identity(),
+                self.module_graph(),
+                cancel,
+            )?;
+            let mut imported_functions =
+                catalog.bindings(&file.prepared.names.facts.imports, cancel)?;
+            imported_functions.include_inherent_methods(&aggregates);
             result.insert(
                 *id,
                 BodyEnvironment {
-                    imported_functions: catalog
-                        .bindings(&file.prepared.names.facts.imports, cancel)?,
-                    aggregates: self.aggregates.for_module(
-                        file.source().module_identity(),
-                        self.module_graph(),
-                        cancel,
-                    )?,
+                    imported_functions,
+                    aggregates,
                 },
             );
         }

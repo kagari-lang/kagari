@@ -326,7 +326,7 @@ pub fn analyze_source(
         .bindings(&declared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
     let mut prepared = declared.check_signatures(imported_types, None, &Default::default());
-    let imported_functions = imports::FunctionCatalog::new([&prepared])
+    let mut imported_functions = imports::FunctionCatalog::new([&prepared])
         .bindings(&prepared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
     let mut aggregates = aggregates::AggregateCatalog::default();
@@ -338,6 +338,7 @@ pub fn analyze_source(
             &Default::default(),
         )
         .expect("uncancelled source analysis");
+    imported_functions.include_inherent_methods(&aggregates);
     if let Some(signatures) = prepared
         .completed_signatures(&aggregates, &Default::default())
         .expect("uncancelled source analysis")

@@ -192,7 +192,7 @@ pub(crate) fn check_signatures(
         if cancel.check().is_err() {
             break;
         }
-        if function.visibility == crate::hir::Visibility::Public
+        if function.visibility != crate::hir::Visibility::Private
             && !function.generic_params.is_empty()
         {
             diagnostics.push(

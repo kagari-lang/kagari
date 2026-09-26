@@ -1,0 +1,15 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/visibility.kgr
+// Result: main returns 42.
+mod model {
+    pub(super) struct Counter {
+        val value: i32,
+    }
+
+    impl Counter {
+        pub(super) fn read(self) -> i32 { self.value }
+    }
+
+    pub(super) fn make() -> Counter { Counter { value: 42 } }
+}
+
+fn main() -> i32 { model::make().read() }

@@ -50,6 +50,11 @@ workload, repetitions and measurements; no unmeasured performance claims.
   check the owning module. `pub(super)` is accepted; `pub(crate)` and
   `pub(in path)` remain deferred. Artifact format 42 and language contract v2
   reject products compiled under the earlier visibility rules.
+  Inherent method contracts now travel with the reachable aggregate catalog;
+  cross-module concrete calls use declaration identities, check method visibility,
+  and retain source navigation. Public generic entry signatures remain rejected.
+  The [visibility example](../examples/syntax/visibility.kgr) executes from source
+  and encoded artifacts alongside the other syntax examples.
 
 - R18 final audit: `implementation-roadmap.md` now points only to this active
   checklist; the old M1–M11 instructions were removed from the roadmap and goal

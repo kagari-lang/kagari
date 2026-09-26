@@ -296,6 +296,7 @@ fn resolve_imports(
         .module
         .functions
         .iter()
+        .filter(|item| item.kind == crate::hir::FunctionKind::User)
         .map(|item| item.name.as_str())
         .chain(module.module.consts.iter().map(|item| item.name.as_str()))
         .chain(module.module.modules.iter().map(|item| item.name.as_str()))
@@ -502,7 +503,13 @@ fn resolve_imports(
             });
         }
     }
-    let roots = result
+    for entry in &mut result.entries {
+        cancel.check()?;
+        if ambiguous.contains(entry.alias.as_str()) {
+            entry.target = None;
+        }
+    }
+    let mut roots = result
         .entries
         .iter()
         .filter_map(|entry| match &entry.target {
@@ -511,17 +518,58 @@ fn resolve_imports(
             }
             _ => None,
         })
-        .collect::<Vec<_>>();
+        .collect::<BTreeSet<_>>();
+    let mut pending = roots.iter().cloned().collect::<Vec<_>>();
+    while let Some(root) = pending.pop() {
+        cancel.check()?;
+        for entry in catalog.paths.get(&root.to_string()).into_iter().flatten() {
+            let visible = entry.target(None, module.source.module_identity());
+            for (name, items) in visible.members.iter() {
+                cancel.check()?;
+                let [item] = items.as_slice() else {
+                    continue;
+                };
+                let namespace = match item {
+                    ExportItem::Module(_) => {
+                        let mut child = root.clone();
+                        child.path.push(name.clone());
+                        catalog
+                            .paths
+                            .contains_key(&child.to_string())
+                            .then_some(child)
+                    }
+                    ExportItem::Import(index) => entry
+                        .reexports
+                        .get(index)
+                        .cloned()
+                        .and_then(|target| {
+                            canonical_namespace_target(
+                                target,
+                                catalog,
+                                module.source.module_identity(),
+                            )
+                        })
+                        .and_then(|target| match target {
+                            ImportTarget::Source(source) if source.item.is_none() => {
+                                Some(source.module)
+                            }
+                            _ => None,
+                        }),
+                    _ => None,
+                };
+                if let Some(namespace) = namespace
+                    && roots.insert(namespace.clone())
+                {
+                    pending.push(namespace);
+                }
+            }
+        }
+    }
     for entries in catalog.paths.values() {
         for entry in entries {
             cancel.check()?;
             let identity = entry.source.module_identity();
-            if roots.iter().any(|root| {
-                root.package == identity.package
-                    && identity.path.starts_with(&root.path)
-                    && identity.path.len() > root.path.len()
-            }) && !result.namespace_entries.contains_key(identity)
-            {
+            if roots.contains(identity) && !result.namespace_entries.contains_key(identity) {
                 result
                     .namespace_entries
                     .insert(identity.clone(), result.entries.len());
@@ -537,12 +585,6 @@ fn resolve_imports(
                     internal_namespace: true,
                 });
             }
-        }
-    }
-    for entry in &mut result.entries {
-        cancel.check()?;
-        if ambiguous.contains(entry.alias.as_str()) {
-            entry.target = None;
         }
     }
     Ok(result)
@@ -821,7 +863,12 @@ impl<'a> SourceCatalog<'a> {
                     .or_insert_with(Vec::new)
                     .push(CatalogMember { item, visibility });
             };
-            for item in &module.module.functions {
+            for item in module
+                .module
+                .functions
+                .iter()
+                .filter(|item| item.kind == crate::hir::FunctionKind::User)
+            {
                 cancel.check()?;
                 add(&item.name, ExportItem::Function(item.id), item.visibility);
             }

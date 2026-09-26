@@ -2436,26 +2436,21 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         let candidates = self
-            .lowered
-            .module
-            .impls
-            .iter()
-            .filter(|implementation| implementation.trait_ref.is_none())
-            .filter_map(|implementation| {
-                let method = implementation
-                    .methods
-                    .iter()
-                    .find(|method| method.name == name)?;
-                let target = implementation
-                    .for_type
-                    .and_then(|target| self.type_table.type_ref(target))?
-                    .ty
-                    .clone();
-                let function = self.function_index.by_id.get(&method.function)?.clone();
+            .aggregates
+            .inherent_methods()
+            .filter(|method| {
+                method.function.name == name
+                    && method.visibility.allows(
+                        &method.declaration.module,
+                        self.lowered.source.module_identity(),
+                    )
+            })
+            .filter_map(|method| {
+                let function = method.function.clone();
                 let mut substitution = crate::types::TypeSubstitution::new();
                 let generics = function.generic_params.as_slice();
                 if super::inference::infer(
-                    &target,
+                    &method.owner,
                     &receiver_ty,
                     generics,
                     &mut substitution,
@@ -2465,7 +2460,14 @@ impl<'a> BodyChecker<'a> {
                 {
                     return None;
                 }
-                Some((function, substitution))
+                let target = if method.id.file == self.lowered.source.id()
+                    && method.id.revision == self.lowered.source.revision()
+                {
+                    CallTarget::Function(method.id.function)
+                } else {
+                    CallTarget::SourceFunction(method.id)
+                };
+                Some((function, substitution, target))
             })
             .collect::<Vec<_>>();
         if candidates.is_empty() {
@@ -2479,7 +2481,18 @@ impl<'a> BodyChecker<'a> {
             );
             return Some(TypeId::Error);
         }
-        let (function, mut substitution) = candidates.into_iter().next().expect("one method");
+        let (function, mut substitution, target) =
+            candidates.into_iter().next().expect("one method");
+        if matches!(target, CallTarget::SourceFunction(_)) && !function.generic_params.is_empty() {
+            self.infer_call_args(args, env);
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::PublicGenericFunction {
+                    name: function.name.clone(),
+                })
+                .with_span(self.lowered.source_map.expr_span(callee)),
+            );
+            return Some(TypeId::Error);
+        }
         if let Some(expected) = expected
             && super::inference::infer(
                 &function.return_type,
@@ -2493,7 +2506,7 @@ impl<'a> BodyChecker<'a> {
             return Some(TypeId::Unknown);
         }
         self.type_table
-            .insert_call(call_expr, CallTarget::Function(function.id), Some(receiver));
+            .insert_call(call_expr, target, Some(receiver));
         let arg_tys = self.infer_generic_args(
             args,
             function

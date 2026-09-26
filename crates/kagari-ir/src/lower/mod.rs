@@ -49,18 +49,18 @@ pub(crate) fn lower_to_ir_with_requests(
 ) -> Result<VerifiedIrModule, IrLoweringError> {
     let mut planner = instances::InstancePlanner::new(module, options);
     planner.check()?;
-    let interface_methods = module
+    let callable_methods = module
         .lowered
         .module
         .impls
         .iter()
         .filter(|implementation| {
-            implementation.trait_ref.is_some() && implementation.generic_params.is_empty()
+            implementation.trait_ref.is_none() || implementation.generic_params.is_empty()
         })
         .flat_map(|implementation| implementation.methods.iter().map(|method| method.function))
         .collect::<std::collections::HashSet<_>>();
     for function in &module.lowered.module.functions {
-        if (matches!(function.kind, FunctionKind::User) || interface_methods.contains(&function.id))
+        if (matches!(function.kind, FunctionKind::User) || callable_methods.contains(&function.id))
             && function.generic_params.is_empty()
         {
             planner.enqueue(

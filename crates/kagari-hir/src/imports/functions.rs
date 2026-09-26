@@ -1,6 +1,8 @@
 //! Imported call contracts are projections of independently checked signatures.
 use super::*;
-use crate::{PreparedAnalysis, resolver::ResolvedName, typeck::TypedFunction};
+use crate::{
+    PreparedAnalysis, declarations::Declaration, resolver::ResolvedName, typeck::TypedFunction,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceFunctionId {
@@ -13,20 +15,40 @@ pub struct SourceFunctionId {
 pub struct ImportedFunction {
     pub id: SourceFunctionId,
     pub declaration: kagari_common::identity::DefinitionId,
+    pub site: Declaration,
     pub signature: TypedFunction,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportedFunctions {
     functions: HashMap<ResolvedName, ImportedFunction>,
+    methods: HashMap<SourceFunctionId, ImportedFunction>,
 }
 
 impl ImportedFunctions {
     pub fn target(&self, id: SourceFunctionId) -> Option<&ImportedFunction> {
-        self.functions.values().find(|function| function.id == id)
+        self.methods
+            .get(&id)
+            .or_else(|| self.functions.values().find(|function| function.id == id))
     }
     pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction> {
         self.functions.get(&name)
+    }
+    pub(crate) fn include_inherent_methods(
+        &mut self,
+        aggregates: &crate::aggregates::AggregateCatalog,
+    ) {
+        for method in aggregates.inherent_methods() {
+            self.methods.insert(
+                method.id,
+                ImportedFunction {
+                    id: method.id,
+                    declaration: method.declaration.clone(),
+                    site: method.site.clone(),
+                    signature: method.function.clone(),
+                },
+            );
+        }
     }
 }
 
@@ -96,6 +118,11 @@ impl<'a> FunctionCatalog<'a> {
                 function,
             },
             declaration: declaration.clone(),
+            site: module
+                .declarations
+                .target(ResolvedName::Function(function))
+                .expect("function declaration")
+                .clone(),
             signature: signature.clone(),
         }))
     }

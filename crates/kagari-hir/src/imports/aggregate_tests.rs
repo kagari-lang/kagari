@@ -83,6 +83,72 @@ fn private_foreign_fields_are_rejected_but_public_fields_remain_accessible() {
 }
 
 #[test]
+fn imported_inherent_method_navigation_uses_its_source_declaration() {
+    let mut db = SourceDatabase::default();
+    let model = insert(
+        &mut db,
+        "model",
+        "pub struct Data { val value: i32 } impl Data { pub fn read(self) -> i32 { self.value } } pub fn make() -> Data { Data { value: 42 } }",
+    );
+    let text = "use pkg::model::make; fn main() -> i32 { make().read() }";
+    let root = insert(&mut db, "root", text);
+    let snapshot = analyze(&db);
+    let at = text.find("read()").unwrap();
+    assert_eq!(
+        snapshot.definition_at(root, at).unwrap().location.file,
+        model
+    );
+    assert_eq!(
+        snapshot
+            .file(root)
+            .unwrap()
+            .source_function_at(at)
+            .unwrap()
+            .id
+            .file,
+        model
+    );
+}
+
+#[test]
+fn pub_super_field_is_visible_in_parent_tree_and_hidden_outside() {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "root",
+        "pub mod model { pub struct Data { pub(super) val value: i32 } pub fn make() -> Data { Data { value: 42 } } }",
+    );
+    let parent = insert(
+        &mut db,
+        "root::peer",
+        "use pkg::root::model::make; fn main() -> i32 { make().value }",
+    );
+    let outsider = insert(
+        &mut db,
+        "outsider",
+        "use pkg::root::model::make; fn main() -> i32 { make().value }",
+    );
+    let snapshot = analyze(&db);
+    assert!(
+        snapshot
+            .file(parent)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+    assert!(
+        snapshot
+            .file(outsider)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::UnknownName { .. }))
+    );
+}
+
+#[test]
 fn incomplete_foreign_member_access_retains_the_nominal_receiver() {
     let mut db = SourceDatabase::default();
     insert(&mut db, "models", "pub struct Data { var count: i32 }");
