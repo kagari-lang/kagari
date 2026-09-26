@@ -135,8 +135,83 @@ Each constructor allocates a fresh object and returns its declared access type.
 Read-only empty constructors grant no script write access to the new object;
 they do not establish a separate frozen representation. Populated read-only
 values can be built with writable access and returned through a read-only type.
-Array literals remain available. Additional `from`, capacity, copy and freeze
-APIs require their own contracts and are not part of this first batch.
+Array literals remain available. Paired `from` factories below are included in
+this batch. Capacity, general copy/clone protocols and freeze APIs remain separate.
+
+### Populated collection factories
+
+Provide both read-only and writable construction from initial contents. The
+proposed spelling uses associated `from` functions alongside `new`, rather than
+adding global camelCase factory names:
+
+```kgr
+val names = Array::from(["Ada", "Lin"]);
+val editable_names = MutableArray::from(["Ada", "Lin"]);
+
+val scores = Map::from([("Ada", 10), ("Lin", 20)]);
+val editable_scores = MutableMap::from([("Ada", 10), ("Lin", 20)]);
+
+val roles = Set::from(["reader", "writer"]);
+val editable_roles = MutableSet::from(["reader", "writer"]);
+
+editable_names.push("Sam");
+editable_scores.insert("Sam", 30);
+editable_roles.insert("admin");
+```
+
+The corresponding receiver-free signatures are:
+
+| Associated function | Input | Output | Bounds |
+| --- | --- | --- | --- |
+| `Array::from` | `items: [T]` | `Array<T>` | None |
+| `MutableArray::from` | `items: [T]` | `MutableArray<T>` | None |
+| `Map::from` | `entries: [(K, V)]` | `Map<K, V>` | `K: Eq + Hash` |
+| `MutableMap::from` | `entries: [(K, V)]` | `MutableMap<K, V>` | `K: Eq + Hash` |
+| `Set::from` | `items: [T]` | `Set<T>` | `T: Eq + Hash` |
+| `MutableSet::from` | `items: [T]` | `MutableSet<T>` | `T: Eq + Hash` |
+
+These are associated factories, not new builtin `From` trait implementations.
+The first batch accepts arrays using existing array and Tuple syntax. It does not
+introduce variadic parameters, spreading, an infix `to` operator, or unrestricted
+iterator inputs. A mutable input array is accepted through ordinary read-only
+access weakening. Nonempty inputs infer their element/key/value types; empty
+inputs need sufficient context, such as an explicit result annotation:
+
+```kgr
+val empty: Map<String, i32> = Map::from([]);
+```
+
+Each call allocates a fresh collection, including empty inputs. Factories never
+return the input container itself, and do not retain its entry slots. In
+particular, `Array::from(writable)` is a shallow snapshot of the element slots;
+ordinary `val view: Array<T> = writable` remains a live view. Replacing an input
+element or changing the input length later does not change the constructed
+collection. Referenced element objects retain identity and remain mutable where
+their own types permit it. `MutableArray::from(readable)` thus obtains a writable
+copy without upgrading access to the original collection.
+
+Inputs are evaluated once, left to right, before the factory call; tuple keys are
+evaluated before their values. Factories traverse the resulting input in index
+order and use the same selected Eq/Hash implementations as normal insertion. For
+duplicate Map keys, the last supplied value wins. Sets discard equal duplicates.
+Iteration order and representative key/element identity retain the existing
+insertion contract; these factories add no new sorting guarantee. See Kotlin's
+[mapOf](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin.collections/map-of.html)
+and [mutableMapOf](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin.collections/mutable-map-of.html)
+for the paired factory and last-value convention being adapted.
+
+The input stays structurally guarded while native construction reads it, including
+during user Eq/Hash calls. The private destination becomes observable only after
+successful construction. A trap, cancellation or budget failure returns no partial
+result and releases construction roots and guards through ordinary session cleanup.
+Earlier argument effects and effects completed by user Eq/Hash calls are not
+rolled back. The factory itself does not write to the input array or element
+objects. Custom key equality/hash stability remains the caller's responsibility.
+
+Both the input and in-progress destination must remain rooted across callbacks,
+GC and host reentry. Implement the two access variants with shared allocation and
+insertion machinery, while retaining distinct checked return types and declaration
+identities. Public signatures, documentation and examples belong in `stdlib/*.kgr`.
 
 Replace `std::map::new()` and `std::set::new()` without compatibility aliases.
 Read-only and writable constructor bindings must be source-owned declarations
@@ -217,6 +292,14 @@ declared types.
 7. Source and artifact execution, interpreter and existing JIT paths agree. Forged
    access contracts and old formats are rejected before execution. Host declaration
    fingerprints distinguish access changes.
+8. All six populated factories infer types, accept context-typed empty arrays and
+   return their declared access type. Repeated Map keys keep the last value; Set
+   duplicates use selected Eq/Hash. Constructor results have fresh identity even
+   for empty inputs. Array copies preserve slot independence and element identity.
+9. Factory argument evaluation is left-to-right and single-evaluation. Custom
+   Eq/Hash failure, GC, host reentry and attempted structural mutation of input do
+   not expose partial results or leak roots/iteration guards. Completed callback
+   side effects retain the ordinary failure contract.
 
 Examples above remain design snippets until the corresponding implementation
 tests and runnable examples land. Each implementation checkpoint runs relevant

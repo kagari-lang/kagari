@@ -270,15 +270,20 @@ continue to describe the executable language. The proposed array spelling is
 - [ ] C02: verified IR, artifact encoding/version rejection, host declaration
   contracts and runtime/backend integration without duplicating collection storage.
 - [ ] C03: migrate standard declarations, CLI/embedding examples and executable
-  documentation; remove old constructors and update authoritative specifications.
+  documentation; implement paired populated `Array`/`Map`/`Set` and `Mutable*`
+  factories with fresh shallow storage, remove old constructors and update
+  authoritative specifications.
 - [ ] C04: navigation/completion and source/artifact/backend conformance, negative
   access tests, GC/alias/iteration coverage and final workspace validation.
 
 C01 and C02 must land together if publishing C01 alone would erase access before
 verification or leave an executable write bypass. Each coherent checkpoint uses
 a Conventional Commit. No compatibility constructors or dual mutability model
-are planned. General variance, frozen/persistent collections, deep immutability
-and additional copy/capacity/from APIs remain separate work.
+are planned. The proposed populated factory spelling is `Type::from(array)`;
+Map entries use `(K, V)` tuples, and both access variants share the existing
+checked insertion machinery. General variance, frozen/persistent collections,
+deep immutability, general copy/clone protocols, capacity APIs, variadic calls and
+arbitrary iterator construction remain separate work.
 
 C01a introduces `CollectionAccess::{ReadOnly, Mutable}` as semantic type metadata.
 The source language still produces mutable collections with the existing API;
