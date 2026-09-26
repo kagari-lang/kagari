@@ -35,23 +35,38 @@ impl Exits {
 
 pub(super) fn block_can_complete(
     module: &Module,
+    names: &crate::resolver::ResolvedNames,
     block: BlockId,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
-    Ok(Completion { module, cancel }.block(block)?.normal)
+    Ok(Completion {
+        module,
+        names,
+        cancel,
+    }
+    .block(block)?
+    .normal)
 }
 
 struct Completion<'a> {
     module: &'a Module,
+    names: &'a crate::resolver::ResolvedNames,
     cancel: &'a CancellationToken,
 }
 
 pub(super) fn expr_can_complete(
     module: &Module,
+    names: &crate::resolver::ResolvedNames,
     expr: ExprId,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
-    Ok(Completion { module, cancel }.expr(expr)?.normal)
+    Ok(Completion {
+        module,
+        names,
+        cancel,
+    }
+    .expr(expr)?
+    .normal)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -361,7 +376,7 @@ impl<'a> Completion<'a> {
                                 return None;
                             }
                             *stopped = arm.guard.is_none()
-                                && self.module.pattern_is_irrefutable(arm.pattern);
+                                && self.names.pattern_is_irrefutable(self.module, arm.pattern);
                             Some(match arm.guard {
                                 Some(guard) => Node::Guarded(guard, arm.expr),
                                 None => Node::Expr(arm.expr),
@@ -396,6 +411,7 @@ mod tests {
                 "deep-completion.kgr",
                 source,
             ));
+            let names = crate::resolver::resolve_names(&lowered).facts;
             let module = &mut lowered.module;
             let mut expr = module.block(module.functions[0].body).tail_expr.unwrap();
             let arena = expr.arena();
@@ -423,7 +439,10 @@ mod tests {
                 module.body.exprs.push((owner, ExprData { kind }));
             }
             let token = CancellationToken::default();
-            assert_eq!(expr_can_complete(module, expr, &token), Ok(expected));
+            assert_eq!(
+                expr_can_complete(module, &names, expr, &token),
+                Ok(expected)
+            );
 
             let mut place = PlaceId::new(arena, owner, module.body.places.len());
             module.body.places.push((
@@ -447,6 +466,7 @@ mod tests {
             }
             assert_eq!(
                 Completion {
+                    names: &names,
                     module,
                     cancel: &token
                 }
@@ -464,6 +484,7 @@ mod tests {
             "stopped-completion.kgr",
             "fn main() { if true { return; } else { return; } }",
         ));
+        let names = crate::resolver::resolve_names(&lowered).facts;
         let expr = lowered
             .module
             .block(lowered.module.functions[0].body)
@@ -477,6 +498,7 @@ mod tests {
         });
         let token = CancellationToken::default();
         let result = Completion {
+            names: &names,
             module: &lowered.module,
             cancel: &token,
         }
@@ -493,6 +515,7 @@ mod tests {
             "shared-completion.kgr",
             "fn main() { 7 }",
         ));
+        let names = crate::resolver::resolve_names(&lowered).facts;
         let module = &mut lowered.module;
         let mut expr = module.block(module.functions[0].body).tail_expr.unwrap();
         let arena = expr.arena();
@@ -510,7 +533,7 @@ mod tests {
             ));
         }
         let token = CancellationToken::default();
-        assert_eq!(expr_can_complete(module, expr, &token), Ok(true));
+        assert_eq!(expr_can_complete(module, &names, expr, &token), Ok(true));
 
         let breaking = crate::hir::StmtId::new(arena, owner, module.body.stmts.len());
         module.body.stmts.push((
@@ -538,6 +561,7 @@ mod tests {
         // when that block is visited directly, including after a cache hit.
         let nodes = [Node::Stmt(looping), Node::Block(body)].into_iter();
         let exits = Completion {
+            names: &names,
             module,
             cancel: &token,
         }
@@ -557,11 +581,12 @@ mod tests {
             "cancel.kgr",
             "fn empty() {} fn value() { 7 }",
         ));
+        let names = crate::resolver::resolve_names(&lowered).facts;
         let token = CancellationToken::default();
         token.cancel();
         for function in &lowered.module.functions {
             assert_eq!(
-                block_can_complete(&lowered.module, function.body, &token),
+                block_can_complete(&lowered.module, &names, function.body, &token),
                 Err(Cancelled)
             );
         }
@@ -571,7 +596,7 @@ mod tests {
             .tail_expr
             .unwrap();
         assert_eq!(
-            expr_can_complete(&lowered.module, expr, &token),
+            expr_can_complete(&lowered.module, &names, expr, &token),
             Err(Cancelled)
         );
     }
@@ -582,6 +607,7 @@ mod tests {
             "cancel.kgr",
             "fn main() { 7 }",
         ));
+        let names = crate::resolver::resolve_names(&lowered).facts;
         let expr = lowered
             .module
             .block(lowered.module.functions[0].body)
@@ -596,6 +622,7 @@ mod tests {
             Some(expr)
         });
         let result = Completion {
+            names: &names,
             module: &lowered.module,
             cancel: &token,
         }

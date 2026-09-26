@@ -44,7 +44,7 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
-    /// Canonical equality is type-owned, so dependency compilation and callers
+    /// Standard operator/equality implementations are type-owned, so dependencies and callers
     /// cannot disagree because a downstream module adds a different override.
     pub fn standard_override_error(
         &self,
@@ -52,14 +52,21 @@ impl AggregateCatalog {
     ) -> Option<&'static str> {
         use crate::builtin::traits::StandardTrait;
         let protocol = StandardTrait::from_id(&implementation.trait_type.declaration)?;
-        if !protocol.equality_protocol() {
+        if protocol.host_implementable() {
             return None;
         }
         let (TypeId::Struct(nominal) | TypeId::Enum(nominal)) = &implementation.for_type else {
-            return Some("equality/hash implementations require a script Struct or enum");
+            return Some(
+                "standard operator/equality implementations require a script Struct or enum",
+            );
         };
         if nominal.declaration.module != implementation.id.module {
-            return Some("equality/hash implementations must belong to the type's defining module");
+            return Some(
+                "standard operator/equality implementations must belong to the type's defining module",
+            );
+        }
+        if !protocol.equality_protocol() {
+            return None;
         }
         for required in [StandardTrait::PartialEq, StandardTrait::Eq] {
             if protocol == StandardTrait::PartialEq

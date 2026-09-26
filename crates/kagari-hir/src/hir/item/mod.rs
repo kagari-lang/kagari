@@ -77,24 +77,6 @@ impl Module {
         self.body.pattern(id)
     }
 
-    pub fn pattern_is_irrefutable(&self, id: PatternId) -> bool {
-        match &self.pattern(id).kind {
-            crate::hir::PatternKind::Wildcard | crate::hir::PatternKind::Name { .. } => true,
-            crate::hir::PatternKind::Tuple(elements) => elements
-                .iter()
-                .all(|element| self.pattern_is_irrefutable(*element)),
-            crate::hir::PatternKind::Struct { fields, .. } => fields
-                .iter()
-                .all(|field| self.pattern_is_irrefutable(field.pattern)),
-            crate::hir::PatternKind::Or(alternatives) => alternatives
-                .iter()
-                .any(|alternative| self.pattern_is_irrefutable(*alternative)),
-            crate::hir::PatternKind::Range { .. }
-            | crate::hir::PatternKind::Literal(_)
-            | crate::hir::PatternKind::EnumVariant { .. } => false,
-        }
-    }
-
     pub fn type_ref(&self, id: TypeRefId) -> &TypeData {
         self.body.type_ref(id)
     }

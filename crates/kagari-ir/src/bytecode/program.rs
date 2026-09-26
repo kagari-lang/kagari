@@ -175,7 +175,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 let kind =
                     kagari_hir::builtin::traits::StandardTrait::from_id(&instance.declaration)
                         .expect("standard contract");
-                if kind.equality_protocol()
+                if !kind.host_implementable()
                     && matches!(table.for_type, crate::module::abi::AbiType::Host(_))
                     || !matches!(
                         table.for_type,

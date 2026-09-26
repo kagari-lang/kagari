@@ -96,6 +96,7 @@ pub enum StandardTypeConstructor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardModule {
+    Ordering,
     Ops,
     Cmp,
     Hash,
@@ -483,6 +484,10 @@ const STANDARD_TYPE_CONSTRUCTORS: &[StandardTypeConstructorSpec] = &[
 ];
 
 const STANDARD_MODULES: &[StandardModuleSpec] = &[
+    StandardModuleSpec {
+        kind: StandardModule::Ordering,
+        path: "std::cmp::Ordering",
+    },
     StandardModuleSpec {
         kind: StandardModule::Ops,
         path: "std::ops",
@@ -981,6 +986,7 @@ pub fn standard_variants_in_module(
 ) -> &'static [(&'static str, StandardVariant)] {
     use StandardVariant::*;
     match module {
+        StandardModule::Ordering => &[("Less", Less), ("Equal", Equal), ("Greater", Greater)],
         StandardModule::Option => &[("Some", Some), ("None", None)],
         StandardModule::Result => &[("Ok", Ok), ("Err", Err)],
         _ => &[],

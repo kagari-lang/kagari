@@ -135,8 +135,9 @@ Raw `GcHeap` key helpers only execute builtin protocols. Hosts must call script
 entrypoints for custom-key lookup and mutation; raw collection snapshots, length
 queries and clear operations do not invoke equality/hash callbacks.
 
-The standard declarations are `std::cmp::{PartialEq, Eq}`, `std::hash::Hash`, and
-`std::fmt::{Debug, Display}`. Their short names are available in the prelude;
+The standard declarations include `std::cmp::{PartialEq, Eq, PartialOrd, Ord}`,
+`std::hash::Hash`, `std::fmt::{Debug, Display}`, and
+`std::ops::{Add, Sub, Mul, Div, Rem, Neg, Not, Index}`. Their short names are available in the prelude;
 normal declarations and imports shadow them. Aliases and wildcard imports retain
 the declaration identity. `Eq` extends `PartialEq`. These are ordinary trait
 bounds, including on associated outputs and GAT parameters. A user trait with
@@ -174,7 +175,8 @@ Key preparation is limited to 65,536 canonical components; automatic formatting
 to depth 64 and 1 MiB of output. Exceeding these limits traps before any mutation.
 `HashKey` and `Comparable` are removed source-level pseudo-bounds. Use `Eq + Hash`
 and `PartialEq`. `Iterable`, `Item<I>`, `OrderedNumber`, and `SignedNumber` remain
-intrinsic capabilities until their corresponding protocols are designed.
+intrinsic capabilities for builtin iteration and numeric signatures; they are not
+aliases for user-implementable operator traits.
 
 Array operations include:
 
@@ -551,6 +553,8 @@ The builtin surface is complete when:
 ## Ordering protocols
 
 `Ordering` (also `std::cmp::Ordering`) has unit variants `Less`, `Equal`, `Greater`.
+Type aliases (`use std::cmp::Ordering as Order`) and variant imports
+(`use std::cmp::Ordering::*`) work in constructors and patterns.
 `PartialOrd: PartialEq` declares `partial_cmp(self, other: Self) -> Option<Ordering>`.
 `Ord: Eq + PartialOrd` declares `cmp(self, other: Self) -> Ordering`.
 Comparison operators select PartialOrd; None makes each of `<`, `<=`, `>` and `>=`
@@ -558,6 +562,7 @@ false. Implementations must agree with equality and with each other. Primitive
 integers, bool, unit, String and Ordering supply both; floats only PartialOrd.
 There is no automatic Struct, Tuple or user-enum ordering. Custom Struct/enum
 implementations use static calls and the ordinary failure/effect boundary.
+See [ordering.kgr](../../examples/syntax/ordering.kgr).
 
 
 ## Arithmetic operator protocols
@@ -565,7 +570,9 @@ implementations use static calls and the ordinary failure/effect boundary.
 `std::ops::{Add, Sub, Mul, Div, Rem}` are prelude traits with one explicit RHS
 parameter and an associated `Output`. Each declares `fn add(self, rhs: Rhs) ->
 Self::Output` (respectively sub/mul/div/rem). Operator expressions and method calls
-select the same applied implementation. Different operand/result types are allowed;
+select the same applied implementation. Multiple applications of the same protocol
+are selected by the RHS type; unrelated same-named traits remain ambiguous.
+Different operand/result types are allowed;
 no implicit numeric conversion or RHS default type parameter is introduced.
 Matching builtin numeric types use their existing checked instructions. User
 Struct/enum implementations run ordinary methods; their effects are not rolled
@@ -593,3 +600,8 @@ Index does not permit replacing `container[i]` or mutating a returned Tuple valu
 in place. Methods may trap, and their completed effects are not rolled back.
 Use an explicit Option-returning get method for recoverable lookup failure.
 See [index.kgr](../../examples/syntax/index.kgr).
+
+These operator/ordering traits use the standard protocol identities described in
+[traits](traits.md#standard-protocol-identities). Implementations must belong to
+the script type's defining module. Standard traits and their descendants remain
+static-only; this does not change ordinary user-defined dynamic interfaces.

@@ -36,6 +36,9 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
         } else if let Some(binding) = context.declarations.names.lookup(name) {
             binding.target().and_then(|resolved| {
                 use crate::resolver::ResolvedName;
+                if resolved == ResolvedName::StandardModule(surface::StandardModule::Ordering) {
+                    return Some(crate::builtin::traits::ordering_type(false));
+                }
                 if let ResolvedName::StandardTrait(kind) = resolved {
                     target = Some(TypeTarget::StandardTrait(kind));
                     return Some(TypeId::Trait(kind.declaration_type()));
@@ -91,6 +94,8 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
         } else if let Some(kind) = context.declarations.standard_trait(name) {
             target = Some(TypeTarget::StandardTrait(kind));
             Some(TypeId::Trait(kind.declaration_type()))
+        } else if matches!(name, "Ordering" | "std::cmp::Ordering") {
+            Some(crate::builtin::traits::ordering_type(false))
         } else if let Some(id) = context.declarations.host_type(name) {
             target = Some(TypeTarget::Host(id));
             Some(TypeId::Host(

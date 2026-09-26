@@ -80,7 +80,7 @@ and hashing, explicit nominal formatting impls, structural and identity keys,
 and GC tracing of keys. See [contracts](spec/builtins.md) and
 [standard-traits.kgr](../examples/syntax/standard-traits.kgr). Artifact format 51,
 runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing,
-Iterator/ordering, generalized propagation and Error origin/stack modeling remain
+Iterator, generalized propagation and Error origin/stack modeling remain
 separate later checkpoints.
 
 Completed equality checkpoint: object identity operators `===`/`!==`, checked
@@ -102,7 +102,7 @@ laws are user obligations; there is no automatic freezing or reindexing.
 
 ## Standard operator protocols
 
-This is the active B01–B06 extension sequence. Each checkpoint updates contracts,
+The B01–B06 extension sequence is complete. Each checkpoint updates contracts,
 examples and relevant tests and is committed separately using Conventional Commits.
 Clone, writable indexing and compound-assignment overrides are separate designs.
 
@@ -111,9 +111,20 @@ Clone, writable indexing and compound-assignment overrides are separate designs.
 - [x] B03: Add/Sub/Mul/Div/Rem with an explicit RHS type and associated Output.
 - [x] B04: Neg/Not with associated Output.
 - [x] B05: read-only Index; returned objects retain shared reference semantics.
-- [ ] B06: source/artifact/backend conformance, examples, documentation and workspace checks.
+- [x] B06: source/artifact/backend conformance, examples, documentation and workspace checks.
 
 Builtin operations retain direct instructions. Custom implementations use ordinary
 static linked calls. Operands evaluate once from left to right. These protocols
 remain static-only in this sequence. Short-circuit and identity operators cannot
 be overridden. Existing assignment and mutation guarantees are unchanged.
+
+The sequence uses artifact format 57 and runtime ABI v57; earlier products are
+rejected without migration. KHI remains v11. The operator conformance suite checks
+source, encoded artifacts and JIT-enabled fallback with collection at allocation
+safepoints, cross-module generic implementations, single evaluation and target
+identity, malformed contracts, unordered floats and preserved builtin fast paths.
+
+B06 validation: 1,116 workspace tests passed (including 17 operator integration
+cases); `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --
+-D warnings` and `git diff --check` passed. Integration cases also cover applied
+RHS overload selection and resource cleanup after operator traps/budget exhaustion.

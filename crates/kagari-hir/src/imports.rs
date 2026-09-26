@@ -460,6 +460,12 @@ fn resolve_imports(
                             })
                             .map(|kind| (kind.name().into(), ImportTarget::StandardTrait(kind))),
                     )
+                    .chain((*module == surface::StandardModule::Cmp).then(|| {
+                        (
+                            "Ordering".into(),
+                            ImportTarget::StandardModule(surface::StandardModule::Ordering),
+                        )
+                    }))
                     .chain(surface::standard_variants_in_module(*module).iter().map(
                         |(name, variant)| {
                             (name.to_string(), ImportTarget::StandardVariant(*variant))

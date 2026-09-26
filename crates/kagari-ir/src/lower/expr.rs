@@ -659,9 +659,8 @@ impl FunctionLowerer<'_, '_> {
             let outer_scope = self.current_scope;
             let irrefutable = self
                 .analyzed
-                .lowered
-                .module
-                .pattern_is_irrefutable(arm.pattern);
+                .names
+                .pattern_is_irrefutable(&self.analyzed.lowered.module, arm.pattern);
             let arm_block = self.new_block();
             let next_decision = self.new_block();
 

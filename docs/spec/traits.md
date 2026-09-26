@@ -791,7 +791,8 @@ See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which retu
 
 ## Standard protocol identities
 
-The standard PartialEq, Eq, Hash, Debug and Display contracts are described in
+The standard PartialEq, Eq, Hash, Debug, Display, PartialOrd, Ord, Add, Sub, Mul,
+Div, Rem, Neg, Not and Index contracts are described in
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;
 user definitions named Eq or Debug do not gain intrinsic behavior. Script Structs
@@ -802,8 +803,13 @@ The [equality and hashing contract](value-semantics.md#equality-and-hashing)
 defines defaults, member composition, custom key callbacks and key stability.
 Explicit equality, hashing and nominal formatting methods are checked,
 specialized and linked through the ordinary static implementation path.
-Host equality/hash overrides remain unsupported.
+Operator and ordering impls are also restricted to script Structs/enums in the
+type's defining module. Native host tables may implement Debug/Display, but not
+these operator, ordering or equality protocols. Applied operator inputs and
+associated Output identities are checked before static specialization and again
+when loading portable implementation metadata.
 Standard protocols and their subtraits currently cannot be erased into interface
 values. Ordinary user trait interfaces retain their existing dynamic behavior.
-Generic propagation, Error context, Iterator and ordering protocols are later
+Clone, writable indexing, compound-assignment overrides, generic propagation,
+Error context and Iterator protocols are later
 extensions over this shared identity and bound infrastructure.

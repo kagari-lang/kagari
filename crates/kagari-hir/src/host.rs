@@ -169,9 +169,9 @@ impl HostDeclarations {
                         .with_span(Span::default()),
                     );
                 };
-                if standard.is_some_and(|kind| kind.equality_protocol()) {
+                if standard.is_some_and(|kind| !kind.host_implementable()) {
                     report(
-                        "standard equality and hashing cannot be overridden by host bindings"
+                        "only formatting standard protocols can be implemented by host bindings"
                             .into(),
                     );
                     continue;

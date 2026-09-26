@@ -42,7 +42,7 @@ impl BodyChecker<'_> {
         if site != callee && arity == 0 {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidCallTarget {
-                    type_name: "None (unit variant; omit parentheses)".into(),
+                    type_name: format!("{variant:?} (unit variant; omit parentheses)"),
                 })
                 .with_span(self.lowered.source_map.expr_span(site)),
             );
@@ -62,6 +62,7 @@ impl BodyChecker<'_> {
             let actual = self.infer_expr_with_coercion(*arg, env, expected.as_ref());
             if !crate::typeck::completion::expr_can_complete(
                 &self.lowered.module,
+                self.names,
                 *arg,
                 self.cancel,
             )
@@ -85,8 +86,13 @@ impl BodyChecker<'_> {
         }
         self.type_table.insert_standard_constructor(site, variant);
         if args.iter().any(|arg| {
-            !crate::typeck::completion::expr_can_complete(&self.lowered.module, *arg, self.cancel)
-                .unwrap_or(false)
+            !crate::typeck::completion::expr_can_complete(
+                &self.lowered.module,
+                self.names,
+                *arg,
+                self.cancel,
+            )
+            .unwrap_or(false)
         }) {
             return Some(TypeId::Unknown);
         }
@@ -158,7 +164,9 @@ impl BodyChecker<'_> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let context = match &self.expected_return {
-            TypeId::StandardEnum { kind, args } if args.len() == kind.spec().arity => {
+            TypeId::StandardEnum { kind, args }
+                if *kind != surface::StandardEnum::Ordering && args.len() == kind.spec().arity =>
+            {
                 let mut args = args.clone();
                 args[0] = expected.cloned().unwrap_or(TypeId::Unknown);
                 Some(TypeId::StandardEnum { kind: *kind, args })
@@ -166,8 +174,13 @@ impl BodyChecker<'_> {
             _ => None,
         };
         let ty = self.infer_expr_type_expected(operand, env, context.as_ref());
-        if !crate::typeck::completion::expr_can_complete(&self.lowered.module, operand, self.cancel)
-            .unwrap_or(false)
+        if !crate::typeck::completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            operand,
+            self.cancel,
+        )
+        .unwrap_or(false)
         {
             return TypeId::Unknown;
         }

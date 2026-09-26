@@ -1399,7 +1399,9 @@ fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
     for (expression, mismatch) in [
         ("missing == 1", false),
         ("missing < 1", false),
-        ("missing < true", true),
+        ("missing < true", false),
+        ("true < missing", false),
+        ("missing < [1]", true),
         ("(view, missing) == (view, true)", true),
         ("missing && true", false),
         ("missing || 1", true),

@@ -76,6 +76,29 @@ pub struct ResolvedNames {
 }
 
 impl ResolvedNames {
+    pub fn pattern_is_irrefutable(
+        &self,
+        module: &crate::hir::Module,
+        id: crate::hir::PatternId,
+    ) -> bool {
+        match &module.pattern(id).kind {
+            crate::hir::PatternKind::Wildcard => true,
+            crate::hir::PatternKind::Name { .. } => !self.pattern_variants.contains_key(&id),
+            crate::hir::PatternKind::Tuple(elements) => elements
+                .iter()
+                .all(|element| self.pattern_is_irrefutable(module, *element)),
+            crate::hir::PatternKind::Struct { fields, .. } => fields
+                .iter()
+                .all(|field| self.pattern_is_irrefutable(module, field.pattern)),
+            crate::hir::PatternKind::Or(alternatives) => alternatives
+                .iter()
+                .any(|alternative| self.pattern_is_irrefutable(module, *alternative)),
+            crate::hir::PatternKind::Range { .. }
+            | crate::hir::PatternKind::Literal(_)
+            | crate::hir::PatternKind::EnumVariant { .. } => false,
+        }
+    }
+
     pub(crate) fn new(
         items: std::sync::Arc<NameTable>,
         hosts: std::sync::Arc<crate::host::HostDeclarations>,

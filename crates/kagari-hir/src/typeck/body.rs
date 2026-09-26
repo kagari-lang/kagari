@@ -1,3 +1,4 @@
+mod operators;
 mod standard;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -203,6 +204,7 @@ impl<'a> BodyChecker<'a> {
                 );
                 let Ok(completes) = super::completion::expr_can_complete(
                     &self.lowered.module,
+                    self.names,
                     *initializer,
                     self.cancel,
                 ) else {
@@ -227,9 +229,12 @@ impl<'a> BodyChecker<'a> {
                 // contextual inference and tooling after an invalid assignment.
                 let expected_ty = self.type_table.place_type(*target);
                 let value_ty = self.infer_expr_with_coercion(*value, env, expected_ty.as_ref());
-                let Ok(completes) =
-                    super::completion::expr_can_complete(&self.lowered.module, *value, self.cancel)
-                else {
+                let Ok(completes) = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    *value,
+                    self.cancel,
+                ) else {
                     return;
                 };
                 if completes && let (Some(op), Some(expected)) = (op, &target_ty) {
@@ -272,6 +277,7 @@ impl<'a> BodyChecker<'a> {
                 if let Some(expr) = expr {
                     let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
+                        self.names,
                         *expr,
                         self.cancel,
                     ) else {
@@ -340,7 +346,10 @@ impl<'a> BodyChecker<'a> {
                 };
                 let mut body_env = env.clone();
                 self.check_pattern(*pattern, &element_ty, &mut body_env);
-                if !self.lowered.module.pattern_is_irrefutable(*pattern) {
+                if !self
+                    .names
+                    .pattern_is_irrefutable(&self.lowered.module, *pattern)
+                {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
                             expected: "irrefutable for binding".into(),
@@ -759,74 +768,7 @@ impl<'a> BodyChecker<'a> {
                 }
             },
             ExprKind::Propagate { expr } => self.infer_propagation(expr_id, *expr, env, expected),
-            ExprKind::Prefix { op, expr } => {
-                // The magnitude of MIN is not a positive i32 expression on its own.
-                if matches!(op, PrefixOp::Neg)
-                    && let ExprKind::Literal(literal) = &self.lowered.module.expr(*expr).kind
-                    && literal.kind == LiteralKind::Number
-                    && kagari_common::literal::parse_integer_literal(&literal.text).ok()
-                        == Some(2147483648)
-                {
-                    let ty = TypeId::Builtin(BuiltinType::I32);
-                    self.type_table
-                        .insert_scalar(expr_id, super::ScalarValue::I32(i32::MIN));
-                    self.type_table.insert_expr(*expr, ty.clone());
-                    self.type_table.insert_expr(expr_id, ty.clone());
-                    env.exprs.insert(expr_id, ty.clone());
-                    return ty;
-                }
-                let inner = self.infer_expr_type(*expr, env);
-                let Ok(completes) =
-                    super::completion::expr_can_complete(&self.lowered.module, *expr, self.cancel)
-                else {
-                    return TypeId::Unknown;
-                };
-                if completes {
-                    let protocol = match op {
-                        PrefixOp::Neg => crate::builtin::traits::StandardTrait::Neg,
-                        PrefixOp::Not => crate::builtin::traits::StandardTrait::Not,
-                    };
-                    if let Some(result) =
-                        self.record_operator(expr_id, *expr, &inner, protocol.nominal(), env)
-                    {
-                        return self.finish_operator_type(expr_id, result, env);
-                    }
-                }
-                match op {
-                    PrefixOp::Neg => {
-                        if completes
-                            && super::constraints::known_type_violates_constraint(
-                                &inner,
-                                StandardTypeConstraint::SignedNumber,
-                                &env.generic_bounds,
-                            )
-                        {
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
-                                    operator: "-",
-                                    expected: "numeric".to_owned(),
-                                    found: display_type_id(&inner),
-                                })
-                                .with_span(self.lowered.source_map.expr_span(*expr)),
-                            );
-                        }
-                        if completes { inner } else { TypeId::Unknown }
-                    }
-                    PrefixOp::Not => {
-                        if completes && inner.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
-                                    operator: "!",
-                                    expected: "bool".to_owned(),
-                                    found: display_type_id(&inner),
-                                })
-                                .with_span(self.lowered.source_map.expr_span(*expr)),
-                            );
-                        }
-                        TypeId::Builtin(BuiltinType::Bool)
-                    }
-                }
-            }
+            ExprKind::Prefix { op, expr } => self.infer_prefix_operator(expr_id, op, expr, env),
             ExprKind::Range { start, end, .. } => {
                 let integer = TypeId::Builtin(BuiltinType::I32);
                 let start_ty = self.infer_expr_type_expected(*start, env, Some(&integer));
@@ -846,61 +788,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Array(Box::new(integer))
             }
             ExprKind::Binary { lhs, op, rhs } => {
-                let lhs_ty = self.infer_expr_type(*lhs, env);
-                let Ok(lhs_completes) =
-                    super::completion::expr_can_complete(&self.lowered.module, *lhs, self.cancel)
-                else {
-                    return TypeId::Unknown;
-                };
-                let lhs_ty = lhs_completes.then_some(lhs_ty);
-                let rhs_context = match op {
-                    BinaryOp::AndAnd | BinaryOp::OrOr => Some(TypeId::Builtin(BuiltinType::Bool)),
-                    _ => lhs_ty.clone(),
-                };
-                let rhs_ty = self.infer_expr_type_expected(*rhs, env, rhs_context.as_ref());
-                let Ok(rhs_completes) =
-                    super::completion::expr_can_complete(&self.lowered.module, *rhs, self.cancel)
-                else {
-                    return TypeId::Unknown;
-                };
-                let arithmetic = match op {
-                    BinaryOp::Add => Some(crate::builtin::traits::StandardTrait::Add),
-                    BinaryOp::Sub => Some(crate::builtin::traits::StandardTrait::Sub),
-                    BinaryOp::Mul => Some(crate::builtin::traits::StandardTrait::Mul),
-                    BinaryOp::Div => Some(crate::builtin::traits::StandardTrait::Div),
-                    BinaryOp::Rem => Some(crate::builtin::traits::StandardTrait::Rem),
-                    _ => None,
-                };
-                if let (Some(protocol), Some(left)) = (arithmetic, lhs_ty.as_ref())
-                    && rhs_completes
-                {
-                    let mut requested = protocol.nominal();
-                    requested.arguments.push(rhs_ty.clone());
-                    if let Some(result) = self.record_operator(expr_id, *lhs, left, requested, env)
-                    {
-                        return self.finish_operator_type(expr_id, result, env);
-                    }
-                }
-                if matches!(
-                    op,
-                    BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
-                ) && let Some(left) = lhs_ty.as_ref()
-                    && rhs_completes
-                    && !left.conflicts_with(&rhs_ty)
-                    && self
-                        .record_operator(
-                            expr_id,
-                            *lhs,
-                            left,
-                            crate::builtin::traits::StandardTrait::PartialOrd.nominal(),
-                            env,
-                        )
-                        .is_some()
-                {
-                    TypeId::Builtin(BuiltinType::Bool)
-                } else {
-                    self.infer_binary_type(*op, *rhs, lhs_ty, rhs_completes.then_some(rhs_ty), env)
-                }
+                self.infer_binary_operator(expr_id, lhs, op, rhs, env)
             }
             ExprKind::Call { callee, args } => {
                 if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env, expected)
@@ -996,9 +884,13 @@ impl<'a> BodyChecker<'a> {
                 let body_result =
                     self.infer_expr_with_coercion(*body, &mut closure_env, expected_result);
                 let returns = self.closure_returns.pop().expect("closure return context");
-                let completes =
-                    super::completion::expr_can_complete(&self.lowered.module, *body, self.cancel)
-                        .unwrap_or(false);
+                let completes = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    *body,
+                    self.cancel,
+                )
+                .unwrap_or(false);
                 let mut result = if completes {
                     body_result
                 } else {
@@ -1034,6 +926,7 @@ impl<'a> BodyChecker<'a> {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
                 let Ok(completes) = super::completion::expr_can_complete(
                     &self.lowered.module,
+                    self.names,
                     *receiver,
                     self.cancel,
                 ) else {
@@ -1052,28 +945,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Index { receiver, index } => {
-                let receiver_ty = self.infer_expr_type(*receiver, env);
-                let index_ty = self.infer_expr_type(*index, env);
-                let Ok(completes) = super::completion::expr_can_complete(
-                    &self.lowered.module,
-                    *receiver,
-                    self.cancel,
-                ) else {
-                    return TypeId::Unknown;
-                };
-                if completes {
-                    let mut requested = crate::builtin::traits::StandardTrait::Index.nominal();
-                    requested.arguments.push(index_ty.clone());
-                    if let Some(result) =
-                        self.record_operator(expr_id, *receiver, &receiver_ty, requested, env)
-                    {
-                        return self.finish_operator_type(expr_id, result, env);
-                    }
-                    self.checked_index_type(*index, &receiver_ty, &index_ty, expr_id)
-                        .unwrap_or(TypeId::Error)
-                } else {
-                    TypeId::Unknown
-                }
+                self.infer_index_operator(expr_id, receiver, index, env)
             }
             ExprKind::If {
                 condition,
@@ -1096,6 +968,7 @@ impl<'a> BodyChecker<'a> {
                         self.check_pattern(*pattern, &ty, &mut then_env);
                         let Ok(completes) = super::completion::expr_can_complete(
                             &self.lowered.module,
+                            self.names,
                             *initializer,
                             self.cancel,
                         ) else {
@@ -1110,6 +983,7 @@ impl<'a> BodyChecker<'a> {
                     Some(else_expr) => {
                         let Ok(then_completes) = super::completion::block_can_complete(
                             &self.lowered.module,
+                            self.names,
                             *then_branch,
                             self.cancel,
                         ) else {
@@ -1120,6 +994,7 @@ impl<'a> BodyChecker<'a> {
                         let else_ty = self.infer_expr_with_coercion(*else_expr, env, else_context);
                         let Ok(else_completes) = super::completion::expr_can_complete(
                             &self.lowered.module,
+                            self.names,
                             *else_expr,
                             self.cancel,
                         ) else {
@@ -1152,6 +1027,7 @@ impl<'a> BodyChecker<'a> {
                 let scrutinee_ty = self.infer_expr_type(*scrutinee, env);
                 let Ok(scrutinee_completes) = super::completion::expr_can_complete(
                     &self.lowered.module,
+                    self.names,
                     *scrutinee,
                     self.cancel,
                 ) else {
@@ -1173,10 +1049,13 @@ impl<'a> BodyChecker<'a> {
                     if !reachable {
                         continue;
                     }
-                    reachable = !self.lowered.module.pattern_is_irrefutable(arm.pattern)
+                    reachable = !self
+                        .names
+                        .pattern_is_irrefutable(&self.lowered.module, arm.pattern)
                         || arm.guard.is_some();
                     let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
+                        self.names,
                         arm.expr,
                         self.cancel,
                     ) else {
@@ -1254,6 +1133,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
+                        self.names,
                         *expr,
                         self.cancel,
                     ) else {
@@ -1810,9 +1690,12 @@ impl<'a> BodyChecker<'a> {
         let base = match (receiver, actual.first()) {
             (Some(receiver), _) => Some(receiver),
             (None, Some((expr, ty))) => {
-                let Ok(completes) =
-                    super::completion::expr_can_complete(&self.lowered.module, *expr, self.cancel)
-                else {
+                let Ok(completes) = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    *expr,
+                    self.cancel,
+                ) else {
                     return actual;
                 };
                 completes.then_some(ty)
@@ -1914,9 +1797,12 @@ impl<'a> BodyChecker<'a> {
         let base_ty = match (receiver_ty, arg_tys.first()) {
             (Some(receiver), _) => Some(receiver),
             (None, Some((expr, ty))) => {
-                let Ok(completes) =
-                    super::completion::expr_can_complete(&self.lowered.module, *expr, self.cancel)
-                else {
+                let Ok(completes) = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    *expr,
+                    self.cancel,
+                ) else {
                     return TypeId::Unknown;
                 };
                 completes.then(|| ty.clone())
@@ -2268,6 +2154,7 @@ impl<'a> BodyChecker<'a> {
                 for (index, (argument, ty)) in arg_tys.iter().enumerate() {
                     let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
+                        self.names,
                         *argument,
                         self.cancel,
                     ) else {
@@ -2301,6 +2188,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 let Ok(completes) = super::completion::expr_can_complete(
                     &self.lowered.module,
+                    self.names,
                     *argument,
                     self.cancel,
                 ) else {
@@ -2362,6 +2250,7 @@ impl<'a> BodyChecker<'a> {
                 for (expr, operand) in arg_tys.iter().take(2) {
                     let Ok(completes) = super::completion::expr_can_complete(
                         &self.lowered.module,
+                        self.names,
                         *expr,
                         self.cancel,
                     ) else {
@@ -2570,8 +2459,12 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> Result<Option<TypeId>, kagari_common::cancellation::Cancelled> {
         let ty = self.infer_expr_type(receiver, env);
-        let completes =
-            super::completion::expr_can_complete(&self.lowered.module, receiver, self.cancel)?;
+        let completes = super::completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            receiver,
+            self.cancel,
+        )?;
         Ok(completes.then_some(ty))
     }
 
@@ -2582,9 +2475,12 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) {
         let found = self.infer_expr_with_coercion(value, env, expected);
-        let Ok(completes) =
-            super::completion::expr_can_complete(&self.lowered.module, value, self.cancel)
-        else {
+        let Ok(completes) = super::completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            value,
+            self.cancel,
+        ) else {
             return;
         };
         if completes
@@ -3021,7 +2917,19 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
-        let trait_types = self.trait_bounds_for(&receiver_ty, env);
+        let mut trait_types = self.trait_bounds_for(&receiver_ty, env);
+        // Arrays support every builtin integer index type. Method selection must
+        // apply Index to the actual argument, just like bracket expressions.
+        if matches!(receiver_ty, TypeId::Array(_)) && name == "index" && args.len() == 1 {
+            let index_ty = self.infer_expr_type(args[0], env);
+            let protocol = crate::builtin::traits::StandardTrait::Index;
+            let mut requested = protocol.nominal();
+            requested.arguments.push(index_ty);
+            if let Some((interface, _)) = self.select_operator(&receiver_ty, requested, env) {
+                trait_types.retain(|candidate| candidate.declaration != interface.declaration);
+                trait_types.push(interface);
+            }
+        }
         let mut candidates = Vec::new();
         for interface in trait_types {
             if let Some(contract) = self.aggregates.trait_(&interface.declaration) {
@@ -3036,6 +2944,33 @@ impl<'a> BodyChecker<'a> {
         }
         if candidates.is_empty() {
             return None;
+        }
+        // Applied standard protocols can select a unique RHS implementation.
+        // Unrelated same-named traits retain ordinary ambiguity diagnostics.
+        if candidates.len() > 1
+            && args.len() == 1
+            && let Some(protocol) =
+                crate::builtin::traits::StandardTrait::from_id(&candidates[0].1.declaration)
+            && (protocol.binary_operator()
+                || protocol == crate::builtin::traits::StandardTrait::Index)
+            && candidates
+                .iter()
+                .all(|(_, interface)| interface.declaration == protocol.contract().id)
+        {
+            let argument = self.infer_expr_type(args[0], env);
+            let applicable: Vec<_> = candidates
+                .iter()
+                .filter(|(_, interface)| {
+                    interface
+                        .arguments
+                        .first()
+                        .is_some_and(|input| !input.conflicts_with(&argument))
+                })
+                .cloned()
+                .collect();
+            if !applicable.is_empty() {
+                candidates = applicable;
+            }
         }
         if candidates.len() != 1 {
             self.infer_call_args(args, env);
@@ -3114,9 +3049,12 @@ impl<'a> BodyChecker<'a> {
         );
         let mut suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
         for (argument, _) in &arg_tys {
-            let Ok(completes) =
-                super::completion::expr_can_complete(&self.lowered.module, *argument, self.cancel)
-            else {
+            let Ok(completes) = super::completion::expr_can_complete(
+                &self.lowered.module,
+                self.names,
+                *argument,
+                self.cancel,
+            ) else {
                 return Some(TypeId::Unknown);
             };
             suppress_missing |= !completes;
@@ -3309,9 +3247,12 @@ impl<'a> BodyChecker<'a> {
         if self.cancel.check().is_err() {
             return Some(TypeId::Unknown);
         }
-        let Ok(completes) =
-            super::completion::expr_can_complete(&self.lowered.module, expression, self.cancel)
-        else {
+        let Ok(completes) = super::completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            expression,
+            self.cancel,
+        ) else {
             return Some(TypeId::Unknown);
         };
         let arguments = self.finish_inferred_arguments(
@@ -3424,9 +3365,12 @@ impl<'a> BodyChecker<'a> {
                 return result.as_ref().clone();
             }
             self.infer_call_args(args, env);
-            let Ok(completes) =
-                super::completion::expr_can_complete(&self.lowered.module, callee, self.cancel)
-            else {
+            let Ok(completes) = super::completion::expr_can_complete(
+                &self.lowered.module,
+                self.names,
+                callee,
+                self.cancel,
+            ) else {
                 return TypeId::Unknown;
             };
             if !completes {
@@ -3475,9 +3419,12 @@ impl<'a> BodyChecker<'a> {
         }
         let mut suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
         for (argument, _) in &arg_tys {
-            let Ok(completes) =
-                super::completion::expr_can_complete(&self.lowered.module, *argument, self.cancel)
-            else {
+            let Ok(completes) = super::completion::expr_can_complete(
+                &self.lowered.module,
+                self.names,
+                *argument,
+                self.cancel,
+            ) else {
                 return TypeId::Unknown;
             };
             suppress_missing |= !completes;
@@ -3968,12 +3915,6 @@ impl<'a> BodyChecker<'a> {
         Some(id.declaration.clone())
     }
 
-    fn finish_operator_type(&mut self, site: ExprId, ty: TypeId, env: &mut BodyTypeEnv) -> TypeId {
-        self.type_table.insert_expr(site, ty.clone());
-        env.exprs.insert(site, ty.clone());
-        ty
-    }
-
     fn select_operator(
         &self,
         ty: &TypeId,
@@ -4120,10 +4061,28 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Bool)
             }
             BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => {
-                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty, env) {
+                let supports_ordering = |ty: &TypeId| {
+                    matches!(ty, TypeId::Unknown | TypeId::Error)
+                        || self
+                            .select_operator(
+                                ty,
+                                crate::builtin::traits::StandardTrait::PartialOrd.nominal(),
+                                env,
+                            )
+                            .is_some()
+                        || super::constraints::type_satisfies_standard_constraint(
+                            ty,
+                            StandardTypeConstraint::OrderedNumber,
+                            &env.generic_bounds,
+                        )
+                };
+                if lhs_ty.conflicts_with(&rhs_ty)
+                    || !supports_ordering(&lhs_ty)
+                    || !supports_ordering(&rhs_ty)
+                {
                     self.emit_binary_operand_type_mismatch(
                         op,
-                        "matching numeric",
+                        "matching PartialOrd",
                         &lhs_ty,
                         &rhs_ty,
                         rhs_expr,
@@ -4210,8 +4169,12 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> Result<bool, kagari_common::cancellation::Cancelled> {
         let ty = self.infer_expr_type(expr_id, env);
-        let completes =
-            super::completion::expr_can_complete(&self.lowered.module, expr_id, self.cancel)?;
+        let completes = super::completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            expr_id,
+            self.cancel,
+        )?;
         if completes && ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {
@@ -4283,6 +4246,7 @@ impl<'a> BodyChecker<'a> {
             let actual = self.infer_expr_with_coercion(field.value, env, expected.as_ref());
             let Ok(field_completes) = super::completion::expr_can_complete(
                 &self.lowered.module,
+                self.names,
                 field.value,
                 self.cancel,
             ) else {
@@ -4422,8 +4386,13 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {
-        if !super::completion::expr_can_complete(&self.lowered.module, index_expr, self.cancel)
-            .ok()?
+        if !super::completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            index_expr,
+            self.cancel,
+        )
+        .ok()?
         {
             return match receiver {
                 TypeId::Array(element) => Some((**element).clone()),
@@ -4483,9 +4452,12 @@ impl<'a> BodyChecker<'a> {
         let Some((arg_expr, found)) = args.get(index) else {
             return;
         };
-        let Ok(completes) =
-            super::completion::expr_can_complete(&self.lowered.module, *arg_expr, self.cancel)
-        else {
+        let Ok(completes) = super::completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            *arg_expr,
+            self.cancel,
+        ) else {
             return;
         };
         if !completes {
@@ -4660,9 +4632,12 @@ impl<'a> BodyChecker<'a> {
                 .as_ref()
                 .map(|ty| ty.argument_context(substitution, generics));
             let ty = self.infer_expr_with_coercion(*argument, env, expected.as_ref());
-            let Ok(completes) =
-                super::completion::expr_can_complete(&self.lowered.module, *argument, self.cancel)
-            else {
+            let Ok(completes) = super::completion::expr_can_complete(
+                &self.lowered.module,
+                self.names,
+                *argument,
+                self.cancel,
+            ) else {
                 break;
             };
             if completes

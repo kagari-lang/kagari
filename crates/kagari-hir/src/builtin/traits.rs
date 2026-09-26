@@ -134,6 +134,9 @@ impl StandardTrait {
         }
         view
     }
+    pub fn host_implementable(self) -> bool {
+        matches!(self, Self::Debug | Self::Display)
+    }
     pub fn equality_protocol(self) -> bool {
         matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
     }
