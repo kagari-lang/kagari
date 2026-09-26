@@ -233,3 +233,22 @@ Validation: 1,161 workspace tests passed, including the 100 standard API
 examples. Formatting, workspace clippy with warnings denied and `git diff --check`
 passed. Recovery tests cover malformed delimiters, rejected legacy/inner attributes,
 lossless nested metadata and following declaration recovery.
+
+## String interpolation and joining
+
+- [x] Lossless, bounded `f"..."` parsing with expression holes, escaped braces,
+  ordinary text escapes and nested interpolation.
+- [x] Canonical Display/Debug selection, left-to-right single evaluation and
+  ordinary propagation/trap cleanup through existing call frames.
+- [x] `[String].join(separator)` and `std::array::join`, using checked byte-length
+  accumulation and one result-buffer reservation; concat remains available.
+- [x] English API docs, runnable example and EBNF coverage inventories.
+
+Artifact format and runtime ABI are v62. The helper ABI remains v6. Old artifacts
+are rejected; no compatibility decoder is introduced. Width/precision formatting,
+String `+`, StringBuilder and compile-time interpolation remain separate work.
+
+Acceptance: 1,173 workspace tests passed, including source/artifact/JIT-path
+interpolation tests, 101 standard API documentation examples, Unicode/source-query
+rebasing, parser limits and native argument validation. Formatting, workspace
+clippy with warnings denied and `git diff --check` passed.

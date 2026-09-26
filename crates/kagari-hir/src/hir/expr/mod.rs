@@ -16,6 +16,11 @@ pub struct ExprData {
 #[derive(Debug, Clone)]
 pub enum ExprKind {
     Missing,
+    InterpolatedString(ExprBuffer),
+    FormatPart {
+        expr: ExprId,
+        debug: bool,
+    },
     Name {
         name: String,
         explicit_type: Option<super::TypeRefId>,

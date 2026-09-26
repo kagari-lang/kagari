@@ -283,7 +283,13 @@ primary_expr        ::= literal
                       | loop_expr
                       | match_expr
                       | block
-                      | qualified_type ;
+                      | qualified_type
+                      | interpolated_string ;
+
+interpolated_string ::= FORMAT_START interpolation_part* FORMAT_END ;
+interpolation_part  ::= FORMAT_TEXT | interpolation ;
+interpolation       ::= FORMAT_OPEN expr interpolation_format? FORMAT_CLOSE ;
+interpolation_format ::= ":" "?" ;
 
 parenthesized_expr  ::= "(" expr ")" ;
 
@@ -480,3 +486,13 @@ STRING_TEXT_CHAR    ::= ? any scalar value except `"` `\` and line terminators ?
 LINE_END            ::= "\n"
                       | "\r\n"
                       | EOF ;
+
+(* Interpolation tokens are context-sensitive. FORMAT_TEXT follows ordinary string
+   escapes; doubled braces are text. Within a hole ordinary expression tokens,
+   comments, strings and nested interpolations are recognized. Format delimiters
+   do not consume the braces belonging to a nested block or struct expression. *)
+FORMAT_START        ::= "f" "\"" ;
+FORMAT_END          ::= "\"" ;
+FORMAT_OPEN         ::= "{" ;
+FORMAT_CLOSE        ::= "}" ;
+FORMAT_TEXT         ::= ? string text or doubled braces within an interpolated string ? ;

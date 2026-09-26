@@ -32,7 +32,7 @@ Type-parameterized associated declarations and definitions, including their
 input/output bounds and qualified member arguments, have an executable witness
 in [generic-associated-types.kgr](../examples/syntax/generic-associated-types.kgr).
 
-All 165 EBNF rules and 115 top-level alternatives now have parse-clean
+All inventoried EBNF rules and top-level alternatives have parse-clean
 witnesses. This is parser coverage, not an assertion that every form has linked
 runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)
 is parser-only because it combines unrelated grammar forms. Inline modules and
@@ -51,3 +51,8 @@ the available example only happens to parse but does not demonstrate the
 particular branch. The parser's Rowan CST, semantic analysis, artifact loading,
 and runtime execution require their own tests; this audit measures their
 source-grammar inputs only.
+
+Interpolated strings and their lexer modes have an executable witness in
+[string-interpolation.kgr](../examples/syntax/string-interpolation.kgr). Focused
+parser tests cover nested interpolation, Unicode escapes, malformed input and
+nesting/cancellation limits. Expression holes retain their original source spans.

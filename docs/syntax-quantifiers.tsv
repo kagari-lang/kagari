@@ -135,3 +135,5 @@ associated_const_decl	1	?	("=" expr)
 qualified_type	1	?	generic_args
 associated_type_def	1	?	generic_param_clause
 associated_type_def	2	?	where_clause
+interpolated_string	1	*	interpolation_part
+interpolation	1	?	interpolation_format

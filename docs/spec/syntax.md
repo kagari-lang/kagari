@@ -1032,3 +1032,40 @@ and indexing. It unwraps success or returns failure from the nearest function or
 closure. It applies only to the built-in Option and Result types; see the
 [standard-type contract](builtins.md#option-and-result) for type checking and
 explicit conversion rules. There is no exception-handler syntax.
+
+## Interpolated strings
+
+`f"..."` constructs a String from literal text and expression holes. Ordinary
+`"..."` strings do not interpolate. `{expr}` uses the canonical standard Display
+protocol; `{expr:?}` uses Debug. Missing implementations or generic bounds are
+compile-time diagnostics. Inherent methods named `display` or `debug` and local
+bindings named `std` or `Display` do not redirect interpolation.
+
+```kgr
+val name = "Kagari";
+val score = 40;
+val message = f"Hello {name}, score={score + 2}";
+val diagnostic = f"name={name:?}";
+val braces = f"{{{name}}}";
+```
+
+Literal `{{` and `}}` produce single braces. Text uses ordinary string escape
+rules, including `\u{...}`; those escape braces do not open holes. Unescaped
+single braces, empty holes, invalid escapes and unsupported format suffixes are
+diagnostics. Width, precision and alternate numeric formats are not supported.
+Physical line breaks are not allowed in text segments, matching ordinary string
+literals. Expression holes follow ordinary expression whitespace/comment rules
+and may contain blocks, closures, strings or nested interpolated strings.
+
+Each expression is evaluated once and immediately formatted, from left to right.
+The next expression runs only after the previous formatting call returns. `?`,
+return, trap, cancellation and budget exhaustion keep their ordinary behavior;
+when evaluation exits, later holes do not run. Completed effects are not rolled
+back. Display/Debug implementations may themselves contain interpolation.
+
+Interpolation is a runtime expression and is outside the scalar const-safe subset.
+Standard formatting traits remain static protocols; this feature adds no dynamic
+standard-trait interface type. Literal and formatted pieces are collected and
+joined into a buffer reserved from their combined byte length, avoiding repeated
+copying of an accumulated prefix. Result text is not a locale-sensitive or stable
+serialization format. Parser depth, diagnostics and cancellation limits apply.

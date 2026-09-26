@@ -360,6 +360,11 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::Bool)?;
         }
+        ArrayJoin => {
+            expect_arg_ty(args, 0, ValueType::HeapObject, "string array")?;
+            expect_arg_ty(args, 1, ValueType::Str, "join separator")?;
+            verify_call_dst(dst, ValueType::Str)?;
+        }
         StringConcat => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
             expect_arg_ty(args, 1, ValueType::Str, "standard intrinsic argument")?;

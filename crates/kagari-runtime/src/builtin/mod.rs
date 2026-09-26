@@ -72,6 +72,7 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         ArrayPop => "std::array::pop",
         ArrayInsert => "std::array::insert",
         ArrayRemove => "std::array::remove",
+        ArrayJoin => "std::array::join",
         ArrayClear => "std::array::clear",
         MapNew => "std::map::new",
         MapLen => "std::map::len",

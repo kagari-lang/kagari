@@ -170,6 +170,7 @@ pub enum StandardIntrinsic {
     ArrayInsert,
     ArrayRemove,
     ArrayClear,
+    ArrayJoin,
     MapNew,
     MapLen,
     MapIsEmpty,

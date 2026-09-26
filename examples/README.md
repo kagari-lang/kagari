@@ -29,6 +29,7 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 | `for` over Array, Map, Set and String | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
 | Struct fields, shorthand initialization, inherent methods, enum payloads, tuples, arrays and assignment targets | [data-model.kgr](syntax/data-model.kgr) | `42` |
 | Arithmetic (including `%`), comparison, unary and short-circuit logical operators | [expressions.kgr](syntax/expressions.kgr) | `42` |
+| Display/Debug string interpolation, literal braces, nested holes and join | [string-interpolation.kgr](syntax/string-interpolation.kgr) | `42` |
 | Numeric bases and separators, exponents, escaped strings, and nested block comments | [literals-and-comments.kgr](syntax/literals-and-comments.kgr) | `42` |
 | Literal, wildcard, binding, nested tuple, struct and enum `match` patterns | [match.kgr](syntax/match.kgr) | `42` |
 | Guarded `match` arms and pattern-bound guard names | [match-guards.kgr](syntax/match-guards.kgr) | `42` |

@@ -2,6 +2,9 @@
 
 /// Diagnostic formatting as a string.
 ///
+/// Interpolated strings use this protocol for `{value:?}`, including user
+/// implementations. The representation is intended for inspection.
+///
 /// User implementations run ordinary script code and may trap. Builtin diagnostic error
 /// previews do not invoke arbitrary user Debug implementations. No stable serialization
 /// format is promised.
@@ -20,6 +23,9 @@ pub trait Debug {
 
 /// User-facing formatting as a string.
 ///
+/// Interpolated strings use this protocol for `{value}`. Each expression is
+/// evaluated once and formatted before the next expression runs.
+///
 /// Choose a representation appropriate for the application. This protocol does not imply
 /// parsing, locale handling or a stable serialization format.
 ///
@@ -27,7 +33,8 @@ pub trait Debug {
 ///
 /// ```kgr
 /// fn main() {
-///     std::debug::assert(7.display() == "7", "display");
+///     val count = 7;
+///     std::debug::assert(f"count={count}" == "count=7", "display");
 /// }
 /// ```
 pub trait Display {

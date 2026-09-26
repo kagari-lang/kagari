@@ -362,6 +362,41 @@ impl FunctionLowerer<'_, '_> {
                 self.switch_to_block(success);
                 self.standard_enum_op(&ty, StandardEnumOp::Read(0), Some(value))
             }
+            hir::ExprKind::InterpolatedString(parts) => {
+                let elements = match self.lower_values(&parts)? {
+                    ControlFlow::Continue(values) => values,
+                    ControlFlow::Break(value) => return Ok(value),
+                };
+                let array = self.alloc_temp(ValueType::HeapObject);
+                self.emit(Instruction::MakeArray {
+                    dst: array,
+                    elements,
+                });
+                let separator = self.alloc_temp(ValueType::Str);
+                self.emit(Instruction::LoadConst {
+                    dst: separator,
+                    constant: Constant::Str(String::new()),
+                });
+                let dst = self.alloc_temp(ValueType::Str);
+                self.emit(Instruction::Call {
+                    dst: Some(dst),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayJoin),
+                    args: smallvec::smallvec![array, separator],
+                });
+                Ok(dst)
+            }
+            hir::ExprKind::FormatPart { expr, .. } => {
+                if self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .call_resolution(expr_id)
+                    .is_none()
+                {
+                    return self.lower_expr(expr);
+                }
+                self.lower_call(expr_id, &[])
+            }
             hir::ExprKind::Prefix { op, expr } => {
                 let operand = self.lower_expr(expr)?;
                 if self.current_block_terminated() {

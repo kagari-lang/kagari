@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 34] = [
+    let cases: [(&str, &str, Value); 35] = [
+        (
+            "examples/syntax/string-interpolation.kgr",
+            include_str!("../../../examples/syntax/string-interpolation.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/iterators.kgr",
             include_str!("../../../examples/syntax/iterators.kgr"),

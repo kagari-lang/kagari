@@ -165,3 +165,12 @@ LINE_END	covered	examples/syntax/expressions.kgr	-
 associated_const_decl	covered	examples/syntax/associated-constants.kgr	-
 associated_const_def	covered	examples/syntax/associated-constants.kgr	-
 propagation_suffix	covered	examples/syntax/result-option.kgr	-
+interpolated_string	covered	examples/syntax/string-interpolation.kgr	-
+interpolation_part	covered	examples/syntax/string-interpolation.kgr	-
+interpolation	covered	examples/syntax/string-interpolation.kgr	-
+interpolation_format	covered	examples/syntax/string-interpolation.kgr	-
+FORMAT_START	covered	examples/syntax/string-interpolation.kgr	-
+FORMAT_END	covered	examples/syntax/string-interpolation.kgr	-
+FORMAT_OPEN	covered	examples/syntax/string-interpolation.kgr	-
+FORMAT_CLOSE	covered	examples/syntax/string-interpolation.kgr	-
+FORMAT_TEXT	covered	examples/syntax/string-interpolation.kgr	-

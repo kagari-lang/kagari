@@ -1,7 +1,7 @@
 mod literal;
 mod pattern;
 
-use kagari_syntax::ast;
+use kagari_syntax::ast::{self, AstNode};
 use kagari_syntax::kind::SyntaxKind;
 use smallvec::{SmallVec, smallvec};
 
@@ -77,6 +77,45 @@ impl Lowerer {
                         })
                     }),
             },
+            ast::Expr::InterpolatedString(string) => {
+                let mut parts = SmallVec::new();
+                for element in string.syntax().children_with_tokens() {
+                    if let Some(token) = element.as_token() {
+                        if token.kind() == SyntaxKind::FormatText {
+                            let text = token.text().replace("{{", "{").replace("}}", "}");
+                            parts.push(self.alloc_expr(
+                                kagari_common::Span::new(
+                                    usize::from(token.text_range().start()),
+                                    usize::from(token.text_range().end()),
+                                ),
+                                ExprData {
+                                    kind: ExprKind::Literal(crate::hir::Literal {
+                                        kind: crate::hir::LiteralKind::String,
+                                        text: format!("\"{text}\""),
+                                    }),
+                                },
+                            ));
+                        }
+                    } else if let Some(part) =
+                        element.into_node().and_then(ast::Interpolation::cast)
+                    {
+                        let expr = part
+                            .expr()
+                            .map(|expr| self.lower_expr(&expr))
+                            .unwrap_or_else(|| self.missing_expr());
+                        parts.push(self.alloc_expr(
+                            syntax_span(&part),
+                            ExprData {
+                                kind: ExprKind::FormatPart {
+                                    expr,
+                                    debug: part.debug(),
+                                },
+                            },
+                        ));
+                    }
+                }
+                ExprKind::InterpolatedString(parts)
+            }
             ast::Expr::Literal(literal) => ExprKind::Literal(self.lower_literal(literal)),
             ast::Expr::ParenExpr(paren) => {
                 return paren

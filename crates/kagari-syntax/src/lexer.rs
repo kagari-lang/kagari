@@ -19,8 +19,98 @@ pub fn lex_with_cancellation(
         .take_while(|_| cancel.check().is_ok())
         .peekable();
     let mut tokens = SmallVec::new();
+    // Text modes and expression brace depths use an explicit stack, not recursion.
+    let mut formats: Vec<Option<usize>> = Vec::new();
 
     while let Some((index, ch)) = chars.peek().copied() {
+        if formats.last() == Some(&None) {
+            let start = index;
+            let mut end = index;
+            let mut escaped = false;
+            while let Some((position, character)) = chars.peek().copied() {
+                if matches!(character, '\r' | '\n')
+                    || (!escaped && matches!(character, '"' | '{' | '}'))
+                {
+                    break;
+                }
+                chars.next();
+                end = position + character.len_utf8();
+                if escaped && character == 'u' && chars.peek().is_some_and(|(_, next)| *next == '{')
+                {
+                    // Unicode escape braces belong to the text, not to an expression hole.
+                    let (open, _) = chars.next().expect("peeked escape brace");
+                    end = open + 1;
+                    while let Some((position, character)) = chars.peek().copied() {
+                        if matches!(character, '"' | '\r' | '\n') {
+                            break;
+                        }
+                        chars.next();
+                        end = position + character.len_utf8();
+                        if character == '}' {
+                            break;
+                        }
+                    }
+                }
+                if escaped {
+                    escaped = false;
+                } else {
+                    escaped = character == '\\';
+                }
+            }
+            if end > start {
+                let text = format!("\"{}\"", &input[start..end]);
+                let kind = if kagari_common::literal::decode_string_literal(&text).is_ok() {
+                    TokenKind::FormatText
+                } else {
+                    TokenKind::Unknown
+                };
+                tokens.push(token(kind, start, end));
+                continue;
+            }
+            chars.next();
+            match ch {
+                '"' => {
+                    formats.pop();
+                    tokens.push(token(TokenKind::FormatEnd, index, index + 1));
+                }
+                '{' | '}' if chars.peek().is_some_and(|(_, next)| *next == ch) => {
+                    chars.next();
+                    tokens.push(token(TokenKind::FormatText, index, index + 2));
+                }
+                '{' => {
+                    formats.push(Some(0));
+                    tokens.push(token(TokenKind::FormatOpen, index, index + 1));
+                }
+                _ => {
+                    tokens.push(token(TokenKind::Unknown, index, index + ch.len_utf8()));
+                    if matches!(ch, '\r' | '\n') {
+                        formats.pop();
+                    }
+                }
+            }
+            continue;
+        }
+        if ch == 'f' && input[index..].starts_with("f\"") {
+            chars.next();
+            chars.next();
+            tokens.push(token(TokenKind::FormatStart, index, index + 2));
+            formats.push(None);
+            continue;
+        }
+        if let Some(Some(depth)) = formats.last_mut() {
+            if ch == '{' {
+                *depth += 1;
+            }
+            if ch == '}' {
+                if *depth == 0 {
+                    chars.next();
+                    formats.pop();
+                    tokens.push(token(TokenKind::FormatClose, index, index + 1));
+                    continue;
+                }
+                *depth -= 1;
+            }
+        }
         if ch.is_whitespace() {
             let mut end = index;
             while let Some((next_index, next)) = chars.peek().copied() {

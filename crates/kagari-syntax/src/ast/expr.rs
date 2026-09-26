@@ -37,6 +37,8 @@ ast_node!(Pattern, Pattern);
 ast_node!(PatternField, PatternField);
 ast_node!(TupleExpr, TupleExpr);
 ast_node!(ArrayExpr, ArrayExpr);
+ast_node!(InterpolatedString, InterpolatedString);
+ast_node!(Interpolation, Interpolation);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
@@ -58,6 +60,7 @@ pub enum Expr {
     ClosureExpr(ClosureExpr),
     TupleExpr(TupleExpr),
     ArrayExpr(ArrayExpr),
+    InterpolatedString(InterpolatedString),
 }
 
 impl AstNode for Expr {
@@ -81,6 +84,7 @@ impl AstNode for Expr {
                 | SyntaxKind::LoopExpr
                 | SyntaxKind::ClosureExpr
                 | SyntaxKind::TupleExpr
+                | SyntaxKind::InterpolatedString
                 | SyntaxKind::ArrayExpr
         )
     }
@@ -104,6 +108,9 @@ impl AstNode for Expr {
             SyntaxKind::LoopExpr => LoopExpr::cast(syntax).map(Self::LoopExpr),
             SyntaxKind::ClosureExpr => ClosureExpr::cast(syntax).map(Self::ClosureExpr),
             SyntaxKind::TupleExpr => TupleExpr::cast(syntax).map(Self::TupleExpr),
+            SyntaxKind::InterpolatedString => {
+                InterpolatedString::cast(syntax).map(Self::InterpolatedString)
+            }
             SyntaxKind::ArrayExpr => ArrayExpr::cast(syntax).map(Self::ArrayExpr),
             _ => None,
         }
@@ -128,6 +135,7 @@ impl AstNode for Expr {
             Self::LoopExpr(node) => node.syntax(),
             Self::ClosureExpr(node) => node.syntax(),
             Self::TupleExpr(node) => node.syntax(),
+            Self::InterpolatedString(node) => node.syntax(),
             Self::ArrayExpr(node) => node.syntax(),
         }
     }
@@ -541,5 +549,16 @@ impl TupleExpr {
 impl ArrayExpr {
     pub fn elements(&self) -> impl Iterator<Item = Expr> {
         self.syntax().children().filter_map(Expr::cast)
+    }
+}
+
+impl Interpolation {
+    pub fn expr(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+    pub fn debug(&self) -> bool {
+        self.syntax()
+            .children_with_tokens()
+            .any(|element| element.kind() == SyntaxKind::Colon)
     }
 }

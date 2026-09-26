@@ -301,7 +301,8 @@ impl<'a> Completion<'a> {
                                 value = Exits::NORMAL;
                                 continue;
                             }
-                            ExprKind::Propagate { expr }
+                            ExprKind::FormatPart { expr, .. }
+                            | ExprKind::Propagate { expr }
                             | ExprKind::Prefix { expr, .. }
                             | ExprKind::Field { receiver: expr, .. } => {
                                 work.push(Task::Visit(Node::Expr(*expr)));
@@ -348,7 +349,9 @@ impl<'a> Completion<'a> {
                             ExprKind::StructInit { fields, .. } => {
                                 Box::new(fields.iter().map(|field| Node::Expr(field.value)))
                             }
-                            ExprKind::Tuple(elements) | ExprKind::Array(elements) => {
+                            ExprKind::InterpolatedString(elements)
+                            | ExprKind::Tuple(elements)
+                            | ExprKind::Array(elements) => {
                                 Box::new(elements.iter().copied().map(Node::Expr))
                             }
                             ExprKind::Block(block) => {

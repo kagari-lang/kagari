@@ -117,6 +117,7 @@ pub fn invoke_with_callbacks(
         ArrayPop => array_pop(gc, args),
         ArrayInsert => array_insert(gc, args),
         ArrayRemove => array_remove(gc, args),
+        ArrayJoin => array_join(gc, args),
         ArrayClear => array_clear(gc, args),
         MapNew => map_new(gc, args),
         MapLen => map_len(gc, args),
@@ -183,6 +184,44 @@ pub fn invoke_with_callbacks(
         DebugAssertEq => debug_assert_eq(gc, args),
         DebugPanic => debug_panic(args),
     }
+}
+
+fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
+    let [Value::Array(handle), Value::Str(separator)] = args else {
+        return Err(BuiltinError::new(
+            "array.join expects a string array and separator",
+        ));
+    };
+    gc.with_array(*handle, |values| {
+        let overflow = || {
+            BuiltinError::from(crate::error::RuntimeError::resource_limit(
+                "joined string size",
+            ))
+        };
+        let mut length = separator
+            .len()
+            .checked_mul(values.len().saturating_sub(1))
+            .ok_or_else(overflow)?;
+        for value in values {
+            let Value::Str(value) = value else {
+                return Err(BuiltinError::new("array.join expects string elements"));
+            };
+            length = length.checked_add(value.len()).ok_or_else(overflow)?;
+        }
+        let mut output = String::new();
+        output.try_reserve_exact(length).map_err(|_| overflow())?;
+        for (index, value) in values.iter().enumerate() {
+            if index != 0 {
+                output.push_str(separator);
+            }
+            let Value::Str(value) = value else {
+                unreachable!("validated string element");
+            };
+            output.push_str(value);
+        }
+        Ok(Value::Str(output))
+    })
+    .ok_or_else(|| BuiltinError::new("array.join expects a valid array handle"))?
 }
 
 fn array_len(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -1247,6 +1286,37 @@ mod tests {
         gc::{GcHeap, GcHeapConfig},
         value::EphemeralValue,
     };
+
+    #[test]
+    fn join_validates_native_arguments_and_leaves_the_array_unchanged() {
+        let heap = GcHeap::new(
+            GcHeapConfig::default(),
+            std::rc::Rc::new(crate::resource::ResourceState::default()),
+        );
+        let handle = heap
+            .alloc_array(vec![Value::Str("é".into()), Value::Str("😀".into())])
+            .unwrap();
+        let before = heap.array_snapshot(handle).unwrap();
+        assert_eq!(
+            array_join(&heap, &[Value::Array(handle), Value::Str("/".into())]).unwrap(),
+            Value::Str("é/😀".into())
+        );
+        assert_eq!(heap.array_snapshot(handle).unwrap(), before);
+        assert!(array_join(&heap, &[Value::I32(1), Value::Str("".into())]).is_err());
+        let invalid = heap.alloc_array(vec![Value::I32(1)]).unwrap();
+        assert!(array_join(&heap, &[Value::Array(invalid), Value::Str("".into())]).is_err());
+        assert_eq!(heap.array_snapshot(invalid).unwrap(), vec![Value::I32(1)]);
+        assert!(
+            array_join(
+                &GcHeap::new(
+                    GcHeapConfig::default(),
+                    std::rc::Rc::new(crate::resource::ResourceState::default())
+                ),
+                &[Value::Array(handle), Value::Str("".into())]
+            )
+            .is_err()
+        );
+    }
 
     #[derive(Default)]
     struct TestCallbacks {

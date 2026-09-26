@@ -125,6 +125,19 @@ impl FileAnalysis {
                 (_, Receiver::Iterable) => surface::iterable_protocol(&ty).is_some(),
                 _ => false,
             })
+            .filter(|method| {
+                let Some(spec) = surface::standard_function_by_intrinsic(method.intrinsic) else {
+                    return false;
+                };
+                let mut arguments: Arguments = spec
+                    .type_params
+                    .iter()
+                    .map(|name| (*name, TypeId::Unknown))
+                    .collect();
+                let receiver = &spec.api.params[0].ty;
+                receiver.infer(&ty, &mut arguments);
+                !receiver.instantiate(&arguments).conflicts_with(&ty)
+            })
             .filter_map(|method| declarations::function(method.intrinsic))
             .collect()
     }
@@ -278,5 +291,86 @@ mod trait_tests {
                 .name()
                 .ends_with("iter.kgr")
         );
+    }
+}
+
+#[cfg(test)]
+mod interpolation_queries {
+    use super::*;
+    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+
+    #[test]
+    fn hole_bindings_retain_original_locations_and_survive_snapshot_rebasing() {
+        let text =
+            "fn render(value:i32)->String { f\"中文 😀 {value}\" }\r\nfn broken() { missing; }";
+        let mut sources = SourceDatabase::default();
+        let file = sources
+            .set("queries.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let mut db = AnalysisDatabase::default();
+        let old = db
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let offset = text.find("{value}").unwrap() + 1;
+        let original = old
+            .file(file)
+            .unwrap()
+            .definition_at(offset)
+            .unwrap()
+            .clone();
+        assert_eq!(original.name, "value");
+        assert_eq!(
+            old.file(file).unwrap().type_at(offset),
+            Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+        );
+        let prefix = "// shifted 😀\r\n";
+        sources
+            .set(
+                "queries.kgr",
+                format!("{prefix}{text}"),
+                SourceLayer::Overlay,
+            )
+            .unwrap();
+        let new = db
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let moved = new
+            .file(file)
+            .unwrap()
+            .definition_at(offset + prefix.len())
+            .unwrap();
+        assert_eq!(
+            moved.location.range.start,
+            original.location.range.start + prefix.len()
+        );
+        assert_eq!(
+            old.file(file).unwrap().definition_at(offset),
+            Some(&original)
+        );
+    }
+
+    #[test]
+    fn join_completion_requires_a_string_array_receiver() {
+        for (array, available) in [("[1]", false), ("[\"one\"]", true)] {
+            let text = format!("fn main() {{ {array}. }}");
+            let mut sources = SourceDatabase::default();
+            let file = sources
+                .set("completion.kgr", text.clone(), SourceLayer::Base)
+                .unwrap();
+            let mut db = AnalysisDatabase::default();
+            let snapshot = db
+                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .unwrap();
+            let completions = snapshot
+                .file(file)
+                .unwrap()
+                .standard_method_completions(text.find(". }").unwrap() + 1);
+            assert_eq!(
+                completions
+                    .iter()
+                    .any(|item| item.path.last().unwrap().1 == "join"),
+                available
+            );
+        }
     }
 }

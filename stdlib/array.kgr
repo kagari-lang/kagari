@@ -201,3 +201,28 @@ pub fn clear<T>(value: [T]) -> [T];
 /// ```
 #[builtin_type(Array)]
 pub type Array<T>;
+
+/// Join strings into one string, placing `separator` between adjacent elements.
+///
+/// An empty array produces an empty string. A one-element array returns that
+/// element's contents without a separator. Elements must already be strings;
+/// use `Display` or `Debug` explicitly to format other values. The array is not
+/// modified and no user formatting callbacks are invoked by this operation.
+/// The result buffer is reserved once from the combined byte length.
+///
+/// # Panics
+///
+/// Execution terminates if the combined size cannot be represented or the result
+/// buffer cannot be allocated. Previously completed side effects are retained.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert(["red", "green", "blue"].join(", ") == "red, green, blue", "joined");
+/// val empty: [String] = [];
+/// std::debug::assert(empty.join(",") == "", "empty input");
+/// std::debug::assert(["one"].join(",") == "one", "no extra separator");
+/// ```
+#[intrinsic(ArrayJoin)]
+#[method(join)]
+pub fn join(value: [String], separator: String) -> String;

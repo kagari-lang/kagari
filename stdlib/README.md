@@ -9,7 +9,7 @@ Runtime-native functions intentionally have no Kagari body.
 
 | Module | Contents |
 | --- | --- |
-| [array](array.kgr) | Shared arrays, indexed access, insertion and removal |
+| [array](array.kgr) | Shared arrays, indexed access, insertion, removal and string joining |
 | [map](map.kgr) | Hash maps, key lookup and shallow snapshots |
 | [set](set.kgr) | Hash sets, membership and set algebra |
 | [string](string.kgr) | Immutable UTF-8 strings, byte ranges and scalar iteration |
@@ -57,3 +57,11 @@ explicitly says otherwise.
 See [value semantics](../docs/spec/value-semantics.md),
 [standard protocols](../docs/spec/traits.md), and the
 [declaration architecture](../docs/spec/standard-declarations.md) for full contracts.
+
+## Constructing text
+
+Use `f"name={name}"` for Display formatting and `f"value={value:?}"` for Debug.
+Use `{{` and `}}` for literal braces. Expressions are evaluated once, in order;
+formatting failures propagate normally. Join already formatted strings with
+`["red", "green"].join(", ")`. Two strings can still be joined with `concat`.
+See [the runnable example](../examples/syntax/string-interpolation.kgr).

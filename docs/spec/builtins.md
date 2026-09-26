@@ -696,3 +696,16 @@ generation checked, and trace both their source and snapshot. They retain their
 execution version; they are not transferable across runtimes. They provide no
 Eq/Hash, serialization of execution state, or script constructor.
 See [iterators.kgr](../../examples/syntax/iterators.kgr).
+
+## String construction
+
+`std::array::join(value: [String], separator: String) -> String`, also available as
+`value.join(separator)`, joins already formatted strings. Empty input returns an
+empty string; separators appear only between adjacent elements. It does not mutate
+its source or call user code. Size arithmetic is checked and result allocation is
+fallible. String concatenation remains `lhs.concat(rhs)`.
+
+Interpolated `f"..."` expressions use standard Display/Debug dispatch and the same
+native join operation. See [interpolated strings](syntax.md#interpolated-strings)
+for evaluation order, escaping and propagation rules. String `+`, builders and
+extended format options are separate features.

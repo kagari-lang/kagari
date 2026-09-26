@@ -769,6 +769,45 @@ impl<'a> BodyChecker<'a> {
                     TypeId::Error
                 }
             },
+            ExprKind::InterpolatedString(parts) => {
+                for part in parts {
+                    self.infer_expr_type(*part, env);
+                }
+                TypeId::Builtin(BuiltinType::String)
+            }
+            ExprKind::FormatPart { expr, debug } => {
+                let ty = self.infer_expr_type(*expr, env);
+                let protocol = if *debug {
+                    crate::builtin::traits::StandardTrait::Debug
+                } else {
+                    crate::builtin::traits::StandardTrait::Display
+                };
+                let completes = crate::typeck::completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    *expr,
+                    self.cancel,
+                )
+                .unwrap_or(false);
+                if completes
+                    && self
+                        .record_operator(expr_id, *expr, &ty, protocol.nominal(), env)
+                        .is_none()
+                    && !ty.is_unresolved()
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                            type_name: format!(
+                                "interpolation requires {} for {}",
+                                protocol.name(),
+                                display_type_id(&ty)
+                            ),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*expr)),
+                    );
+                }
+                TypeId::Builtin(BuiltinType::String)
+            }
             ExprKind::Propagate { expr } => self.infer_propagation(expr_id, *expr, env, expected),
             ExprKind::Prefix { op, expr } => self.infer_prefix_operator(expr_id, op, expr, env),
             ExprKind::Range { start, end, .. } => {

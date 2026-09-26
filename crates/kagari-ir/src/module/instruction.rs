@@ -502,6 +502,7 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | SetUnion
             | SetIntersection
             | SetDifference
+            | ArrayJoin
             | StringSlice
             | OptionMap
             | OptionAndThen

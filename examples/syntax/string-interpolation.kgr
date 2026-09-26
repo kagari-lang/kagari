@@ -1,0 +1,14 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/string-interpolation.kgr
+// Result: main returns 42.
+fn main() -> i32 {
+    val name = "Kagari";
+    val score = 40;
+    val message = f"Hello {name}, score={score + 2}";
+    std::debug::assert(message == "Hello Kagari, score=42", "display interpolation");
+    std::debug::assert(f"{name:?}" == "\"Kagari\"", "debug interpolation");
+    std::debug::assert(f"{{{name}}}" == "{Kagari}", "literal braces");
+    std::debug::assert(f"{f"score={score}"}" == "score=40", "nested interpolation");
+    std::debug::assert(f"" == "", "empty interpolation");
+    std::debug::assert(["red", "green", "blue"].join(", ") == "red, green, blue", "join");
+    42
+}

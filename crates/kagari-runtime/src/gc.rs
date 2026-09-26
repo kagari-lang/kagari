@@ -1470,7 +1470,11 @@ impl GcHeap {
         Some(traced)
     }
 
-    fn with_array<R>(&self, id: HeapObjectId, f: impl FnOnce(&Vec<Value>) -> R) -> Option<R> {
+    pub(crate) fn with_array<R>(
+        &self,
+        id: HeapObjectId,
+        f: impl FnOnce(&Vec<Value>) -> R,
+    ) -> Option<R> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
             HeapObject::Array(elements) => Some(f(elements)),

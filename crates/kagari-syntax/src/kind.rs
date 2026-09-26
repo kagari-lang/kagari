@@ -10,6 +10,11 @@ pub enum SyntaxKind {
     Number,
     Float,
     String,
+    FormatStart,
+    FormatText,
+    FormatOpen,
+    FormatClose,
+    FormatEnd,
     AsKw,
     CrateKw,
     ForKw,
@@ -156,6 +161,8 @@ pub enum SyntaxKind {
     PatternField,
     TupleExpr,
     ArrayExpr,
+    InterpolatedString,
+    Interpolation,
     Error,
 }
 

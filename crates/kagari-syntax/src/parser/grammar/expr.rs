@@ -17,6 +17,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::Number
                     | TokenKind::Float
                     | TokenKind::String
+                    | TokenKind::FormatStart
                     | TokenKind::TrueKw
                     | TokenKind::FalseKw
                     | TokenKind::IfKw
@@ -228,6 +229,7 @@ impl<'a> Parser<'a> {
     fn parse_atom(&mut self) {
         self.bump_trivia();
         match self.current_kind() {
+            Some(TokenKind::FormatStart) => self.parse_interpolated_string(),
             Some(TokenKind::Lt) => {
                 self.start_node(SyntaxKind::PathExpr);
                 self.parse_type_ref();
@@ -252,6 +254,32 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Pipe | TokenKind::PipePipe) => self.parse_closure_expr(),
             _ => self.error_here(DiagnosticKind::ExpectedExpression),
         }
+    }
+
+    fn parse_interpolated_string(&mut self) {
+        self.start_node(SyntaxKind::InterpolatedString);
+        self.bump();
+        while !self.at_any(&[TokenKind::FormatEnd, TokenKind::Eof]) {
+            if self.at(TokenKind::FormatText) {
+                self.bump();
+            } else if self.at(TokenKind::FormatOpen) {
+                self.start_node(SyntaxKind::Interpolation);
+                self.bump();
+                self.parse_expr();
+                self.bump_trivia();
+                if self.at(TokenKind::Colon) {
+                    self.bump();
+                    self.expect(TokenKind::Question, DiagnosticKind::UnexpectedToken);
+                }
+                self.expect(TokenKind::FormatClose, DiagnosticKind::ExpectedBlockEnd);
+                self.finish_node();
+            } else {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+                self.bump_as_error();
+            }
+        }
+        self.expect(TokenKind::FormatEnd, DiagnosticKind::UnexpectedToken);
+        self.finish_node();
     }
 
     fn parse_closure_expr(&mut self) {

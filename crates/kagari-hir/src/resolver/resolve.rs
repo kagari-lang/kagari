@@ -188,9 +188,9 @@ impl<'a> BodyResolver<'a> {
                 }
             }
             ExprKind::Literal(_) => {}
-            ExprKind::Propagate { expr } | ExprKind::Prefix { expr, .. } => {
-                self.resolve_expr(*expr)
-            }
+            ExprKind::FormatPart { expr, .. }
+            | ExprKind::Propagate { expr }
+            | ExprKind::Prefix { expr, .. } => self.resolve_expr(*expr),
             ExprKind::Binary { lhs, rhs, .. }
             | ExprKind::Range {
                 start: lhs,
@@ -248,7 +248,9 @@ impl<'a> BodyResolver<'a> {
                     self.resolve_expr(field.value);
                 }
             }
-            ExprKind::Tuple(elements) | ExprKind::Array(elements) => {
+            ExprKind::InterpolatedString(elements)
+            | ExprKind::Tuple(elements)
+            | ExprKind::Array(elements) => {
                 for expr in elements {
                     self.resolve_expr(*expr);
                 }
