@@ -91,3 +91,34 @@ fn invalid_ordering_contracts_are_diagnostics() {
         );
     }
 }
+
+#[test]
+fn arithmetic_protocols_have_rhs_and_associated_output() {
+    execute(
+        r#"
+use std::ops::Add as Plus;
+struct Vector {val x:i32}
+impl Plus<Vector> for Vector {type Output=Vector;fn add(self,rhs:Vector)->Vector {Vector{x:self.x+rhs.x}}}
+impl Mul<i32> for Vector {type Output=Vector;fn mul(self,rhs:i32)->Vector {Vector{x:self.x*rhs}}}
+impl Sub<Vector> for Vector {type Output=i32;fn sub(self,rhs:Vector)->i32 {self.x-rhs.x}}
+impl Div<i32> for Vector {type Output=i32;fn div(self,rhs:i32)->i32 {self.x/rhs}}
+impl Rem<i32> for Vector {type Output=i32;fn rem(self,rhs:i32)->i32 {self.x%rhs}}
+fn plus<T:Plus<T>>(a:T,b:T)->T::Output {a+b}
+fn scaled<T:Mul<i32,Output=Vector>>(a:T)->Vector {a*2}
+fn main()->i32 {
+ val a=Vector{x:10};val b=Vector{x:11};
+ if (a+b).x==a.add(b).x && plus(1,2)==3 && a-b == -1 && b/2==5 && b%2==1 {scaled(plus(a,b)).x}else{0}
+}
+"#,
+    );
+}
+#[test]
+fn generic_arithmetic_impls_forward_operator_bounds() {
+    execute(
+        r#"
+struct Wrap<T>{val item:T}
+impl<T:Add<T,Output=T>> Add<Wrap<T>> for Wrap<T> {type Output=Wrap<T>;fn add(self,rhs:Wrap<T>)->Wrap<T> {Wrap{item:self.item+rhs.item}}}
+fn main()->i32 {(Wrap{item:20}+Wrap{item:22}).item}
+"#,
+    );
+}

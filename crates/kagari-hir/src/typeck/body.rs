@@ -842,6 +842,24 @@ impl<'a> BodyChecker<'a> {
                 else {
                     return TypeId::Unknown;
                 };
+                let arithmetic = match op {
+                    BinaryOp::Add => Some(crate::builtin::traits::StandardTrait::Add),
+                    BinaryOp::Sub => Some(crate::builtin::traits::StandardTrait::Sub),
+                    BinaryOp::Mul => Some(crate::builtin::traits::StandardTrait::Mul),
+                    BinaryOp::Div => Some(crate::builtin::traits::StandardTrait::Div),
+                    BinaryOp::Rem => Some(crate::builtin::traits::StandardTrait::Rem),
+                    _ => None,
+                };
+                if let (Some(protocol), Some(left)) = (arithmetic, lhs_ty.as_ref())
+                    && rhs_completes
+                {
+                    let mut requested = protocol.nominal();
+                    requested.arguments.push(rhs_ty.clone());
+                    if let Some(result) = self.record_operator(expr_id, *lhs, left, requested, env)
+                    {
+                        return self.finish_operator_type(expr_id, result, env);
+                    }
+                }
                 if matches!(
                     op,
                     BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
@@ -2879,7 +2897,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             for kind in crate::builtin::traits::StandardTrait::ALL {
-                let interface = kind.nominal();
+                let interface = kind.intrinsic_view(ty);
                 if crate::builtin::traits::intrinsic_holds(
                     kind,
                     ty,
@@ -3920,6 +3938,12 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         Some(id.declaration.clone())
+    }
+
+    fn finish_operator_type(&mut self, site: ExprId, ty: TypeId, env: &mut BodyTypeEnv) -> TypeId {
+        self.type_table.insert_expr(site, ty.clone());
+        env.exprs.insert(site, ty.clone());
+        ty
     }
 
     /// Operator syntax and explicit method calls retain the same trait identity.

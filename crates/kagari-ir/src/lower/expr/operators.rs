@@ -2,7 +2,7 @@ use super::*;
 use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
 
 impl FunctionLowerer<'_, '_> {
-    fn lower_selected_operator(
+    pub(super) fn lower_selected_operator(
         &mut self,
         site: hir::ExprId,
         args: &[IrValue],
@@ -91,6 +91,26 @@ impl FunctionLowerer<'_, '_> {
                 ))
             }
         } else {
+            if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
+                && protocol.binary_operator()
+            {
+                let op = match protocol {
+                    StandardTrait::Add => BinaryOp::Add,
+                    StandardTrait::Sub => BinaryOp::Sub,
+                    StandardTrait::Mul => BinaryOp::Mul,
+                    StandardTrait::Div => BinaryOp::Div,
+                    StandardTrait::Rem => BinaryOp::Rem,
+                    _ => unreachable!(),
+                };
+                let dst = self.alloc_temp(result_ty);
+                self.emit(Instruction::Binary {
+                    dst,
+                    op,
+                    lhs: args[0],
+                    rhs: args[1],
+                });
+                return Ok(dst);
+            }
             let intrinsic = match StandardTrait::from_id(&interface.declaration) {
                 Some(StandardTrait::PartialOrd) => StandardIntrinsic::ValuePartialCmp,
                 Some(StandardTrait::Ord) => StandardIntrinsic::ValueCmp,

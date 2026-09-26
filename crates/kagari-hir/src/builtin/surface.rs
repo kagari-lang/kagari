@@ -96,6 +96,7 @@ pub enum StandardTypeConstructor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardModule {
+    Ops,
     Cmp,
     Hash,
     Fmt,
@@ -482,6 +483,10 @@ const STANDARD_TYPE_CONSTRUCTORS: &[StandardTypeConstructorSpec] = &[
 ];
 
 const STANDARD_MODULES: &[StandardModuleSpec] = &[
+    StandardModuleSpec {
+        kind: StandardModule::Ops,
+        path: "std::ops",
+    },
     StandardModuleSpec {
         kind: StandardModule::Cmp,
         path: "std::cmp",

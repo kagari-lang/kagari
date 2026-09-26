@@ -919,13 +919,20 @@ fn type_valid(
                 pending.extend(args);
             }
             AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
-                if ty.declaration.module.package.0 == "kagari-std"
-                    && (kagari_hir::builtin::traits::StandardTrait::from_id(&ty.declaration)
-                        .is_none()
-                        || !ty.arguments.is_empty()
-                        || !ty.associated_types.is_empty())
-                {
-                    return false;
+                if ty.declaration.module.package.0 == "kagari-std" {
+                    let Some(kind) =
+                        kagari_hir::builtin::traits::StandardTrait::from_id(&ty.declaration)
+                    else {
+                        return false;
+                    };
+                    if ty.arguments.len() != kind.contract().generic_params.len()
+                        || ty
+                            .associated_types
+                            .keys()
+                            .any(|id| !kind.contract().associated_types.contains_key(id))
+                    {
+                        return false;
+                    }
                 }
                 pending.extend(&ty.arguments);
                 if !matches!(

@@ -21,9 +21,14 @@ pub enum StandardTrait {
     Display,
     PartialOrd,
     Ord,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 12] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -31,6 +36,11 @@ impl StandardTrait {
         Self::Display,
         Self::PartialOrd,
         Self::Ord,
+        Self::Add,
+        Self::Sub,
+        Self::Mul,
+        Self::Div,
+        Self::Rem,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -41,11 +51,17 @@ impl StandardTrait {
             Self::Display => "Display",
             Self::PartialOrd => "PartialOrd",
             Self::Ord => "Ord",
+            Self::Add => "Add",
+            Self::Sub => "Sub",
+            Self::Mul => "Mul",
+            Self::Div => "Div",
+            Self::Rem => "Rem",
         }
     }
     pub fn namespace(self) -> &'static str {
         match self {
             Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord => "cmp",
+            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Rem => "ops",
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -77,6 +93,28 @@ impl StandardTrait {
             .collect();
         ty
     }
+    pub fn binary_operator(self) -> bool {
+        matches!(
+            self,
+            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Rem
+        )
+    }
+    pub fn operator(self) -> bool {
+        self.binary_operator()
+    }
+    pub fn intrinsic_view(self, receiver: &TypeId) -> NominalType {
+        let mut view = self.nominal();
+        if self.binary_operator() {
+            view.arguments.push(receiver.clone());
+        }
+        if let Some(output) = intrinsic_output(&view, receiver) {
+            view.associated_types.insert(
+                crate::types::associated_type_id(&view.declaration, "Output"),
+                output,
+            );
+        }
+        view
+    }
     pub fn equality_protocol(self) -> bool {
         matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
     }
@@ -100,6 +138,9 @@ fn identity(kind: StandardTrait) -> DefinitionId {
     }
 }
 fn build_contract(kind: StandardTrait) -> TraitSignature {
+    if kind.operator() {
+        return build_operator_contract(kind);
+    }
     static SOURCE: OnceLock<SourceFile> = OnceLock::new();
     let source = SOURCE.get_or_init(|| SourceFile::new("kagari://std/protocols", ""));
     let id = identity(kind);
@@ -177,6 +218,116 @@ fn build_contract(kind: StandardTrait) -> TraitSignature {
     }
 }
 
+fn build_operator_contract(kind: StandardTrait) -> TraitSignature {
+    let id = identity(kind);
+    let source = SourceFile::new("kagari://std/operators", "");
+    let declaration = |id: DefinitionId, name: &str| Declaration {
+        id: DeclarationId::Definition(id),
+        name: name.into(),
+        location: source.span(Span::new(0, 0)).unwrap(),
+    };
+    let generics = vec![crate::types::GenericParameterType {
+        owner: id.clone(),
+        position: 0,
+        name: "Rhs".into(),
+    }];
+    let interface = NominalType {
+        declaration: id.clone(),
+        arguments: generics.iter().cloned().map(TypeId::Generic).collect(),
+        associated_types: Default::default(),
+    };
+    let output = crate::types::associated_type_id(&id, "Output");
+    let name = match kind {
+        StandardTrait::Add => "add",
+        StandardTrait::Sub => "sub",
+        StandardTrait::Mul => "mul",
+        StandardTrait::Div => "div",
+        StandardTrait::Rem => "rem",
+        _ => unreachable!(),
+    };
+    let mut method_id = id.clone();
+    method_id.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: name.into(),
+        occurrence: 0,
+    });
+    TraitSignature {
+        declaration: declaration(id.clone(), kind.name()),
+        id: id.clone(),
+        generic_params: generics.clone(),
+        bounds: Default::default(),
+        supertraits: vec![],
+        methods: vec![MethodSignature {
+            has_default: false,
+            id: method_id.clone(),
+            owner: id.clone(),
+            slot: 0,
+            name: name.into(),
+            generic_params: generics.clone(),
+            bounds: Default::default(),
+            declaration: declaration(method_id, name),
+            params: vec![
+                MethodParameter {
+                    name: "self".into(),
+                    writeability: Writeability::Val,
+                    ty: TypeId::SelfType(id.clone()),
+                },
+                MethodParameter {
+                    name: "rhs".into(),
+                    writeability: Writeability::Val,
+                    ty: TypeId::Generic(generics[0].clone()),
+                },
+            ],
+            return_type: TypeId::Projection {
+                receiver: Box::new(TypeId::SelfType(id.clone())),
+                interface: Box::new(interface),
+                member: output.clone(),
+                arguments: vec![],
+            },
+        }],
+        associated_types: [(output, vec![])].into_iter().collect(),
+        associated_type_parameters: Default::default(),
+        associated_consts: Default::default(),
+    }
+}
+
+/// Builtin associated outputs are computed from the applied protocol, not its spelling.
+pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<TypeId> {
+    let kind = StandardTrait::from_id(&interface.declaration)?;
+    if kind.binary_operator()
+        && interface.arguments.as_slice() == [receiver.clone()]
+        && super::surface::supports_arithmetic(receiver, receiver)
+    {
+        Some(receiver.clone())
+    } else {
+        None
+    }
+}
+
+pub fn intrinsic_applies(
+    interface: &NominalType,
+    receiver: &TypeId,
+    catalog: Option<&AggregateCatalog>,
+    bounds: &GenericBounds,
+) -> bool {
+    let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
+        return false;
+    };
+    if kind.operator() {
+        let Some(output) = intrinsic_output(interface, receiver) else {
+            return false;
+        };
+        interface.associated_types.iter().all(|(member, ty)| {
+            *member == crate::types::associated_type_id(&interface.declaration, "Output")
+                && *ty == output
+        })
+    } else {
+        interface.arguments.is_empty()
+            && interface.associated_types.is_empty()
+            && intrinsic_holds(kind, receiver, catalog, bounds)
+    }
+}
+
 pub fn ordering_type(optional: bool) -> TypeId {
     let ordering = TypeId::StandardEnum {
         kind: super::surface::StandardEnum::Ordering,
@@ -200,6 +351,9 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
+    if protocol.operator() {
+        return intrinsic_output(&protocol.intrinsic_view(ty), ty).is_some();
+    }
     if matches!(protocol, StandardTrait::PartialOrd | StandardTrait::Ord) {
         if bounds.get(ty).is_some_and(|constraints| constraints.iter().any(|c| matches!(c, ConstraintTarget::Trait(n) if n.declaration == protocol.contract().id || protocol == StandardTrait::PartialOrd && n.declaration == StandardTrait::Ord.contract().id))) {return true;}
         if let Some(catalog) = catalog
@@ -296,22 +450,10 @@ pub fn intrinsic_holds(
 }
 
 pub fn in_module(module: super::surface::StandardModule, name: &str) -> Option<StandardTrait> {
-    use super::surface::StandardModule;
     StandardTrait::ALL.into_iter().find(|kind| {
         kind.name() == name
-            && matches!(
-                (module, kind),
-                (
-                    StandardModule::Cmp,
-                    StandardTrait::Eq
-                        | StandardTrait::PartialEq
-                        | StandardTrait::PartialOrd
-                        | StandardTrait::Ord
-                ) | (StandardModule::Hash, StandardTrait::Hash)
-                    | (
-                        StandardModule::Fmt,
-                        StandardTrait::Debug | StandardTrait::Display
-                    )
-            )
+            && super::surface::standard_modules().iter().any(|spec| {
+                spec.kind == module && spec.path == format!("std::{}", kind.namespace())
+            })
     })
 }

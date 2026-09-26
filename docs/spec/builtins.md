@@ -558,3 +558,16 @@ false. Implementations must agree with equality and with each other. Primitive
 integers, bool, unit, String and Ordering supply both; floats only PartialOrd.
 There is no automatic Struct, Tuple or user-enum ordering. Custom Struct/enum
 implementations use static calls and the ordinary failure/effect boundary.
+
+
+## Arithmetic operator protocols
+
+`std::ops::{Add, Sub, Mul, Div, Rem}` are prelude traits with one explicit RHS
+parameter and an associated `Output`. Each declares `fn add(self, rhs: Rhs) ->
+Self::Output` (respectively sub/mul/div/rem). Operator expressions and method calls
+select the same applied implementation. Different operand/result types are allowed;
+no implicit numeric conversion or RHS default type parameter is introduced.
+Matching builtin numeric types use their existing checked instructions. User
+Struct/enum implementations run ordinary methods; their effects are not rolled
+back on failure. These traits do not enable compound-assignment overloads.
+See [operators.kgr](../../examples/syntax/operators.kgr).

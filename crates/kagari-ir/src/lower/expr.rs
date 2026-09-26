@@ -395,6 +395,22 @@ impl FunctionLowerer<'_, '_> {
                 }
                 if matches!(
                     op,
+                    hir::BinaryOp::Add
+                        | hir::BinaryOp::Sub
+                        | hir::BinaryOp::Mul
+                        | hir::BinaryOp::Div
+                        | hir::BinaryOp::Rem
+                ) && self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .call_resolution(expr_id)
+                    .is_some()
+                {
+                    return self.lower_selected_operator(expr_id, &[lhs, rhs]);
+                }
+                if matches!(
+                    op,
                     hir::BinaryOp::Lt | hir::BinaryOp::Le | hir::BinaryOp::Gt | hir::BinaryOp::Ge
                 ) && self
                     .analyzed
@@ -1301,6 +1317,24 @@ impl FunctionLowerer<'_, '_> {
             .ok_or(IrLoweringError::MissingBinding("checked call target"))?;
         let span = self.analyzed.lowered.source_map.expr_span(expr);
         if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
+            && kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
+                .is_some_and(|kind| kind.operator())
+        {
+            let receiver = call
+                .receiver
+                .ok_or(IrLoweringError::MissingBinding("operator receiver"))?;
+            let value = self.lower_expr(receiver)?;
+            if self.current_block_terminated() {
+                return Ok(value);
+            }
+            let mut values = vec![value];
+            match self.lower_values(args)? {
+                ControlFlow::Continue(args) => values.extend(args),
+                ControlFlow::Break(value) => return Ok(value),
+            };
+            return self.lower_selected_operator(expr, &values);
+        }
+        if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
             && let Some(protocol) =
                 kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
             && protocol.equality_protocol()
@@ -1449,6 +1483,7 @@ impl FunctionLowerer<'_, '_> {
                         StandardTrait::Debug => StandardIntrinsic::ValueDebug,
                         StandardTrait::Display => StandardIntrinsic::ValueDisplay,
                         StandardTrait::Eq => unreachable!("marker trait has no methods"),
+                        _ => unreachable!("operator protocol handled above"),
                     };
                     (
                         SemanticCallTarget::TraitMethod { method, interface },

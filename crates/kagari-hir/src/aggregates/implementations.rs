@@ -235,6 +235,12 @@ impl AggregateCatalog {
     }
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         crate::typeck::associated::normalize(ty, &|interface, receiver, member, arguments| {
+            if arguments.is_empty()
+                && *member == crate::types::associated_type_id(&interface.declaration, "Output")
+                && let Some(output) = crate::builtin::traits::intrinsic_output(interface, receiver)
+            {
+                return Some(output);
+            }
             if let TypeId::Trait(actual) = receiver {
                 return self
                     .trait_closure(actual, receiver, &Default::default())
@@ -563,12 +569,8 @@ impl AggregateCatalog {
             }
         }
         if count == 0
-            && trait_type.arguments.is_empty()
-            && trait_type.associated_types.is_empty()
-            && let Some(protocol) =
-                crate::builtin::traits::StandardTrait::from_id(&trait_type.declaration)
-            && crate::builtin::traits::intrinsic_holds(
-                protocol,
+            && crate::builtin::traits::intrinsic_applies(
+                trait_type,
                 receiver,
                 Some(self),
                 &Default::default(),
@@ -628,6 +630,14 @@ impl AggregateCatalog {
                                         if available.satisfies(&required))
                                 })
                             }) {
+                                continue;
+                            }
+                            if crate::builtin::traits::intrinsic_applies(
+                                &required,
+                                &actual,
+                                None,
+                                budget.assumptions,
+                            ) {
                                 continue;
                             }
                             if required.arguments.is_empty()

@@ -109,11 +109,7 @@ impl AggregateCatalog {
         ty: &TypeId,
         bounds: &crate::typeck::GenericBounds,
     ) -> bool {
-        interface.arguments.is_empty()
-            && interface.associated_types.is_empty()
-            && crate::builtin::traits::StandardTrait::from_id(&interface.declaration).is_some_and(
-                |kind| crate::builtin::traits::intrinsic_holds(kind, ty, Some(self), bounds),
-            )
+        crate::builtin::traits::intrinsic_applies(interface, ty, Some(self), bounds)
     }
 
     pub fn implementation_constant(
