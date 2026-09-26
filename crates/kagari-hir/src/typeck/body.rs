@@ -496,7 +496,11 @@ impl<'a> BodyChecker<'a> {
                 if matches!(base_ty, TypeId::Tuple(_)) {
                     self.resolve_assignment_target_type(*base, env)?;
                 }
-                ty
+                if base_ty.collection_access() == Some(CollectionAccess::ReadOnly) {
+                    None
+                } else {
+                    ty
+                }
             }
         };
 
@@ -629,7 +633,9 @@ impl<'a> BodyChecker<'a> {
                 let Some(base_ty) = self.type_table.place_type(*base) else {
                     return self.assignment_target_error_reason(*base, env);
                 };
-                if self.resolve_index_type(*index, &base_ty).is_none() {
+                if base_ty.collection_access() == Some(CollectionAccess::ReadOnly) {
+                    "read-only collection cannot be modified; writable collection access is required".to_string()
+                } else if self.resolve_index_type(*index, &base_ty).is_none() {
                     "indexed value is not assignable".to_string()
                 } else {
                     "assignment target type could not be resolved".to_string()
@@ -706,7 +712,7 @@ impl<'a> BodyChecker<'a> {
             self.type_table.insert_expr(expr_id, ty.clone());
             return ty;
         }
-        let mut ty = match &expr.kind {
+        let ty = match &expr.kind {
             ExprKind::Missing => {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::ExpectedExpression)
@@ -845,7 +851,7 @@ impl<'a> BodyChecker<'a> {
                 } else if let Some(ty) = self.infer_host_method_call(expr_id, *callee, args, env) {
                     ty
                 } else if let Some(standard_ty) =
-                    self.infer_standard_call_type(expr_id, *callee, args, env)
+                    self.infer_standard_call_type(expr_id, *callee, args, env, expected)
                 {
                     standard_ty
                 } else if let Some(helper_ty) =
@@ -1051,6 +1057,11 @@ impl<'a> BodyChecker<'a> {
                         } else {
                             if !then_completes {
                                 then_ty = else_ty;
+                            } else if else_completes
+                                && (then_ty.can_weaken_to(&else_ty)
+                                    || else_ty.can_weaken_to(&then_ty))
+                            {
+                                then_ty = then_ty.read_only_view().expect("collection branch join");
                             } else if else_completes && then_ty.conflicts_with(&else_ty) {
                                 self.diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
@@ -1111,7 +1122,9 @@ impl<'a> BodyChecker<'a> {
                         continue;
                     }
                     if let Some(result) = &mut result {
-                        if found.conflicts_with(result) {
+                        if found.can_weaken_to(result) || result.can_weaken_to(&found) {
+                            *result = result.read_only_view().expect("collection arm join");
+                        } else if found.conflicts_with(result) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
                                     expected: display_type_id(result),
@@ -1230,26 +1243,6 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Block(block) => self.infer_block_types_expected(*block, env, expected),
         };
 
-        if let Some(expected) = expected
-            && matches!(
-                (
-                    self.type_table
-                        .call_resolution(expr_id)
-                        .map(|call| call.target),
-                    expected
-                ),
-                (
-                    Some(CallTarget::StandardIntrinsic(StandardIntrinsic::MapNew)),
-                    TypeId::Map { .. }
-                ) | (
-                    Some(CallTarget::StandardIntrinsic(StandardIntrinsic::SetNew)),
-                    TypeId::Set(_, _)
-                )
-            )
-        {
-            ty = expected.clone();
-        }
-
         super::applications::validate(
             &ty,
             &env.generic_bounds,
@@ -1271,6 +1264,12 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let source = self.infer_expr_type_expected(expr_id, env, expected);
+        if expected.is_some_and(|target| source.can_weaken_to(target)) {
+            let view = source.read_only_view().expect("checked collection view");
+            self.type_table.insert_expr(expr_id, view.clone());
+            env.exprs.insert(expr_id, view.clone());
+            return view;
+        }
         self.apply_interface_coercion(expr_id, source, expected, env)
     }
 
@@ -1698,6 +1697,7 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
+        context: Option<&TypeId>,
     ) -> Option<TypeId> {
         if let Some((intrinsic, receiver, receiver_ty)) = self.standard_method(callee, env) {
             self.type_table.insert_call(
@@ -1708,17 +1708,17 @@ impl<'a> BodyChecker<'a> {
             return Some(self.infer_standard_intrinsic_type(
                 call_expr,
                 intrinsic,
-                callee,
                 Some(receiver_ty),
                 args,
                 env,
+                context,
             ));
         }
 
         let intrinsic = self.standard_function(callee)?;
         self.type_table
             .insert_call(call_expr, CallTarget::StandardIntrinsic(intrinsic), None);
-        Some(self.infer_standard_intrinsic_type(call_expr, intrinsic, callee, None, args, env))
+        Some(self.infer_standard_intrinsic_type(call_expr, intrinsic, None, args, env, context))
     }
 
     fn check_standard_parameter(
@@ -1746,11 +1746,14 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         call_expr: ExprId,
         intrinsic: StandardIntrinsic,
-        callee: ExprId,
         receiver_ty: Option<TypeId>,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
+        context: Option<&TypeId>,
     ) -> TypeId {
+        let ExprKind::Call { callee, .. } = self.lowered.module.expr(call_expr).kind else {
+            unreachable!("standard call expression");
+        };
         use crate::builtin::declarations::Arguments;
         let Some(spec) = surface::standard_function_by_intrinsic(intrinsic) else {
             return TypeId::Error;
@@ -1769,11 +1772,14 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .map(|name| (*name, TypeId::Unknown))
             .collect();
+        if let Some(context) = context {
+            api.result.infer(context, &mut bindings);
+        }
         if let Some(receiver) = receiver_ty {
             self.check_standard_parameter(spec, &api.params[0].ty, &receiver, env, callee);
             api.params[0].ty.infer(&receiver, &mut bindings);
             let expected = api.params[0].ty.instantiate(&bindings);
-            if expected.conflicts_with(&receiver) {
+            if expected.conflicts_with(&receiver) && !receiver.can_weaken_to(&expected) {
                 self.emit_arg_mismatch(name, api.params[0].name, &expected, &receiver, callee);
             }
         }
@@ -1966,6 +1972,17 @@ impl<'a> BodyChecker<'a> {
                     return Some(TypeId::Unknown);
                 };
                 self.check_const_write(*base);
+                if base_ty
+                    .as_ref()
+                    .is_some_and(|ty| ty.collection_access() == Some(CollectionAccess::ReadOnly))
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget {
+                            reason: "read-only collection requires writable access".into(),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*base)),
+                    );
+                }
                 let index_ty = self.infer_expr_type(*index, env);
                 let expected = base_ty.as_ref().and_then(|base_ty| {
                     self.checked_index_type(*index, base_ty, &index_ty, *index)
@@ -3567,7 +3584,9 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {
-                if lhs_ty.conflicts_with(&rhs_ty)
+                if (lhs_ty.conflicts_with(&rhs_ty)
+                    && !lhs_ty.can_weaken_to(&rhs_ty)
+                    && !rhs_ty.can_weaken_to(&lhs_ty))
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(
                             ty,
@@ -3591,7 +3610,9 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Bool)
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
-                if lhs_ty.conflicts_with(&rhs_ty)
+                if (lhs_ty.conflicts_with(&rhs_ty)
+                    && !lhs_ty.can_weaken_to(&rhs_ty)
+                    && !rhs_ty.can_weaken_to(&lhs_ty))
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)
                             && !crate::builtin::traits::intrinsic_holds(

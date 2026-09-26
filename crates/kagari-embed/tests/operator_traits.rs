@@ -143,7 +143,7 @@ fn readonly_index_returns_shared_objects_without_container_writeback() {
     execute(
         r#"
 struct Item {var value:i32}
-struct Bag {val items:[Item],var reads:i32}
+struct Bag {val items:MutableArray<Item>,var reads:i32}
 impl Index<i32> for Bag {type Output=Item;fn index(self,rhs:i32)->Item {self.reads+=1;self.items[rhs]}}
 fn read<C:Index<i32>>(c:C,i:i32)->C::Output {c[i]}
 fn main()->i32 {

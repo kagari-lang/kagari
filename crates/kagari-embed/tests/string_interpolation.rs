@@ -58,7 +58,7 @@ fn main() -> i32 {
     std::debug::assert("{name}" == "{name}", "ordinary literal");
     std::debug::assert(generic(7) == "value=7", "generic protocol");
     std::debug::assert(["a", "", "b"].join("::") == "a::::b", "join");
-    val empty: [String] = [];
+    val empty: MutableArray<String> = [];
     std::debug::assert(std::array::join(empty, ",") == "", "empty join");
     42
 }
@@ -70,7 +70,7 @@ fn main() -> i32 {
 fn canonical_protocols_format_each_expression_once_in_order() {
     execute(
         r##"
-struct Item { val log: [i32], val id: i32 }
+struct Item { val log: MutableArray<i32>, val id: i32 }
 impl Item { fn display(self) -> String { "wrong inherent method" } }
 impl Display for Item {
     fn display(self) -> String { self.log.push(self.id); f"{self.id}" }
@@ -78,9 +78,9 @@ impl Display for Item {
 impl Debug for Item {
     fn debug(self) -> String { self.log.push(9); "debug" }
 }
-fn make(log: [i32], id: i32) -> Item { log.push(0); Item { log, id } }
+fn make(log: MutableArray<i32>, id: i32) -> Item { log.push(0); Item { log, id } }
 fn main() -> i32 {
-    val log: [i32] = [];
+    val log: MutableArray<i32> = [];
     val result = { val std = 7; val Display = 8; f"{make(log, 1)}:{make(log, 2):?}" };
     std::debug::assert(result == "1:debug", "canonical formatting");
     std::debug::assert(log.len() == [0, 0, 0, 0].len(), "exactly once");
@@ -98,12 +98,12 @@ fn main() -> i32 {
 fn propagation_and_return_skip_later_parts() {
     execute(
         r##"
-fn render(value: Option<i32>, log: [i32]) -> Option<String> {
+fn render(value: Option<i32>, log: MutableArray<i32>) -> Option<String> {
     Some(f"{value?} { { log.push(1); 7 } }")
 }
 fn early() -> String { f"{ { return "early"; } } {std::debug::panic("unreachable")}" }
 fn main() -> i32 {
-    val log: [i32] = [];
+    val log: MutableArray<i32> = [];
     std::debug::assert(render(None, log) == None, "propagation");
     std::debug::assert(log.is_empty(), "later part skipped");
     std::debug::assert(render(Some(1), log) == Some("1 7"), "normal path");
@@ -135,9 +135,9 @@ fn interpolation_rejects_missing_protocols_and_invalid_join_types() {
 fn formatter_traps_keep_the_origin_and_release_execution_roots() {
     let engine = KagariEngine::default();
     let source = r#"
-struct Item { val log: [i32] }
+struct Item { val log: MutableArray<i32> }
 impl Display for Item { fn display(self)->String { self.log.push(7); std::debug::panic("format failed"); "" } }
-fn main()->String { val log: [i32]=[]; f"{Item { log }} {std::debug::panic("later part")}" }
+fn main()->String { val log: MutableArray<i32> =[]; f"{Item { log }} {std::debug::panic("later part")}" }
 fn healthy()->i32 {42}
 "#;
     let artifact = engine

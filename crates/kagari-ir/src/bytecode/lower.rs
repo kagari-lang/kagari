@@ -383,6 +383,7 @@ fn lower_function(
 
     let (root_locals, root_temps) = function.root_slots();
     let metadata = FunctionMetadata {
+        semantic: function.semantic.clone(),
         params: function.params.iter().map(|param| param.ty).collect(),
         return_type: function.return_type,
         locals: function.locals.iter().map(|local| local.ty).collect(),

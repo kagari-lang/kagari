@@ -1,23 +1,10 @@
 //! Hash sets using Eq and Hash. Equal values occupy one membership entry.
 //!
+//! `Set` provides read-only access; `MutableSet` also permits writes.
+//! Read-only views share storage and observe changes through writable aliases.
+//! `from` constructs fresh shallow storage; referenced elements retain identity.
+//!
 //! Resource exhaustion and cancellation follow the execution-session contract.
-
-/// Create an empty set.
-///
-/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
-/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
-///
-/// Do not change fields used by equality or hashing while a key is stored. Keys and values
-/// containing objects share those objects; this operation does not perform a deep copy.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values: Set<i32> = std::set::new();
-/// std::debug::assert(values.is_empty(), "new set");
-/// ```
-#[intrinsic(SetNew)]
-pub fn new<T: Eq + Hash>() -> Set<T>;
 
 /// Return the number of elements.
 ///
@@ -30,7 +17,7 @@ pub fn new<T: Eq + Hash>() -> Set<T>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(7);
 /// std::debug::assert(values.len() == [0].len(), "length");
 /// ```
@@ -49,7 +36,7 @@ pub fn len<T: Eq + Hash>(value: Set<T>) -> usize;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// std::debug::assert(values.is_empty(), "empty");
 /// ```
 #[intrinsic(SetIsEmpty)]
@@ -72,7 +59,7 @@ pub fn is_empty<T: Eq + Hash>(value: Set<T>) -> bool;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(7);
 /// std::debug::assert(values.contains(7), "member");
 /// ```
@@ -99,14 +86,14 @@ pub fn contains<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(7);
 /// values.insert(7);
 /// std::debug::assert(values.len() == [0].len(), "deduplicated");
 /// ```
 #[intrinsic(SetInsert)]
 #[method(insert)]
-pub fn insert<T: Eq + Hash>(value: Set<T>, item: T) -> Set<T>;
+pub fn insert<T: Eq + Hash>(value: MutableSet<T>, item: T) -> MutableSet<T>;
 
 /// Remove an equal element and report whether one existed.
 ///
@@ -127,14 +114,14 @@ pub fn insert<T: Eq + Hash>(value: Set<T>, item: T) -> Set<T>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(7);
 /// std::debug::assert(values.remove(7), "removed");
 /// std::debug::assert(!values.remove(7), "absent");
 /// ```
 #[intrinsic(SetRemove)]
 #[method(remove)]
-pub fn remove<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
+pub fn remove<T: Eq + Hash>(value: MutableSet<T>, item: T) -> bool;
 
 /// Remove all elements and return the same set.
 ///
@@ -155,14 +142,14 @@ pub fn remove<T: Eq + Hash>(value: Set<T>, item: T) -> bool;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(7);
 /// values.clear();
 /// std::debug::assert(values.is_empty(), "cleared");
 /// ```
 #[intrinsic(SetClear)]
 #[method(clear)]
-pub fn clear<T: Eq + Hash>(value: Set<T>) -> Set<T>;
+pub fn clear<T: Eq + Hash>(value: MutableSet<T>) -> MutableSet<T>;
 
 /// Return a shallow array of elements.
 ///
@@ -183,13 +170,13 @@ pub fn clear<T: Eq + Hash>(value: Set<T>) -> Set<T>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(7);
 /// std::debug::assert(values.to_array().get("".len_bytes()) == Some(7), "snapshot");
 /// ```
 #[intrinsic(SetToArray)]
 #[method(to_array)]
-pub fn to_array<T: Eq + Hash>(value: Set<T>) -> [T];
+pub fn to_array<T: Eq + Hash>(value: Set<T>) -> MutableArray<T>;
 
 /// Create a set of elements in either set. Referenced objects remain shared.
 ///
@@ -209,16 +196,16 @@ pub fn to_array<T: Eq + Hash>(value: Set<T>) -> [T];
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(1);
-/// val other: Set<i32> = std::set::new();
+/// val other: MutableSet<i32> = MutableSet::new();
 /// other.insert(2);
 /// val combined = values.union(other);
 /// std::debug::assert(combined.contains(1) && combined.contains(2), "union");
 /// ```
 #[intrinsic(SetUnion)]
 #[method(union)]
-pub fn union<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
+pub fn union<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> MutableSet<T>;
 
 /// Create a set of elements in both sets. Referenced objects remain shared.
 ///
@@ -238,17 +225,17 @@ pub fn union<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(1);
 /// values.insert(2);
-/// val other: Set<i32> = std::set::new();
+/// val other: MutableSet<i32> = MutableSet::new();
 /// other.insert(2);
 /// val common = values.intersection(other);
 /// std::debug::assert(common.len() == [0].len() && common.contains(2), "intersection");
 /// ```
 #[intrinsic(SetIntersection)]
 #[method(intersection)]
-pub fn intersection<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
+pub fn intersection<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> MutableSet<T>;
 
 /// Create a set of elements in the first set but not the second. Referenced objects remain
 ///
@@ -268,19 +255,19 @@ pub fn intersection<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(1);
 /// values.insert(2);
-/// val other: Set<i32> = std::set::new();
+/// val other: MutableSet<i32> = MutableSet::new();
 /// other.insert(2);
 /// val remaining = values.difference(other);
 /// std::debug::assert(remaining.len() == [0].len() && remaining.contains(1), "difference");
 /// ```
 #[intrinsic(SetDifference)]
 #[method(difference)]
-pub fn difference<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
+pub fn difference<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> MutableSet<T>;
 
-/// A shared mutable collection of distinct values of type `T`.
+/// Read-only access to an insertion-ordered collection of distinct `T` values.
 ///
 /// Elements require `Eq + Hash`. Equality determines membership; hashing chooses
 /// candidate buckets. Equal elements must have equal hashes, but collisions are
@@ -296,7 +283,7 @@ pub fn difference<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Set<i32> = std::set::new();
+/// val values: MutableSet<i32> = MutableSet::new();
 /// values.insert(7);
 /// values.insert(7);
 /// std::debug::assert(values.len() == [0].len(), "one distinct member");
@@ -304,3 +291,80 @@ pub fn difference<T: Eq + Hash>(lhs: Set<T>, rhs: Set<T>) -> Set<T>;
 /// ```
 #[builtin_type(Set)]
 pub type Set<T>;
+
+/// A writable shared set. Copies preserve object identity.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = MutableSet::from([1, 2]);
+/// std::debug::assert(!values.is_empty(), "populated");
+/// ```
+#[builtin_type(MutableSet)]
+pub type MutableSet<T>;
+
+impl Set {
+    /// Create a fresh empty set with read-only access.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Set<i32> = Set::new();
+    /// std::debug::assert(values.is_empty(), "empty");
+    /// ```
+    #[intrinsic(SetNew)]
+    pub fn new<T: Eq + Hash>() -> Set<T>;
+
+    /// Construct a fresh shallow set from the supplied elements.
+    ///
+    /// Referenced objects retain identity. The result does not share input slots.
+    /// Equal elements are deduplicated. Elements must remain stable while stored.
+    /// Input is traversed in order using the selected Eq and Hash implementations.
+    ///
+    /// # Panics
+    ///
+    /// Propagates traps from user comparison or hashing. No partial result is returned.
+    /// Completed callback effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = Set::from([1, 2]);
+    /// std::debug::assert(!values.is_empty(), "populated");
+    /// ```
+    #[intrinsic(SetFrom)]
+    pub fn from<T: Eq + Hash>(items: [T]) -> Set<T>;
+}
+
+impl MutableSet {
+    /// Create a fresh empty set with writable access.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: MutableSet<i32> = MutableSet::new();
+    /// std::debug::assert(values.is_empty(), "empty");
+    /// ```
+    #[intrinsic(MutableSetNew)]
+    pub fn new<T: Eq + Hash>() -> MutableSet<T>;
+
+    /// Construct a fresh shallow set from the supplied elements.
+    ///
+    /// Referenced objects retain identity. The result does not share input slots.
+    /// Equal elements are deduplicated. Elements must remain stable while stored.
+    /// Input is traversed in order using the selected Eq and Hash implementations.
+    ///
+    /// # Panics
+    ///
+    /// Propagates traps from user comparison or hashing. No partial result is returned.
+    /// Completed callback effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = MutableSet::from([1, 2]);
+    /// std::debug::assert(!values.is_empty(), "populated");
+    /// ```
+    #[intrinsic(MutableSetFrom)]
+    pub fn from<T: Eq + Hash>(items: [T]) -> MutableSet<T>;
+}

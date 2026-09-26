@@ -101,9 +101,9 @@ The semantics do not import Rust ownership or borrowing.
 
 The collection surface includes:
 
-- `[T]` dynamically sized array/vector values
-- `Map<K, V>` insertion-ordered key/value values
-- `Set<T>` insertion-ordered unique-value values
+- `Array<T>` (`[T]`) and `MutableArray<T>` resizable arrays
+- `Map<K, V>` and `MutableMap<K, V>` insertion-ordered maps
+- `Set<T>` and `MutableSet<T>` insertion-ordered sets
 - tuple values
 - string values
 
@@ -316,7 +316,7 @@ Short-circuit behavior is part of language semantics and must be preserved by by
 
 The standard module set is deterministic and typed.
 Standard modules are compiler-known exports backed by intrinsic identifiers.
-They may also expose optional `.kg` facade functions for pure helper logic, but native runtime builtins remain the source of truth for core containers, strings, numeric operations, and security-sensitive helpers.
+Declarations, signatures, documentation and examples are defined in `stdlib/*.kgr`. Native runtime helpers implement their storage and execution behavior.
 Standard library calls must not be resolved through script-visible reflection, host string dispatch, or source-level reimplementations of core storage.
 
 The production execution path is:
@@ -352,7 +352,7 @@ They are host APIs and require explicit exposure through the host registry.
 ### Standard Value Semantics
 
 Arrays, maps, sets, strings, `Option`, and `Result` are structural runtime values.
-Arrays, maps, and sets are heap-backed and mutable according to ordinary Kagari value and resource rules.
+Arrays, maps, and sets share heap storage. Only their `Mutable*` access types permit entry modification; read-only views remain live. See [collection access](collection-access.md).
 String values are script-visible text values with validated UTF-8 boundary behavior for slicing.
 `Option<T>` and `Result<T, E>` are ordinary standard enum values and are not hidden control-flow constructs.
 
@@ -362,44 +362,26 @@ The same ordering is used by `keys`, `values`, `entries`, `to_array`, set algebr
 
 ### Standard Module Shape
 
-`std::array` provides typed operations for `[T]`, including:
+The collection modules provide paired native types and associated factories:
 
-- `len<T>(value: [T]) -> usize`
-- `is_empty<T>(value: [T]) -> bool`
-- `get<T>(value: [T], index: usize) -> Option<T>`
-- `push<T>(value: [T], item: T) -> [T]`
-- `pop<T>(value: [T]) -> Option<T>`
-- `insert<T>(value: [T], index: usize, item: T) -> [T]`
-- `remove<T>(value: [T], index: usize) -> Option<T>`
-- `clear<T>(value: [T]) -> [T]`
+| Module | Read-only type | Writable type | Constructors |
+| --- | --- | --- | --- |
+| `std::array` | `Array<T>` / `[T]` | `MutableArray<T>` | `Type::new()`, `Type::from(items)` |
+| `std::map` | `Map<K,V>` | `MutableMap<K,V>` | `Type::new()`, `Type::from(entries)` |
+| `std::set` | `Set<T>` | `MutableSet<T>` | `Type::new()`, `Type::from(items)` |
 
-`std::map` provides typed operations for `Map<K, V>`, including:
+Factories accept arrays; map entries are `(K, V)` tuples. Empty construction
+needs sufficient type context. Map keys and set elements require `Eq + Hash`.
+Read methods accept either access type; mutators require `Mutable*` receivers.
+Array literals infer `MutableArray<T>`. Returned key/value/entry arrays and set
+algebra results are fresh writable containers. `from` always allocates fresh
+shallow storage, while assignment to a read-only type creates a live alias.
 
-- `new<K, V>() -> Map<K, V>`
-- `len<K, V>(value: Map<K, V>) -> usize`
-- `is_empty<K, V>(value: Map<K, V>) -> bool`
-- `contains_key<K, V>(value: Map<K, V>, key: K) -> bool`
-- `get<K, V>(value: Map<K, V>, key: K) -> Option<V>`
-- `insert<K, V>(value: Map<K, V>, key: K, item: V) -> Map<K, V>`
-- `remove<K, V>(value: Map<K, V>, key: K) -> Option<V>`
-- `clear<K, V>(value: Map<K, V>) -> Map<K, V>`
-- `keys<K, V>(value: Map<K, V>) -> [K]`
-- `values<K, V>(value: Map<K, V>) -> [V]`
-- `entries<K, V>(value: Map<K, V>) -> [(K, V)]`
-
-`std::set` provides typed operations for `Set<T>`, including:
-
-- `new<T>() -> Set<T>`
-- `len<T>(value: Set<T>) -> usize`
-- `is_empty<T>(value: Set<T>) -> bool`
-- `contains<T>(value: Set<T>, item: T) -> bool`
-- `insert<T>(value: Set<T>, item: T) -> Set<T>`
-- `remove<T>(value: Set<T>, item: T) -> bool`
-- `clear<T>(value: Set<T>) -> Set<T>`
-- `to_array<T>(value: Set<T>) -> [T]`
-- `union<T>(lhs: Set<T>, rhs: Set<T>) -> Set<T>`
-- `intersection<T>(lhs: Set<T>, rhs: Set<T>) -> Set<T>`
-- `difference<T>(lhs: Set<T>, rhs: Set<T>) -> Set<T>`
+Full signatures, failure behavior and examples live in the source declarations:
+[array](../../stdlib/array.kgr), [map](../../stdlib/map.kgr),
+[set](../../stdlib/set.kgr). The [collection contract](collection-access.md)
+defines assignability, mutation and factory guarantees. The old module-level
+Map/Set `new` functions are removed.
 
 `std::string` provides typed operations for `String`, including:
 
@@ -439,7 +421,7 @@ They are not magic control-flow constructs.
 - `len<I>(value: I) -> usize where I: Iterable`
 - `is_empty<I>(value: I) -> bool where I: Iterable`
 - `get<I>(value: I, index: usize) -> Option<Item<I>> where I: Iterable`
-- `to_array<I>(value: I) -> [Item<I>] where I: Iterable`
+- `to_array<I>(value: I) -> MutableArray<Item<I>> where I: Iterable`
 - `for_each<I>(value: I, callback: fn(Item<I>) -> ()) where I: Iterable`
 
 The iterable protocol is represented in type checking and lowering, not implemented through runtime reflection.
@@ -477,11 +459,11 @@ fn main() -> (usize, bool, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
 
-    val scores: Map<String, i32> = std::map::new();
+    val scores: MutableMap<String, i32> = MutableMap::new();
     scores.insert("alice", 10);
     scores.insert("bob", 12);
 
-    val names: Set<String> = std::set::new();
+    val names: MutableSet<String> = MutableSet::new();
     names.insert("alice");
     names.insert("bob");
 

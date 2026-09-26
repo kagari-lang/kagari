@@ -97,11 +97,38 @@ fn main() {
             (&mut items, &mut traits, &mut enums, &mut constructors),
         );
         let mut exports = BTreeSet::new();
+        let mut native_functions = Vec::new();
         for item in parsed.syntax().items() {
-            let ast::Item::FnDef(function) = item else {
-                continue;
-            };
+            if let Some(function) = api::NativeFunction::cast(item.syntax().clone()) {
+                native_functions.push((None, function));
+            } else if let ast::Item::ImplBlock(implementation) = item {
+                assert!(
+                    implementation.trait_ref().is_none(),
+                    "native associated functions are inherent"
+                );
+                assert!(
+                    implementation.generic_params().is_none(),
+                    "native generics belong to each function"
+                );
+                let owner = implementation.target_type().unwrap().name_text().unwrap();
+                for method in implementation.methods() {
+                    native_functions.push((
+                        Some(owner.clone()),
+                        api::NativeFunction::cast(method.syntax().clone()).unwrap(),
+                    ));
+                }
+            }
+        }
+        for (owner, function) in native_functions {
             let name = function.name_text().unwrap();
+            let path = if let Some(owner) = &owner {
+                vec![("AssociatedType", owner.clone()), ("Method", name.clone())]
+            } else {
+                vec![("Function", name.clone())]
+            };
+            let export = owner
+                .as_ref()
+                .map_or_else(|| name.clone(), |owner| format!("{owner}::{name}"));
             writeln!(
                 items,
                 "{},",
@@ -111,12 +138,12 @@ fn main() {
                     &module.to_lowercase(),
                     &uri,
                     &text,
-                    &[("Function", name.clone())]
+                    &path
                 )
             )
             .unwrap();
             assert!(
-                exports.insert(name.clone()),
+                exports.insert(export.clone()),
                 "duplicate export {module}::{name}"
             );
             assert!(
@@ -191,8 +218,8 @@ fn main() {
             let (start, end) = range;
             let generics = format!("&{:?}", generics);
             let constraints = format!("&[{}]", constraints.join(","));
-            let qualified_name = format!("std::{}::{name}", module.to_lowercase());
-            writeln!(functions,"StandardFunctionSpec{{module:StandardModule::{module},name:{name:?},intrinsic:StandardIntrinsic::{intrinsic},type_params:{generics},arity:{arity},constraints:{constraints},api:&ApiFunction{{qualified_name:{qualified_name:?},uri:{uri:?},start:{start},end:{end},documentation:{doc:?},signature:{signature:?},params:&[{parameter_types}],result:{output}}}}},").unwrap();
+            let qualified_name = format!("std::{}::{export}", module.to_lowercase());
+            writeln!(functions,"StandardFunctionSpec{{module:StandardModule::{module},name:{export:?},intrinsic:StandardIntrinsic::{intrinsic},type_params:{generics},arity:{arity},constraints:{constraints},api:&ApiFunction{{qualified_name:{qualified_name:?},uri:{uri:?},start:{start},end:{end},documentation:{doc:?},signature:{signature:?},params:&[{parameter_types}],result:{output}}}}},").unwrap();
             if let Some(method) = attribute(&function, "method") {
                 assert!(arity > 0, "method needs a receiver");
                 let receiver = if module == "Iter" { "Iterable" } else { module };

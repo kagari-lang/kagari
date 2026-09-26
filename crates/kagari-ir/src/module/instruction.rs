@@ -491,6 +491,16 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayGet
             | ArrayPop
             | ArrayRemove
+            | ArrayNew
+            | MutableArrayNew
+            | MutableMapNew
+            | MutableSetNew
+            | ArrayFrom
+            | MutableArrayFrom
+            | MapFrom
+            | MutableMapFrom
+            | SetFrom
+            | MutableSetFrom
             | MapNew
             | MapGet
             | MapRemove

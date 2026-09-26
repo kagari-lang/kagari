@@ -65,6 +65,10 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
     use StandardIntrinsic::*;
 
     match intrinsic {
+        ArrayNew | MutableArrayNew | MutableMapNew | MutableSetNew => "collection constructor",
+        ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom | MutableSetFrom => {
+            "collection factory"
+        }
         ArrayLen => "std::array::len",
         ArrayIsEmpty => "std::array::is_empty",
         ArrayGet => "std::array::get",
@@ -74,7 +78,7 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         ArrayRemove => "std::array::remove",
         ArrayJoin => "std::array::join",
         ArrayClear => "std::array::clear",
-        MapNew => "std::map::new",
+        MapNew => "std::map::Map::new",
         MapLen => "std::map::len",
         MapIsEmpty => "std::map::is_empty",
         MapContainsKey => "std::map::contains_key",
@@ -85,7 +89,7 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         MapKeys => "std::map::keys",
         MapValues => "std::map::values",
         MapEntries => "std::map::entries",
-        SetNew => "std::set::new",
+        SetNew => "std::set::Set::new",
         SetLen => "std::set::len",
         SetIsEmpty => "std::set::is_empty",
         SetContains => "std::set::contains",

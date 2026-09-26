@@ -1,3 +1,4 @@
+mod collections;
 mod equality;
 mod keys;
 mod operators;
@@ -217,6 +218,36 @@ impl FunctionLowerer<'_, '_> {
                 value = dst;
             }
         }
+        if !self.current_block_terminated() {
+            let ty = self
+                .analyzed
+                .typed
+                .type_table
+                .interface_coercion(expr_id)
+                .map(|coercion| kagari_hir::types::TypeId::Trait(coercion.interface_type.clone()))
+                .or_else(|| self.analyzed.typed.type_table.expr_type(expr_id))
+                .ok_or(IrLoweringError::MissingExprType(expr_id))?;
+            if ty != kagari_hir::types::TypeId::Unknown && ty != kagari_hir::types::TypeId::Error {
+                let span = self.analyzed.lowered.source_map.expr_span(expr_id);
+                let ty = self
+                    .planner
+                    .arguments(&[ty], &self.instance.substitution, span)?
+                    .remove(0);
+                let abi = crate::module::abi::AbiType::from_checked_type(&ty);
+                // A distinct move records access weakening without changing an alias's contract.
+                if ty.collection_access()
+                    == Some(kagari_common::collection::CollectionAccess::ReadOnly)
+                {
+                    let dst = self.alloc_temp(value.ty);
+                    self.emit(Instruction::Move { dst, src: value });
+                    value = dst;
+                }
+                self.function
+                    .semantic
+                    .registers
+                    .insert(value.temp.index(), abi);
+            }
+        }
         Ok(value)
     }
 
@@ -358,7 +389,29 @@ impl FunctionLowerer<'_, '_> {
                     else_block: failure,
                 });
                 self.switch_to_block(failure);
-                self.set_terminator(Terminator::Return(Some(value)));
+                let output = self.function.semantic.result.clone().ok_or(
+                    IrLoweringError::MissingBinding("propagation return contract"),
+                )?;
+                let residual = if matches!(
+                    &ty,
+                    kagari_hir::types::TypeId::StandardEnum {
+                        kind: kagari_hir::builtin::surface::StandardEnum::Result,
+                        ..
+                    }
+                ) {
+                    let error = self.standard_enum_op(&ty, StandardEnumOp::Read(1), Some(value))?;
+                    let dst = self.alloc_temp(ValueType::HeapObject);
+                    self.emit(Instruction::MapResultError {
+                        dst,
+                        original: value,
+                        error,
+                        ty: output,
+                    });
+                    dst
+                } else {
+                    self.standard_enum_op(&output.to_checked_type(), StandardEnumOp::Make(1), None)?
+                };
+                self.set_terminator(Terminator::Return(Some(residual)));
                 self.switch_to_block(success);
                 self.standard_enum_op(&ty, StandardEnumOp::Read(0), Some(value))
             }
@@ -923,6 +976,18 @@ impl FunctionLowerer<'_, '_> {
                     local_ty,
                     self.analyzed.lowered.source_map.local_span(local),
                 );
+                let semantic = self.semantic_type(
+                    &self
+                        .analyzed
+                        .typed
+                        .type_table
+                        .local_type(local)
+                        .ok_or(IrLoweringError::MissingLocalType(local))?,
+                )?;
+                self.function
+                    .semantic
+                    .locals
+                    .insert(ir_local.index(), semantic);
                 self.locals.insert(local, ir_local);
                 bindings.push((ir_local, value));
             }
@@ -1815,6 +1880,17 @@ impl FunctionLowerer<'_, '_> {
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         use kagari_hir::builtin::surface::StandardIntrinsic::*;
+                        if matches!(
+                            intrinsic,
+                            ArrayFrom
+                                | MutableArrayFrom
+                                | MapFrom
+                                | MutableMapFrom
+                                | SetFrom
+                                | MutableSetFrom
+                        ) {
+                            return self.lower_collection_factory(expr, intrinsic, lowered[0]);
+                        }
                         let base = call.receiver.or_else(|| args.first().copied());
                         if let Some(base) = base {
                             let ty = self

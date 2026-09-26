@@ -77,6 +77,18 @@ impl FunctionLowerer<'_, '_> {
             ty,
             self.analyzed.lowered.source_map.local_span(hir_local),
         );
+        let semantic = self.semantic_type(
+            &self
+                .analyzed
+                .typed
+                .type_table
+                .local_type(hir_local)
+                .ok_or(IrLoweringError::MissingLocalType(hir_local))?,
+        )?;
+        self.function
+            .semantic
+            .locals
+            .insert(local.index(), semantic);
         self.locals.insert(hir_local, local);
         Ok(local)
     }

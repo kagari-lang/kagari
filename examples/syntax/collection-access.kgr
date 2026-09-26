@@ -1,0 +1,24 @@
+// Read-only access shares storage; from creates a fresh shallow copy.
+fn main() -> i32 {
+    val a = MutableArray::from([1, 2]);
+    val r: [i32] = a;
+    a.push(3);
+    std::debug::assert(r.len() == [0, 0, 0].len(), "live view");
+    val snapshot = Array::from(a);
+    a.push(4);
+    std::debug::assert(snapshot.len() == [0, 0, 0].len(), "snapshot");
+    val m = MutableMap::from([("a", 1), ("a", 2)]);
+    val mr: Map<String, i32> = m;
+    std::debug::assert(mr.get("a") == Some(2), "duplicate");
+    m.insert("b", 3);
+    std::debug::assert(mr.contains_key("b"), "map view");
+    val s = Set::from([1, 1, 2]);
+    std::debug::assert(s.len() == [0, 0].len(), "dedup");
+    val ms = MutableSet::from([1]);
+    ms.insert(2);
+    val empty: Map<String, i32> = Map::new();
+    val empty_array: MutableArray<i32> = MutableArray::new();
+    val empty_set: Set<i32> = Set::from([]);
+    std::debug::assert(empty.is_empty() && empty_array.is_empty() && empty_set.is_empty(), "empty");
+    42
+}

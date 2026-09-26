@@ -171,7 +171,7 @@ fn main()->Result<i32,String>{
     val a=origin();val b:Result<i32,String> = Err("same");
     std::debug::assert(a==b,"equality ignores trace");
     std::debug::assert(a.hash()==b.hash(),"hash ignores trace");
-    val set:Set<Result<i32,String>> = std::set::new();set.insert(a);
+    val set:MutableSet<Result<i32,String>> = MutableSet::new();set.insert(a);
     std::debug::assert(set.contains(b),"key lookup ignores trace");
     a
 }

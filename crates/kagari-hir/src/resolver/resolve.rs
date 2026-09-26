@@ -450,6 +450,9 @@ impl<'a> BodyResolver<'a> {
         if let Some(variant) = surface::standard_variant(name) {
             return Some(ResolvedName::StandardVariant(variant));
         }
+        if let Some(function) = surface::standard_associated_function(name) {
+            return Some(ResolvedName::StandardFunction(function.intrinsic));
+        }
         let (module, member) = name.rsplit_once("::")?;
         surface::standard_function(surface::standard_module(module)?.kind, member)
             .map(|f| ResolvedName::StandardFunction(f.intrinsic))

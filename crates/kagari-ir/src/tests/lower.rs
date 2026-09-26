@@ -309,7 +309,7 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
         "matrix(if true { return 42; } else { return 7; })[grow(1)][0]",
     ] {
         let analyzed = common::analyze_ok(&format!(
-            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> [[i32]] {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
+            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> MutableArray<MutableArray<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
         ));
         let ir = lower_to_ir(
             &analyzed,

@@ -68,10 +68,10 @@ fn main()->i32 {
     std::debug::assert_eq(first(cursor),22,"shared cursor");
     std::debug::assert_eq(first(cursor),0,"exhausted");
     a.push(5);
-    val scores:Map<String,i32> =std::map::new();scores.insert("a",20);scores.insert("b",22);
+    val scores:MutableMap<String,i32> =MutableMap::new();scores.insert("a",20);scores.insert("b",22);
     var total=0;for (key,value) in scores {total+=value;}
     std::debug::assert_eq(total,42,"map");
-    val values:Set<i32> =std::set::new();values.insert(20);values.insert(22);
+    val values:MutableSet<i32> =MutableSet::new();values.insert(20);values.insert(22);
     std::debug::assert_eq(sum(values),42,"set");
     var count=0;for ch in "中😀".into_iter(){count+=1;}
     std::debug::assert_eq(count,2,"unicode");
@@ -102,7 +102,7 @@ fn main()->i32 {
 fn returning_from_native_loop_releases_its_guard_before_caller_resumes() {
     execute(
         r#"
-fn head(values:[i32])->i32 {for x in values {return x;}0}
+fn head(values:MutableArray<i32>)->i32 {for x in values {return x;}0}
 fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 "#,
     );

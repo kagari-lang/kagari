@@ -1,14 +1,14 @@
 // Run: cargo run -p kagari-cli -- run examples/syntax/for-collections.kgr
 // Result: main returns 42.
 fn main() -> i32 {
-    val scores: Map<String, i32> = std::map::new();
+    val scores: MutableMap<String, i32> = MutableMap::new();
     scores.insert("a", 20);
     scores.insert("b", 22);
     var total = 0;
     for (key, score) in scores {
         total += score;
     }
-    val names: Set<String> = std::set::new();
+    val names: MutableSet<String> = MutableSet::new();
     names.insert("a");
     names.insert("b");
     var count = 0;

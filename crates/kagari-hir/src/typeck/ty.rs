@@ -340,7 +340,7 @@ pub(super) fn resolve_type_in(
         }
         hir::TypeKind::Array(element) => TypeId::Array(
             Box::new(resolve_type_in(module, *element, context, table, cancel)),
-            CollectionAccess::Mutable,
+            CollectionAccess::ReadOnly,
         ),
         hir::TypeKind::Function { params, result } => TypeId::Function {
             params: params

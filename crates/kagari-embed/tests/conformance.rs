@@ -160,9 +160,9 @@ fn embedding_conformance_executes_standard_intrinsic_artifacts() {
 fn main() -> (usize, usize, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
-    val map: Map<String, i32> = std::map::new();
+    val map: MutableMap<String, i32> = MutableMap::new();
     map.insert("ok", 7);
-    val set: Set<String> = std::set::new();
+    val set: MutableSet<String> = MutableSet::new();
     set.insert("ready");
     (values.len(), "ok".len_chars(), map.len(), set.contains("ready"), std::math::max(4, 7))
 }

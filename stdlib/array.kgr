@@ -1,5 +1,9 @@
 //! Resizable arrays with shared object identity. Element reads and copies are shallow.
 //!
+//! `Array` provides read-only access; `MutableArray` also permits writes.
+//! Read-only views share storage and observe changes through writable aliases.
+//! `from` constructs fresh shallow storage; referenced elements retain identity.
+//!
 //! Resource exhaustion and cancellation follow the execution-session contract.
 
 /// Return the number of elements.
@@ -24,7 +28,7 @@ pub fn len<T>(value: [T]) -> usize;
 /// # Examples
 ///
 /// ```kgr
-/// val values: [i32] = [];
+/// val values: MutableArray<i32> = [];
 /// std::debug::assert(values.is_empty(), "empty");
 /// ```
 #[intrinsic(ArrayIsEmpty)]
@@ -72,7 +76,7 @@ pub fn get<T>(value: [T], index: usize) -> Option<T>;
 /// ```
 #[intrinsic(ArrayPush)]
 #[method(push)]
-pub fn push<T>(value: [T], item: T) -> [T];
+pub fn push<T>(value: MutableArray<T>, item: T) -> MutableArray<T>;
 
 /// Remove and return the last element, or None when empty.
 ///
@@ -98,7 +102,7 @@ pub fn push<T>(value: [T], item: T) -> [T];
 /// ```
 #[intrinsic(ArrayPop)]
 #[method(pop)]
-pub fn pop<T>(value: [T]) -> Option<T>;
+pub fn pop<T>(value: MutableArray<T>) -> Option<T>;
 
 /// Insert at index and return the same array. An invalid index traps before modification.
 ///
@@ -126,7 +130,7 @@ pub fn pop<T>(value: [T]) -> Option<T>;
 /// ```
 #[intrinsic(ArrayInsert)]
 #[method(insert)]
-pub fn insert<T>(value: [T], index: usize, item: T) -> [T];
+pub fn insert<T>(value: MutableArray<T>, index: usize, item: T) -> MutableArray<T>;
 
 /// Remove the element at index, or return None when out of bounds.
 ///
@@ -152,7 +156,7 @@ pub fn insert<T>(value: [T], index: usize, item: T) -> [T];
 /// ```
 #[intrinsic(ArrayRemove)]
 #[method(remove)]
-pub fn remove<T>(value: [T], index: usize) -> Option<T>;
+pub fn remove<T>(value: MutableArray<T>, index: usize) -> Option<T>;
 
 /// Remove all elements and return the same array.
 ///
@@ -176,11 +180,11 @@ pub fn remove<T>(value: [T], index: usize) -> Option<T>;
 /// ```
 #[intrinsic(ArrayClear)]
 #[method(clear)]
-pub fn clear<T>(value: [T]) -> [T];
+pub fn clear<T>(value: MutableArray<T>) -> MutableArray<T>;
 
 /// A resizable sequence of elements, written `[T]` in type annotations.
 ///
-/// Arrays are shared mutable objects. Assigning an array to another binding keeps the
+/// Arrays share object storage. `Array<T>` permits reading its slots. Assignment keeps the
 /// same object; mutations through either binding are visible through the other.
 /// `val` prevents rebinding, not mutation of the array. `==` compares array identity.
 ///
@@ -219,10 +223,83 @@ pub type Array<T>;
 ///
 /// ```kgr
 /// std::debug::assert(["red", "green", "blue"].join(", ") == "red, green, blue", "joined");
-/// val empty: [String] = [];
+/// val empty: MutableArray<String> = [];
 /// std::debug::assert(empty.join(",") == "", "empty input");
 /// std::debug::assert(["one"].join(",") == "one", "no extra separator");
 /// ```
 #[intrinsic(ArrayJoin)]
 #[method(join)]
 pub fn join(value: [String], separator: String) -> String;
+
+/// A writable shared array. Copies preserve object identity.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = MutableArray::from([1, 2]);
+/// std::debug::assert(!values.is_empty(), "populated");
+/// ```
+#[builtin_type(MutableArray)]
+pub type MutableArray<T>;
+
+impl Array {
+    /// Create a fresh empty array with read-only access.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = Array::new();
+    /// std::debug::assert(values.is_empty(), "empty");
+    /// ```
+    #[intrinsic(ArrayNew)]
+    pub fn new<T>() -> Array<T>;
+
+    /// Construct a fresh shallow array from the supplied elements.
+    ///
+    /// Referenced objects retain identity. The result does not share input slots.
+    /// The copy preserves input order and never invokes element equality or hashing.
+    ///
+    /// # Panics
+    ///
+    /// Allocation or resource exhaustion terminates execution without returning a partial result.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = Array::from([1, 2]);
+    /// std::debug::assert(!values.is_empty(), "populated");
+    /// ```
+    #[intrinsic(ArrayFrom)]
+    pub fn from<T>(items: [T]) -> Array<T>;
+}
+
+impl MutableArray {
+    /// Create a fresh empty array with writable access.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: MutableArray<i32> = MutableArray::new();
+    /// std::debug::assert(values.is_empty(), "empty");
+    /// ```
+    #[intrinsic(MutableArrayNew)]
+    pub fn new<T>() -> MutableArray<T>;
+
+    /// Construct a fresh shallow array from the supplied elements.
+    ///
+    /// Referenced objects retain identity. The result does not share input slots.
+    /// The copy preserves input order and never invokes element equality or hashing.
+    ///
+    /// # Panics
+    ///
+    /// Allocation or resource exhaustion terminates execution without returning a partial result.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = MutableArray::from([1, 2]);
+    /// std::debug::assert(!values.is_empty(), "populated");
+    /// ```
+    #[intrinsic(MutableArrayFrom)]
+    pub fn from<T>(items: [T]) -> MutableArray<T>;
+}

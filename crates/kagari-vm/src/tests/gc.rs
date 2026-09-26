@@ -31,7 +31,7 @@ fn runtime(max_steps: Option<u64>) -> Runtime {
 #[test]
 fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints() {
     let module = compile_test_bytecode(
-        "fn make() -> [i32] { [42] } fn main() -> [i32] { val kept = make(); val other = [1, 2]; kept }",
+        "fn make() -> MutableArray<i32> { [42] } fn main() -> MutableArray<i32> { val kept = make(); val other = [1, 2]; kept }",
     );
     for encoded in [false, true] {
         for jit in [false, true] {
@@ -275,7 +275,8 @@ fn trap_and_budget_exhaustion_release_frame_roots_and_call_depth() {
 
 #[test]
 fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
-    let mut module = compile_test_bytecode("fn init() -> [i32] { [7] } fn main() -> i32 { 42 }");
+    let mut module =
+        compile_test_bytecode("fn init() -> MutableArray<i32> { [7] } fn main() -> i32 { 42 }");
     module
         .module_slots
         .push(kagari_ir::bytecode::BytecodeModuleSlot {

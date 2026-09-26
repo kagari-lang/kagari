@@ -255,49 +255,47 @@ clippy with warnings denied and `git diff --check` passed.
 
 ## Collection access and construction
 
-The [collection access proposal](spec/collection-access.md) records the proposed
-read-only/writable Array, Map and Set types, associated constructors and acceptance
-cases. It is not implemented. Current standard declarations and value semantics
-continue to describe the executable language. The proposed array spelling is
-`[T]` for read-only `Array<T>`, with literals producing `MutableArray<T>`.
+The [collection access contract](spec/collection-access.md) defines the implemented
+read-only/writable Array, Map and Set types and paired associated constructors.
+`[T]` means read-only `Array<T>`; literals infer `MutableArray<T>`. The implementation
+keeps shared storage and enforces access in HIR and linked bytecode contracts.
 
 - [x] C00: document access boundaries, constructor shape and implementation plan.
 - [x] C01a: carry collection access through HIR type identity/substitution, ABI
   types and bounded host/artifact encoding; migrate existing Rust call sites to
   explicitly request their current mutable access.
-- [ ] C01: source-owned native access types and associated constructors; HIR
+- [x] C01: source-owned native access types and associated constructors; HIR
   assignability, generic invariance, branch joins and complete write-access checks.
-- [ ] C02: verified IR, artifact encoding/version rejection, host declaration
+- [x] C02: verified IR, artifact encoding/version rejection, host declaration
   contracts and runtime/backend integration without duplicating collection storage.
-- [ ] C03: migrate standard declarations, CLI/embedding examples and executable
+- [x] C03: migrate standard declarations, CLI/embedding examples and executable
   documentation; implement paired populated `Array`/`Map`/`Set` and `Mutable*`
   factories with fresh shallow storage, remove old constructors and update
   authoritative specifications.
 - [ ] C04: navigation/completion and source/artifact/backend conformance, negative
   access tests, GC/alias/iteration coverage and final workspace validation.
 
-C01 and C02 must land together if publishing C01 alone would erase access before
-verification or leave an executable write bypass. Each coherent checkpoint uses
-a Conventional Commit. No compatibility constructors or dual mutability model
-are planned. The proposed populated factory spelling is `Type::from(array)`;
-Map entries use `(K, V)` tuples, and both access variants share the existing
-checked insertion machinery. General variance, frozen/persistent collections,
-deep immutability, general copy/clone protocols, capacity APIs, variadic calls and
-arbitrary iterator construction remain separate work.
+C01-C03 land together because the public API, typed execution contracts and
+standard declaration/example migration must agree. No compatibility constructors
+or dual mutability model remain. `Type::from(array)` creates fresh shallow storage;
+map entries use `(K, V)` tuples and both access variants use checked insertion.
+General variance, frozen/persistent collections, deep immutability, general
+copy/clone protocols, capacity APIs, variadic calls and arbitrary iterator
+construction remain separate work.
 
-C01a introduces `CollectionAccess::{ReadOnly, Mutable}` as semantic type metadata.
-The source language still produces mutable collections with the existing API;
-`MutableArray`, `MutableMap`, `MutableSet` and associated constructors are not yet
-exposed. This checkpoint does not claim enforcement of read-only access during
-execution. Register/call/storage validation must preserve access before C01/C02
-activate the public surface: current instruction registers retain representation
-types such as `HeapObject`, rather than complete semantic types.
+C01a introduced `CollectionAccess::{ReadOnly, Mutable}` in semantic types, KBC/runtime
+ABI v63 and host interface KHI v12. C01-C03 activate the public access types and
+advance KBC/runtime ABI to v64. Semantic parameter/local/register/result contracts
+are encoded and fingerprinted; loading validates calls, stores and writes before
+execution. Physical frame slots and shared GC storage remain unchanged. Access
+changes participate in host/interface/reload contracts. Earlier artifacts are
+rejected, without migration. Helper ABI remains v6.
 
-The encoded type shape changes artifact format/runtime ABI to v63 and host
-interfaces to KHI v12. Old formats are rejected without compatibility decoding.
-GC object storage and helper ABI v6 remain unchanged. Round-trip tests cover
-both access modes, nested types, directional outer access weakening, invariant
-nested arguments and host binding fingerprint changes.
+Constructors and methods navigate to source-owned declarations; completion omits
+mutators on read-only receivers. Result/Option propagation retains error provenance
+while explicitly recording the resulting enum contract. Paired factories use
+normal script frames for custom key protocols, preserve argument order and release
+input/lookup guards on failure. Array/Map/Set factory results never reuse input slots.
 
 C01a validation: 1,176 workspace tests passed, including 101 executable standard
 API documentation examples. Workspace clippy with warnings denied, formatting

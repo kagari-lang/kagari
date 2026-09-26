@@ -32,7 +32,7 @@ fn make_early_return() -> fn() -> i32 {
 }
 
 fn iteration_captures() -> i32 {
-    val callbacks: [fn() -> i32] = [];
+    val callbacks: MutableArray<fn() -> i32> = [];
     for number in [10, 20, 12] {
         callbacks.push(|| number);
     }

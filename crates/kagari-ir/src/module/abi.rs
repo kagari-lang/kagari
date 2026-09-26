@@ -674,6 +674,21 @@ pub(crate) fn interface_method_types(
     interface: &NominalAbiType,
     slot: usize,
 ) -> Option<(Vec<super::ValueType>, super::ValueType)> {
+    let (params, result) =
+        interface_method_semantics(owner, public_items, trait_contracts, interface, slot)?;
+    Some((
+        params.iter().map(AbiType::representation).collect(),
+        result.representation(),
+    ))
+}
+
+pub(crate) fn interface_method_semantics(
+    owner: &kagari_common::identity::ModuleIdentity,
+    public_items: &[PublicAbiItem],
+    trait_contracts: &[TraitContract],
+    interface: &NominalAbiType,
+    slot: usize,
+) -> Option<(Vec<AbiType>, AbiType)> {
     use kagari_common::identity::DefinitionKind;
     let path = &interface.declaration.path;
     if interface.declaration.module != *owner
@@ -736,10 +751,9 @@ pub(crate) fn interface_method_types(
             .to_checked_type()
             .instantiate(&substitution)
             .with_associated_types(&interface);
-        ty.is_concrete()
-            .then(|| super::ValueType::from_type_id(&ty))
+        ty.is_concrete().then(|| AbiType::from_checked_type(&ty))
     };
-    let mut params = vec![super::ValueType::HeapObject];
+    let mut params = vec![AbiType::Trait(interface.clone())];
     params.extend(
         method
             .params

@@ -242,7 +242,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
             AbiType::Builtin(BuiltinType::I32),
             AbiType::Array(
                 Box::new(AbiType::Builtin(BuiltinType::String)),
-                CollectionAccess::Mutable
+                CollectionAccess::ReadOnly
             ),
         ])
     );

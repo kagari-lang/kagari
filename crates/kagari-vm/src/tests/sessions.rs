@@ -49,7 +49,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
     for encoded in [false, true] {
         for jit in [false, true] {
             let module = compile_test_bytecode(
-                "fn main() -> i32 { val kept = [42]; print(\"outer\"); kept[0] } fn make(n: i32) -> [i32] { print(\"inner\"); [n, 8] }",
+                "fn main() -> i32 { val kept = [42]; print(\"outer\"); kept[0] } fn make(n: i32) -> MutableArray<i32> { print(\"inner\"); [n, 8] }",
             );
             let make = module
                 .functions
@@ -255,7 +255,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
 fn reentry_rejects_foreign_and_stale_inputs() {
     use std::{cell::Cell, rc::Rc};
     let module = compile_test_bytecode(
-        "fn main() -> i32 { print(\"enter\"); 42 } fn echo(value: [i32]) -> [i32] { value }",
+        "fn main() -> i32 { print(\"enter\"); 42 } fn echo(value: MutableArray<i32>) -> MutableArray<i32> { value }",
     );
     let main = module
         .functions

@@ -44,7 +44,11 @@ pub struct HostIndexSegmentDeclaration {
 
 impl HostIndexSegmentDeclaration {
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
-        if self.slot >= 4096 || self.access == PathAccess::None {
+        if self.slot >= 4096
+            || self.access == PathAccess::None
+            || (matches!(self.access, PathAccess::ReadWrite)
+                && read_only_collection(&self.collection))
+        {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
         self.collection.validate()?;
@@ -132,6 +136,11 @@ impl HostPathContract {
                     collection,
                     index,
                 } => {
+                    if matches!(segment.access, PathAccess::ReadWrite)
+                        && read_only_collection(collection)
+                    {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
                     encoded.bytes(&[1]);
                     encoded.number(*slot);
                     encoded.number(collection.fingerprint()?);
@@ -369,8 +378,43 @@ impl Fingerprint {
     }
 }
 
+fn read_only_collection(ty: &HostValueType) -> bool {
+    matches!(
+        ty,
+        HostValueType::Array(_, crate::collection::CollectionAccess::ReadOnly)
+            | HostValueType::Set(_, crate::collection::CollectionAccess::ReadOnly)
+            | HostValueType::Map {
+                access: crate::collection::CollectionAccess::ReadOnly,
+                ..
+            }
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn index_contract_cannot_upgrade_readonly_collection_access() {
+        let mut index = super::HostIndexSegmentDeclaration {
+            slot: 0,
+            collection: super::HostValueType::Array(
+                Box::new(super::HostValueType::I32),
+                crate::collection::CollectionAccess::ReadOnly,
+            ),
+            index: super::HostValueType::I32,
+            result: super::HostValueType::I32,
+            access: super::PathAccess::ReadWrite,
+        };
+        assert!(index.validate().is_err());
+        index.access = super::PathAccess::ReadOnly;
+        index.validate().unwrap();
+        index.collection = super::HostValueType::Array(
+            Box::new(super::HostValueType::I32),
+            crate::collection::CollectionAccess::Mutable,
+        );
+        index.access = super::PathAccess::ReadWrite;
+        index.validate().unwrap();
+    }
+
     use super::*;
     use crate::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
 

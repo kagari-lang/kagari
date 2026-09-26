@@ -44,18 +44,18 @@ fn main() -> i32 {
     val first = User { id: 1, label: "before" };
     val second = User { id: 1, label: "other" };
     std::debug::assert(first == second && first !== second, "value and identity");
-    val users: Set<(Entry, i32)> = std::set::new();
+    val users: MutableSet<(Entry, i32)> = MutableSet::new();
     users.insert((Entry::Present(first), 7));
     // label is excluded from equality/hash; id must remain stable while stored.
     first.label = "after";
     std::debug::assert(users.contains((Entry::Present(second), 7)), "nested custom key");
-    val ids: Set<Identifier> = std::set::new();
+    val ids: MutableSet<Identifier> = MutableSet::new();
     ids.insert(Identifier::Local(42));
     std::debug::assert(ids.contains(Identifier::Remote(42)), "whole enum override");
-    val values: Map<(Key, i32), i32> = std::map::new();
+    val values: MutableMap<(Key, i32), i32> = MutableMap::new();
     values.insert((Key::Name("answer"), 1), 20);
     val label = Label { value: 22 };
-    val identities: Map<Label, i32> = std::map::new();
+    val identities: MutableMap<Label, i32> = MutableMap::new();
     identities.insert(label, 22);
     std::debug::assert(same(label, label), "aliases share identity");
     std::debug::assert(!same(label, Label { value: 22 }), "distinct objects");

@@ -238,7 +238,7 @@ fn rejects_heap_backed_const_types() {
         r#"
 struct Point { var x: i32, var y: i32 }
 const PAIR: (i32, i32) = (1, 2);
-const VALUES: [i32] = [3, 4];
+const VALUES: MutableArray<i32> = [3, 4];
 const POINT: Point = Point { x: 5, y: 6 };
 "#,
     );
@@ -261,8 +261,9 @@ const POINT: Point = Point { x: 5, y: 6 };
         diagnostic.kind
             == DiagnosticKind::InvalidConstInitializer {
                 const_name: "VALUES".to_string(),
-                reason: "const type `[i32]` is heap-backed; const supports value types only"
-                    .to_string(),
+                reason:
+                    "const type `MutableArray<i32>` is heap-backed; const supports value types only"
+                        .to_string(),
             }
     }));
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -593,8 +594,8 @@ fn resolves_stdlib_standard_builtin_type_annotations() {
         r#"
 fn choose(value: Option<i32>) -> Option<i32> { value }
 fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
-fn lookup(value: Map<String, i32>) -> Map<String, i32> { value }
-fn unique(value: Set<String>) -> Set<String> { value }
+fn lookup(value: MutableMap<String, i32>) -> MutableMap<String, i32> { value }
+fn unique(value: MutableSet<String>) -> MutableSet<String> { value }
 fn sized(value: usize) -> usize { value }
 "#,
     );
@@ -650,7 +651,7 @@ fn resolves_standard_module_imports_facade_exports_and_function_calls() {
 pub use std::math as math;
 use std::map::len as map_len;
 
-fn size(values: Map<String, i32>) -> usize {
+fn size(values: MutableMap<String, i32>) -> usize {
     map_len(values)
 }
 
@@ -732,7 +733,7 @@ fn clamp(value: i32) -> i32 {
 fn type_checks_standard_methods_and_records_intrinsics() {
     let lowered = common::lower_ok(
         r#"
-fn keys(values: Map<String, i32>) -> [String] {
+fn keys(values: MutableMap<String, i32>) -> MutableArray<String> {
     values.keys()
 }
 
@@ -740,7 +741,7 @@ fn chars(value: String) -> usize {
     value.len_chars()
 }
 
-fn popped(values: [i32]) -> Option<i32> {
+fn popped(values: MutableArray<i32>) -> Option<i32> {
     values.pop()
 }
 "#,
@@ -807,11 +808,11 @@ fn popped(values: [i32]) -> Option<i32> {
 fn enforces_standard_hash_key_constraints_for_collections_and_generic_calls() {
     let lowered = common::lower_ok(
         r#"
-fn contains<K: Eq + Hash, V>(values: Map<K, V>, key: K) -> bool {
+fn contains<K: Eq + Hash, V>(values: MutableMap<K, V>, key: K) -> bool {
     std::map::contains_key(values, key)
 }
 
-fn unique<T: Eq + Hash>(values: Set<T>) -> usize {
+fn unique<T: Eq + Hash>(values: MutableSet<T>) -> usize {
     std::set::len(values)
 }
 "#,
@@ -824,7 +825,7 @@ fn unique<T: Eq + Hash>(values: Set<T>) -> usize {
         .expect("hash-key constrained generics should type check");
 
     let lowered =
-        common::lower_ok("fn bad(values: Map<f64, i32>) -> usize { std::map::len(values) }");
+        common::lower_ok("fn bad(values: MutableMap<f64, i32>) -> usize { std::map::len(values) }");
     let names = resolve_names(&lowered)
         .into_checked()
         .expect("resolver should succeed");
@@ -839,8 +840,9 @@ fn unique<T: Eq + Hash>(values: Set<T>) -> usize {
         )
     }));
 
-    let lowered =
-        common::lower_ok("fn bad<K, V>(values: Map<K, V>) -> usize { std::map::len(values) }");
+    let lowered = common::lower_ok(
+        "fn bad<K, V>(values: MutableMap<K, V>) -> usize { std::map::len(values) }",
+    );
     let names = resolve_names(&lowered)
         .into_checked()
         .expect("resolver should succeed");
@@ -876,7 +878,7 @@ fn rejects_standard_library_invalid_arity_and_argument_types() {
 
     let lowered = common::lower_ok(
         r#"
-fn bad(values: Map<String, i32>) -> bool {
+fn bad(values: MutableMap<String, i32>) -> bool {
     values.contains_key(1)
 }
 "#,

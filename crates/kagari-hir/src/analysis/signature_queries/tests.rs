@@ -223,8 +223,8 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
 fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
     use crate::typeck::ConstraintTarget;
     for header in [
-        "impl<T: Eq + Hash> Set<T>",
-        "impl<T> Set<T> where T: Eq + Hash",
+        "impl<T: Eq + Hash> MutableSet<T>",
+        "impl<T> MutableSet<T> where T: Eq + Hash",
     ] {
         let text = format!(
             "trait Get {{ fn get(self) -> i32; }} {header} {{ fn size<T: Get>(self, value: T) -> i32 {{ value.get() }} }} fn bad() {{ missing }}"

@@ -1,4 +1,3 @@
-use kagari_common::collection::CollectionAccess;
 use std::collections::HashMap;
 
 use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
@@ -626,16 +625,12 @@ fn instantiate(
             result: Box::new(child(result)?),
         },
         TypeId::Cursor(element) => TypeId::Cursor(Box::new(child(element)?)),
-        TypeId::Array(element, _) => {
-            TypeId::Array(Box::new(child(element)?), CollectionAccess::Mutable)
-        }
-        TypeId::Set(element, _) => {
-            TypeId::Set(Box::new(child(element)?), CollectionAccess::Mutable)
-        }
-        TypeId::Map { key, value, .. } => TypeId::Map {
+        TypeId::Array(element, access) => TypeId::Array(Box::new(child(element)?), *access),
+        TypeId::Set(element, access) => TypeId::Set(Box::new(child(element)?), *access),
+        TypeId::Map { key, value, access } => TypeId::Map {
             key: Box::new(child(key)?),
             value: Box::new(child(value)?),
-            access: CollectionAccess::Mutable,
+            access: *access,
         },
         TypeId::StandardEnum { kind, args } => TypeId::StandardEnum {
             kind: *kind,

@@ -139,6 +139,7 @@ impl FileAnalysis {
                 let receiver = &spec.api.params[0].ty;
                 receiver.infer(&ty, &mut arguments);
                 !receiver.instantiate(&arguments).conflicts_with(&ty)
+                    || ty.can_weaken_to(&receiver.instantiate(&arguments))
             })
             .filter_map(|method| declarations::function(method.intrinsic))
             .collect()
@@ -195,7 +196,7 @@ mod tests {
             signature.parameters[0].1,
             TypeId::Array(
                 Box::new(TypeId::Builtin(crate::types::BuiltinType::I32)),
-                CollectionAccess::Mutable
+                CollectionAccess::ReadOnly
             )
         );
         let signature = analysis
@@ -375,6 +376,84 @@ mod interpolation_queries {
                     .iter()
                     .any(|item| item.path.last().unwrap().1 == "join"),
                 available
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod collection_access_tests {
+    use super::*;
+    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    #[test]
+    fn constructors_navigate_to_distinct_documented_members() {
+        let text = "fn main() { val a = Array::from([1]); val b = MutableArray::from(a); val c: Map<i32,i32> = Map::new(); val d: MutableMap<i32,i32> = MutableMap::new(); val e=Set::from([1]); val f=MutableSet::from([1]); }";
+        let mut sources = SourceDatabase::default();
+        let file = sources
+            .set("constructors.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let file = snapshot.file(file).unwrap();
+        assert!(
+            file.result().diagnostics().is_empty(),
+            "{:?}",
+            file.result().diagnostics()
+        );
+        let mut identities = std::collections::HashSet::new();
+        for spelling in [
+            "Array::from",
+            "MutableArray::from",
+            "Map::new",
+            "MutableMap::new",
+            "Set::from",
+            "MutableSet::from",
+        ] {
+            let offset = text.find(spelling).unwrap() + spelling.find("::").unwrap() + 2;
+            let definition = file.definition_at(offset).unwrap();
+            assert!(identities.insert(definition.id.clone()));
+            let api = file.standard_api_at(offset).unwrap();
+            assert!(api.documentation.contains("# Examples"));
+            let source = snapshot.source(definition.location.file).unwrap();
+            assert_eq!(
+                &source.text()[definition.location.range.start..definition.location.range.end],
+                definition.name
+            );
+        }
+    }
+    #[test]
+    fn readonly_member_completion_excludes_mutators() {
+        for (constructor, mutable, write) in [
+            ("Array::from([1])", false, "push"),
+            ("MutableArray::from([1])", true, "push"),
+            ("Map::from([(1,2)])", false, "insert"),
+            ("MutableMap::from([(1,2)])", true, "insert"),
+            ("Set::from([1])", false, "insert"),
+            ("MutableSet::from([1])", true, "insert"),
+        ] {
+            let text = format!("fn main() {{ val values={constructor}; values. }}");
+            let mut sources = SourceDatabase::default();
+            let id = sources
+                .set("completion.kgr", text.clone(), SourceLayer::Base)
+                .unwrap();
+            let snapshot = AnalysisDatabase::default()
+                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .unwrap();
+            let candidates = snapshot
+                .file(id)
+                .unwrap()
+                .standard_method_completions(text.find("values. }").unwrap() + 7);
+            assert!(
+                candidates
+                    .iter()
+                    .any(|item| item.path.last().unwrap().1 == "len")
+            );
+            assert_eq!(
+                candidates
+                    .iter()
+                    .any(|item| item.path.last().unwrap().1 == write),
+                mutable
             );
         }
     }

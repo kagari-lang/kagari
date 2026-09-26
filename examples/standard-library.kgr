@@ -30,10 +30,10 @@ fn read_marker<T: ReadMarker>(reader: T) -> i32 { reader.read(Marker { value: 40
 fn identity<T>(value: T) -> T { value }
 fn empty_token<T>() -> Token<T> { Token::Empty }
 fn forwarded_marker<T>() -> Marker<T> { identity(Marker { value: 42 }) }
-fn empty_scores() -> Map<String, i32> { std::map::new() }
-fn empty_numbers() -> [i32] { [] }
-fn empty_keys<T: Eq + Hash>() -> Set<T> {
-    val keys: Set<T> = std::set::new();
+fn empty_scores() -> MutableMap<String, i32> { MutableMap::new() }
+fn empty_numbers() -> MutableArray<i32> { [] }
+fn empty_keys<T: Eq + Hash>() -> MutableSet<T> {
+    val keys: MutableSet<T> = MutableSet::new();
     keys
 }
 fn read_cell<T>(cell: Cell<T>) -> T { cell.value }
@@ -55,7 +55,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     std::debug::assert(Token<i32>::Empty == Token::Empty, "binary RHS constructor context");
     val tokens = [Token<i32>::Empty, Token::Empty];
     std::debug::assert_eq(tokens[0], tokens[1], "earlier element supplies constructor context");
-    val markers: [Marker<i32>] = [];
+    val markers: MutableArray<Marker<i32>> = [];
     markers.push(Marker { value: 42 });
     std::debug::assert_eq(markers[0].value, 42, "container supplies constructor context");
     val values = [1, 2];
@@ -63,7 +63,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     val flag = Cell { value: true };
     val seeded = SeededMarker { seed: true, marker: Marker { value: 42 } };
     std::debug::assert_eq(seeded.marker.value, 42, "preceding field supplies constructor context");
-    val keys: Set<i32> = empty_keys();
+    val keys: MutableSet<i32> = empty_keys();
     std::debug::assert(keys.is_empty(), "forwarded Eq + Hash annotation constraint");
     var assigned: Marker<bool> = make_marker();
     assigned = Marker { value: 42 };
@@ -120,7 +120,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     values[0] += 9;
     std::debug::assert_eq(values[0], 10, "compound assignment commits once");
 
-    val scores: Map<String, i32> = empty_scores();
+    val scores: MutableMap<String, i32> = empty_scores();
     std::debug::assert(empty_numbers().is_empty(), "empty array return context");
     scores.insert("alice", 10);
     scores.insert("bob", 12);
@@ -128,7 +128,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
     projected_scores.push(99);
     std::debug::assert_eq(scores.len(), [0, 0].len(), "projection has independent structure");
 
-    val names: Set<String> = std::set::new();
+    val names: MutableSet<String> = MutableSet::new();
     names.insert("alice");
     names.insert("bob");
 

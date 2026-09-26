@@ -60,7 +60,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         allow_jit: true,
         ..Default::default()
     };
-    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> ([i32], Map<String, bool>, Set<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> (MutableArray<i32>, MutableMap<String, bool>, MutableSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()

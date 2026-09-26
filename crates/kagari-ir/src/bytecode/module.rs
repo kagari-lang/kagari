@@ -70,6 +70,7 @@ pub struct BytecodeFunction {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FunctionMetadata {
+    pub semantic: crate::module::function::SemanticSlots,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,

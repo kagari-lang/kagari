@@ -250,9 +250,54 @@ pub fn declarations(
             )
             .unwrap();
             let arity = def.generic_params().map_or(0, |p| p.params().count());
-            if matches!(binding.as_str(), "Map" | "Set" | "Cursor") {
+            if matches!(
+                binding.as_str(),
+                "Array" | "MutableArray" | "Map" | "MutableMap" | "Set" | "MutableSet" | "Cursor"
+            ) {
                 writeln!(constructors,"StandardTypeConstructorSpec{{kind:StandardTypeConstructor::{binding},name:{name:?},arity:{arity},heap_backed:true,const_safe:false}},").unwrap();
             }
+        }
+    }
+}
+
+/// Shared AST facade for native free functions and associated declarations.
+#[derive(Clone)]
+pub struct NativeFunction(kagari_syntax::syntax_node::SyntaxNode);
+impl AstNode for NativeFunction {
+    fn can_cast(kind: kagari_syntax::kind::SyntaxKind) -> bool {
+        ast::FnDef::can_cast(kind) || ast::MethodDef::can_cast(kind)
+    }
+    fn cast(node: kagari_syntax::syntax_node::SyntaxNode) -> Option<Self> {
+        Self::can_cast(node.kind()).then_some(Self(node))
+    }
+    fn syntax(&self) -> &kagari_syntax::syntax_node::SyntaxNode {
+        &self.0
+    }
+}
+impl NativeFunction {
+    pub fn name(&self) -> Option<ast::Name> {
+        self.0.children().find_map(ast::Name::cast)
+    }
+    pub fn name_text(&self) -> Option<String> {
+        self.name().and_then(|n| n.text())
+    }
+    pub fn generic_params(&self) -> Option<ast::GenericParamList> {
+        self.0.children().find_map(ast::GenericParamList::cast)
+    }
+    pub fn param_list(&self) -> Option<ast::ParamList> {
+        self.0.children().find_map(ast::ParamList::cast)
+    }
+    pub fn return_type(&self) -> Option<ast::TypeRef> {
+        self.0.children().find_map(ast::TypeRef::cast)
+    }
+    pub fn body(&self) -> Option<ast::BlockExpr> {
+        self.0.children().find_map(ast::BlockExpr::cast)
+    }
+    pub fn visibility(&self) -> ast::Visibility {
+        if let Some(f) = ast::FnDef::cast(self.0.clone()) {
+            f.visibility()
+        } else {
+            ast::MethodDef::cast(self.0.clone()).unwrap().visibility()
         }
     }
 }

@@ -137,9 +137,18 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
             ));
         }
         TypeId::Builtin(BuiltinType::String) => "String",
-        TypeId::Array(_, _) => "Array",
-        TypeId::Map { .. } => "Map",
-        TypeId::Set(_, _) => "Set",
+        TypeId::Array(_, CollectionAccess::ReadOnly) => "Array",
+        TypeId::Array(_, CollectionAccess::Mutable) => "MutableArray",
+        TypeId::Map {
+            access: CollectionAccess::ReadOnly,
+            ..
+        } => "Map",
+        TypeId::Map {
+            access: CollectionAccess::Mutable,
+            ..
+        } => "MutableMap",
+        TypeId::Set(_, CollectionAccess::ReadOnly) => "Set",
+        TypeId::Set(_, CollectionAccess::Mutable) => "MutableSet",
         TypeId::Cursor(_) => "Cursor",
         TypeId::StandardEnum { kind, .. } => kind.spec().name,
         _ => return None,
@@ -195,7 +204,7 @@ impl ApiType {
         match self {
             Self::Array(element) => TypeId::Array(
                 Box::new(element.instantiate(arguments)),
-                CollectionAccess::Mutable,
+                CollectionAccess::ReadOnly,
             ),
             Self::Tuple([]) => TypeId::Builtin(BuiltinType::Unit),
             Self::Tuple(items) => {
@@ -241,13 +250,8 @@ impl ApiType {
                     .map(|t| t.instantiate(arguments))
                     .collect::<Vec<_>>();
                 match (*name, types.as_slice()) {
-                    ("Map", [key, value]) => TypeId::Map {
-                        key: Box::new(key.clone()),
-                        value: Box::new(value.clone()),
-                        access: CollectionAccess::Mutable,
-                    },
-                    ("Set", [item]) => {
-                        TypeId::Set(Box::new(item.clone()), CollectionAccess::Mutable)
+                    ("Array" | "MutableArray" | "Map" | "MutableMap" | "Set" | "MutableSet", _) => {
+                        surface::standard_generic_type(name, types).unwrap_or(TypeId::Error)
                     }
                     ("Cursor", [item]) => TypeId::Cursor(Box::new(item.clone())),
                     ("Option", [_]) => TypeId::StandardEnum {
@@ -275,6 +279,9 @@ impl ApiType {
                 arguments.get_mut(name).unwrap().recover_from(actual);
             }
             (Self::Array(element), TypeId::Array(actual, _)) => element.infer(actual, arguments),
+            (Self::Named("Array" | "MutableArray", [element]), TypeId::Array(actual, _)) => {
+                element.infer(actual, arguments)
+            }
             (Self::Tuple(items), TypeId::Tuple(actual)) if items.len() == actual.len() => {
                 for (item, actual) in items.iter().zip(actual) {
                     item.infer(actual, arguments);
@@ -293,7 +300,7 @@ impl ApiType {
                 result.infer(output, arguments);
             }
             (
-                Self::Named("Map", [key, value]),
+                Self::Named("Map" | "MutableMap", [key, value]),
                 TypeId::Map {
                     key: actual,
                     value: output,
@@ -303,7 +310,7 @@ impl ApiType {
                 key.infer(actual, arguments);
                 value.infer(output, arguments);
             }
-            (Self::Named("Set", [item]), TypeId::Set(actual, _))
+            (Self::Named("Set" | "MutableSet", [item]), TypeId::Set(actual, _))
             | (Self::Named("Cursor", [item]), TypeId::Cursor(actual)) => {
                 item.infer(actual, arguments)
             }

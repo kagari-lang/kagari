@@ -79,10 +79,10 @@ fn structural_and_identity_keys_execute_through_artifacts() {
 struct Key { var value: i32 }
 enum Tag { Name(String), Number(i32) }
 fn main()->i32 {
-    val map: Map<(Tag, i32), i32> = std::map::new();
+    val map: MutableMap<(Tag, i32), i32> = MutableMap::new();
     map.insert((Tag::Name("a"), 2), 20);
     val key = Key { value: 1 };
-    val identities: Map<Key, i32> = std::map::new();
+    val identities: MutableMap<Key, i32> = MutableMap::new();
     identities.insert(key, 22);
     key.value = 9;
     val different = Key { value: 9 };
@@ -109,7 +109,7 @@ fn output<T: formatting::Display>(x:T)->String { x.display() }
 fn hashed<T: Equal + Hash>(x:T)->i64 { x.hash() }
 fn main()->i32 {
     val item = Item { value:42 };
-    val set: Set<Option<(i32, String)>> = std::set::new();
+    val set: MutableSet<Option<(i32, String)>> = MutableSet::new();
     set.insert(Some((42,"ok")));
     if same(item,item) && set.contains(Some((42,"ok"))) && output(42) == "42" && hashed(item) == hashed(item) { item.value } else { 0 }
 }
@@ -122,7 +122,7 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
     for source in [
         "fn needs<T: Eq>(x:T) {} fn main() { needs(1.5); }",
         "fn needs<T: Hash>(x:T) {} fn main() { needs(1.5); }",
-        "enum Key { Good(i32), Bad(f64) } fn main() { val map: Map<Key, i32> = std::map::new(); }",
+        "enum Key { Good(i32), Bad(f64) } fn main() { val map: MutableMap<Key, i32> = MutableMap::new(); }",
         "enum Key { Good(i32), Bad(f64) } fn needs<T: Eq + Hash>(x:T) {} fn main() { needs(Key::Good(1)); }",
         "fn needs<T: Eq<i32>>(x:T) {} fn main() {}",
         "trait Named: Debug {} fn f(x:Named) {} fn main() {}",
@@ -133,7 +133,7 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
         "struct Item {} impl Display for Item {} fn main() {}",
         "fn f(x: Debug) {} fn main() {}",
         "trait Eq {} fn f<T: Eq>(x:T)->bool { x == x } fn main() {}",
-        "trait Hash {} fn f<T: Eq + Hash>(x:T)->Set<T> { std::set::new() } fn main() {}",
+        "trait Hash {} fn f<T: Eq + Hash>(x:T)->MutableSet<T> { MutableSet::new() } fn main() {}",
         "fn f<T: HashKey>(x:T) {} fn main() {}",
     ] {
         let error = KagariEngine::default()
@@ -159,7 +159,7 @@ struct Reader {}
 impl Read<i32> for Reader { type Item = (i32, String); fn get(self,value:i32)->(i32,String) { (value,"ok") } }
 fn same<T: PartialEq>(a:T,b:T)->bool { a.eq(b) }
 fn main()->i32 {
-    val unit: Map<(), i32> = std::map::new(); unit.insert((),42);
+    val unit: MutableMap<(), i32> = MutableMap::new(); unit.insert((),42);
     val value = Reader {}.get(42);
     if same(1.5,1.5) && same(value,(42,"ok")) && ().debug() == "()" { unit.get(()).unwrap_or(0) } else { 0 }
 }
@@ -246,8 +246,8 @@ fn main()->i32 {
     val a = Item { value: 1 }; val alias = a;
     val b = Item { value: 1 };
     val values = [1]; val copy = [1];
-    val map: Map<i32, i32> = std::map::new();
-    val set: Set<i32> = std::set::new();
+    val map: MutableMap<i32, i32> = MutableMap::new();
+    val set: MutableSet<i32> = MutableSet::new();
     a.value = 2;
     if a === alias && a !== b && values === values && values !== copy && map === map && set === set { 42 } else { 0 }
 }
@@ -308,14 +308,14 @@ impl PartialEq for Key { fn eq(self, other:Self)->bool { self.id == other.id } }
 impl Eq for Key {}
 impl Hash for Key { fn hash(self)->i64 { 0.hash() } }
 enum Tag { Value(Key), Empty }
-fn store<T:Eq+Hash>(map:Map<T,i32>,key:T,value:i32) { map.insert(key,value); }
+fn store<T:Eq+Hash>(map:MutableMap<T,i32>,key:T,value:i32) { map.insert(key,value); }
 fn main()->i32 {
- val map:Map<(Tag,i32),i32> = std::map::new();
+ val map:MutableMap<(Tag,i32),i32> = MutableMap::new();
  val a=Key{id:1,ignored:0}; val b=Key{id:2,ignored:0};
  store(map,(Tag::Value(a),7),20); store(map,(Tag::Value(b),7),21);
  a.ignored=99;
  store(map,(Tag::Value(Key{id:1,ignored:3}),7),22);
- val set:Set<Key> = std::set::new();
+ val set:MutableSet<Key> = MutableSet::new();
  set.insert(a); set.insert(b); set.insert(Key{id:1,ignored:4});
  std::debug::assert(set.len()==[1,2].len(),"dedup");
  std::debug::assert(set.contains(Key{id:2,ignored:5}),"collision lookup");
@@ -343,7 +343,7 @@ enum Chain { End, Next(Key<i32>, Chain) }
 fn main()->i32 {
  val a=Chain::Next(Key{value:42},Chain::End);
  val b=Chain::Next(Key{value:42},Chain::End);
- val set:Set<Chain> = std::set::new(); set.insert(a);set.insert(b);
+ val set:MutableSet<Chain> = MutableSet::new(); set.insert(a);set.insert(b);
  std::debug::assert_eq(a,b,"composed comparison");
  if set.len()==[1].len() && set.contains(b) {42} else {0}
 }
@@ -361,13 +361,13 @@ impl PartialEq for Id { fn eq(self,other:Self)->bool {number(self)==number(other
 impl Eq for Id {}
 impl Hash for Id {fn hash(self)->i64 {number(self).hash()}}
 fn main()->i32 {
- val a:Set<Id> = std::set::new(); val b:Set<Id> = std::set::new();
+ val a:MutableSet<Id> = MutableSet::new(); val b:MutableSet<Id> = MutableSet::new();
  a.insert(Id::Local(42,1.5));b.insert(Id::Remote(42));b.insert(Id::Remote(7));
  val union=a.union(b);val intersection=a.intersection(b);val difference=b.difference(a);
  std::debug::assert(union.len()==[1,2].len(),"union");
  std::debug::assert(intersection.contains(Id::Remote(42)),"intersection");
  std::debug::assert(!difference.contains(Id::Remote(42)) && difference.contains(Id::Remote(7)),"difference");
- val map:Map<Option<Id>,i32> = std::map::new();
+ val map:MutableMap<Option<Id>,i32> = MutableMap::new();
  map.insert(Some(Id::Local(42,2.5)),42);
  map.get(Some(Id::Remote(42))).unwrap_or(0)
 }
@@ -402,9 +402,9 @@ fn main()->i32 {
 #[test]
 fn comparison_only_types_do_not_inherit_identity_hashing() {
     for tail in [
-        "fn main(){val set:Set<Key> = std::set::new();}",
-        "fn main(){val set:Set<(Key,i32)> = std::set::new();}",
-        "enum E {Value(Key)} fn main(){val set:Set<E> = std::set::new();}",
+        "fn main(){val set:MutableSet<Key> = MutableSet::new();}",
+        "fn main(){val set:MutableSet<(Key,i32)> = MutableSet::new();}",
+        "enum E {Value(Key)} fn main(){val set:MutableSet<E> = MutableSet::new();}",
         "fn needs<T:Eq+Hash>(v:T){} fn main(){needs(Key{});}",
         "fn main(){Key{}.hash();}",
     ] {
@@ -429,7 +429,7 @@ fn comparison_only_types_do_not_inherit_identity_hashing() {
 fn key_callback_traps_and_reentry_release_guards_without_partial_insertion() {
     let source = r#"
 struct State {var mode:i32,var calls:i32}
-struct Key {val id:i32,val owner:Set<Key>,val state:State}
+struct Key {val id:i32,val owner:MutableSet<Key>,val state:State}
 impl PartialEq for Key {fn eq(self,other:Self)->bool {
  self.state.calls+=1;
  if self.state.mode==1 {self.owner.clear();}
@@ -448,15 +448,15 @@ impl Hash for Key {fn hash(self)->i64 {
  0.hash()
 }}
 trait Test {fn mode(self,value:i32);fn attempt(self);fn calls(self)->i32;fn clear(self);}
-struct Tester {val set:Set<Key>,val key:Key,val state:State}
+struct Tester {val set:MutableSet<Key>,val key:Key,val state:State}
 impl Test for Tester {
  fn mode(self,value:i32){self.state.mode=value;}
  fn attempt(self){self.set.insert(self.key);}
  fn calls(self)->i32 {self.state.calls}
  fn clear(self){self.set.clear();}
 }
-fn make()->(Test,Set<Key>) {
- val set:Set<Key> = std::set::new();val state=State{mode:0,calls:0};
+fn make()->(Test,MutableSet<Key>) {
+ val set:MutableSet<Key> = MutableSet::new();val state=State{mode:0,calls:0};
  set.insert(Key{id:1,owner:set,state:state});
  val tester:Test=Tester{set:set,key:Key{id:2,owner:set,state:state},state:state};
  (tester,set)
@@ -603,7 +603,7 @@ impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}}
 impl Eq for Key {}
 impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}
 pub fn equal(a:Key,b:Key)->bool {a==b}
-pub fn make()->Map<Key,i32> {val m:Map<Key,i32> = std::map::new();m.insert(Key{id:1},42);m}
+pub fn make()->MutableMap<Key,i32> {val m:MutableMap<Key,i32> = MutableMap::new();m.insert(Key{id:1},42);m}
 "#;
         let root_source = if downstream_override {
             "use pkg::model::Key; impl PartialEq for Key {fn eq(self,other:Self)->bool {false}} fn main()->i32 {42}"
@@ -697,7 +697,7 @@ fn builtin_keys_keep_native_lookup_and_custom_keys_emit_guarded_calls() {
             ""
         };
         let source = format!(
-            "struct Key {{val id:i32}} {implementation} fn main()->i32 {{val m:Map<Key,i32> = std::map::new();val k=Key{{id:1}};m.insert(k,42);m.get(k).unwrap_or(0)}}"
+            "struct Key {{val id:i32}} {implementation} fn main()->i32 {{val m:MutableMap<Key,i32> = MutableMap::new();val k=Key{{id:1}};m.insert(k,42);m.get(k).unwrap_or(0)}}"
         );
         let artifact = KagariEngine::default()
             .compile_to_artifact(

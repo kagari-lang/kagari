@@ -500,7 +500,6 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                         method_owner,
                         method_arguments,
                     )
-                    .map(|ty| ty.representation())
                 })
                 .collect::<Option<Vec<_>>>();
             let expected_return = instantiate_method_type(
@@ -509,10 +508,28 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 impl_arguments,
                 method_owner,
                 method_arguments,
-            )
-            .map(|ty| ty.representation());
-            if expected_params.as_ref() != Some(&function.metadata.params)
-                || expected_return != Some(function.metadata.return_type)
+            );
+            if expected_params
+                .as_ref()
+                .map(|params| {
+                    params
+                        .iter()
+                        .map(crate::module::abi::AbiType::representation)
+                        .collect::<Vec<_>>()
+                })
+                .as_ref()
+                != Some(&function.metadata.params)
+                || expected_return
+                    .as_ref()
+                    .map(crate::module::abi::AbiType::representation)
+                    != Some(function.metadata.return_type)
+                || expected_params.as_ref().is_none_or(|params| {
+                    params
+                        .iter()
+                        .enumerate()
+                        .any(|(i, ty)| function.metadata.semantic.params.get(&i) != Some(ty))
+                })
+                || expected_return != function.metadata.semantic.result
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -683,6 +700,7 @@ fn verify_function(
     for instruction in &function.instructions {
         verify_instruction(module, function, instruction, program)?;
     }
+    super::access::verify(module, function, program)?;
     Ok(())
 }
 

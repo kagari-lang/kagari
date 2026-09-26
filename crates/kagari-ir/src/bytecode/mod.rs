@@ -1,3 +1,4 @@
+mod access;
 pub use kagari_hir::builtin::surface::StandardIntrinsic;
 
 mod artifact;

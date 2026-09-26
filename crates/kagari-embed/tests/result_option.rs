@@ -209,7 +209,7 @@ fn generic_propagation_nested_question_marks_and_loop_cleanup() {
     execute(
         r#"
 fn identity<T, E>(value: Result<T, E>) -> Result<T, E> { Ok(value?) }
-fn leave(values: [i32]) -> Option<i32> {
+fn leave(values: MutableArray<i32>) -> Option<i32> {
     for value in values { val absent: Option<i32> = None; absent?; }
     Some(0)
 }

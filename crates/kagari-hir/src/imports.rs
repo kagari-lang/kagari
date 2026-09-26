@@ -716,6 +716,9 @@ fn resolve_path(
     }) {
         candidates.push(ImportTarget::StandardFunction(function.intrinsic));
     }
+    if let Some(function) = surface::standard_associated_function(path) {
+        candidates.push(ImportTarget::StandardFunction(function.intrinsic));
+    }
     if let Some(variant) = path.rsplit_once("::").and_then(|(module, name)| {
         surface::standard_module(module)
             .and_then(|module| surface::standard_variant_in_module(module.kind, name))

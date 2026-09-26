@@ -13,7 +13,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 63;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 64;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
@@ -52,7 +52,7 @@ pub fn validate_program_resource_limits(
 }
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str = concat!("kagari-ir/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v63";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v64";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v6";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -913,6 +913,9 @@ fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
             let metadata = &function.metadata;
             let debug = &metadata.debug;
             if !within_table_limit([
+                metadata.semantic.params.len(),
+                metadata.semantic.locals.len(),
+                metadata.semantic.registers.len(),
                 metadata.params.len(),
                 metadata.locals.len(),
                 metadata.registers.len(),
@@ -1131,6 +1134,7 @@ impl VerificationMetadata {
                 .iter()
                 .map(|function| FunctionLayoutMetadata {
                     function: function.id,
+                    semantic: function.metadata.semantic.clone(),
                     params: function.metadata.params.clone(),
                     return_type: function.metadata.return_type,
                     locals: function.metadata.locals.clone(),
@@ -1174,6 +1178,7 @@ impl VerificationMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionLayoutMetadata {
+    pub semantic: crate::module::function::SemanticSlots,
     pub function: FunctionRef,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: Vec<ValueType>,

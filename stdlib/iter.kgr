@@ -72,7 +72,7 @@ pub fn get<I: Iterable>(value: I, index: usize) -> Option<I::Item>;
 /// ```
 #[intrinsic(IterToArray)]
 #[method(to_array)]
-pub fn to_array<I: Iterable>(value: I) -> [I::Item];
+pub fn to_array<I: Iterable>(value: I) -> MutableArray<I::Item>;
 
 /// Call the callback once for each native iteration item.
 ///

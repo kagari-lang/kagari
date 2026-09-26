@@ -939,22 +939,38 @@ impl TypeId {
                         pending.push(Part::Type(item));
                         pending.push(Part::Text("Cursor<"));
                     }
-                    Self::Array(item, _) => {
-                        pending.push(Part::Text("]"));
+                    Self::Array(item, access) => {
+                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
+                            ">"
+                        } else {
+                            "]"
+                        }));
                         pending.push(Part::Type(item));
-                        pending.push(Part::Text("["));
+                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
+                            "MutableArray<"
+                        } else {
+                            "["
+                        }));
                     }
-                    Self::Map { key, value, .. } => {
+                    Self::Map { key, value, access } => {
                         pending.push(Part::Text(">"));
                         pending.push(Part::Type(value));
                         pending.push(Part::Text(", "));
                         pending.push(Part::Type(key));
-                        pending.push(Part::Text("Map<"));
+                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
+                            "MutableMap<"
+                        } else {
+                            "Map<"
+                        }));
                     }
-                    Self::Set(item, _) => {
+                    Self::Set(item, access) => {
                         pending.push(Part::Text(">"));
                         pending.push(Part::Type(item));
-                        pending.push(Part::Text("Set<"));
+                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
+                            "MutableSet<"
+                        } else {
+                            "Set<"
+                        }));
                     }
                     Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
                         if !nominal.arguments.is_empty() || !nominal.associated_types.is_empty() {

@@ -218,8 +218,27 @@ impl FunctionLowerer<'_, '_> {
                     if variant == 0 { payload } else { Some(args[1]) },
                 )?
             } else {
-                // The untouched variant has identical payload semantics even when the success type changes.
-                args[0]
+                // Preserve error provenance while assigning the new success type.
+                if *kind == StandardEnum::Result && variant == 1 {
+                    let concrete = self
+                        .planner
+                        .arguments(
+                            std::slice::from_ref(&output),
+                            &self.instance.substitution,
+                            self.analyzed.lowered.source_map.expr_span(site),
+                        )?
+                        .remove(0);
+                    let mapped = self.alloc_temp(ValueType::HeapObject);
+                    self.emit(Instruction::MapResultError {
+                        dst: mapped,
+                        original: args[0],
+                        error: payload.expect("Result error payload"),
+                        ty: crate::module::abi::AbiType::from_checked_type(&concrete),
+                    });
+                    mapped
+                } else {
+                    self.standard_enum_op(&output, StandardEnumOp::Make(variant), payload)?
+                }
             };
             self.emit(Instruction::Move { dst, src: next });
             self.set_terminator(Terminator::Jump(join));

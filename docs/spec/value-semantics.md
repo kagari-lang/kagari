@@ -15,9 +15,11 @@ argument passing, and returns share their identity. `val` prevents rebinding a
 slot, not mutation of the referenced object. Container copy operations are
 shallow. There is no generic deep-copy or deep-freeze operation in v1.
 
-A [collection access proposal](collection-access.md) plans separate read-only and
-writable views. It is not implemented and does not change the current meaning of
-`[T]`, `Map<K, V>` or `Set<T>`.
+[Collection access](collection-access.md) distinguishes read-only `Array<T>`
+(`[T]`), `Map<K, V>` and `Set<T>` from writable `MutableArray<T>`,
+`MutableMap<K, V>` and `MutableSet<T>`. Literals infer writable arrays. Access
+weakening shares storage; `Type::from(array)` creates a fresh shallow container.
+Read-only views do not freeze referenced objects or other writable aliases.
 
 An interface may retain a checked durable host root as its concrete payload;
 this does not make host borrow tokens or path views valid heap payloads. See the

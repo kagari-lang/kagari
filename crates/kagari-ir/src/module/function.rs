@@ -25,6 +25,7 @@ pub struct IrModule {
 
 #[derive(Debug, Clone)]
 pub struct IrFunction {
+    pub semantic: SemanticSlots,
     pub id: InstanceId,
     pub instance: FunctionInstance,
     pub name: String,
@@ -151,3 +152,15 @@ pub type BlockBuffer = Vec<BasicBlock>;
 pub type SourceSpanBuffer = Vec<Span>;
 pub type IrLocalDebugBuffer = Vec<IrLocalDebugInfo>;
 pub type CapturedBindingDebugBuffer = Vec<IrCapturedBindingDebugInfo>;
+
+/// Semantic contracts supplement the physical frame layout.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SemanticSlots {
+    #[serde(deserialize_with = "crate::decode_limits::map")]
+    pub params: std::collections::BTreeMap<usize, super::abi::AbiType>,
+    pub result: Option<super::abi::AbiType>,
+    #[serde(deserialize_with = "crate::decode_limits::map")]
+    pub locals: std::collections::BTreeMap<usize, super::abi::AbiType>,
+    #[serde(deserialize_with = "crate::decode_limits::map")]
+    pub registers: std::collections::BTreeMap<usize, super::abi::AbiType>,
+}

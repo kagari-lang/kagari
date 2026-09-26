@@ -1,23 +1,10 @@
 //! Hash maps using Eq and Hash. Keys must keep stable equality and hash behavior while stored.
 //!
+//! `Map` provides read-only access; `MutableMap` also permits writes.
+//! Read-only views share storage and observe changes through writable aliases.
+//! `from` constructs fresh shallow storage; referenced elements retain identity.
+//!
 //! Resource exhaustion and cancellation follow the execution-session contract.
-
-/// Create an empty map.
-///
-/// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
-/// Equal keys must have equal hashes; a hash collision alone does not imply equality.
-///
-/// Do not change fields used by equality or hashing while a key is stored. Keys and values
-/// containing objects share those objects; this operation does not perform a deep copy.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values: Map<i32, String> = std::map::new();
-/// std::debug::assert(values.is_empty(), "new map");
-/// ```
-#[intrinsic(MapNew)]
-pub fn new<K: Eq + Hash, V>() -> Map<K, V>;
 
 /// Return the number of entries.
 ///
@@ -30,7 +17,7 @@ pub fn new<K: Eq + Hash, V>() -> Map<K, V>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "one");
 /// std::debug::assert(values.len() == [0].len(), "length");
 /// ```
@@ -49,7 +36,7 @@ pub fn len<K: Eq + Hash, V>(value: Map<K, V>) -> usize;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// std::debug::assert(values.is_empty(), "empty");
 /// ```
 #[intrinsic(MapIsEmpty)]
@@ -72,7 +59,7 @@ pub fn is_empty<K: Eq + Hash, V>(value: Map<K, V>) -> bool;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "one");
 /// std::debug::assert(values.contains_key(1), "key");
 /// ```
@@ -96,7 +83,7 @@ pub fn contains_key<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> bool;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "one");
 /// std::debug::assert(values.get(1) == Some("one"), "value");
 /// std::debug::assert(values.get(2) == None, "absent");
@@ -124,14 +111,14 @@ pub fn get<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "old");
 /// values.insert(1, "new");
 /// std::debug::assert(values.get(1) == Some("new") && values.len() == [0].len(), "replaced");
 /// ```
 #[intrinsic(MapInsert)]
 #[method(insert)]
-pub fn insert<K: Eq + Hash, V>(value: Map<K, V>, key: K, item: V) -> Map<K, V>;
+pub fn insert<K: Eq + Hash, V>(value: MutableMap<K, V>, key: K, item: V) -> MutableMap<K, V>;
 
 /// Remove the entry and return its value, or None if absent.
 ///
@@ -152,14 +139,14 @@ pub fn insert<K: Eq + Hash, V>(value: Map<K, V>, key: K, item: V) -> Map<K, V>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "one");
 /// std::debug::assert(values.remove(1) == Some("one"), "removed");
 /// std::debug::assert(values.remove(1) == None, "absent");
 /// ```
 #[intrinsic(MapRemove)]
 #[method(remove)]
-pub fn remove<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
+pub fn remove<K: Eq + Hash, V>(value: MutableMap<K, V>, key: K) -> Option<V>;
 
 /// Remove all entries and return the same map.
 ///
@@ -180,14 +167,14 @@ pub fn remove<K: Eq + Hash, V>(value: Map<K, V>, key: K) -> Option<V>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "one");
 /// values.clear();
 /// std::debug::assert(values.is_empty(), "cleared");
 /// ```
 #[intrinsic(MapClear)]
 #[method(clear)]
-pub fn clear<K: Eq + Hash, V>(value: Map<K, V>) -> Map<K, V>;
+pub fn clear<K: Eq + Hash, V>(value: MutableMap<K, V>) -> MutableMap<K, V>;
 
 /// Return a shallow array of keys.
 ///
@@ -208,13 +195,13 @@ pub fn clear<K: Eq + Hash, V>(value: Map<K, V>) -> Map<K, V>;
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "one");
 /// std::debug::assert(values.keys().get("".len_bytes()) == Some(1), "key snapshot");
 /// ```
 #[intrinsic(MapKeys)]
 #[method(keys)]
-pub fn keys<K: Eq + Hash, V>(value: Map<K, V>) -> [K];
+pub fn keys<K: Eq + Hash, V>(value: Map<K, V>) -> MutableArray<K>;
 
 /// Return a shallow array of values.
 ///
@@ -235,13 +222,13 @@ pub fn keys<K: Eq + Hash, V>(value: Map<K, V>) -> [K];
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "one");
 /// std::debug::assert(values.values().get("".len_bytes()) == Some("one"), "value snapshot");
 /// ```
 #[intrinsic(MapValues)]
 #[method(values)]
-pub fn values<K: Eq + Hash, V>(value: Map<K, V>) -> [V];
+pub fn values<K: Eq + Hash, V>(value: Map<K, V>) -> MutableArray<V>;
 
 /// Return a shallow array of key/value tuples.
 ///
@@ -262,15 +249,15 @@ pub fn values<K: Eq + Hash, V>(value: Map<K, V>) -> [V];
 /// # Examples
 ///
 /// ```kgr
-/// val values: Map<i32, String> = std::map::new();
+/// val values: MutableMap<i32, String> = MutableMap::new();
 /// values.insert(1, "one");
 /// std::debug::assert(values.entries().get("".len_bytes()) == Some((1, "one")), "entry snapshot");
 /// ```
 #[intrinsic(MapEntries)]
 #[method(entries)]
-pub fn entries<K: Eq + Hash, V>(value: Map<K, V>) -> [(K, V)];
+pub fn entries<K: Eq + Hash, V>(value: Map<K, V>) -> MutableArray<(K, V)>;
 
-/// A shared mutable hash map from keys of type `K` to values of type `V`.
+/// Read-only access to an insertion-ordered map from `K` to `V`.
 ///
 /// Keys require `Eq + Hash`. Equal keys must produce equal hashes; equal hashes do
 /// not imply equal keys. Inserting an existing key replaces its value. The caller
@@ -285,7 +272,7 @@ pub fn entries<K: Eq + Hash, V>(value: Map<K, V>) -> [(K, V)];
 /// # Examples
 ///
 /// ```kgr
-/// val names: Map<i32, String> = std::map::new();
+/// val names: MutableMap<i32, String> = MutableMap::new();
 /// names.insert(1, "first");
 /// names.insert(1, "updated");
 /// std::debug::assert(names.get(1) == Some("updated"), "lookup");
@@ -293,3 +280,80 @@ pub fn entries<K: Eq + Hash, V>(value: Map<K, V>) -> [(K, V)];
 /// ```
 #[builtin_type(Map)]
 pub type Map<K, V>;
+
+/// A writable shared map. Copies preserve object identity.
+///
+/// # Examples
+///
+/// ```kgr
+/// val values = MutableMap::from([("one", 1), ("two", 2)]);
+/// std::debug::assert(!values.is_empty(), "populated");
+/// ```
+#[builtin_type(MutableMap)]
+pub type MutableMap<K, V>;
+
+impl Map {
+    /// Create a fresh empty map with read-only access.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Map<String, i32> = Map::new();
+    /// std::debug::assert(values.is_empty(), "empty");
+    /// ```
+    #[intrinsic(MapNew)]
+    pub fn new<K: Eq + Hash, V>() -> Map<K, V>;
+
+    /// Construct a fresh shallow map from the supplied elements.
+    ///
+    /// Referenced objects retain identity. The result does not share input slots.
+    /// Equal keys keep the last supplied value. Keys must remain stable while stored.
+    /// Input is traversed in order using the selected Eq and Hash implementations.
+    ///
+    /// # Panics
+    ///
+    /// Propagates traps from user comparison or hashing. No partial result is returned.
+    /// Completed callback effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = Map::from([("one", 1), ("two", 2)]);
+    /// std::debug::assert(!values.is_empty(), "populated");
+    /// ```
+    #[intrinsic(MapFrom)]
+    pub fn from<K: Eq + Hash, V>(items: [(K, V)]) -> Map<K, V>;
+}
+
+impl MutableMap {
+    /// Create a fresh empty map with writable access.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: MutableMap<String, i32> = MutableMap::new();
+    /// std::debug::assert(values.is_empty(), "empty");
+    /// ```
+    #[intrinsic(MutableMapNew)]
+    pub fn new<K: Eq + Hash, V>() -> MutableMap<K, V>;
+
+    /// Construct a fresh shallow map from the supplied elements.
+    ///
+    /// Referenced objects retain identity. The result does not share input slots.
+    /// Equal keys keep the last supplied value. Keys must remain stable while stored.
+    /// Input is traversed in order using the selected Eq and Hash implementations.
+    ///
+    /// # Panics
+    ///
+    /// Propagates traps from user comparison or hashing. No partial result is returned.
+    /// Completed callback effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = MutableMap::from([("one", 1), ("two", 2)]);
+    /// std::debug::assert(!values.is_empty(), "populated");
+    /// ```
+    #[intrinsic(MutableMapFrom)]
+    pub fn from<K: Eq + Hash, V>(items: [(K, V)]) -> MutableMap<K, V>;
+}

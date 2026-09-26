@@ -149,10 +149,10 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
         .collect();
         let once = template.instantiate(&substitution);
         assert!(!once.is_concrete());
-        assert_eq!(once.display_name(), "Item<[Item<T, i32>]>");
+        assert_eq!(once.display_name(), "Item<MutableArray<Item<T, i32>>>");
         let twice = once.instantiate(&substitution);
         assert!(twice.is_concrete());
-        assert_eq!(twice.display_name(), "Item<[Item<i32, i32>]>");
+        assert_eq!(twice.display_name(), "Item<MutableArray<Item<i32, i32>>>");
         let substituted_error =
             template.instantiate(&[(parameter.clone(), TypeId::Error)].into_iter().collect());
         assert!(substituted_error.is_unresolved());
@@ -266,9 +266,9 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
     assert!(comparable.supports_equality());
     assert!(!incomparable.supports_equality());
     let resolved_name = resolved.display_name();
-    assert_eq!(resolved_name.len(), 20_003);
-    assert!(resolved_name.starts_with("[[["));
-    assert!(resolved_name.ends_with("]]"));
+    assert_eq!(resolved_name.len(), 140_003);
+    assert!(resolved_name.starts_with("MutableArray<MutableArray<"));
+    assert!(resolved_name.ends_with(">>"));
     let comparable_name = comparable.display_name();
     assert_eq!(comparable_name.len(), 20_003);
     assert!(comparable_name.starts_with("((("));

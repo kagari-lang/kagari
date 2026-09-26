@@ -110,6 +110,15 @@ pub fn invoke_with_callbacks(
                 .map(Value::Str)
                 .map_err(BuiltinError::from)
         }
+        ArrayNew | MutableArrayNew => {
+            if !args.is_empty() {
+                return Err(BuiltinError::new("new expects no arguments"));
+            }
+            Ok(Value::Array(gc.alloc_array(vec![])?))
+        }
+        ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom | MutableSetFrom => Err(
+            BuiltinError::new("collection factories must be lowered to checked construction"),
+        ),
         ArrayLen => array_len(gc, args),
         ArrayIsEmpty => array_is_empty(gc, args),
         ArrayGet => array_get(gc, args),
@@ -119,7 +128,7 @@ pub fn invoke_with_callbacks(
         ArrayRemove => array_remove(gc, args),
         ArrayJoin => array_join(gc, args),
         ArrayClear => array_clear(gc, args),
-        MapNew => map_new(gc, args),
+        MapNew | MutableMapNew => map_new(gc, args),
         MapLen => map_len(gc, args),
         MapIsEmpty => map_is_empty(gc, args),
         MapContainsKey => map_contains_key(gc, args),
@@ -130,7 +139,7 @@ pub fn invoke_with_callbacks(
         MapKeys => map_keys(gc, args),
         MapValues => map_values(gc, args),
         MapEntries => map_entries(gc, args),
-        SetNew => set_new(gc, args),
+        SetNew | MutableSetNew => set_new(gc, args),
         SetLen => set_len(gc, args),
         SetIsEmpty => set_is_empty(gc, args),
         SetContains => set_contains(gc, args),

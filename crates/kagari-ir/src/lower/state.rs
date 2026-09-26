@@ -49,6 +49,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         let span = analyzed.lowered.source_map.function_span(hir_function.id);
         let value_type = |ty| planner.value_type(ty, &instance.substitution, span);
         let mut function = IrFunction {
+            semantic: Default::default(),
             id: instance.id,
             instance: instance.key.clone(),
             name: if instance.key.arguments.is_empty() {
@@ -141,6 +142,17 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             params.insert(param.id, local);
         }
 
+        let concrete = |ty: &kagari_hir::types::TypeId| {
+            let ty = planner
+                .arguments(std::slice::from_ref(ty), &instance.substitution, span)?
+                .remove(0);
+            Ok::<_, super::IrLoweringError>(crate::module::abi::AbiType::from_checked_type(&ty))
+        };
+        function.semantic.result = Some(concrete(&typed_function.return_type)?);
+        for (index, param) in typed_function.params.iter().enumerate() {
+            function.semantic.params.insert(index, concrete(&param.ty)?);
+            function.semantic.locals.insert(index, concrete(&param.ty)?);
+        }
         Ok(Self {
             analyzed,
             instance,
@@ -156,6 +168,21 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             current_scope: 0,
             current_debug_span: None,
         })
+    }
+
+    pub(crate) fn semantic_type(
+        &self,
+        ty: &kagari_hir::types::TypeId,
+    ) -> Result<crate::module::abi::AbiType, super::IrLoweringError> {
+        let concrete = self
+            .planner
+            .arguments(
+                std::slice::from_ref(ty),
+                &self.instance.substitution,
+                self.function.debug.source_span,
+            )?
+            .remove(0);
+        Ok(crate::module::abi::AbiType::from_checked_type(&concrete))
     }
 
     pub(crate) fn finish(mut self) -> IrFunction {

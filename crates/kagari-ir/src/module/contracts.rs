@@ -283,8 +283,14 @@ pub(crate) fn verify_intrinsic(
             )?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        MapNew | SetNew => {
+        MapNew | SetNew | MutableMapNew | MutableSetNew | ArrayNew | MutableArrayNew => {
             verify_call_dst(dst, ValueType::HeapObject)?;
+        }
+        ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom | MutableSetFrom => {
+            return Err(ContractError::Intrinsic {
+                intrinsic,
+                reason: "collection factories require checked construction lowering",
+            });
         }
         MapLen | SetLen | IterLen => {
             expect_iterable_or_heap_arg(args, 0, intrinsic)?;

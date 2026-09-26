@@ -1,16 +1,10 @@
-# Collection access and construction proposal
+# Collection Access and Construction
 
-Status: planned, not implemented. This document records the proposed collection
-API and implementation acceptance criteria. Current `[T]`, `Map<K, V>` and
-`Set<T>` are writable shared objects, and Map/Set constructors remain module
-functions. The [implementation roadmap](../implementation-roadmap.md#collection-access-and-construction)
-tracks the transition; the current [value contract](value-semantics.md) remains
-authoritative until the implementation checkpoints land.
-
-C01a has added access metadata to HIR, ABI and host interface types, with bounded
-encoding and fingerprint coverage. This is a representation foundation, not an
-implemented read-only API or execution guarantee. Instruction-level access
-validation and the public declaration migration remain pending.
+This is the implemented contract for read-only and writable collection access.
+It supplements [value semantics](value-semantics.md). Signatures and runnable
+API examples are owned by `stdlib/array.kgr`, `stdlib/map.kgr` and
+`stdlib/set.kgr`; [collection-access.kgr](../../examples/syntax/collection-access.kgr)
+is an executable overview.
 
 ## Type surface
 
@@ -20,7 +14,6 @@ validation and the public declaration migration remain pending.
 | Hash map | `Map<K, V>` | `MutableMap<K, V>` |
 | Hash set | `Set<T>` | `MutableSet<T>` |
 
-The array spelling is agreed for this design, but is not implemented yet.
 `[T]` describes a resizable array viewed through read-only access; it is
 not a slice, fixed-size array, or Rust borrow. An array literal produces a new
 `MutableArray<T>`, which can be passed or assigned to a read-only array type.
@@ -40,7 +33,7 @@ Three independent rules apply:
 3. The element's own type and field declarations control modification of objects
    obtained from the collection.
 
-The following examples describe proposed behavior, not runnable current examples:
+The following examples include deliberately rejected writes:
 
 ```kgr
 val writable: MutableMap<String, i32> = MutableMap::new();
@@ -92,7 +85,7 @@ access for the same collection kind and exactly the same type arguments:
 Conversion preserves object identity and hash. Both access types retain the
 existing identity-based default equality/hash behavior. Mixed-access identity
 and equality comparisons use the common read-only view when type arguments match.
-This proposal does not adopt Kotlin's structural collection equality.
+This contract does not adopt Kotlin's structural collection equality.
 
 Assignment, argument passing, returns and field initializers support the same
 conversion. Conditional and match expressions with otherwise identical mutable
@@ -141,7 +134,7 @@ this batch. Capacity, general copy/clone protocols and freeze APIs remain separa
 ### Populated collection factories
 
 Provide both read-only and writable construction from initial contents. The
-proposed spelling uses associated `from` functions alongside `new`, rather than
+spelling uses associated `from` functions alongside `new`, rather than
 adding global camelCase factory names:
 
 ```kgr
@@ -213,7 +206,7 @@ GC and host reentry. Implement the two access variants with shared allocation an
 insertion machinery, while retaining distinct checked return types and declaration
 identities. Public signatures, documentation and examples belong in `stdlib/*.kgr`.
 
-Replace `std::map::new()` and `std::set::new()` without compatibility aliases.
+The former `std::map::new()` and `std::set::new()` are removed, without compatibility aliases.
 Read-only and writable constructor bindings must be source-owned declarations
 with distinct semantic member identities, even if they share an allocator.
 Navigation must resolve each associated function to its declaration.
@@ -232,7 +225,7 @@ For the existing standard surface:
 | Set to_array | Read-only | Fresh writable shallow array |
 | Set union/intersection/difference | Read-only for both inputs | Fresh writable set |
 
-Existing mutation return conventions are retained in this proposal: for example,
+Existing mutation return conventions are retained by this contract: for example,
 Map insert returns the receiver, not Rust's previous-value Option. Constructor
 syntax alignment does not silently change unrelated API behavior.
 
@@ -301,7 +294,15 @@ declared types.
    not expose partial results or leak roots/iteration guards. Completed callback
    side effects retain the ordinary failure contract.
 
-Examples above remain design snippets until the corresponding implementation
-tests and runnable examples land. Each implementation checkpoint runs relevant
-tests and `git diff --check`; final acceptance includes formatting, workspace
-clippy and workspace tests.
+Acceptance is exercised by collection-access integration tests, standard API
+executable documentation, source-query tests and the workspace example harness.
+Artifacts use format/runtime ABI v64. Semantic parameter, local, register and
+return contracts are encoded and fingerprinted independently of physical slots;
+loading validates access flow before execution, including host calls and interface
+method contracts. Validation caps fixed-point scans at 64 to bound malformed
+inputs. Earlier formats are rejected, with no migration or compatibility decoder.
+
+Host interface types retain access in their v12 encoding and fingerprints.
+Read-only access is a script capability, not a sandbox around trusted host code:
+a host with direct heap access remains responsible for its declared effects.
+Typed host index paths cannot advertise writes into read-only collections.

@@ -92,6 +92,10 @@ pub fn standard_variant(path: &str) -> Option<StandardVariant> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardTypeConstructor {
+    Array,
+    MutableArray,
+    MutableMap,
+    MutableSet,
     Cursor,
     Option,
     Result,
@@ -163,6 +167,16 @@ pub enum StandardIntrinsic {
     ValueHash,
     ValueDebug,
     ValueDisplay,
+    ArrayNew,
+    ArrayFrom,
+    MutableArrayNew,
+    MutableArrayFrom,
+    MutableMapNew,
+    MapFrom,
+    MutableMapFrom,
+    MutableSetNew,
+    SetFrom,
+    MutableSetFrom,
     ArrayLen,
     ArrayIsEmpty,
     ArrayGet,
@@ -601,21 +615,45 @@ pub fn standard_generic_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {
         StandardTypeConstructor::Option | StandardTypeConstructor::Result => {
             standard_enum_type(name, args)
         }
-        StandardTypeConstructor::Map => {
+        StandardTypeConstructor::Map | StandardTypeConstructor::MutableMap => {
             let [key, value] = args.try_into().ok()?;
             Some(TypeId::Map {
                 key: Box::new(key),
                 value: Box::new(value),
-                access: CollectionAccess::Mutable,
+                access: if spec.kind == StandardTypeConstructor::Map {
+                    CollectionAccess::ReadOnly
+                } else {
+                    CollectionAccess::Mutable
+                },
             })
         }
         StandardTypeConstructor::Cursor => {
             let [item] = args.try_into().ok()?;
             Some(TypeId::Cursor(Box::new(item)))
         }
-        StandardTypeConstructor::Set => {
+        StandardTypeConstructor::Set
+        | StandardTypeConstructor::MutableSet
+        | StandardTypeConstructor::Array
+        | StandardTypeConstructor::MutableArray => {
             let [item] = args.try_into().ok()?;
-            Some(TypeId::Set(Box::new(item), CollectionAccess::Mutable))
+            let access = if matches!(
+                spec.kind,
+                StandardTypeConstructor::Set | StandardTypeConstructor::Array
+            ) {
+                CollectionAccess::ReadOnly
+            } else {
+                CollectionAccess::Mutable
+            };
+            Some(
+                if matches!(
+                    spec.kind,
+                    StandardTypeConstructor::Array | StandardTypeConstructor::MutableArray
+                ) {
+                    TypeId::Array(Box::new(item), access)
+                } else {
+                    TypeId::Set(Box::new(item), access)
+                },
+            )
         }
     }
 }
@@ -713,4 +751,10 @@ pub fn standard_variant_in_module(module: StandardModule, name: &str) -> Option<
         .iter()
         .find(|(member, _)| *member == name)
         .map(|(_, variant)| *variant)
+}
+
+pub fn standard_associated_function(path: &str) -> Option<&'static StandardFunctionSpec> {
+    STANDARD_FUNCTIONS.iter().find(|spec| {
+        spec.name.contains("::") && (spec.name == path || spec.api.qualified_name == path)
+    })
 }

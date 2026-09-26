@@ -592,7 +592,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         ),
         Case::new(
             "local-type-shadows-standard-constructor",
-            "struct Map {} fn unused(x: Map<i32, String>) {} fn main() {}",
+            "struct MutableMap {} fn unused(x: MutableMap<i32, String>) {} fn main() {}",
             Expected::Diagnostic("KG_TYPE_UNKNOWN_TYPE"),
         ),
         Case::new(
@@ -797,7 +797,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("shadowed-generic-return", "impl<T> [T] { fn wrong<T>(self, value: T) -> T { self[0] } } fn main() {}", Expected::Diagnostic("KG_TYPE_RETURN_TYPE_MISMATCH")),
         Case::new("generic-values", "fn echo<T>(x: T) -> T { x } fn pass<U>(x: U) -> U { echo(x) } fn main() -> (i32, bool, String) { (pass(7), pass(true), echo(\"ok\")) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::Str("ok".into())]))),
         Case::new("generic-recursion", "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }", Expected::Value(Value::I32(7))),
-        Case::new("generic-array-elements", "fn first<T>(xs: [T]) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Str("ok".into())]))),
+        Case::new("generic-array-elements", "fn first<T>(xs: MutableArray<T>) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Str("ok".into())]))),
         Case::new("generic-equality", "fn same<T: PartialEq>(a: T, b: T) -> bool { a == b } fn main() -> (bool, bool) { (same(1, 1), same(\"a\", \"b\")) }", Expected::Value(Value::Tuple(vec![Value::Bool(true), Value::Bool(false)]))),
         Case::new("generic-static-trait", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } fn read<T: Get>(value: T) -> i32 { value.get() } fn wrap<U: Get>(value: U) -> i32 { read(value) } fn main() -> i32 { wrap(P { n: 42 }) }", Expected::Value(Value::I32(42))),
         Case::new("interface-dynamic-call", "trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } } fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }", Expected::Value(Value::I32(42))),
@@ -843,7 +843,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("user-print-is-direct-call", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(41) }", Expected::Value(Value::I32(42))),
         Case::new("user-type-of-is-direct-call", "fn type_of(n: i32) -> i32 { n + 2 } fn main() -> i32 { type_of(40) }", Expected::Value(Value::I32(42))),
         Case::new("local-print-is-not-a-helper", "fn main() { val print = 1; print(2); }", Expected::Diagnostic("KG_TYPE_INVALID_CALL_TARGET")),
-        Case::new("method-receiver-before-argument", "fn receiver() -> [i32] { print(\"receiver\"); [1] } fn value() -> i32 { print(\"argument\"); 2 } fn main() { receiver().push(value()); }", Expected::Value(Value::Unit)).effects(&["receiver", "argument"], &["receiver", "argument"]),
+        Case::new("method-receiver-before-argument", "fn receiver() -> MutableArray<i32> { print(\"receiver\"); [1] } fn value() -> i32 { print(\"argument\"); 2 } fn main() { receiver().push(value()); }", Expected::Value(Value::Unit)).effects(&["receiver", "argument"], &["receiver", "argument"]),
         Case::new("compound-reads-current-local", "fn main() -> i32 { var n = 1; n += if true { n = 10; 2 } else { 0 }; n }", Expected::Value(Value::I32(12))),
         Case::new("compound-captures-index", "fn main() -> i32 { val a = [1, 2]; var i = 0; a[i] += if true { i = 1; 2 } else { 0 }; a[0] * 10 + a[1] }", Expected::Value(Value::I32(32))),
         Case::new("compound-keeps-root-identity", "fn main() -> i32 { var a = [1]; val old = a; a[0] += if true { a = [100]; 2 } else { 0 }; old[0] * 1000 + a[0] }", Expected::Value(Value::I32(3100))),
@@ -852,13 +852,13 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("reject-assignment-index-type", "fn main() -> i32 { val a = [1]; a[true] += 1; a[0] }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("compound-scalars", "fn main() -> i32 { var n = 10; n += 5; n -= 3; n *= 2; n /= 4; n }", Expected::Value(Value::I32(6))),
         Case::new("assignment-evaluates-target-first", r#"
-            fn root(a: [i32]) -> [i32] { print("root"); a }
+            fn root(a: MutableArray<i32>) -> MutableArray<i32> { print("root"); a }
             fn index() -> i32 { print("index"); 0 }
-            fn rhs(a: [i32]) -> i32 { print("rhs"); a[0] = 20; 2 }
+            fn rhs(a: MutableArray<i32>) -> i32 { print("rhs"); a[0] = 20; 2 }
             fn main() -> i32 { val a = [1]; root(a)[index()] += rhs(a); a[0] }
         "#, Expected::Value(Value::I32(22))).effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
         Case::new("plain-assignment-evaluates-target-first", r#"
-            fn root(a: [i32]) -> [i32] { print("root"); a }
+            fn root(a: MutableArray<i32>) -> MutableArray<i32> { print("root"); a }
             fn index() -> i32 { print("index"); 0 }
             fn rhs() -> i32 { print("rhs"); 42 }
             fn main() -> i32 { val a = [1]; root(a)[index()] = rhs(); a[0] }
@@ -866,14 +866,14 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("nested-location-evaluated-once", r#"
             struct Point { var x: i32 }
             fn index() -> i32 { print("index"); 0 }
-            fn rhs(a: [Point]) -> i32 { print("rhs"); a[0] = Point { x: 20 }; 2 }
+            fn rhs(a: MutableArray<Point>) -> i32 { print("rhs"); a[0] = Point { x: 20 }; 2 }
             fn main() -> i32 { val a = [Point { x: 1 }]; a[index()].x += rhs(a); a[0].x }
         "#, Expected::Value(Value::I32(22))).effects(&["index", "rhs"], &["index", "rhs"]),
         Case::new("rhs-removes-compound-target", r#"
-            fn rhs(a: [i32]) -> i32 { a.pop(); print("removed"); 2 }
+            fn rhs(a: MutableArray<i32>) -> i32 { a.pop(); print("removed"); 2 }
             fn main() -> i32 { val a = [1]; a[0] += rhs(a); print("written"); 0 }
         "#, Expected::IndexTrap).effects(&["removed"], &["removed"]),
-        Case::new("rhs-repairs-missing-target", "fn rhs(a: [i32]) -> i32 { a.push(20); 2 } fn main() -> i32 { val a = [1]; a[1] += rhs(a); a[1] }", Expected::Value(Value::I32(22))),
+        Case::new("rhs-repairs-missing-target", "fn rhs(a: MutableArray<i32>) -> i32 { a.push(20); 2 } fn main() -> i32 { val a = [1]; a[1] += rhs(a); a[1] }", Expected::Value(Value::I32(22))),
         Case::new("compound-overflow", "fn main() -> i32 { val a = [2147483647]; a[0] += 1; a[0] }", Expected::ScriptTrap("integer overflow")),
         Case::new("tuple-copy-commit", "fn main() -> i32 { var t = ((1, 2), 3); val old = t; t[0][1] += 40; t[0][1] + old[0][1] }", Expected::Value(Value::I32(44))),
         Case::new("tuple-in-array-commit", "fn main() -> i32 { val a = [(1, 2)]; a[0][1] += 40; a[0][1] }", Expected::Value(Value::I32(42))),
@@ -925,11 +925,11 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("enum_object_identity", "fn main() -> bool { val a = [[1]]; val b = [[1]]; a.pop() != b.pop() }", Expected::Value(Value::Bool(true))),
         Case::new("enum_assert_eq", "fn main() { val a = [1]; val b = [1]; std::debug::assert_eq(a.pop(), b.pop(), \"same enum\"); }", Expected::Value(Value::Unit)),
         Case::new("shallow_copy", "struct P { var n: i32 } fn main() -> bool { val a = [P { n: 1 }]; val b = std::iter::to_array(a); b[0].n = 7; a != b && a[0].n == 7 }", Expected::Value(Value::Bool(true))),
-        Case::new("map_alias_through_call", "fn change(value: Map<String, i32>) -> Map<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: Map<String, i32> = std::map::new(); val b = change(a); val fresh: Map<String, i32> = std::map::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }", Expected::Value(Value::Bool(true))),
-        Case::new("set_alias_through_call", "fn change(value: Set<String>) -> Set<String> { value.insert(\"key\"); value } fn main() -> bool { val a: Set<String> = std::set::new(); val b = change(a); val fresh: Set<String> = std::set::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }", Expected::Value(Value::Bool(true))),
-        Case::new("map_values_are_shallow", "struct Item { var value: i32 } fn main() -> bool { val item = Item { value: 1 }; val a: Map<String, Item> = std::map::new(); a.insert(\"key\", item); val values = a.values(); values[0].value = 42; values.push(Item { value: 9 }); item.value == 42 && a.len() == [0].len() && values.len() == [0, 0].len() }", Expected::Value(Value::Bool(true))),
-        Case::new("set_projection_has_independent_structure", "fn main() -> bool { val a: Set<String> = std::set::new(); a.insert(\"key\"); val values = a.to_array(); values[0] = \"changed\"; values.push(\"extra\"); a.contains(\"key\") && !a.contains(\"changed\") && a.len() == [0].len() && values.len() == [0, 0].len() }", Expected::Value(Value::Bool(true))),
-        Case::new("enum_tuple_members_keep_map_identity", "enum Packet { Data((Map<String, i32>, i32)) } fn main() -> bool { val a: Map<String, i32> = std::map::new(); val b: Map<String, i32> = std::map::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }", Expected::Value(Value::Bool(true))),
+        Case::new("map_alias_through_call", "fn change(value: MutableMap<String, i32>) -> MutableMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: MutableMap<String, i32> = MutableMap::new(); val b = change(a); val fresh: MutableMap<String, i32> = MutableMap::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }", Expected::Value(Value::Bool(true))),
+        Case::new("set_alias_through_call", "fn change(value: MutableSet<String>) -> MutableSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: MutableSet<String> = MutableSet::new(); val b = change(a); val fresh: MutableSet<String> = MutableSet::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }", Expected::Value(Value::Bool(true))),
+        Case::new("map_values_are_shallow", "struct Item { var value: i32 } fn main() -> bool { val item = Item { value: 1 }; val a: MutableMap<String, Item> = MutableMap::new(); a.insert(\"key\", item); val values = a.values(); values[0].value = 42; values.push(Item { value: 9 }); item.value == 42 && a.len() == [0].len() && values.len() == [0, 0].len() }", Expected::Value(Value::Bool(true))),
+        Case::new("set_projection_has_independent_structure", "fn main() -> bool { val a: MutableSet<String> = MutableSet::new(); a.insert(\"key\"); val values = a.to_array(); values[0] = \"changed\"; values.push(\"extra\"); a.contains(\"key\") && !a.contains(\"changed\") && a.len() == [0].len() && values.len() == [0, 0].len() }", Expected::Value(Value::Bool(true))),
+        Case::new("enum_tuple_members_keep_map_identity", "enum Packet { Data((MutableMap<String, i32>, i32)) } fn main() -> bool { val a: MutableMap<String, i32> = MutableMap::new(); val b: MutableMap<String, i32> = MutableMap::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }", Expected::Value(Value::Bool(true))),
         Case::new("interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { a == b }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         Case::new("tuple_interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { (1, a) == (1, b) }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         reject,

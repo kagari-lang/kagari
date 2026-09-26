@@ -51,6 +51,17 @@ pub(crate) fn lower_protocol<'a>(
             ty: physical,
             local,
         });
+        let semantic = lowerer.semantic_type(&receiver)?;
+        lowerer
+            .function
+            .semantic
+            .params
+            .insert(index, semantic.clone());
+        lowerer
+            .function
+            .semantic
+            .locals
+            .insert(local.index(), semantic);
         let value = lowerer.alloc_temp(physical);
         lowerer.emit(Instruction::LoadLocal { dst: value, local });
         args.push(value);
@@ -153,6 +164,17 @@ pub(crate) fn lower_closure<'a>(
             .last_mut()
             .expect("capture local")
             .is_parameter = true;
+        let semantic = lowerer.semantic_type(&ty)?;
+        lowerer
+            .function
+            .semantic
+            .params
+            .insert(lowerer.function.params.len(), semantic.clone());
+        lowerer
+            .function
+            .semantic
+            .locals
+            .insert(local.index(), semantic);
         lowerer.function.params.push(IrParameter {
             name,
             ty: physical,
@@ -208,6 +230,17 @@ pub(crate) fn lower_closure<'a>(
             .last_mut()
             .expect("closure parameter")
             .is_parameter = true;
+        let semantic = lowerer.semantic_type(&ty)?;
+        lowerer
+            .function
+            .semantic
+            .params
+            .insert(lowerer.function.params.len(), semantic.clone());
+        lowerer
+            .function
+            .semantic
+            .locals
+            .insert(local.index(), semantic);
         lowerer.function.params.push(IrParameter {
             name: param.name.clone(),
             ty: value_type,

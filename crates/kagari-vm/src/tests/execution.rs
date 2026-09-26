@@ -1378,36 +1378,10 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
 
 #[test]
 fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
-    // The low-level operand representation is HeapObject; the actual receiver
-    // must still be checked against the field's nominal layout at execution.
+    // Semantic receiver contracts reject layout substitution before execution.
     for write in [false, true] {
         let mut bytecode = compile_test_bytecode(
             "struct P { var x: i32 } struct Q { var x: i32 } fn main() -> i32 { val p = P { x: 1 }; p.x = 42; p.x }",
-        );
-        bytecode.module_slots.push(BytecodeModuleSlot {
-            name: "observed".into(),
-            ty: ValueType::HeapObject,
-            mutable: true,
-        });
-        let function = &mut bytecode.functions[0];
-        let (at, value) = function
-            .instructions
-            .iter()
-            .enumerate()
-            .find_map(|(at, instruction)| {
-                if let BytecodeInstruction::MakeStruct { dst, .. } = instruction {
-                    Some((at, *dst))
-                } else {
-                    None
-                }
-            })
-            .unwrap();
-        function.instructions.insert(
-            at + 1,
-            BytecodeInstruction::StoreModule {
-                slot: ModuleSlot::new(0),
-                src: value,
-            },
         );
         let wrong = kagari_ir::bytecode::StructId::new(
             bytecode
@@ -1431,25 +1405,7 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
                 _ => {}
             }
         }
-        let (runtime, loaded) = super::common::load_bytecode_module("wrong-receiver", bytecode);
-        let mut vm = Vm::new(runtime);
-        let error = vm.execute(&loaded, "main").unwrap_err();
-        if write {
-            assert!(matches!(error, VmError::RuntimeError(ref error)
-                if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
-                    && error.message() == "struct layout mismatch"));
-        } else {
-            assert!(matches!(error.cause(), VmError::TypeMismatch(_)));
-        }
-        let instance = vm.runtime().module_instance_snapshot(&loaded).unwrap();
-        let Value::Struct(object) = instance.module_slots[0] else {
-            panic!("expected stored receiver")
-        };
-        let value =
-            kagari_runtime::reflection::get_field(vm.runtime().gc(), &Value::Struct(object), "x")
-                .unwrap();
-        assert_eq!(value, Value::I32(if write { 1 } else { 42 }));
-        assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+        assert!(kagari_ir::bytecode::verify_module(&bytecode).is_err());
     }
 }
 

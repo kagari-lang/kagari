@@ -114,6 +114,20 @@ pub(super) fn collect(
             }
             planner.check()?;
             functions.push(IrFunction {
+                semantic: crate::module::function::SemanticSlots {
+                    params: params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| (i, p.ty.clone()))
+                        .collect(),
+                    locals: params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| (i, p.ty.clone()))
+                        .collect(),
+                    result: Some(result_type.clone()),
+                    registers: Default::default(),
+                },
                 id: InstanceId::new(functions.len()),
                 instance: FunctionInstance {
                     declaration: method_id,
