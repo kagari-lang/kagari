@@ -188,7 +188,9 @@ impl<'a> BodyResolver<'a> {
                 }
             }
             ExprKind::Literal(_) => {}
-            ExprKind::Prefix { expr, .. } => self.resolve_expr(*expr),
+            ExprKind::Propagate { expr } | ExprKind::Prefix { expr, .. } => {
+                self.resolve_expr(*expr)
+            }
             ExprKind::Binary { lhs, rhs, .. }
             | ExprKind::Range {
                 start: lhs,
@@ -282,13 +284,53 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn bind_pattern(&mut self, pattern: crate::hir::PatternId, start: usize) {
+        self.resolve_pattern_variants(pattern);
+        self.bind_pattern_locals(pattern, start);
+    }
+
+    fn resolve_pattern_variants(&mut self, pattern: crate::hir::PatternId) {
+        if self.cancel.check().is_err() {
+            return;
+        }
+        match self.module.pattern(pattern).kind.clone() {
+            PatternKind::Name { name, .. } => {
+                if let Some(ResolvedName::StandardVariant(variant)) = self.resolve_name(&name) {
+                    self.resolved.pattern_variants.insert(pattern, variant);
+                }
+            }
+            PatternKind::EnumVariant { path, fields } => {
+                if let Some(ResolvedName::StandardVariant(variant)) = self.resolve_name(&path) {
+                    self.resolved.pattern_variants.insert(pattern, variant);
+                }
+                for field in fields {
+                    self.resolve_pattern_variants(field);
+                }
+            }
+            PatternKind::Or(fields) | PatternKind::Tuple(fields) => {
+                for field in fields {
+                    self.resolve_pattern_variants(field);
+                }
+            }
+            PatternKind::Struct { fields, .. } => {
+                for field in fields {
+                    self.resolve_pattern_variants(field.pattern);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn bind_pattern_locals(&mut self, pattern: crate::hir::PatternId, start: usize) {
         match &self.module.pattern(pattern).kind {
             PatternKind::Or(alternatives) => {
                 if let Some(first) = alternatives.first() {
-                    self.bind_pattern(*first, start);
+                    self.bind_pattern_locals(*first, start);
                 }
             }
             PatternKind::Name { name, local } if !name.is_empty() && name != "<missing>" => {
+                if self.resolved.pattern_variants.contains_key(&pattern) {
+                    return;
+                }
                 let name = name.clone();
                 let local = *local;
                 self.bind_name(&name, ResolvedName::Local(local), start);
@@ -296,19 +338,19 @@ impl<'a> BodyResolver<'a> {
             PatternKind::Tuple(elements) => {
                 let elements = elements.clone();
                 for element in elements {
-                    self.bind_pattern(element, start);
+                    self.bind_pattern_locals(element, start);
                 }
             }
             PatternKind::Struct { fields, .. } => {
                 let fields = fields.clone();
                 for field in fields {
-                    self.bind_pattern(field.pattern, start);
+                    self.bind_pattern_locals(field.pattern, start);
                 }
             }
             PatternKind::EnumVariant { fields, .. } => {
                 let fields = fields.clone();
                 for field in fields {
-                    self.bind_pattern(field, start);
+                    self.bind_pattern_locals(field, start);
                 }
             }
             _ => {}
@@ -379,7 +421,11 @@ impl<'a> BodyResolver<'a> {
                     self.resolved.hosts.resolve_name_in(module, member)
                 }
                 ResolvedName::StandardModule(module) => surface::standard_function(module, member)
-                    .map(|f| ResolvedName::StandardFunction(f.intrinsic)),
+                    .map(|f| ResolvedName::StandardFunction(f.intrinsic))
+                    .or_else(|| {
+                        surface::standard_variant_in_module(module, member)
+                            .map(ResolvedName::StandardVariant)
+                    }),
                 _ => None,
             };
         }
@@ -391,6 +437,9 @@ impl<'a> BodyResolver<'a> {
         }
         if let Some(helper) = crate::builtin::BuiltinFunction::from_name(name) {
             return Some(ResolvedName::RuntimeHelper(helper));
+        }
+        if let Some(variant) = surface::standard_variant(name) {
+            return Some(ResolvedName::StandardVariant(variant));
         }
         let (module, member) = name.rsplit_once("::")?;
         surface::standard_function(surface::standard_module(module)?.kind, member)

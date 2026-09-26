@@ -922,6 +922,12 @@ fn lower_instruction(
                 implementation,
             }
         }
+        Instruction::StandardEnum { dst, value, ty, op } => BytecodeInstruction::StandardEnum {
+            dst: lower_value(*dst),
+            value: value.map(lower_value),
+            ty: ty.clone(),
+            op: *op,
+        },
         Instruction::MakeEnum {
             dst,
             enumeration,

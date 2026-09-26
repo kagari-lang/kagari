@@ -64,3 +64,22 @@ fn parses_prefix_and_parenthesized_expressions() {
         other => panic!("unexpected top-level expr: {other:?}"),
     }
 }
+
+#[test]
+fn propagation_has_postfix_precedence_and_chains_with_member_calls() {
+    let module = common::parse_ok("fn f() { -read()?.field[0]?? + 1 }");
+    let function = common::first_function(&module);
+    let Expr::BinaryExpr(binary) = function.body().unwrap().tail_expr().unwrap() else {
+        panic!("binary");
+    };
+    let Expr::PrefixExpr(prefix) = binary.lhs().unwrap() else {
+        panic!("prefix");
+    };
+    let Expr::PropagateExpr(outer) = prefix.expr().unwrap() else {
+        panic!("outer propagation");
+    };
+    let Expr::PropagateExpr(inner) = outer.expr().unwrap() else {
+        panic!("inner propagation");
+    };
+    assert!(matches!(inner.expr(), Some(Expr::IndexExpr(_))));
+}

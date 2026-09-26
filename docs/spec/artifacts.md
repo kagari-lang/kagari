@@ -41,13 +41,19 @@ KbcArtifact {
 }
 ```
 
-Format version 49 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 50 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 48 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 49 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 50 and runtime ABI v50 add concrete typed standard-enum construction,
+variant tests and payload reads, plus Option conversion intrinsic identities.
+Verification checks operand/result representations, family arity and bounded
+concrete ABI types before execution. `?` and script combinators lower to ordinary
+branches, calls and returns; no exception-unwinding instruction is introduced.
 
 Version 49 and runtime ABI v49 encode separate trait and associated-constructor
 arguments in projection nodes, constructor-owned parameter identities and bounds,

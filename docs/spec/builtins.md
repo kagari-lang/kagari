@@ -172,6 +172,36 @@ Set algebra helpers may be source-level facades when they only compose native se
 
 `Option<T>` and `Result<T, E>` are standard enum types.
 
+Their constructors `Some(value)`, `None`, `Ok(value)` and `Err(error)` are
+available through the prelude, `Option::Some` / `Option::None`,
+`Result::Ok` / `Result::Err`, and the `std::option` / `std::result` namespaces.
+Standard-module imports support aliases and wildcard imports for these variants.
+User bindings take precedence over implicit prelude names. `None` has no payload
+and is written without parentheses. Patterns use the same resolved identities,
+including nested, alternative and binding-condition patterns.
+
+Constructor type arguments come from payloads, an expected type, or an explicit
+owner such as `Result<i32, String>::Err("missing")`. Missing unconstrained arguments
+are diagnosed: give `val outcome: Result<i32, String> = Ok(42)` an annotation when
+there is no surrounding expected type. Constructors are not first-class functions.
+
+The postfix `?` evaluates its operand once. `Some(v)` / `Ok(v)` produce `v`;
+`None` / `Err(e)` return the original failure value from the nearest function or
+closure. Option propagates only into Option; Result propagates only into Result
+with the same error type. Their success types may differ. The return context of
+a closure is independent of its enclosing function. Postfix chaining such as
+`read()?.field` and `nested??` is supported.
+
+Use `ok_or(error)` or `ok_or_else(|| error)` to convert Option into Result,
+and `map_err(|error| converted)` to change error types before propagation.
+`ok_or` evaluates its error argument eagerly; `ok_or_else` calls its closure
+only for None. `map`, `map_err` and `and_then` check callback signatures and call
+script closures only on the selected variant, using ordinary execution frames.
+There is no implicit error conversion, general `Try`/`FromResidual` protocol,
+`throw`/`try`/`catch`, built-in Error value or captured error stack in this version.
+See [failure semantics](failure-semantics.md) for traps and termination, which
+`?` cannot intercept, and the [executable example](../../examples/syntax/result-option.kgr).
+
 They support:
 
 - construction through variants
@@ -331,6 +361,8 @@ The same ordering is used by `keys`, `values`, `entries`, `to_array`, set algebr
 - `unwrap_or<T>(value: Option<T>, fallback: T) -> T`
 - `map<T, U>(value: Option<T>, mapper: fn(T) -> U) -> Option<U>`
 - `and_then<T, U>(value: Option<T>, mapper: fn(T) -> Option<U>) -> Option<U>`
+- `ok_or<T, E>(value: Option<T>, error: E) -> Result<T, E>`
+- `ok_or_else<T, E>(value: Option<T>, error: fn() -> E) -> Result<T, E>`
 
 `std::result` provides typed helpers for `Result<T, E>`, including:
 

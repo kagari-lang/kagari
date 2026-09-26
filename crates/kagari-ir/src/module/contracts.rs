@@ -331,7 +331,8 @@ pub(crate) fn verify_intrinsic(
             let fallback_ty = args[1];
             verify_call_dst(dst, fallback_ty)?;
         }
-        OptionMap | OptionAndThen | ResultMap | ResultMapErr | ResultAndThen => {
+        OptionOkOr | OptionOkOrElse | OptionMap | OptionAndThen | ResultMap | ResultMapErr
+        | ResultAndThen => {
             expect_arg_ty(
                 args,
                 0,

@@ -286,7 +286,8 @@ impl<'a> Completion<'a> {
                                 value = Exits::NORMAL;
                                 continue;
                             }
-                            ExprKind::Prefix { expr, .. }
+                            ExprKind::Propagate { expr }
+                            | ExprKind::Prefix { expr, .. }
                             | ExprKind::Field { receiver: expr, .. } => {
                                 work.push(Task::Visit(Node::Expr(*expr)));
                                 continue;

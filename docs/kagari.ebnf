@@ -258,7 +258,8 @@ postfix_expr        ::= primary_expr postfix_op* ;
 
 postfix_op          ::= call_suffix
                       | field_suffix
-                      | index_suffix ;
+                      | index_suffix
+                      | propagation_suffix ;
 
 call_suffix         ::= "(" arg_list? ")" ;
 
@@ -267,6 +268,9 @@ arg_list            ::= expr ("," expr)* (",")? ;
 field_suffix        ::= "." IDENT ;
 
 index_suffix        ::= "[" expr "]" ;
+
+(* Built-in Option/Result only; exits the nearest function or closure. *)
+propagation_suffix  ::= "?" ;
 
 primary_expr        ::= literal
                       | path

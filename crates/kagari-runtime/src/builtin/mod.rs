@@ -108,6 +108,8 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         OptionUnwrapOr => "std::option::unwrap_or",
         OptionMap => "std::option::map",
         OptionAndThen => "std::option::and_then",
+        OptionOkOr => "std::option::ok_or",
+        OptionOkOrElse => "std::option::ok_or_else",
         ResultIsOk => "std::result::is_ok",
         ResultIsErr => "std::result::is_err",
         ResultUnwrapOr => "std::result::unwrap_or",

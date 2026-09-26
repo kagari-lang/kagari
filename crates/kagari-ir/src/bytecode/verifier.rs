@@ -990,6 +990,21 @@ fn verify_instruction(
                 "interface receiver",
             )?;
         }
+        BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
+            let invalid = || BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "invalid standard enum contract",
+            };
+            let (input, output) = op.contract(ty).ok_or_else(invalid)?;
+            match (input, value) {
+                (Some(ty), Some(value)) => {
+                    expect_register_ty(function, *value, ty, "standard enum input")?
+                }
+                (None, None) => {}
+                _ => return Err(invalid()),
+            }
+            expect_register_ty(function, *dst, output, "standard enum result")?;
+        }
         BytecodeInstruction::MakeEnum {
             dst,
             enumeration,

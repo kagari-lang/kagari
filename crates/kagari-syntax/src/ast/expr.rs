@@ -15,6 +15,7 @@ ast_node!(PathExpr, PathExpr);
 ast_node!(Literal, Literal);
 ast_node!(ParenExpr, ParenExpr);
 ast_node!(PrefixExpr, PrefixExpr);
+ast_node!(PropagateExpr, PropagateExpr);
 ast_node!(BinaryExpr, BinaryExpr);
 ast_node!(RangeExpr, RangeExpr);
 ast_node!(CallExpr, CallExpr);
@@ -44,6 +45,7 @@ pub enum Expr {
     Literal(Literal),
     ParenExpr(ParenExpr),
     PrefixExpr(PrefixExpr),
+    PropagateExpr(PropagateExpr),
     BinaryExpr(BinaryExpr),
     RangeExpr(RangeExpr),
     CallExpr(CallExpr),
@@ -66,6 +68,7 @@ impl AstNode for Expr {
                 | SyntaxKind::PathExpr
                 | SyntaxKind::Literal
                 | SyntaxKind::ParenExpr
+                | SyntaxKind::PropagateExpr
                 | SyntaxKind::PrefixExpr
                 | SyntaxKind::BinaryExpr
                 | SyntaxKind::RangeExpr
@@ -88,6 +91,7 @@ impl AstNode for Expr {
             SyntaxKind::PathExpr => PathExpr::cast(syntax).map(Self::PathExpr),
             SyntaxKind::Literal => Literal::cast(syntax).map(Self::Literal),
             SyntaxKind::ParenExpr => ParenExpr::cast(syntax).map(Self::ParenExpr),
+            SyntaxKind::PropagateExpr => PropagateExpr::cast(syntax).map(Self::PropagateExpr),
             SyntaxKind::PrefixExpr => PrefixExpr::cast(syntax).map(Self::PrefixExpr),
             SyntaxKind::BinaryExpr => BinaryExpr::cast(syntax).map(Self::BinaryExpr),
             SyntaxKind::RangeExpr => RangeExpr::cast(syntax).map(Self::RangeExpr),
@@ -111,6 +115,7 @@ impl AstNode for Expr {
             Self::PathExpr(node) => node.syntax(),
             Self::Literal(node) => node.syntax(),
             Self::ParenExpr(node) => node.syntax(),
+            Self::PropagateExpr(node) => node.syntax(),
             Self::PrefixExpr(node) => node.syntax(),
             Self::BinaryExpr(node) => node.syntax(),
             Self::RangeExpr(node) => node.syntax(),
@@ -183,6 +188,12 @@ impl Literal {
 }
 
 impl ParenExpr {
+    pub fn expr(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+}
+
+impl PropagateExpr {
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }

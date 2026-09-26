@@ -164,3 +164,4 @@ STRING_TEXT_CHAR	covered	examples/standard-library.kgr	-
 LINE_END	covered	examples/syntax/expressions.kgr	-
 associated_const_decl	covered	examples/syntax/associated-constants.kgr	-
 associated_const_def	covered	examples/syntax/associated-constants.kgr	-
+propagation_suffix	covered	examples/syntax/result-option.kgr	-

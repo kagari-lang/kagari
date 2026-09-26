@@ -114,3 +114,4 @@ literal	5	witnessed	examples/syntax/expressions.kgr	-	"false"
 trait_member	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_decl
 trait_impl_item	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_def
 primary_expr	12	witnessed	examples/syntax/associated-constants.kgr	-	qualified_type
+postfix_op	4	witnessed	examples/syntax/result-option.kgr	-	propagation_suffix

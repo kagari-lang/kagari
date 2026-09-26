@@ -84,6 +84,12 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr());
             }
+            ast::Expr::PropagateExpr(node) => ExprKind::Propagate {
+                expr: node
+                    .expr()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr()),
+            },
             ast::Expr::PrefixExpr(prefix) => ExprKind::Prefix {
                 op: match prefix.operator() {
                     Some(SyntaxKind::Minus) => PrefixOp::Neg,

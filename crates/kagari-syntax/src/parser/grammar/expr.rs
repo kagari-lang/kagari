@@ -205,6 +205,11 @@ impl<'a> Parser<'a> {
                     self.start_node_at(checkpoint, SyntaxKind::FieldExpr);
                     self.finish_node();
                 }
+                Some(TokenKind::Question) => {
+                    self.bump();
+                    self.start_node_at(checkpoint, SyntaxKind::PropagateExpr);
+                    self.finish_node();
+                }
                 Some(TokenKind::LBracket) => {
                     self.parse_index_suffix();
                     self.start_node_at(checkpoint, SyntaxKind::IndexExpr);

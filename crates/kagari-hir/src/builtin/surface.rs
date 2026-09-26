@@ -35,6 +35,46 @@ impl StandardEnum {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StandardVariant {
+    Some,
+    None,
+    Ok,
+    Err,
+}
+
+impl StandardVariant {
+    pub fn kind(self) -> StandardEnum {
+        match self {
+            Self::Some | Self::None => StandardEnum::Option,
+            Self::Ok | Self::Err => StandardEnum::Result,
+        }
+    }
+    pub fn index(self) -> usize {
+        match self {
+            Self::Some | Self::Ok => 0,
+            Self::None | Self::Err => 1,
+        }
+    }
+    pub fn payload(self) -> Option<usize> {
+        match self {
+            Self::None => None,
+            Self::Err => Some(1),
+            _ => Some(0),
+        }
+    }
+}
+
+pub fn standard_variant(path: &str) -> Option<StandardVariant> {
+    Some(match path {
+        "Some" | "Option::Some" | "std::option::Some" => StandardVariant::Some,
+        "None" | "Option::None" | "std::option::None" => StandardVariant::None,
+        "Ok" | "Result::Ok" | "std::result::Ok" => StandardVariant::Ok,
+        "Err" | "Result::Err" | "std::result::Err" => StandardVariant::Err,
+        _ => return None,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardTypeConstructor {
     Option,
@@ -130,6 +170,8 @@ pub enum StandardIntrinsic {
     OptionUnwrapOr,
     OptionMap,
     OptionAndThen,
+    OptionOkOr,
+    OptionOkOrElse,
     ResultIsOk,
     ResultIsErr,
     ResultUnwrapOr,
@@ -528,6 +570,8 @@ const STANDARD_FUNCTIONS: &[StandardFunctionSpec] = &[
     std_fn!(Option, "unwrap_or", OptionUnwrapOr, ["T"], 2),
     std_fn!(Option, "map", OptionMap, ["T", "U"], 2),
     std_fn!(Option, "and_then", OptionAndThen, ["T", "U"], 2),
+    std_fn!(Option, "ok_or", OptionOkOr, ["T", "E"], 2),
+    std_fn!(Option, "ok_or_else", OptionOkOrElse, ["T", "E"], 2),
     std_fn!(Result, "is_ok", ResultIsOk, ["T", "E"], 1),
     std_fn!(Result, "is_err", ResultIsErr, ["T", "E"], 1),
     std_fn!(Result, "unwrap_or", ResultUnwrapOr, ["T", "E"], 2),
@@ -628,6 +672,8 @@ const STANDARD_METHODS: &[StandardMethodSpec] = &[
     std_method!(Option, "unwrap_or", OptionUnwrapOr, ["T"], 1),
     std_method!(Option, "map", OptionMap, ["T", "U"], 1),
     std_method!(Option, "and_then", OptionAndThen, ["T", "U"], 1),
+    std_method!(Option, "ok_or", OptionOkOr, ["T", "E"], 1),
+    std_method!(Option, "ok_or_else", OptionOkOrElse, ["T", "E"], 1),
     std_method!(Result, "is_ok", ResultIsOk, ["T", "E"], 0),
     std_method!(Result, "is_err", ResultIsErr, ["T", "E"], 0),
     std_method!(Result, "unwrap_or", ResultUnwrapOr, ["T", "E"], 1),
@@ -870,4 +916,21 @@ fn builtin_family(ty: &TypeId) -> Option<BuiltinTypeFamily> {
         return None;
     };
     builtin_type_spec(*builtin).map(|spec| spec.family)
+}
+
+pub fn standard_variants_in_module(
+    module: StandardModule,
+) -> &'static [(&'static str, StandardVariant)] {
+    use StandardVariant::*;
+    match module {
+        StandardModule::Option => &[("Some", Some), ("None", None)],
+        StandardModule::Result => &[("Ok", Ok), ("Err", Err)],
+        _ => &[],
+    }
+}
+pub fn standard_variant_in_module(module: StandardModule, name: &str) -> Option<StandardVariant> {
+    standard_variants_in_module(module)
+        .iter()
+        .find(|(member, _)| *member == name)
+        .map(|(_, variant)| *variant)
 }

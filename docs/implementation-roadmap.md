@@ -64,3 +64,12 @@ are static-only. Native host tables cannot supply those members; script impls
 on host types can. Lifetimes, script-level `dyn`, higher-kinded type parameters,
 associated type defaults, specialization, negative impls, auto traits and
 advanced coherence/solver behavior are outside this sequence.
+
+Completed language extension: built-in Option/Result constructors, namespace and
+alias imports, nested and alternative patterns, postfix `?`, explicit Option to
+Result conversion, and checked script callbacks for map/map_err/and_then.
+Source, encoded artifacts and JIT fallback share ordinary frame control flow,
+including GC and iteration cleanup. See [builtins](spec/builtins.md#option-and-result)
+and [result-option.kgr](../examples/syntax/result-option.kgr). Artifact format 50
+and runtime ABI v50 reject previous products; KHI remains v10. General built-in
+propagation traits and Error origin/stack modeling are a later design checkpoint.

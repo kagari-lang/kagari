@@ -29,6 +29,12 @@ pub struct PathRef {
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
+    StandardEnum {
+        dst: IrValue,
+        value: Option<IrValue>,
+        ty: super::abi::AbiType,
+        op: StandardEnumOp,
+    },
     LoadConst {
         dst: IrValue,
         constant: Constant,
@@ -392,6 +398,11 @@ impl Instruction {
             | Self::UpcastInterface { .. }
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
+            Self::StandardEnum {
+                op: StandardEnumOp::Make(_),
+                ..
+            } => EffectSet::allocation(),
+            Self::StandardEnum { .. } => EffectSet::aggregate_read(),
             Self::ReadAggregateField { .. }
             | Self::ReadCell { .. }
             | Self::ReadAggregateIndex { .. }
@@ -471,6 +482,8 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | StringSlice
             | OptionMap
             | OptionAndThen
+            | OptionOkOr
+            | OptionOkOrElse
             | ResultMap
             | ResultMapErr
             | ResultAndThen
@@ -566,4 +579,54 @@ pub struct SourceFunctionContract {
     pub arguments: Vec<kagari_hir::types::TypeId>,
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StandardEnumOp {
+    Make(u32),
+    Test(u32),
+    Read(u32),
+}
+impl StandardEnumOp {
+    pub fn contract(
+        self,
+        ty: &super::abi::AbiType,
+    ) -> Option<(Option<super::ValueType>, super::ValueType)> {
+        use super::{
+            ValueType,
+            abi::{AbiType, StandardEnumKind},
+        };
+        if !ty.within_wire_limits()
+            || !super::abi::verify::concrete_type_valid(ty, &Default::default())
+        {
+            return None;
+        }
+        let AbiType::StandardEnum { kind, args } = ty else {
+            return None;
+        };
+        if args.len()
+            != match kind {
+                StandardEnumKind::Option => 1,
+                StandardEnumKind::Result => 2,
+            }
+        {
+            return None;
+        }
+        let variant = match self {
+            Self::Make(v) | Self::Test(v) | Self::Read(v) => v,
+        };
+        if variant > 1 {
+            return None;
+        }
+        let payload = if *kind == StandardEnumKind::Option && variant == 1 {
+            None
+        } else {
+            Some(args[variant as usize].representation())
+        };
+        match self {
+            Self::Make(_) => Some((payload, ValueType::HeapObject)),
+            Self::Test(_) => Some((Some(ValueType::HeapObject), ValueType::Bool)),
+            Self::Read(_) => Some((Some(ValueType::HeapObject), payload?)),
+        }
+    }
 }

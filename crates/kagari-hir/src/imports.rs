@@ -43,6 +43,7 @@ pub struct SourceImport {
 pub enum ImportTarget {
     StandardModule(surface::StandardModule),
     StandardFunction(surface::StandardIntrinsic),
+    StandardVariant(surface::StandardVariant),
     HostModule(HostModuleId),
     HostFunction(HostFunctionId),
     HostType(HostTypeId),
@@ -449,6 +450,11 @@ fn resolve_imports(
                             ImportTarget::StandardFunction(function.intrinsic),
                         )
                     })
+                    .chain(surface::standard_variants_in_module(*module).iter().map(
+                        |(name, variant)| {
+                            (name.to_string(), ImportTarget::StandardVariant(*variant))
+                        },
+                    ))
                     .collect()
             }
             Some(ImportTarget::HostModule(module)) => hosts
@@ -693,6 +699,12 @@ fn resolve_path(
             .and_then(|module| surface::standard_function(module.kind, name))
     }) {
         candidates.push(ImportTarget::StandardFunction(function.intrinsic));
+    }
+    if let Some(variant) = path.rsplit_once("::").and_then(|(module, name)| {
+        surface::standard_module(module)
+            .and_then(|module| surface::standard_variant_in_module(module.kind, name))
+    }) {
+        candidates.push(ImportTarget::StandardVariant(variant));
     }
     if let Some(function) = hosts.resolve(path) {
         candidates.push(ImportTarget::HostFunction(function));

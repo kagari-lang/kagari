@@ -203,6 +203,12 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BytecodeInstruction {
+    StandardEnum {
+        dst: Register,
+        value: Option<Register>,
+        ty: crate::module::abi::AbiType,
+        op: crate::module::instruction::StandardEnumOp,
+    },
     LoadConst {
         dst: Register,
         constant: ConstantOperand,

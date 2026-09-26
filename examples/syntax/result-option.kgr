@@ -1,0 +1,27 @@
+// Business failures remain ordinary values; `?` returns from the nearest function.
+fn lookup(present: bool) -> Option<i32> {
+    if present { Some(20) } else { None }
+}
+
+fn compute(present: bool) -> Result<i32, String> {
+    // Convert absence explicitly; this callback runs only for None.
+    val first = lookup(present).ok_or_else(|| "missing value")?;
+    val second: Result<i32, String> = Ok(22);
+    Ok(first + second?)
+}
+
+fn optional(present: bool) -> Option<i32> {
+    Some(lookup(present)? + 22)
+}
+
+fn main() -> i32 {
+    val failed = compute(false).map_err(|message| message.concat(" in compute"));
+    val successful = compute(true);
+    val missing = optional(false);
+    if failed.is_err() && missing.is_none() {
+        match successful {
+            Ok(answer) => answer,
+            Err(message) => 0,
+        }
+    } else { 0 }
+}

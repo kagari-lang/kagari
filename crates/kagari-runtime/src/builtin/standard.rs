@@ -81,6 +81,9 @@ pub fn invoke_with_callbacks(
         OptionUnwrapOr => option_unwrap_or(gc, args),
         OptionMap => option_map(gc, args, callbacks),
         OptionAndThen => option_and_then(gc, args, callbacks),
+        OptionOkOr | OptionOkOrElse => {
+            option_ok_or(gc, args, callbacks, intrinsic == OptionOkOrElse)
+        }
         ResultIsOk => result_is_ok(gc, args),
         ResultIsErr => result_is_err(gc, args),
         ResultUnwrapOr => result_unwrap_or(gc, args),
@@ -1077,6 +1080,31 @@ fn compare_f64(lhs: f64, rhs: f64) -> Result<i8, BuiltinError> {
     lhs.partial_cmp(&rhs)
         .map(ordering_value)
         .ok_or_else(|| BuiltinError::new("float comparison is unordered"))
+}
+
+fn option_ok_or(
+    gc: &GcHeap,
+    args: &[Value],
+    callbacks: &mut dyn BuiltinCallbacks,
+    lazy: bool,
+) -> Result<Value, BuiltinError> {
+    let [value, error] = args else {
+        return Err(BuiltinError::new(
+            "option conversion expects option and error",
+        ));
+    };
+    match option_snapshot(gc, value, "option.ok_or")?.tag {
+        EnumTag::OptionSome => result_ok(gc, option_payload(gc, value, "option.ok_or")?),
+        EnumTag::OptionNone => {
+            let error = if lazy {
+                callbacks.call(callback_id(error, "option.ok_or_else")?, &[])?
+            } else {
+                error.clone()
+            };
+            result_err(gc, error)
+        }
+        _ => unreachable!(),
+    }
 }
 
 #[cfg(test)]

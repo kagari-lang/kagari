@@ -1,3 +1,5 @@
+mod standard;
+
 use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::{builtin::BuiltinFunction, hir};
 use std::ops::ControlFlow;
@@ -262,6 +264,27 @@ impl FunctionLowerer<'_, '_> {
                     ))?;
             return Ok(self.lower_constant(value.into(), self.expr_type(expr_id)?));
         }
+        if let Some(variant) = self.analyzed.typed.type_table.standard_constructor(expr_id) {
+            let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
+                hir::ExprKind::Call { args, .. } => args.to_vec(),
+                _ => Vec::new(),
+            };
+            let fields = match self.lower_values(&args)? {
+                ControlFlow::Continue(values) => values,
+                ControlFlow::Break(value) => return Ok(value),
+            };
+            let ty = self
+                .analyzed
+                .typed
+                .type_table
+                .expr_type(expr_id)
+                .ok_or(IrLoweringError::MissingExprType(expr_id))?;
+            return self.standard_enum_op(
+                &ty,
+                crate::module::instruction::StandardEnumOp::Make(variant.index() as u32),
+                fields.first().copied(),
+            );
+        }
         if let Some(target) = self
             .analyzed
             .typed
@@ -311,6 +334,31 @@ impl FunctionLowerer<'_, '_> {
             hir::ExprKind::Missing => Err(IrLoweringError::UnresolvedExpr(expr_id)),
             hir::ExprKind::Name { .. } => self.lower_name_expr(expr_id),
             hir::ExprKind::Literal(_) => Err(IrLoweringError::MissingBinding("checked literal")),
+            hir::ExprKind::Propagate { expr } => {
+                use crate::module::instruction::StandardEnumOp;
+                let value = self.lower_expr(expr)?;
+                if self.current_block_terminated() {
+                    return Ok(value);
+                }
+                let ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(expr)
+                    .ok_or(IrLoweringError::MissingExprType(expr))?;
+                let cond = self.standard_enum_op(&ty, StandardEnumOp::Test(0), Some(value))?;
+                let success = self.new_block();
+                let failure = self.new_block();
+                self.set_terminator(Terminator::Branch {
+                    cond,
+                    then_block: success,
+                    else_block: failure,
+                });
+                self.switch_to_block(failure);
+                self.set_terminator(Terminator::Return(Some(value)));
+                self.switch_to_block(success);
+                self.standard_enum_op(&ty, StandardEnumOp::Read(0), Some(value))
+            }
             hir::ExprKind::Prefix { op, expr } => {
                 let operand = self.lower_expr(expr)?;
                 if self.current_block_terminated() {
@@ -634,6 +682,39 @@ impl FunctionLowerer<'_, '_> {
         fail: crate::module::ids::BlockId,
         bindings: &mut Vec<(crate::module::ids::LocalId, IrValue)>,
     ) -> Result<(), IrLoweringError> {
+        if let Some(variant) = self.analyzed.typed.type_table.standard_pattern(pattern) {
+            use crate::module::instruction::StandardEnumOp;
+            let cond = self.standard_enum_op(
+                expected,
+                StandardEnumOp::Test(variant.index() as u32),
+                Some(value),
+            )?;
+            let next = self.new_block();
+            self.set_terminator(Terminator::Branch {
+                cond,
+                then_block: next,
+                else_block: fail,
+            });
+            self.switch_to_block(next);
+            if let Some(index) = variant.payload() {
+                let kagari_hir::types::TypeId::StandardEnum { args, .. } = expected else {
+                    return Err(IrLoweringError::MissingBinding("standard pattern type"));
+                };
+                let hir::PatternKind::EnumVariant { fields, .. } =
+                    &self.analyzed.lowered.module.pattern(pattern).kind
+                else {
+                    return Err(IrLoweringError::MissingBinding("standard payload pattern"));
+                };
+                let field = fields[0];
+                let payload = self.standard_enum_op(
+                    expected,
+                    StandardEnumOp::Read(variant.index() as u32),
+                    Some(value),
+                )?;
+                self.lower_pattern_decision(field, payload, &args[index], fail, bindings)?;
+            }
+            return Ok(());
+        }
         match &self.analyzed.lowered.module.pattern(pattern).kind {
             hir::PatternKind::Wildcard => {}
             hir::PatternKind::Or(alternatives) => {
@@ -1516,6 +1597,30 @@ impl FunctionLowerer<'_, '_> {
                         ))
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
+                        use kagari_hir::builtin::surface::StandardIntrinsic::*;
+                        if matches!(
+                            intrinsic,
+                            OptionMap
+                                | OptionAndThen
+                                | OptionOkOr
+                                | OptionOkOrElse
+                                | ResultMap
+                                | ResultMapErr
+                                | ResultAndThen
+                        ) {
+                            let base = call
+                                .receiver
+                                .or_else(|| args.first().copied())
+                                .ok_or(IrLoweringError::MissingBinding("standard receiver"))?;
+                            let base_ty = self
+                                .analyzed
+                                .typed
+                                .type_table
+                                .expr_type(base)
+                                .ok_or(IrLoweringError::MissingExprType(base))?;
+                            return self
+                                .lower_standard_combinator(expr, intrinsic, &base_ty, &lowered);
+                        }
                         CallTarget::StandardIntrinsic(intrinsic)
                     }
                     SemanticCallTarget::HostFunction(id) => CallTarget::HostFunction(Box::new(

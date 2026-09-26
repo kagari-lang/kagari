@@ -40,6 +40,7 @@ pub enum ResolvedName {
     Local(LocalId),
     Module(ModuleId),
     StandardModule(surface::StandardModule),
+    StandardVariant(surface::StandardVariant),
     StandardFunction(surface::StandardIntrinsic),
     RuntimeHelper(crate::builtin::BuiltinFunction),
     Struct(StructId),
@@ -69,6 +70,7 @@ pub struct ResolvedNames {
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
     qualified_members: HashMap<ExprId, QualifiedMember>,
+    pub(crate) pattern_variants: HashMap<crate::hir::PatternId, surface::StandardVariant>,
     closure_captures: HashMap<ExprId, Vec<ResolvedName>>,
 }
 
@@ -86,6 +88,7 @@ impl ResolvedNames {
             exprs: HashMap::new(),
             places: HashMap::new(),
             qualified_members: HashMap::new(),
+            pattern_variants: HashMap::new(),
             closure_captures: HashMap::new(),
         }
     }

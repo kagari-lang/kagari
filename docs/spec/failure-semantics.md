@@ -3,6 +3,15 @@
 This is the authoritative v1 failure contract. Execution cleanup is not business
 rollback. A failed call stops further execution but preserves completed effects.
 
+## Business-value propagation
+
+`?` on built-in Option/Result returns the original None/Err value from the nearest
+function or closure. It does not wrap an error, record a stack, roll back prior
+side effects, catch a trap, or reset an execution budget. Normal frame return
+releases that frame's iteration guards, roots and host resources. Constructors,
+explicit conversions and matching are defined in [builtins](builtins.md#option-and-result).
+A general propagation trait and Error origin/stack model are deferred.
+
 ## Failure classes
 
 - Business rejection is an ordinary Result value that scripts can handle.

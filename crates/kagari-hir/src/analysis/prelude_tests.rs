@@ -651,3 +651,53 @@ fn reflection_receivers_must_produce_values_before_target_checks() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{source}");
     }
 }
+
+#[test]
+fn standard_variants_and_propagation_rebase_on_body_reuse() {
+    let text = "fn first()->i32 { 1 } fn keep(x: Option<i32>)->Option<i32> { val y = Some(x?); match y { Some(n) => Some(n), None => None, } }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("cache.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let headers = db
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let DeclarationId::Definition(owner) = &headers
+        .file(file)
+        .unwrap()
+        .declarations()
+        .iter()
+        .find(|d| d.name == "keep")
+        .unwrap()
+        .id
+    else {
+        panic!("function");
+    };
+    let old = db
+        .body(sources.snapshot(), owner, &Default::default())
+        .unwrap()
+        .unwrap();
+    assert!(old.diagnostics().is_empty(), "{:?}", old.diagnostics());
+    sources
+        .set(
+            "cache.kgr",
+            text.replace("{ 1 }", "{ val n = 2; n }"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let reused = db
+        .body(sources.snapshot(), owner, &Default::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(reused.reused_bodies(), 1);
+    let fresh = AnalysisDatabase::default()
+        .body(sources.snapshot(), owner, &Default::default())
+        .unwrap()
+        .unwrap();
+    reused.type_table().assert_same_source_facts(
+        fresh.type_table(),
+        reused.lowered().module.body.arena(),
+        fresh.lowered().module.body.arena(),
+    );
+}

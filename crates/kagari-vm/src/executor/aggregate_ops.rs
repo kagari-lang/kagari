@@ -245,3 +245,78 @@ impl Executor<'_> {
         }
     }
 }
+
+impl Executor<'_> {
+    pub(crate) fn standard_enum_operation(
+        &self,
+        value: Option<Register>,
+        ty: &kagari_ir::module::abi::AbiType,
+        op: kagari_ir::module::instruction::StandardEnumOp,
+    ) -> Result<Value, VmError> {
+        use kagari_ir::module::{
+            abi::{AbiType, StandardEnumKind},
+            instruction::StandardEnumOp,
+        };
+        use kagari_runtime::value::EnumTag;
+        let AbiType::StandardEnum { kind, args } = ty else {
+            return Err(VmError::TypeMismatch("standard enum type"));
+        };
+        let variant = match op {
+            StandardEnumOp::Make(v) | StandardEnumOp::Test(v) | StandardEnumOp::Read(v) => v,
+        };
+        let tag = match (*kind, variant) {
+            (StandardEnumKind::Option, 0) => EnumTag::OptionSome,
+            (StandardEnumKind::Option, 1) => EnumTag::OptionNone,
+            (StandardEnumKind::Result, 0) => EnumTag::ResultOk,
+            (StandardEnumKind::Result, 1) => EnumTag::ResultErr,
+            _ => return Err(VmError::TypeMismatch("standard enum variant")),
+        };
+        let value = value
+            .map(|v| Ok::<_, VmError>(self.current_frame()?.read_register(v)?))
+            .transpose()?;
+        let result = if matches!(op, StandardEnumOp::Make(_)) {
+            Value::Enum(self.runtime.alloc_enum(tag, value.into_iter().collect())?)
+        } else {
+            let Some(Value::Enum(id)) = value else {
+                return Err(VmError::TypeMismatch("standard enum value"));
+            };
+            let snapshot = self
+                .runtime
+                .gc()
+                .enum_snapshot(id)
+                .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
+            let payload_count = match (kind, &snapshot.tag) {
+                (StandardEnumKind::Option, EnumTag::OptionNone) => 0,
+                (StandardEnumKind::Option, EnumTag::OptionSome)
+                | (StandardEnumKind::Result, EnumTag::ResultOk | EnumTag::ResultErr) => 1,
+                _ => return Err(VmError::TypeMismatch("standard enum family")),
+            };
+            if snapshot.fields.len() != payload_count {
+                return Err(VmError::TypeMismatch("standard enum payload arity"));
+            }
+            if matches!(op, StandardEnumOp::Test(_)) {
+                Value::Bool(snapshot.tag == tag)
+            } else {
+                if snapshot.tag != tag {
+                    return Err(VmError::TypeMismatch("standard enum payload variant"));
+                }
+                let value = snapshot
+                    .fields
+                    .first()
+                    .cloned()
+                    .ok_or(VmError::TypeMismatch("standard enum payload"))?;
+                let output = args
+                    .get(variant as usize)
+                    .ok_or(VmError::TypeMismatch("standard enum payload type"))?
+                    .representation();
+                if !value.has_representation(output) {
+                    return Err(VmError::TypeMismatch(
+                        "standard enum payload representation",
+                    ));
+                }
+                value
+            }
+        };
+        Ok(result)
+    }
+}

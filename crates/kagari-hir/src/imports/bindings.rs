@@ -63,6 +63,7 @@ impl ModuleImports {
             ImportTarget::HostFunction(function) => ResolvedName::HostFunction(*function),
             ImportTarget::HostType(ty) => ResolvedName::HostType(*ty),
             ImportTarget::HostModule(module) => ResolvedName::HostModule(*module),
+            ImportTarget::StandardVariant(variant) => ResolvedName::StandardVariant(*variant),
             ImportTarget::StandardFunction(function) => ResolvedName::StandardFunction(*function),
             ImportTarget::StandardModule(module) => ResolvedName::StandardModule(*module),
         })
@@ -106,7 +107,11 @@ impl ModuleImports {
                 }
                 ResolvedName::HostModule(module) => hosts.resolve_name_in(module, member),
                 ResolvedName::StandardModule(module) => surface::standard_function(module, member)
-                    .map(|f| ResolvedName::StandardFunction(f.intrinsic)),
+                    .map(|f| ResolvedName::StandardFunction(f.intrinsic))
+                    .or_else(|| {
+                        surface::standard_variant_in_module(module, member)
+                            .map(ResolvedName::StandardVariant)
+                    }),
                 _ => None,
             },
         }

@@ -1021,3 +1021,11 @@ never accepted for code generation. Wide sibling lists do not accumulate depth.
 This check complements the recursive-entry budget, which stops recursive descent
 before nodes finish. Both are required; downstream traversals over externally
 constructed HIR and generic expansion retain their own resource obligations.
+
+## Option/Result propagation
+
+`expr?` is a postfix operator, at the same parsing level as calls, member access
+and indexing. It unwraps success or returns failure from the nearest function or
+closure. It applies only to the built-in Option and Result types; see the
+[standard-type contract](builtins.md#option-and-result) for type checking and
+explicit conversion rules. There is no exception-handler syntax.

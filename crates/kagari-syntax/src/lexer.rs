@@ -194,6 +194,10 @@ pub fn lex_with_cancellation(
                 chars.next();
                 tokens.push(token(TokenKind::Percent, index, index + 1));
             }
+            '?' => {
+                tokens.push(token(TokenKind::Question, index, index + 1));
+                chars.next();
+            }
             '!' => {
                 chars.next();
                 if let Some((end, '=')) = chars.peek().copied() {

@@ -1,3 +1,5 @@
+mod standard;
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use kagari_common::{Diagnostic, DiagnosticKind};
@@ -517,6 +519,7 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::HostType(_)
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
+                        | ResolvedName::StandardVariant(_)
                         | ResolvedName::StandardModule(_)
                         | ResolvedName::HostFunction(_)
                         | ResolvedName::StandardFunction(_)
@@ -574,7 +577,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_) => "module item is not assignable".to_string(),
-                    ResolvedName::StandardModule(_) => {
+                    ResolvedName::StandardVariant(_) | ResolvedName::StandardModule(_) => {
                         "standard module item is not assignable".to_string()
                     }
                     ResolvedName::StandardFunction(_) | ResolvedName::RuntimeHelper(_) => {
@@ -667,6 +670,11 @@ impl<'a> BodyChecker<'a> {
             self.type_table.insert_expr(expr_id, ty.clone());
             return ty;
         }
+        if let Some(ty) = self.infer_standard_constructor(expr_id, env, expected) {
+            self.type_table.insert_expr(expr_id, ty.clone());
+            env.exprs.insert(expr_id, ty.clone());
+            return ty;
+        }
         let expr = self.lowered.module.expr(expr_id);
         if let Some(ty) = self.infer_associated_const(expr_id, env) {
             env.exprs.insert(expr_id, ty.clone());
@@ -701,6 +709,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)
+                    | ResolvedName::StandardVariant(_)
                     | ResolvedName::StandardModule(_)
                     | ResolvedName::HostFunction(_)
                     | ResolvedName::StandardFunction(_)
@@ -735,6 +744,7 @@ impl<'a> BodyChecker<'a> {
                     TypeId::Error
                 }
             },
+            ExprKind::Propagate { expr } => self.infer_propagation(expr_id, *expr, env, expected),
             ExprKind::Prefix { op, expr } => {
                 // The magnitude of MIN is not a positive i32 expression on its own.
                 if matches!(op, PrefixOp::Neg)
@@ -1378,6 +1388,9 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) {
         let span = self.lowered.source_map.pattern_span(pattern);
+        if self.check_standard_pattern(pattern, expected, env) {
+            return;
+        }
         match &self.lowered.module.pattern(pattern).kind {
             PatternKind::Wildcard => {}
             PatternKind::Or(alternatives) => {
@@ -1768,6 +1781,37 @@ impl<'a> BodyChecker<'a> {
                     args,
                 }),
             ) => args.first().cloned().into_iter().collect(),
+            (
+                OptionMap | OptionAndThen | OptionOkOrElse | ResultMap | ResultMapErr
+                | ResultAndThen,
+                Some(TypeId::StandardEnum { kind, args }),
+            ) if args.len() == kind.spec().arity
+                && matches!(
+                    (intrinsic, kind),
+                    (
+                        OptionMap | OptionAndThen | OptionOkOrElse,
+                        surface::StandardEnum::Option
+                    ) | (
+                        ResultMap | ResultMapErr | ResultAndThen,
+                        surface::StandardEnum::Result
+                    )
+                ) =>
+            {
+                let params = if intrinsic == OptionOkOrElse {
+                    vec![]
+                } else {
+                    vec![args[usize::from(intrinsic == ResultMapErr)].clone()]
+                };
+                let result = match intrinsic {
+                    OptionAndThen => option_type(TypeId::Unknown),
+                    ResultAndThen => result_type(TypeId::Unknown, args[1].clone()),
+                    _ => TypeId::Unknown,
+                };
+                vec![TypeId::Function {
+                    params,
+                    result: Box::new(result),
+                }]
+            }
             (MathMin | MathMax, Some(ty)) => vec![ty.clone()],
             (MathClamp, Some(ty)) => vec![ty.clone(), ty.clone()],
             (DebugAssertEq, Some(ty)) => vec![ty.clone(), TypeId::Builtin(BuiltinType::String)],
@@ -2020,7 +2064,8 @@ impl<'a> BodyChecker<'a> {
                 );
                 option_type(TypeId::Builtin(BuiltinType::String))
             }
-            OptionIsSome | OptionIsNone | OptionUnwrapOr | OptionMap | OptionAndThen => {
+            OptionIsSome | OptionIsNone | OptionUnwrapOr | OptionMap | OptionAndThen
+            | OptionOkOr | OptionOkOrElse => {
                 let option_ty = base_ty.clone();
                 let Some((item_ty, _)) =
                     standard_enum_args(&option_ty, surface::StandardEnum::Option)
@@ -2040,7 +2085,36 @@ impl<'a> BodyChecker<'a> {
                         );
                         item_ty
                     }
-                    OptionMap | OptionAndThen => option_type(TypeId::Unknown),
+                    OptionOkOr => result_type(
+                        item_ty,
+                        arg_tys
+                            .get(value_offset)
+                            .map_or(TypeId::Unknown, |(_, ty)| ty.clone()),
+                    ),
+                    OptionMap | OptionAndThen | OptionOkOrElse => {
+                        let params = if intrinsic == OptionOkOrElse {
+                            vec![]
+                        } else {
+                            vec![item_ty.clone()]
+                        };
+                        let expected_result = if intrinsic == OptionAndThen {
+                            option_type(TypeId::Unknown)
+                        } else {
+                            TypeId::Unknown
+                        };
+                        let result = self.standard_callback_result(
+                            name,
+                            &params,
+                            &expected_result,
+                            value_offset,
+                            &arg_tys,
+                        );
+                        match intrinsic {
+                            OptionAndThen => result,
+                            OptionOkOrElse => result_type(item_ty, result),
+                            _ => option_type(result),
+                        }
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -2065,9 +2139,30 @@ impl<'a> BodyChecker<'a> {
                         );
                         ok_ty
                     }
-                    ResultMap => result_type(TypeId::Unknown, err_ty),
-                    ResultMapErr => result_type(ok_ty, TypeId::Unknown),
-                    ResultAndThen => result_type(TypeId::Unknown, err_ty),
+                    ResultMap | ResultMapErr | ResultAndThen => {
+                        let input = if intrinsic == ResultMapErr {
+                            err_ty.clone()
+                        } else {
+                            ok_ty.clone()
+                        };
+                        let expected_result = if intrinsic == ResultAndThen {
+                            result_type(TypeId::Unknown, err_ty.clone())
+                        } else {
+                            TypeId::Unknown
+                        };
+                        let result = self.standard_callback_result(
+                            name,
+                            &[input],
+                            &expected_result,
+                            value_offset,
+                            &arg_tys,
+                        );
+                        match intrinsic {
+                            ResultMap => result_type(result, err_ty),
+                            ResultMapErr => result_type(ok_ty, result),
+                            _ => result,
+                        }
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -4499,6 +4594,8 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         OptionUnwrapOr => "std::option::unwrap_or",
         OptionMap => "std::option::map",
         OptionAndThen => "std::option::and_then",
+        OptionOkOr => "std::option::ok_or",
+        OptionOkOrElse => "std::option::ok_or_else",
         ResultIsOk => "std::result::is_ok",
         ResultIsErr => "std::result::is_err",
         ResultUnwrapOr => "std::result::unwrap_or",

@@ -10,6 +10,11 @@ impl<'a> Executor<'a> {
         instruction: BytecodeInstruction,
     ) -> Result<(), VmError> {
         match instruction {
+            BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
+                let result = self.standard_enum_operation(value, &ty, op)?;
+                self.current_frame_mut()?.write_register(dst, result)?;
+            }
+
             BytecodeInstruction::BeginIteration { collection } => {
                 self.current_frame_mut()?.begin_iteration(collection)?;
             }

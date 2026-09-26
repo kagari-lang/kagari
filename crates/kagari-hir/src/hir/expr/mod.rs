@@ -21,6 +21,9 @@ pub enum ExprKind {
         explicit_type: Option<super::TypeRefId>,
     },
     Literal(Literal),
+    Propagate {
+        expr: ExprId,
+    },
     Prefix {
         op: PrefixOp,
         expr: ExprId,

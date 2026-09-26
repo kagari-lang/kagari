@@ -78,6 +78,8 @@ struct TraitImplementation {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
+    standard_constructors: HashMap<ExprId, crate::builtin::surface::StandardVariant>,
+    standard_patterns: HashMap<PatternId, crate::builtin::surface::StandardVariant>,
     associated_consts: HashMap<ExprId, ResolvedAssociatedConst>,
     pub(super) resolving_types: HashSet<crate::hir::TypeRefId>,
     pub(crate) associated_bounds: HashMap<DefinitionId, Vec<ConstraintTarget>>,
@@ -148,6 +150,33 @@ pub struct ResolvedHostPlacePath {
 }
 
 impl TypeTable {
+    pub fn standard_constructor(
+        &self,
+        id: ExprId,
+    ) -> Option<crate::builtin::surface::StandardVariant> {
+        self.standard_constructors.get(&id).copied()
+    }
+    pub(super) fn insert_standard_constructor(
+        &mut self,
+        id: ExprId,
+        value: crate::builtin::surface::StandardVariant,
+    ) {
+        self.standard_constructors.insert(id, value);
+    }
+    pub fn standard_pattern(
+        &self,
+        id: PatternId,
+    ) -> Option<crate::builtin::surface::StandardVariant> {
+        self.standard_patterns.get(&id).copied()
+    }
+    pub(super) fn insert_standard_pattern(
+        &mut self,
+        id: PatternId,
+        value: crate::builtin::surface::StandardVariant,
+    ) {
+        self.standard_patterns.insert(id, value);
+    }
+
     pub fn associated_type_parameters(
         &self,
         member: &DefinitionId,
@@ -213,8 +242,8 @@ impl TypeTable {
                 )+};
             }
             keys!(host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
-                place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
-                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId,
+                place_fields: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, standard_constructors: ExprId, exprs: ExprId, locals: LocalId,
+                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, standard_patterns: PatternId, pattern_ranges: PatternId,
                 interface_coercions: ExprId, associated_consts: ExprId);
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {
@@ -612,6 +641,10 @@ impl TypeTable {
                 self.pattern_fields
                     .insert(new_map.pattern_id(b), fields.clone());
             }
+            if let Some(variant) = old.standard_patterns.get(&old_map.pattern_id(a)) {
+                self.standard_patterns
+                    .insert(new_map.pattern_id(b), *variant);
+            }
             if let Some(variant) = old.pattern_variants.get(&old_map.pattern_id(a)) {
                 self.pattern_variants
                     .insert(new_map.pattern_id(b), variant.clone());
@@ -631,6 +664,10 @@ impl TypeTable {
             }
             if let Some(target) = old.struct_inits.get(&old_map.expr_id(a)) {
                 self.struct_inits.insert(new_map.expr_id(b), target.clone());
+            }
+            if let Some(target) = old.standard_constructors.get(&old_map.expr_id(a)) {
+                self.standard_constructors
+                    .insert(new_map.expr_id(b), *target);
             }
             if let Some(target) = old.enum_constructors.get(&old_map.expr_id(a)) {
                 self.enum_constructors
