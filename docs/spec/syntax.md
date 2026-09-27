@@ -405,10 +405,10 @@ to nested constructors; arity, payload types and generic bounds remain checked.
 Concrete parameter types of resolved local and imported functions supply argument
 context, including through source facades. Extra arguments are still checked.
 Trait methods use the same argument-context rules after substituting the receiver
-for `Self`. A local generic function call first infers from its expected result,
-then checks arguments in source order, making inferred concrete parameter types
-available to subsequent arguments. Later arguments do not yet provide context
-backwards to earlier constructors. Caller-owned generic binders are valid context,
+for `Self`. A function body collects structural type constraints from expected results,
+arguments and later local uses. Deferred obligations are revisited until those
+constraints stabilize; later arguments can supply context to earlier constructors
+and closures. This does not change source-order, exactly-once runtime evaluation. Caller-owned generic binders are valid context,
 including after trait `Self` substitution; unresolved callee binders are not.
 Binder ownership, rather than parameter spelling, controls this distinction.
 Uninferred binders leave unknown positions in an argument's context without
@@ -470,7 +470,7 @@ same expected-type context in every expression position. Constructor arity and
 container kind must still match; context does not coerce incompatible elements.
 Local container annotations enforce the same `Eq + Hash` requirements as function
 signatures, including nested containers and forwarded generic constraints.
-Struct fields and enum payloads also update inference in source order: an earlier
+Struct fields and enum payloads participate in the same body constraints: an earlier
 member can supply context to a later nested constructor. A member whose type is
 already known does not wait for unrelated generic parameters to be inferred.
 This also applies within composite members: a field or enum payload declared

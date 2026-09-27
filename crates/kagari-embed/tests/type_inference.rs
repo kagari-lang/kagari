@@ -61,3 +61,33 @@ fn later_collection_uses_preserve_access_and_runtime_values() {
     "#,
     );
 }
+
+#[test]
+fn inference_order_does_not_change_evaluation_order() {
+    execute(
+        r#"
+        struct Marker<T> { val value: i32 }
+        struct Pair<T> { val marker: Marker<T>, val seed: T }
+        enum Bundle<T> { Pair(Marker<T>, T) }
+        fn consume<T>(marker: Marker<T>, seed: T) -> i32 { marker.value }
+        fn record(events: MutableArray<i32>, value: i32) -> i32 {
+            events.push(value);
+            value
+        }
+        fn main() -> i32 {
+            val events = [];
+            val x = consume(Marker { value: record(events, 20) }, record(events, 22));
+            std::debug::assert_eq(events[0], 20, "first argument");
+            std::debug::assert_eq(events[1], 22, "second argument");
+            std::debug::assert_eq(events.len(), "ab".len_bytes(), "exactly once");
+            val pair = Pair { marker: Marker { value: x }, seed: true };
+            val bundle = Bundle::Pair(Marker { value: x }, true);
+            val options = [None, Some(22)];
+            val branch = if false { None } else { Some(22) };
+            std::debug::assert_eq(options[1], branch, "branch and element context");
+            val callback = |value| value + 1;
+            callback(41)
+        }
+    "#,
+    );
+}
