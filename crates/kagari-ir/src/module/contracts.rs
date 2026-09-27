@@ -292,11 +292,11 @@ pub(crate) fn verify_intrinsic(
                 reason: "collection factories require checked construction lowering",
             });
         }
-        MapLen | SetLen | IterLen => {
+        MapLen | SetLen => {
             expect_iterable_or_heap_arg(args, 0, intrinsic)?;
             verify_call_dst(dst, ValueType::I64)?;
         }
-        MapIsEmpty | SetIsEmpty | IterIsEmpty => {
+        MapIsEmpty | SetIsEmpty => {
             expect_iterable_or_heap_arg(args, 0, intrinsic)?;
             verify_call_dst(dst, ValueType::Bool)?;
         }
@@ -411,20 +411,6 @@ pub(crate) fn verify_intrinsic(
             )?;
             let _ = args[1];
             verify_call_dst(dst, ValueType::HeapObject)?;
-        }
-        IterGet => {
-            expect_iterable_or_heap_arg(args, 0, intrinsic)?;
-            expect_arg_ty(args, 1, ValueType::I64, "standard intrinsic index")?;
-            verify_call_dst(dst, ValueType::HeapObject)?;
-        }
-        IterToArray => {
-            expect_iterable_or_heap_arg(args, 0, intrinsic)?;
-            verify_call_dst(dst, ValueType::HeapObject)?;
-        }
-        IterForEach => {
-            expect_iterable_or_heap_arg(args, 0, intrinsic)?;
-            let _ = args[1];
-            verify_call_dst(dst, ValueType::Unit)?;
         }
         MathMin | MathMax => {
             let lhs = expect_numeric_arg(args, 0, intrinsic)?;

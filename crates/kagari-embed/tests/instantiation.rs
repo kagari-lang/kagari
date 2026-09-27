@@ -723,7 +723,6 @@ fn terminating_standard_receivers_skip_container_and_string_operations() {
         "std::string::String::len_bytes(ARG)",
         "std::option::Option::is_some(ARG)",
         "std::result::Result::is_ok(ARG)",
-        "std::iter::len(ARG)",
         "std::array::MutableArray::push(ARG, tick(count))",
     ] {
         let expression = call.replace("ARG", "if tick(count) { return 40; } else { return 0; }");

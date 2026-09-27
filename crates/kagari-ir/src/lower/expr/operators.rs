@@ -78,6 +78,13 @@ impl FunctionLowerer<'_, '_> {
                 .implementation_method(method, &interface, &ty)
                 .is_none()
         {
+            use kagari_hir::builtin::declarations::IteratorMethod::*;
+            if matches!(
+                operation,
+                Find | Any | All | Count | Fold | ForEach | Partition | GroupBy
+            ) {
+                return self.lower_iterator_terminal(operation, &ty, &method_arguments, args);
+            }
             if operation != kagari_hir::builtin::declarations::IteratorMethod::Collect {
                 return self.lower_iterator_adapter(operation, &ty, &method_arguments, args);
             }

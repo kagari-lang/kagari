@@ -735,7 +735,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             "host-iteration-rejects-script-structural-write",
             &source,
             Expected::BuiltinTrap(format!(
-                "std::array::{}: structural modification during iteration",
+                "std::array::MutableArray::{}: structural modification during iteration",
                 operation
                     .strip_prefix("a.")
                     .unwrap()
@@ -837,8 +837,8 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(Value::I32(32))).effects(&["right", "left"], &["right", "left"]),
         Case::new("explicit-string-lengths", "fn main() -> (usize, usize) { (\"中😀\".len_bytes(), \"中😀\".len_chars()) }", Expected::Value(Value::Tuple(vec![Value::I64(7), Value::I64(2)]))),
         Case::new("reject-obsolete-string-len", "fn main() { \"text\".len(); }", Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME")),
-        Case::new("iter-array-option", "fn main() -> (usize, i32, bool) { val a = [4, 7]; (std::iter::len(a), std::iter::get(a, \"a\".len_bytes()).unwrap_or(0), std::iter::get(a, a.len()).is_none()) }", Expected::Value(Value::Tuple(vec![Value::I64(2), Value::I32(7), Value::Bool(true)]))),
-        Case::new("iter-string-option", "fn main() -> (usize, String, bool) { val s = \"中😀\"; (std::iter::len(s), std::iter::get(s, \"a\".len_bytes()).unwrap_or(\"missing\"), std::iter::get(s, s.len_chars()).is_none()) }", Expected::Value(Value::Tuple(vec![Value::I64(2), Value::Str("😀".into()), Value::Bool(true)]))),
+        Case::new("iter-array-option", "fn main() -> (usize, i32, bool) { val a = [4, 7]; (a.iter().count(), a.iter().skip(\"a\".len_bytes()).next().unwrap_or(0), a.iter().skip(a.len()).next().is_none()) }", Expected::Value(Value::Tuple(vec![Value::I64(2), Value::I32(7), Value::Bool(true)]))),
+        Case::new("iter-string-option", "fn main() -> (usize, String, bool) { val s = \"中😀\"; (s.iter().count(), s.iter().skip(\"a\".len_bytes()).next().unwrap_or(\"missing\"), s.iter().skip(s.len_chars()).next().is_none()) }", Expected::Value(Value::Tuple(vec![Value::I64(2), Value::Str("😀".into()), Value::Bool(true)]))),
         Case::new("pop-empty-option", "fn main() -> (i32, bool, usize) { val a = [7]; val alias = a; val popped = a.pop().unwrap_or(0); (popped, alias.pop().is_none(), a.len()) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::I64(0)]))),
         Case::new("user-print-is-direct-call", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(41) }", Expected::Value(Value::I32(42))),
         Case::new("user-type-of-is-direct-call", "fn type_of(n: i32) -> i32 { n + 2 } fn main() -> i32 { type_of(40) }", Expected::Value(Value::I32(42))),
@@ -924,7 +924,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("enum_different_members", "fn main() -> bool { val a = [1, 2]; a.pop() != a.pop() }", Expected::Value(Value::Bool(true))),
         Case::new("enum_object_identity", "fn main() -> bool { val a = [[1]]; val b = [[1]]; a.pop() != b.pop() }", Expected::Value(Value::Bool(true))),
         Case::new("enum_assert_eq", "fn main() { val a = [1]; val b = [1]; std::debug::assert_eq(a.pop(), b.pop(), \"same enum\"); }", Expected::Value(Value::Unit)),
-        Case::new("shallow_copy", "struct P { var n: i32 } fn main() -> bool { val a = [P { n: 1 }]; val b = std::iter::to_array(a); b[0].n = 7; a != b && a[0].n == 7 }", Expected::Value(Value::Bool(true))),
+        Case::new("shallow_copy", "struct P { var n: i32 } fn main() -> bool { val a = [P { n: 1 }]; val b = MutableArray::from_iter(a); b[0].n = 7; a != b && a[0].n == 7 }", Expected::Value(Value::Bool(true))),
         Case::new("map_alias_through_call", "fn change(value: MutableMap<String, i32>) -> MutableMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: MutableMap<String, i32> = MutableMap::new(); val b = change(a); val fresh: MutableMap<String, i32> = MutableMap::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }", Expected::Value(Value::Bool(true))),
         Case::new("set_alias_through_call", "fn change(value: MutableSet<String>) -> MutableSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: MutableSet<String> = MutableSet::new(); val b = change(a); val fresh: MutableSet<String> = MutableSet::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }", Expected::Value(Value::Bool(true))),
         Case::new("map_values_are_shallow", "struct Item { var value: i32 } fn main() -> bool { val item = Item { value: 1 }; val a: MutableMap<String, Item> = MutableMap::new(); a.insert(\"key\", item); val values = a.values(); values[0].value = 42; values.push(Item { value: 9 }); item.value == 42 && a.len() == [0].len() && values.len() == [0, 0].len() }", Expected::Value(Value::Bool(true))),

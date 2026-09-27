@@ -5,6 +5,7 @@ mod iterators;
 mod keys;
 mod operators;
 mod standard;
+mod terminals;
 
 use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::{builtin::BuiltinFunction, hir};
@@ -1973,20 +1974,6 @@ impl FunctionLowerer<'_, '_> {
                                 .ok_or(IrLoweringError::MissingExprType(base))?;
                             return self
                                 .lower_standard_combinator(expr, intrinsic, &base_ty, &lowered);
-                        }
-                        if intrinsic == kagari_hir::builtin::surface::StandardIntrinsic::IterForEach
-                        {
-                            let base = call
-                                .receiver
-                                .or_else(|| args.first().copied())
-                                .ok_or(IrLoweringError::MissingBinding("iteration source"))?;
-                            let base_ty = self
-                                .analyzed
-                                .typed
-                                .type_table
-                                .expr_type(base)
-                                .ok_or(IrLoweringError::MissingExprType(base))?;
-                            return self.lower_standard_for_each(expr, &base_ty, &lowered);
                         }
                         CallTarget::StandardIntrinsic(intrinsic)
                     }

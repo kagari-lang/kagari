@@ -1,100 +1,6 @@
-//! Helpers for native Array, Map, Set and String iteration. These are not arbitrary Iterator operations.
+//! Lazy iteration, terminal operations and collection construction.
 //!
-//! Resource exhaustion and cancellation follow the execution-session contract.
-
-/// Return the size of a native iterable collection.
-///
-/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
-/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
-///
-/// Map and set enumeration order is not a public ordering guarantee. This helper does not
-/// consume a custom Iterator.
-///
-/// # Examples
-///
-/// ```kgr
-/// std::debug::assert(std::iter::len("é!") == [0, 0].len(), "scalar count");
-/// ```
-#[intrinsic(IterLen)]
-pub fn len<I: Iterable>(value: I) -> usize;
-
-/// Test whether a native iterable collection is empty.
-///
-/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
-/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
-///
-/// Map and set enumeration order is not a public ordering guarantee. This helper does not
-/// consume a custom Iterator.
-///
-/// # Examples
-///
-/// ```kgr
-/// std::debug::assert(std::iter::is_empty(""), "empty");
-/// ```
-#[intrinsic(IterIsEmpty)]
-pub fn is_empty<I: Iterable>(value: I) -> bool;
-
-/// Return the indexed native iteration item, or None if out of bounds.
-///
-/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
-/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
-///
-/// Map and set enumeration order is not a public ordering guarantee. This helper does not
-/// consume a custom Iterator.
-///
-/// Indices are zero-based positions in native enumeration. An out-of-range index returns
-/// `None`.
-///
-/// # Examples
-///
-/// ```kgr
-/// std::debug::assert(std::iter::get("é!", "".len_bytes()) == Some("é"), "scalar");
-/// ```
-#[intrinsic(IterGet)]
-pub fn get<I: Iterable>(value: I, index: usize) -> Option<I::Item>;
-
-/// Collect native iteration items into a shallow array.
-///
-/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
-/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
-///
-/// Map and set enumeration order is not a public ordering guarantee. This helper does not
-/// consume a custom Iterator.
-///
-/// # Examples
-///
-/// ```kgr
-/// val items = std::iter::to_array("hi");
-/// std::debug::assert(items.get("".len_bytes()) == Some("h"), "collected");
-/// ```
-#[intrinsic(IterToArray)]
-pub fn to_array<I: Iterable>(value: I) -> MutableArray<I::Item>;
-
-/// Call the callback once for each native iteration item.
-///
-/// Accepted native sources are arrays, maps, sets and strings. Array and set items are
-/// elements; map items are `(key, value)` tuples; string items are one-scalar strings.
-///
-/// Map and set enumeration order is not a public ordering guarantee. This helper does not
-/// consume a custom Iterator.
-///
-/// The callback returns unit. Earlier callback side effects remain if a later callback
-/// fails.
-///
-/// # Panics
-///
-/// Structural modification of a guarded source traps. Callback traps and execution
-/// termination propagate to the caller.
-///
-/// # Examples
-///
-/// ```kgr
-/// var total = 0;
-/// std::iter::for_each([1, 2, 3], |item| { total += item; });
-/// std::debug::assert(total == 6, "visited");
-/// ```
-#[intrinsic(IterForEach)]
-pub fn for_each<I: Iterable>(value: I, callback: fn(I::Item) -> ()) -> ();
+//! Callbacks execute on ordinary script frames and inherit the execution budget.
 
 /// A stateful source of successive items.
 ///
@@ -171,6 +77,41 @@ pub trait Iterator {
     /// The first None permanently advances from the first iterator to the second.
     #[intrinsic(IteratorChain)]
     fn chain<I: Iterable<Item = Self::Item>>(self, other: I) -> Cursor<Self::Item>;
+
+    /// Return the first matching item, leaving subsequent items unconsumed.
+    #[intrinsic(IteratorFind)]
+    fn find(self, predicate: fn(Self::Item) -> bool) -> Option<Self::Item>;
+
+    /// Stop at the first true predicate result. Empty iterators return false.
+    #[intrinsic(IteratorAny)]
+    fn any(self, predicate: fn(Self::Item) -> bool) -> bool;
+
+    /// Stop at the first false predicate result. Empty iterators return true.
+    #[intrinsic(IteratorAll)]
+    fn all(self, predicate: fn(Self::Item) -> bool) -> bool;
+
+    /// Count remaining items. Overflow traps instead of wrapping.
+    #[intrinsic(IteratorCount)]
+    fn count(self) -> usize;
+
+    /// Accumulate remaining items from left to right, starting with initial.
+    #[intrinsic(IteratorFold)]
+    fn fold<A>(self, initial: A, callback: fn(A, Self::Item) -> A) -> A;
+
+    /// Call the callback once for each remaining item. Earlier effects survive traps.
+    #[intrinsic(IteratorForEach)]
+    fn for_each(self, callback: fn(Self::Item) -> ()) -> ();
+
+    /// Split items into matching and nonmatching destinations, preserving order.
+    /// Items are buffered in two shallow arrays before invoking FromIterator.
+    #[intrinsic(IteratorPartition)]
+    fn partition<C: FromIterator<Self::Item>>(self, predicate: fn(Self::Item) -> bool) -> (C, C);
+
+    /// Group the entire input by a key computed once per item.
+    /// This Kagari extension returns fresh mutable groups in first-key insertion order.
+    /// Items within each group retain traversal order. Keys obey Eq and Hash.
+    #[intrinsic(IteratorGroupBy)]
+    fn group_by<K: Eq + Hash>(self, key: fn(Self::Item) -> K) -> MutableMap<K, MutableArray<Self::Item>>;
 }
 
 /// Obtain an iterator without transferring ownership of the source.

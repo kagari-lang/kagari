@@ -50,7 +50,7 @@ fn declared_for_each_uses_script_frames_and_cleans_iteration_guards_on_failure()
                 r#"
 fn main() {
     val values=[1,2];
-    std::iter::for_each(values, |item| { values.push(item); });
+    values.iter().for_each(|item| { values.push(item); });
 }
 fn healthy()->i32 {42}
 "#,

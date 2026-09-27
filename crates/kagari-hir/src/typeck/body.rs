@@ -4250,7 +4250,6 @@ fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
             kind: surface::StandardEnum::Result,
             ..
         } => Some(StandardMethodReceiver::Result),
-        _ if surface::iterable_protocol(ty).is_some() => Some(StandardMethodReceiver::Iterable),
         _ => None,
     }
 }

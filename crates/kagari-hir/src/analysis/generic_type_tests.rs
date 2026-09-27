@@ -2256,7 +2256,6 @@ fn standard_receiver_shapes_require_normally_produced_values() {
         "std::string::String::len_bytes(ARG)",
         "std::option::Option::is_some(ARG)",
         "std::result::Result::is_ok(ARG)",
-        "std::iter::len(ARG)",
     ] {
         for (argument, valid) in [
             ("if true { return 42; } else { return 7; }", true),

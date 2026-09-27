@@ -521,8 +521,6 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ResultMap
             | ResultMapErr
             | ResultAndThen
-            | IterGet
-            | IterToArray
     );
 
     let mut effects = match intrinsic {

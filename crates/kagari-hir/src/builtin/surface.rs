@@ -229,11 +229,6 @@ pub enum StandardIntrinsic {
     ResultMap,
     ResultMapErr,
     ResultAndThen,
-    IterLen,
-    IterIsEmpty,
-    IterGet,
-    IterToArray,
-    IterForEach,
     MathMin,
     MathMax,
     MathClamp,
@@ -258,7 +253,6 @@ pub enum StandardIntrinsic {
 // to canonical standard traits and are not source-level bound names.
 pub enum StandardTypeConstraint {
     HashKey,
-    Iterable,
     OrderedNumber,
     SignedNumber,
     Comparable,
@@ -289,7 +283,6 @@ pub enum StandardMethodReceiver {
     String,
     Option,
     Result,
-    Iterable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -589,7 +582,6 @@ pub fn standard_constraint(name: &str) -> Option<StandardTypeConstraint> {
 pub fn standard_constraint_name(constraint: StandardTypeConstraint) -> &'static str {
     match constraint {
         StandardTypeConstraint::HashKey => "Eq + Hash",
-        StandardTypeConstraint::Iterable => "Iterable",
         StandardTypeConstraint::OrderedNumber => "OrderedNumber",
         StandardTypeConstraint::SignedNumber => "SignedNumber",
         StandardTypeConstraint::Comparable => "PartialEq",

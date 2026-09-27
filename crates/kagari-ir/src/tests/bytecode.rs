@@ -1164,10 +1164,8 @@ fn program_rejects_conflicting_host_types_before_linking() {
 }
 
 #[test]
-fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
-    let module = common::bytecode_ok(
-        "fn main() -> bool { val a = [7]; std::iter::get(a, a.len()).is_none() }",
-    );
+fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
+    let module = common::bytecode_ok("fn main() -> bool { val a = [7]; a.get(a.len()).is_none() }");
     let mut scalar_result = module.clone();
     let function = &mut scalar_result.functions[0];
     let dst = function
@@ -1176,7 +1174,7 @@ fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
         .find_map(|instruction| {
             if let BytecodeInstruction::Call {
                 dst,
-                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::IterGet),
+                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayGet),
                 ..
             } = instruction
             {
@@ -1204,7 +1202,7 @@ fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
     let mut wrong_arity = module;
     for instruction in &mut wrong_arity.functions[0].instructions {
         if let BytecodeInstruction::Call {
-            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::IterGet),
+            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayGet),
             args,
             ..
         } = instruction
@@ -1216,7 +1214,7 @@ fn verifier_rejects_iter_get_scalar_result_and_wrong_arity() {
         verify_module(&wrong_arity),
         Err(
             BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                intrinsic: StandardIntrinsic::IterGet,
+                intrinsic: StandardIntrinsic::ArrayGet,
                 ..
             }
         )

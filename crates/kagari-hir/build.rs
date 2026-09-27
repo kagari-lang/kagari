@@ -187,7 +187,6 @@ fn main() {
                     [] => None,
                     ["Eq", "Hash"] => Some("HashKey"),
                     ["PartialEq"] => Some("Comparable"),
-                    ["Iterable"] => Some("Iterable"),
                     ["OrderedNumber"] => Some("OrderedNumber"),
                     ["SignedNumber"] => Some("SignedNumber"),
                     _ => panic!("unsupported standard constraint {bounds:?}"),

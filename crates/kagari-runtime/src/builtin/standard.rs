@@ -172,11 +172,6 @@ pub fn invoke_with_callbacks(
         ResultMap => result_map(gc, args, callbacks),
         ResultMapErr => result_map_err(gc, args, callbacks),
         ResultAndThen => result_and_then(gc, args, callbacks),
-        IterLen => iter_len(gc, args),
-        IterIsEmpty => iter_is_empty(gc, args),
-        IterGet => iter_get(gc, args),
-        IterToArray => iter_to_array(gc, args),
-        IterForEach => iter_for_each(gc, args, callbacks),
         MathMin => math_min(args),
         MathMax => math_max(args),
         MathClamp => math_clamp(args),
@@ -767,70 +762,6 @@ fn result_and_then(
     }
 }
 
-fn iter_len(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let [value] = args else {
-        return Err(BuiltinError::new("iter.len expects one iterable"));
-    };
-    iterable_items(gc, value, "iter.len").map(|items| usize_value(items.len()))
-}
-
-fn iter_is_empty(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let [value] = args else {
-        return Err(BuiltinError::new("iter.is_empty expects one iterable"));
-    };
-    iterable_items(gc, value, "iter.is_empty").map(|items| Value::Bool(items.is_empty()))
-}
-
-fn iter_get(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let [value, index] = args else {
-        return Err(BuiltinError::new("iter.get expects iterable and index"));
-    };
-    let index = index_value(index, "iter.get")?;
-    match iterable_items(gc, value, "iter.get")?.get(index).cloned() {
-        Some(value) => option_some(gc, value),
-        None => option_none(gc),
-    }
-}
-
-fn iter_to_array(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let [value] = args else {
-        return Err(BuiltinError::new("iter.to_array expects one iterable"));
-    };
-    array_value(gc, iterable_items(gc, value, "iter.to_array")?)
-}
-
-fn iter_for_each(
-    gc: &GcHeap,
-    args: &[Value],
-    callbacks: &mut dyn BuiltinCallbacks,
-) -> Result<Value, BuiltinError> {
-    let [value, callback] = args else {
-        return Err(BuiltinError::new(
-            "iter.for_each expects iterable and callback",
-        ));
-    };
-    let callback = callback_id(callback, "iter.for_each")?;
-    let _iteration = match value {
-        Value::Array(_) | Value::Map(_) | Value::Set(_) => Some(
-            gc.begin_collection_iteration(value)
-                .map_err(BuiltinError::from)?,
-        ),
-        _ => None,
-    };
-    let items = iterable_items(gc, value, "iter.for_each")?;
-    // Callbacks may collect or replace elements; pending snapshot items are roots.
-    let _roots = gc
-        .root_execution_values(items.clone())
-        .ok_or_else(|| BuiltinError::new("invalid iteration elements"))?;
-    for item in items {
-        let result = callbacks.call(callback, &[item])?;
-        if result != Value::Unit {
-            return Err(BuiltinError::new("iter.for_each callback must return unit"));
-        }
-    }
-    Ok(Value::Unit)
-}
-
 fn math_min(args: &[Value]) -> Result<Value, BuiltinError> {
     let [lhs, rhs] = args else {
         return Err(BuiltinError::new("math.min expects two values"));
@@ -1123,37 +1054,6 @@ fn callback_id(value: &Value, name: &'static str) -> Result<EphemeralValueId, Bu
         Value::Ephemeral(EphemeralValue::Runtime(id)) => Ok(*id),
         _ => Err(BuiltinError::new(format!(
             "{name} expects runtime callback token"
-        ))),
-    }
-}
-
-fn iterable_items(
-    gc: &GcHeap,
-    value: &Value,
-    name: &'static str,
-) -> Result<Vec<Value>, BuiltinError> {
-    match value {
-        Value::Array(handle) => gc
-            .array_snapshot(*handle)
-            .ok_or_else(|| BuiltinError::new(format!("{name} expects valid array handle"))),
-        Value::Map(handle) => gc
-            .map_snapshot(*handle)
-            .map(|entries| {
-                entries
-                    .into_iter()
-                    .map(|(key, value)| Value::Tuple(vec![key, value]))
-                    .collect()
-            })
-            .ok_or_else(|| BuiltinError::new(format!("{name} expects valid map handle"))),
-        Value::Set(handle) => gc
-            .set_snapshot(*handle)
-            .ok_or_else(|| BuiltinError::new(format!("{name} expects valid set handle"))),
-        Value::Str(value) => Ok(value
-            .chars()
-            .map(|character| Value::Str(character.to_string()))
-            .collect()),
-        _ => Err(BuiltinError::new(format!(
-            "{name} expects array, map, set, or string"
         ))),
     }
 }
@@ -1663,72 +1563,6 @@ mod tests {
     }
 
     #[test]
-    fn builtin_standard_iter_helpers_cover_arrays_maps_sets_strings_and_callbacks() {
-        let gc = GcHeap::new(
-            GcHeapConfig::default(),
-            std::rc::Rc::new(crate::resource::ResourceState::default()),
-        );
-        let array = Value::Array(gc.alloc_array(vec![Value::I32(1), Value::I32(2)]).unwrap());
-        let map = Value::Map(
-            gc.alloc_map(vec![
-                (Value::Str("a".to_owned()), Value::I32(1)),
-                (Value::Str("b".to_owned()), Value::I32(2)),
-            ])
-            .unwrap(),
-        );
-        let set = Value::Set(gc.alloc_set(vec![Value::I32(3), Value::I32(4)]).unwrap());
-
-        assert_eq!(
-            call(&gc, StandardIntrinsic::IterLen, std::slice::from_ref(&map)).unwrap(),
-            Value::I64(2)
-        );
-        let first_map_entry = call(&gc, StandardIntrinsic::IterGet, &[map, Value::I32(0)]).unwrap();
-        assert_eq!(
-            option_variant(&gc, &first_map_entry),
-            (
-                "Some".to_owned(),
-                vec![Value::Tuple(vec![
-                    Value::Str("a".to_owned()),
-                    Value::I32(1)
-                ])]
-            )
-        );
-        let set_array = call(
-            &gc,
-            StandardIntrinsic::IterToArray,
-            std::slice::from_ref(&set),
-        )
-        .unwrap();
-        let Value::Array(set_array) = set_array else {
-            panic!("expected set item array");
-        };
-        assert_eq!(
-            gc.array_snapshot(set_array).unwrap(),
-            vec![Value::I32(3), Value::I32(4)]
-        );
-        let first_char = call(
-            &gc,
-            StandardIntrinsic::IterGet,
-            &[Value::Str("ab".to_owned()), Value::I32(0)],
-        )
-        .unwrap();
-        assert_eq!(
-            option_variant(&gc, &first_char),
-            ("Some".to_owned(), vec![Value::Str("a".to_owned())])
-        );
-
-        let mut callbacks = TestCallbacks::default();
-        invoke_with_callbacks(
-            &gc,
-            StandardIntrinsic::IterForEach,
-            &[array, callback(2)],
-            &mut callbacks,
-        )
-        .unwrap();
-        assert_eq!(callbacks.seen, vec![Value::I32(1), Value::I32(2)]);
-    }
-
-    #[test]
     fn builtin_standard_math_and_debug_helpers_are_deterministic() {
         let gc = GcHeap::new(
             GcHeapConfig::default(),
@@ -1775,13 +1609,6 @@ mod tests {
             .is_err()
         );
     }
-    struct ClosureCallback<F>(F);
-    impl<F: FnMut(&[Value]) -> Result<Value, BuiltinError>> BuiltinCallbacks for ClosureCallback<F> {
-        fn call(&mut self, _: EphemeralValueId, args: &[Value]) -> Result<Value, BuiltinError> {
-            (self.0)(args)
-        }
-    }
-
     #[test]
     fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
         let gc = GcHeap::new(Default::default(), Default::default());
@@ -1823,12 +1650,23 @@ mod tests {
             (StandardIntrinsic::SetClear, vec![set.clone()]),
         ];
         for (op, args) in operations {
+            let snapshot = || match &args[0] {
+                Value::Array(id) => gc.array_snapshot(*id).unwrap(),
+                Value::Set(id) => gc.set_snapshot(*id).unwrap(),
+                Value::Map(id) => gc
+                    .map_snapshot(*id)
+                    .unwrap()
+                    .into_iter()
+                    .map(|(k, v)| Value::Tuple(vec![k, v]))
+                    .collect(),
+                _ => unreachable!(),
+            };
             let guard = gc.begin_collection_iteration(&args[0]).unwrap();
-            let before = iterable_items(&gc, &args[0], "test").unwrap();
+            let before = snapshot();
             let units = gc.stats().allocation_units;
             let error = invoke(&gc, op, &args).unwrap_err();
             assert_eq!(error.message(), "structural modification during iteration");
-            assert_eq!(iterable_items(&gc, &args[0], "test").unwrap(), before);
+            assert_eq!(snapshot(), before);
             assert_eq!(gc.stats().allocation_units, units);
             drop(guard);
         }
@@ -1853,56 +1691,5 @@ mod tests {
         let guard = gc.begin_collection_iteration(&set).unwrap();
         invoke(&gc, StandardIntrinsic::SetInsert, &[set, Value::I32(1)]).unwrap();
         drop(guard);
-    }
-
-    #[test]
-    fn foreach_releases_iteration_on_failure_and_roots_pending_snapshot_items() {
-        let gc = GcHeap::new(Default::default(), Default::default());
-        let first = gc.alloc_array(vec![Value::I32(1)]).unwrap();
-        let second = gc.alloc_array(vec![Value::I32(2)]).unwrap();
-        let source = gc
-            .alloc_array(vec![Value::Array(first), Value::Array(second)])
-            .unwrap();
-        let mut seen = 0;
-        let mut callbacks = ClosureCallback(|args: &[Value]| {
-            assert!(gc.array_push(source, Value::I32(3)).is_err());
-            gc.array_set(source, 1, Value::I32(7)).unwrap();
-            gc.collect(&[]).unwrap();
-            let [Value::Array(id)] = args else {
-                panic!("snapshot item")
-            };
-            assert_eq!(gc.array_get(*id, 0), Some(Value::I32(seen + 1)));
-            seen += 1;
-            Ok(Value::Unit)
-        });
-        invoke_with_callbacks(
-            &gc,
-            StandardIntrinsic::IterForEach,
-            &[Value::Array(source), callback(2)],
-            &mut callbacks,
-        )
-        .unwrap();
-        assert_eq!(seen, 2);
-        gc.array_push(source, Value::I32(9)).unwrap();
-        let mut failure = ClosureCallback(|_: &[Value]| Err(BuiltinError::new("callback trap")));
-        assert!(
-            invoke_with_callbacks(
-                &gc,
-                StandardIntrinsic::IterForEach,
-                &[Value::Array(source), callback(2)],
-                &mut failure
-            )
-            .is_err()
-        );
-        gc.array_clear(source).unwrap();
-        gc.collect(&[]).unwrap();
-        assert!(gc.array_len(source).is_none());
-        assert!(
-            gc.begin_collection_iteration(&Value::Array(source))
-                .is_err()
-        );
-        let foreign = GcHeap::new(Default::default(), Default::default());
-        let other = foreign.alloc_array(vec![]).unwrap();
-        assert!(gc.begin_collection_iteration(&Value::Array(other)).is_err());
     }
 }

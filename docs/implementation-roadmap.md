@@ -324,7 +324,7 @@ Commit. No compatibility aliases are retained.
 - [x] I03: FromIterator and target-directed collect for all six collection types
   and user-defined collections; fresh shallow construction and checked key insertion.
 - [x] I04: lazy map, filter, filter_map, take, skip, enumerate, zip and chain.
-- [ ] I05: find, any, all, count, fold, for_each, partition and whole-input group_by.
+- [x] I05: find, any, all, count, fold, for_each, partition and whole-input group_by.
 - [ ] I06: shared iterator progress, short-circuit continuation, guard lifetimes,
   callback failures, budgets and GC retention across adapter chains.
 - [ ] I07: executable English API documentation, examples, source/artifact/backend
@@ -360,3 +360,11 @@ does not invoke callbacks; aliases share progress. Generic callbacks and seconda
 Iterable inputs retain associated item types. HIR, IR and embedding tests passed,
 including all eight adapters through source, serialized artifacts and JIT fallback
 with collection at every allocation. KBC/runtime ABI v67 rejects older encodings.
+
+I05 adds terminal defaults, target-directed partition and whole-input group_by.
+Old native-only iteration functions, callback implementations and operation
+predicates were deleted; source examples use iterator methods. KBC/runtime ABI
+v68 rejects older intrinsic encodings. HIR, IR, runtime, VM and embedding tests
+passed after updating the renamed native diagnostic expectation. Tests include
+short-circuit continuation, empty inputs, custom collection targets, colliding
+custom keys, negative callback/bound checks and inference-error preservation.

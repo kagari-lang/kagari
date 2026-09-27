@@ -712,3 +712,34 @@ source. User implementations can use ordinary script loops and return their own
 nominal type. Construction failures do not return a partial destination; completed
 callback side effects remain. Native cursor guards release on exhaustion, loop
 exit or execution cleanup.
+
+## Lazy adapters and terminal operations
+
+Iterator provides native default methods with ordinary generic trait contracts.
+Explicit user overrides use normal static method dispatch. map, filter, filter_map,
+take, skip, enumerate, zip and chain return an opaque Cursor. Construction does not
+advance a source or invoke a callback; zip/chain obtain the other iterator once.
+Callbacks receive Item values, including shared object references, without borrowed
+parameter syntax. enumerate emits (usize, Item). zip steps left before right and
+can consume one unmatched left item. chain permanently switches sides at the first
+None and remains exhausted after both sides end. Other adapters do not add a fused
+iterator guarantee to a custom source. Aliases share adapter state and progress.
+
+find, any and all stop at the decisive item; empty any is false and empty all is
+true. count uses checked usize accumulation. fold starts with the supplied value
+and applies its callback from left to right; for_each requires a unit callback.
+All terminals stop at the first None and release native source guards on exit.
+collect and partition select their destination through FromIterator. partition
+buffers matching and nonmatching items in two shallow arrays, then constructs
+the two destinations in that order; `(Array<T>, Array<T>)` and user destinations
+are supported. Each predicate is evaluated once per visited item.
+
+group_by is a Kagari extension that groups the entire remaining input, rather
+than only adjacent runs. Its result is MutableMap<K, MutableArray<Item>> with
+K: Eq + Hash. It computes each key once, uses the canonical custom key protocol,
+preserves first-key insertion order and preserves item order within each group.
+Keys must remain stable while stored, as for ordinary maps. No terminal returns
+partial output after failure, but prior callback side effects remain.
+
+The old native-only std::iter free functions have been removed. Use collection
+methods for direct size/index access and iterator methods for traversal.

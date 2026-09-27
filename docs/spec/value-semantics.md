@@ -318,19 +318,18 @@ array structure, and `Set.to_array()` allowing independent element replacement
 and growth. Enum/tuple member comparisons retain Map identity after mutation.
 These fixtures run through source, artifact loading and the existing JIT/fallback.
 
-The runtime callback entry for `std::iter::for_each` holds an iteration guard for
-Array, Map and Set until callbacks finish or fail. Hosts use
+Iterator terminal operations hold source iteration guards until callbacks finish,
+short-circuit or fail. Hosts use
 `GcHeap::begin_collection_iteration` when they retain the same iteration scope;
 the guard roots the collection and nested guards release independently. Structural
 builtin failures occur before result allocation or collection mutation. Updating
 an existing Map key and inserting an already-present Set member do not change
 structure. Array element replacement remains allowed.
 
-This callback entry visits a shallow entry snapshot in insertion/index order.
-Pending snapshot values are explicit roots, so callback-driven replacement and
-collection do not invalidate later callback arguments. This runtime API is a
-foundation for source iteration; full source callback/for-loop lowering and its
-exit-path acceptance remain tracked separately in the foundation roadmap.
+Callbacks run on ordinary script frames with their arguments and accumulator
+registered as execution roots. Completed callback side effects survive later
+failure. Short-circuit operations consume the decisive item and leave subsequent
+items available through the same iterator and its aliases.
 
 Heap pop/remove/clear APIs return `Result` for operational failure. `Ok(None)`
 from Array pop/remove or Map remove, and `Ok(false)` from Set remove, indicate

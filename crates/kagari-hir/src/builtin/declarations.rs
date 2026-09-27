@@ -65,6 +65,14 @@ pub enum IteratorMethod {
     Enumerate,
     Zip,
     Chain,
+    Find,
+    Any,
+    All,
+    Count,
+    Fold,
+    ForEach,
+    Partition,
+    GroupBy,
 }
 
 pub fn iterator_method(id: &kagari_common::identity::DefinitionId) -> Option<IteratorMethod> {

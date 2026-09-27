@@ -176,6 +176,15 @@ impl FunctionLowerer<'_, '_> {
             });
             self.emit(Instruction::EndIteration);
         }
-        Ok(output)
+        let destination = self.alloc_temp(ValueType::HeapObject);
+        self.emit(Instruction::Move {
+            dst: destination,
+            src: output,
+        });
+        self.function
+            .semantic
+            .registers
+            .insert(destination.temp.index(), AbiType::from_checked_type(target));
+        Ok(destination)
     }
 }

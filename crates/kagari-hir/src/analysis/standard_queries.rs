@@ -124,7 +124,6 @@ impl FileAnalysis {
                     },
                     Receiver::Result,
                 ) => true,
-                (_, Receiver::Iterable) => surface::iterable_protocol(&ty).is_some(),
                 _ => false,
             })
             .filter(|method| {

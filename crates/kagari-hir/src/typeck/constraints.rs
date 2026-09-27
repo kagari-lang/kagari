@@ -380,7 +380,6 @@ pub fn type_satisfies_standard_constraint(
         _ if matches!(ty, TypeId::Generic(_) | TypeId::Projection { .. }) => bounds
             .get(ty)
             .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
-        StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
         StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
         StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
     }
@@ -411,7 +410,6 @@ pub(super) fn known_type_violates_constraint(
 pub(super) fn standard_constraint_reason(constraint: StandardTypeConstraint) -> &'static str {
     match constraint {
         StandardTypeConstraint::HashKey => "key type must implement std::cmp::Eq + std::hash::Hash",
-        StandardTypeConstraint::Iterable => "type is not part of the standard iterable protocol",
         StandardTypeConstraint::OrderedNumber => "type is not an ordered numeric type",
         StandardTypeConstraint::SignedNumber => "type is not a signed numeric type",
         StandardTypeConstraint::Comparable => "type does not have standard equality semantics",
