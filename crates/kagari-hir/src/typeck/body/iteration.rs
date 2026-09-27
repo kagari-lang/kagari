@@ -4,9 +4,9 @@ use crate::hir::ExprId;
 use crate::typeck::BodyTypeEnv;
 use crate::typeck::ResolvedIteration;
 use crate::typeck::body::BodyChecker;
-use crate::types::BuiltinType;
 use crate::types::TypeId;
 use crate::types::{NominalType, associated_type_id};
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::range::RangeKind;
 impl BodyChecker<'_> {
     pub(super) fn add_iterator_view(&self, receiver: &TypeId, views: &mut Vec<NominalType>) {

@@ -1,8 +1,7 @@
 use super::*;
-use crate::{
-    declarations::DeclarationId,
-    types::{BuiltinType, TypeId},
-};
+use crate::declarations::DeclarationId;
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},

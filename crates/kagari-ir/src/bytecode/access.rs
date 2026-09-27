@@ -14,16 +14,14 @@ use crate::module::{
     abi::AbiType,
     instruction::{IterOp, StandardEnumOp},
 };
+use kagari_abi::scalar::BuiltinType as B;
+use kagari_abi::standard::StandardIntrinsic as S;
 use kagari_common::collection::CollectionAccess as Access;
+use kagari_hir::builtin::declarations::Arguments;
+use kagari_hir::builtin::surface;
 use kagari_hir::typeck::ScalarValue;
 use kagari_hir::types;
-use kagari_hir::{
-    builtin::{
-        declarations::Arguments,
-        surface::{self, StandardIntrinsic as S},
-    },
-    types::{BuiltinType as B, TypeId},
-};
+use kagari_hir::types::TypeId;
 use surface::StandardEnum;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

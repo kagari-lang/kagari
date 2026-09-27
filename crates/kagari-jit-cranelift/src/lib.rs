@@ -16,10 +16,10 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
+use kagari_abi::representation::ValueType;
 use kagari_ir::bytecode::{
     BinaryOp, BytecodeFunction, BytecodeInstruction, ConstantOperand, Register, UnaryOp,
 };
-use kagari_ir::module::ValueType;
 use kagari_runtime::{
     BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,
     BackendInvocationError, BackendTarget, CodegenBackend, ExecutableEntryPoint,
@@ -707,13 +707,16 @@ fn sanitize_symbol(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_ir::{
-        bytecode::{
-            BytecodeFunction, BytecodeInstruction, BytecodeModule, ConstantOperand,
-            FunctionMetadata, FunctionRecord, FunctionRef, JumpTarget, Register,
-        },
-        module::ValueType,
-    };
+    use kagari_abi::representation::ValueType;
+    use kagari_ir::bytecode::BytecodeFunction;
+    use kagari_ir::bytecode::BytecodeInstruction;
+    use kagari_ir::bytecode::BytecodeModule;
+    use kagari_ir::bytecode::ConstantOperand;
+    use kagari_ir::bytecode::FunctionMetadata;
+    use kagari_ir::bytecode::FunctionRecord;
+    use kagari_ir::bytecode::FunctionRef;
+    use kagari_ir::bytecode::JumpTarget;
+    use kagari_ir::bytecode::Register;
     use kagari_runtime::{
         BackendDiagnosticKind, BackendFunctionInput, LoadedModule, ResourcePolicy, RuntimeConfig,
     };

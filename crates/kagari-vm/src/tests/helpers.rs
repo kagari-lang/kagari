@@ -1,8 +1,17 @@
-use kagari_ir::bytecode::{
-    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
-    FunctionRef, PathId, PathRecord, Register, RuntimeHelper, StandardIntrinsic, StructId,
-};
-use kagari_ir::module::ValueType;
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
+use kagari_ir::bytecode::BinaryOp;
+use kagari_ir::bytecode::BytecodeFunction;
+use kagari_ir::bytecode::BytecodeInstruction;
+use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::bytecode::CallTarget;
+use kagari_ir::bytecode::ConstantOperand;
+use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::bytecode::PathId;
+use kagari_ir::bytecode::PathRecord;
+use kagari_ir::bytecode::Register;
+use kagari_ir::bytecode::RuntimeHelper;
+use kagari_ir::bytecode::StructId;
 use kagari_runtime::host::PreparedHostPathWrite;
 use std::sync::{Arc, Mutex};
 

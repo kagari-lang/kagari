@@ -14,7 +14,7 @@ use std::slice;
 use crate::lower::IrLoweringError;
 use crate::lower::state::{FunctionLowerer, LoopScope};
 use crate::module::instruction::{Instruction, IrValue, Terminator};
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
 
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_block(

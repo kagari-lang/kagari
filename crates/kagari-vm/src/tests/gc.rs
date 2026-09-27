@@ -281,7 +281,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
         .module_slots
         .push(kagari_ir::bytecode::BytecodeModuleSlot {
             name: "state".into(),
-            ty: kagari_ir::module::ValueType::HeapObject,
+            ty: kagari_abi::representation::ValueType::HeapObject,
             mutable: true,
         });
     let mut runtime = runtime(None);

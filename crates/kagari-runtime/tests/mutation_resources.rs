@@ -1,4 +1,4 @@
-use kagari_ir::builtin::surface::StandardIntrinsic;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_runtime::{ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, value::Value};
 
 fn limited(heap: Option<usize>, allocation: Option<usize>) -> Runtime {

@@ -9,6 +9,7 @@ use crate::host::HostFunctionId;
 use crate::host::HostModuleId;
 use crate::host::HostTypeId;
 use crate::imports::ModuleImports;
+use kagari_abi::standard::StandardIntrinsic;
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,7 +53,7 @@ pub enum ResolvedName {
     Module(ModuleId),
     StandardModule(surface::StandardModule),
     StandardVariant(surface::StandardVariant),
-    StandardFunction(surface::StandardIntrinsic),
+    StandardFunction(StandardIntrinsic),
     RuntimeHelper(BuiltinFunction),
     Struct(StructId),
     Enum(EnumId),

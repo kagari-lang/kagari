@@ -2,10 +2,11 @@
 
 use super::{AbiType, NominalAbiType};
 use de::Error as DeError;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
 use kagari_common::range::RangeKind;
-use kagari_hir::{builtin::surface::StandardEnum, types::BuiltinType};
+use kagari_hir::builtin::surface::StandardEnum;
 use serde::ser::Error;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
@@ -40,14 +41,14 @@ enum Node {
     Trait(
         DefinitionId,
         u32,
-        #[serde(deserialize_with = "crate::decode_limits::nested")] Vec<DefinitionId>,
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")] Vec<DefinitionId>,
     ),
     Projection {
         member_arguments: u32,
         member: DefinitionId,
         owner: DefinitionId,
         arguments: u32,
-        #[serde(deserialize_with = "crate::decode_limits::nested")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
         bindings: Vec<DefinitionId>,
     },
     StandardEnum(StandardEnum, u32),

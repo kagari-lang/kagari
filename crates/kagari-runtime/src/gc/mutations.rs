@@ -9,7 +9,7 @@ use crate::gc::HeapObject;
 use crate::gc::HeapObjectId;
 use crate::value::Value;
 use indexmap::IndexMap;
-use kagari_ir::builtin::surface::StandardIntrinsic;
+use kagari_abi::standard::StandardIntrinsic;
 
 impl GcHeap {
     pub(crate) fn commit_prepared_collection(

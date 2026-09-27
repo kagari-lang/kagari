@@ -21,9 +21,10 @@ use kagari_common::host_interface::HostPathDeclaration;
 use std::collections::{HashMap, HashSet};
 
 use super::ScalarValue;
-use crate::builtin::{BuiltinFunction, surface::StandardIntrinsic};
+use crate::builtin::BuiltinFunction;
 use crate::hir::{ExprId, FieldId, FunctionId, LocalId, PatternId, PlaceId};
 use crate::types::{GenericParameterType, NominalType, TypeId, TypeSubstitution};
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

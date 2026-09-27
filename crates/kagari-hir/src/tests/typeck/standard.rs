@@ -1,4 +1,5 @@
 use super::*;
+use kagari_abi::standard::StandardIntrinsic;
 
 #[test]
 fn infers_array_method_call_types() {
@@ -112,7 +113,7 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
     )));
     let map_get = surface::standard_function(surface::StandardModule::Map, "LinkedHashMap::get")
         .expect("std::map::LinkedHashMap::get should be standard");
-    assert_eq!(map_get.intrinsic, surface::StandardIntrinsic::MapGet);
+    assert_eq!(map_get.intrinsic, StandardIntrinsic::MapGet);
     assert_eq!(
         map_get.constraints[0].constraint,
         surface::StandardTypeConstraint::HashKey
@@ -135,7 +136,7 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
         surface::standard_method(surface::StandardMethodReceiver::Map, "insert")
             .expect("Map.insert should be standard")
             .intrinsic,
-        surface::StandardIntrinsic::MapInsert
+        StandardIntrinsic::MapInsert
     );
     assert!(surface::standard_method(surface::StandardMethodReceiver::Set, "difference").is_none());
     let difference = crate::builtin::traits::StandardTrait::Set

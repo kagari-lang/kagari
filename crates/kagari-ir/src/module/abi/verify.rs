@@ -13,6 +13,7 @@ use crate::module::abi::TraitContract;
 use crate::module::abi::TypeAbi;
 use crate::module::abi::TypeAbiKind;
 use crate::module::layout::LayoutValidationError;
+use kagari_abi::scalar::BuiltinType;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface;
@@ -27,7 +28,6 @@ use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
 use kagari_hir::builtin::traits;
 use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::types;
-use kagari_hir::types::BuiltinType;
 use kagari_hir::types::GenericParameterType;
 use kagari_hir::types::TypeId;
 use kagari_hir::types::TypeSubstitution;

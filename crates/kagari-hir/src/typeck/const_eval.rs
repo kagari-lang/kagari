@@ -1,8 +1,8 @@
 //! Scalar const facts belong to semantic analysis, never to a backend.
 
 use super::const_budget::ConstBudget;
-use crate::types::BuiltinType;
 use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::integer;
 use kagari_common::integer::IntegerOp;
 use std::collections::HashMap;

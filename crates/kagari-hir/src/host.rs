@@ -27,7 +27,9 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::{collections::HashMap, sync::Arc};
 
-use crate::types::{BuiltinType, NominalType, TypeId};
+use crate::types::NominalType;
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     Diagnostic, DiagnosticKind, Span,
     cancellation::{CancellationToken, Cancelled},

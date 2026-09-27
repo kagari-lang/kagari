@@ -5,14 +5,15 @@ use crate::module::instruction::Constant;
 use crate::module::instruction::Instruction;
 use crate::module::instruction::IrValue;
 use crate::module::instruction::Terminator;
-use crate::module::types::ValueType;
 use crate::module::{abi::AbiType, instruction::StandardEnumOp};
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::collection::CollectionAccess::Mutable;
-use kagari_hir::builtin::surface::StandardIntrinsic;
-use kagari_hir::{
-    builtin::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
-    types::{BuiltinType, TypeId},
-};
+use kagari_hir::builtin::declarations::NativeDefaultMethod;
+use kagari_hir::builtin::surface::StandardEnum;
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::types::TypeId;
 use std::slice;
 
 impl FunctionLowerer<'_, '_> {

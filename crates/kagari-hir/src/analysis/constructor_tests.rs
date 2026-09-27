@@ -1,5 +1,7 @@
 use super::*;
-use crate::{declarations::DeclarationId, hir::ExprKind, types::BuiltinType};
+use crate::declarations::DeclarationId;
+use crate::hir::ExprKind;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},

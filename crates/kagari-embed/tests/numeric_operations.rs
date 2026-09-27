@@ -320,8 +320,8 @@ fn casts_respect_early_return_and_nested_generics() {
 
 #[test]
 fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
+    use kagari_abi::scalar::BuiltinType;
     use kagari_ir::bytecode::BytecodeInstruction;
-    use kagari_ir::module::abi::BuiltinType;
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(

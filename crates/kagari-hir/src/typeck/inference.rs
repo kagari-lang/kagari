@@ -95,7 +95,8 @@ pub(super) fn infer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{BuiltinType, NominalType};
+    use crate::types::NominalType;
+    use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
     };

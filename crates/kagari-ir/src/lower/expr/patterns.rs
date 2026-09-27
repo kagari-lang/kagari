@@ -1,5 +1,6 @@
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
+use crate::module::abi::AbiType;
 use crate::module::abi::NominalAbiType;
 use crate::module::ids::BlockId;
 use crate::module::ids::LocalId;
@@ -9,7 +10,7 @@ use crate::module::instruction::Instruction;
 use crate::module::instruction::IrValue;
 use crate::module::instruction::StandardEnumOp;
 use crate::module::instruction::Terminator;
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
 use kagari_hir::hir;
 use kagari_hir::hir::PatternKind;
 use kagari_hir::types::NominalType;
@@ -271,7 +272,7 @@ impl FunctionLowerer<'_, '_> {
                     .pattern_scalar_value(pattern)
                     .cloned()
                     .ok_or(IrLoweringError::MissingBinding("checked pattern literal"))?;
-                let ty = ValueType::from_type_id(&scalar.ty());
+                let ty = AbiType::from_checked_type(&scalar.ty()).representation();
                 let literal = self.lower_constant(scalar.into(), ty);
                 let cond = self.alloc_temp(ValueType::Bool);
                 self.emit(Instruction::Binary {

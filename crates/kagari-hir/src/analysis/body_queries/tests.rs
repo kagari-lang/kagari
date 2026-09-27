@@ -1,5 +1,6 @@
 use super::*;
-use crate::{declarations::DeclarationId, types::BuiltinType};
+use crate::declarations::DeclarationId;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::identity::FileId;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 

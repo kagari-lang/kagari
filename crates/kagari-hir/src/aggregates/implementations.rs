@@ -876,10 +876,9 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
 #[cfg(test)]
 mod search_tests {
     use super::*;
-    use crate::{
-        typeck::ConstraintTarget,
-        types::{BuiltinType, TypeId},
-    };
+    use crate::typeck::ConstraintTarget;
+    use crate::types::TypeId;
+    use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
     };

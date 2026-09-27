@@ -1,4 +1,4 @@
-use kagari_ir::bytecode::StandardIntrinsic;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
 use kagari_ir::module::instruction::IterOp;
 use kagari_runtime::numeric;

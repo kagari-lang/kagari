@@ -1,6 +1,6 @@
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::SourceFile;
 use kagari_embed::{BytecodeArtifact, KagariEngine};
-use kagari_hir::types::BuiltinType;
 use kagari_ir::module::{PublicAbiItem, abi::AbiType};
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
@@ -62,7 +62,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     assert!(
         invoke_standard(
             runtime.runtime().gc(),
-            kagari_ir::bytecode::StandardIntrinsic::OptionIsSome,
+            kagari_abi::standard::StandardIntrinsic::OptionIsSome,
             &[Value::Enum(handle)]
         )
         .is_err()

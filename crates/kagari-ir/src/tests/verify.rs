@@ -1,16 +1,28 @@
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::collection::CollectionAccess;
 
-use crate::{
-    bytecode::{BytecodeInstruction, ConstantOperand, lower_to_bytecode},
-    lower_to_ir,
-    module::{
-        BinaryOp, BlockId, CallTarget, Constant, EffectSet, Instruction, IrModule, IrTemp, IrValue,
-        IrVerificationErrorKind as Error, LocalId, TempId, Terminator, ValueType,
-        contracts::ContractError, ids::InstanceId, verify_ir,
-    },
-    tests::common,
-};
+use crate::bytecode::BytecodeInstruction;
+use crate::bytecode::ConstantOperand;
+use crate::bytecode::lower_to_bytecode;
+use crate::lower_to_ir;
+use crate::module::BinaryOp;
+use crate::module::BlockId;
+use crate::module::CallTarget;
+use crate::module::Constant;
+use crate::module::EffectSet;
+use crate::module::Instruction;
+use crate::module::IrModule;
+use crate::module::IrTemp;
+use crate::module::IrValue;
+use crate::module::IrVerificationErrorKind as Error;
+use crate::module::LocalId;
+use crate::module::TempId;
+use crate::module::Terminator;
+use crate::module::contracts::ContractError;
+use crate::module::ids::InstanceId;
+use crate::module::verify_ir;
+use crate::tests::common;
+use kagari_abi::representation::ValueType;
 
 fn raw(source: &str) -> IrModule {
     lower_to_ir(&common::analyze_ok(source), &Default::default())
@@ -95,7 +107,9 @@ fn template_parameters_cannot_enter_executable_layout_arguments() {
 #[test]
 fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     use crate::module::abi::{AbiType, NominalAbiType};
-    use kagari_hir::types::{BuiltinType, NominalType, TypeId};
+    use kagari_abi::scalar::BuiltinType;
+    use kagari_hir::types::NominalType;
+    use kagari_hir::types::TypeId;
     let source =
         "struct Point {} enum Event { Data(Point) } fn main() -> Event { Event::Data(Point {}) }";
     let mut module = raw(source);
@@ -686,10 +700,12 @@ fn verification_observes_cancellation_even_for_empty_modules() {
 
 #[test]
 fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
-    use crate::module::{
-        PublicAbiItem, TypeAbiKind,
-        abi::{AbiType, BuiltinType, FieldAbi, VariantAbi},
-    };
+    use crate::module::PublicAbiItem;
+    use crate::module::TypeAbiKind;
+    use crate::module::abi::AbiType;
+    use crate::module::abi::FieldAbi;
+    use crate::module::abi::VariantAbi;
+    use kagari_abi::scalar::BuiltinType;
     for source in [
         "pub struct Box<T> { val value: T } fn main() {}",
         "pub enum Box<T> { Value(T) } fn main() {}",

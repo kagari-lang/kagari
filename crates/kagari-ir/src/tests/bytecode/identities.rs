@@ -29,7 +29,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .unwrap()
             .arguments,
         [crate::module::abi::AbiType::Builtin(
-            kagari_hir::types::BuiltinType::I32
+            kagari_abi::scalar::BuiltinType::I32
         )]
     );
     let mut mismatched_record = module.clone();
@@ -93,8 +93,8 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         .as_mut()
         .unwrap()
         .arguments = vec![
-        crate::module::abi::AbiType::Builtin(kagari_hir::types::BuiltinType::I32);
-        crate::decode_limits::MAX_NESTED_RECORDS + 1
+        crate::module::abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32);
+        kagari_abi::decode_limits::MAX_NESTED_RECORDS + 1
     ];
     oversized.function_table[generic].identity = oversized.functions[generic].identity.clone();
     assert!(matches!(
@@ -206,7 +206,9 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
 
 #[test]
 fn executable_struct_fields_require_concrete_resolved_types() {
-    use crate::module::abi::{AbiType, BuiltinType, NominalAbiType};
+    use crate::module::abi::AbiType;
+    use crate::module::abi::NominalAbiType;
+    use kagari_abi::scalar::BuiltinType;
     let module = common::bytecode_ok(
         "struct Box<T> { val value: T } fn main() -> i32 { Box<i32> { value: 42 }.value }",
     );
@@ -231,10 +233,11 @@ fn executable_struct_fields_require_concrete_resolved_types() {
 
 #[test]
 fn struct_instances_must_match_public_templates_locally_and_across_modules() {
-    use crate::{
-        bytecode::{BytecodeProgram, ModuleRef, verify_program},
-        module::abi::{AbiType, BuiltinType},
-    };
+    use crate::bytecode::BytecodeProgram;
+    use crate::bytecode::ModuleRef;
+    use crate::bytecode::verify_program;
+    use crate::module::abi::AbiType;
+    use kagari_abi::scalar::BuiltinType;
     let owner = common::bytecode_ok(
         "pub struct Box<T> { var values: ArrayList<T> } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
     );

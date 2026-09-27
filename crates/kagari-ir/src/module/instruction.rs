@@ -4,18 +4,18 @@ use super::abi::verify;
 use super::numeric::NumericOperation;
 use crate::module::abi::StandardEnumKind;
 use crate::module::numeric::NumericConversion;
+use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::host_interface::HostFunctionDeclaration;
 use kagari_common::host_interface::HostPathDeclaration;
 use kagari_common::identity::DefinitionId;
 use kagari_common::range::RangeKind;
-use kagari_hir::builtin::surface::StandardIntrinsic;
-use kagari_hir::types::BuiltinType;
 use kagari_hir::types::TypeId;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::module::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IrValue {
@@ -774,7 +774,7 @@ pub enum StandardEnumOp {
     Read(u32),
 }
 impl StandardEnumOp {
-    pub fn contract(self, ty: &AbiType) -> Option<(Option<super::ValueType>, super::ValueType)> {
+    pub fn contract(self, ty: &AbiType) -> Option<(Option<ValueType>, ValueType)> {
         if !ty.within_wire_limits() || !verify::concrete_type_valid(ty, &Default::default()) {
             return None;
         }
@@ -810,7 +810,7 @@ pub enum IterOp {
     Close,
 }
 impl IterOp {
-    pub fn contract(self, ty: &AbiType) -> Option<(Option<super::ValueType>, super::ValueType)> {
+    pub fn contract(self, ty: &AbiType) -> Option<(Option<ValueType>, ValueType)> {
         if !ty.within_wire_limits() || !verify::concrete_type_valid(ty, &Default::default()) {
             return None;
         }
@@ -878,7 +878,7 @@ impl IterOp {
     }
 }
 
-pub fn mapped_error_payload(ty: &AbiType) -> Option<super::ValueType> {
+pub fn mapped_error_payload(ty: &AbiType) -> Option<ValueType> {
     if !matches!(
         ty,
         super::abi::AbiType::StandardEnum {

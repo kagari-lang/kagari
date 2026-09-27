@@ -5,9 +5,10 @@ use crate::value::EnumTag;
 use crate::gc::GcHeap;
 use crate::numeric;
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::integer;
 use kagari_common::range::RangeKind;
-use kagari_ir::module::abi::{AbiType, BuiltinType};
+use kagari_ir::module::abi::AbiType;
 use kagari_ir::module::instruction;
 use std::ops::Bound;
 

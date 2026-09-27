@@ -9,12 +9,16 @@ use kagari_hir::types::TypeId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::module::{
-    ModuleAbi,
-    ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId},
-    instruction::{EffectSet, InstructionBuffer, Terminator},
-    types::ValueType,
-};
+use crate::module::ModuleAbi;
+use crate::module::ids::BlockId;
+use crate::module::ids::InstanceId;
+use crate::module::ids::LocalId;
+use crate::module::ids::ModuleSlotId;
+use crate::module::ids::TempId;
+use crate::module::instruction::EffectSet;
+use crate::module::instruction::InstructionBuffer;
+use crate::module::instruction::Terminator;
+use kagari_abi::representation::ValueType;
 
 #[derive(Debug, Clone)]
 pub struct IrModule {
@@ -165,11 +169,11 @@ pub type CapturedBindingDebugBuffer = Vec<IrCapturedBindingDebugInfo>;
 /// Semantic contracts supplement the physical frame layout.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SemanticSlots {
-    #[serde(deserialize_with = "crate::decode_limits::map")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::map")]
     pub params: BTreeMap<usize, AbiType>,
     pub result: Option<AbiType>,
-    #[serde(deserialize_with = "crate::decode_limits::map")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::map")]
     pub locals: BTreeMap<usize, AbiType>,
-    #[serde(deserialize_with = "crate::decode_limits::map")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::map")]
     pub registers: BTreeMap<usize, AbiType>,
 }

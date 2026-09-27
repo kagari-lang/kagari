@@ -46,7 +46,8 @@ pub mod session;
 pub mod value;
 pub mod value_semantics;
 
-use kagari_ir::{builtin::surface::StandardIntrinsic, bytecode::BytecodeProgram};
+use kagari_abi::standard::StandardIntrinsic;
+use kagari_ir::bytecode::BytecodeProgram;
 
 pub use backend::{
     BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,

@@ -4,13 +4,13 @@ use crate::module::instruction::Constant;
 use crate::module::instruction::Instruction;
 use crate::module::instruction::IrValue;
 use crate::module::instruction::Terminator;
-use crate::module::types::ValueType;
 use crate::module::{abi::AbiType, instruction::StandardEnumOp as Op};
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::StandardIntrinsic;
+use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::hir;
-use kagari_hir::{
-    builtin::surface::{StandardEnum, StandardIntrinsic},
-    types::{BuiltinType, TypeId},
-};
+use kagari_hir::types::TypeId;
 use std::slice;
 
 fn enum_args(ty: &TypeId) -> Result<&[TypeId], IrLoweringError> {

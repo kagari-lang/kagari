@@ -1,3 +1,4 @@
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::{SourceFile, host_interface::standard_log};
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_hir::builtin::surface;
@@ -27,10 +28,10 @@ fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports()
         );
     }
     for intrinsic in [
-        surface::StandardIntrinsic::ArrayGet,
-        surface::StandardIntrinsic::ArrayPush,
-        surface::StandardIntrinsic::ArrayJoin,
-        surface::StandardIntrinsic::ResultMap,
+        StandardIntrinsic::ArrayGet,
+        StandardIntrinsic::ArrayPush,
+        StandardIntrinsic::ArrayJoin,
+        StandardIntrinsic::ResultMap,
     ] {
         let function = surface::standard_function_by_intrinsic(intrinsic).unwrap();
         assert_eq!(function.api.params[0].name, "self");

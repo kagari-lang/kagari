@@ -34,16 +34,24 @@ use crate::bytecode::module::{
     InterfaceMethodSlot, InterfaceTableRecord, PathRecord, RootSlotLayout,
 };
 use crate::bytecode::verify_module;
-use crate::module::{
-    ValueType, VerifiedIrModule,
-    function::{BasicBlock, IrFunction},
-    ids::{BlockId, LocalId, ModuleSlotId, TempId},
-    instruction::{
-        AggregateFieldRef, BinaryOp as IrBinaryOp, CallTarget as IrCallTarget, Constant,
-        Instruction, IrValue, PathRef, RuntimeHelper as IrRuntimeHelper, Terminator,
-        UnaryOp as IrUnaryOp,
-    },
-};
+use crate::module::VerifiedIrModule;
+use crate::module::function::BasicBlock;
+use crate::module::function::IrFunction;
+use crate::module::ids::BlockId;
+use crate::module::ids::LocalId;
+use crate::module::ids::ModuleSlotId;
+use crate::module::ids::TempId;
+use crate::module::instruction::AggregateFieldRef;
+use crate::module::instruction::BinaryOp as IrBinaryOp;
+use crate::module::instruction::CallTarget as IrCallTarget;
+use crate::module::instruction::Constant;
+use crate::module::instruction::Instruction;
+use crate::module::instruction::IrValue;
+use crate::module::instruction::PathRef;
+use crate::module::instruction::RuntimeHelper as IrRuntimeHelper;
+use crate::module::instruction::Terminator;
+use crate::module::instruction::UnaryOp as IrUnaryOp;
+use kagari_abi::representation::ValueType;
 
 #[derive(Debug)]
 pub enum BytecodeLoweringError {

@@ -121,7 +121,7 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         &[(
             "leaf",
             AbiType::Array(
-                Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable,
             ),
             true,
@@ -259,7 +259,7 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
         &[(
             "path",
             AbiType::Array(
-                Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable,
             ),
             true,

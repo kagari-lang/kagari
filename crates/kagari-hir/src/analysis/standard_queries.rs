@@ -151,7 +151,7 @@ impl FileAnalysis {
                         | (TypeId::Map { .. }, StandardMethodReceiver::Map)
                         | (TypeId::Set(_, _), StandardMethodReceiver::Set)
                         | (
-                            TypeId::Builtin(crate::types::BuiltinType::String),
+                            TypeId::Builtin(kagari_abi::scalar::BuiltinType::String),
                             StandardMethodReceiver::String
                         )
                         | (
@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn native_iterator_implementation_exposes_members_and_inherited_defaults() {
-        let item_type = TypeId::Builtin(crate::types::BuiltinType::I32);
+        let item_type = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let receiver = TypeId::Iter(Box::new(item_type.clone()));
         let implementations = declarations::implementations(&receiver);
         assert_eq!(implementations.len(), 1);
@@ -444,8 +444,8 @@ mod tests {
     #[test]
     fn collection_implementation_catalog_retains_constraints_and_source_members() {
         use crate::builtin::{surface::StandardEnum, traits::StandardTrait};
-        let integer = TypeId::Builtin(crate::types::BuiltinType::I32);
-        let string = TypeId::Builtin(crate::types::BuiltinType::String);
+        let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
+        let string = TypeId::Builtin(kagari_abi::scalar::BuiltinType::String);
         let target = TypeId::Map {
             key: Box::new(integer.clone()),
             value: Box::new(string.clone()),
@@ -549,7 +549,7 @@ mod tests {
         assert_eq!(
             signature.parameters[0].1,
             TypeId::Array(
-                Box::new(TypeId::Builtin(crate::types::BuiltinType::I32)),
+                Box::new(TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable
             )
         );
@@ -559,7 +559,7 @@ mod tests {
         assert!(signature.parameters.is_empty());
         assert_eq!(
             signature.result,
-            TypeId::Builtin(crate::types::BuiltinType::Bool)
+            TypeId::Builtin(kagari_abi::scalar::BuiltinType::Bool)
         );
     }
 
@@ -713,7 +713,7 @@ mod interpolation_queries {
         assert_eq!(original.name, "value");
         assert_eq!(
             old.file(file).unwrap().type_at(offset),
-            Some(TypeId::Builtin(crate::types::BuiltinType::I32))
+            Some(TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32))
         );
         let prefix = "// shifted 😀\r\n";
         sources
@@ -783,7 +783,7 @@ mod collection_access_tests {
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
         use crate::builtin::traits::StandardTrait as S;
-        let integer = TypeId::Builtin(crate::types::BuiltinType::I32);
+        let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let receivers = [
             TypeId::Array(Box::new(integer.clone()), CollectionAccess::Mutable),
             TypeId::Map {

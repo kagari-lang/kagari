@@ -145,7 +145,8 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
 
 #[test]
 fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
-    use crate::module::abi::{AbiType, BuiltinType};
+    use crate::module::abi::AbiType;
+    use kagari_abi::scalar::BuiltinType;
 
     let module = host_trait_test_module("trait Readable<T> { fn get(self) -> T; } fn main() {}");
     assert!(

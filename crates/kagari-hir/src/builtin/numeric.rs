@@ -1,6 +1,7 @@
 //! Built-in conversions follow Rust's portable From matrix.
 use super::surface::StandardEnum;
-use crate::types::{BuiltinType, TypeId};
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 
 pub fn lossless_from(source: BuiltinType, target: BuiltinType) -> bool {
     if source == target {

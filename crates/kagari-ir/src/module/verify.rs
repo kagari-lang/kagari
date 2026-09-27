@@ -7,10 +7,18 @@ use std::{collections::HashSet, ops::Deref};
 
 use kagari_common::{Span, cancellation::CancellationToken};
 
-use super::{
-    BlockId, EffectSet, Instruction, IrFunction, IrModule, IrValue, LocalId, TempId, Terminator,
-    ValueType, contracts::ContractError, ids::InstanceId,
-};
+use super::BlockId;
+use super::EffectSet;
+use super::Instruction;
+use super::IrFunction;
+use super::IrModule;
+use super::IrValue;
+use super::LocalId;
+use super::TempId;
+use super::Terminator;
+use super::contracts::ContractError;
+use super::ids::InstanceId;
+use kagari_abi::representation::ValueType;
 
 mod flow;
 mod layout;

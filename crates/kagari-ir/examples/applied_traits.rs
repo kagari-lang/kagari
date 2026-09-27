@@ -29,7 +29,7 @@ fn main() {
         })
         .expect("implementation ABI");
     assert!(matches!(&table.trait_type, AbiType::Trait(ty)
-        if ty.arguments == [AbiType::Builtin(kagari_hir::types::BuiltinType::I32)]));
+        if ty.arguments == [AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)]));
     let executable = &bytecode.interface_tables[0];
     assert_eq!(executable.declaration, table.declaration);
     assert_eq!(executable.methods.len(), 1);

@@ -226,7 +226,8 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
 
 #[test]
 fn unused_family_metadata_is_verified_before_loading() {
-    use kagari_hir::{builtin::surface::StandardTypeConstraint, types::BuiltinType};
+    use kagari_abi::scalar::BuiltinType;
+    use kagari_hir::builtin::surface::StandardTypeConstraint;
     use kagari_ir::module::{
         PublicAbiItem,
         abi::{AbiType, ConstraintAbi, GenericBoundAbi},

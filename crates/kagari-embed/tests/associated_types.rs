@@ -243,7 +243,7 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
                     match mutation {
                         0 => {
                             *instance.associated_types.values_mut().next().unwrap() =
-                                AbiType::Builtin(kagari_hir::types::BuiltinType::F32);
+                                AbiType::Builtin(kagari_abi::scalar::BuiltinType::F32);
                         }
                         1 => {
                             instance.associated_types.clear();
@@ -350,7 +350,7 @@ fn generic_interface_conversion_checks_implementation_bounds() {
 
 #[test]
 fn interface_instance_bounds_are_checked_without_method_slots() {
-    use kagari_hir::types::BuiltinType;
+    use kagari_abi::scalar::BuiltinType;
     use kagari_ir::module::abi::AbiType;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"), Default::default(), Default::default()).unwrap();
@@ -424,7 +424,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
 
 #[test]
 fn malformed_generic_interface_instances_are_rejected_before_execution() {
-    use kagari_hir::types::BuiltinType;
+    use kagari_abi::scalar::BuiltinType;
     use kagari_ir::module::abi::AbiType;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"), Default::default(), Default::default()).unwrap();

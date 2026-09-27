@@ -3,8 +3,8 @@ use crate::module::abi::NominalAbiType;
 use hir::BinaryOp as HirBinaryOp;
 use hir::PlaceKind;
 use hir::PrefixOp;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::identity::DefinitionId;
-use kagari_hir::types::BuiltinType;
 use kagari_hir::types::TypeId;
 use kagari_hir::{hir, resolver::ResolvedName};
 use std::slice;
@@ -15,7 +15,7 @@ use crate::module::ids::LocalId;
 use crate::module::instruction::{
     AggregateFieldRef, BinaryOp, Constant, Instruction, IrValue, UnaryOp,
 };
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
 use kagari_hir::typeck::ScalarValue;
 use std::ops::ControlFlow;
 

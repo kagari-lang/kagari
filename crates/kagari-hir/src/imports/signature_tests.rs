@@ -1,9 +1,8 @@
 use super::tests::{analyze, insert};
-use crate::{
-    analysis::AnalysisDatabase,
-    typeck::CallTarget,
-    types::{BuiltinType, TypeId},
-};
+use crate::analysis::AnalysisDatabase;
+use crate::typeck::CallTarget;
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},

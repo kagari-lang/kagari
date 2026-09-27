@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00 complete; A01 extraction is next.
+Status: A00 complete; A01 contract extraction is in progress.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -151,6 +151,43 @@ package boundaries merely because a file currently lives there.
 Preserve logical identities through these moves. Files with mixed responsibilities
 must be split; moving an entire mixed module into `common` or ABI does not satisfy
 the dependency boundary.
+
+### A01 frozen migration inventory (base `4d82fcb`, 2026-09-28)
+
+The A00 exit revision is the comparison baseline. The following inventory includes
+all current execution/compiler owners; directories include their child modules
+and tests. Moves must preserve behavior and update consumers directly.
+
+| Current files / public entrypoints | New owner / required separation |
+| --- | --- |
+| HIR `types.rs::BuiltinType`, builtin `surface.rs::StandardIntrinsic` and standard enum/trait identities | ABI scalar and standard execution identities; HIR imports shared identities while keeping semantic interpretation |
+| HIR `build.rs`, `build/{api,implementations}.rs`, `builtin/{surface,declarations,traits,numeric}.rs`, `stdlib/*.kgr` | Generated declaration descriptors and execution mappings must agree with the authoritative stdlib; source semantic processing stays in HIR, no HIR dependency from ABI |
+| IR `module/abi/{mod,wire,verify}.rs` | ABI signatures, nominal identities, bounded wire types, portable trait/layout checks; HIR conversions and source signature construction move to compiler source |
+| IR `module/{types,numeric,layout,contracts,host}.rs` and shared operation identities in `instruction.rs` | ABI physical/semantic execution contracts and helper signatures; source conversions move to compiler; MIR-specific operand checking stays MIR |
+| IR `module/{function,instruction,ids,verify}.rs` and `module/verify/*` | MIR CFG, concrete instances, operations, verifier; replace HIR type slots and instance arguments with concrete ABI types |
+| IR `lower/*`, `program.rs::lower_program_to_ir` | Compiler source lowering, bounded monomorphization and source link construction |
+| IR `program.rs::{VerifiedIrProgram,verify_program}`, `bytecode/lower.rs` and `lower/debug.rs` | MIR verified program/link facts versus frontend-free compiler bytecode emission |
+| IR `bytecode/{instruction,module,program,access,trait_bounds,verifier,artifact}.rs` and children | Bytecode model, linked verification, resource/integrity checks and bounded codec; replace frontend trait/type queries with portable ABI checks |
+| IR `decode_limits.rs` | Shared ABI wire bounds used by MIR/bytecode codecs without a reverse dependency |
+| IR `tests/*` and inline ABI/artifact suites | Compiler integration tests for source-driven behavior; contract/codec tests remain with their owner, without production frontend edges |
+| Runtime `backend.rs` | ABI native descriptors/ownership, codegen compile interface and runtime installation/invocation; remove backend invocation from compiler traits |
+| Runtime `jit_abi.rs` | ABI scalar calling representation/helper declarations versus runtime callback implementations |
+| `kagari-jit-cranelift/src/lib.rs` | Rename to codegen-cranelift and migrate scalar compilation from bytecode to verified MIR in A04; native invocation belongs to runtime |
+| Embed `lib.rs::{check,compile,compile_program,compile_artifact}` and compile options/errors | Compiler source orchestration behind the SDK; runtime loading/execution and feature/backend selection remain SDK responsibilities |
+| Runtime/VM/SDK/CLI/examples/tests imports and manifests | Direct owner imports, thirteen workspace packages, updated feature graph and no old IR facade |
+
+The baseline production graph has IR -> HIR; runtime -> IR; VM -> runtime + IR;
+Cranelift -> runtime + IR; embed -> HIR + syntax + IR + runtime + VM. These are
+migration inputs, not accepted final edges. HIR's build currently parses stdlib
+through syntax/common and emits `standard_api.rs` into `OUT_DIR`. The extraction
+must keep one generated declaration mapping, preserve offline host declarations,
+and distinguish build/dev dependencies from production graph checks.
+
+A01 remains open until real ABI/MIR/compiler/bytecode/codegen ownership is present
+and source-analysis types are removed from execution contracts. A02 owns completion
+of compiler analyses/lowering; A03 owns SDK feature and artifact wiring; A04 owns
+Cranelift translation and code-memory lifecycle. Intermediate errors are recorded
+at each checkpoint rather than repaired with compatibility facades.
 
 ## Shared MIR and Execution Contract
 
@@ -411,7 +448,7 @@ must not be the sole record needed to resume the goal.
 
 Current state: A00 is complete. All local commands used by both CI jobs pass on
 the final cleanup checkpoint, with no structural exceptions or carried errors.
-A01 can now start; no MIR/crate migration was included in A00.
+A01 is now extracting shared execution contracts from the frozen inventory below.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -426,7 +463,7 @@ does not authorize starting the MIR refactor with failing gates.
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
-| A01 | Not started | Not run | None recorded |
+| A01 | Frozen migration inventory; ABI scalar/intrinsic identities, physical representation and shared decoder limits extracted | Workspace clippy, 435-file structure audit and 810 subsystem tests pass | Ownership extraction remains open; no current build errors |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
 | A04 | Not started | Not run | None recorded |
@@ -607,6 +644,44 @@ cache/toolchain are unchanged from the recorded environment. Hosted CI status wa
 not queried for these local commits; no remote success is claimed. A00 has no
 carried build/test/structure errors. The commit subject and `Architecture-Step: A00`
 trailer identify this validated cleanup revision without a self-referential hash.
+
+### A01 checkpoint: shared execution identities (2026-09-28)
+
+Checkpoint commit subject: `refactor(abi)!: extract shared execution identities`.
+Added the real `kagari-abi` crate with scalar identities, standard intrinsic IDs,
+physical value representations and bounded decoder primitives. Their original enum
+ordering, serialization derives, numeric layout rules and decoder limits are
+preserved. The HIR build still generates standard API declarations from `stdlib`;
+those generated declarations now bind the ABI intrinsic IDs directly. Semantic
+queries and inference remain in HIR. This shared ABI edge is independent of source
+analysis: `cargo tree -p kagari-abi --edges normal` contains common/serde and their
+support libraries, with no HIR, syntax, MIR, runtime or native backend dependency.
+
+Removed the old defining types and forwarding exports. Consumers, examples and
+tests import `kagari_abi::{scalar,standard,representation}` directly. Checked source
+types become physical representations through the existing concrete ABI conversion;
+`ValueType` no longer accepts HIR `TypeId`. Decoder functions are public at the ABI
+boundary because the future bytecode/MIR codecs share the same bounded contract.
+No artifact version changes are needed for this move: encoded identities and
+representations have not changed. The ABI's bincode dev dependency tests decoder
+bounds; its production codec implementation depends only on serde/common.
+
+Breaking Rust API: `BuiltinType`, `StandardIntrinsic` and `ValueType` are imported
+from their ABI owner modules; their old HIR/IR locations are removed. No aliases
+preserve the superseded locations.
+
+A01 is not complete: the workspace currently has ten crates. Logical ABI contracts,
+standard declaration descriptors and native ownership still need extraction; MIR,
+compiler, bytecode and codegen must replace the remaining mixed IR/runtime owners.
+The bytecode verifier still uses existing HIR trait/type queries, which A01 owns
+removing through portable ABI contracts. This checkpoint does not claim the final
+frontend-free runtime graph or any A02-A05 acceptance.
+
+Validation: workspace/all-target clippy with denied warnings passes; structure
+passes for 435 Rust files with no violations/exceptions.
+`cargo test -p kagari-abi -p kagari-hir -p kagari-ir -p kagari-runtime -p kagari-vm`
+passes 810 tests, including doc tests.
+Formatting and diff checks pass. No build errors are carried from this checkpoint.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

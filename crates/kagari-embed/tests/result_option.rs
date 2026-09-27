@@ -367,13 +367,11 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_enum_operations_are_rejected_before_execution() {
-    use kagari_ir::{
-        bytecode::BytecodeInstruction,
-        module::{
-            abi::{AbiType, BuiltinType, StandardEnumKind},
-            instruction::StandardEnumOp,
-        },
-    };
+    use kagari_abi::scalar::BuiltinType;
+    use kagari_ir::bytecode::BytecodeInstruction;
+    use kagari_ir::module::abi::AbiType;
+    use kagari_ir::module::abi::StandardEnumKind;
+    use kagari_ir::module::instruction::StandardEnumOp;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new("verified.kgr", "fn main()->Option<i32> { Some(42) }"),

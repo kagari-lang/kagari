@@ -9,6 +9,7 @@ default = []
 jit = []
 
 [dependencies]
+kagari-abi.workspace = true
 thiserror.workspace = true
 cranelift-codegen.workspace = true
 cranelift-frontend.workspace = true

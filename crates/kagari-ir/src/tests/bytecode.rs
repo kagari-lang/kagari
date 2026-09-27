@@ -1,15 +1,36 @@
-use crate::{
-    bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactSectionId,
-        ArtifactValidationError, BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule,
-        BytecodeVerificationError, CallTarget, DebugMetadata, DependencyFingerprint, FieldRef,
-        FunctionMetadata, FunctionRef, JumpTarget, KBC_MAGIC, KbcArtifact, LocalSlot, PathId,
-        PathRecord, Register, RuntimeHelper, SafeDebugPointKind, StandardIntrinsic, StructId,
-        UnaryOp, verify_module,
-    },
-    module::{PublicAbiItem, TypeAbiKind, ValueType},
-    tests::common,
-};
+use crate::bytecode::ArtifactBuildOptions;
+use crate::bytecode::ArtifactCompatibility;
+use crate::bytecode::ArtifactFingerprint;
+use crate::bytecode::ArtifactSectionId;
+use crate::bytecode::ArtifactValidationError;
+use crate::bytecode::BinaryOp;
+use crate::bytecode::BytecodeFunction;
+use crate::bytecode::BytecodeInstruction;
+use crate::bytecode::BytecodeModule;
+use crate::bytecode::BytecodeVerificationError;
+use crate::bytecode::CallTarget;
+use crate::bytecode::DebugMetadata;
+use crate::bytecode::DependencyFingerprint;
+use crate::bytecode::FieldRef;
+use crate::bytecode::FunctionMetadata;
+use crate::bytecode::FunctionRef;
+use crate::bytecode::JumpTarget;
+use crate::bytecode::KBC_MAGIC;
+use crate::bytecode::KbcArtifact;
+use crate::bytecode::LocalSlot;
+use crate::bytecode::PathId;
+use crate::bytecode::PathRecord;
+use crate::bytecode::Register;
+use crate::bytecode::RuntimeHelper;
+use crate::bytecode::SafeDebugPointKind;
+use crate::bytecode::StructId;
+use crate::bytecode::UnaryOp;
+use crate::bytecode::verify_module;
+use crate::module::PublicAbiItem;
+use crate::module::TypeAbiKind;
+use crate::tests::common;
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 

@@ -5,7 +5,7 @@ use crate::module::abi::AbiType;
 use crate::module::instruction::Instruction;
 use crate::module::instruction::IrValue;
 use crate::module::instruction::StructFieldInit;
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
 use kagari_hir::hir;
 use kagari_hir::typeck::ResolvedHostPath;
 use smallvec::SmallVec;

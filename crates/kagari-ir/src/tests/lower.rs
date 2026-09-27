@@ -1,11 +1,14 @@
-use crate::{
-    lower_to_ir,
-    module::instruction::RuntimeHelper,
-    module::{
-        BinaryOp, CallTarget, Instruction, IrFunction, IrValue, StandardIntrinsic, Terminator,
-    },
-    tests::common,
-};
+use crate::lower_to_ir;
+use crate::module::BinaryOp;
+use crate::module::CallTarget;
+use crate::module::Instruction;
+use crate::module::IrFunction;
+use crate::module::IrValue;
+use crate::module::Terminator;
+use crate::module::instruction::RuntimeHelper;
+use crate::tests::common;
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
 
 #[test]
 fn generic_interface_instances_share_the_instantiation_budget() {
@@ -183,8 +186,8 @@ fn monomorphizes_reachable_arguments_and_deduplicates_instances() {
         .iter()
         .map(|function| function.params[0].ty)
         .collect::<Vec<_>>();
-    assert!(representations.contains(&crate::module::ValueType::I32));
-    assert!(representations.contains(&crate::module::ValueType::Str));
+    assert!(representations.contains(&ValueType::I32));
+    assert!(representations.contains(&ValueType::Str));
     crate::bytecode::lower_to_bytecode(&ir).unwrap();
 }
 
@@ -972,7 +975,10 @@ fn terminator_values(terminator: &Terminator) -> Vec<IrValue> {
 
 #[test]
 fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
-    use crate::module::{IrVerificationErrorKind, PublicAbiItem, ValueType, verify_ir};
+    use crate::module::IrVerificationErrorKind;
+    use crate::module::PublicAbiItem;
+    use crate::module::verify_ir;
+    use kagari_abi::representation::ValueType;
     use kagari_common::cancellation::CancellationToken;
 
     let checked = common::analyze_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");

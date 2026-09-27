@@ -7,7 +7,7 @@ use crate::builtin::standard::usize_value;
 use crate::error::RuntimeError;
 use crate::gc::GcHeap;
 use crate::value::Value;
-use kagari_ir::builtin::surface::StandardIntrinsic;
+use kagari_abi::standard::StandardIntrinsic;
 pub(super) fn string_transform(
     intrinsic: StandardIntrinsic,
     args: &[Value],

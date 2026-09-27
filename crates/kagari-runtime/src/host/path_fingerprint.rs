@@ -12,10 +12,10 @@ use crate::host::HostRegistry;
 use crate::metadata::AbiFingerprint;
 use crate::metadata::TypeRegistry;
 use crate::module::LinkedHostBindings;
+use kagari_abi::representation::ValueType;
 use kagari_common::host_interface::HostValueType;
 use kagari_common::host_interface::PathAccess;
 use kagari_ir::bytecode::BytecodeModule;
-use kagari_ir::module::ValueType;
 
 impl HostRegistry {
     pub(crate) fn link_module(

@@ -1,5 +1,6 @@
 use super::*;
-use crate::{hir::TypeKind, types::BuiltinType};
+use crate::hir::TypeKind;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},

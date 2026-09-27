@@ -1,12 +1,16 @@
+use kagari_abi::representation::ValueType;
 use kagari_common::Span;
-use kagari_ir::{
-    bytecode::{
-        BinaryOp, BytecodeInstruction, ConstantOperand, DebugPointId, FunctionRef,
-        InstructionSourceSpan, LineTableEntry, Register, SafeDebugPoint, SafeDebugPointKind,
-        UnaryOp,
-    },
-    module::ValueType,
-};
+use kagari_ir::bytecode::BinaryOp;
+use kagari_ir::bytecode::BytecodeInstruction;
+use kagari_ir::bytecode::ConstantOperand;
+use kagari_ir::bytecode::DebugPointId;
+use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::bytecode::InstructionSourceSpan;
+use kagari_ir::bytecode::LineTableEntry;
+use kagari_ir::bytecode::Register;
+use kagari_ir::bytecode::SafeDebugPoint;
+use kagari_ir::bytecode::SafeDebugPointKind;
+use kagari_ir::bytecode::UnaryOp;
 use kagari_jit_cranelift::CraneliftBackend;
 use kagari_runtime::{
     BackendCompileError, BackendFunctionInput, BackendId, BackendInvocationError, BackendTarget,

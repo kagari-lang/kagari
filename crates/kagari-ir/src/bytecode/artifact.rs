@@ -4,16 +4,16 @@ use crate::bytecode::artifact::limits::{
 mod limits;
 use crate::bytecode::BytecodeVerificationError;
 use crate::bytecode::JumpTarget;
-use crate::decode_limits::MAX_FUNCTIONS;
-use crate::decode_limits::MAX_INSTRUCTIONS;
-use crate::decode_limits::MAX_MODULES;
-use crate::decode_limits::MAX_NESTED_RECORDS;
-use crate::decode_limits::MAX_TABLE_RECORDS;
 use crate::module::EffectSet;
 use crate::module::function::SemanticSlots;
 use bincode::DefaultOptions;
 use bincode::ErrorKind;
 use bincode::Options;
+use kagari_abi::decode_limits::MAX_FUNCTIONS;
+use kagari_abi::decode_limits::MAX_INSTRUCTIONS;
+use kagari_abi::decode_limits::MAX_MODULES;
+use kagari_abi::decode_limits::MAX_NESTED_RECORDS;
+use kagari_abi::decode_limits::MAX_TABLE_RECORDS;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::HostInterface;
@@ -21,12 +21,13 @@ use kagari_common::identity::ModuleIdentity;
 use std::io;
 use std::io::Write;
 
-use crate::{
-    bytecode::{
-        BytecodeDebugMetadata, BytecodeModule, BytecodeProgram, FunctionRef, PathId, verify_program,
-    },
-    module::ValueType,
-};
+use crate::bytecode::BytecodeDebugMetadata;
+use crate::bytecode::BytecodeModule;
+use crate::bytecode::BytecodeProgram;
+use crate::bytecode::FunctionRef;
+use crate::bytecode::PathId;
+use crate::bytecode::verify_program;
+use kagari_abi::representation::ValueType;
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
@@ -429,11 +430,11 @@ impl ArtifactFingerprint {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactTables {
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub sections: ArtifactSectionBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub source_files: SourceFileTable,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub debug_names: DebugNameTable,
 }
 
@@ -558,20 +559,20 @@ pub struct VerificationMetadata {
     pub bytecode_verified: bool,
     /// Root-member summaries. Dependency metadata remains in its BytecodeModule;
     /// all members are verified before these derived summaries are accepted.
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub function_layouts: FunctionLayoutBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub function_effects: FunctionEffectBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetMetadataBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub typed_path_fingerprints: PathFingerprintBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub dependency_fingerprints: DependencyFingerprintBuffer,
     pub host_interface_fingerprint: ArtifactFingerprint,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub security_profile_requirements: Vec<String>,
     pub loader: LoaderValidationMetadata,
 }
@@ -661,12 +662,12 @@ impl VerificationMetadata {
 pub struct FunctionLayoutMetadata {
     pub semantic: SemanticSlots,
     pub function: FunctionRef,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub locals: Vec<ValueType>,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub registers: Vec<ValueType>,
     pub roots: super::RootSlotLayout,
 }
@@ -680,7 +681,7 @@ pub struct FunctionEffectMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlFlowTargetMetadata {
     pub function: FunctionRef,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub targets: Vec<JumpTarget>,
 }
 
@@ -707,11 +708,11 @@ pub struct LoaderValidationMetadata {
     pub module_identity: ModuleIdentity,
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub dependency_fingerprints: DependencyFingerprintBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub typed_path_fingerprints: PathFingerprintBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
     pub security_profile: Option<String>,
 }
@@ -767,11 +768,11 @@ impl Default for ArtifactCompatibility {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DebugMetadata {
     pub stripped: bool,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub source_files: SourceFileTable,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub debug_names: DebugNameTable,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub functions: Vec<BytecodeDebugMetadata>,
 }
 
@@ -796,7 +797,7 @@ impl DebugMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactSignatures {
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub signatures: Vec<ArtifactSignature>,
 }
 

@@ -37,7 +37,8 @@ fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
 
 #[test]
 fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit() {
-    use kagari_hir::types::{BuiltinType, TypeId};
+    use kagari_abi::scalar::BuiltinType;
+    use kagari_hir::types::TypeId;
     let mut db = SourceDatabase::default();
     insert(
         &mut db,
@@ -293,7 +294,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         unreachable!()
     };
     template.variants[0].payload[0] =
-        kagari_ir::module::abi::AbiType::Builtin(kagari_hir::types::BuiltinType::Bool);
+        kagari_ir::module::abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
     assert!(kagari_ir::bytecode::verify_program(&program).is_err());
     let error = lower_program_to_ir(
         &checked,

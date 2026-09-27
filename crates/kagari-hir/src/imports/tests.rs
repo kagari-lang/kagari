@@ -345,7 +345,7 @@ fn cycles_are_reachable_without_invalidating_dependents() {
             .unwrap()
             .type_at("use pkg::b; fn good() -> i32 { ".len()),
         Some(crate::types::TypeId::Builtin(
-            crate::types::BuiltinType::I32
+            kagari_abi::scalar::BuiltinType::I32
         ))
     );
 }

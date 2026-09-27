@@ -9,12 +9,14 @@ use super::surface::STANDARD_TRAITS;
 use super::surface::StandardEnum;
 use super::surface::StandardModule;
 use crate::aggregates;
+use crate::aggregates::AggregateCatalog;
+use crate::aggregates::TraitSignature;
+use crate::typeck::ConstraintTarget;
+use crate::typeck::GenericBounds;
 use crate::types;
-use crate::{
-    aggregates::{AggregateCatalog, TraitSignature},
-    typeck::{ConstraintTarget, GenericBounds},
-    types::{BuiltinType, NominalType, TypeId},
-};
+use crate::types::NominalType;
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
 };

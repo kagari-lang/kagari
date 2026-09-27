@@ -1,16 +1,20 @@
 use super::{IrLoweringError, state::FunctionLowerer};
+use crate::module::AggregateFieldRef;
 use crate::module::BinaryOp;
 use crate::module::CallTarget;
+use crate::module::Instruction;
+use crate::module::IrValue;
+use crate::module::LocalId;
 use crate::module::PathRef;
 use crate::module::ValueBuffer;
 use crate::module::abi::NominalAbiType;
 use crate::module::instruction::InterfaceCallContract;
 use crate::module::numeric::NumericOperation;
-use crate::module::{AggregateFieldRef, Instruction, IrValue, LocalId, ValueType};
 use hir::PlaceKind;
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
 use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::types;
-use kagari_hir::types::BuiltinType;
 use kagari_hir::{hir, types::TypeId};
 use std::ops::ControlFlow;
 

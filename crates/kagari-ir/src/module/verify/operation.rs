@@ -1,14 +1,18 @@
 use super::{Context, IrVerificationError, IrVerificationErrorKind as Error};
+use crate::module::CallTarget;
+use crate::module::Constant;
+use crate::module::Instruction;
+use crate::module::IrFunction;
+use crate::module::IrModule;
 use crate::module::PublicAbiItem;
 use crate::module::abi::AbiType;
+use crate::module::contracts;
+use crate::module::contracts::ContractError;
 use crate::module::instruction;
-use crate::module::{
-    CallTarget, Constant, Instruction, IrFunction, IrModule, ValueType,
-    contracts::{self, ContractError},
-    instruction::RuntimeHelper,
-};
+use crate::module::instruction::RuntimeHelper;
 use crate::module::{abi, instruction::range_operands_valid};
 use contracts::RuntimeHelperKind;
+use kagari_abi::representation::ValueType;
 use kagari_common::host_interface::HostInterface;
 use kagari_common::host_interface::PathAccess;
 use std::collections::HashSet;

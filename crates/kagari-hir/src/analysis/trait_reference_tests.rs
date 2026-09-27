@@ -1,9 +1,9 @@
 use super::*;
-use crate::{
-    hir::{HirOwner, TypeKind},
-    typeck::{ConstraintTarget, TypeTarget},
-    types::BuiltinType,
-};
+use crate::hir::HirOwner;
+use crate::hir::TypeKind;
+use crate::typeck::ConstraintTarget;
+use crate::typeck::TypeTarget;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},

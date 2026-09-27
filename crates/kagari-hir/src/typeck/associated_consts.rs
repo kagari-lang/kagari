@@ -5,12 +5,12 @@ use super::{
     ty::{TypeContext, resolve_type_in},
 };
 use crate::DiagnosticBuffer;
-use crate::{
-    aggregates::AggregateCatalog,
-    declarations::Declarations,
-    lower::LoweredModule,
-    types::{BuiltinType, TypeId, associated_const_id},
-};
+use crate::aggregates::AggregateCatalog;
+use crate::declarations::Declarations;
+use crate::lower::LoweredModule;
+use crate::types::TypeId;
+use crate::types::associated_const_id;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
 use std::collections::HashSet;
 

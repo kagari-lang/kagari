@@ -6,13 +6,13 @@ use crate::module::instruction::Instruction;
 use crate::module::instruction::IrValue;
 use crate::module::instruction::StandardEnumOp as Op;
 use crate::module::instruction::Terminator;
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::collection::CollectionAccess;
-use kagari_hir::builtin::surface::StandardIntrinsic;
-use kagari_hir::{
-    builtin::{surface::StandardEnum, traits::StandardTrait},
-    types::{BuiltinType, TypeId},
-};
+use kagari_hir::builtin::surface::StandardEnum;
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::types::TypeId;
 
 fn array(item: TypeId) -> TypeId {
     TypeId::Array(Box::new(item), CollectionAccess::Mutable)

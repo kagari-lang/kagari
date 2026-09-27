@@ -1,5 +1,4 @@
 use crate::builtin::surface;
-use crate::builtin::surface::StandardIntrinsic;
 use crate::builtin::surface::StandardTypeConstraint;
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTrait;
@@ -23,6 +22,7 @@ use crate::typeck::ty::display_type_id;
 use crate::types::GenericParameterType;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
 use std::iter;

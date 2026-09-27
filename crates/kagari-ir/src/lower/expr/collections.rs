@@ -7,9 +7,9 @@ use crate::module::instruction::IrValue;
 use crate::module::instruction::IterOp;
 use crate::module::instruction::StandardEnumOp;
 use crate::module::instruction::Terminator;
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::collection::CollectionAccess;
-use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::builtin::traits;
 use kagari_hir::builtin::{
     declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait,

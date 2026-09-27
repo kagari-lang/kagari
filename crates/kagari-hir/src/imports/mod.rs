@@ -1,4 +1,5 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
+use kagari_abi::standard::StandardIntrinsic;
 
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTrait;
@@ -52,7 +53,7 @@ pub struct SourceImport {
 pub enum ImportTarget {
     StandardTrait(StandardTrait),
     StandardModule(surface::StandardModule),
-    StandardFunction(surface::StandardIntrinsic),
+    StandardFunction(StandardIntrinsic),
     StandardVariant(surface::StandardVariant),
     HostModule(HostModuleId),
     HostFunction(HostFunctionId),

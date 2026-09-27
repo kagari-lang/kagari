@@ -23,12 +23,12 @@ use crate::bytecode::verifier::verify_jump;
 use crate::bytecode::verifier::verify_standard_intrinsic_call;
 use crate::module::PublicAbiItem;
 use crate::module::UnaryOp as IrUnaryOp;
-use crate::module::ValueType;
 use crate::module::abi;
 use crate::module::abi::AbiType;
 use crate::module::contracts;
 use crate::module::contracts::RuntimeHelperKind;
 use crate::module::instruction;
+use kagari_abi::representation::ValueType;
 pub(super) fn verify_instruction(
     module: &BytecodeModule,
     function: &BytecodeFunction,

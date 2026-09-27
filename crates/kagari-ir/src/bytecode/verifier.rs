@@ -21,14 +21,22 @@ use kagari_hir::builtin::declarations;
 use std::collections::HashSet;
 use std::iter;
 
-use crate::{
-    bytecode::{
-        BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
-        ConstantOperand, FieldRef, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, PathId,
-        Register, StandardIntrinsic, StructId,
-    },
-    module::ValueType,
-};
+use crate::bytecode::BinaryOp;
+use crate::bytecode::BytecodeFunction;
+use crate::bytecode::BytecodeInstruction;
+use crate::bytecode::BytecodeModule;
+use crate::bytecode::CallTarget;
+use crate::bytecode::ConstantOperand;
+use crate::bytecode::FieldRef;
+use crate::bytecode::FunctionRef;
+use crate::bytecode::JumpTarget;
+use crate::bytecode::LocalSlot;
+use crate::bytecode::ModuleSlot;
+use crate::bytecode::PathId;
+use crate::bytecode::Register;
+use crate::bytecode::StructId;
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {

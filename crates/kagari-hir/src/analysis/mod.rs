@@ -1009,7 +1009,7 @@ mod type_name_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::BuiltinType;
+    use kagari_abi::scalar::BuiltinType;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
     #[test]

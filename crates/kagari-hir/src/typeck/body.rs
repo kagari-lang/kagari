@@ -33,15 +33,26 @@ use std::collections::{HashMap, HashSet};
 use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
-use crate::{
-    builtin::surface::{self, StandardIntrinsic, StandardMethodReceiver},
-    hir::{BlockId, ExprId, ExprKind, LiteralKind},
-    lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
-    typeck::ty::{TypeContext, display_type_id, resolve_type_in},
-    typeck::{BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable},
-    types::{BuiltinType, TypeId},
-};
+use crate::builtin::surface;
+use crate::builtin::surface::StandardMethodReceiver;
+use crate::hir::BlockId;
+use crate::hir::ExprId;
+use crate::hir::ExprKind;
+use crate::hir::LiteralKind;
+use crate::lower::LoweredModule;
+use crate::resolver::ResolvedName;
+use crate::resolver::ResolvedNames;
+use crate::typeck::BodyTypeEnv;
+use crate::typeck::FunctionTypeIndex;
+use crate::typeck::TopLevelTypeIndex;
+use crate::typeck::TypeIndexes;
+use crate::typeck::TypeTable;
+use crate::typeck::ty::TypeContext;
+use crate::typeck::ty::display_type_id;
+use crate::typeck::ty::resolve_type_in;
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::StandardIntrinsic;
 
 #[derive(Clone)]
 enum HostPathNode<Id> {

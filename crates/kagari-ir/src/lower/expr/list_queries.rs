@@ -6,11 +6,12 @@ use crate::module::instruction::Instruction;
 use crate::module::instruction::IrValue;
 use crate::module::instruction::StandardEnumOp as Op;
 use crate::module::instruction::Terminator;
-use crate::module::types::ValueType;
-use kagari_hir::{
-    builtin::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
-    types::{BuiltinType, TypeId},
-};
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
+use kagari_hir::builtin::declarations::NativeDefaultMethod;
+use kagari_hir::builtin::surface::StandardEnum;
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::types::TypeId;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn list_call(

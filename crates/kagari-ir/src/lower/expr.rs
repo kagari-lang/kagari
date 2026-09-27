@@ -32,7 +32,7 @@ mod set_queries;
 mod standard;
 mod terminals;
 
-use kagari_hir::builtin::surface::StandardIntrinsic;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_hir::hir;
 use std::ops::ControlFlow;
 
@@ -41,7 +41,7 @@ use crate::lower::state::FunctionLowerer;
 use crate::module::instruction::{
     CallTarget, Constant, Instruction, IrValue, Terminator, ValueBuffer,
 };
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
 
 impl FunctionLowerer<'_, '_> {
     fn lower_closure(&mut self, expr_id: hir::ExprId) -> Result<IrValue, IrLoweringError> {

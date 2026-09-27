@@ -16,16 +16,16 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumLayout {
     pub declaration: DefinitionId,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub variants: Vec<EnumVariantLayout>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumVariantLayout {
     pub declaration: DefinitionId,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub payload: Vec<AbiType>,
 }
 
@@ -284,9 +284,9 @@ pub(crate) fn validate_enum_layouts(
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StructLayout {
     pub declaration: DefinitionId,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub fields: Vec<StructFieldLayout>,
 }
 

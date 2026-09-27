@@ -263,7 +263,7 @@ fn make() -> Test {
 
 #[test]
 fn forged_writes_and_access_upgrades_are_rejected_before_loading() {
-    use kagari_hir::builtin::surface::StandardIntrinsic;
+    use kagari_abi::standard::StandardIntrinsic;
     use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, verify_program};
     use kagari_ir::module::abi::AbiType;
     let engine = KagariEngine::default();

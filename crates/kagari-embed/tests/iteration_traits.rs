@@ -146,10 +146,9 @@ fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 
 #[test]
 fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
-    use kagari_ir::module::{
-        abi::{AbiType, BuiltinType},
-        instruction::IterOp,
-    };
+    use kagari_abi::scalar::BuiltinType;
+    use kagari_ir::module::abi::AbiType;
+    use kagari_ir::module::instruction::IterOp;
     let mut config = kagari_embed::EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
@@ -369,13 +368,10 @@ fn main()->i32 {
 
 #[test]
 fn malformed_native_iter_operations_are_rejected_before_execution() {
-    use kagari_ir::{
-        bytecode::BytecodeInstruction,
-        module::{
-            abi::{AbiType, BuiltinType},
-            instruction::IterOp,
-        },
-    };
+    use kagari_abi::scalar::BuiltinType;
+    use kagari_ir::bytecode::BytecodeInstruction;
+    use kagari_ir::module::abi::AbiType;
+    use kagari_ir::module::instruction::IterOp;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

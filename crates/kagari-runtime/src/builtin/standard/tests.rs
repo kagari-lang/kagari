@@ -1,5 +1,5 @@
 use super::*;
-use kagari_ir::builtin::surface::StandardIntrinsic;
+use kagari_abi::standard::StandardIntrinsic;
 
 use crate::{
     gc::{GcHeap, GcHeapConfig},

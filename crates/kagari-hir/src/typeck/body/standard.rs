@@ -1,7 +1,6 @@
 use crate::builtin::declarations::ApiType;
 use crate::builtin::declarations::Arguments;
 use crate::builtin::surface;
-use crate::builtin::surface::StandardIntrinsic;
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTrait;
 use crate::hir::ExprId;
@@ -16,6 +15,7 @@ use crate::typeck::body::BodyChecker;
 use crate::typeck::body::standard_intrinsic_name;
 use crate::typeck::completion;
 use crate::types::TypeId;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
 use surface::StandardEnum;

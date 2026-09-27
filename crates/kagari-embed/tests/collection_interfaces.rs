@@ -272,7 +272,7 @@ fn map_snapshot_return_types_reject_writes_without_annotations() {
 
 #[test]
 fn map_snapshot_bindings_must_be_lowered_before_execution() {
-    use kagari_hir::builtin::surface::StandardIntrinsic as S;
+    use kagari_abi::standard::StandardIntrinsic as S;
     use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, verify_program};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(

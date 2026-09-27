@@ -1,4 +1,3 @@
-mod decode_limits;
 mod lower;
 
 pub mod bytecode;

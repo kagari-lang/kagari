@@ -1,17 +1,23 @@
+use kagari_abi::representation::ValueType;
 use kagari_common::SourceFile;
 use kagari_embed::{
     ArtifactOptions, BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext,
     HostExposurePolicy, KagariEngine, KagariRuntime, LoadOptions, ReloadOptions,
     RuntimeFailureKind,
 };
-use kagari_ir::{
-    bytecode::{
-        ArtifactBuildOptions, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
-        ConstantOperand, FunctionMetadata, FunctionRecord, FunctionRef, KbcArtifact, PathId,
-        PathRecord, Register,
-    },
-    module::ValueType,
-};
+use kagari_ir::bytecode::ArtifactBuildOptions;
+use kagari_ir::bytecode::BytecodeFunction;
+use kagari_ir::bytecode::BytecodeInstruction;
+use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::bytecode::CallTarget;
+use kagari_ir::bytecode::ConstantOperand;
+use kagari_ir::bytecode::FunctionMetadata;
+use kagari_ir::bytecode::FunctionRecord;
+use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::bytecode::KbcArtifact;
+use kagari_ir::bytecode::PathId;
+use kagari_ir::bytecode::PathRecord;
+use kagari_ir::bytecode::Register;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, HostObjectId, HostPathAdapter, HostPathDescriptorId,
     HostPathDescriptorRegistration, HostPathSegmentRegistration, HostReflectionPolicy,

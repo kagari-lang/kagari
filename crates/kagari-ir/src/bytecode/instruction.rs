@@ -1,11 +1,11 @@
-use crate::module::ValueType;
 use crate::module::abi::AbiType;
 use crate::module::abi::NominalAbiType;
 use crate::module::instruction::IterOp;
 use crate::module::instruction::StandardEnumOp;
 use crate::module::numeric::NumericConversion;
 use crate::module::numeric::NumericOperation;
-use kagari_hir::builtin::surface::StandardIntrinsic;
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -172,7 +172,7 @@ pub enum CallTarget {
     Register(Register),
     ClosureRegister {
         register: Register,
-        #[serde(deserialize_with = "crate::decode_limits::table")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
         params: Vec<ValueType>,
         return_type: ValueType,
     },
@@ -282,7 +282,7 @@ pub enum BytecodeInstruction {
     Call {
         dst: Option<Register>,
         callee: CallTarget,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         args: Vec<Register>,
     },
     BeginIteration {
@@ -291,7 +291,7 @@ pub enum BytecodeInstruction {
     EndIteration,
     MakeTuple {
         dst: Register,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         elements: Vec<Register>,
     },
     RangeBound {
@@ -314,13 +314,13 @@ pub enum BytecodeInstruction {
     },
     MakeArray {
         dst: Register,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         elements: Vec<Register>,
     },
     MakeClosure {
         dst: Register,
         function: FunctionRef,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         captures: Vec<Register>,
     },
     MakeCell {
@@ -350,14 +350,14 @@ pub enum BytecodeInstruction {
     MakeStruct {
         dst: Register,
         structure: StructId,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         fields: Vec<Register>,
     },
     MakeEnum {
         dst: Register,
         enumeration: EnumId,
         variant: u32,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         fields: Vec<Register>,
     },
     TestEnumVariant {
@@ -397,13 +397,13 @@ pub enum BytecodeInstruction {
         dst: Register,
         root_or_view: Register,
         path: PathId,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         dynamic_args: Vec<Register>,
     },
     SetPath {
         root_or_view: Register,
         path: PathId,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         dynamic_args: Vec<Register>,
         value: Register,
     },
@@ -411,7 +411,7 @@ pub enum BytecodeInstruction {
         dst: Option<Register>,
         root_or_view: Register,
         path: PathId,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         dynamic_args: Vec<Register>,
         op: BinaryOp,
         value: Register,
@@ -420,7 +420,7 @@ pub enum BytecodeInstruction {
         dst: Register,
         root_or_view: Register,
         path: PathId,
-        #[serde(deserialize_with = "crate::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         dynamic_args: Vec<Register>,
     },
     Jump {

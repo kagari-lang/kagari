@@ -6,12 +6,11 @@ use crate::module::instruction::Instruction;
 use crate::module::instruction::IrValue;
 use crate::module::instruction::StandardEnumOp;
 use crate::module::instruction::Terminator;
-use crate::module::types::ValueType;
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
+use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::hir;
-use kagari_hir::{
-    builtin::surface::{StandardEnum, StandardIntrinsic},
-    types::TypeId,
-};
+use kagari_hir::types::TypeId;
 use std::slice;
 
 impl FunctionLowerer<'_, '_> {

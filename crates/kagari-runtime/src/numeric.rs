@@ -1,15 +1,15 @@
 use crate::gc::GcHeap;
 use crate::value::EnumTag;
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::arithmetic::{self, ArithmeticError, IntegerBinaryOp};
 use kagari_common::integer;
 use kagari_common::integer::IntegerMethod;
 use kagari_common::numeric;
 use kagari_common::numeric::Number;
 use kagari_ir::bytecode::{BinaryOp, UnaryOp};
-use kagari_ir::module::ValueType;
 use kagari_ir::module::abi::AbiType;
-use kagari_ir::module::abi::BuiltinType;
 use kagari_ir::module::numeric::NumericConversion;
 use kagari_ir::module::numeric::NumericOperation;
 
@@ -266,8 +266,8 @@ mod boundary_tests {
     use super::*;
     #[test]
     fn invalid_direct_native_inputs_return_errors_without_panicking() {
+        use kagari_abi::scalar::BuiltinType as B;
         use kagari_common::integer::IntegerMethod as M;
-        use kagari_ir::module::abi::BuiltinType as B;
         let runtime = crate::Runtime::default();
         for (method, ty, args) in [
             (M::RotateLeft, B::U8, [Value::I64(1), Value::I64(-1)]),

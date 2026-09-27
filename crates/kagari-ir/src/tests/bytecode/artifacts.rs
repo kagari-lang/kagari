@@ -146,7 +146,7 @@ fn serializes_kbc_artifact_bytes_for_loader_execution() {
 #[test]
 fn fingerprints_public_module_abi_records() {
     use crate::module::abi::{AbiType, NominalAbiType};
-    use kagari_hir::types::BuiltinType;
+    use kagari_abi::scalar::BuiltinType;
     let module = common::bytecode_ok(
         r#"
 pub const VERSION: i32 = 1;

@@ -146,12 +146,12 @@ fn generic_interface_implementation_specializes_reachable_method() {
         .collect::<Vec<_>>();
     assert!(
         arguments.contains(&vec![crate::module::abi::AbiType::Builtin(
-            kagari_hir::types::BuiltinType::I32
+            kagari_abi::scalar::BuiltinType::I32
         )])
     );
     assert!(
         arguments.contains(&vec![crate::module::abi::AbiType::Builtin(
-            kagari_hir::types::BuiltinType::String
+            kagari_abi::scalar::BuiltinType::String
         )])
     );
     let mut wrong_arity = module.clone();
@@ -184,7 +184,7 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
         .identity
         .as_mut()
         .unwrap()
-        .arguments[0] = crate::module::abi::AbiType::Builtin(kagari_hir::types::BuiltinType::Bool);
+        .arguments[0] = crate::module::abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
     wrong_instance.function_table[method].identity =
         wrong_instance.functions[method].identity.clone();
     assert!(matches!(
@@ -450,7 +450,8 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
 
 #[test]
 fn private_interface_tables_must_match_their_trait_contract() {
-    use crate::module::abi::{AbiType, BuiltinType};
+    use crate::module::abi::AbiType;
+    use kagari_abi::scalar::BuiltinType;
 
     let original = common::bytecode_ok(
         "trait Readable { fn get(self) -> i32; } struct Counter { val value: i32 } impl Readable for Counter { fn get(self) -> i32 { self.value } } fn main() {}",

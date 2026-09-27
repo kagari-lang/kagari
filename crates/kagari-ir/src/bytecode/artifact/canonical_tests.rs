@@ -342,7 +342,8 @@ fn decoder_rejects_huge_module_count_before_reading_module_data() {
 
 #[test]
 fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
-    use crate::module::abi::{AbiType, BuiltinType};
+    use crate::module::abi::AbiType;
+    use kagari_abi::scalar::BuiltinType;
     let valid = BytecodeProgram {
         root: crate::bytecode::ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
@@ -380,8 +381,9 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
 
 #[test]
 fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
-    use crate::module::abi::{AbiType, BuiltinType};
+    use crate::module::abi::AbiType;
     use crate::module::{EnumLayout, EnumVariantLayout, FieldAbi, StructFieldLayout, StructLayout};
+    use kagari_abi::scalar::BuiltinType;
     use kagari_common::host_interface::{HostPathDeclaration, PathAccess};
     use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
 

@@ -1,4 +1,5 @@
 //! Public signatures compiled from the bundled declaration sources.
+use kagari_abi::standard::StandardIntrinsic;
 
 use crate::aggregates::MethodParameter;
 use crate::aggregates::MethodSignature;
@@ -16,7 +17,8 @@ use crate::resolver::ResolvedName;
 use crate::typeck::GenericBounds;
 use crate::types;
 use crate::types::NominalType;
-use crate::types::{BuiltinType, TypeId};
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::SourceFile;
 use kagari_common::Span;
 use kagari_common::collection::CollectionAccess;
@@ -291,7 +293,7 @@ pub fn declaration(id: &DeclarationId) -> Option<&'static Declaration> {
         .find(|d| d.id == *id)
 }
 
-pub fn function(intrinsic: surface::StandardIntrinsic) -> Option<&'static ApiItem> {
+pub fn function(intrinsic: StandardIntrinsic) -> Option<&'static ApiItem> {
     let api = surface::standard_function_by_intrinsic(intrinsic)?.api;
     surface::STANDARD_ITEMS
         .iter()

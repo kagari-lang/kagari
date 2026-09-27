@@ -1,5 +1,5 @@
 use crate::hir::TypeRefId;
-use crate::types::BuiltinType;
+use kagari_abi::scalar::BuiltinType;
 use std::collections::HashMap;
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
@@ -206,7 +206,7 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::BuiltinType;
+    use kagari_abi::scalar::BuiltinType;
     use kagari_common::collection::CollectionAccess;
 
     #[test]

@@ -16,18 +16,18 @@ use crate::module::instruction::UnaryOp;
 use crate::module::instruction::ValueBuffer;
 use crate::module::numeric::NumericConversion;
 use crate::module::numeric::NumericOperation;
-use crate::module::types::ValueType;
 use hir::BinaryOp as HirBinaryOp;
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::identity::DefinitionId;
 use kagari_common::integer::IntegerOp;
 use kagari_hir::builtin::declarations;
 use kagari_hir::builtin::declarations::NativeDefaultMethod;
 use kagari_hir::builtin::surface::StandardEnum;
-use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::builtin::traits;
 use kagari_hir::hir;
 use kagari_hir::typeck::CallTarget as HirCallTarget;
-use kagari_hir::types::BuiltinType;
 use kagari_hir::types::NominalType;
 use kagari_hir::types::TypeSubstitution;
 use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
@@ -516,7 +516,7 @@ impl FunctionLowerer<'_, '_> {
                         | TypeId::Array(_, _)
                         | TypeId::Set(_, _)
                         | TypeId::Map { .. }
-                        | TypeId::Builtin(kagari_hir::types::BuiltinType::String)
+                        | TypeId::Builtin(kagari_abi::scalar::BuiltinType::String)
                 ) =>
             {
                 Some(IterOp::New)

@@ -10,11 +10,10 @@ use crate::module::RetainedRuntimeProgram;
 use crate::session::SessionState;
 use crate::value::EnumTag;
 use crate::value::Value;
+use kagari_abi::scalar::BuiltinType;
+use kagari_ir::module::abi::AbiType;
+use kagari_ir::module::instruction::IterOp;
 use kagari_ir::module::instruction::StringIterKind;
-use kagari_ir::module::{
-    abi::{AbiType, BuiltinType},
-    instruction::IterOp,
-};
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::rc::Rc;

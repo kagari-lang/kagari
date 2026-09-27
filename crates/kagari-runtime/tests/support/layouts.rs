@@ -11,7 +11,7 @@ use kagari_runtime::{Runtime, module::StructLayoutRef, value::Value};
 pub fn interface_value(runtime: &mut Runtime) -> Value {
     interface_value_with(
         runtime,
-        AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+        AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
         Value::I32(7),
     )
 }

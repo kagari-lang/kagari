@@ -1,15 +1,15 @@
 use super::instances::Instance;
 use super::instances::InstancePlanner;
-use crate::module::ValueType;
 use crate::module::instruction::Instruction;
 use hir::ExprKind;
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
 use kagari_hir::AnalyzedModule;
 use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::builtin::traits::callable_signature;
 use kagari_hir::hir;
 use kagari_hir::typeck::TypedFunction;
-use kagari_hir::types::BuiltinType;
 use kagari_hir::types::TypeId;
 use kagari_hir::types::TypeSubstitution;
 use std::iter;

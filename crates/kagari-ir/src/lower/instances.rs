@@ -30,7 +30,9 @@ use kagari_hir::{
 };
 
 use super::IrLoweringError;
-use crate::module::{function::FunctionInstance, ids::InstanceId, types::ValueType};
+use crate::module::function::FunctionInstance;
+use crate::module::ids::InstanceId;
+use kagari_abi::representation::ValueType;
 
 #[derive(Debug, Clone)]
 pub struct IrLoweringOptions {
@@ -816,7 +818,7 @@ impl<'a> InstancePlanner<'a> {
         if !ty.is_concrete() {
             return Err(unresolved_type(&ty, span));
         }
-        Ok(ValueType::from_type_id(&ty))
+        Ok(AbiType::from_checked_type(&ty).representation())
     }
 }
 

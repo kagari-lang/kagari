@@ -14,12 +14,12 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
         &[
             (
                 "x",
-                AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+                AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
                 true,
             ),
             (
                 "fixed",
-                AbiType::Builtin(kagari_ir::module::abi::BuiltinType::Bool),
+                AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool),
                 false,
             ),
         ],
@@ -88,7 +88,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         "Point",
         &[(
             "x",
-            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+            AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -98,7 +98,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         "Point",
         &[(
             "x",
-            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+            AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -143,7 +143,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         "Point",
         &[(
             "x",
-            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+            AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -192,7 +192,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         "Point",
         &[(
             "x",
-            AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+            AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
             false,
         )],
     );
@@ -211,10 +211,10 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
 
 #[test]
 fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
-    use kagari_ir::{
-        bytecode::{BytecodeProgram, ModuleRef},
-        module::abi::{BuiltinType, NominalAbiType},
-    };
+    use kagari_abi::scalar::BuiltinType;
+    use kagari_ir::bytecode::BytecodeProgram;
+    use kagari_ir::bytecode::ModuleRef;
+    use kagari_ir::module::abi::NominalAbiType;
     let mut runtime = Runtime::default();
     let leaf = layouts::layout(
         &mut runtime,

@@ -1,14 +1,20 @@
 use super::*;
-use kagari_ir::{
-    bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, BytecodeFunction, BytecodeInstruction,
-        BytecodeModule, ConstantOperand, DependencyFingerprint, FunctionMetadata, FunctionRef,
-        KbcArtifact,
-    },
-    module::{FunctionAbi, PublicAbiItem, ValueType},
-};
+use kagari_abi::representation::ValueType;
+use kagari_ir::bytecode::ArtifactBuildOptions;
+use kagari_ir::bytecode::ArtifactCompatibility;
+use kagari_ir::bytecode::BytecodeFunction;
+use kagari_ir::bytecode::BytecodeInstruction;
+use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::bytecode::ConstantOperand;
+use kagari_ir::bytecode::DependencyFingerprint;
+use kagari_ir::bytecode::FunctionMetadata;
+use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::bytecode::KbcArtifact;
+use kagari_ir::module::FunctionAbi;
+use kagari_ir::module::PublicAbiItem;
 
-use kagari_ir::module::abi::{AbiType, BuiltinType};
+use kagari_abi::scalar::BuiltinType;
+use kagari_ir::module::abi::AbiType;
 
 #[test]
 fn corrupted_collection_root_quarantines_the_runtime() {

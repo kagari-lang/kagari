@@ -16,7 +16,7 @@ use crate::range;
 use crate::value::EnumTag;
 use crate::value::EnumValueSnapshot;
 use crate::value_semantics;
-use kagari_ir::builtin::surface::StandardIntrinsic;
+use kagari_abi::standard::StandardIntrinsic;
 use std::cmp::Ordering;
 
 use crate::{

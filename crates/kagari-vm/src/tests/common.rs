@@ -1,13 +1,15 @@
+use kagari_abi::representation::ValueType;
 use kagari_common::SourceFile;
 use kagari_hir::analyze_source;
-use kagari_ir::{
-    bytecode::{
-        BytecodeFunction, BytecodeInstruction, BytecodeModule, ConstantOperand, FunctionMetadata,
-        FunctionRecord, FunctionRef, lower_to_bytecode,
-    },
-    lower_to_ir,
-    module::ValueType,
-};
+use kagari_ir::bytecode::BytecodeFunction;
+use kagari_ir::bytecode::BytecodeInstruction;
+use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::bytecode::ConstantOperand;
+use kagari_ir::bytecode::FunctionMetadata;
+use kagari_ir::bytecode::FunctionRecord;
+use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::bytecode::lower_to_bytecode;
+use kagari_ir::lower_to_ir;
 use kagari_runtime::{LoadedModule, Runtime};
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {

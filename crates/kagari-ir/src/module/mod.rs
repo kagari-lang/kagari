@@ -1,5 +1,4 @@
 pub mod numeric;
-pub use kagari_hir::builtin::surface::StandardIntrinsic;
 
 pub mod abi;
 pub mod contracts;
@@ -9,7 +8,6 @@ pub mod ids;
 pub mod instruction;
 pub mod layout;
 pub use layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout};
-pub mod types;
 mod verify;
 
 pub use verify::{IrVerificationError, IrVerificationErrorKind, VerifiedIrModule, verify_ir};
@@ -30,4 +28,3 @@ pub use instruction::{
     AggregateFieldRef, BinaryOp, CallTarget, Constant, EffectSet, Instruction, InstructionBuffer,
     IrValue, PathRef, StructFieldInit, StructFieldInitBuffer, Terminator, UnaryOp, ValueBuffer,
 };
-pub use types::ValueType;

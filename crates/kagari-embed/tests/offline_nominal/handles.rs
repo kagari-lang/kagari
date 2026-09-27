@@ -239,7 +239,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
     );
     assert_eq!(
         pass.return_type.representation(),
-        kagari_ir::module::ValueType::HostHandle
+        kagari_abi::representation::ValueType::HostHandle
     );
     let mut invalid = artifact.program.clone();
     invalid.modules[artifact.program.root.index()]

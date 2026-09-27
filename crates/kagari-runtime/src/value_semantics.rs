@@ -276,16 +276,16 @@ mod tests {
 
     #[test]
     fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
+        use kagari_abi::scalar::BuiltinType;
         use kagari_common::identity::{
             DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
         };
-        use kagari_ir::{
-            bytecode::{BytecodeModule, BytecodeProgram, ModuleRef},
-            module::{
-                EnumLayout, EnumVariantLayout,
-                abi::{AbiType, BuiltinType},
-            },
-        };
+        use kagari_ir::bytecode::BytecodeModule;
+        use kagari_ir::bytecode::BytecodeProgram;
+        use kagari_ir::bytecode::ModuleRef;
+        use kagari_ir::module::EnumLayout;
+        use kagari_ir::module::EnumVariantLayout;
+        use kagari_ir::module::abi::AbiType;
 
         let identity = ModuleIdentity::single_file("enum-equality.kgr");
         let declaration = DefinitionId {

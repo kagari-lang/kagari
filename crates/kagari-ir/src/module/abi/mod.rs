@@ -1,7 +1,8 @@
-use super::ValueType;
 use super::function::FunctionInstance;
 use bincode::DefaultOptions;
 use bincode::Options;
+use kagari_abi::representation::ValueType;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::HostValueType;
 use kagari_common::identity::DefinitionId;
@@ -16,7 +17,7 @@ use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::typeck::ConstraintTarget;
 use kagari_hir::types::AssociatedTypeFamily;
 use kagari_hir::types::AssociatedTypeParameters;
-pub use kagari_hir::types::BuiltinType;
+
 use kagari_hir::types::GenericParameterType;
 use kagari_hir::types::NominalType;
 use kagari_hir::types::TypeId;
@@ -27,9 +28,9 @@ use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleAbi {
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub public_items: PublicAbiItemBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub trait_contracts: Vec<TraitContract>,
 }
 
@@ -84,11 +85,11 @@ impl PublicAbiItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionAbi {
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub bounds: Vec<GenericBoundAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub params: Vec<ParameterAbi>,
     pub return_type: AbiType,
 }
@@ -111,13 +112,13 @@ pub struct ConstAbi {
 pub struct TypeAbi {
     pub name: String,
     pub kind: TypeAbiKind,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub bounds: Vec<GenericBoundAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub fields: Vec<FieldAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub variants: Vec<VariantAbi>,
 }
 
@@ -137,7 +138,7 @@ pub struct FieldAbi {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VariantAbi {
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub payload: Vec<AbiType>,
 }
 
@@ -146,9 +147,9 @@ pub struct VariantAbi {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NominalAbiType {
     pub declaration: DefinitionId,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
-    #[serde(deserialize_with = "crate::decode_limits::map")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::map")]
     pub associated_types: BTreeMap<DefinitionId, AbiType>,
 }
 
@@ -307,10 +308,10 @@ impl AbiType {
         }
     }
 
-    pub fn representation(&self) -> super::ValueType {
+    pub fn representation(&self) -> ValueType {
         match self {
             Self::Host(_) => ValueType::HostHandle,
-            Self::Builtin(ty) => ValueType::from_type_id(&TypeId::Builtin(*ty)),
+            Self::Builtin(ty) => ValueType::from_builtin_type(*ty),
             _ => ValueType::HeapObject,
         }
     }
@@ -466,20 +467,20 @@ impl AbiType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraitAbi {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub associated_consts: Vec<AssociatedConstAbi>,
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub default_methods: Vec<usize>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub supertraits: Vec<NominalAbiType>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub bounds: Vec<GenericBoundAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub methods: Vec<FunctionAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub associated_types: Vec<AssociatedTypeAbi>,
 }
 
@@ -492,42 +493,42 @@ pub struct AssociatedConstAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssociatedTypeAbi {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub parameter_bounds: Vec<GenericBoundAbi>,
     pub declaration: DefinitionId,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub bounds: Vec<ConstraintAbi>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssociatedTypeFamilyAbi {
     pub declaration: DefinitionId,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub bounds: Vec<GenericBoundAbi>,
     pub value: AbiType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceTableAbi {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub associated_type_families: Vec<AssociatedTypeFamilyAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub associated_consts: Vec<ConstAbi>,
     pub host_bridge: bool,
     pub native_bridge: bool,
     pub declaration: DefinitionId,
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub bounds: Vec<GenericBoundAbi>,
     pub trait_type: AbiType,
     pub for_type: AbiType,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub methods: Vec<FunctionAbi>,
 }
 
@@ -697,7 +698,7 @@ pub(crate) fn interface_method_types(
     trait_contracts: &[TraitContract],
     interface: &NominalAbiType,
     slot: usize,
-) -> Option<(Vec<super::ValueType>, super::ValueType)> {
+) -> Option<(Vec<ValueType>, ValueType)> {
     let (params, result) =
         interface_method_semantics(owner, public_items, trait_contracts, interface, slot)?;
     Some((
@@ -802,7 +803,7 @@ pub struct TraitContract {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ConcreteFunctionIdentity {
     pub declaration: DefinitionId,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
 }
 
@@ -830,7 +831,7 @@ pub struct GenericParameterAbi {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenericBoundAbi {
     pub ty: AbiType,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub constraints: Vec<ConstraintAbi>,
 }
 

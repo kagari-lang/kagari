@@ -2,10 +2,10 @@
 
 use crate::lower;
 use crate::module::PublicAbiItem;
-use crate::module::ValueType;
 use crate::module::abi;
 use crate::module::abi::AbiType;
 use crate::module::contracts;
+use kagari_abi::representation::ValueType;
 use kagari_common::DiagnosticKind;
 use kagari_common::identity::DefinitionKind;
 use kagari_hir::aggregates;

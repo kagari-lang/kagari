@@ -5,14 +5,14 @@ use crate::module::instruction::Constant;
 use crate::module::instruction::Instruction;
 use crate::module::instruction::IrValue;
 use crate::module::instruction::Terminator;
-use crate::module::types::ValueType;
 use crate::module::{
     abi::AbiType,
     instruction::{IterOp, StandardEnumOp},
 };
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::collection::CollectionAccess::Mutable;
-use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::{
     builtin::{
         surface::StandardEnum,

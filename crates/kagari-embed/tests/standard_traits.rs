@@ -169,10 +169,9 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
-    use kagari_ir::module::{
-        PublicAbiItem,
-        abi::{AbiType, BuiltinType},
-    };
+    use kagari_abi::scalar::BuiltinType;
+    use kagari_ir::module::PublicAbiItem;
+    use kagari_ir::module::abi::AbiType;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "struct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default(),Default::default()).unwrap();
     for mutation in 0..5 {
@@ -556,7 +555,7 @@ fn make()->(Test,LinkedHashSet<Key>) {
     assert!(
         vm.runtime()
             .invoke_standard_builtin(
-                kagari_hir::builtin::surface::StandardIntrinsic::SetContains,
+                kagari_abi::standard::StandardIntrinsic::SetContains,
                 &[values[1].clone(), values[0].clone()],
             )
             .is_err()
@@ -689,7 +688,9 @@ fn main()->i64 {Key{id:1}.hash()}
 
 #[test]
 fn builtin_keys_keep_native_lookup_and_custom_keys_emit_guarded_calls() {
-    use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, StandardIntrinsic};
+    use kagari_abi::standard::StandardIntrinsic;
+    use kagari_ir::bytecode::BytecodeInstruction;
+    use kagari_ir::bytecode::CallTarget;
     for custom in [false, true] {
         let implementation = if custom {
             "impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}} impl Eq for Key {} impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}"

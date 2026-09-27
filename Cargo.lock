@@ -292,6 +292,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kagari-abi"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "kagari-common",
+ "serde",
+]
+
+[[package]]
 name = "kagari-cli"
 version = "0.1.0"
 dependencies = [
@@ -317,6 +326,7 @@ dependencies = [
 name = "kagari-embed"
 version = "0.1.0"
 dependencies = [
+ "kagari-abi",
  "kagari-common",
  "kagari-hir",
  "kagari-ir",
@@ -332,6 +342,7 @@ dependencies = [
 name = "kagari-hir"
 version = "0.1.0"
 dependencies = [
+ "kagari-abi",
  "kagari-common",
  "kagari-syntax",
  "serde",
@@ -343,6 +354,7 @@ name = "kagari-ir"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "kagari-abi",
  "kagari-common",
  "kagari-hir",
  "kagari-syntax",
@@ -360,6 +372,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "kagari-abi",
  "kagari-ir",
  "kagari-runtime",
  "thiserror",
@@ -370,6 +383,7 @@ name = "kagari-runtime"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "kagari-abi",
  "kagari-common",
  "kagari-ir",
  "thiserror",
@@ -388,6 +402,7 @@ dependencies = [
 name = "kagari-vm"
 version = "0.1.0"
 dependencies = [
+ "kagari-abi",
  "kagari-common",
  "kagari-hir",
  "kagari-ir",

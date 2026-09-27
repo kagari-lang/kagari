@@ -1,13 +1,19 @@
+use crate::bytecode::instruction::BytecodeInstruction;
+use crate::bytecode::instruction::ConstantOperand;
+use crate::bytecode::instruction::FunctionRef;
+use crate::bytecode::instruction::JumpTarget;
+use crate::bytecode::instruction::LocalSlot;
+use crate::bytecode::instruction::PathId;
+use crate::bytecode::instruction::Register;
+use crate::module::ConcreteFunctionIdentity;
+use crate::module::EffectSet;
 use crate::module::EnumLayout;
+use crate::module::PublicAbiItem;
 use crate::module::StructLayout;
+use crate::module::TraitContract;
 use crate::module::abi::AbiType;
 use crate::module::function::SemanticSlots;
-use crate::{
-    bytecode::instruction::{
-        BytecodeInstruction, ConstantOperand, FunctionRef, JumpTarget, LocalSlot, PathId, Register,
-    },
-    module::{ConcreteFunctionIdentity, EffectSet, PublicAbiItem, TraitContract, ValueType},
-};
+use kagari_abi::representation::ValueType;
 use kagari_common::Span;
 use kagari_common::host_interface::HostInterface;
 use kagari_common::identity::DefinitionId;
@@ -16,32 +22,32 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BytecodeModule {
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub dependencies: Vec<super::ModuleRef>,
     pub host_interface: HostInterface,
     pub identity: ModuleIdentity,
     pub source_name: String,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub module_slots: BytecodeModuleSlotBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub constants: ConstantPool,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub types: BytecodeTypeTable,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub structures: Vec<StructLayout>,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub enumerations: Vec<EnumLayout>,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub interface_tables: Vec<InterfaceTableRecord>,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub paths: PathTable,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub function_table: FunctionTable,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub public_items: PublicItemTable,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub trait_contracts: Vec<TraitContract>,
-    #[serde(deserialize_with = "crate::decode_limits::functions")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::functions")]
     pub functions: BytecodeFunctionBuffer,
 }
 
@@ -71,22 +77,22 @@ pub struct BytecodeFunction {
     pub register_count: u16,
     pub local_count: u16,
     pub metadata: FunctionMetadata,
-    #[serde(deserialize_with = "crate::decode_limits::instructions")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
     pub instructions: BytecodeInstructionBuffer,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FunctionMetadata {
     pub semantic: SemanticSlots,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub locals: TypeLayoutBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub registers: TypeLayoutBuffer,
     pub roots: RootSlotLayout,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetBuffer,
     pub effects: EffectSet,
     pub debug: BytecodeDebugMetadata,
@@ -97,7 +103,7 @@ pub struct FunctionRecord {
     pub id: FunctionRef,
     pub identity: Option<ConcreteFunctionIdentity>,
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
     pub effects: EffectSet,
@@ -106,9 +112,9 @@ pub struct FunctionRecord {
 /// Conservative frame roots, indexed by verified local and register slots.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RootSlotLayout {
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub locals: Vec<LocalSlot>,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub registers: Vec<Register>,
 }
 
@@ -135,10 +141,10 @@ impl RootSlotLayout {
 pub struct InterfaceTableRecord {
     /// Ordered impl arguments. An empty record for a generic template retains
     /// static method instances and cannot be selected by MakeInterface.
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
     pub declaration: DefinitionId,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub methods: Vec<InterfaceMethodSlot>,
 }
 
@@ -153,15 +159,15 @@ pub struct BytecodeDebugMetadata {
     pub source_uri: Option<String>,
     pub source_module: Option<super::ModuleRef>,
     pub function_span: Span,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub source_spans: InstructionSourceSpanBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub line_table: LineTableBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub safe_debug_points: SafeDebugPointBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub local_live_ranges: LocalLiveRangeBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub captured_bindings: CapturedBindingDebugBuffer,
     pub frame_layout: FrameLayout,
 }
@@ -233,11 +239,11 @@ pub struct CapturedBindingDebugInfo {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FrameLayout {
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub params: TypeLayoutBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub locals: TypeLayoutBuffer,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub registers: TypeLayoutBuffer,
 }
 

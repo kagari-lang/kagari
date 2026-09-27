@@ -268,7 +268,7 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         .associated_consts
         .push(kagari_ir::module::abi::AssociatedConstAbi {
             declaration: kagari_hir::types::associated_const_id(&identity, "VALUE"),
-            ty: kagari_ir::module::abi::AbiType::Builtin(kagari_hir::types::BuiltinType::I32),
+            ty: kagari_ir::module::abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
             default_value: Some("const-v1:i32:42".into()),
         });
     assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());

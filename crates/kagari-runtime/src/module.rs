@@ -683,7 +683,7 @@ mod tests {
             modules: vec![BytecodeModule {
                 module_slots: vec![kagari_ir::bytecode::BytecodeModuleSlot {
                     name: "state".into(),
-                    ty: kagari_ir::module::ValueType::I32,
+                    ty: kagari_abi::representation::ValueType::I32,
                     mutable: true,
                 }],
                 ..Default::default()
@@ -734,7 +734,7 @@ mod tests {
             let dependency = BytecodeModule {
                 module_slots: vec![kagari_ir::bytecode::BytecodeModuleSlot {
                     name: "state".into(),
-                    ty: kagari_ir::module::ValueType::I32,
+                    ty: kagari_abi::representation::ValueType::I32,
                     mutable: true,
                 }],
                 ..Default::default()

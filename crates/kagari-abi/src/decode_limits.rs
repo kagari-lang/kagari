@@ -8,13 +8,13 @@ use serde::{
 use std::collections::BTreeMap;
 use std::{fmt, marker::PhantomData};
 
-pub(crate) const MAX_MODULES: usize = 1_024;
-pub(crate) const MAX_FUNCTIONS: usize = 65_536;
-pub(crate) const MAX_INSTRUCTIONS: usize = 1_000_000;
-pub(crate) const MAX_TABLE_RECORDS: usize = 1_000_000;
-pub(crate) const MAX_NESTED_RECORDS: usize = 4_096;
+pub const MAX_MODULES: usize = 1_024;
+pub const MAX_FUNCTIONS: usize = 65_536;
+pub const MAX_INSTRUCTIONS: usize = 1_000_000;
+pub const MAX_TABLE_RECORDS: usize = 1_000_000;
+pub const MAX_NESTED_RECORDS: usize = 4_096;
 
-pub(crate) fn map<'de, D, K, V>(deserializer: D) -> Result<BTreeMap<K, V>, D::Error>
+pub fn map<'de, D, K, V>(deserializer: D) -> Result<BTreeMap<K, V>, D::Error>
 where
     D: Deserializer<'de>,
     K: Deserialize<'de> + Ord,
@@ -91,7 +91,7 @@ where
     })
 }
 
-pub(crate) fn modules<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+pub fn modules<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
@@ -99,7 +99,7 @@ where
     bounded(deserializer, MAX_MODULES, "module")
 }
 
-pub(crate) fn functions<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+pub fn functions<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
@@ -107,7 +107,7 @@ where
     bounded(deserializer, MAX_FUNCTIONS, "function")
 }
 
-pub(crate) fn instructions<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+pub fn instructions<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
@@ -115,7 +115,7 @@ where
     bounded(deserializer, MAX_INSTRUCTIONS, "instruction")
 }
 
-pub(crate) fn table<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+pub fn table<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
@@ -123,7 +123,7 @@ where
     bounded(deserializer, MAX_TABLE_RECORDS, "artifact table")
 }
 
-pub(crate) fn nested<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+pub fn nested<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
@@ -131,7 +131,7 @@ where
     bounded(deserializer, MAX_NESTED_RECORDS, "nested declaration")
 }
 
-pub(crate) fn operands<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+pub fn operands<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,

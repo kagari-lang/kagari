@@ -1,10 +1,13 @@
-use kagari_ir::{
-    bytecode::{
-        BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, FunctionMetadata,
-        FunctionRecord, FunctionRef, ModuleRef, Register,
-    },
-    module::ValueType,
-};
+use kagari_abi::representation::ValueType;
+use kagari_ir::bytecode::BytecodeFunction;
+use kagari_ir::bytecode::BytecodeInstruction;
+use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::bytecode::BytecodeProgram;
+use kagari_ir::bytecode::FunctionMetadata;
+use kagari_ir::bytecode::FunctionRecord;
+use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::bytecode::ModuleRef;
+use kagari_ir::bytecode::Register;
 use kagari_runtime::{LoadedModule, Runtime, RuntimeErrorKind, value::Value};
 
 #[derive(Debug)]

@@ -92,7 +92,7 @@ fn main() {
             .unwrap()
             .arguments,
         [kagari_ir::module::abi::AbiType::Builtin(
-            kagari_hir::types::BuiltinType::I32
+            kagari_abi::scalar::BuiltinType::I32
         )]
     );
     println!(

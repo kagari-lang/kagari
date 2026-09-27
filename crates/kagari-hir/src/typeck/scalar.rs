@@ -1,8 +1,8 @@
 use crate::builtin::surface::builtin_type;
-use crate::{
-    hir::{Literal, LiteralKind},
-    types::{BuiltinType, TypeId},
-};
+use crate::hir::Literal;
+use crate::hir::LiteralKind;
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::literal;
 use kagari_common::numeric;
 use kagari_common::numeric::Number;

@@ -28,20 +28,31 @@ use kagari_common::{Diagnostic, DiagnosticKind, TypePosition};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
-use crate::{
-    AnalysisResult,
-    builtin::surface::{self, StandardTypeConstraint},
-    hir::FunctionKind,
-    lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
-    typeck::body::BodyChecker,
-    typeck::ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
-    typeck::{
-        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable, TypedFunction,
-        TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer,
-    },
-    types::{BuiltinType, TypeId},
-};
+use crate::AnalysisResult;
+use crate::builtin::surface;
+use crate::builtin::surface::StandardTypeConstraint;
+use crate::hir::FunctionKind;
+use crate::lower::LoweredModule;
+use crate::resolver::ResolvedName;
+use crate::resolver::ResolvedNames;
+use crate::typeck::BodyTypeEnv;
+use crate::typeck::FunctionTypeIndex;
+use crate::typeck::TopLevelTypeIndex;
+use crate::typeck::TypeIndexes;
+use crate::typeck::TypeTable;
+use crate::typeck::TypedFunction;
+use crate::typeck::TypedFunctionBuffer;
+use crate::typeck::TypedModule;
+use crate::typeck::TypedParameter;
+use crate::typeck::TypedParameterBuffer;
+use crate::typeck::body::BodyChecker;
+use crate::typeck::ty::TypeContext;
+use crate::typeck::ty::display_type;
+use crate::typeck::ty::display_type_id;
+use crate::typeck::ty::resolve_type;
+use crate::typeck::ty::resolve_type_in;
+use crate::types::TypeId;
+use kagari_abi::scalar::BuiltinType;
 
 pub(crate) fn check_signatures(
     lowered: &LoweredModule,

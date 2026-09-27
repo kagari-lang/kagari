@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+use kagari_abi::representation::ValueType;
 use kagari_common::Span;
 use kagari_ir::bytecode::{
     BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot, CallTarget,
     ConstantOperand, DebugPointId, FunctionMetadata, FunctionRecord, FunctionRef,
     InstructionSourceSpan, ModuleSlot, Register, RuntimeHelper, SafeDebugPoint, SafeDebugPointKind,
 };
-use kagari_ir::module::ValueType;
 use kagari_runtime::value::{StructValueField, Value};
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention, ResourcePolicy,
@@ -195,14 +195,16 @@ fn debug_capabilities() -> CapabilitySet {
 }
 
 fn interface_instruction_module() -> BytecodeModule {
+    use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
     };
     use kagari_ir::bytecode::{InterfaceTableRecord, InterfaceTableRef};
-    use kagari_ir::module::{
-        InterfaceTableAbi, PublicAbiItem, TraitAbi,
-        abi::{AbiType, BuiltinType, NominalAbiType},
-    };
+    use kagari_ir::module::InterfaceTableAbi;
+    use kagari_ir::module::PublicAbiItem;
+    use kagari_ir::module::TraitAbi;
+    use kagari_ir::module::abi::AbiType;
+    use kagari_ir::module::abi::NominalAbiType;
 
     let identity = ModuleIdentity::single_file("interface-instruction.kgr");
     let declaration = |kind, name: &str| DefinitionId {

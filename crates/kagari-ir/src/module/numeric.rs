@@ -1,11 +1,11 @@
 //! Concrete numeric contracts retained through verification and artifact loading.
 
 use super::abi::AbiType;
+use kagari_abi::scalar::BuiltinType;
 use kagari_common::integer::IntegerOp;
 use kagari_hir::builtin::numeric;
 use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::hir::BinaryOp;
-use kagari_hir::types::BuiltinType;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

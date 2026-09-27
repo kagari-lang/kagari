@@ -7,7 +7,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     let interface = crate::layout_fixtures::interface_value_with(
         &mut runtime,
         AbiType::Array(
-            Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+            Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
             CollectionAccess::Mutable,
         ),
         Value::Array(array),
@@ -188,7 +188,7 @@ fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
                 "HostBacked",
                 "path",
                 AbiType::Array(
-                    Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                    Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
                     CollectionAccess::Mutable
                 )
             ),
@@ -211,7 +211,7 @@ fn rejects_non_storable_heap_mutations() {
             layout(
                 "Record",
                 "value",
-                AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+                AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
             ),
             vec![Value::I32(1)],
         )
@@ -250,7 +250,7 @@ fn assigns_stable_object_identity_and_kind() {
             layout(
                 "Empty",
                 "value",
-                AbiType::Builtin(kagari_ir::module::abi::BuiltinType::Unit),
+                AbiType::Builtin(kagari_abi::scalar::BuiltinType::Unit),
             ),
             vec![Value::Unit],
         )
@@ -406,11 +406,9 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
                 "Record",
                 "map",
                 AbiType::Map {
-                    key: Box::new(AbiType::Builtin(
-                        kagari_ir::module::abi::BuiltinType::String,
-                    )),
+                    key: Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::String)),
                     value: Box::new(AbiType::Array(
-                        Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                        Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
                         CollectionAccess::Mutable,
                     )),
                     access: CollectionAccess::Mutable,
@@ -451,7 +449,7 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
                 "Cycle",
                 "array",
                 AbiType::Array(
-                    Box::new(AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32)),
+                    Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
                     CollectionAccess::Mutable,
                 ),
             ),
@@ -536,7 +534,7 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
     let schema = layout(
         "Record",
         "value",
-        AbiType::Builtin(kagari_ir::module::abi::BuiltinType::I32),
+        AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
     );
     let object = heap
         .alloc_struct(schema.clone(), vec![Value::I32(7)])

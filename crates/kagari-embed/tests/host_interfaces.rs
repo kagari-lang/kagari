@@ -295,7 +295,7 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                     unreachable!()
                 };
                 *interface.associated_types.values_mut().next().unwrap() =
-                    AbiType::Builtin(kagari_hir::types::BuiltinType::I64);
+                    AbiType::Builtin(kagari_abi::scalar::BuiltinType::I64);
             }
             3 => {
                 let PublicAbiItem::InterfaceTable(table) = module

@@ -1,7 +1,7 @@
 use kagari_ir::builtin::surface;
 pub mod standard;
 
-use kagari_ir::builtin::surface::StandardIntrinsic;
+use kagari_abi::standard::StandardIntrinsic;
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},

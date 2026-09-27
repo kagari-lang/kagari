@@ -8,11 +8,11 @@ use crate::module::RetainedRuntimeProgram;
 use crate::module::StructLayoutRef;
 use crate::resource::ResourceState;
 use crate::value::EnumTag;
+use kagari_abi::representation::ValueType;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
 use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::module::ValueType;
 use kagari_ir::module::abi::AbiType;
 use kagari_ir::module::abi::NominalAbiType;
 use kagari_ir::module::abi::StandardEnumKind;

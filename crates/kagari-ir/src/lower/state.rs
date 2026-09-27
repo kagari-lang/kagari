@@ -12,15 +12,23 @@ use kagari_common::Span;
 use kagari_hir::typeck::TypedFunction;
 use kagari_hir::{AnalyzedModule, hir};
 
-use crate::module::{
-    function::{
-        BasicBlock, IrFunction, IrFunctionDebugMetadata, IrLexicalScope, IrLocal, IrLocalDebugInfo,
-        IrParameter, IrTemp, ParameterBuffer,
-    },
-    ids::{BlockId, LocalId, TempId},
-    instruction::{EffectSet, Instruction, IrValue, Terminator},
-    types::ValueType,
-};
+use crate::module::function::BasicBlock;
+use crate::module::function::IrFunction;
+use crate::module::function::IrFunctionDebugMetadata;
+use crate::module::function::IrLexicalScope;
+use crate::module::function::IrLocal;
+use crate::module::function::IrLocalDebugInfo;
+use crate::module::function::IrParameter;
+use crate::module::function::IrTemp;
+use crate::module::function::ParameterBuffer;
+use crate::module::ids::BlockId;
+use crate::module::ids::LocalId;
+use crate::module::ids::TempId;
+use crate::module::instruction::EffectSet;
+use crate::module::instruction::Instruction;
+use crate::module::instruction::IrValue;
+use crate::module::instruction::Terminator;
+use kagari_abi::representation::ValueType;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LoopScope {

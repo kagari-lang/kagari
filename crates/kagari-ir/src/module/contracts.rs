@@ -1,4 +1,8 @@
-use super::{BinaryOp, StandardIntrinsic, UnaryOp, ValueType};
+use super::BinaryOp;
+use super::UnaryOp;
+use crate::module::abi::AbiType;
+use kagari_abi::representation::ValueType;
+use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::host_interface::HostFunctionDeclaration;
 use kagari_hir::builtin::surface;
 use kagari_hir::builtin::traits;
@@ -255,13 +259,15 @@ pub(crate) fn verify_intrinsic(
                 expect_arg_ty(
                     args,
                     index,
-                    ValueType::from_type_id(&parameter.ty.instantiate(&arguments)),
+                    AbiType::from_checked_type(&parameter.ty.instantiate(&arguments))
+                        .representation(),
                     "numeric parameter",
                 )?;
             }
             verify_call_dst(
                 dst,
-                ValueType::from_type_id(&spec.api.result.instantiate(&arguments)),
+                AbiType::from_checked_type(&spec.api.result.instantiate(&arguments))
+                    .representation(),
             )?;
         }
         StandardIntrinsic::ArrayRetain
