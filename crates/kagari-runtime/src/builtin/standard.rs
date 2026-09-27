@@ -51,6 +51,9 @@ pub fn invoke_with_callbacks(
         _ => {}
     }
     match intrinsic {
+        Integer(operation, ty) => {
+            crate::numeric::integer_method(gc, operation, ty, args).map_err(Into::into)
+        }
         KeyLookupBegin => Err(BuiltinError::new("key lookup requires an execution frame")),
         KeyCandidates => {
             let [collection, Value::I64(hash)] = args else {

@@ -105,6 +105,7 @@ pub enum StandardTypeConstructor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardModule {
+    Numeric,
     Convert,
     Ordering,
     Ops,
@@ -153,6 +154,7 @@ pub struct StandardModuleSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StandardIntrinsic {
+    Integer(kagari_common::integer::IntegerMethod, BuiltinType),
     KeyLookupBegin,
     KeyCandidates,
     KeyMapGet,
@@ -277,6 +279,7 @@ pub struct StandardFunctionSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardMethodReceiver {
+    Builtin(BuiltinType),
     Array,
     Map,
     Set,
@@ -431,6 +434,10 @@ const STANDARD_MODULES: &[StandardModuleSpec] = &[
     StandardModuleSpec {
         kind: StandardModule::Debug,
         path: "std::debug",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::Numeric,
+        path: "std::numeric",
     },
     StandardModuleSpec {
         kind: StandardModule::Math,

@@ -494,45 +494,46 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | SetRemove
             | SetClear
     );
-    let allocating = matches!(
-        intrinsic,
-        KeyCandidates
-            | KeyMapGet
-            | KeyMapRemove
-            | ArrayGet
-            | ArrayPop
-            | ArrayRemove
-            | ArrayNew
-            | MutableArrayNew
-            | MutableMapNew
-            | MutableSetNew
-            | ArrayFrom
-            | MutableArrayFrom
-            | MapFrom
-            | MutableMapFrom
-            | SetFrom
-            | MutableSetFrom
-            | MapNew
-            | MapGet
-            | MapRemove
-            | MapKeys
-            | MapValues
-            | MapEntries
-            | SetNew
-            | SetToArray
-            | SetUnion
-            | SetIntersection
-            | SetDifference
-            | ArrayJoin
-            | StringSlice
-            | OptionMap
-            | OptionAndThen
-            | OptionOkOr
-            | OptionOkOrElse
-            | ResultMap
-            | ResultMapErr
-            | ResultAndThen
-    );
+    let allocating = matches!(intrinsic, Integer(method, _) if method.allocates())
+        || matches!(
+            intrinsic,
+            KeyCandidates
+                | KeyMapGet
+                | KeyMapRemove
+                | ArrayGet
+                | ArrayPop
+                | ArrayRemove
+                | ArrayNew
+                | MutableArrayNew
+                | MutableMapNew
+                | MutableSetNew
+                | ArrayFrom
+                | MutableArrayFrom
+                | MapFrom
+                | MutableMapFrom
+                | SetFrom
+                | MutableSetFrom
+                | MapNew
+                | MapGet
+                | MapRemove
+                | MapKeys
+                | MapValues
+                | MapEntries
+                | SetNew
+                | SetToArray
+                | SetUnion
+                | SetIntersection
+                | SetDifference
+                | ArrayJoin
+                | StringSlice
+                | OptionMap
+                | OptionAndThen
+                | OptionOkOr
+                | OptionOkOrElse
+                | ResultMap
+                | ResultMapErr
+                | ResultAndThen
+        );
 
     let mut effects = match intrinsic {
         MathMin | MathMax | MathClamp | MathAbs | MathFloor | MathCeil | MathRound | MathSqrt

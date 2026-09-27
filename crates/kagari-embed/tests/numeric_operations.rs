@@ -173,3 +173,36 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
+
+#[test]
+fn explicit_integer_policies() {
+    execute(
+        r#"
+        fn assert(value: bool) { std::debug::assert(value, "integer policy"); }
+        fn main() -> i32 {
+            assert(255u8.wrapping_add(1u8) == 0u8);
+            assert(0u16.wrapping_sub(1u16) == 65535u16);
+            assert(200u8.wrapping_mul(2u8) == 144u8);
+            assert(255u8.checked_add(1u8) == None);
+            assert(0u8.checked_sub(1u8) == None);
+            assert(200u8.checked_mul(2u8) == None);
+            assert(7u8.checked_div(0u8) == None);
+            assert((-128i8).checked_div(-1i8) == None);
+            assert((-128i8).checked_rem(-1i8) == None);
+            assert(42u8.checked_rem(5u8) == Some(2u8));
+            assert(255u8.overflowing_add(1u8) == (0u8, true));
+            assert(0u8.overflowing_sub(1u8) == (255u8, true));
+            assert(127i8.overflowing_add(1i8) == (-128i8, true));
+            assert(255u8.saturating_add(1u8) == 255u8);
+            assert((-128i8).saturating_sub(1i8) == -128i8);
+            assert((-128i8).saturating_mul(-1i8) == 127i8);
+            assert(18446744073709551615u64.wrapping_mul(18446744073709551615u64) == 1u64);
+            assert(18446744073709551615u64.saturating_mul(18446744073709551615u64) == 18446744073709551615u64);
+            assert(0u16.wrapping_add_signed(-1i16) == 65535u16);
+            assert(128u8.rotate_left(1u32) == 1u8);
+            assert(1u8.rotate_right(9u32) == 128u8);
+            42
+        }
+    "#,
+    );
+}

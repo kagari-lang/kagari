@@ -17,8 +17,14 @@ impl NumericOperation {
         input: BuiltinType,
         rhs: BuiltinType,
     ) -> Option<Self> {
+        input.integer_layout()?;
         use kagari_hir::hir::BinaryOp;
         let op = match op {
+            BinaryOp::Add => IntegerOp::CheckedAdd,
+            BinaryOp::Sub => IntegerOp::CheckedSub,
+            BinaryOp::Mul => IntegerOp::CheckedMul,
+            BinaryOp::Div => IntegerOp::CheckedDiv,
+            BinaryOp::Rem => IntegerOp::CheckedRem,
             BinaryOp::BitAnd => IntegerOp::BitAnd,
             BinaryOp::BitOr => IntegerOp::BitOr,
             BinaryOp::BitXor => IntegerOp::BitXor,

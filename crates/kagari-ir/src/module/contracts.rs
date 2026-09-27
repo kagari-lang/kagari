@@ -201,6 +201,26 @@ pub(crate) fn verify_intrinsic(
     }
 
     match intrinsic {
+        Integer(_, _) => {
+            let spec = kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
+                .ok_or(ContractError::Intrinsic {
+                    intrinsic,
+                    reason: "invalid numeric binding",
+                })?;
+            let arguments = Default::default();
+            for (index, parameter) in spec.api.params.iter().enumerate() {
+                expect_arg_ty(
+                    args,
+                    index,
+                    ValueType::from_type_id(&parameter.ty.instantiate(&arguments)),
+                    "numeric parameter",
+                )?;
+            }
+            verify_call_dst(
+                dst,
+                ValueType::from_type_id(&spec.api.result.instantiate(&arguments)),
+            )?;
+        }
         KeyLookupBegin => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "key lookup collection")?;
             verify_call_dst(dst, ValueType::Unit)?;

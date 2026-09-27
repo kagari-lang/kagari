@@ -371,3 +371,17 @@ sequence. Invalid shifts do not commit a target change.
 Operator traits `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr` and `Not` use ordinary
 static dispatch. User implementations may choose an associated Output type.
 Compound assignment remains restricted to primitive operations.
+
+## Explicit integer arithmetic
+
+All integer types provide wrapping_add/sub/mul, checked_add/sub/mul/div/rem,
+overflowing_add/sub/mul and saturating_add/sub/mul. Checked operations return
+Option; overflowing operations return `(value, overflow)`; saturating operations
+clamp to the declared type range. Signed MIN divided or remaindered by -1 is
+an overflow, including for narrow types. Division by zero returns None in checked
+methods. Ordinary arithmetic, including compound assignment, still traps.
+
+Unsigned types provide wrapping_add_signed with the corresponding signed width.
+All integer types provide rotate_left/right with a u32 count reduced modulo the
+receiver width. These methods are pure value operations. Standard declarations
+and examples live in [numeric.kgr](../../stdlib/numeric.kgr).

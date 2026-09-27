@@ -524,9 +524,9 @@ does not change the artifact layout.
 
 - [x] N01: fixed-width bitwise operations, shifts, compound assignment and const evaluation.
 - [x] N02: BitAnd/BitOr/BitXor/Shl/Shr and integer Not static dispatch.
-- [ ] N03: wrapping, checked, overflowing and saturating integer methods.
+- [x] N03: wrapping, checked, overflowing and saturating integer methods.
 - [ ] N04: numeric casts, built-in From/TryFrom conversions and typed conversion errors.
-- [ ] N05: signed offset wrapping and bit rotations.
+- [x] N05: signed offset wrapping and bit rotations.
 - [ ] N06: 6502 examples, boundary tests, artifacts and final validation.
 
 Ordinary integer arithmetic traps on overflow in every build mode. Explicit

@@ -4421,6 +4421,9 @@ fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
         TypeId::Map { .. } => Some(StandardMethodReceiver::Map),
         TypeId::Set(_, _) => Some(StandardMethodReceiver::Set),
         TypeId::Builtin(BuiltinType::String) => Some(StandardMethodReceiver::String),
+        TypeId::Builtin(ty) if ty.integer_layout().is_some() => {
+            Some(StandardMethodReceiver::Builtin(*ty))
+        }
         TypeId::StandardEnum {
             kind: surface::StandardEnum::Option,
             ..

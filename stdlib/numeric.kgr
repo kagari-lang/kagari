@@ -1,0 +1,712 @@
+//! Explicit integer arithmetic policies.
+//!
+//! Ordinary operators trap on overflow in every build profile. These methods
+//! select wrapping, checked, overflowing or saturating behavior explicitly.
+//! isize and usize are always 64-bit. No operation modifies its receiver.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! std::debug::assert(255u8.wrapping_add(1u8) == 0u8, "wrap");
+//! std::debug::assert(255u8.checked_add(1u8) == None, "checked");
+//! std::debug::assert(255u8.overflowing_add(1u8) == (0u8, true), "carry");
+//! std::debug::assert(255u8.saturating_add(1u8) == 255u8, "clamp");
+//! std::debug::assert(0u16.wrapping_add_signed(-1i16) == 65535u16, "offset");
+//! std::debug::assert(128u8.rotate_left(1u32) == 1u8, "rotate");
+//! ```
+//!
+//! Checked operations return None for overflow or division by zero. Signed
+//! MIN / -1 and MIN % -1 also return None. Overflowing operations return the
+//! wrapped result and a flag; the flag is signed overflow for signed receivers
+//! and carry/borrow for unsigned receivers. It is not both CPU flags at once.
+
+impl i8 {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: i8) -> i8;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: i8) -> i8;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: i8) -> i8;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: i8) -> Option<i8>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: i8) -> Option<i8>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: i8) -> Option<i8>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: i8) -> Option<i8>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: i8) -> Option<i8>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: i8) -> (i8, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: i8) -> (i8, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: i8) -> (i8, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: i8) -> i8;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: i8) -> i8;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: i8) -> i8;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> i8;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> i8;
+
+}
+
+impl i16 {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: i16) -> i16;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: i16) -> i16;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: i16) -> i16;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: i16) -> Option<i16>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: i16) -> Option<i16>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: i16) -> Option<i16>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: i16) -> Option<i16>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: i16) -> Option<i16>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: i16) -> (i16, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: i16) -> (i16, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: i16) -> (i16, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: i16) -> i16;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: i16) -> i16;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: i16) -> i16;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> i16;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> i16;
+
+}
+
+impl i32 {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: i32) -> i32;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: i32) -> i32;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: i32) -> i32;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: i32) -> Option<i32>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: i32) -> Option<i32>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: i32) -> Option<i32>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: i32) -> Option<i32>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: i32) -> Option<i32>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: i32) -> (i32, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: i32) -> (i32, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: i32) -> (i32, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: i32) -> i32;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: i32) -> i32;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: i32) -> i32;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> i32;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> i32;
+
+}
+
+impl i64 {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: i64) -> i64;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: i64) -> i64;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: i64) -> i64;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: i64) -> Option<i64>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: i64) -> Option<i64>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: i64) -> Option<i64>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: i64) -> Option<i64>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: i64) -> Option<i64>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: i64) -> (i64, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: i64) -> (i64, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: i64) -> (i64, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: i64) -> i64;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: i64) -> i64;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: i64) -> i64;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> i64;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> i64;
+
+}
+
+impl isize {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: isize) -> isize;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: isize) -> isize;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: isize) -> isize;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: isize) -> Option<isize>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: isize) -> Option<isize>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: isize) -> Option<isize>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: isize) -> Option<isize>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: isize) -> Option<isize>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: isize) -> (isize, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: isize) -> (isize, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: isize) -> (isize, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: isize) -> isize;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: isize) -> isize;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: isize) -> isize;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> isize;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> isize;
+
+}
+
+impl u8 {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: u8) -> u8;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: u8) -> u8;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: u8) -> u8;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: u8) -> Option<u8>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: u8) -> Option<u8>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: u8) -> Option<u8>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: u8) -> Option<u8>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: u8) -> Option<u8>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: u8) -> (u8, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: u8) -> (u8, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: u8) -> (u8, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: u8) -> u8;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: u8) -> u8;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: u8) -> u8;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAddSigned)]
+    pub fn wrapping_add_signed(self, rhs: i8) -> u8;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> u8;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> u8;
+
+}
+
+impl u16 {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: u16) -> u16;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: u16) -> u16;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: u16) -> u16;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: u16) -> Option<u16>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: u16) -> Option<u16>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: u16) -> Option<u16>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: u16) -> Option<u16>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: u16) -> Option<u16>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: u16) -> (u16, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: u16) -> (u16, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: u16) -> (u16, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: u16) -> u16;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: u16) -> u16;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: u16) -> u16;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAddSigned)]
+    pub fn wrapping_add_signed(self, rhs: i16) -> u16;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> u16;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> u16;
+
+}
+
+impl u32 {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: u32) -> u32;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: u32) -> u32;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: u32) -> u32;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: u32) -> Option<u32>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: u32) -> Option<u32>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: u32) -> Option<u32>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: u32) -> Option<u32>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: u32) -> Option<u32>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: u32) -> (u32, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: u32) -> (u32, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: u32) -> (u32, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: u32) -> u32;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: u32) -> u32;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: u32) -> u32;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAddSigned)]
+    pub fn wrapping_add_signed(self, rhs: i32) -> u32;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> u32;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> u32;
+
+}
+
+impl u64 {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: u64) -> u64;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: u64) -> u64;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: u64) -> u64;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: u64) -> Option<u64>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: u64) -> Option<u64>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: u64) -> Option<u64>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: u64) -> Option<u64>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: u64) -> Option<u64>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: u64) -> (u64, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: u64) -> (u64, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: u64) -> (u64, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: u64) -> u64;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: u64) -> u64;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: u64) -> u64;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAddSigned)]
+    pub fn wrapping_add_signed(self, rhs: i64) -> u64;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> u64;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> u64;
+
+}
+
+impl usize {
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAdd)]
+    pub fn wrapping_add(self, rhs: usize) -> usize;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingSub)]
+    pub fn wrapping_sub(self, rhs: usize) -> usize;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingMul)]
+    pub fn wrapping_mul(self, rhs: usize) -> usize;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedAdd)]
+    pub fn checked_add(self, rhs: usize) -> Option<usize>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedSub)]
+    pub fn checked_sub(self, rhs: usize) -> Option<usize>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedMul)]
+    pub fn checked_mul(self, rhs: usize) -> Option<usize>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedDiv)]
+    pub fn checked_div(self, rhs: usize) -> Option<usize>;
+
+    /// Return None on overflow or an undefined integer operation.
+    #[numeric(CheckedRem)]
+    pub fn checked_rem(self, rhs: usize) -> Option<usize>;
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingAdd)]
+    pub fn overflowing_add(self, rhs: usize) -> (usize, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingSub)]
+    pub fn overflowing_sub(self, rhs: usize) -> (usize, bool);
+
+    /// Return the wrapped result and whether the mathematical result overflows.
+    #[numeric(OverflowingMul)]
+    pub fn overflowing_mul(self, rhs: usize) -> (usize, bool);
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingAdd)]
+    pub fn saturating_add(self, rhs: usize) -> usize;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingSub)]
+    pub fn saturating_sub(self, rhs: usize) -> usize;
+
+    /// Clamp the mathematical result to the receiver type range.
+    #[numeric(SaturatingMul)]
+    pub fn saturating_mul(self, rhs: usize) -> usize;
+
+    /// Return the low bits of the result, wrapping at the receiver width.
+    #[numeric(WrappingAddSigned)]
+    pub fn wrapping_add_signed(self, rhs: isize) -> usize;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateLeft)]
+    pub fn rotate_left(self, rhs: u32) -> usize;
+
+    /// Rotate bits by a count reduced modulo the receiver width.
+    #[numeric(RotateRight)]
+    pub fn rotate_right(self, rhs: u32) -> usize;
+
+}
+

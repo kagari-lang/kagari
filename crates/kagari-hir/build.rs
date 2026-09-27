@@ -85,7 +85,7 @@ fn main() {
     let mut implementation_bindings = BTreeSet::new();
     for module in [
         "Array", "Map", "Set", "String", "Option", "Result", "Iter", "Math", "Debug", "Cmp",
-        "Hash", "Fmt", "Ops", "Convert",
+        "Hash", "Fmt", "Ops", "Convert", "Numeric",
     ] {
         let file = format!("{}.kgr", module.to_lowercase());
         let path = root.join(&file);
@@ -183,7 +183,22 @@ fn main() {
                 "native declarations cannot have bodies"
             );
             assert_eq!(function.visibility(), ast::Visibility::Public);
-            let intrinsic = attribute(&function, "intrinsic").expect("missing intrinsic binding");
+            let intrinsic = if let Some(operation) = attribute(&function, "numeric") {
+                let owner = owner.as_ref().expect("numeric receiver");
+                let builtin = match owner.as_str() {
+                    "isize" => "ISize".to_owned(),
+                    "usize" => "USize".to_owned(),
+                    _ => {
+                        let mut chars = owner.chars();
+                        chars.next().unwrap().to_uppercase().to_string() + chars.as_str()
+                    }
+                };
+                format!(
+                    "Integer(kagari_common::integer::IntegerMethod::{operation}, BuiltinType::{builtin})"
+                )
+            } else {
+                attribute(&function, "intrinsic").expect("missing intrinsic binding")
+            };
             assert!(
                 bindings.insert(intrinsic.clone()),
                 "duplicate intrinsic binding {intrinsic}"
@@ -284,6 +299,19 @@ fn main() {
                     method_bindings.insert((receiver.to_owned(), method.clone())),
                     "duplicate method binding"
                 );
+                let receiver = if attribute(&function, "numeric").is_some() {
+                    let builtin = match receiver {
+                        "isize" => "ISize".to_owned(),
+                        "usize" => "USize".to_owned(),
+                        _ => {
+                            let mut chars = receiver.chars();
+                            chars.next().unwrap().to_uppercase().to_string() + chars.as_str()
+                        }
+                    };
+                    format!("Builtin(BuiltinType::{builtin})")
+                } else {
+                    receiver.to_owned()
+                };
                 writeln!(methods,"StandardMethodSpec{{receiver:StandardMethodReceiver::{receiver},name:{method:?},intrinsic:StandardIntrinsic::{intrinsic},type_params:{generics},arity:{},constraints:{constraints}}},",arity-1).unwrap();
             }
         }

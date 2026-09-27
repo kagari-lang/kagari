@@ -120,3 +120,50 @@ pub fn fixed_integer(
         _ => Value::I64(result as i64),
     })
 }
+
+pub fn integer_method(
+    gc: &crate::gc::GcHeap,
+    operation: kagari_common::integer::IntegerMethod,
+    ty: kagari_ir::module::abi::BuiltinType,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let [lhs, rhs] = args else {
+        return Err(RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "integer method requires two arguments",
+        ));
+    };
+    let read = |value: &Value| match value {
+        Value::I32(v) => Ok(i128::from(*v)),
+        Value::I64(v) => Ok(i128::from(*v)),
+        Value::U64(v) => Ok(i128::from(*v)),
+        _ => Err(RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "integer argument required",
+        )),
+    };
+    let (bits, signed) = ty.integer_layout().ok_or_else(|| {
+        RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer receiver required")
+    })?;
+    let (value, overflow) =
+        kagari_common::integer::arithmetic_method(operation, read(lhs)?, read(rhs)?, bits, signed);
+    use kagari_ir::module::abi::BuiltinType::*;
+    let value = match ty {
+        I8 | I16 | I32 => Value::I32(value as i32),
+        U64 | USize => Value::U64(value as u64),
+        _ => Value::I64(value as i64),
+    };
+    if operation.checked() {
+        use crate::value::EnumTag;
+        let (tag, payload) = if overflow {
+            (EnumTag::OptionNone, vec![])
+        } else {
+            (EnumTag::OptionSome, vec![value])
+        };
+        return Ok(Value::Enum(gc.alloc_enum(tag, payload)?));
+    }
+    if operation.overflowing() {
+        return Ok(Value::Tuple(vec![value, Value::Bool(overflow)]));
+    }
+    Ok(value)
+}

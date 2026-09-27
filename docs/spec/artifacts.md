@@ -578,3 +578,7 @@ Earlier artifact versions are rejected before execution.
 Version 78/runtime ABI v78 retain concrete integer width and signedness in numeric
 operations, including compound typed-path operations. Verification checks operand
 representations and operation arity before execution. Earlier artifacts are rejected.
+
+Version 79/runtime ABI v79 add declaration-backed integer method bindings and
+source-width checked compound operations. Numeric bindings include both their
+operation and concrete receiver type; invalid bindings are rejected by verification.
