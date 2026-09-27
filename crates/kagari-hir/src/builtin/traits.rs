@@ -504,10 +504,6 @@ pub fn intrinsic_holds(
                     continue;
                 };
                 let Some(contract) = catalog.enumeration(&instance.declaration) else {
-                    if let Some(payload) = catalog.concrete_enum_payload(&instance) {
-                        pending.extend(payload.iter().cloned().map(|ty| (ty, depth + 1)));
-                        continue;
-                    }
                     return false;
                 };
                 let substitution = contract

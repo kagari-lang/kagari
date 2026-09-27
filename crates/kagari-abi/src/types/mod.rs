@@ -1,6 +1,7 @@
 pub mod access;
 pub mod inheritance;
 pub mod matching;
+pub mod proofs;
 pub mod substitution;
 pub mod verify;
 mod wire;

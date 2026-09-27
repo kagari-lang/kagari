@@ -291,10 +291,7 @@ impl AggregateCatalog {
                                 .collect(),
                         )
                     } else {
-                        match self.concrete_enum_payload(n) {
-                            Some(payload) => Some(payload.to_vec()),
-                            None => return Ok(false),
-                        }
+                        return Ok(false);
                     }
                 }
                 _ => None,
@@ -417,24 +414,6 @@ impl AggregateCatalog {
             matches.next().is_none().then_some(result)
         })
     }
-    /// Build a catalog from already validated executable implementation records.
-    /// Duplicate declaration identities are rejected rather than overwritten.
-    pub fn from_implementation_signatures(
-        signatures: impl IntoIterator<Item = ImplementationSignature>,
-    ) -> Option<Self> {
-        let mut catalog = Self::default();
-        for signature in signatures {
-            if catalog
-                .implementations
-                .insert(signature.id.clone(), Arc::new(signature))
-                .is_some()
-            {
-                return None;
-            }
-        }
-        Some(catalog)
-    }
-
     pub fn implementations(&self) -> impl Iterator<Item = &ImplementationSignature> {
         self.implementations.values().map(AsRef::as_ref)
     }
@@ -921,8 +900,10 @@ mod search_tests {
             bounds: Default::default(),
             methods: Default::default(),
         };
-        let catalog = AggregateCatalog::from_implementation_signatures([signature.clone()])
-            .expect("unique declaration");
+        let catalog = AggregateCatalog {
+            implementations: [(signature.id.clone(), Arc::new(signature.clone()))].into(),
+            ..Default::default()
+        };
         let actual = TypeId::Builtin(BuiltinType::I32);
         let required = applied(actual.clone());
         let cancel = CancellationToken::default();
@@ -968,8 +949,13 @@ mod search_tests {
             bounds: Default::default(),
             methods: Default::default(),
         };
-        let catalog =
-            AggregateCatalog::from_implementation_signatures([chained, next_signature]).unwrap();
+        let catalog = AggregateCatalog {
+            implementations: [chained, next_signature]
+                .into_iter()
+                .map(|signature| (signature.id.clone(), Arc::new(signature)))
+                .collect(),
+            ..Default::default()
+        };
         assert_eq!(
             catalog.implementation_count_bounded(
                 &required,

@@ -9,7 +9,6 @@ use crate::typeck::GenericBounds;
 use crate::types::GenericParameterType;
 use crate::types::NominalType;
 use kagari_abi::standard::traits::StandardTrait;
-use std::collections::HashMap;
 mod implementations;
 mod traits;
 use crate::{
@@ -85,7 +84,6 @@ pub struct EnumSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateCatalog {
-    concrete_enum_payloads: HashMap<NominalType, Vec<TypeId>>,
     implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
     host_implementations: Vec<(NominalType, TypeId)>,
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
@@ -99,17 +97,6 @@ pub struct AggregateCatalog {
 }
 
 impl AggregateCatalog {
-    /// Portable verification knows concrete enum layouts instead of source declarations.
-    pub fn add_concrete_enum_payload(&mut self, ty: NominalType, payload: Vec<TypeId>) -> bool {
-        if let Some(previous) = self.concrete_enum_payloads.get(&ty) {
-            return *previous == payload;
-        }
-        self.concrete_enum_payloads.insert(ty, payload);
-        true
-    }
-    pub fn concrete_enum_payload(&self, ty: &NominalType) -> Option<&[TypeId]> {
-        self.concrete_enum_payloads.get(ty).map(Vec::as_slice)
-    }
     pub fn intrinsic_implementation(
         &self,
         interface: &NominalType,
@@ -490,7 +477,6 @@ impl AggregateCatalog {
 impl Default for AggregateCatalog {
     fn default() -> Self {
         let mut catalog = Self {
-            concrete_enum_payloads: Default::default(),
             implementation_constants: Default::default(),
             host_implementations: vec![],
             traits: Default::default(),

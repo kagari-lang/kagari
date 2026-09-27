@@ -5,11 +5,11 @@ use crate::value::EnumTag;
 use crate::gc::GcHeap;
 use crate::numeric;
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
+use kagari_abi::operations;
 use kagari_abi::scalar::BuiltinType;
 use kagari_abi::types::AbiType;
 use kagari_common::integer;
 use kagari_common::range::RangeKind;
-use kagari_mir::instruction;
 use std::ops::Bound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -62,7 +62,7 @@ impl RangeValue {
         bound: &AbiType,
         upper: bool,
     ) -> Result<Value, RuntimeError> {
-        if !self.matches(range) || !instruction::range_bound_valid(range, bound) {
+        if !self.matches(range) || !operations::range_bound_valid(range, bound) {
             return Err(invalid());
         }
         let value = if upper {

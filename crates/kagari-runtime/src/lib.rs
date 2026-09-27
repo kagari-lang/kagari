@@ -3,6 +3,7 @@ mod loading;
 mod objects;
 use host::HostCallContext;
 use kagari_abi::ids::FunctionRef;
+use kagari_abi::native::ExecutableFunctionArtifact;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::NominalAbiType;
 use kagari_bytecode::BinaryOp;

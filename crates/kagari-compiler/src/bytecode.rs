@@ -7,7 +7,6 @@ use kagari_abi::layout::StructLayout;
 use kagari_abi::types as abi;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_abi::types::NominalAbiType;
 use kagari_abi::types::PublicAbiItem;
 use kagari_bytecode::BytecodeVerificationError;

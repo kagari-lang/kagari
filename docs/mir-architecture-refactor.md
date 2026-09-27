@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00 complete; A01 crate extraction is in progress; workspace build is broken.
+Status: A00-A01 complete; A02 is next; workspace build is broken.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -98,7 +98,7 @@ Arrows below mean production dependencies; common/ABI edges are abbreviated:
 
 ```text
 syntax -> common
-hir -> syntax, common
+hir -> abi, syntax, common
 abi -> common
 mir -> abi, common
 bytecode -> abi, common
@@ -183,7 +183,7 @@ through syntax/common and emits `standard_api.rs` into `OUT_DIR`. The extraction
 must keep one generated declaration mapping, preserve offline host declarations,
 and distinguish build/dev dependencies from production graph checks.
 
-A01 remains open until real ABI/MIR/compiler/bytecode/codegen ownership is present
+A01 exits when real ABI/MIR/compiler/bytecode/codegen ownership is present
 and source-analysis types are removed from execution contracts. A02 owns completion
 of compiler analyses/lowering; A03 owns SDK feature and artifact wiring; A04 owns
 Cranelift translation and code-memory lifecycle. Intermediate errors are recorded
@@ -440,7 +440,7 @@ must not be the sole record needed to resume the goal.
 ## Progress Ledger
 
 - [x] A00 — Existing structure cleanup and passing CI prerequisite.
-- [ ] A01 — Contracts and crate ownership.
+- [x] A01 — Contracts and crate ownership.
 - [ ] A02 — MIR, analyses and compiler lowering.
 - [ ] A03 — Runtime, artifacts and embedding.
 - [ ] A04 — Existing Cranelift backend migration.
@@ -967,6 +967,95 @@ in the complete portable linked catalog, including script and host matching,
 nominal override ownership, uniqueness, enum structural defaults, associated
 family normalization and generic assumptions. Intrinsic matching alone does not
 complete linked validation. A02-A05 work and final acceptance remain outstanding.
+
+### A01 exit: portable linked validation and dependency audit (2026-09-28)
+
+Bytecode now builds without HIR. Its linked trait validator borrows portable ABI
+implementation tables, host declarations, trait contracts and concrete enum
+layouts directly. It no longer reconstructs source implementation signatures or
+queries source types. The shared ABI proof catalog retains the 4,096 implementation,
+100,000 match-work and 64-depth limits, cancellation, duplicate declaration
+rejection and conflicting enum-layout rejection. Recursive generic obligations
+share a search budget; growing proofs fail explicitly. Structural enum defaults
+allow recursive payloads while still rejecting non-hashable members.
+
+Linked validation covers implementation uniqueness, nominal override ownership,
+explicit PartialEq/Eq prerequisites, default suppression after custom equality,
+conversion/iteration obligations, host candidates, supertrait closure, ordinary
+associated outputs, family binders and input/output bounds. Projection normalization
+uses portable matching and resolves only a unique implementation output; cycles
+fail. Method validation receives the complete linked resolver. Unused trait graphs
+and family constructor references, required dynamic parent tables and instantiated
+interface uniqueness remain checked. New direct linked-validator tests reject
+corrupt outputs, missing parent implementations and invalid family applications.
+
+Removed the obsolete HIR executable-signature constructor and concrete enum
+payload cache/branches. Source search tests construct their own source catalog
+fixtures and keep their original assertions. Also corrected the remaining runtime
+range-helper/artifact imports and the duplicate compiler bytecode-emitter import.
+These are direct ownership fixes, without restoring forbidden dependencies.
+
+A01's thirteen real crates and codec/native contract ownership are established.
+The current normal dependency inventory (excluding build/dev edges) is:
+
+| Owner | Internal production dependencies |
+| --- | --- |
+| common | none |
+| syntax | common |
+| hir | abi, syntax, common |
+| abi | common |
+| mir | abi, common |
+| bytecode | abi, common |
+| compiler | abi, bytecode, mir, common; hir/syntax behind source |
+| codegen | abi, mir |
+| codegen-cranelift | abi, codegen, mir |
+| runtime | abi, bytecode, common |
+| vm | abi, bytecode, runtime, common |
+| embed | abi, bytecode, codegen, compiler, hir, mir, runtime, syntax, vm, common |
+| cli | codegen-cranelift, embed, runtime, syntax, vm, common |
+
+The metadata audit confirms exactly thirteen workspace packages and no transitive
+normal source edge from ABI/MIR/bytecode/runtime/VM, nor a MIR/codegen/backend edge
+from bytecode/runtime/VM. ABI's stdlib generation has separate build dependencies;
+source-driven fixtures have dev dependencies. HIR legitimately consumes shared ABI
+identities. SDK feature selection and CLI facade cleanup remain A03 work, as scoped
+by the frozen inventory. Cranelift's old implementation is still broken against
+its already-correct compile-only dependency boundary; A04 owns that translation.
+
+Validation and carried integration failures:
+
+- `cargo test -p kagari-abi -p kagari-bytecode -p kagari-hir -p kagari-mir`: 38 ABI,
+  25 bytecode and 353 HIR unit tests plus two MIR seal doctests pass (418 total).
+  Final ABI/bytecode tests pass again after public-helper/input preflight cleanup.
+  Seven tests added; every previous test retained, 1,347 test functions total.
+- `cargo clippy -p kagari-abi -p kagari-bytecode -p kagari-hir -p kagari-mir --all-targets -- -D warnings`:
+  passes. `cargo clippy -p kagari-runtime --lib -- -D warnings` also passes.
+- `cargo check -p kagari-compiler --no-default-features --lib`: passes, proving
+  the source-free compiler core builds. `cargo check -p kagari-runtime --lib`
+  passes. The previously carried 31 bytecode errors and two newly exposed runtime
+  import errors are resolved.
+- `uv run --locked scripts/check_structure.py`: 472 Rust files, zero findings and
+  zero exceptions. Reviewed production imports, module/visibility boundaries,
+  bounded recursive control flow, host ownership and macro/test scopes. Formatting
+  and `git diff --check` pass.
+- `cargo check --workspace --all-targets`: fails in Cranelift, 20 library and
+  44 test-target errors, including removed bytecode/runtime imports, obsolete
+  invocation API and old MIR/native-product fields (A04).
+- `cargo check -p kagari-compiler --lib`: fails with 17 errors and 43 warnings.
+  Source planning still puts HIR TypeId arguments into ConcreteFunctionIdentity,
+  then attempts HIR substitutions using ABI arguments (E0308/E0277/E0271/E0599).
+  A02 must introduce source-only request keys and a concrete lowering handoff;
+  do not make executable identities contain HIR again.
+- `cargo check -p kagari-compiler -p kagari-vm --lib`: also exposes five VM errors
+  for obsolete codegen imports and a removed runtime BackendDiagnosticKind (A03).
+  Runtime/VM behavioral suites and SDK/CLI integration remain unverified behind
+  compiler/backend errors. Full workspace clippy/tests are not passing evidence.
+
+A01 scope is complete, with build state explicitly broken in the owning follow-up
+phases. Continue A02: fix concrete source request handoff, complete MIR analyses,
+seals/debug/budget contracts and source-to-MIR-to-bytecode lowering, preserving the
+existing semantic test inventory. A03/A04 retain the recorded integration work;
+A05 must pass the entire acceptance matrix and final gates before goal completion.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
