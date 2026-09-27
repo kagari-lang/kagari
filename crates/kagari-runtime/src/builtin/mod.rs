@@ -68,9 +68,8 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         Integer(_, _) => kagari_ir::builtin::surface::standard_function_by_intrinsic(intrinsic)
             .map_or("integer method", |spec| spec.api.qualified_name),
         ArrayNew | MutableArrayNew | MutableMapNew | MutableSetNew => "collection constructor",
-        ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom | MutableSetFrom => {
-            "collection factory"
-        }
+        MutableArrayFromFn | ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom
+        | MutableSetFrom => "collection factory",
         ArrayLen => "std::array::Array::len",
         ArrayIsEmpty => "std::array::Array::is_empty",
         ArrayGet => "std::array::Array::get",

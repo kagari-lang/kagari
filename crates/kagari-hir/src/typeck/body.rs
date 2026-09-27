@@ -1284,6 +1284,34 @@ impl<'a> BodyChecker<'a> {
                     _ => None,
                 };
                 let element = self.infer_expr_with_coercion(*value, env, member);
+                if !self.solving
+                    && !crate::types::supports_array_repetition(&element, |instance| {
+                        if self.cancel.check().is_err() {
+                            return None;
+                        }
+                        let contract = self.aggregates.enumeration(&instance.declaration)?;
+                        let substitution = contract
+                            .generic_params
+                            .iter()
+                            .cloned()
+                            .zip(instance.arguments.iter().cloned())
+                            .collect();
+                        Some(
+                            contract
+                                .variants
+                                .iter()
+                                .flat_map(|v| &v.payload)
+                                .map(|ty| ty.instantiate(&substitution))
+                                .collect(),
+                        )
+                    })
+                {
+                    self.diagnostics.push(Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                        type_name: element.display_name(),
+                        constraint: "array repetition without shared mutable objects".into(),
+                        reason: "use MutableArray::from_fn(count, |index| value) to initialize each element".into(),
+                    }).with_span(self.lowered.source_map.expr_span(*value)));
+                }
                 let length_type = TypeId::Builtin(BuiltinType::USize);
                 let actual = self.infer_expr_with_coercion(*count, env, Some(&length_type));
                 if actual.conflicts_with(&length_type) {

@@ -1926,6 +1926,9 @@ impl FunctionLowerer<'_, '_> {
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         use kagari_hir::builtin::surface::StandardIntrinsic::*;
+                        if intrinsic == MutableArrayFromFn {
+                            return self.lower_array_from_fn(expr, lowered[0], lowered[1]);
+                        }
                         if intrinsic == ArrayCopyWithin {
                             use kagari_hir::builtin::traits::StandardTrait;
                             let input = args[usize::from(call.receiver.is_none())];

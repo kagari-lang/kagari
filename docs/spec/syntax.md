@@ -803,7 +803,7 @@ tuple_expr      ::= "(" expr "," expr_list? ")" ;
 
 expr_list       ::= expr ("," expr)* (",")? ;
 
-array_expr      ::= "[" expr_list? "]" ;
+array_expr      ::= "[" (expr_list | expr ";" expr)? "]" ;
 
 struct_expr     ::= path generic_args? "{" field_init_list? "}" ;
 
@@ -1125,3 +1125,9 @@ standard-trait interface type. Literal and formatted pieces are collected and
 joined into a buffer reserved from their combined byte length, avoiding repeated
 copying of an accumulated prefix. Result text is not a locale-sensitive or stable
 serialization format. Parser depth, diagnostics and cancellation limits apply.
+
+
+Repeat arrays `[value; count]` evaluate the value once and require its type to
+contain no shared mutable objects, including recursively inside Tuple or enum
+members. Use `MutableArray::from_fn(count, |index| expression)` for per-element
+object initialization. See [the value contract](value-semantics.md#repeat-arrays-and-bulk-replacement).

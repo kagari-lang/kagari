@@ -261,6 +261,32 @@ pub(super) fn verify(
                 }
                 I::RepeatArray { dst, value, count } => {
                     if let (Some(value), Some(count)) = (get(*value), get(*count)) {
+                        let Some(item) = &value.ty else {
+                            return Err(invalid());
+                        };
+                        if !kagari_hir::types::supports_array_repetition(
+                            &item.to_checked_type(),
+                            |instance| {
+                                let layout = module.enumerations.iter().find(|layout| {
+                                    layout.declaration == instance.declaration
+                                        && layout
+                                            .arguments
+                                            .iter()
+                                            .map(AbiType::to_checked_type)
+                                            .eq(instance.arguments.iter().cloned())
+                                })?;
+                                Some(
+                                    layout
+                                        .variants
+                                        .iter()
+                                        .flat_map(|v| &v.payload)
+                                        .map(AbiType::to_checked_type)
+                                        .collect(),
+                                )
+                            },
+                        ) {
+                            return Err(invalid());
+                        }
                         if !flows(
                             &count,
                             &AbiType::Builtin(kagari_hir::types::BuiltinType::USize),
@@ -677,6 +703,7 @@ pub(super) fn verify(
                             if matches!(
                                 intrinsic,
                                 S::ArrayCopyWithin
+                                    | S::MutableArrayFromFn
                                     | S::ArrayFrom
                                     | S::MutableArrayFrom
                                     | S::MapFrom

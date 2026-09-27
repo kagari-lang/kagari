@@ -597,3 +597,9 @@ iteration and the normalized ArrayCopyWithinBounds intrinsic. Public copy_within
 calls must lower their RangeBounds protocol calls before bytecode verification.
 Validators reject missing endpoints, invalid element types, mismatched Bound
 payloads and read-only destinations before execution. Earlier products are rejected.
+
+Version 83/runtime ABI v83 restrict repeat-array instructions to element types
+without shared mutable identities. Source analysis and portable verification share
+the structural type predicate. MutableArray::from_fn lowers to ordinary control
+flow and closure calls; an unlowered factory intrinsic is rejected. Older products
+are rejected rather than interpreted with changed repetition rules.

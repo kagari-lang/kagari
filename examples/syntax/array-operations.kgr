@@ -15,9 +15,14 @@ fn main() -> i32 {
     destination.copy_within(0..2, 1);
     std::debug::assert(destination[1] == 10 && destination[2] == 20, "overlap");
 
-    // Repetition shares the object; it does not construct one object per slot.
-    val cells = [Cell { value: 1 }; 2];
+    // Each initializer call constructs an independent object.
+    val cells = MutableArray::from_fn(2, |i| Cell { value: 1 });
     cells[0].value = 42;
-    std::debug::assert(cells[1].value == 42, "shared element");
+    std::debug::assert(cells[1].value == 1, "independent elements");
+
+    // Sharing is explicit: return an existing object from the initializer.
+    val shared = MutableArray::from_fn(2, |i| cells[0]);
+    shared[0].value = 7;
+    std::debug::assert(shared[1].value == 7, "explicit sharing");
     42
 }

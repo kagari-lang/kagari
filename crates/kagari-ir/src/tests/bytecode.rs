@@ -3059,3 +3059,54 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         );
     }
 }
+
+#[test]
+fn forged_repetition_cannot_copy_shared_mutable_identities() {
+    use crate::bytecode::ConstantOperand;
+    for value in [
+        "Cell { value: 1 }",
+        "(Cell { value: 1 }, 1)",
+        "Some(Cell { value: 1 })",
+    ] {
+        let source = format!(
+            "struct Cell {{ var value: i32 }} fn main() {{ val count = 2usize; val value = {value}; val array = [value, value]; }}"
+        );
+        let mut module = common::bytecode_ok(&source);
+        verify_module(&module).unwrap();
+        let function = module
+            .functions
+            .iter_mut()
+            .find(|f| {
+                f.instructions
+                    .iter()
+                    .any(|i| matches!(i, BytecodeInstruction::MakeArray { .. }))
+            })
+            .unwrap();
+        let count = function
+            .instructions
+            .iter()
+            .find_map(|i| match i {
+                BytecodeInstruction::LoadConst {
+                    dst,
+                    constant: ConstantOperand::U64(2),
+                } => Some(*dst),
+                _ => None,
+            })
+            .unwrap();
+        let instruction = function
+            .instructions
+            .iter_mut()
+            .rev()
+            .find(|i| matches!(i, BytecodeInstruction::MakeArray { .. }))
+            .unwrap();
+        let BytecodeInstruction::MakeArray { dst, elements } = instruction else {
+            unreachable!()
+        };
+        *instruction = BytecodeInstruction::RepeatArray {
+            dst: *dst,
+            value: elements[0],
+            count,
+        };
+        assert!(verify_module(&module).is_err(), "{value}");
+    }
+}

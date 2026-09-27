@@ -119,9 +119,10 @@ pub fn invoke_with_callbacks(
             }
             Ok(Value::Array(gc.alloc_array(vec![])?))
         }
-        ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom | MutableSetFrom => Err(
-            BuiltinError::new("collection factories must be lowered to checked construction"),
-        ),
+        MutableArrayFromFn | ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom
+        | MutableSetFrom => Err(BuiltinError::new(
+            "collection factories must be lowered to checked construction",
+        )),
         ArrayLen => array_len(gc, args),
         ArrayIsEmpty => array_is_empty(gc, args),
         ArrayGet => array_get(gc, args),

@@ -4,6 +4,11 @@
 //! Read-only views share storage and observe changes through writable aliases.
 //! `from` constructs fresh shallow storage; referenced elements retain identity.
 //!
+//! `[value; count]` evaluates its value once and requires a value-only element type.
+//! Tuple and enum members are checked recursively; object/container references,
+//! interfaces and closures are rejected even for zero repetitions. Construct
+//! independent objects with `MutableArray::from_fn(count, |index| expression)`.
+//!
 //! Resource exhaustion and cancellation follow the execution-session contract.
 
 /// A resizable sequence of elements, written `[T]` in type annotations.
@@ -117,6 +122,33 @@ impl<T> Array<T> {
 }
 
 impl<T> MutableArray<T> {
+    /// Construct a fresh array by calling `initializer` once for every index.
+    ///
+    /// Calls run in increasing index order, from zero to `count - 1`. Zero length
+    /// never calls the initializer. The count and closure expressions evaluate once.
+    /// Construct an object inside the closure to create an independent object in
+    /// every slot. Returning an existing object deliberately shares its identity.
+    ///
+    /// Unlike `[value; count]`, this operation accepts object and container elements.
+    ///
+    /// # Panics
+    ///
+    /// A callback trap, cancellation or resource exhaustion stops construction.
+    /// No partial array is returned; completed callback side effects remain visible.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// struct Cell { var value: usize }
+    /// fn main() {
+    ///     val cells = MutableArray::from_fn(2, |i| Cell { value: i });
+    ///     cells[0].value = 42usize;
+    ///     std::debug::assert(cells[1].value == 1usize, "independent objects");
+    /// }
+    /// ```
+    #[intrinsic(MutableArrayFromFn)]
+    pub fn from_fn(count: usize, initializer: fn(usize) -> T) -> Self;
+
     /// Create a fresh empty array with writable access.
     ///
     /// # Examples

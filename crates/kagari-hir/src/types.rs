@@ -1139,3 +1139,37 @@ impl BuiltinType {
             || (self == Self::Bool && target.integer_layout().is_some())
     }
 }
+
+/// Repetition is permitted only when the type proves that no mutable identity is shared.
+/// Nominal payloads come from checked source declarations or verified concrete layouts.
+pub fn supports_array_repetition(
+    ty: &TypeId,
+    mut enum_payload: impl FnMut(&NominalType) -> Option<Vec<TypeId>>,
+) -> bool {
+    let mut pending = vec![ty.clone()];
+    let mut seen = std::collections::HashSet::new();
+    let mut work = 0;
+    while let Some(ty) = pending.pop() {
+        work += 1;
+        if work > 4096 {
+            return false;
+        }
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        match ty {
+            TypeId::Builtin(_) | TypeId::Range(_, _) => {}
+            TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
+                pending.extend(items)
+            }
+            TypeId::Enum(instance) => {
+                let Some(payload) = enum_payload(&instance) else {
+                    return false;
+                };
+                pending.extend(payload);
+            }
+            _ => return false,
+        }
+    }
+    true
+}

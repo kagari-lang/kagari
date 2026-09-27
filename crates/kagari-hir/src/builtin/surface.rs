@@ -205,6 +205,7 @@ pub enum StandardIntrinsic {
     ArrayFrom,
     MutableArrayNew,
     MutableArrayFrom,
+    MutableArrayFromFn,
     MutableMapNew,
     MapFrom,
     MutableMapFrom,

@@ -426,8 +426,22 @@ See [numeric conversions](../../examples/syntax/numeric-conversions.kgr).
 
 `[value; count]` constructs a fresh `MutableArray<T>`, not a fixed-length array.
 Evaluate `value`, then the `usize` count, exactly once. The value is evaluated even
-for zero length. Each slot receives a shallow copy; object references stay shared.
+for zero length. Repetition requires a type proven to contain no shared mutable
+object identity: scalars, String and integer ranges qualify; Tuple and enum payloads
+are checked recursively across every variant. Structs, containers (including
+read-only views), interfaces, closures and host handles do not qualify. This rule
+also applies at lengths zero and one and to an empty variant such as `None` in
+`Option<Struct>`. An unconstrained generic element type cannot prove the requirement.
 The count may be a runtime expression. Allocation and execution budgets are checked.
+
+`MutableArray::from_fn(count, initializer)` accepts every valid array element type.
+Evaluate the usize count and closure expressions once, in that order. Invoke the
+closure with each index from zero to count minus one; zero length makes no calls.
+An object constructed inside the closure is independent on each call. Returning an
+existing object explicitly shares it. This is per-element evaluation, not implicit
+cloning. Construction uses ordinary script frames and resource budgets. Trap or
+termination returns no partial array and releases execution roots; completed
+callback side effects remain visible. Generic code can use this API explicitly.
 
 `MutableArray<T>.fill(value)` and `copy_from_slice(source: Array<T>)` return unit.
 Copying requires equal lengths, supports self-copy, and preserves referenced object

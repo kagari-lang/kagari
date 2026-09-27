@@ -42,18 +42,18 @@ fn execute(source: &str) {
 }
 
 #[test]
-fn repeats_evaluate_once_and_keep_shallow_identity() {
+fn repeats_evaluate_value_elements_once() {
     execute(
         r#"
     struct Cell { var value: i32 }
-    fn item(log: MutableArray<i32>) -> Cell { log.push(1); Cell { value: 7 } }
+    fn item(log: MutableArray<i32>) -> i32 { log.push(1); 7 }
     fn count(log: MutableArray<i32>) -> usize { log.push(2); 3 }
     fn main() -> i32 {
         val log = [];
         val values = [item(log); count(log)];
         std::debug::assert(log.len() == 2usize && log[0] == 1 && log[1] == 2, "order");
-        values[0].value = 42;
-        std::debug::assert(values[2].value == 42, "shared object");
+        values[0] = 42;
+        std::debug::assert(values[2] == 7, "independent slots");
         val empty = [item(log); 0];
         std::debug::assert(empty.is_empty() && log.len() == 3usize, "zero still evaluates");
         val inferred: MutableArray<u8> = [1; 4];
@@ -79,8 +79,8 @@ fn bulk_operations_preserve_aliases_and_allow_replacement_during_iteration() {
         std::debug::assert(array[0] == 10 && array[2] == 30, "self copy");
         for value in array { array.fill(42); }
         val cell = Cell { value: 1 };
-        val cells = [cell; 2];
-        val copied = [Cell { value: 0 }; 2];
+        val cells = MutableArray::from_fn(2, |i| cell);
+        val copied = MutableArray::from_fn(2, |i| Cell { value: 0 });
         copied.copy_from_slice(cells);
         copied[0].value = 42;
         std::debug::assert(cells[1].value == 42, "shallow copy");
@@ -97,6 +97,10 @@ fn bulk_operations_preserve_aliases_and_allow_replacement_during_iteration() {
 fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
     let engine = KagariEngine::default();
     for source in [
+        "fn main() { val a = MutableArray::from_fn(-1, |i| i); }",
+        "fn main() { val a = MutableArray::from_fn(1i32, |i| i); }",
+        "fn main() { val a = MutableArray::from_fn(1, |a, b| a); }",
+        "fn main() { val a: MutableArray<u8> = MutableArray::from_fn(1, |i| 1i32); }",
         "fn main() { val a = [0; -1]; }",
         "fn main() { val a = [0; true]; }",
         "fn main() { val a = [0; 1i32]; }",
@@ -237,6 +241,10 @@ fn failed_interval_copy_keeps_completed_argument_and_bound_effects() {
         ("a.copy_within(3..3, 4);", vec![1, 2, 3]),
         ("a.copy_from_slice([1, 2]);", vec![1, 2, 3]),
         ("a.copy_within(Region { a }, 0);", vec![9, 2]),
+        (
+            r#"val result = MutableArray::from_fn(3, |i| { a.push(i as i32); std::debug::assert(i < 1usize, "callback failed"); Region { a } });"#,
+            vec![1, 2, 3, 0, 1],
+        ),
     ] {
         let source = format!(
             r#"
@@ -294,5 +302,120 @@ fn failed_interval_copy_keeps_completed_argument_and_bound_effects() {
             drop(root);
             assert_eq!(runtime.runtime().gc().active_roots(), 0);
         }
+    }
+}
+
+#[test]
+fn repeated_arrays_reject_mutable_identity_even_when_nested_or_empty() {
+    let engine = KagariEngine::default();
+    for body in [
+        "val a = [Cell { value: 1 }; 2];",
+        "val a = [Cell { value: 1 }; 0];",
+        "val a = [[1, 2]; 2];",
+        "val a = [(Cell { value: 1 }, 7); 2];",
+        "val a: MutableArray<Option<Cell>> = [None; 2];",
+        "val a = [Wrapped::Data(Cell { value: 1 }); 2];",
+        "val a: MutableArray<Wrapped<Cell>> = [Wrapped::Empty; 2];",
+        "val a = [|| 1; 2];",
+    ] {
+        let source = format!(
+            "struct Cell {{ var value: i32 }} enum Wrapped<T> {{ Empty, Data(T) }} fn main() {{ {body} }}"
+        );
+        let error = engine
+            .compile_to_artifact(
+                SourceFile::new("invalid-repeat.kgr", source),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap_err();
+        assert!(
+            format!("{error:?}").contains("MutableArray::from_fn"),
+            "{body}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn repeated_value_aggregates_and_per_element_initializers() {
+    execute(
+        r#"
+    enum Wrapped<T> { Empty, Data(T) }
+    struct Cell { var value: usize }
+    fn build<T>(value: T) -> MutableArray<T> { MutableArray::from_fn(2, |i| value) }
+    fn main() -> i32 {
+        val enums = [Wrapped::Data((1, "hello")); 2];
+        std::debug::assert(enums[0] == enums[1], "value enum");
+        val options: MutableArray<Option<i32>> = [None; 2];
+        val strings = ["hello"; 2];
+        val cells = MutableArray::from_fn(3, |i| Cell { value: i });
+        cells[0].value = 42usize;
+        std::debug::assert(cells[1].value == 1usize && cells[2].value == 2usize, "independent");
+        var calls = 0;
+        val empty: MutableArray<Cell> = MutableArray::from_fn(0, |i| { calls += 1; Cell { value: i } });
+        std::debug::assert(calls == 0 && empty.is_empty(), "zero callbacks");
+        val log = [];
+        val ordered = MutableArray::from_fn({ log.push(9); 2usize }, { log.push(10); |i| { log.push(i as i32); i } });
+        std::debug::assert(log.len() == 4usize && log[0] == 9 && log[1] == 10 && log[2] == 0 && log[3] == 1, "argument and callback order");
+        val indices = MutableArray::from_fn(4, |i| { calls += 1; i });
+        std::debug::assert(calls == 4 && indices[3] == 3usize, "indices and call count");
+        val shared = build(cells[0]);
+        shared[0].value = 7usize;
+        std::debug::assert(shared[1].value == 7usize, "explicit sharing");
+        42
+    }
+    "#,
+    );
+}
+
+#[test]
+fn array_initialization_termination_releases_execution_roots() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "initialization-limit.kgr",
+                r#"
+        struct Cell { var value: usize }
+        fn main() { val cells = MutableArray::from_fn(1000, |i| Cell { value: i }); }
+        fn healthy() -> i32 { 42 }
+    "#,
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    for case in 0..3 {
+        let mut context = ExecutionContext::default();
+        if case == 0 {
+            context.resources.max_instruction_steps = Some(40);
+        }
+        if case == 1 {
+            context.resources.max_heap_units = Some(8);
+        }
+        if case == 2 {
+            context.cancellation.cancel();
+        }
+        let mut runtime = engine.runtime(Default::default());
+        let loaded = runtime
+            .load_program(artifact.clone(), Default::default())
+            .unwrap();
+        let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+        assert_eq!(
+            error.code(),
+            if case == 2 {
+                "KG_RUNTIME_CANCELLED"
+            } else {
+                "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED"
+            }
+        );
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert!(runtime.runtime().execution_root().is_none());
+        assert_eq!(
+            runtime
+                .execute(&loaded, "healthy", &[], &Default::default())
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
     }
 }

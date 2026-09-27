@@ -28,7 +28,7 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 | `Option`/`Result` constructors, patterns, `?`, explicit conversion and error mapping | [result-option.kgr](syntax/result-option.kgr) | `42` |
 | `val`, `var`, `while`, `loop`, `if`, `continue`, `break` and loop values | [control-flow.kgr](syntax/control-flow.kgr) | `42` |
 | Block expressions, independent block statements, and block `match` arms | [blocks.kgr](syntax/blocks.kgr) | `42` |
-| Dynamic repeat arrays, fill and shallow overlap-safe copying | [array-operations.kgr](syntax/array-operations.kgr) | `42` |
+| Value-only repeat arrays, per-element initialization, fill and overlap-safe copying | [array-operations.kgr](syntax/array-operations.kgr) | `42` |
 | Lazy integer ranges, open bounds and range-based copying | [ranges.kgr](syntax/ranges.kgr) | `42` |
 | `for` over Array, Map, Set and String | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
 | Lazy adapters, short-circuit terminals, FromIterator, collect, partition and group_by | [collection-pipelines.kgr](syntax/collection-pipelines.kgr) | `42` |

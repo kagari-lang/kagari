@@ -549,7 +549,7 @@ KBC/runtime ABI v80 rejects earlier products.
 
 ## General array operations and ranges
 
-- [x] A01: dynamic repeat arrays with once-only evaluation and shallow element copies.
+- [x] A01: dynamic repeat arrays with once-only evaluation; see the safety revision below.
 - [x] A02: atomic fill and equal-length copy_from_slice on writable arrays.
 - [x] A03: independent range values, lazy integer iteration and range declarations.
 - [x] A04: copy_within with validated ranges and overlap-safe shallow copying.
@@ -573,3 +573,22 @@ Checkpoints: `2e1b50a` implements A01/A02; `719cd5a` implements A03/A04 and
 synchronizes grammar, specifications and API examples. This acceptance record
 closes A05. Range endpoints currently use builtin integers; borrowed slice views,
 range indexing and range comparison/hash protocols are outside this phase.
+
+
+## Safe array initialization
+
+- [x] Restrict repeated elements to types without shared mutable identities, including recursive Tuple/enum checks and artifact verification.
+- [x] Add source-declared MutableArray::from_fn with ordered per-index callbacks and ordinary execution cleanup.
+- [x] Replace the shared-object repetition example with independent initialization and explicit sharing examples.
+- [x] Complete focused and workspace validation; publish KBC/runtime ABI v83.
+
+This supersedes A01's original allowance for repeating object references. Ordinary
+shallow copying and fill retain their established identity semantics.
+
+Validation: 1,269 workspace tests passed, including 44 standalone examples and
+344 executable API documentation blocks. New coverage rejects nested and empty
+shared-object repetitions, verifies value aggregates, generic initializers,
+argument/callback order, zero calls, explicit sharing, callback failure side
+effects, cancellation, budget exhaustion and forged repetition bytecode. Source,
+artifact and JIT-enabled fallback paths preserve behavior with frequent GC.
+Formatting, workspace/all-targets clippy with warnings denied and diff checks passed.

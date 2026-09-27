@@ -309,10 +309,10 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayCopyWithin => {
+        ArrayCopyWithin | MutableArrayFromFn => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
-                reason: "range bounds require static lowering",
+                reason: "callback and protocol calls require static lowering",
             });
         }
         ArrayCopyWithinBounds => {
