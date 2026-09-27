@@ -37,17 +37,41 @@ KbcArtifact {
   tables: ArtifactTables,
   verification: VerificationMetadata,
   debug: DebugMetadata?,
-  signatures: ArtifactSignatures?
+  signatures: ArtifactSignatures?,
+  portable_mir: PortableMir?
 }
 ```
 
-Format version 76 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 103 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 69 are rejected; no
+virtual segment fingerprints from resolved contract fields. All earlier versions are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 103 adds the optional opaque `PortableMir { bytes }` payload. The envelope
+content hash covers the payload, and a `PortableMir` section records its presence
+and fingerprint. Its declared byte count is bounded before element decoding; the
+complete artifact, including MIR, must fit the existing 64 MiB limit. Runtime ABI
+v102 and helper ABI v6 are unchanged by this envelope-only revision.
+
+The bytecode crate does not depend on MIR and does not interpret this payload.
+Bytecode-only loading validates envelope integrity, resource limits, metadata and
+bytecode contracts. Native preparation must additionally decode the versioned
+`KMIR` v1 input, check its runtime/helper ABI versions, reverify the complete MIR
+program and rebuild program-point analyses. It then lowers MIR through the canonical
+frontend-free bytecode path and compares the entire resulting program encoding.
+Independent payload checksums are insufficient. Preparation precedes script effects.
+Verification state is not serialized, and the decoded input does not retain source
+text or source-analysis arenas.
+
+SDK source emission includes portable MIR by default. `NativeInputExport::BytecodeOnly`
+explicitly omits it; such artifacts remain interpreter-loadable and lack input for
+native compilation. Presence alone does not prove native eligibility: malformed or
+inconsistent MIR and backend-unsupported functions must be distinguished during
+preparation. Compiler-generated payloads come from the same verified program as
+bytecode, replacing any caller-supplied opaque payload in low-level build options.
 
 Version 70 and runtime ABI v70 name the native iterator type and instruction Iter.
 The former Cursor type name is removed from the source API. Iterator remains the

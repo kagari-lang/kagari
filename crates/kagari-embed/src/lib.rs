@@ -6,6 +6,7 @@ use kagari_bytecode::BytecodeModule;
 use kagari_bytecode::CallTarget;
 use kagari_bytecode::KbcArtifact;
 use kagari_bytecode::RuntimeHelper;
+use kagari_bytecode::native_input::PortableMir;
 use kagari_common::host_interface::HostInterface;
 use kagari_common::host_interface::HostInterfaceError;
 use kagari_common::identity::ModuleIdentity;
@@ -29,6 +30,7 @@ use kagari_hir::{
     },
     program::{CheckedProgram, ProgramCheckError},
 };
+use kagari_mir::codec::{MirCodecError, encode_program};
 use kagari_mir::program::ProgramErrorKind;
 use kagari_runtime::CapabilitySet;
 use kagari_runtime::DeterministicInputs;
@@ -317,8 +319,22 @@ impl KagariEngine {
                 },
             )?;
         let program = lower_program_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
-        KbcArtifact::from_program(program, options.build)
-            .map_err(EmbeddingError::artifact_validation)
+        let mut build = options.build;
+        build.portable_mir = match options.native_input {
+            NativeInputExport::PortableMir => Some(PortableMir {
+                bytes: encode_program(&ir, &options.lowering.cancel).map_err(
+                    |error| match error {
+                        MirCodecError::Cancelled => EmbeddingError::Cancelled,
+                        error => EmbeddingError::Compilation {
+                            phase: CompilationPhase::ArtifactEncoding,
+                            message: error.to_string(),
+                        },
+                    },
+                )?,
+            }),
+            NativeInputExport::BytecodeOnly => None,
+        };
+        KbcArtifact::from_program(program, build).map_err(EmbeddingError::artifact_validation)
     }
 
     pub fn compile_to_artifact(
@@ -508,6 +524,17 @@ fn language_feature_profile_from_runtime(profile: LanguageProfile) -> LanguageFe
 pub struct ArtifactOptions {
     pub build: ArtifactBuildOptions,
     pub lowering: MirLoweringOptions,
+    /// Controls native input generated from the same verified MIR as bytecode.
+    /// Supersedes any opaque payload in `build.portable_mir`.
+    pub native_input: NativeInputExport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NativeInputExport {
+    #[default]
+    PortableMir,
+    /// This artifact cannot be compiled natively without fresh compiler input.
+    BytecodeOnly,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -730,6 +757,7 @@ pub enum CompilationPhase {
     Analyze,
     MirLowering,
     BytecodeLowering,
+    ArtifactEncoding,
 }
 
 impl CompilationPhase {
@@ -739,6 +767,7 @@ impl CompilationPhase {
             Self::Analyze => "KG_COMPILE_ANALYZE",
             Self::MirLowering => "KG_COMPILE_IR_LOWERING",
             Self::BytecodeLowering => "KG_COMPILE_BYTECODE_LOWERING",
+            Self::ArtifactEncoding => "KG_COMPILE_ARTIFACT_ENCODING",
         }
     }
 }

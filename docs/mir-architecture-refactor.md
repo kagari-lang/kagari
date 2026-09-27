@@ -452,7 +452,7 @@ verified MIR analyses and frontend-free bytecode lowering pass their scoped chec
 Runtime, VM and SDK libraries now build at their intended execution boundary.
 The workspace remains intentionally broken in legacy VM/backend tests, SDK/CLI
 native callers and the A04 backend implementation. Resume A03 native preparation,
-artifact envelope integration, shared caching and feature integration; A05 final acceptance
+SDK native preparation, shared caching and feature integration; A05 final acceptance
 has not run and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
@@ -470,7 +470,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | `279e6d6` runtime fixtures; `51f00ec` native installation/invocation; VM/SDK prepared execution boundary | 415 runtime/compiler/ABI tests plus one seal doc test at prior checkpoint; eight new VM tests, VM/SDK library clippy, structure, fmt and diff pass | Portable codec and canonical correspondence now pass focused checks; shared version/target/options cache, SDK preparation, artifact envelope, feature separation and caller migration remain |
+| A03 | `279e6d6` runtime fixtures; `51f00ec` native installation/invocation; VM/SDK prepared execution boundary | 415 runtime/compiler/ABI tests plus one seal doc test at prior checkpoint; eight new VM tests, VM/SDK library clippy, structure, fmt and diff pass | Portable codec, canonical correspondence and v103 opaque MIR envelopes pass focused checks; shared version/target/options cache, SDK preparation, feature separation and caller migration remain |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
 
@@ -1539,6 +1539,50 @@ A03 remains open. Existing VM/backend unit fixtures, SDK/CLI native callers and
 Cranelift migration errors remain carried under A03/A04; unchanged failures were
 not rerun. Continue opaque MIR artifact envelopes, SDK preparation/shared caches,
 backend trust registration and feature isolation. A05 final acceptance is pending.
+
+### A03 checkpoint: opaque MIR artifact envelopes (2026-09-28)
+
+Artifact format v103 adds optional `portable_mir` compiler input. Bytecode owns
+only its bounded opaque byte wrapper, envelope integrity and section manifest;
+it has no MIR or compiler dependency. Both the content hash and a dedicated
+section fingerprint bind the bytes. Bounds apply to declared lengths before
+allocation, in-memory payloads and the combined envelope, retaining the 64 MiB
+artifact limit. Older format versions reject before decoding. Runtime ABI v102
+and helper ABI v6 remain unchanged because executable contracts did not change.
+
+SDK source emission now encodes the exact verified MIR used to emit bytecode by
+default. `NativeInputExport::BytecodeOnly` explicitly omits it. Generated payloads
+replace arbitrary low-level build-option input, and codec failures/cancellation
+are propagated. Updated the artifact specification and the existing explicit
+SDK options fixture. Artifact presence is not native eligibility; native SDK
+preparation still must consume, verify and cache this input before execution.
+Current SDK load/reload continues to load bytecode; retention and preparation of
+artifact MIR are the next integration step, not claimed by this checkpoint.
+
+Validation:
+
+- `cargo test -p kagari-bytecode -p kagari-compiler -p kagari-runtime`: 388 tests
+  and one runtime seal doc test pass. New tests cover stable opaque round-trips,
+  absent payloads, hash/section tampering, format rejection, impossible lengths,
+  combined byte limits, and valid envelopes whose independently valid MIR fails
+  canonical correspondence.
+- All-target clippy for those three crates and library clippy for SDK with
+  `-D warnings`: pass. Bytecode's normal Kagari dependency graph remains ABI/common.
+  Structure: 497 Rust files, zero violations/exceptions; formatting and diff pass.
+  Reviewed payload ownership, pre-hash bounds, section derivation and source
+  emission policy. No test suppression or compatibility reader was introduced.
+- `cargo test -p kagari-embed --test native_artifacts`: blocked by its concrete
+  Cranelift dev-dependency, with the same 20 carried A04 library errors (obsolete
+  bytecode/runtime imports, removed invoke method, and flat `.instructions` on
+  `MirFunction`). The new test preserves end-to-end assertions for default export,
+  supplied-payload replacement, explicit bytecode-only export and interpreter
+  execution; it has not run. A04 backend migration owns removal of this blocker.
+- Logs: `target/a03-envelope-tests.log`, `target/a03-envelope-clippy.log`,
+  `target/a03-envelope-embed-clippy.log`, `target/a03-envelope-sdk-test.log`.
+
+A03 remains in progress. Continue SDK preparation and immutable-version native
+cache ownership, trust registration for executable products, feature separation
+and legacy caller migration. A04 backend implementation and A05 final gates remain.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

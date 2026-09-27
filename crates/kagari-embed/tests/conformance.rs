@@ -64,6 +64,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
                     security_profile: Some("dev".to_owned()),
                     ..ArtifactBuildOptions::default()
                 },
+                ..Default::default()
             },
         )
         .expect("checked module should emit bytecode");

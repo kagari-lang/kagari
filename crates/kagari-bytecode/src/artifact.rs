@@ -2,6 +2,7 @@ use crate::RootSlotLayout;
 use crate::artifact::limits::artifact_count_limit;
 use crate::artifact::limits::metadata_count_limit;
 use crate::artifact::limits::program_count_limit;
+use crate::native_input::PortableMir;
 mod limits;
 use crate::BytecodeVerificationError;
 use crate::JumpTarget;
@@ -32,7 +33,7 @@ use kagari_abi::representation::ValueType;
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 102;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 103;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = MAX_FUNCTIONS;
@@ -82,6 +83,7 @@ pub struct KbcArtifact {
     pub verification: VerificationMetadata,
     pub debug: Option<DebugMetadata>,
     pub signatures: Option<ArtifactSignatures>,
+    pub portable_mir: Option<PortableMir>,
 }
 
 impl KbcArtifact {
@@ -89,6 +91,15 @@ impl KbcArtifact {
         program: BytecodeProgram,
         options: ArtifactBuildOptions,
     ) -> Result<Self, ArtifactValidationError> {
+        if options
+            .portable_mir
+            .as_ref()
+            .is_some_and(|payload| payload.bytes.len() as u64 > MAX_ARTIFACT_BYTES)
+        {
+            return Err(ArtifactValidationError::ResourceLimit(
+                "portable MIR byte limit exceeded",
+            ));
+        }
         if let Some(reason) = program_count_limit(&program) {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
@@ -106,7 +117,13 @@ impl KbcArtifact {
         let module = &program.modules[program.root.index()];
         let debug = options.debug;
         let signatures = options.signatures;
-        let tables = ArtifactTables::with_metadata(&program, debug.as_ref(), signatures.as_ref());
+        let portable_mir = options.portable_mir;
+        let tables = ArtifactTables::with_metadata(
+            &program,
+            debug.as_ref(),
+            signatures.as_ref(),
+            portable_mir.as_ref(),
+        );
         let mut artifact = Self {
             header: ArtifactHeader {
                 magic: KBC_MAGIC,
@@ -125,6 +142,7 @@ impl KbcArtifact {
             verification,
             debug,
             signatures,
+            portable_mir,
         };
         if let Some(reason) = artifact_count_limit(&artifact) {
             return Err(ArtifactValidationError::ResourceLimit(reason));
@@ -235,6 +253,7 @@ impl KbcArtifact {
                 &self.program,
                 self.debug.as_ref(),
                 self.signatures.as_ref(),
+                self.portable_mir.as_ref(),
             )
         {
             return Err(ArtifactValidationError::TableMismatch);
@@ -327,6 +346,7 @@ impl KbcArtifact {
             &self.verification,
             &self.debug,
             &self.signatures,
+            &self.portable_mir,
         ))
     }
 }
@@ -496,6 +516,7 @@ impl ArtifactTables {
         program: &BytecodeProgram,
         debug: Option<&DebugMetadata>,
         signatures: Option<&ArtifactSignatures>,
+        portable_mir: Option<&PortableMir>,
     ) -> Self {
         let mut tables = Self::from_program(program);
         if let Some(debug) = debug {
@@ -513,6 +534,16 @@ impl ArtifactTables {
                 ArtifactSectionId::Signatures,
                 signatures.signatures.len(),
             );
+        }
+        if let Some(portable_mir) = portable_mir {
+            tables.sections.push(ArtifactSection {
+                id: ArtifactSectionId::PortableMir,
+                record_count: 1,
+                fingerprint: ArtifactFingerprint::of_serialized(&(
+                    ArtifactSectionId::PortableMir,
+                    portable_mir,
+                )),
+            });
         }
         tables
     }
@@ -546,6 +577,7 @@ pub enum ArtifactSectionId {
     Verification,
     Debug,
     Signatures,
+    PortableMir,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -726,6 +758,7 @@ pub struct ArtifactBuildOptions {
     pub security_profile: Option<String>,
     pub debug: Option<DebugMetadata>,
     pub signatures: Option<ArtifactSignatures>,
+    pub portable_mir: Option<PortableMir>,
 }
 
 impl Default for ArtifactBuildOptions {
@@ -737,6 +770,7 @@ impl Default for ArtifactBuildOptions {
             security_profile: None,
             debug: None,
             signatures: None,
+            portable_mir: None,
         }
     }
 }

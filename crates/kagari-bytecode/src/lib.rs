@@ -3,6 +3,7 @@ mod access;
 mod artifact;
 mod instruction;
 mod module;
+pub mod native_input;
 mod program;
 mod trait_bounds;
 pub use trait_bounds::interface_ancestors;

@@ -871,3 +871,125 @@ fn recomputed_checksum_cannot_hide_dependency_or_verification_metadata_changes()
         Err(ArtifactValidationError::VerificationMetadataMismatch)
     ));
 }
+
+#[test]
+fn portable_mir_is_opaque_but_integrity_and_manifest_bound() {
+    let program = BytecodeProgram {
+        root: crate::ModuleRef::new(0),
+        modules: vec![BytecodeModule::default()],
+    };
+    let plain = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
+    let artifact = KbcArtifact::from_program(
+        program,
+        ArtifactBuildOptions {
+            portable_mir: Some(PortableMir {
+                // Bytecode loading deliberately does not decode compiler input.
+                bytes: vec![1, 2, 3],
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_ne!(plain.header.content_hash, artifact.header.content_hash);
+    assert!(plain.portable_mir.is_none());
+    assert!(
+        !plain
+            .tables
+            .sections
+            .iter()
+            .any(|item| item.id == ArtifactSectionId::PortableMir)
+    );
+    let bytes = artifact.to_bytes().unwrap();
+    let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
+    decoded.validate_for_loader(&Default::default()).unwrap();
+    assert_eq!(decoded.to_bytes().unwrap(), bytes);
+    assert_eq!(decoded.portable_mir.unwrap().bytes, [1, 2, 3]);
+
+    let mut changed = artifact.clone();
+    changed.portable_mir.as_mut().unwrap().bytes[0] = 4;
+    assert!(matches!(
+        changed.validate_for_loader(&Default::default()),
+        Err(ArtifactValidationError::ContentHashMismatch)
+    ));
+    // Even a refreshed outer checksum cannot hide a stale section fingerprint.
+    changed.header.content_hash = changed.compute_content_hash();
+    assert!(matches!(
+        changed.validate_for_loader(&Default::default()),
+        Err(ArtifactValidationError::TableMismatch)
+    ));
+    changed.portable_mir = None;
+    changed.header.content_hash = changed.compute_content_hash();
+    assert!(matches!(
+        changed.validate_for_loader(&Default::default()),
+        Err(ArtifactValidationError::TableMismatch)
+    ));
+
+    let mut previous = bytes;
+    previous[4..6].copy_from_slice(&102u16.to_le_bytes());
+    assert!(
+        KbcArtifact::from_bytes(&previous)
+            .unwrap_err()
+            .message()
+            .contains("format version")
+    );
+}
+
+#[test]
+fn portable_mir_bounds_apply_before_decoding_and_to_combined_envelope_size() {
+    let error = codec()
+        .deserialize::<PortableMir>(&u64::MAX.to_le_bytes())
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("portable MIR byte limit exceeded")
+    );
+    let program = BytecodeProgram {
+        root: crate::ModuleRef::new(0),
+        modules: vec![BytecodeModule::default()],
+    };
+    let mut artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
+    artifact.portable_mir = Some(PortableMir {
+        bytes: vec![0; MAX_ARTIFACT_BYTES as usize + 1],
+    });
+    assert!(matches!(
+        artifact.validate_for_loader(&Default::default()),
+        Err(ArtifactValidationError::ResourceLimit(
+            "portable MIR byte limit exceeded"
+        ))
+    ));
+    assert!(
+        artifact
+            .to_bytes()
+            .unwrap_err()
+            .message()
+            .contains("portable MIR byte limit exceeded")
+    );
+    let mut payload = artifact.portable_mir.take().unwrap();
+    assert!(matches!(
+        KbcArtifact::from_program(
+            program.clone(),
+            ArtifactBuildOptions {
+                portable_mir: Some(payload.clone()),
+                ..Default::default()
+            }
+        ),
+        Err(ArtifactValidationError::ResourceLimit(
+            "portable MIR byte limit exceeded"
+        ))
+    ));
+    payload.bytes.pop();
+    // The payload alone fits; the complete envelope must also fit the same budget.
+    assert!(matches!(
+        KbcArtifact::from_program(
+            program,
+            ArtifactBuildOptions {
+                portable_mir: Some(payload),
+                ..Default::default()
+            }
+        ),
+        Err(ArtifactValidationError::ResourceLimit(
+            "artifact encoded size limit exceeded"
+        ))
+    ));
+}

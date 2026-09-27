@@ -3,6 +3,7 @@ use crate::BytecodeProgram;
 use crate::artifact::ArtifactSignatures;
 use crate::artifact::DebugMetadata;
 use crate::artifact::KbcArtifact;
+use crate::artifact::MAX_ARTIFACT_BYTES;
 use crate::artifact::MAX_ARTIFACT_FUNCTIONS;
 use crate::artifact::MAX_ARTIFACT_INSTRUCTIONS;
 use crate::artifact::MAX_ARTIFACT_MODULES;
@@ -484,6 +485,13 @@ pub(super) fn metadata_count_limit(
 }
 
 pub(super) fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static str> {
+    if artifact
+        .portable_mir
+        .as_ref()
+        .is_some_and(|payload| payload.bytes.len() as u64 > MAX_ARTIFACT_BYTES)
+    {
+        return Some("portable MIR byte limit exceeded");
+    }
     if !artifact.header.module_identity.within_path_limit()
         || !artifact
             .verification

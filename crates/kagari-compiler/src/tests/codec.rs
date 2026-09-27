@@ -300,3 +300,36 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
         }
     }
 }
+
+#[test]
+fn artifact_integrity_does_not_substitute_for_native_correspondence() {
+    use kagari_bytecode::native_input::PortableMir;
+    use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact};
+
+    let first = program("fn main() -> i32 { 42 }");
+    let second = program("fn main() -> i32 { 43 }");
+    for (mir, matches) in [(&first, true), (&second, false)] {
+        let artifact = KbcArtifact::from_program(
+            lower_program_to_bytecode(&first).unwrap(),
+            ArtifactBuildOptions {
+                portable_mir: Some(PortableMir {
+                    bytes: encode_program(mir, &Default::default()).unwrap(),
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        decoded.validate_for_loader(&Default::default()).unwrap();
+        let result = verify_native_input(
+            &decoded.portable_mir.unwrap().bytes,
+            &decoded.program,
+            &Default::default(),
+        );
+        if matches {
+            assert_same_bytecode(&first, &result.unwrap());
+        } else {
+            assert!(matches!(result, Err(NativeInputError::Mismatch)));
+        }
+    }
+}
