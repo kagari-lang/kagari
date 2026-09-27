@@ -494,6 +494,7 @@ impl GcHeap {
                     let index = match (kind, snapshot.tag) {
                         (kagari_ir::module::abi::StandardEnumKind::Bound, EnumTag::BoundUnbounded) => continue,
                         (kagari_ir::module::abi::StandardEnumKind::Bound, EnumTag::BoundIncluded | EnumTag::BoundExcluded) => 0,
+                        (kagari_ir::module::abi::StandardEnumKind::ParseError, EnumTag::ParseError(index)) if index < 5 => continue,
                         (kagari_ir::module::abi::StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => continue,
                         (kagari_ir::module::abi::StandardEnumKind::Ordering, EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater) => continue,
                         (kagari_ir::module::abi::StandardEnumKind::Option, EnumTag::OptionNone) => continue,

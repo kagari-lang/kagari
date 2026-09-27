@@ -177,6 +177,8 @@ pub(crate) fn verify_intrinsic(
     use StandardIntrinsic::*;
 
     let arity = match intrinsic {
+        ParseNumber(_) => 1,
+        ParseRadix(_) => 2,
         ArrayCopyWithinBounds => 4,
         ArrayCopyFromStorage => 2,
         MapKeysStorage | MapValuesStorage | MapEntriesStorage => 1,
@@ -204,6 +206,30 @@ pub(crate) fn verify_intrinsic(
     }
 
     match intrinsic {
+        StringParse => {
+            return Err(ContractError::Intrinsic {
+                intrinsic,
+                reason: "parse requires static lowering",
+            });
+        }
+        ParseNumber(ty) | ParseRadix(ty) => {
+            if !matches!(intrinsic, ParseNumber(_)) && ty.integer_layout().is_none()
+                || kagari_hir::builtin::traits::parsing_error(&kagari_hir::types::TypeId::Builtin(
+                    ty,
+                ))
+                .is_none()
+            {
+                return Err(ContractError::Intrinsic {
+                    intrinsic,
+                    reason: "invalid parser type",
+                });
+            }
+            expect_arg_ty(args, 0, ValueType::Str, "parse input")?;
+            if matches!(intrinsic, ParseRadix(_)) {
+                expect_arg_ty(args, 1, ValueType::I64, "parse radix")?;
+            }
+            verify_call_dst(dst, ValueType::HeapObject)?;
+        }
         Integer(_, _) => {
             let spec = kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
                 .ok_or(ContractError::Intrinsic {

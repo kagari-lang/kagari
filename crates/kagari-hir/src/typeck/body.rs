@@ -2146,7 +2146,8 @@ impl<'a> BodyChecker<'a> {
                 .map(|name| bindings[*name].clone())
                 .collect(),
         );
-        api.result.instantiate(&bindings)
+        self.aggregates
+            .normalize_type(&api.result.instantiate(&bindings))
     }
 
     fn infer_host_call_type(

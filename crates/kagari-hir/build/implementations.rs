@@ -18,6 +18,10 @@ pub fn declaration(
         collection(def, module, uri, text, items, output);
         return;
     }
+    if protocol == "FromStr" {
+        from_str(def, module, uri, text, items, output);
+        return;
+    }
     if protocol == "RangeBounds" {
         range_bounds(def, module, uri, text, items, output);
         return;
@@ -448,4 +452,65 @@ fn collection(
         writeln!(methods, "ApiMethod{{item:{item},native_default:None,generics:&[],bounds:&[],params:&[{params}],result:{result}}},").unwrap();
     }
     writeln!(output, "super::declarations::ApiImplementation{{interface:{protocol:?},trait_arguments:&[{arguments}],bounds:&[{constraints}],generics:&{names:?},target:{target},associated_types:&[],methods:&[{methods}]}},").unwrap();
+}
+
+fn from_str(
+    def: &ast::ImplBlock,
+    module: &str,
+    uri: &str,
+    text: &str,
+    items: &mut String,
+    output: &mut String,
+) {
+    assert_eq!(module, "string");
+    assert!(def.generic_params().is_none() && def.where_clause().is_none());
+    let target = def.target_type().unwrap();
+    let owner = target.name_text().unwrap();
+    assert!(
+        [
+            "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64",
+            "bool"
+        ]
+        .contains(&owner.as_str())
+    );
+    let path = format!("FromStr for {owner}");
+    let members = def.associated_types().collect::<Vec<_>>();
+    assert_eq!(members.len(), 1);
+    let member = &members[0];
+    assert_eq!(member.name_text().as_deref(), Some("Err"));
+    let member_item = api::item(
+        member,
+        member.name().unwrap(),
+        module,
+        uri,
+        text,
+        &[("Impl", path.clone()), ("AssociatedType", "Err".into())],
+    );
+    writeln!(items, "{member_item},").unwrap();
+    let methods = def.methods().collect::<Vec<_>>();
+    assert_eq!(methods.len(), 1);
+    let method = &methods[0];
+    assert_eq!(method.name_text().as_deref(), Some("from_str"));
+    assert_eq!(
+        attribute(method, "intrinsic").as_deref(),
+        Some("NumericFromStr")
+    );
+    let parameters = method.param_list().unwrap().params().collect::<Vec<_>>();
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(
+        ty(parameters[0].ty().unwrap()),
+        "ApiType::Named(\"String\", &[])"
+    );
+    let item = api::item(
+        method,
+        method.name().unwrap(),
+        module,
+        uri,
+        text,
+        &[("Impl", path), ("Method", "from_str".into())],
+    );
+    writeln!(items, "{item},").unwrap();
+    let target = ty(target);
+    let result = ty(method.return_type().unwrap());
+    writeln!(output, "super::declarations::ApiImplementation{{interface:\"FromStr\",trait_arguments:&[],bounds:&[],generics:&[],target:{target},associated_types:&[({member_item},ApiType::Named(\"ParseError\",&[]))],methods:&[ApiMethod{{item:{item},native_default:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"text\",ty:ApiType::Named(\"String\",&[])}}],result:{result}}}]}},").unwrap();
 }

@@ -183,7 +183,18 @@ fn main() {
                 "native declarations cannot have bodies"
             );
             assert_eq!(function.visibility(), ast::Visibility::Public);
-            let intrinsic = if let Some(operation) = attribute(&function, "numeric") {
+            let intrinsic = if attribute(&function, "parse_radix").is_some() {
+                let owner = owner.as_ref().expect("radix parser owner");
+                let builtin = match owner.as_str() {
+                    "isize" => "ISize".to_owned(),
+                    "usize" => "USize".to_owned(),
+                    _ => {
+                        let mut chars = owner.chars();
+                        chars.next().unwrap().to_uppercase().to_string() + chars.as_str()
+                    }
+                };
+                format!("ParseRadix(BuiltinType::{builtin})")
+            } else if let Some(operation) = attribute(&function, "numeric") {
                 let owner = owner.as_ref().expect("numeric receiver");
                 let builtin = match owner.as_str() {
                     "isize" => "ISize".to_owned(),
@@ -233,7 +244,7 @@ fn main() {
                     [] => None,
                     ["Eq", "Hash"] => Some("HashKey"),
                     ["PartialEq"] => Some("Comparable"),
-                    ["RangeBounds"] => {
+                    ["RangeBounds"] | ["FromStr"] => {
                         let bounds = api::bounds(param.bounds());
                         predicates.push(format!(
                             "(ApiType::Named({param_name:?}, &[]), &[{bounds}])"

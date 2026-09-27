@@ -51,6 +51,9 @@ pub fn invoke_with_callbacks(
         _ => {}
     }
     match intrinsic {
+        StringParse => Err(BuiltinError::new("parse requires static dispatch")),
+        ParseNumber(ty) => crate::parsing::parse(gc, ty, args, false).map_err(Into::into),
+        ParseRadix(ty) => crate::parsing::parse(gc, ty, args, true).map_err(Into::into),
         Integer(operation, ty) => {
             crate::numeric::integer_method(gc, operation, ty, args).map_err(Into::into)
         }

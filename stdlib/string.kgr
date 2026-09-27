@@ -25,6 +25,23 @@
 pub type String;
 
 impl String {
+    /// Parse the complete string using the destination's FromStr implementation.
+    ///
+    /// No whitespace is trimmed. Built-in booleans accept exactly true/false;
+    /// integers use decimal digits with an optional plus or signed minus. Numeric
+    /// literal underscores and radix prefixes are not accepted. Floats accept
+    /// decimal/exponent forms and case-insensitive NaN, inf and infinity with an
+    /// optional sign. Floating overflow produces infinity, as in Rust parsing.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val value: Result<u8, ParseError> = "255".parse();
+    /// std::debug::assert(value == Ok(255u8), "parse");
+    /// ```
+    #[intrinsic(StringParse)]
+    pub fn parse<T: FromStr>(self) -> Result<T, <T as FromStr>::Err>;
+
     /// Replace every non-overlapping occurrence.
     ///
     /// An empty pattern inserts the replacement at every Unicode scalar boundary, including both ends.
@@ -458,4 +475,162 @@ impl Iterable for String {
     /// Strings yield one Unicode scalar string at a time.
     #[intrinsic(CollectionIter)]
     fn iter(self) -> Iter<String>;
+}
+
+/// Parse a string into a value with a type-specific error.
+///
+/// Parsing is explicit and never trims whitespace. User implementations choose
+/// their own error type and execute as ordinary script calls.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("42".parse::<i32>() == Ok(42), "parsed integer");
+/// ```
+pub trait FromStr {
+    /// The error reported when the input cannot be parsed.
+    type Err;
+    /// Parse the entire input, without implicit whitespace cleanup.
+    fn from_str(text: String) -> Result<Self, Self::Err>;
+}
+
+/// A built-in numeric or boolean parser rejected its input.
+///
+/// Parsing never traps for malformed text or overflow. Errors distinguish empty
+/// input, invalid integer digits, range overflow, radix and other syntax errors.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert("".parse::<i32>() == Err(ParseError::Empty), "empty");
+/// ```
+#[builtin_enum(ParseError)]
+pub enum ParseError {
+    /// The input is empty.
+    Empty,
+    /// An integer contains a digit or sign invalid for its radix or type.
+    InvalidDigit,
+    /// The integer magnitude exceeds the destination's range.
+    OutOfRange,
+    /// The radix is outside 2 through 36.
+    InvalidRadix,
+    /// The complete text is not a valid boolean or floating-point value.
+    InvalidSyntax,
+}
+
+/// Parse i8 using the complete-input built-in parser.
+impl FromStr for i8 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse i16 using the complete-input built-in parser.
+impl FromStr for i16 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse i32 using the complete-input built-in parser.
+impl FromStr for i32 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse i64 using the complete-input built-in parser.
+impl FromStr for i64 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse isize using the complete-input built-in parser.
+impl FromStr for isize {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse u8 using the complete-input built-in parser.
+impl FromStr for u8 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse u16 using the complete-input built-in parser.
+impl FromStr for u16 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse u32 using the complete-input built-in parser.
+impl FromStr for u32 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse u64 using the complete-input built-in parser.
+impl FromStr for u64 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse usize using the complete-input built-in parser.
+impl FromStr for usize {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse f32 using the complete-input built-in parser.
+impl FromStr for f32 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse f64 using the complete-input built-in parser.
+impl FromStr for f64 {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
+}
+
+/// Parse bool using the complete-input built-in parser.
+impl FromStr for bool {
+    /// A categorized parse failure.
+    type Err = ParseError;
+    /// Parse without whitespace cleanup or literal separators.
+    #[intrinsic(NumericFromStr)]
+    fn from_str(text: String) -> Result<Self, ParseError>;
 }

@@ -270,6 +270,7 @@ impl Executor<'_> {
             (StandardEnumKind::Bound, 0) => EnumTag::BoundIncluded,
             (StandardEnumKind::Bound, 1) => EnumTag::BoundExcluded,
             (StandardEnumKind::Bound, 2) => EnumTag::BoundUnbounded,
+            (StandardEnumKind::ParseError, index) if index < 5 => EnumTag::ParseError(index as u8),
             (StandardEnumKind::TryFromIntError, 0) => EnumTag::TryFromIntError,
             (StandardEnumKind::Ordering, 0) => EnumTag::OrderingLess,
             (StandardEnumKind::Ordering, 1) => EnumTag::OrderingEqual,
@@ -302,6 +303,7 @@ impl Executor<'_> {
                 (StandardEnumKind::Bound, EnumTag::BoundIncluded) => 0,
                 (StandardEnumKind::Bound, EnumTag::BoundExcluded) => 1,
                 (StandardEnumKind::Bound, EnumTag::BoundUnbounded) => 2,
+                (StandardEnumKind::ParseError, EnumTag::ParseError(index)) if *index < 5 => 0,
                 (StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => 0,
                 (StandardEnumKind::Option, EnumTag::OptionNone) => 0,
                 (StandardEnumKind::Option, EnumTag::OptionSome)

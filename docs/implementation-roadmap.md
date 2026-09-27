@@ -621,7 +621,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] S02: Lazy string splitting, bounded splitting, lines and whitespace.
 - [x] S03: Replacement, repetition, case conversion and byte/boundary iteration.
 - [x] S04: Lazy Option/Result combinators, flattening and transposition.
-- [ ] S05: FromStr, typed parsing and integer radix parsing.
+- [x] S05: FromStr, typed parsing and integer radix parsing.
 - [ ] C01: Map snapshot interface methods and copy_from naming.
 - [ ] C02: List endpoint, membership, prefix/suffix and binary search queries.
 - [ ] C03: List reordering, truncation, prepared extension and swap removal.
@@ -657,3 +657,8 @@ S04 validation: 3 combination tests and 16 error-trace tests pass, including
 generic payloads, object aliases, lazy branch selection, callback trap cleanup
 and original error preservation through nested flatten/transpose. KBC/runtime ABI
 is v90; targeted clippy and diff checks pass.
+
+S05 validation: native and custom FromStr, explicit/contextual/generic inference,
+all integer widths at their limits, overflow, radix, signs and floating/boolean
+syntax pass with source/artifact/JIT fallback. Workspace clippy passes. SDK
+implementations and ParseError are source-declared. KBC/runtime ABI is v91.

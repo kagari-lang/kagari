@@ -39,6 +39,7 @@ pub enum StandardTrait {
     Neg,
     Not,
     Index,
+    FromStr,
     From,
     Into,
     TryFrom,
@@ -50,7 +51,7 @@ pub enum StandardTrait {
     Product,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 36] = [
+    pub const ALL: [Self; 37] = [
         Self::Map,
         Self::MutableMap,
         Self::Set,
@@ -78,6 +79,7 @@ impl StandardTrait {
         Self::Neg,
         Self::Not,
         Self::Index,
+        Self::FromStr,
         Self::From,
         Self::Into,
         Self::TryFrom,
@@ -118,6 +120,7 @@ impl StandardTrait {
             Self::Neg => "Neg",
             Self::Not => "Not",
             Self::Index => "Index",
+            Self::FromStr => "FromStr",
             Self::From => "From",
             Self::Into => "Into",
             Self::TryFrom => "TryFrom",
@@ -149,6 +152,7 @@ impl StandardTrait {
             | Self::Neg
             | Self::Not
             | Self::Index => "ops",
+            Self::FromStr => "string",
             Self::From | Self::Into | Self::TryFrom | Self::TryInto => "convert",
             Self::Iterator | Self::Iterable | Self::FromIterator | Self::Sum | Self::Product => {
                 "iter"
@@ -390,6 +394,15 @@ pub fn intrinsic_applies(
     let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
         return false;
     };
+    if kind == StandardTrait::FromStr {
+        return parsing_error(receiver).is_some_and(|error| {
+            interface.arguments.is_empty()
+                && interface.associated_types.iter().all(|(id, ty)| {
+                    *id == crate::types::associated_type_id(&interface.declaration, "Err")
+                        && *ty == error
+                })
+        });
+    }
     if kind.collection() {
         return super::declarations::implementations(receiver)
             .iter()
@@ -567,6 +580,9 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
+    if protocol == StandardTrait::FromStr {
+        return parsing_error(ty).is_some();
+    }
     if protocol.collection() {
         return false;
     }
@@ -882,4 +898,14 @@ pub fn collection_storage(interface: &NominalType) -> Option<TypeId> {
         }),
         _ => None,
     }
+}
+
+pub fn parsing_error(receiver: &TypeId) -> Option<TypeId> {
+    let TypeId::Builtin(kind) = receiver else {
+        return None;
+    };
+    (kind.number_type().is_some() || *kind == BuiltinType::Bool).then(|| TypeId::StandardEnum {
+        kind: super::surface::StandardEnum::ParseError,
+        args: vec![],
+    })
 }

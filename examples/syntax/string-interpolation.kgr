@@ -4,6 +4,7 @@ fn main() -> i32 {
     std::debug::assert("a,b,c".splitn(2usize, ",").join("|") == "a|b,c", "lazy split");
     std::debug::assert("straße".to_uppercase() == "STRASSE", "Unicode expansion");
     std::debug::assert("é".bytes().count() == 2usize, "UTF-8 bytes");
+    std::debug::assert("42".parse::<i32>() == Ok(42), "parse");
     val padded = "  hello 😀  ";
     val clean = padded.trim();
     std::debug::assert(clean.find("😀") == Some(6usize), "byte offset");

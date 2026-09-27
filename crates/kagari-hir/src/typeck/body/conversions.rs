@@ -51,6 +51,7 @@ impl BodyChecker<'_> {
                     name.rsplit_once("::")?
                 };
                 let protocol = match member {
+                    "from_str" => StandardTrait::FromStr,
                     "from" => StandardTrait::From,
                     "try_from" => StandardTrait::TryFrom,
                     "from_iter" => StandardTrait::FromIterator,
@@ -218,11 +219,18 @@ impl BodyChecker<'_> {
             input.clone()
         };
         let mut interface = protocol.nominal();
-        interface.arguments.push(if protocol.reverse_conversion() {
-            target.clone()
+        if protocol == StandardTrait::FromStr {
+            if input != TypeId::Builtin(BuiltinType::String) {
+                self.conversion_error(site, "from_str requires a String");
+                return Some(TypeId::Error);
+            }
         } else {
-            input_argument
-        });
+            interface.arguments.push(if protocol.reverse_conversion() {
+                target.clone()
+            } else {
+                input_argument
+            });
+        }
         if qualified.as_ref().is_some_and(|ty|!matches!(ty,TypeId::Trait(n) if n.declaration==interface.declaration && n.arguments==interface.arguments)) {
             self.conversion_error(site,"qualified conversion does not match the source type");
             return Some(TypeId::Error);
@@ -234,8 +242,15 @@ impl BodyChecker<'_> {
             );
             return Some(TypeId::Error);
         }
-        let error = if protocol.fallible_conversion() {
-            let own = crate::types::associated_type_id(&interface.declaration, "Error");
+        let error = if protocol.fallible_conversion() || protocol == StandardTrait::FromStr {
+            let own = crate::types::associated_type_id(
+                &interface.declaration,
+                if protocol == StandardTrait::FromStr {
+                    "Err"
+                } else {
+                    "Error"
+                },
+            );
             let bound_error = self
                 .trait_bounds_for(&receiver, env)
                 .into_iter()

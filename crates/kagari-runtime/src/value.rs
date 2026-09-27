@@ -18,6 +18,7 @@ pub enum EnumTag {
     BoundIncluded,
     BoundExcluded,
     BoundUnbounded,
+    ParseError(u8),
     TryFromIntError,
     OrderingLess,
     OrderingEqual,
@@ -33,6 +34,7 @@ impl EnumTag {
     pub fn type_name(&self) -> &str {
         match self {
             Self::BoundIncluded | Self::BoundExcluded | Self::BoundUnbounded => "Bound",
+            Self::ParseError(_) => "ParseError",
             Self::TryFromIntError => "TryFromIntError",
             Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater => "Ordering",
             Self::OptionSome | Self::OptionNone => "Option",
@@ -53,6 +55,16 @@ impl EnumTag {
             Self::BoundIncluded => "Included",
             Self::BoundExcluded => "Excluded",
             Self::BoundUnbounded => "Unbounded",
+            Self::ParseError(index) => [
+                "Empty",
+                "InvalidDigit",
+                "OutOfRange",
+                "InvalidRadix",
+                "InvalidSyntax",
+            ]
+            .get(*index as usize)
+            .copied()
+            .unwrap_or("Invalid"),
             Self::TryFromIntError => "OutOfRange",
             Self::OrderingLess => "Less",
             Self::OrderingEqual => "Equal",
@@ -74,6 +86,7 @@ impl EnumTag {
     }
     pub(crate) fn accepts_representations(&self, fields: &[Value]) -> bool {
         match self {
+            Self::ParseError(index) => *index < 5 && fields.is_empty(),
             Self::BoundUnbounded
             | Self::TryFromIntError
             | Self::OptionNone
@@ -199,6 +212,7 @@ impl MapKey {
                         EnumTag::BoundIncluded => KeyPart::StandardEnum(8),
                         EnumTag::BoundExcluded => KeyPart::StandardEnum(9),
                         EnumTag::BoundUnbounded => KeyPart::StandardEnum(10),
+                        EnumTag::ParseError(index) => KeyPart::StandardEnum(32 + index),
                         EnumTag::TryFromIntError => KeyPart::StandardEnum(7),
                         EnumTag::OrderingLess => KeyPart::StandardEnum(4),
                         EnumTag::OrderingEqual => KeyPart::StandardEnum(5),

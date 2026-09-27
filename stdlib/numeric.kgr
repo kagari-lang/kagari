@@ -1700,3 +1700,153 @@ impl usize {
 
 }
 
+
+impl i8 {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(i8::from_str_radix("2a", 16u32) == Ok(42i8), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<i8, ParseError>;
+}
+
+impl i16 {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(i16::from_str_radix("2a", 16u32) == Ok(42i16), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<i16, ParseError>;
+}
+
+impl i32 {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(i32::from_str_radix("2a", 16u32) == Ok(42i32), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<i32, ParseError>;
+}
+
+impl i64 {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(i64::from_str_radix("2a", 16u32) == Ok(42i64), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<i64, ParseError>;
+}
+
+impl isize {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(isize::from_str_radix("2a", 16u32) == Ok(42isize), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<isize, ParseError>;
+}
+
+impl u8 {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(u8::from_str_radix("2a", 16u32) == Ok(42u8), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<u8, ParseError>;
+}
+
+impl u16 {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(u16::from_str_radix("2a", 16u32) == Ok(42u16), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<u16, ParseError>;
+}
+
+impl u32 {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(u32::from_str_radix("2a", 16u32) == Ok(42u32), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<u32, ParseError>;
+}
+
+impl u64 {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(u64::from_str_radix("2a", 16u32) == Ok(42u64), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<u64, ParseError>;
+}
+
+impl usize {
+    /// Parse all integer digits in a radix from 2 through 36.
+    ///
+    /// Accepts an optional plus and, for signed types, minus. Does not accept
+    /// whitespace, underscores or radix prefixes. Invalid radix is a Result error.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(usize::from_str_radix("2a", 16u32) == Ok(42usize), "radix");
+    /// ```
+    #[parse_radix(ParseRadix)]
+    pub fn from_str_radix(text: String, radix: u32) -> Result<usize, ParseError>;
+}

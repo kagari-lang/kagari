@@ -649,3 +649,9 @@ KBC/runtime ABI v90 adds source-declared Option/Result combinations. They lower
 into verified control flow, standard enum operations and ordinary closure calls;
 unlowered bindings are rejected. Forwarded errors use the trace-preserving
 MapResultError operation. Previous artifacts are rejected without migration.
+
+## Explicit parsing (v91)
+
+KBC/runtime ABI v91 adds ParseError, typed native parsers and radix parsing.
+String.parse lowers to static FromStr dispatch; parser operands and target types
+are checked before execution. Previous formats are rejected.

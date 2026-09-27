@@ -225,6 +225,7 @@ pub(crate) fn validate_enum_layouts(
             AbiType::StandardEnum { kind, args } => {
                 let expected = match kind {
                     StandardEnumKind::Ordering
+                    | StandardEnumKind::ParseError
                     | StandardEnumKind::TryFromIntError
                     | StandardEnumKind::Infallible => 0,
                     StandardEnumKind::Bound | StandardEnumKind::Option => 1,

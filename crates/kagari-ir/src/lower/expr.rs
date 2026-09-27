@@ -1931,6 +1931,29 @@ impl FunctionLowerer<'_, '_> {
                         ))
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
+                        if intrinsic == StandardIntrinsic::StringParse {
+                            use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
+                            let output = self
+                                .analyzed
+                                .typed
+                                .type_table
+                                .expr_type(expr)
+                                .ok_or(IrLoweringError::MissingExprType(expr))?;
+                            let output = self
+                                .planner
+                                .arguments(&[output], &self.instance.substitution, span)?
+                                .remove(0);
+                            let TypeId::StandardEnum { args: members, .. } = output else {
+                                return Err(IrLoweringError::MissingBinding("parse result"));
+                            };
+                            return self.lower_applied_operator(
+                                StandardTrait::FromStr.nominal(),
+                                members[0].clone(),
+                                &StandardTrait::FromStr.contract().methods[0].id,
+                                &lowered,
+                            );
+                        }
+
                         use crate::module::instruction::{IterOp, StringIterKind};
                         let string_iteration = match intrinsic {
                             StandardIntrinsic::StringBytes => Some(StringIterKind::Bytes),

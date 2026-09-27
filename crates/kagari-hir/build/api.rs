@@ -144,6 +144,16 @@ pub fn bounds(list: Option<ast::TraitBoundList>) -> String {
 /// Native enum layout is an engine ABI, not an editable declaration convention.
 fn validate_native_enum(def: &ast::EnumDef, binding: &str) {
     let (arity, layout): (usize, &[(&str, Option<usize>)]) = match binding {
+        "ParseError" => (
+            0,
+            &[
+                ("Empty", None),
+                ("InvalidDigit", None),
+                ("OutOfRange", None),
+                ("InvalidRadix", None),
+                ("InvalidSyntax", None),
+            ],
+        ),
         "TryFromIntError" => (0, &[("OutOfRange", None)]),
         "Infallible" => (0, &[]),
         "Bound" => (

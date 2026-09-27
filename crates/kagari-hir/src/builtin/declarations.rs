@@ -434,6 +434,10 @@ impl ApiType {
                         kind: StandardEnum::Result,
                         args: types,
                     },
+                    ("ParseError", []) => TypeId::StandardEnum {
+                        kind: StandardEnum::ParseError,
+                        args: vec![],
+                    },
                     ("TryFromIntError", []) => TypeId::StandardEnum {
                         kind: StandardEnum::TryFromIntError,
                         args: types,

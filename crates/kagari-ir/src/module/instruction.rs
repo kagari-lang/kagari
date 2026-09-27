@@ -563,6 +563,9 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | SetIntersection
                 | SetDifference
                 | ArrayJoin
+                | StringParse
+                | ParseNumber(_)
+                | ParseRadix(_)
                 | StringSlice
                 | StringReplace
                 | StringReplaceN

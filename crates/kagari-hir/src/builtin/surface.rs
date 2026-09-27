@@ -27,6 +27,7 @@ pub struct BuiltinTypeSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum StandardEnum {
     Bound,
+    ParseError,
     TryFromIntError,
     Infallible,
     Option,
@@ -45,6 +46,12 @@ impl StandardEnum {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardVariant {
+    ParseEmpty,
+    ParseInvalidDigit,
+    ParseOutOfRange,
+    ParseInvalidRadix,
+    ParseInvalidSyntax,
+
     Included,
     Excluded,
     Unbounded,
@@ -61,6 +68,11 @@ pub enum StandardVariant {
 impl StandardVariant {
     pub fn kind(self) -> StandardEnum {
         match self {
+            Self::ParseEmpty
+            | Self::ParseInvalidDigit
+            | Self::ParseOutOfRange
+            | Self::ParseInvalidRadix
+            | Self::ParseInvalidSyntax => StandardEnum::ParseError,
             Self::Included | Self::Excluded | Self::Unbounded => StandardEnum::Bound,
             Self::OutOfRange => StandardEnum::TryFromIntError,
             Self::Less | Self::Equal | Self::Greater => StandardEnum::Ordering,
@@ -70,6 +82,12 @@ impl StandardVariant {
     }
     pub fn index(self) -> usize {
         match self {
+            Self::ParseEmpty => 0,
+            Self::ParseInvalidDigit => 1,
+            Self::ParseOutOfRange => 2,
+            Self::ParseInvalidRadix => 3,
+            Self::ParseInvalidSyntax => 4,
+
             Self::Included => 0,
             Self::Excluded => 1,
             Self::Unbounded => 2,
@@ -82,7 +100,12 @@ impl StandardVariant {
     }
     pub fn payload(self) -> Option<usize> {
         match self {
-            Self::Unbounded
+            Self::ParseEmpty
+            | Self::ParseInvalidDigit
+            | Self::ParseOutOfRange
+            | Self::ParseInvalidRadix
+            | Self::ParseInvalidSyntax
+            | Self::Unbounded
             | Self::OutOfRange
             | Self::None
             | Self::Less
@@ -96,6 +119,20 @@ impl StandardVariant {
 
 pub fn standard_variant(path: &str) -> Option<StandardVariant> {
     Some(match path {
+        "ParseError::Empty" | "std::string::ParseError::Empty" => StandardVariant::ParseEmpty,
+        "ParseError::InvalidDigit" | "std::string::ParseError::InvalidDigit" => {
+            StandardVariant::ParseInvalidDigit
+        }
+        "ParseError::OutOfRange" | "std::string::ParseError::OutOfRange" => {
+            StandardVariant::ParseOutOfRange
+        }
+        "ParseError::InvalidRadix" | "std::string::ParseError::InvalidRadix" => {
+            StandardVariant::ParseInvalidRadix
+        }
+        "ParseError::InvalidSyntax" | "std::string::ParseError::InvalidSyntax" => {
+            StandardVariant::ParseInvalidSyntax
+        }
+
         "Bound::Included" | "std::ops::Bound::Included" => StandardVariant::Included,
         "Bound::Excluded" | "std::ops::Bound::Excluded" => StandardVariant::Excluded,
         "Bound::Unbounded" | "std::ops::Bound::Unbounded" => StandardVariant::Unbounded,
@@ -132,6 +169,7 @@ pub enum StandardTypeConstructor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardModule {
+    ParseError,
     TryFromIntError,
     Infallible,
     Numeric,
@@ -183,6 +221,9 @@ pub struct StandardModuleSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StandardIntrinsic {
+    StringParse,
+    ParseNumber(BuiltinType),
+    ParseRadix(BuiltinType),
     Integer(kagari_common::integer::IntegerMethod, BuiltinType),
     KeyLookupBegin,
     KeyCandidates,
@@ -489,6 +530,10 @@ const STANDARD_MODULES: &[StandardModuleSpec] = &[
     StandardModuleSpec {
         kind: StandardModule::Convert,
         path: "std::convert",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::ParseError,
+        path: "std::string::ParseError",
     },
     StandardModuleSpec {
         kind: StandardModule::TryFromIntError,
@@ -807,6 +852,13 @@ pub fn standard_variants_in_module(
 ) -> &'static [(&'static str, StandardVariant)] {
     use StandardVariant::*;
     match module {
+        StandardModule::ParseError => &[
+            ("Empty", ParseEmpty),
+            ("InvalidDigit", ParseInvalidDigit),
+            ("OutOfRange", ParseOutOfRange),
+            ("InvalidRadix", ParseInvalidRadix),
+            ("InvalidSyntax", ParseInvalidSyntax),
+        ],
         StandardModule::TryFromIntError => &[("OutOfRange", OutOfRange)],
         StandardModule::Ordering => &[("Less", Less), ("Equal", Equal), ("Greater", Greater)],
         StandardModule::Option => &[("Some", Some), ("None", None)],

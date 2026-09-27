@@ -167,3 +167,20 @@ the original trace through flatten and transpose; errors returned by recovery
 callbacks retain their own origins. `ok`/`err` discard the opposite variant and
 project the payload into Option (which has no error-trace metadata). All callbacks
 execute on ordinary VM frames with session budgets, roots and trap cleanup.
+
+## String parsing
+
+`FromStr` has associated type `Err` and static `from_str(String)` returning
+`Result<Self, Self::Err>`. String.parse selects this protocol from the expected
+type or explicit type argument. Numeric and boolean implementations are declared
+in the SDK; user types provide ordinary implementations with their own errors.
+All built-in parsers consume the complete input without trimming.
+
+Integers use decimal unless from_str_radix specifies 2..=36; plus is accepted,
+minus only for signed targets. Prefixes, underscores and whitespace are rejected.
+Overflow returns ParseError::OutOfRange. Invalid radix returns InvalidRadix
+(instead of Rust's radix panic); empty input returns Empty and invalid digits or
+signs return InvalidDigit. Bool accepts exactly true/false. Floating parsing uses
+decimal/exponent syntax and case-insensitive NaN/inf/infinity with optional sign;
+overflow produces infinity. Invalid boolean/float syntax returns InvalidSyntax.
+These are business Result errors carrying their creation trace, not VM traps.

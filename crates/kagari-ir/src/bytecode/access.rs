@@ -709,6 +709,19 @@ pub(super) fn verify(
                     let mut result = Fact::default();
                     match callee {
                         CallTarget::StandardIntrinsic(intrinsic) => {
+                            if let S::ParseNumber(ty) = intrinsic {
+                                result = Fact::typed(AbiType::StandardEnum {
+                                    kind: surface::StandardEnum::Result,
+                                    args: vec![
+                                        AbiType::Builtin(*ty),
+                                        AbiType::StandardEnum {
+                                            kind: surface::StandardEnum::ParseError,
+                                            args: vec![],
+                                        },
+                                    ],
+                                });
+                            }
+
                             if matches!(
                                 intrinsic,
                                 S::MapKeys

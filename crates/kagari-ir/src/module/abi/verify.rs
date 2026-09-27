@@ -961,6 +961,7 @@ fn type_valid(
             AbiType::StandardEnum { kind, args } => {
                 let count = match kind {
                     StandardEnumKind::Ordering
+                    | StandardEnumKind::ParseError
                     | StandardEnumKind::TryFromIntError
                     | StandardEnumKind::Infallible => 0,
                     StandardEnumKind::Bound | StandardEnumKind::Option => 1,

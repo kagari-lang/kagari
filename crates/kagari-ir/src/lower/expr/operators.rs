@@ -341,6 +341,20 @@ impl FunctionLowerer<'_, '_> {
                 args,
             );
         }
+        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromStr)
+            && let TypeId::Builtin(target) = &ty
+            && kagari_hir::builtin::traits::parsing_error(&ty).is_some()
+        {
+            let dst = self.alloc_temp(ValueType::HeapObject);
+            self.emit(Instruction::Call {
+                dst: Some(dst),
+                callee: CallTarget::StandardIntrinsic(
+                    kagari_hir::builtin::surface::StandardIntrinsic::ParseNumber(*target),
+                ),
+                args: args.iter().copied().collect(),
+            });
+            return Ok(dst);
+        }
         if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::From)
             && interface.arguments.as_slice() == [ty.clone()]
         {

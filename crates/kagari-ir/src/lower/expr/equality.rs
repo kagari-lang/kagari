@@ -226,6 +226,9 @@ impl FunctionLowerer<'_, '_> {
                             (2, vec![]),
                         ]
                     }
+                    kagari_hir::builtin::surface::StandardEnum::ParseError => {
+                        (0..5).map(|i| (i, vec![])).collect()
+                    }
                     kagari_hir::builtin::surface::StandardEnum::TryFromIntError => {
                         vec![(0, vec![])]
                     }
