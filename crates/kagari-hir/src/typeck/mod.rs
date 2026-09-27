@@ -15,6 +15,7 @@ pub use const_budget::ConstLimits;
 mod constraints;
 mod inference;
 mod scalar;
+mod solver;
 pub use scalar::ScalarValue;
 mod reuse;
 mod signature_reuse;

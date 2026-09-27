@@ -339,7 +339,7 @@ impl AbiType {
                 position: parameter.position,
             },
             TypeId::SelfType(owner) => Self::SelfType(owner.clone()),
-            TypeId::Unknown | TypeId::Error => {
+            TypeId::Inference(_) | TypeId::Unknown | TypeId::Error => {
                 unreachable!("non-concrete type reached concrete ABI encoding")
             }
         }

@@ -2,6 +2,7 @@ use kagari_common::collection::CollectionAccess;
 mod conversions;
 mod iteration;
 mod operators;
+mod solving;
 mod standard;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -72,6 +73,9 @@ pub(crate) struct BodyChecker<'a> {
     loop_results: Vec<LoopResult>,
     inference_depth: usize,
     closure_returns: Vec<Vec<TypeId>>,
+    solver: super::solver::Solver,
+    solving: bool,
+    body_inference: bool,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -102,6 +106,9 @@ impl<'a> BodyChecker<'a> {
             loop_results: Vec::new(),
             inference_depth: 0,
             closure_returns: Vec::new(),
+            solver: Default::default(),
+            solving: false,
+            body_inference: false,
         }
     }
 
@@ -678,7 +685,11 @@ impl<'a> BodyChecker<'a> {
             return TypeId::Unknown;
         }
         self.inference_depth += 1;
-        let result = self.infer_expr_type_expected_inner(expr_id, env, expected);
+        let expected = self.expression_context(expr_id, expected);
+        let result = self.infer_expr_type_expected_inner(expr_id, env, expected.as_ref());
+        let result = self.constrain_expression(expr_id, result, expected.as_ref());
+        env.exprs.insert(expr_id, result.clone());
+        self.type_table.insert_expr(expr_id, result.clone());
         self.inference_depth -= 1;
         result
     }
@@ -914,6 +925,8 @@ impl<'a> BodyChecker<'a> {
                         )
                     } else if let Some(ty) = expected_params.and_then(|types| types.get(index)) {
                         ty.clone()
+                    } else if self.body_inference {
+                        self.inference_variable(expr_id, 128 + index)
                     } else {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::ExpectedType)
@@ -1234,7 +1247,7 @@ impl<'a> BodyChecker<'a> {
                     Box::new(element_ty.unwrap_or_else(|| {
                         member
                             .cloned()
-                            .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                            .unwrap_or_else(|| self.inference_variable(expr_id, 1))
                     })),
                     CollectionAccess::Mutable,
                 )
@@ -3068,6 +3081,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     super::ConstraintTarget::Trait(trait_type) => {
                         let trait_type = trait_type.instantiate(substitution);
+                        self.constrain_declared_bound(actual, &trait_type);
                         let satisfied = self.aggregates.intrinsic_implementation(
                             &trait_type,
                             actual,
@@ -4077,6 +4091,7 @@ impl<'a> BodyChecker<'a> {
         if !completes {
             return;
         }
+        let _ = self.solver.constrain(&expected, found, self.cancel);
         if found.conflicts_with(&expected) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
@@ -4166,10 +4181,18 @@ impl<'a> BodyChecker<'a> {
         suppress_missing: bool,
     ) -> Vec<TypeId> {
         let mut arguments = Vec::with_capacity(parameters.len());
-        for parameter in parameters {
+        for (index, parameter) in parameters.iter().enumerate() {
+            if self.body_inference && !suppress_missing {
+                let variable = self.inference_variable(site, index + 1024);
+                if let Some(inferred) = substitution.get(parameter) {
+                    let _ = self.solver.constrain(&variable, inferred, self.cancel);
+                }
+                let inferred = self.solver.resolve(&variable);
+                substitution.insert(parameter.clone(), inferred);
+            }
             let inferred = substitution.get(parameter);
             let unknown = inferred.is_some_and(TypeId::contains_unknown);
-            if unknown || (inferred.is_none() && !suppress_missing) {
+            if !self.solving && (unknown || (inferred.is_none() && !suppress_missing)) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
                         function_name: name.to_owned(),
@@ -4179,7 +4202,13 @@ impl<'a> BodyChecker<'a> {
                 );
             }
             let argument = inferred
-                .map(TypeId::diagnose_unknowns)
+                .map(|ty| {
+                    if self.solving {
+                        ty.clone()
+                    } else {
+                        ty.diagnose_unknowns()
+                    }
+                })
                 .unwrap_or(TypeId::Error);
             // Result facts and subsequent member/argument checks consume exactly
             // the same recovery substitution, including previously absent binders.

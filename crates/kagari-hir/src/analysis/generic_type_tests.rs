@@ -1,4 +1,46 @@
 use super::*;
+
+#[test]
+fn body_constraints_use_later_arguments_and_local_uses() {
+    for body in [
+        "val xs = []; xs.push(42);",
+        "consume(Marker { value: 7 }, 1);",
+        "val callback = |x| x + 1; callback(41);",
+        "apply(|x| x + 1, 41);",
+        "val checked: Result<Array<i32>, String> = [Ok(42)].iter().collect();",
+    ] {
+        let source = SourceFile::new(
+            "body-inference.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} fn consume<T>(marker: Marker<T>, seed: T) {{}} fn apply<T>(callback: fn(T) -> T, value: T) -> T {{ callback(value) }} fn main() {{ {body} }}"
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{body}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_ok());
+    }
+}
+
+#[test]
+fn unresolved_body_variables_and_conflicting_uses_are_rejected() {
+    for body in [
+        "val xs = [];",
+        "val xs = []; xs.push(1); xs.push(true);",
+        "val xs: Array<i32> = []; xs.push(1);",
+    ] {
+        let source = SourceFile::new(
+            "body-inference-errors.kgr",
+            format!("fn main() {{ {body} }}"),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert!(!analysis.diagnostics().is_empty(), "{body}");
+        assert!(analysis.into_codegen().is_err());
+    }
+}
 use crate::types::{BuiltinType, TypeId};
 use kagari_common::collection::CollectionAccess;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};

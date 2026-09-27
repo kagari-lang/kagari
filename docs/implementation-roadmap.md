@@ -465,3 +465,18 @@ GC and host reentry, native guard cleanup, short-circuiting, original Err stacks
 custom destinations and numeric overflow. Formatting, workspace/all-targets clippy
 with warnings denied and `git diff --check` passed. KBC/runtime ABI v76 rejects
 earlier products.
+
+## Body inference and numeric literals
+
+- [x] T01: body-local inference variables, structural unification, occurs checks and cancellation.
+- [ ] T02: infer local bindings and empty containers from subsequent uses.
+- [ ] T03: solve calls, constructors, branches and closures independently of source order.
+- [ ] T04: propagate constraints through iterator chains and associated types.
+- [ ] T05: numeric suffixes, contextual numeric inference, checked ranges and f64 fallback.
+- [ ] T06: local type placeholders and explicit function/method type arguments.
+- [ ] T07: diagnostics, source/artifact/backend acceptance, examples and final validation.
+
+Inference is bounded by a function body; declaration signatures remain explicit.
+Inference variables are distinct from unknown/error recovery facts. Evaluation
+order and collection write permissions remain unchanged. Numeric suffixes cover
+existing primitive types only; out-of-range literals are compile errors.

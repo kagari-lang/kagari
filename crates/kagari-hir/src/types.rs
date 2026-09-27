@@ -178,6 +178,8 @@ impl NominalType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeId {
+    /// A body-local constraint variable. Never valid in a checked signature or IR.
+    Inference(u32),
     Unknown,
     Error,
     Builtin(BuiltinType),
@@ -327,7 +329,8 @@ impl TypeId {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values())
                 }
-                Self::Unknown
+                Self::Inference(_)
+                | Self::Unknown
                 | Self::Error
                 | Self::Builtin(_)
                 | Self::Host(_)
@@ -401,7 +404,10 @@ impl TypeId {
 
     /// Rebuild one binding layer, copying inserted types without revisiting them
     /// as substitution targets. Both generic binders and trait Self use this walk.
-    fn substitute_once<'a>(&'a self, replacement: impl Fn(&Self) -> Option<&'a Self>) -> Self {
+    pub(crate) fn substitute_once<'a>(
+        &'a self,
+        mut replacement: impl FnMut(&Self) -> Option<&'a Self>,
+    ) -> Self {
         let mut result = Self::Unknown;
         let mut pending = vec![(self, &mut result, true)];
         while let Some((source, target, substitute)) = pending.pop() {
@@ -589,6 +595,7 @@ impl TypeId {
                 }
                 Self::Projection { .. }
                 | Self::Generic(_)
+                | Self::Inference(_)
                 | Self::Unknown
                 | Self::Error
                 | Self::SelfType(_) => return false,
@@ -627,7 +634,8 @@ impl TypeId {
                 Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
                     pending.extend(members);
                 }
-                Self::Unknown
+                Self::Inference(_)
+                | Self::Unknown
                 | Self::Error
                 | Self::Trait(_)
                 | Self::Host(_)
@@ -676,7 +684,7 @@ impl TypeId {
                     pending.extend(&interface.arguments);
                     pending.extend(interface.associated_types.values());
                 }
-                Self::Unknown | Self::Error => return true,
+                Self::Inference(_) | Self::Unknown | Self::Error => return true,
                 Self::Builtin(_) | Self::Host(_) | Self::Generic(_) | Self::SelfType(_) => {}
             }
         }
@@ -685,7 +693,9 @@ impl TypeId {
 
     /// Seal failed inference without discarding independently known members.
     pub(crate) fn diagnose_unknowns(&self) -> Self {
-        self.substitute_once(|ty| matches!(ty, Self::Unknown).then_some(&Self::Error))
+        self.substitute_once(|ty| {
+            matches!(ty, Self::Unknown | Self::Inference(_)).then_some(&Self::Error)
+        })
     }
 
     /// Unknown inference holes still need a diagnostic; Error already has one.
@@ -693,7 +703,7 @@ impl TypeId {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
-                Self::Unknown => return true,
+                Self::Inference(_) | Self::Unknown => return true,
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items)
                 }
@@ -722,11 +732,13 @@ impl TypeId {
     pub(crate) fn recover_from(&mut self, other: &Self) {
         let mut pending = vec![(self, other)];
         while let Some((left, right)) = pending.pop() {
-            if matches!(right, Self::Unknown | Self::Error) {
+            if matches!(right, Self::Inference(_) | Self::Unknown | Self::Error) {
                 continue;
             }
             match (left, right) {
-                (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
+                (left @ (Self::Inference(_) | Self::Unknown | Self::Error), right) => {
+                    *left = right.clone()
+                }
                 (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
                     pending.extend(left.iter_mut().zip(right).rev());
                 }
@@ -799,7 +811,8 @@ impl TypeId {
         let mut pending = vec![(self, other)];
         while let Some((left, right)) = pending.pop() {
             match (left, right) {
-                (Self::Unknown | Self::Error, _) | (_, Self::Unknown | Self::Error) => {}
+                (Self::Inference(_) | Self::Unknown | Self::Error, _)
+                | (_, Self::Inference(_) | Self::Unknown | Self::Error) => {}
                 (left, right)
                     if left.collection_access().is_some()
                         && right.collection_access().is_some()
@@ -911,6 +924,7 @@ impl TypeId {
             match part {
                 Part::Text(text) => output.push_str(text),
                 Part::Type(ty) => match ty {
+                    Self::Inference(_) => output.push_str("_"),
                     Self::Unknown => output.push_str("<unknown>"),
                     Self::Error => output.push_str("<error>"),
                     Self::Host(id) => {
@@ -1038,7 +1052,7 @@ impl TypeId {
 
     pub fn is_heap_backed(&self) -> bool {
         match self {
-            Self::Unknown | Self::Error => false,
+            Self::Inference(_) | Self::Unknown | Self::Error => false,
             Self::Builtin(ty) => {
                 crate::builtin::surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
             }

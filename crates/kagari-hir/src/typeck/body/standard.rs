@@ -81,7 +81,9 @@ impl BodyChecker<'_> {
             {
                 args.clone()
             }
-            _ => vec![TypeId::Unknown; kind.spec().arity],
+            _ => (0..kind.spec().arity)
+                .map(|i| self.inference_variable(site, 64 + i))
+                .collect(),
         };
         let arity = usize::from(variant.payload().is_some());
         if site != callee && arity == 0 {
@@ -116,6 +118,8 @@ impl BodyChecker<'_> {
                 continue;
             }
             if let Some(index) = index {
+                let _ = self.solver.constrain(&types[index], &actual, self.cancel);
+                types[index] = self.solver.resolve(&types[index]);
                 if types[index].conflicts_with(&actual) {
                     self.emit_arg_mismatch(
                         &format!("{variant:?}"),
@@ -142,7 +146,7 @@ impl BodyChecker<'_> {
             return Some(TypeId::Unknown);
         }
         for (i, ty) in types.iter().enumerate() {
-            if ty.is_unresolved() {
+            if !self.solving && ty.is_unresolved() {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
                         function_name: format!("{variant:?}"),
@@ -151,6 +155,9 @@ impl BodyChecker<'_> {
                     .with_span(self.lowered.source_map.expr_span(site)),
                 );
             }
+        }
+        if !self.solving {
+            types = types.iter().map(TypeId::diagnose_unknowns).collect();
         }
         Some(TypeId::StandardEnum { kind, args: types })
     }

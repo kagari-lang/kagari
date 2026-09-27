@@ -42,6 +42,7 @@ impl ValueType {
         match type_id {
             TypeId::Host(_) => Self::HostHandle,
             TypeId::Projection { .. }
+            | TypeId::Inference(_)
             | TypeId::Unknown
             | TypeId::Error
             | TypeId::Generic(_)
