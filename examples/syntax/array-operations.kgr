@@ -24,5 +24,10 @@ fn main() -> i32 {
     val shared = ArrayList::from_fn(2, |i| cells[0]);
     shared[0].value = 7;
     std::debug::assert(shared[1].value == 7, "explicit sharing");
+    val sorted = [3, 1, 1, 2];
+    sorted.sort();
+    sorted.dedup();
+    sorted.retain(|n| n > 1);
+    std::debug::assert(sorted.len() == 2usize && sorted[0usize] == 2, "prepared mutations");
     42
 }

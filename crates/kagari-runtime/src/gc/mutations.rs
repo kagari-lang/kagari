@@ -2,6 +2,102 @@
 use super::*;
 
 impl GcHeap {
+    pub(crate) fn commit_prepared_collection(
+        &self,
+        operation: kagari_ir::builtin::surface::StandardIntrinsic,
+        args: &[Value],
+    ) -> Result<(), RuntimeError> {
+        use kagari_ir::builtin::surface::StandardIntrinsic;
+        let invalid =
+            || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid prepared collection");
+        let [target, Value::Array(buffer)] = args else {
+            return Err(invalid());
+        };
+        let id = match target {
+            Value::Array(id) | Value::Map(id) | Value::Set(id) => *id,
+            _ => return Err(invalid()),
+        };
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
+        let objects = self.objects.borrow();
+        let source = self.readable_object(&objects, id).ok_or_else(invalid)?;
+        let Some(HeapObject::Array(input)) = self.readable_object(&objects, *buffer) else {
+            return Err(invalid());
+        };
+        let before = source.units();
+        let _temporary = self.resources.reserve_temporary_heap(before)?;
+        self.resources.consume_instruction_steps(before as u64)?;
+        let revision = objects[id.slot]
+            .revision
+            .checked_add(1)
+            .ok_or_else(invalid)?;
+        let allocation = || self.resource_limit("prepared collection storage");
+        let prepared = if operation == StandardIntrinsic::ArrayReplaceStorage {
+            let HeapObject::Array(original) = source else {
+                return Err(invalid());
+            };
+            if original.len() != input.len() {
+                return Err(invalid());
+            }
+            let mut copy = Vec::new();
+            copy.try_reserve_exact(input.len())
+                .map_err(|_| allocation())?;
+            copy.extend(input.iter().cloned());
+            HeapObject::Array(copy)
+        } else {
+            if input.iter().any(|v| !matches!(v, Value::Bool(_))) {
+                return Err(invalid());
+            }
+            let kept = input
+                .iter()
+                .filter(|v| matches!(v, Value::Bool(true)))
+                .count();
+            match source {
+                HeapObject::Array(values) if values.len() == input.len() => {
+                    let mut copy = Vec::new();
+                    copy.try_reserve_exact(kept).map_err(|_| allocation())?;
+                    copy.extend(
+                        values
+                            .iter()
+                            .zip(input)
+                            .filter(|(_, keep)| matches!(keep, Value::Bool(true)))
+                            .map(|(v, _)| v.clone()),
+                    );
+                    HeapObject::Array(copy)
+                }
+                HeapObject::Map(values) if values.len() == input.len() => {
+                    let mut copy = IndexMap::new();
+                    copy.try_reserve(kept).map_err(|_| allocation())?;
+                    for ((key, value), keep) in values.iter().zip(input) {
+                        if matches!(keep, Value::Bool(true)) {
+                            copy.insert(key.clone(), value.clone());
+                        }
+                    }
+                    HeapObject::Map(copy)
+                }
+                HeapObject::Set(values) if values.len() == input.len() => {
+                    let mut copy = IndexMap::new();
+                    copy.try_reserve(kept).map_err(|_| allocation())?;
+                    for ((key, ()), keep) in values.iter().zip(input) {
+                        if matches!(keep, Value::Bool(true)) {
+                            copy.insert(key.clone(), ());
+                        }
+                    }
+                    HeapObject::Set(copy)
+                }
+                _ => return Err(invalid()),
+            }
+        };
+        let after = prepared.units();
+        drop(objects);
+        self.ensure_execution_allowed()?;
+        let mut objects = self.objects.borrow_mut();
+        *self.object_mut(&mut objects, id).ok_or_else(invalid)? = prepared;
+        objects[id.slot].revision = revision;
+        self.release_heap_units(before - after);
+        Ok(())
+    }
+
     pub(crate) fn begin_collection_mutation(
         &self,
         value: &Value,

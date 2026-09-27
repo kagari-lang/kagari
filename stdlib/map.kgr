@@ -32,6 +32,29 @@
 pub type LinkedHashMap<K, V>;
 
 impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
+    /// Keep accepted entries without calling user Hash again for retained keys.
+    ///
+    /// Prepares independent temporary storage, then commits once. Callback or
+    /// allocation failure preserves the target's slots and order. Changes to
+    /// referenced objects and other completed callback effects are not rolled back.
+    /// Callbacks may read this collection, but writes through aliases trap.
+    /// Retain visits each original element exactly once, from left to right.
+    /// Sorting takes O(n log n) comparisons and O(n) temporary storage; callers
+    /// must supply a consistent ordering. Dedup only compares adjacent candidates.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, resource and mutation-guard failures. Structural
+    /// replacement during guarded iteration is rejected before commit.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val m = LinkedHashMap::from([(1, 2), (3, 4)]); m.retain(|k, v| k == 1); std::debug::assert(m.len() == 1usize, "retained");
+    /// ```
+    #[intrinsic(MapRetain)]
+    pub fn retain(self, predicate: fn(K, V) -> bool) -> () ;
+
     /// Use the existing value, or call the factory once and insert its result.
     ///
     /// Returns a shallow value, not a writable entry handle. Referenced objects

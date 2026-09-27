@@ -241,6 +241,17 @@ fn failed_interval_copy_keeps_completed_argument_and_bound_effects() {
         ("a.copy_within(3..3, 4);", vec![1, 2, 3]),
         ("a.copy_from([1, 2]);", vec![1, 2, 3]),
         ("a.swap(0usize, 9usize);", vec![1, 2, 3]),
+        ("a.retain(|n| { a[0usize] = 9; true });", vec![1, 2, 3]),
+        ("a.retain(|n| { a.fill(9); true });", vec![1, 2, 3]),
+        ("a.sort_by(|x, y| { a.push(9); x.cmp(y) });", vec![1, 2, 3]),
+        (
+            "a.sort_by_key(|n| { std::debug::assert(n < 2, \"key failure\"); n });",
+            vec![1, 2, 3],
+        ),
+        (
+            "a.retain(|n| { std::debug::assert(n < 2, \"predicate failure\"); false });",
+            vec![1, 2, 3],
+        ),
         ("a.reserve(18446744073709551615usize);", vec![1, 2, 3]),
         ("for x in a { a.reverse(); }", vec![1, 2, 3]),
         ("for x in a { a.swap_remove(0usize); }", vec![1, 2, 3]),

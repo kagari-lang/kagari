@@ -182,6 +182,7 @@ pub(crate) fn verify_intrinsic(
         ArrayCopyWithinBounds => 4,
         ArrayCopyFromStorage | ArrayExtendStorage => 2,
         MapKeysStorage | MapValuesStorage | MapEntriesStorage => 1,
+        ArrayReplaceStorage | CollectionRetainStorage => 2,
         KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd => 1,
         KeyCandidates => 2,
         KeyMapGet | KeyMapRemove | KeySetContains | KeySetRemove => 3,
@@ -250,11 +251,17 @@ pub(crate) fn verify_intrinsic(
                 ValueType::from_type_id(&spec.api.result.instantiate(&arguments)),
             )?;
         }
-        MapGetOrInsertWith | MapUpdate => {
+        ArrayRetain | MapRetain | SetRetain | ArraySort | ArraySortBy | ArraySortByKey
+        | ArrayDedup | MapGetOrInsertWith | MapUpdate => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "map update requires static lowering",
             });
+        }
+        ArrayReplaceStorage | CollectionRetainStorage => {
+            expect_arg_ty(args, 0, ValueType::HeapObject, "collection commit target")?;
+            expect_arg_ty(args, 1, ValueType::HeapObject, "prepared collection")?;
+            verify_call_dst(dst, ValueType::Unit)?;
         }
         KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "key lookup collection")?;

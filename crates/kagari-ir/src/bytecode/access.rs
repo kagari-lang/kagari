@@ -739,7 +739,9 @@ pub(super) fn verify(
                             }
                             if matches!(
                                 intrinsic,
-                                S::CollectionMutationBegin
+                                S::ArrayReplaceStorage
+                                    | S::CollectionRetainStorage
+                                    | S::CollectionMutationBegin
                                     | S::ArrayReserve
                                     | S::MapReserve
                                     | S::SetReserve
@@ -796,8 +798,12 @@ pub(super) fn verify(
                                     None => {}
                                 }
                             }
-                            if matches!(intrinsic, S::ArrayCopyFromStorage | S::ArrayExtendStorage)
-                            {
+                            if matches!(
+                                intrinsic,
+                                S::ArrayCopyFromStorage
+                                    | S::ArrayExtendStorage
+                                    | S::ArrayReplaceStorage
+                            ) {
                                 let Some(AbiType::Array(item, Access::Mutable)) = &facts[0].ty
                                 else {
                                     return Err(invalid());

@@ -47,6 +47,14 @@ pub fn invoke_with_callbacks(
         _ => {}
     }
     match intrinsic {
+        ArrayReplaceStorage | CollectionRetainStorage => {
+            gc.commit_prepared_collection(intrinsic, args)?;
+            Ok(Value::Unit)
+        }
+        ArrayRetain | MapRetain | SetRetain | ArraySort | ArraySortBy | ArraySortByKey
+        | ArrayDedup => Err(BuiltinError::new(
+            "collection callback requires static lowering",
+        )),
         StringParse => Err(BuiltinError::new("parse requires static dispatch")),
         ParseNumber(ty) => crate::parsing::parse(gc, ty, args, false).map_err(Into::into),
         ParseRadix(ty) => crate::parsing::parse(gc, ty, args, true).map_err(Into::into),

@@ -38,7 +38,7 @@ impl FunctionLowerer<'_, '_> {
         let member = self.list_call(source, item, "get", &[value, index])?;
         self.standard_enum_op(&optional, Op::Read(0), Some(member))
     }
-    fn query_binary(
+    pub(super) fn query_binary(
         &mut self,
         op: BinaryOp,
         left: IrValue,

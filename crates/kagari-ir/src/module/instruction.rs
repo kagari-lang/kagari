@@ -537,6 +537,15 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayCopyFromStorage
             | ArrayCopyWithin
             | ArrayCopyWithinBounds
+            | ArrayRetain
+            | MapRetain
+            | SetRetain
+            | ArraySort
+            | ArraySortBy
+            | ArraySortByKey
+            | ArrayDedup
+            | ArrayReplaceStorage
+            | CollectionRetainStorage
             | CollectionMutationBegin
             | CollectionMutationEnd
             | MapGetOrInsertWith

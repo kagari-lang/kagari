@@ -37,6 +37,121 @@
 pub type ArrayList<T>;
 
 impl<T> ArrayList<T> {
+    /// Keep elements accepted by predicate, in their original order.
+    ///
+    /// Prepares independent temporary storage, then commits once. Callback or
+    /// allocation failure preserves the target's slots and order. Changes to
+    /// referenced objects and other completed callback effects are not rolled back.
+    /// Callbacks may read this collection, but writes through aliases trap.
+    /// Retain visits each original element exactly once, from left to right.
+    /// Sorting takes O(n log n) comparisons and O(n) temporary storage; callers
+    /// must supply a consistent ordering. Dedup only compares adjacent candidates.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, resource and mutation-guard failures. Structural
+    /// replacement during guarded iteration is rejected before commit.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a = [1, 2, 3]; a.retain(|n| n > 1); std::debug::assert(a.len() == 2usize, "retain");
+    /// ```
+    #[intrinsic(ArrayRetain)]
+    pub fn retain(self, predicate: fn(T) -> bool) -> () ;
+
+    /// Sort in ascending order using Ord. Equal elements retain their order.
+    ///
+    /// Prepares independent temporary storage, then commits once. Callback or
+    /// allocation failure preserves the target's slots and order. Changes to
+    /// referenced objects and other completed callback effects are not rolled back.
+    /// Callbacks may read this collection, but writes through aliases trap.
+    /// Retain visits each original element exactly once, from left to right.
+    /// Sorting takes O(n log n) comparisons and O(n) temporary storage; callers
+    /// must supply a consistent ordering. Dedup only compares adjacent candidates.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, resource and mutation-guard failures. Structural
+    /// replacement during guarded iteration is rejected before commit.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a = [3, 1, 2]; a.sort(); std::debug::assert(a[0usize] == 1, "sorted");
+    /// ```
+    #[intrinsic(ArraySort)]
+    pub fn sort(self) -> () where T: Ord;
+
+    /// Sort stably using the supplied total ordering.
+    ///
+    /// Prepares independent temporary storage, then commits once. Callback or
+    /// allocation failure preserves the target's slots and order. Changes to
+    /// referenced objects and other completed callback effects are not rolled back.
+    /// Callbacks may read this collection, but writes through aliases trap.
+    /// Retain visits each original element exactly once, from left to right.
+    /// Sorting takes O(n log n) comparisons and O(n) temporary storage; callers
+    /// must supply a consistent ordering. Dedup only compares adjacent candidates.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, resource and mutation-guard failures. Structural
+    /// replacement during guarded iteration is rejected before commit.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a = [1, 3, 2]; a.sort_by(|a, b| b.cmp(a)); std::debug::assert(a[0usize] == 3, "descending");
+    /// ```
+    #[intrinsic(ArraySortBy)]
+    pub fn sort_by(self, compare: fn(T, T) -> Ordering) -> () ;
+
+    /// Sort stably by keys computed exactly once per element, from left to right.
+    ///
+    /// Prepares independent temporary storage, then commits once. Callback or
+    /// allocation failure preserves the target's slots and order. Changes to
+    /// referenced objects and other completed callback effects are not rolled back.
+    /// Callbacks may read this collection, but writes through aliases trap.
+    /// Retain visits each original element exactly once, from left to right.
+    /// Sorting takes O(n log n) comparisons and O(n) temporary storage; callers
+    /// must supply a consistent ordering. Dedup only compares adjacent candidates.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, resource and mutation-guard failures. Structural
+    /// replacement during guarded iteration is rejected before commit.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a = [3, 1, 2]; a.sort_by_key(|n| -n); std::debug::assert(a[0usize] == 3, "key order");
+    /// ```
+    #[intrinsic(ArraySortByKey)]
+    pub fn sort_by_key<K>(self, key: fn(T) -> K) -> () where K: Ord;
+
+    /// Remove adjacent equal elements, retaining the first in each consecutive run.
+    ///
+    /// Prepares independent temporary storage, then commits once. Callback or
+    /// allocation failure preserves the target's slots and order. Changes to
+    /// referenced objects and other completed callback effects are not rolled back.
+    /// Callbacks may read this collection, but writes through aliases trap.
+    /// Retain visits each original element exactly once, from left to right.
+    /// Sorting takes O(n log n) comparisons and O(n) temporary storage; callers
+    /// must supply a consistent ordering. Dedup only compares adjacent candidates.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, resource and mutation-guard failures. Structural
+    /// replacement during guarded iteration is rejected before commit.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a = [1, 1, 2, 1]; a.dedup(); std::debug::assert(a.len() == 3usize, "adjacent only");
+    /// ```
+    #[intrinsic(ArrayDedup)]
+    pub fn dedup(self) -> () where T: PartialEq;
+
     /// Exchange two valid positions. Invalid indices trap before either slot changes.
     ///
     /// Payload objects remain shared. Failed preparation preserves target slots.

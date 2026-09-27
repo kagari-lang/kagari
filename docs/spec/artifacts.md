@@ -697,3 +697,11 @@ through all aliases until preparation completes. Guards root their target and
 release on frame cleanup. Source-only Map combinators cannot appear as executable
 intrinsics. Custom MutableMap implementations must provide the same documented
 failure guarantee. Earlier artifacts are rejected rather than adapted.
+
+## Prepared collection replacement (v98)
+
+KBC/runtime ABI v98 adds private prepared array replacement and retention commits.
+User callbacks execute in ordinary frames under mutation guards. Commit performs
+no script calls, checks structure guards and budgets, and preserves identity while
+updating revision and live heap units. Source callback intrinsics are rejected
+unless lowered. Prior formats are rejected.

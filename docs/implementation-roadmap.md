@@ -628,7 +628,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] C04: Concrete collection capacity construction and reservation.
 - [x] C05: Set relationships and symmetric difference over readonly interfaces.
 - [x] C06: Guarded Map get_or_insert_with and update operations.
-- [ ] C07: Prepared retain, stable sorting and adjacent deduplication.
+- [x] C07: Prepared retain, stable sorting and adjacent deduplication.
 - [ ] C08: Lazy snapshot windows/chunks and immediate range removal.
 
 Callback mutations prepare changes before committing; callback failure preserves
@@ -693,3 +693,14 @@ C06 validation: lazy Map insertion and updates work through concrete storage and
 MutableMap, including custom colliding keys, scalar results and shared objects.
 Callback traps and alias writes preserve entries, keep completed external effects,
 and release frame guards and roots. Source/artifact/JIT fallback tests pass.
+
+C07 design: native ArrayList sorting uses stable bottom-up merging in explicit
+frames, with once-per-element key extraction. Native retain records decisions
+before replacing storage, preserving stored hash tokens. These operations belong
+to concrete storage: a general user MutableList/Map/Set cannot promise an atomic
+bulk replacement using only its individual write methods.
+
+C07 validation: stable order, once-only key callbacks, merge-run boundaries,
+empty inputs, live readonly aliases, custom map/set keys and adjacent dedup pass
+through source/artifact/JIT fallback. Callback traps and alias mutation preserve
+original array slots. Existing array and Map update tests also pass.
