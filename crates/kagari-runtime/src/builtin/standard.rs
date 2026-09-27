@@ -122,7 +122,7 @@ pub fn invoke_with_callbacks(
             }
             Ok(Value::Array(gc.alloc_array(vec![])?))
         }
-        MapKeys | MapValues | MapEntries | ArrayCopyFromSlice | ArrayListFromFn | ArrayListFrom
+        MapKeys | MapValues | MapEntries | ArrayCopyFrom | ArrayListFromFn | ArrayListFrom
         | LinkedHashMapFrom | LinkedHashSetFrom => Err(BuiltinError::new(
             "collection factories must be lowered to checked construction",
         )),
@@ -159,11 +159,9 @@ pub fn invoke_with_callbacks(
         }
         ArrayCopyFromStorage => {
             let [Value::Array(target), Value::Array(source)] = args else {
-                return Err(BuiltinError::new(
-                    "array.copy_from_slice expects two arrays",
-                ));
+                return Err(BuiltinError::new("array.copy_from expects two arrays"));
             };
-            gc.array_copy_from_slice(*target, *source)?;
+            gc.array_copy_from(*target, *source)?;
             Ok(Value::Unit)
         }
         LinkedHashMapNew => map_new(gc, args),

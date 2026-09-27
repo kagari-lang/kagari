@@ -89,7 +89,7 @@ Map remove returns the previous value or None; Set remove returns a boolean.
 Interface push/insert/set/clear return unit. Existing native fluent push/insert
 methods continue returning their concrete receiver.
 
-Native-only operations such as `fill`, `copy_within`, `copy_from_slice`, map snapshots
+Native-only operations such as `fill`, `copy_within`, `copy_from`
 and set algebra remain on the concrete implementation in this batch. The source
 API shows this boundary explicitly. Iterators retain their existing lazy methods.
 
@@ -129,7 +129,7 @@ inner destination, for example `Result<ArrayList<T>, E>`.
 The three `from` factories accept read-only List inputs and allocate fresh shallow
 storage. Map inputs contain `(K,V)` pairs. Referenced elements retain identity,
 but input slots are not retained. `ArrayList::from(readable)` obtains a writable
-copy without upgrading the original view. `copy_from_slice` accepts a List and
+copy without upgrading the original view. `copy_from` accepts a List and
 snapshots its iteration before committing the destination replacement. Source
 callbacks can have side effects; failures do not commit the destination copy.
 Factories and copying release temporary roots and iteration guards on failure.
@@ -164,3 +164,10 @@ mutable-to-read-only upcasts, live aliasing, indexed compound assignment, custom
 Eq/Hash keys, interface identity, malformed artifacts and declaration navigation.
 Tests run through source, encoded artifacts and existing JIT fallback, including
 GC on every allocation. Standard API documentation blocks compile and execute.
+
+Readonly Map exposes keys/values/entries as standard traversal defaults. They
+produce independent shallow List snapshots in the implementation's iteration
+order, without imposing Eq/Hash on the interface. Native concrete maps retain
+their direct snapshot path. These traversal defaults cannot be overridden.
+The writable array copy operation is named copy_from; the former slice-oriented
+spelling is removed, without an alias.

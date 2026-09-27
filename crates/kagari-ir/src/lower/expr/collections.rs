@@ -2,6 +2,105 @@ use super::*;
 use kagari_hir::types::TypeId;
 
 impl FunctionLowerer<'_, '_> {
+    pub(super) fn readonly_array(
+        &mut self,
+        item: TypeId,
+        array: IrValue,
+    ) -> Result<IrValue, IrLoweringError> {
+        let mut interface = kagari_hir::builtin::traits::StandardTrait::List.nominal();
+        interface.arguments.push(item.clone());
+        let storage = TypeId::Array(
+            Box::new(item),
+            kagari_common::collection::CollectionAccess::Mutable,
+        );
+        let span = self.function.debug.source_span;
+        self.planner
+            .require_parent_interfaces(&storage, &interface, span)?;
+        let implementation = self.planner.native_interface(&storage, &interface, span)?;
+        let dst = self.alloc_temp(ValueType::HeapObject);
+        self.emit(Instruction::MakeInterface {
+            dst,
+            value: array,
+            implementation,
+            arguments: vec![],
+        });
+        Ok(dst)
+    }
+
+    pub(super) fn lower_map_view_snapshot(
+        &mut self,
+        operation: kagari_hir::builtin::declarations::NativeDefaultMethod,
+        source: &TypeId,
+        value: IrValue,
+    ) -> Result<IrValue, IrLoweringError> {
+        use crate::module::instruction::StandardEnumOp;
+        use kagari_hir::builtin::{
+            declarations::NativeDefaultMethod::*, surface::StandardEnum, traits::StandardTrait,
+        };
+        let iter_type = self.iteration_output(StandardTrait::Iterable, source, "Iter")?;
+        let pair = self.iterator_item(&iter_type)?;
+        let TypeId::Tuple(fields) = &pair else {
+            return Err(IrLoweringError::MissingBinding("map entry tuple"));
+        };
+        let index = match operation {
+            MapKeysView => Some(0),
+            MapValuesView => Some(1),
+            MapEntriesView => None,
+            _ => unreachable!(),
+        };
+        let item = index.map_or_else(|| pair.clone(), |i| fields[i].clone());
+        let array_type = TypeId::Array(
+            Box::new(item.clone()),
+            kagari_common::collection::CollectionAccess::Mutable,
+        );
+        let array = self.collection_new(&array_type)?;
+        let iterator = self.lower_applied_operator(
+            StandardTrait::Iterable.nominal(),
+            source.clone(),
+            &StandardTrait::Iterable.contract().methods[0].id,
+            &[value],
+        )?;
+        let optional = TypeId::StandardEnum {
+            kind: StandardEnum::Option,
+            args: vec![pair],
+        };
+        self.emit(Instruction::BeginIteration {
+            collection: iterator,
+        });
+        let head = self.new_block();
+        let body = self.new_block();
+        let done = self.new_block();
+        self.ensure_jump(head);
+        self.switch_to_block(head);
+        let next = self.iterator_next(&iter_type, iterator)?;
+        let present = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(next))?;
+        self.set_terminator(Terminator::Branch {
+            cond: present,
+            then_block: body,
+            else_block: done,
+        });
+        self.switch_to_block(body);
+        let pair = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(next))?;
+        let selected = if let Some(index) = index {
+            let index = self.usize_constant(index as u64);
+            let dst = self.alloc_temp(self.value_type(&item)?);
+            self.emit(Instruction::ReadAggregateIndex {
+                dst,
+                base: pair,
+                index,
+            });
+            dst
+        } else {
+            pair
+        };
+        self.collection_insert(&array_type, array, selected)?;
+        self.ensure_jump(head);
+        self.switch_to_block(done);
+        self.iterator_close(&iter_type, iterator);
+        self.emit(Instruction::EndIteration);
+        self.readonly_array(item, array)
+    }
+
     pub(super) fn lower_map_snapshot(
         &mut self,
         site: hir::ExprId,

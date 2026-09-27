@@ -9,7 +9,7 @@ fn main() -> i32 {
 
     val destination = [0; 3];
     val source: List<i32> = [10, 20, 30];
-    destination.copy_from_slice(source);
+    destination.copy_from(source);
     std::debug::assert(destination[1] == 20, "copied");
 
     destination.copy_within(0..2, 1);

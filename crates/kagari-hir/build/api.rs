@@ -249,7 +249,7 @@ pub fn declarations(
                 let native_default = attribute(&method, "intrinsic")
                     .map(|binding| {
                         assert!(
-                            matches!(name.as_str(), "Iterator" | "List"),
+                            matches!(name.as_str(), "Iterator" | "List" | "Map"),
                             "unsupported native default owner"
                         );
                         let operation = binding.strip_prefix("Iterator").unwrap_or(&binding);

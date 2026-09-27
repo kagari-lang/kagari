@@ -366,6 +366,49 @@ impl<K: Eq + Hash, V> FromIterator<(K, V)> for LinkedHashMap<K, V> {
 /// std::debug::assert_eq(view.get("missing"), None, "absent");
 /// ```
 pub trait Map<K, V>: Iterable<Item = (K, V), Iter = Iter<(K, V)>> {
+    /// Return an independent read-only shallow snapshot in iteration order.
+    ///
+    /// Later map changes do not alter the snapshot's slots. Referenced objects
+    /// remain shared. Use ArrayList::from to obtain writable independent slots.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val source: Map<String, i32> = LinkedHashMap::from([("answer", 42)]);
+    /// std::debug::assert(source.keys().len() == 1usize, "snapshot");
+    /// ```
+    #[intrinsic(MapKeysView)]
+    fn keys(self) -> List<K>;
+
+    /// Return an independent read-only shallow snapshot in iteration order.
+    ///
+    /// Later map changes do not alter the snapshot's slots. Referenced objects
+    /// remain shared. Use ArrayList::from to obtain writable independent slots.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val source: Map<String, i32> = LinkedHashMap::from([("answer", 42)]);
+    /// std::debug::assert(source.values().len() == 1usize, "snapshot");
+    /// ```
+    #[intrinsic(MapValuesView)]
+    fn values(self) -> List<V>;
+
+    /// Return an independent read-only shallow snapshot in iteration order.
+    ///
+    /// Later map changes do not alter the snapshot's slots. Referenced objects
+    /// remain shared. Use ArrayList::from to obtain writable independent slots.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val source: Map<String, i32> = LinkedHashMap::from([("answer", 42)]);
+    /// std::debug::assert(source.entries().len() == 1usize, "snapshot");
+    /// ```
+    #[intrinsic(MapEntriesView)]
+    fn entries(self) -> List<(K, V)>;
+
+
     /// Returns the number of entries.
     fn len(self) -> usize;
     /// Reports whether the map is empty.

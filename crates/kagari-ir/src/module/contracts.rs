@@ -343,7 +343,7 @@ pub(crate) fn verify_intrinsic(
         | StringSplitN
         | StringSplitWhitespace
         | StringLines
-        | ArrayCopyFromSlice
+        | ArrayCopyFrom
         | ArrayCopyWithin
         | ArrayListFromFn
         | MapKeys

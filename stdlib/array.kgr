@@ -301,11 +301,11 @@ impl<T> ArrayList<T> {
     /// ```kgr
     /// val destination = [0; 3];
     /// val source: List<i32> = [4, 5, 6];
-    /// destination.copy_from_slice(source);
+    /// destination.copy_from(source);
     /// std::debug::assert(destination[1] == 5, "copied");
     /// ```
-    #[intrinsic(ArrayCopyFromSlice)]
-    pub fn copy_from_slice(self, source: [T]);
+    #[intrinsic(ArrayCopyFrom)]
+    pub fn copy_from(self, source: [T]);
 
     /// Copy a range of elements to another position in this array.
     ///

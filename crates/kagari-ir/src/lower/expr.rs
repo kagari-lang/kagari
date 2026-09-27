@@ -1992,7 +1992,7 @@ impl FunctionLowerer<'_, '_> {
                         ) {
                             return self.lower_map_snapshot(expr, intrinsic, lowered[0]);
                         }
-                        if intrinsic == StandardIntrinsic::ArrayCopyFromSlice {
+                        if intrinsic == StandardIntrinsic::ArrayCopyFrom {
                             let source_expr = *args
                                 .last()
                                 .ok_or(IrLoweringError::MissingBinding("copy source"))?;

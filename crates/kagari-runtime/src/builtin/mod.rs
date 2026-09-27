@@ -82,7 +82,7 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         ArrayCopyWithin => "array.copy_within",
         ArrayCopyWithinBounds => "array.copy_within bounds",
         ArrayFill => "array.fill",
-        ArrayCopyFromSlice | ArrayCopyFromStorage => "array.copy_from_slice",
+        ArrayCopyFrom | ArrayCopyFromStorage => "array.copy_from",
         ArrayClear => "std::array::ArrayList::clear",
         MapLen => "std::map::LinkedHashMap::len",
         MapIsEmpty => "std::map::LinkedHashMap::is_empty",

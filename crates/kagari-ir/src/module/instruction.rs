@@ -524,7 +524,7 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayRemove
             | ArrayClear
             | ArrayFill
-            | ArrayCopyFromSlice
+            | ArrayCopyFrom
             | ArrayCopyFromStorage
             | ArrayCopyWithin
             | ArrayCopyWithinBounds

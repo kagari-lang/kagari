@@ -167,11 +167,11 @@ impl StandardTrait {
         })
     }
     pub fn from_id(id: &DefinitionId) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| &kind.contract().id == id)
+        Self::ALL.into_iter().find(|kind| &identity(*kind) == id)
     }
     pub fn nominal(self) -> NominalType {
         NominalType {
-            declaration: self.contract().id.clone(),
+            declaration: identity(self),
             arguments: vec![],
             associated_types: Default::default(),
         }

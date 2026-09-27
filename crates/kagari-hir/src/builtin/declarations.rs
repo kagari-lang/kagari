@@ -59,6 +59,9 @@ pub struct ApiGeneric {
 pub enum NativeDefaultMethod {
     Join,
     ListJoin,
+    MapKeysView,
+    MapValuesView,
+    MapEntriesView,
     Collect,
     Sum,
     Product,

@@ -537,7 +537,7 @@ KBC/runtime ABI v80 rejects earlier products.
 ## General array operations and ranges
 
 - [x] A01: dynamic repeat arrays with once-only evaluation; see the safety revision below.
-- [x] A02: atomic fill and equal-length copy_from_slice on writable arrays.
+- [x] A02: atomic fill and equal-length copy_from on writable arrays.
 - [x] A03: independent range values, lazy integer iteration and range declarations.
 - [x] A04: copy_within with validated ranges and overlap-safe shallow copying.
 - [x] A05: examples, API documentation, artifacts and workspace validation.
@@ -622,7 +622,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] S03: Replacement, repetition, case conversion and byte/boundary iteration.
 - [x] S04: Lazy Option/Result combinators, flattening and transposition.
 - [x] S05: FromStr, typed parsing and integer radix parsing.
-- [ ] C01: Map snapshot interface methods and copy_from naming.
+- [x] C01: Map snapshot interface methods and copy_from naming.
 - [ ] C02: List endpoint, membership, prefix/suffix and binary search queries.
 - [ ] C03: List reordering, truncation, prepared extension and swap removal.
 - [ ] C04: Concrete collection capacity construction and reservation.
@@ -662,3 +662,9 @@ S05 validation: native and custom FromStr, explicit/contextual/generic inference
 all integer widths at their limits, overflow, radix, signs and floating/boolean
 syntax pass with source/artifact/JIT fallback. Workspace clippy passes. SDK
 implementations and ParseError are source-declared. KBC/runtime ABI is v91.
+
+C01 validation: 24 collection/array tests pass, including native and custom
+readonly Map snapshots with non-hashable keys, object aliases, generic calls and
+rejection of writes and the removed copy name. Native protocol identities no
+longer recursively initialize the contract catalog when one protocol returns
+another protocol. KBC/runtime ABI is v92.

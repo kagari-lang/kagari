@@ -807,7 +807,7 @@ impl GcHeap {
         self.commit_array_copy(id, prepared)
     }
 
-    pub fn array_copy_from_slice(
+    pub fn array_copy_from(
         &self,
         target: HeapObjectId,
         source: HeapObjectId,
@@ -2457,7 +2457,7 @@ mod array_bulk_tests {
             .unwrap();
         let short = heap.alloc_array(vec![Value::I32(0)]).unwrap();
         let before = heap.stats().current_heap_units;
-        assert!(heap.array_copy_from_slice(array, short).is_err());
+        assert!(heap.array_copy_from(array, short).is_err());
         assert_eq!(
             heap.array_snapshot(array).unwrap(),
             vec![Value::I32(1), Value::I32(2)]
@@ -2465,7 +2465,7 @@ mod array_bulk_tests {
         let foreign = GcHeap::new(Default::default(), Rc::new(ResourceState::default()));
         let foreign_array = foreign.alloc_array(vec![]).unwrap();
         assert!(heap.array_fill(array, Value::Array(foreign_array)).is_err());
-        assert!(heap.array_copy_from_slice(array, foreign_array).is_err());
+        assert!(heap.array_copy_from(array, foreign_array).is_err());
         assert_eq!(heap.stats().current_heap_units, before);
         heap.array_fill(array, Value::I32(7)).unwrap();
         assert_eq!(heap.stats().current_heap_units, before);

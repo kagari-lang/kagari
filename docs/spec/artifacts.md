@@ -655,3 +655,9 @@ MapResultError operation. Previous artifacts are rejected without migration.
 KBC/runtime ABI v91 adds ParseError, typed native parsers and radix parsing.
 String.parse lowers to static FromStr dispatch; parser operands and target types
 are checked before execution. Previous formats are rejected.
+
+## Map snapshot interface methods (v92)
+
+KBC/runtime ABI v92 records Map's standard snapshot defaults and the renamed
+array copy operation. Snapshot results have readonly List interface tables.
+Previous products are rejected.

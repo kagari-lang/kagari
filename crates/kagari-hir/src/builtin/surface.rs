@@ -255,7 +255,7 @@ pub enum StandardIntrinsic {
     ArrayRemove,
     ArrayClear,
     ArrayFill,
-    ArrayCopyFromSlice,
+    ArrayCopyFrom,
     ArrayCopyFromStorage,
     ArrayCopyWithin,
     ArrayCopyWithinBounds,

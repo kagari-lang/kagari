@@ -74,19 +74,19 @@ fn bulk_operations_preserve_aliases_and_allow_replacement_during_iteration() {
         val view: List<i32> = array;
         array.fill(7);
         std::debug::assert(view[2] == 7, "alias");
-        array.copy_from_slice([10, 20, 30]);
-        array.copy_from_slice(view);
+        array.copy_from([10, 20, 30]);
+        array.copy_from(view);
         std::debug::assert(array[0] == 10 && array[2] == 30, "self copy");
         for value in array { array.fill(42); }
         val cell = Cell { value: 1 };
         val cells = ArrayList::from_fn(2, |i| cell);
         val copied = ArrayList::from_fn(2, |i| Cell { value: 0 });
-        copied.copy_from_slice(cells);
+        copied.copy_from(cells);
         copied[0].value = 42;
         std::debug::assert(cells[1].value == 42, "shallow copy");
         val empty: ArrayList<i32> = [];
         empty.fill(0);
-        empty.copy_from_slice([]);
+        empty.copy_from([]);
         array[0]
     }
     "#,
@@ -106,8 +106,8 @@ fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
         "fn main() { val a = [0; 1i32]; }",
         "fn main() { val a = [1, 2; 3]; }",
         "fn main() { val a: List<i32> = [0; 2]; a.fill(1); }",
-        "fn main() { val a: List<i32> = [0; 2]; a.copy_from_slice([1, 2]); }",
-        "fn main() { val a = [0; 2]; a.copy_from_slice([true, false]); }",
+        "fn main() { val a: List<i32> = [0; 2]; a.copy_from([1, 2]); }",
+        "fn main() { val a = [0; 2]; a.copy_from([true, false]); }",
         "fn main() { val a: List<i32> = [0; 2]; a.copy_within(.., 0); }",
         "fn main() { val a = [0; 2]; a.copy_within(0i32..1i32, 0); }",
         "fn main() { val a = [0; 2]; a.copy_within(0..1, 0i32); }",
@@ -194,7 +194,7 @@ fn copy_within_accepts_all_range_forms_and_custom_bounds() {
         a.copy_within(.., 0);
         a.copy_within(4..4, 4);
         val log = [];
-        a.copy_from_slice([1, 2, 3, 4]);
+        a.copy_from([1, 2, 3, 4]);
         copy(a, Region { log }, 0);
         std::debug::assert(a[0] == 2 && a[1] == 3, "custom bounds");
         std::debug::assert(log.len() == 2usize && log[0] == 1 && log[1] == 2, "bound calls once");
@@ -239,7 +239,7 @@ fn failed_interval_copy_keeps_completed_argument_and_bound_effects() {
             vec![1, 2, 3],
         ),
         ("a.copy_within(3..3, 4);", vec![1, 2, 3]),
-        ("a.copy_from_slice([1, 2]);", vec![1, 2, 3]),
+        ("a.copy_from([1, 2]);", vec![1, 2, 3]),
         ("a.copy_within(Region { a }, 0);", vec![9, 2]),
         (
             r#"val result = ArrayList::from_fn(3, |i| { a.push(i as i32); std::debug::assert(i < 1usize, "callback failed"); Region { a } });"#,

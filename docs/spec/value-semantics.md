@@ -447,7 +447,7 @@ cloning. Construction uses ordinary script frames and resource budgets. Trap or
 termination returns no partial array and releases execution roots; completed
 callback side effects remain visible. Generic code can use this API explicitly.
 
-`ArrayList<T>.fill(value)` and `copy_from_slice(source: List<T>)` return unit.
+`ArrayList<T>.fill(value)` and `copy_from(source: List<T>)` return unit.
 Copying requires equal lengths, supports self-copy, and preserves referenced object
 identities. Both methods replace slots without changing length, so they are allowed
 during iteration. Preparation validates inputs, charges work and temporary storage,
@@ -478,5 +478,5 @@ storage and check cancellation during preparation. Committing slots runs no scri
 code and performs no allocation. Failure before commit leaves the copy destination
 unchanged; argument and custom bound-method side effects remain visible.
 
-`copy_from_slice` uses Kagari's read-only `List<T>` view. It does not introduce
+`copy_from` uses Kagari's read-only `List<T>` view. It does not introduce
 Rust borrowed slices or a `Copy` bound. No operation performs object graph cloning.

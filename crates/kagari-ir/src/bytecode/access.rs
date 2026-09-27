@@ -727,7 +727,7 @@ pub(super) fn verify(
                                 S::MapKeys
                                     | S::MapValues
                                     | S::MapEntries
-                                    | S::ArrayCopyFromSlice
+                                    | S::ArrayCopyFrom
                                     | S::ArrayCopyWithin
                                     | S::ArrayListFromFn
                                     | S::ArrayListFrom

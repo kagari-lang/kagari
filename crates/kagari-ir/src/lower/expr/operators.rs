@@ -224,6 +224,9 @@ impl FunctionLowerer<'_, '_> {
                 .is_none()
         {
             use kagari_hir::builtin::declarations::NativeDefaultMethod::*;
+            if matches!(operation, MapKeysView | MapValuesView | MapEntriesView) {
+                return self.lower_map_view_snapshot(operation, &ty, args[0]);
+            }
             if operation == ListJoin {
                 if matches!(ty, TypeId::Array(_, _)) {
                     return Ok(self.emit_intrinsic(

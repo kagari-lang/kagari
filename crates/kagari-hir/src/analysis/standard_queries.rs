@@ -283,7 +283,7 @@ mod tests {
             (
                 "fn main() { val values = [0; 4]; values. }",
                 "values. }",
-                vec!["fill", "copy_from_slice", "copy_within"],
+                vec!["fill", "copy_from", "copy_within"],
             ),
         ] {
             let mut sources = SourceDatabase::default();

@@ -445,3 +445,61 @@ fn healthy()->i32 {42}
         );
     }
 }
+
+#[test]
+fn map_interfaces_expose_ordered_readonly_snapshots() {
+    execute(
+        r#"
+struct Item { var value: i32 }
+struct One { val value: Item }
+impl Iterable for One {
+    type Item = (f64, Item);
+    type Iter = Iter<(f64, Item)>;
+    fn iter(self) -> Iter<(f64, Item)> { [(1.0, self.value)].iter() }
+}
+impl Map<f64, Item> for One {
+    fn len(self) -> usize { 1usize }
+    fn is_empty(self) -> bool { false }
+    fn contains_key(self, key: f64) -> bool { key == 1.0 }
+    fn get(self, key: f64) -> Option<Item> { if key == 1.0 { Some(self.value) } else { None } }
+}
+fn keys<K, V>(map: Map<K, V>) -> List<K> { map.keys() }
+fn main() -> i32 {
+    val storage = LinkedHashMap::from([("a", 1), ("b", 2)]);
+    val map: Map<String, i32> = storage;
+    val old = map.entries();
+    std::debug::assert(keys(map)[1usize] == "b", "generic order");
+    std::debug::assert(map.values()[0usize] == 1, "values");
+    storage.clear();
+    std::debug::assert(old.len() == 2usize, "independent slots");
+    val object = Item { value: 7 };
+    val custom: Map<f64, Item> = One { value: object };
+    std::debug::assert(custom.keys()[0usize] == 1.0, "no hash bound");
+    val values = custom.values();
+    values[0usize].value = 42;
+    std::debug::assert(object.value == 42, "shared payload");
+    std::debug::assert(custom.entries().len() == 1usize, "custom entries");
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn renamed_copy_has_no_legacy_alias_and_snapshots_are_readonly() {
+    let engine = KagariEngine::default();
+    for source in [
+        "fn main() { val xs = [1]; xs.copy_from_slice([2]); }",
+        "fn main() { val m: Map<i32,i32> = LinkedHashMap::new(); m.keys().push(1); }",
+    ] {
+        assert!(
+            engine
+                .compile_to_artifact(
+                    SourceFile::new("rejected.kgr", source),
+                    Default::default(),
+                    Default::default()
+                )
+                .is_err()
+        );
+    }
+}
