@@ -1,6 +1,7 @@
 use crate::RuntimeError;
 use kagari_abi::native::ExecutableDebugInfo;
 use kagari_bytecode::BytecodeFunction;
+pub mod native;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{}", self.message())]

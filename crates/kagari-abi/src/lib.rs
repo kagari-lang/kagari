@@ -16,3 +16,4 @@ pub mod scalar;
 pub mod slots;
 pub mod standard;
 pub mod types;
+pub mod version;

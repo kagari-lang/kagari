@@ -1,4 +1,5 @@
 use crate::tests::bytecode::*;
+use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 use kagari_bytecode as bytecode;
 
 #[test]
@@ -370,10 +371,7 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        for runtime_abi_version in [
-            kagari_bytecode::KAGARI_RUNTIME_ABI_VERSION,
-            previous.as_str(),
-        ] {
+        for runtime_abi_version in [KAGARI_RUNTIME_ABI_VERSION, previous.as_str()] {
             let requirements = ArtifactCompatibility {
                 runtime_abi_version: runtime_abi_version.into(),
                 ..Default::default()
@@ -404,7 +402,7 @@ fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        for version in [previous, kagari_bytecode::KAGARI_RUNTIME_HELPER_ABI_VERSION] {
+        for version in [previous, KAGARI_RUNTIME_HELPER_ABI_VERSION] {
             let requirements = ArtifactCompatibility {
                 runtime_helper_abi_version: version.into(),
                 ..Default::default()

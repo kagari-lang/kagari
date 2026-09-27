@@ -1,0 +1,433 @@
+use std::ffi::c_void;
+use std::rc::Rc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use kagari_abi::budget::LogicalBudgetCharge;
+use kagari_abi::ids::FunctionRef;
+use kagari_abi::native::{
+    BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact, NativeCodeOwner,
+    NativeCompilationProduct,
+};
+use kagari_abi::native_call::{
+    JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue,
+};
+use kagari_abi::representation::ValueType;
+use kagari_bytecode::{
+    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, FunctionMetadata,
+    FunctionRecord, ModuleRef,
+};
+use kagari_runtime::jit_abi::jit_consume_instruction_step;
+use kagari_runtime::value::Value;
+use kagari_runtime::{
+    BackendInvocationError, CapabilitySet, InstalledNativeFunction, LanguageProfile,
+    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext,
+};
+
+#[derive(Debug)]
+struct Owner(Arc<AtomicUsize>);
+impl NativeCodeOwner for Owner {}
+impl Drop for Owner {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+fn runtime(limit: Option<u64>) -> Runtime {
+    Runtime::new(RuntimeConfig {
+        security: SecurityContext {
+            profile: LanguageProfile {
+                allow_jit: true,
+                ..Default::default()
+            },
+            capabilities: CapabilitySet {
+                jit: true,
+                ..Default::default()
+            },
+        },
+        resources: ResourcePolicy {
+            max_instruction_steps: limit,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+fn program() -> BytecodeProgram {
+    let function = BytecodeFunction {
+        name: "main".into(),
+        metadata: FunctionMetadata {
+            instruction_budgets: vec![LogicalBudgetCharge::Step; 2],
+            ..Default::default()
+        },
+        instructions: vec![
+            BytecodeInstruction::BudgetCheckpoint,
+            BytecodeInstruction::Return(None),
+        ],
+        ..Default::default()
+    };
+    BytecodeProgram {
+        root: ModuleRef::new(0),
+        modules: vec![BytecodeModule {
+            types: vec![ValueType::Unit],
+            function_table: vec![FunctionRecord {
+                id: function.id,
+                identity: None,
+                name: function.name.clone(),
+                params: vec![],
+                return_type: ValueType::Unit,
+                effects: Default::default(),
+            }],
+            functions: vec![function],
+            ..Default::default()
+        }],
+    }
+}
+unsafe extern "C" fn execute(runtime: *const c_void, result: *mut JitValue) -> i32 {
+    for offset in 0..2 {
+        let status = unsafe { jit_consume_instruction_step(runtime.cast(), offset) };
+        if status != JIT_STATUS_OK {
+            return status;
+        }
+    }
+    unsafe {
+        result.write(JitValue::unit());
+    }
+    JIT_STATUS_OK
+}
+unsafe extern "C" fn trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
+    let status = unsafe { jit_consume_instruction_step(runtime.cast(), 0) };
+    if status == JIT_STATUS_OK {
+        JIT_STATUS_INTEGER_OVERFLOW
+    } else {
+        status
+    }
+}
+unsafe extern "C" fn bad_result(runtime: *const c_void, result: *mut JitValue) -> i32 {
+    let status = unsafe { execute(runtime, result) };
+    if status == JIT_STATUS_OK {
+        unsafe {
+            result.write(JitValue::i32(42));
+        }
+    }
+    status
+}
+fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Rc<NativeCompilationProduct> {
+    let mut artifact = ExecutableFunctionArtifact::new(
+        BackendId::new("fixture"),
+        BackendTarget::new("host-fixture", usize::BITS as u8),
+        FunctionRef::new(0),
+    );
+    artifact.entry = ExecutableEntryPoint::Native {
+        symbol: "fixture".into(),
+        address: entry as usize,
+    };
+    Rc::new(NativeCompilationProduct {
+        artifact,
+        owner: Arc::new(Owner(dropped)),
+    })
+}
+fn install(runtime: &mut Runtime, entry: JitCompiledFunction) -> InstalledNativeFunction {
+    let module = runtime.load_program("native", program()).unwrap();
+    // Static fixtures implement the current ABI; fault probes intentionally test
+    // malformed status/results without violating Rust memory safety.
+    unsafe { runtime.install_native_function(&module, product(entry, Arc::default())) }.unwrap()
+}
+fn assert_clean(runtime: &Runtime) {
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert!(runtime.execution_root().is_none());
+}
+
+#[test]
+fn native_calls_use_frames_and_exact_budgets_and_unwind_on_failure() {
+    for limit in [None, Some(1)] {
+        let mut runtime = runtime(limit);
+        let installed = install(&mut runtime, execute);
+        let result = runtime.invoke_native_function(&installed);
+        if limit.is_none() {
+            assert_eq!(result.unwrap(), Value::Unit);
+            assert_eq!(runtime.resources().counters().instruction_steps, 2);
+        } else {
+            let failure = result.unwrap_err();
+            assert!(
+                matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
+            );
+            assert_eq!(failure.trace.frames[0].instruction_offset, 1);
+            assert_eq!(runtime.resources().counters().instruction_steps, 1);
+        }
+        assert_clean(&runtime);
+    }
+}
+
+#[test]
+fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
+    let mut runtime = runtime(None);
+    let installed = install(&mut runtime, trap);
+    let failure = runtime.invoke_native_function(&installed).unwrap_err();
+    assert!(
+        matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ScriptTrap)
+    );
+    assert_eq!(failure.trace.frames[0].function_name, "main");
+    assert_eq!(failure.trace.frames[0].instruction_offset, 0);
+    assert_eq!(runtime.resources().counters().instruction_steps, 1);
+    assert_clean(&runtime);
+}
+
+#[test]
+fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
+    let mut runtime = runtime(None);
+    let module = runtime.load_program("native", program()).unwrap();
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let code = product(execute, dropped.clone());
+    let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
+    let clone = installed.clone();
+    drop(code);
+    let candidate = runtime
+        .stage_reload_program(&module, "native", program())
+        .unwrap();
+    let new = runtime.publish_staged_reload(candidate).unwrap();
+    assert_ne!(new.key(), module.key());
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        1
+    );
+    runtime.modules().collect_unreachable_epochs();
+    assert_eq!(
+        runtime.invoke_native_function(&installed).unwrap(),
+        Value::Unit
+    );
+    drop(installed);
+    assert_eq!(dropped.load(Ordering::SeqCst), 0);
+    drop(clone);
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        0
+    );
+    runtime.modules().collect_unreachable_epochs();
+    assert!(runtime.modules().loaded(module.key()).is_none());
+    assert!(runtime.modules().loaded(new.key()).is_some());
+}
+
+#[test]
+fn invocation_rechecks_runtime_ownership_and_current_permissions() {
+    let mut first = runtime(None);
+    let installed = install(&mut first, execute);
+    let second = runtime(None);
+    assert!(
+        matches!(second.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ModuleValidation)
+    );
+    first.set_security_context(SecurityContext::default());
+    assert!(
+        matches!(first.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+    );
+    assert_eq!(first.resources().counters().instruction_steps, 0);
+    assert_clean(&first);
+    assert_clean(&second);
+}
+
+#[test]
+fn malformed_native_results_quarantine_and_clean_up() {
+    let mut runtime = runtime(None);
+    let installed = install(&mut runtime, bad_result);
+    let failure = runtime.invoke_native_function(&installed).unwrap_err();
+    assert!(
+        matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
+    );
+    assert!(runtime.is_quarantined());
+    assert_clean(&runtime);
+}
+
+#[test]
+fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
+    let mut runtime = runtime(None);
+    let module = runtime.load_program("native", program()).unwrap();
+    let mut code = product(execute, Arc::default());
+    Rc::get_mut(&mut code).unwrap().artifact.entry = ExecutableEntryPoint::Unresolved;
+    assert!(matches!(
+        unsafe { runtime.install_native_function(&module, code) },
+        Err(BackendInvocationError::UnsupportedArtifact(_))
+    ));
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        0
+    );
+    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+}
+
+#[test]
+fn native_reentry_preserves_the_callers_frame_and_shared_budget() {
+    let mut runtime = runtime(None);
+    let installed = install(&mut runtime, execute);
+    let outer = runtime.enter_execution_stack(installed.module()).unwrap();
+    outer
+        .push(installed.module().slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    assert_eq!(
+        runtime.invoke_native_function(&installed).unwrap(),
+        Value::Unit
+    );
+    assert_eq!(outer.frames().unwrap().len(), 1);
+    assert_eq!(runtime.resources().counters().current_call_depth, 1);
+    assert_eq!(runtime.resources().counters().instruction_steps, 2);
+    drop(outer);
+    assert_clean(&runtime);
+}
+
+#[test]
+fn cancellation_of_an_active_session_prevents_native_progress() {
+    let mut runtime = runtime(None);
+    let installed = install(&mut runtime, execute);
+    let options = runtime.execution_options();
+    let cancel = options.cancellation.clone();
+    let session = runtime
+        .begin_execution(installed.module(), options)
+        .unwrap();
+    cancel.cancel();
+    let failure = runtime.invoke_native_function(&installed).unwrap_err();
+    assert!(
+        matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::Cancelled)
+    );
+    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+    drop(session);
+    assert_clean(&runtime);
+}
+
+#[test]
+fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
+    let mut first = runtime(None);
+    let mut second = runtime(None);
+    let a = first.load_program("native", program()).unwrap();
+    let b = second.load_program("native", program()).unwrap();
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let code = product(execute, dropped.clone());
+    let x = unsafe { first.install_native_function(&a, code.clone()) }.unwrap();
+    let y = unsafe { second.install_native_function(&b, code.clone()) }.unwrap();
+    drop(code);
+    assert_eq!(first.invoke_native_function(&x).unwrap(), Value::Unit);
+    assert_eq!(second.resources().counters().instruction_steps, 0);
+    drop(x);
+    drop(first);
+    assert_eq!(dropped.load(Ordering::SeqCst), 0);
+    assert_eq!(second.invoke_native_function(&y).unwrap(), Value::Unit);
+    drop(y);
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn incompatible_native_abis_are_rejected_before_installation() {
+    for helper in [false, true] {
+        let mut runtime = runtime(None);
+        let module = runtime.load_program("native", program()).unwrap();
+        let mut code = product(execute, Arc::default());
+        let artifact = &mut Rc::get_mut(&mut code).unwrap().artifact;
+        if helper {
+            artifact.runtime_helper_abi_version = "previous-helper".into();
+        } else {
+            artifact.runtime_abi_version = "previous-runtime".into();
+        }
+        assert!(matches!(
+            unsafe { runtime.install_native_function(&module, code) },
+            Err(BackendInvocationError::UnsupportedArtifact(_))
+        ));
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(module.key())
+                .compiled_artifacts,
+            0
+        );
+    }
+}
+
+#[test]
+fn native_handles_pin_the_entire_dependency_program_across_reload() {
+    use kagari_common::identity::ModuleIdentity;
+    let mut graph = program();
+    graph.modules[0].dependencies.push(ModuleRef::new(0));
+    graph.modules.insert(
+        0,
+        BytecodeModule {
+            identity: ModuleIdentity::single_file("dependency"),
+            ..Default::default()
+        },
+    );
+    graph.root = ModuleRef::new(1);
+    let mut runtime = runtime(None);
+    let module = runtime.load_program("native", graph.clone()).unwrap();
+    let old_dependency = module.member(ModuleRef::new(0)).unwrap();
+    let installed =
+        unsafe { runtime.install_native_function(&module, product(execute, Arc::default())) }
+            .unwrap();
+    let candidate = runtime
+        .stage_reload_program(&module, "native", graph)
+        .unwrap();
+    let new = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.modules().collect_unreachable_epochs();
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(old_dependency.key())
+            .compiled_artifacts,
+        1
+    );
+    assert!(runtime.modules().loaded(old_dependency.key()).is_some());
+    assert_ne!(
+        old_dependency.key(),
+        new.member(ModuleRef::new(0)).unwrap().key()
+    );
+    assert_eq!(
+        runtime.invoke_native_function(&installed).unwrap(),
+        Value::Unit
+    );
+    drop(installed);
+    runtime.modules().collect_unreachable_epochs();
+    assert!(runtime.modules().loaded(old_dependency.key()).is_none());
+}
+
+#[test]
+fn execution_observers_prevent_native_entry_without_debug_callbacks() {
+    use kagari_runtime::{ExecutionEvent, ExecutionFrame, ExecutionObserver, RuntimeError};
+    #[derive(Debug)]
+    struct Observer;
+    impl ExecutionObserver for Observer {
+        fn observe(
+            &self,
+            _: &Runtime,
+            _: ExecutionEvent,
+            _: &[ExecutionFrame],
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+    let mut runtime = runtime(None);
+    let installed = install(&mut runtime, execute);
+    let session = runtime
+        .begin_execution(installed.module(), runtime.execution_options())
+        .unwrap();
+    runtime
+        .attach_execution_observer(Rc::new(Observer))
+        .unwrap();
+    assert!(matches!(
+        runtime
+            .invoke_native_function(&installed)
+            .unwrap_err()
+            .error,
+        BackendInvocationError::UnsupportedArtifact(_)
+    ));
+    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    drop(session);
+    assert_clean(&runtime);
+}

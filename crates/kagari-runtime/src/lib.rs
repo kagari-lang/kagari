@@ -52,6 +52,7 @@ use kagari_abi::standard::StandardIntrinsic;
 use kagari_bytecode::BytecodeProgram;
 
 pub use backend::BackendInvocationError;
+pub use backend::native::{InstalledNativeFunction, NativeInvocationFailure};
 pub use cache::{
     ExecutionArtifactId, ExecutionArtifactKind, ExecutionArtifactRecord, ExecutionArtifactRegistry,
     ReloadDependencySnapshot, ReloadInvalidation,

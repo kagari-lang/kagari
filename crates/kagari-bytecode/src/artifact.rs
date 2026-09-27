@@ -72,8 +72,7 @@ pub fn validate_program_resource_limits(
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str =
     concat!("kagari-compiler/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v102";
-pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v6";
+use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KbcArtifact {

@@ -469,7 +469,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | Runtime fixture/import ownership restored; compilation mocks removed from runtime tests | 182 runtime tests plus one seal doc test; runtime all-target clippy, structure, fmt and diff pass | Native installation/invocation, artifact MIR preparation/correspondence, SDK feature separation and VM integration remain |
+| A03 | `279e6d6` runtime fixture ownership; runtime native installation/invocation with retained code and dependency versions | 415 focused tests plus one seal doc test; scoped all-target clippy, structure, fmt and diff pass | Shared version/target/options code cache, artifact MIR preparation/correspondence, SDK feature separation and VM integration remain |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
 
@@ -1373,6 +1373,65 @@ preparation, add the portable MIR section/canonical correspondence checks, and
 separate embedding features. The recorded VM compiler imports and A04 Cranelift
 errors still break the workspace; unchanged failures were not rerun here. A05
 must validate optimized/unoptimized execution parity and the full feature matrix.
+
+### A03 checkpoint: runtime-owned native installation and invocation (2026-09-28)
+
+Added `Runtime::install_native_function` and `invoke_native_function`, consuming
+only ABI compilation products. The installed handle privately retains the code
+product and every member of the exact linked dependency program. Handle clones
+share retention; dropping the last clone releases those epochs and executable
+memory ownership. Products can be shared by multiple runtime installations while
+their mutable instances, budgets and host bindings stay separate. Product handles
+use `Rc`, consistent with the current single-threaded runtime; this does not add a
+cross-thread execution promise to backend memory owners.
+
+Installation is explicitly unsafe because an arbitrary integer entry address and
+descriptor cannot prove generated code safety or correspondence. Its contract
+requires exact verified-program semantics, host target, current native/helper ABI,
+valid code-memory ownership, logical charges, roots and no unwinding through C.
+Runtime checks still reject missing functions, unresolved/zero entries, incompatible
+pointer widths and ABI versions, unsupported signatures and out-of-range point
+offsets. Later SDK backend registration must uphold this contract; a safe arbitrary
+backend implementation must not be implicitly trusted to supply executable pointers.
+
+Invocation rechecks runtime ownership and current permissions, enters the existing
+session/frame stack, and captures failure traces before unwinding its own frames.
+Runtime status decoding and result-representation validation now belong to runtime.
+Malformed engine results quarantine the runtime. Interpreter fallback is available
+only for pre-entry rejection; traps, cancellation and budget failures after entry
+remain errors. Observer sessions reject the existing native subset before entry
+because that subset has no debug callbacks. The old Cranelift invocation method
+and VM compilation path remain obsolete carried A04/A03 integration work, not a
+second supported execution API.
+
+Moved runtime/helper ABI version definitions from bytecode to `kagari_abi::version`
+and updated consumers directly. Native descriptors carry both versions and
+installation validates them. This breaks the old bytecode version import paths;
+there are no forwarding aliases. Serialized bytecode layout and native wire-call
+signatures are unchanged, so their version values remain v102 and helper v6.
+
+Validation:
+
+- `cargo test -p kagari-runtime -p kagari-bytecode -p kagari-abi -p kagari-compiler`:
+  415 tests plus one runtime seal doc test pass. Twelve new native-service tests
+  cover successful calls, exact budget exhaustion/offsets, trap traces, cancellation,
+  nested frame cleanup, runtime/permission checks, observer rejection, malformed
+  results, ABI rejection, code sharing and complete dependency retention on reload.
+  Static C-ABI fixture functions test the runtime boundary; they are not evidence
+  that A04 machine-code compilation has migrated.
+- All-target clippy with `-D warnings` for those four crates passes. Structure:
+  490 Rust files, zero violations/exceptions; formatting and diff checks pass.
+  Reviewed unsafe entry, immutable descriptor exposure, owner/epoch drop order,
+  imports and test-only local scopes. No new crate dependency was added.
+- Logs: `target/a03-native-tests.log` and `target/a03-native-clippy.log`.
+
+A03 remains open. Next integrate shared native compilation caches with immutable
+verified program versions (keyed by function/backend/target/ABI/options), connect
+SDK preparation and VM native selection without codegen dependencies in VM, then
+finish portable MIR artifacts/canonical correspondence and source/native feature
+separation. The descriptor-only legacy registry must be reconciled with installed
+handles in that integration. The previously recorded VM and Cranelift build errors
+remain; they were not rerun unchanged. A05 final gates are still outstanding.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

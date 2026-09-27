@@ -3,10 +3,10 @@ use kagari_common::identity::ModuleIdentity;
 use std::{cell::RefCell, collections::HashMap};
 
 use kagari_abi::ids::FunctionRef;
+use kagari_abi::version::KAGARI_RUNTIME_HELPER_ABI_VERSION;
 use kagari_bytecode::ArtifactFingerprint;
 use kagari_bytecode::BytecodeModule;
 use kagari_bytecode::DependencyFingerprint;
-use kagari_bytecode::KAGARI_RUNTIME_HELPER_ABI_VERSION;
 use kagari_bytecode::KbcArtifact;
 use kagari_bytecode::PathDescriptorFingerprint;
 use kagari_bytecode::PublicAbiFingerprint;

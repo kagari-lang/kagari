@@ -1,4 +1,5 @@
 use crate::ids::{DebugPointId, FunctionRef};
+use crate::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 use std::fmt;
 use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -99,6 +100,8 @@ pub struct ExecutableTrap {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableFunctionArtifact {
+    pub runtime_abi_version: String,
+    pub runtime_helper_abi_version: String,
     pub backend: BackendId,
     pub target: BackendTarget,
     pub function: FunctionRef,
@@ -111,6 +114,8 @@ pub struct ExecutableFunctionArtifact {
 impl ExecutableFunctionArtifact {
     pub fn new(backend: BackendId, target: BackendTarget, function: FunctionRef) -> Self {
         Self {
+            runtime_abi_version: KAGARI_RUNTIME_ABI_VERSION.into(),
+            runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.into(),
             backend,
             target,
             function,
