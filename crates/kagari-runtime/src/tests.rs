@@ -1,6 +1,10 @@
 use super::*;
 use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
+use kagari_abi::native::{
+    BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
+    ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap,
+};
 use kagari_abi::representation::ValueType;
 use kagari_abi::types::FunctionAbi;
 use kagari_abi::types::PublicAbiItem;
@@ -162,58 +166,6 @@ fn debug_security(capabilities: CapabilitySet) -> SecurityContext {
             ..LanguageProfile::default()
         },
         capabilities,
-    }
-}
-
-struct FakeBackend {
-    backend: BackendId,
-    target: BackendTarget,
-}
-
-impl FakeBackend {
-    fn new() -> Self {
-        Self {
-            backend: BackendId::new("test-baseline"),
-            target: BackendTarget::new("test-target", 64),
-        }
-    }
-}
-
-impl CodegenBackend for FakeBackend {
-    fn backend_id(&self) -> BackendId {
-        self.backend.clone()
-    }
-
-    fn target(&self) -> BackendTarget {
-        self.target.clone()
-    }
-
-    fn compile_function(
-        &mut self,
-        input: BackendFunctionInput<'_>,
-    ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
-        if input.function().name != "main" {
-            return Err(BackendCompileError::unsupported(format!(
-                "unsupported function `{}`",
-                input.function().name
-            )));
-        }
-
-        let mut artifact =
-            ExecutableFunctionArtifact::new(self.backend_id(), self.target(), input.function_ref());
-        artifact.entry = ExecutableEntryPoint::Symbol(format!(
-            "{}::{}",
-            input.module().name.as_str(),
-            input.function().name
-        ));
-        artifact.safepoints.push(ExecutableSafepoint {
-            instruction_offset: 0,
-            kind: ExecutableSafepointKind::RuntimeHelperCall {
-                helper: "test.helper".to_owned(),
-            },
-            stack_map: ExecutableStackMap::empty(),
-        });
-        Ok(artifact)
     }
 }
 
@@ -739,7 +691,7 @@ fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_ab
 }
 
 #[test]
-fn backend_boundary_registers_executable_function_artifacts() {
+fn runtime_registers_abi_executable_descriptors_without_a_compiler() {
     let mut runtime = Runtime::default();
     let loaded = runtime
         .load_program(
@@ -751,10 +703,22 @@ fn backend_boundary_registers_executable_function_artifacts() {
         )
         .expect("module should load");
     let dependencies = ReloadDependencySnapshot::from_bytecode(&loaded.bytecode);
-    let mut backend = FakeBackend::new();
-    let artifact = backend
-        .compile_function(BackendFunctionInput::new(&loaded, FunctionRef::new(0)).unwrap())
-        .expect("fake backend should compile main");
+    // Compilation belongs to codegen. This test exercises the runtime's ABI
+    // descriptor registration, epoch retention and invalid-function rejection.
+    let mut artifact = ExecutableFunctionArtifact::new(
+        BackendId::new("test-baseline"),
+        BackendTarget::new("test-target", 64),
+        FunctionRef::new(0),
+    );
+    artifact.entry = ExecutableEntryPoint::Symbol("backend_module::main".into());
+    artifact.safepoints.push(ExecutableSafepoint {
+        instruction_offset: 0,
+        kind: ExecutableSafepointKind::RuntimeHelperCall {
+            helper: "test.helper".into(),
+        },
+        stack_map: ExecutableStackMap::empty(),
+    });
+    let expected = artifact.clone();
 
     let id = runtime
         .register_executable_function_artifact(loaded.key(), dependencies, artifact)
@@ -766,6 +730,7 @@ fn backend_boundary_registers_executable_function_artifacts() {
     assert_eq!(record.kind, ExecutionArtifactKind::Jit);
     assert_eq!(record.module, loaded.key());
     assert_eq!(record.function, Some(FunctionRef::new(0)));
+    assert_eq!(record.executable.as_ref(), Some(&expected));
     assert_eq!(
         record
             .executable

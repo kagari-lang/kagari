@@ -1,29 +1,29 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
 
-use crate::CapabilitySet;
-use crate::HostExposurePolicy;
-use crate::HostObjectId;
-use crate::HostPathAdapter;
-use crate::HostPathDescriptorRegistration;
-use crate::HostPathSegmentRegistration;
-use crate::HostSchemaEpoch;
-use crate::HostTypeOwnership;
-use crate::HostTypeRegistration;
-use crate::LanguageProfile;
-use crate::PathAccess;
-use crate::ResourcePolicy;
-use crate::Runtime;
-use crate::RuntimeConfig;
-use crate::RuntimeErrorKind;
-use crate::SecurityContext;
-use crate::host::HostError;
-use crate::host::PreparedHostPathWrite;
-use crate::value::Value;
 use kagari_common::host_interface;
 use kagari_common::host_interface::HostFieldDeclaration;
 use kagari_common::host_interface::HostPathDeclaration;
 use kagari_common::host_interface::HostTypeDeclaration;
 use kagari_common::host_interface::{HostValueType, HostVirtualSegmentDeclaration};
+use kagari_runtime::CapabilitySet;
+use kagari_runtime::HostExposurePolicy;
+use kagari_runtime::HostObjectId;
+use kagari_runtime::HostPathAdapter;
+use kagari_runtime::HostPathDescriptorRegistration;
+use kagari_runtime::HostPathSegmentRegistration;
+use kagari_runtime::HostSchemaEpoch;
+use kagari_runtime::HostTypeOwnership;
+use kagari_runtime::HostTypeRegistration;
+use kagari_runtime::LanguageProfile;
+use kagari_runtime::PathAccess;
+use kagari_runtime::ResourcePolicy;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeConfig;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::SecurityContext;
+use kagari_runtime::host::HostError;
+use kagari_runtime::host::PreparedHostPathWrite;
+use kagari_runtime::value::Value;
 use std::{cell::Cell, rc::Rc};
 
 fn main() {

@@ -1,6 +1,3 @@
-use crate::Runtime;
-use crate::module::StructLayoutRef;
-use crate::value::Value;
 use kagari_abi::layout::StructFieldLayout;
 use kagari_abi::layout::StructLayout;
 use kagari_abi::types::AbiType;
@@ -9,6 +6,9 @@ use kagari_bytecode::StructId;
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
 };
+use kagari_runtime::Runtime;
+use kagari_runtime::module::StructLayoutRef;
+use kagari_runtime::value::Value;
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
 pub fn interface_value(runtime: &mut Runtime) -> Value {

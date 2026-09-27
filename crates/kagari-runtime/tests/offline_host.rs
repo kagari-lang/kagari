@@ -4,13 +4,13 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use crate::Runtime;
-use crate::host::HostFunction;
-use crate::value::Value;
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter, HostPassingStyle,
     HostValueType,
 };
+use kagari_runtime::Runtime;
+use kagari_runtime::host::HostFunction;
+use kagari_runtime::value::Value;
 
 fn declaration() -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(

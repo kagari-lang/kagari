@@ -1,38 +1,38 @@
-use crate::host::PreparedHostPathWrite;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::{
     HostIndexSegmentDeclaration, HostValueType, HostVirtualSegmentDeclaration,
 };
+use kagari_runtime::host::PreparedHostPathWrite;
 use std::sync::{Arc, Mutex};
 
-use crate::AbiFingerprint;
-use crate::CapabilitySet;
-use crate::DynamicPathArgument;
-use crate::DynamicPathArguments;
-use crate::HostBorrowTable;
-use crate::HostExposurePolicy;
-use crate::HostObjectId;
-use crate::HostPathAdapter;
-use crate::HostPathDescriptorId;
-use crate::HostPathDescriptorRegistration;
-use crate::HostPathOperation;
-use crate::HostPathSegmentRegistration;
-use crate::HostReflectionPolicy;
-use crate::HostSchemaEpoch;
-use crate::HostTypeOwnership;
-use crate::HostTypeRegistration;
-use crate::LanguageProfile;
-use crate::PathAccess;
-use crate::Runtime;
-use crate::RuntimeConfig;
-use crate::RuntimeErrorKind;
-use crate::SecurityContext;
-use crate::TypeId;
-use crate::TypeKind;
-use crate::TypeRegistration;
-use crate::host::HostError;
-use crate::value::Value;
 use kagari_bytecode::BinaryOp;
+use kagari_runtime::AbiFingerprint;
+use kagari_runtime::CapabilitySet;
+use kagari_runtime::DynamicPathArgument;
+use kagari_runtime::DynamicPathArguments;
+use kagari_runtime::HostBorrowTable;
+use kagari_runtime::HostExposurePolicy;
+use kagari_runtime::HostObjectId;
+use kagari_runtime::HostPathAdapter;
+use kagari_runtime::HostPathDescriptorId;
+use kagari_runtime::HostPathDescriptorRegistration;
+use kagari_runtime::HostPathOperation;
+use kagari_runtime::HostPathSegmentRegistration;
+use kagari_runtime::HostReflectionPolicy;
+use kagari_runtime::HostSchemaEpoch;
+use kagari_runtime::HostTypeOwnership;
+use kagari_runtime::HostTypeRegistration;
+use kagari_runtime::LanguageProfile;
+use kagari_runtime::PathAccess;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeConfig;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::SecurityContext;
+use kagari_runtime::TypeId;
+use kagari_runtime::TypeKind;
+use kagari_runtime::TypeRegistration;
+use kagari_runtime::host::HostError;
+use kagari_runtime::value::Value;
 
 fn path_mutation_runtime() -> Runtime {
     Runtime::new(path_mutation_config())

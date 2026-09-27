@@ -1,8 +1,3 @@
-use crate::HostTypeRegistration;
-use crate::Runtime;
-use crate::RuntimeErrorKind;
-use crate::TypeKind;
-use crate::host::HostFunction;
 use kagari_bytecode::ArtifactFingerprint;
 use kagari_bytecode::BytecodeModule;
 use kagari_bytecode::BytecodeProgram;
@@ -17,6 +12,11 @@ use kagari_common::host_interface::{
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
+use kagari_runtime::HostTypeRegistration;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::TypeKind;
+use kagari_runtime::host::HostFunction;
 
 #[test]
 fn host_trait_table_requires_bound_method_callbacks_before_linking() {

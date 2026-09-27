@@ -2,12 +2,12 @@ use kagari_common::collection::CollectionAccess;
 #[path = "support/layouts.rs"]
 mod layouts;
 
-use crate::Runtime;
-use crate::RuntimeErrorKind;
-use crate::reflection;
-use crate::value::Value;
 use kagari_abi::types::AbiType;
 use kagari_bytecode::StructId;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::reflection;
+use kagari_runtime::value::Value;
 
 #[test]
 fn slot_access_checks_nominal_owner_schema_permission_and_representation() {

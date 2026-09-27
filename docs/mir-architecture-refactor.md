@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00-A02 complete; A03 runtime/artifact integration is next; workspace build is broken.
+Status: A00-A02 complete; A03 runtime/artifact integration is in progress; workspace build is broken.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -449,8 +449,9 @@ must not be the sole record needed to resume the goal.
 Current state: A00 passed at `4d82fcb`, A01 completed at `3227b0a`, and A02
 completes with the bounded public MIR passes checkpoint below. Source compilation,
 verified MIR analyses and frontend-free bytecode lowering pass their scoped checks.
-The workspace remains intentionally broken at the recorded A03 VM/runtime fixture
-and A04 native backend boundaries. Resume A03 integration; A05 final acceptance
+The workspace remains intentionally broken at the recorded A03 VM and A04 native
+backend boundaries; the runtime suite is restored by the A03 checkpoint below.
+Resume A03 integration; A05 final acceptance
 has not run and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
@@ -468,7 +469,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | Not started | Not run | None recorded |
+| A03 | Runtime fixture/import ownership restored; compilation mocks removed from runtime tests | 182 runtime tests plus one seal doc test; runtime all-target clippy, structure, fmt and diff pass | Native installation/invocation, artifact MIR preparation/correspondence, SDK feature separation and VM integration remain |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
 
@@ -1334,6 +1335,44 @@ invocation migration belongs to A04. These unchanged failures were not rerun her
 Workspace tests/clippy and the final behavior matrix are not passing evidence.
 Continue A03 native installation/invocation ownership, portable MIR artifact
 correspondence, load-before-execute preparation and embedding feature separation.
+
+### A03 checkpoint: restore runtime integration coverage (2026-09-28)
+
+Replaced the obsolete compiler backend mock in runtime unit tests with an ABI
+executable descriptor fixture. The test still checks registration, epoch retention
+and invalid-function rejection, and now checks complete metadata preservation.
+Compilation diagnostics and invocation belong to the subsequent codegen/VM
+integration tests, not a runtime-to-codegen dependency. The fake compiler had no
+independent semantic coverage and no tests were removed.
+
+The first full `cargo test -p kagari-runtime` attempt then exposed stale `crate::`
+imports in separate runtime integration-test/example targets. Corrected those to
+their actual `kagari_runtime` owner and updated the host commit quarantine test to
+consume an explicit logical budget charge. Source strings, fixtures and behavioral
+assertions were retained; no production compatibility aliases were introduced.
+
+Validation:
+
+- `cargo test -p kagari-runtime`: all 182 unit/integration tests and one sealed
+  module doc test pass, including host borrow validation, typed path commit order,
+  GC ownership, sessions, cancellation and reload. This resolves the eighteen
+  previously carried unit-test name-resolution errors and newly exposed fixture
+  import errors; they are no longer outstanding A03 debt.
+- `cargo clippy -p kagari-runtime --all-targets -- -D warnings`: passes, including
+  examples. `cargo tree -p kagari-runtime --edges normal --prefix none` confirms
+  production Kagari dependencies are ABI, bytecode and common only.
+- Structure: 487 Rust files, zero violations/exceptions. Reviewed the affected
+  imports and fixture ownership; formatting and diff checks pass. Logs:
+  `target/a03-runtime-tests.log`, `target/a03-runtime-clippy.log` and
+  `target/a03-runtime-dependencies.log`.
+
+A03 is not complete. Native products still need runtime-owned installation and
+invocation with retained code memory and execution versions; the present registry
+only stores descriptors. Next replace VM-owned backend compilation with SDK
+preparation, add the portable MIR section/canonical correspondence checks, and
+separate embedding features. The recorded VM compiler imports and A04 Cranelift
+errors still break the workspace; unchanged failures were not rerun here. A05
+must validate optimized/unoptimized execution parity and the full feature matrix.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

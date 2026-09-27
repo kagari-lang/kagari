@@ -1,7 +1,3 @@
-use crate::HostTypeRegistration;
-use crate::Runtime;
-use crate::host::HostFunction;
-use crate::value::Value;
 use kagari_common::{
     host_interface::{
         HostInterface, HostMethodDeclaration, HostTraitImplementationDeclaration,
@@ -9,6 +5,10 @@ use kagari_common::{
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
+use kagari_runtime::HostTypeRegistration;
+use kagari_runtime::Runtime;
+use kagari_runtime::host::HostFunction;
+use kagari_runtime::value::Value;
 
 fn main() {
     let mut counter = HostTypeDeclaration::new("demo.Counter");
