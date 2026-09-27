@@ -586,3 +586,73 @@ fn main() -> i32 {
         );
     }
 }
+
+#[test]
+fn nested_iterators_are_lazy_resume_inner_progress_and_release_guards() {
+    execute(
+        r#"
+fn main() -> i32 {
+    var calls = 0;
+    val first = [20, 22];
+    val second = [99];
+    val source = [first, second];
+    val items = source.iter().flat_map(|x| { calls += 1; x });
+    std::debug::assert_eq(calls, 0, "lazy outer");
+    std::debug::assert_eq(items.next(), Some(20), "first inner");
+    std::debug::assert_eq(calls, 1, "one inner created");
+    std::debug::assert_eq(items.find(|x| true), Some(22), "resume current inner");
+    first.push(7);
+    second.push(100);
+    source.push([0]);
+    val empty: MutableArray<i32> = MutableArray::new();
+    val nested = [empty, [20], empty, [22]].iter().flatten();
+    std::debug::assert_eq(nested.reduce(|a, b| a + b), Some(42), "skip empty inners");
+    val before = [1];
+    val after = [2];
+    var switched = 0;
+    val released: Array<i32> = [before, after].iter().flat_map(|x| {
+        switched += 1;
+        if switched == 2 { before.push(3); }
+        x
+    }).collect();
+    std::debug::assert_eq(released.len(), "ab".len_bytes(), "close old inner before callback");
+    std::debug::assert_eq(before.len(), "ab".len_bytes(), "old inner mutable again");
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn flatten_accepts_custom_iterables_and_rejects_scalar_items() {
+    execute(
+        r#"
+struct Pair { val a: i32, val b: i32 }
+impl Iterable for Pair {
+    type Item = i32;
+    type Iter = Iter<i32>;
+    fn iter(self) -> Iter<i32> { [self.a, self.b].iter() }
+}
+fn expand<I: Iterator<Item = Pair>>(source: I) -> Array<i32> { source.flatten().collect() }
+fn main() -> i32 {
+    val values = expand([Pair { a: 20, b: 22 }].iter());
+    values[0] + values[1]
+}
+"#,
+    );
+    let engine = KagariEngine::default();
+    for source in [
+        "fn main() { [1, 2].iter().flatten(); }",
+        "fn main() { [1, 2].iter().flat_map(|x| x); }",
+    ] {
+        assert!(
+            engine
+                .compile_to_artifact(
+                    SourceFile::new("bad-flatten.kgr", source),
+                    Default::default(),
+                    Default::default()
+                )
+                .is_err()
+        );
+    }
+}

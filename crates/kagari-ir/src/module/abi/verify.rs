@@ -324,6 +324,24 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
         })
 }
 
+/// Engine defaults are declared once on their canonical protocol. They need no
+/// per-implementation ABI entry, especially when their bounds do not hold here.
+fn required_methods_present(table: &InterfaceTableAbi, interface: &TraitAbi) -> bool {
+    let AbiType::Trait(instance) = &table.trait_type else {
+        return false;
+    };
+    interface.methods.iter().all(|method| {
+        table
+            .methods
+            .iter()
+            .any(|actual| actual.name == method.name)
+            || kagari_hir::builtin::declarations::native_iterator_default(
+                &instance.declaration,
+                &method.name,
+            )
+    })
+}
+
 pub(crate) fn interface_contract_matches(
     table: &InterfaceTableAbi,
     interface: &TraitAbi,
@@ -347,7 +365,7 @@ pub(crate) fn interface_contract_matches(
             .iter()
             .filter(|member| member.generic_params.is_empty())
             .all(|member| instance.associated_types.contains_key(&member.declaration))
-        && table.methods.len() == interface.methods.len()
+        && required_methods_present(table, interface)
         && table.methods.iter().all(|method| {
             cancel.check().is_ok()
                 && interface.methods.iter().any(|declared| {
@@ -564,7 +582,7 @@ pub(crate) fn interface_methods_match(
     let AbiType::Trait(instance) = &table.trait_type else {
         return false;
     };
-    table.methods.len() == interface.methods.len()
+    required_methods_present(table, interface)
         && table.methods.iter().all(|implemented| {
             interface
                 .methods

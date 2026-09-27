@@ -39,6 +39,50 @@ impl FunctionLowerer<'_, '_> {
         let mut dependencies = vec![values[0]];
         let mut dependency_types = vec![source.clone()];
         let output = match operation {
+            FlatMap | Flatten => {
+                let inner_source = if operation == FlatMap {
+                    arguments[0].clone()
+                } else {
+                    item.clone()
+                };
+                let inner =
+                    self.iteration_output(StandardTrait::Iterable, &inner_source, "Iter")?;
+                let output = self.iterator_item(&inner)?;
+                let empty =
+                    self.standard_enum_op(&option(inner.clone()), StandardEnumOp::Make(1), None)?;
+                let state_type = TypeId::Array(
+                    Box::new(option(inner.clone())),
+                    kagari_common::collection::CollectionAccess::Mutable,
+                );
+                let state = self.alloc_temp(ValueType::HeapObject);
+                self.emit(Instruction::MakeArray {
+                    dst: state,
+                    elements: vec![empty].into(),
+                });
+                self.function
+                    .semantic
+                    .registers
+                    .insert(state.temp.index(), AbiType::from_checked_type(&state_type));
+                captures.push(state);
+                types.push(state_type.clone());
+                if matches!(inner, TypeId::Iter(_)) {
+                    dependencies.push(state);
+                    dependency_types.push(state_type);
+                }
+                captures.push(self.new_adapter_flag(false));
+                types.push(TypeId::Array(
+                    Box::new(TypeId::Builtin(BuiltinType::Bool)),
+                    kagari_common::collection::CollectionAccess::Mutable,
+                ));
+                if operation == FlatMap {
+                    captures.push(values[1]);
+                    types.push(TypeId::Function {
+                        params: vec![item.clone()],
+                        result: Box::new(inner_source),
+                    });
+                }
+                output
+            }
             Map | FilterMap | Filter | Inspect | TakeWhile | SkipWhile => {
                 let output = if matches!(operation, Filter | Inspect | TakeWhile | SkipWhile) {
                     item.clone()
@@ -274,6 +318,9 @@ impl FunctionLowerer<'_, '_> {
         args: &[IrValue],
     ) -> Result<(), IrLoweringError> {
         use IteratorMethod::*;
+        if matches!(body.operation, FlatMap | Flatten) {
+            return self.lower_flatten_step(body, args);
+        }
         let source = &body.captures[0];
         let item = self.iterator_item(source)?;
         let input_option = option(item.clone());
@@ -529,6 +576,104 @@ impl FunctionLowerer<'_, '_> {
         if matches!(body.operation, Zip | Chain) {
             self.iterator_close(&body.captures[1], args[1]);
         }
+        let none = self.standard_enum_op(&output_option, StandardEnumOp::Make(1), None)?;
+        self.set_terminator(Terminator::Return(Some(none)));
+        Ok(())
+    }
+
+    fn lower_flatten_step(
+        &mut self,
+        body: &IteratorInstance,
+        args: &[IrValue],
+    ) -> Result<(), IrLoweringError> {
+        let source = &body.captures[0];
+        let item = self.iterator_item(source)?;
+        let input_option = option(item.clone());
+        let output_option = option(body.output.clone());
+        let TypeId::Array(inner_option, _) = &body.captures[1] else {
+            unreachable!()
+        };
+        let TypeId::StandardEnum {
+            args: inner_args, ..
+        } = inner_option.as_ref()
+        else {
+            unreachable!()
+        };
+        let inner = &inner_args[0];
+        let inner_source = if let Some(TypeId::Function { result, .. }) = body.captures.get(3) {
+            result.as_ref()
+        } else {
+            &item
+        };
+        let head = self.new_block();
+        let done = self.new_block();
+        let ended = self.adapter_state(args[2], ValueType::Bool);
+        self.set_terminator(Terminator::Branch {
+            cond: ended,
+            then_block: done,
+            else_block: head,
+        });
+        self.switch_to_block(head);
+        let state = self.adapter_state(args[1], ValueType::HeapObject);
+        self.function
+            .semantic
+            .registers
+            .insert(state.temp.index(), AbiType::from_checked_type(inner_option));
+        let present = self.standard_enum_op(inner_option, StandardEnumOp::Test(0), Some(state))?;
+        let advance_inner = self.new_block();
+        let advance_outer = self.new_block();
+        self.set_terminator(Terminator::Branch {
+            cond: present,
+            then_block: advance_inner,
+            else_block: advance_outer,
+        });
+        self.switch_to_block(advance_inner);
+        let iterator = self.standard_enum_op(inner_option, StandardEnumOp::Read(0), Some(state))?;
+        let next = self.iterator_next(inner, iterator)?;
+        let present = self.standard_enum_op(&output_option, StandardEnumOp::Test(0), Some(next))?;
+        let yield_item = self.new_block();
+        let finish_inner = self.new_block();
+        self.set_terminator(Terminator::Branch {
+            cond: present,
+            then_block: yield_item,
+            else_block: finish_inner,
+        });
+        self.switch_to_block(yield_item);
+        self.set_terminator(Terminator::Return(Some(next)));
+        self.switch_to_block(finish_inner);
+        self.iterator_close(inner, iterator);
+        let empty = self.standard_enum_op(inner_option, StandardEnumOp::Make(1), None)?;
+        self.set_adapter_state(args[1], empty);
+        self.ensure_jump(advance_outer);
+        self.switch_to_block(advance_outer);
+        let next = self.iterator_next(source, args[0])?;
+        let present = self.standard_enum_op(&input_option, StandardEnumOp::Test(0), Some(next))?;
+        let start_inner = self.new_block();
+        self.set_terminator(Terminator::Branch {
+            cond: present,
+            then_block: start_inner,
+            else_block: done,
+        });
+        self.switch_to_block(start_inner);
+        let value = self.standard_enum_op(&input_option, StandardEnumOp::Read(0), Some(next))?;
+        let value = if body.operation == IteratorMethod::FlatMap {
+            self.iterator_callback(args[3], inner_source, &[value])?
+        } else {
+            value
+        };
+        let iterator = self.lower_applied_operator(
+            StandardTrait::Iterable.nominal(),
+            inner_source.clone(),
+            &StandardTrait::Iterable.contract().methods[0].id,
+            &[value],
+        )?;
+        let state = self.standard_enum_op(inner_option, StandardEnumOp::Make(0), Some(iterator))?;
+        self.set_adapter_state(args[1], state);
+        self.ensure_jump(head);
+        self.switch_to_block(done);
+        let ended = self.lower_constant(Constant::Bool(true), ValueType::Bool);
+        self.set_adapter_state(args[2], ended);
+        self.iterator_close(source, args[0]);
         let none = self.standard_enum_op(&output_option, StandardEnumOp::Make(1), None)?;
         self.set_terminator(Terminator::Return(Some(none)));
         Ok(())

@@ -676,6 +676,47 @@ pub trait Iterator {
     /// ```
     #[intrinsic(IteratorMaxByKey)]
     fn max_by_key<K: Ord>(self, key: fn(Self::Item) -> K) -> Option<Self::Item>;
+    /// Lazily expand one level of iterable items.
+    ///
+    /// Exhaust each inner iterator before requesting the next outer item.
+    /// Empty inner iterables are skipped. Aliases share outer and inner progress.
+    /// The first outer None ends this adapter permanently.
+    /// Inner sources and callbacks remain rooted across calls and execution sessions.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps propagate. Structural mutation of guarded sources
+    /// traps. Short-circuiting closes active native inner and outer guards.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [20, 22].iter().flat_map(|x| [x]).collect();
+    /// std::debug::assert_eq(values[0] + values[1], 42, "flattened map");
+    /// ```
+    #[intrinsic(IteratorFlatMap)]
+    fn flat_map<I: Iterable>(self, callback: fn(Self::Item) -> I) -> Iter<I::Item>;
+
+    /// Lazily expand one level of iterable items.
+    ///
+    /// Exhaust each inner iterator before requesting the next outer item.
+    /// Empty inner iterables are skipped. Aliases share outer and inner progress.
+    /// The first outer None ends this adapter permanently.
+    /// Inner sources and callbacks remain rooted across calls and execution sessions.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps propagate. Structural mutation of guarded sources
+    /// traps. Short-circuiting closes active native inner and outer guards.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [[20], [22]].iter().flatten().collect();
+    /// std::debug::assert_eq(values[0] + values[1], 42, "flattened");
+    /// ```
+    #[intrinsic(IteratorFlatten)]
+    fn flatten(self) -> Iter<<Self::Item as Iterable>::Item> where Self::Item: Iterable;
 }
 
 /// Obtain an iterator without transferring ownership of the source.

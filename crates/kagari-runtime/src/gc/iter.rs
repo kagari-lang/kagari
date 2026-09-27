@@ -83,14 +83,30 @@ impl GcHeap {
                 return Err(invalid());
             };
             iter.guard = None;
-            if let Value::Tuple(fields) = &iter.source {
-                pending.extend(
-                    fields
-                        .iter()
-                        .skip(1)
-                        .filter(|v| matches!(v, Value::GcHandle(_)))
-                        .cloned(),
-                );
+            let source = iter.source.clone();
+            drop(objects);
+            if let Value::Tuple(fields) = source {
+                for dependency in fields.into_iter().skip(1) {
+                    match dependency {
+                        Value::GcHandle(_) => pending.push(dependency),
+                        Value::Array(slot) => {
+                            // Dynamic inner iterators retain their own guards. Read the
+                            // live slot on close rather than retaining an obsolete inner.
+                            let Some(Value::Enum(value)) = self.array_get(slot, 0) else {
+                                return Err(invalid());
+                            };
+                            let snapshot = self.enum_snapshot(value).ok_or_else(invalid)?;
+                            match snapshot.tag {
+                                crate::value::EnumTag::OptionSome => {
+                                    pending.extend(snapshot.fields)
+                                }
+                                crate::value::EnumTag::OptionNone => {}
+                                _ => return Err(invalid()),
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         Ok(())

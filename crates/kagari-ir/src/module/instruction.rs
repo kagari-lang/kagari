@@ -713,6 +713,13 @@ impl IterOp {
         if !params.is_empty() {
             return None;
         }
+        for dependency in fields.iter().skip(1) {
+            if let AbiType::Array(element, _) = dependency
+                && !matches!(element.as_ref(), AbiType::StandardEnum { kind: crate::module::abi::StandardEnumKind::Option, args } if matches!(args.as_slice(), [AbiType::Iter(_)]))
+            {
+                return None;
+            }
+        }
         let AbiType::StandardEnum {
             kind: crate::module::abi::StandardEnumKind::Option,
             args,
